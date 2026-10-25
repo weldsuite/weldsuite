@@ -31,7 +31,7 @@ import {
 import { resolveParagraph } from '../../model/resolve';
 import { isEmptyObject, type BorderLine, type ParaProps, type TextStyle } from '../../model/styles';
 import { EMU_PER_POINT, fromHex, fromTwips, num, onOff, readBorder, round2 } from './convert';
-import { readParaProps, readRunProps, relativeTabs, tableBorder, type Numbering, type StyleSheet, type Theme } from './read-format';
+import { readParaProps, readRunProps, relativeTabs, tableBorder, type Numbering, type ParaInfo, type StyleSheet, type Theme } from './read-format';
 import { DocxImportError, type DocxImportWarning } from './types';
 
 /** Paragraphs read at most (every story together); a file with more is refused. */
@@ -80,6 +80,23 @@ interface FieldFrame {
   replaced: boolean;
   link?: string;
 }
+
+/** Run children that show something, and so are skipped inside a field code or a replaced field result. */
+const RUN_CONTENT = new Set([
+  't',
+  'tab',
+  'ptab',
+  'br',
+  'cr',
+  'noBreakHyphen',
+  'softHyphen',
+  'sym',
+  'pgNum',
+  'drawing',
+  'pict',
+  'footnoteReference',
+  'endnoteReference',
+]);
 
 const IGNORED_BLOCK = new Set(['pPr', 'rPr', 'bookmarkStart', 'bookmarkEnd', 'proofErr', 'permStart', 'permEnd', 'sectPr', 'tblPr', 'tblGrid']);
 
@@ -196,18 +213,10 @@ export class StoryReader {
     const props = info.props;
     const styleId = info.styleId ? this.ctx.sheet.paraIds.get(info.styleId) : undefined;
     if (styleId && styleId !== NORMAL) props.style = styleId;
-    const numPr = info.numPr ?? (styleId ? this.ctx.sheet.styleLists.get(styleId) : undefined);
-    if (numPr && numPr.numId !== '0') {
-      const n = this.ctx.numbering.nums.get(numPr.numId);
-      if (n) {
-        props.list = { id: n.listId, level: numPr.level };
-        if (n.checked) props.checked = true;
-      }
-    }
+    this.applyList(props, info.numPr ?? (styleId ? this.ctx.sheet.styleLists.get(styleId) : undefined));
     const start = this.b.length;
     this.inlines(p.children, undefined);
-    const b = props.borders;
-    if (this.b.length === start && b?.bottom && !b.top && !b.left && !b.right && !props.list) {
+    if (this.b.length === start && isRuleBorder(props)) {
       // An empty paragraph with only a bottom border is how Word draws a horizontal rule.
       delete props.borders;
       this.b.addObject({ kind: 'hr' });
@@ -218,6 +227,15 @@ export class StoryReader {
       if (tabs.length) props.tabs = tabs;
     }
     this.endParagraph(props);
+  }
+
+  /** Puts the paragraph in the list its numbering (own or from its style) points at, when that list exists. */
+  private applyList(props: ParaProps, numPr: ParaInfo['numPr']): void {
+    if (!numPr || numPr.numId === '0') return;
+    const n = this.ctx.numbering.nums.get(numPr.numId);
+    if (!n) return;
+    props.list = { id: n.listId, level: numPr.level };
+    if (n.checked) props.checked = true;
   }
 
   private tabBase(props: ParaProps): number {
@@ -305,76 +323,97 @@ export class StoryReader {
 
   private runChildren(children: XmlElement[], style: TextStyle): void {
     for (const el of children) {
-      switch (el.name) {
-        case 't':
-          if (!this.suppressed()) this.addText(el.text, style);
-          break;
-        case 'instrText': {
-          const top = this.fields[this.fields.length - 1];
-          if (top?.phase === 'code') top.instr += el.text;
-          break;
-        }
-        case 'fldChar':
-          this.fieldChar(el.attrs.fldCharType, style);
-          break;
-        case 'tab':
-        case 'ptab':
-          if (!this.suppressed()) this.addRaw(TAB, style);
-          break;
-        case 'br':
-          if (this.suppressed()) break;
-          if (el.attrs.type === 'page') this.addObject({ kind: 'pageBreak' }, {});
-          else if (el.attrs.type === 'column') this.addObject({ kind: 'columnBreak' }, {});
-          else this.addRaw(LINE_BREAK, style);
-          break;
-        case 'cr':
-          if (!this.suppressed()) this.addRaw(LINE_BREAK, style);
-          break;
-        case 'noBreakHyphen':
-          if (!this.suppressed()) this.addText('‑', style);
-          break;
-        case 'softHyphen':
-          if (!this.suppressed()) this.addText('­', style);
-          break;
-        case 'sym': {
-          const code = Number.parseInt(el.attrs.char ?? '', 16);
-          if (!this.suppressed() && Number.isFinite(code) && !(code >= 0xe000 && code <= 0xf8ff)) this.addText(String.fromCodePoint(code), style);
-          break;
-        }
-        case 'pgNum':
-          if (!this.suppressed()) this.addObject({ kind: 'field', field: 'page' }, style);
-          break;
-        case 'drawing':
-          if (!this.suppressed()) this.drawing(el, style);
-          break;
-        case 'pict':
-          if (!this.suppressed()) this.pict(el, style);
-          break;
-        case 'object':
-          this.ctx.warnings.add('embeddedObjects');
-          break;
-        case 'footnoteReference':
-          if (!this.suppressed()) this.note(el.attrs.id, false);
-          break;
-        case 'endnoteReference':
-          if (!this.suppressed()) this.note(el.attrs.id, true);
-          break;
-        case 'footnoteRef':
-        case 'endnoteRef':
-          this.afterNoteMark = true;
-          break;
-        case 'commentReference':
-          this.ctx.warnings.add('comments');
-          break;
-        case 'AlternateContent':
-          this.runChildren(alternative(el), style);
-          break;
-        case 'ruby':
-          this.inlines(child(el, 'rubyBase')?.children ?? [], style.link);
-          break;
-        default:
-          break;
+      if (!RUN_CONTENT.has(el.name)) this.runControl(el, style);
+      else if (!this.suppressed()) this.runContent(el, style);
+    }
+  }
+
+  /** A run child that shows something (text, a break, a picture, a note mark); skipped while `suppressed()`. */
+  private runContent(el: XmlElement, style: TextStyle): void {
+    switch (el.name) {
+      case 't':
+        this.addText(el.text, style);
+        break;
+      case 'tab':
+      case 'ptab':
+        this.addRaw(TAB, style);
+        break;
+      case 'br':
+        this.lineBreak(el.attrs.type, style);
+        break;
+      case 'cr':
+        this.addRaw(LINE_BREAK, style);
+        break;
+      case 'noBreakHyphen':
+        this.addText('‑', style);
+        break;
+      case 'softHyphen':
+        this.addText('­', style);
+        break;
+      case 'sym':
+        this.symbol(el.attrs.char, style);
+        break;
+      case 'pgNum':
+        this.addObject({ kind: 'field', field: 'page' }, style);
+        break;
+      case 'drawing':
+        this.drawing(el, style);
+        break;
+      case 'pict':
+        this.pict(el, style);
+        break;
+      case 'footnoteReference':
+        this.note(el.attrs.id, false);
+        break;
+      case 'endnoteReference':
+        this.note(el.attrs.id, true);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private lineBreak(type: string | undefined, style: TextStyle): void {
+    if (type === 'page') this.addObject({ kind: 'pageBreak' }, {});
+    else if (type === 'column') this.addObject({ kind: 'columnBreak' }, {});
+    else this.addRaw(LINE_BREAK, style);
+  }
+
+  /** A `w:sym` character; private-use code points (symbol-font glyphs) are dropped. */
+  private symbol(char: string | undefined, style: TextStyle): void {
+    const code = Number.parseInt(char ?? '', 16);
+    if (Number.isFinite(code) && !(code >= 0xe000 && code <= 0xf8ff)) this.addText(String.fromCodePoint(code), style);
+  }
+
+  /** The other run children: field codes, note marks, and what only warns or wraps. */
+  private runControl(el: XmlElement, style: TextStyle): void {
+    switch (el.name) {
+      case 'instrText': {
+        const top = this.fields[this.fields.length - 1];
+        if (top?.phase === 'code') top.instr += el.text;
+        break;
       }
+      case 'fldChar':
+        this.fieldChar(el.attrs.fldCharType, style);
+        break;
+      case 'object':
+        this.ctx.warnings.add('embeddedObjects');
+        break;
+      case 'footnoteRef':
+      case 'endnoteRef':
+        this.afterNoteMark = true;
+        break;
+      case 'commentReference':
+        this.ctx.warnings.add('comments');
+        break;
+      case 'AlternateContent':
+        this.runChildren(alternative(el), style);
+        break;
+      case 'ruby':
+        this.inlines(child(el, 'rubyBase')?.children ?? [], style.link);
+        break;
+      default:
+        break;
     }
   }
 
@@ -537,13 +576,17 @@ export class StoryReader {
 
   private image(relId: string | undefined, width: number, height: number, alt: string | undefined): ImageObject | null {
     const rel = relId ? this.part.rels.get(relId) : undefined;
-    if (!rel || rel.external || !(width > 0) || !(height > 0)) return null;
+    if (!rel || rel.external || !isPositive(width) || !isPositive(height)) return null;
     let entry = this.ctx.images.get(rel.target);
     if (!entry) {
       const base = rel.target.slice(rel.target.lastIndexOf('/') + 1) || 'image';
       let name = base;
       const used = new Set([...this.ctx.images.values()].map((e) => e.name));
-      for (let i = 2; used.has(name); i++) name = `${i}-${base}`;
+      let n = 2;
+      while (used.has(name)) {
+        name = `${n}-${base}`;
+        n++;
+      }
       entry = { name, src: `docx-image:${name}` };
       this.ctx.images.set(rel.target, entry);
     }
@@ -559,92 +602,23 @@ export class StoryReader {
     const tblPr = child(tbl, 'tblPr');
     const grid = childrenOf(child(tbl, 'tblGrid'), 'gridCol').map((c) => fromTwips(c.attrs.w) ?? 0);
 
-    interface CellInfo {
-      el: XmlElement;
-      col: number;
-      span: number;
-      vMerge?: 'restart' | 'continue';
-      props: CellProps;
-      width?: number;
-    }
-    const rows: { el: XmlElement; cells: CellInfo[] }[] = [];
+    const rows: RowInfo[] = [];
     let width = grid.length;
     for (const tr of rowsOf(tbl)) {
-      const trPr = child(tr, 'trPr');
-      let col = num(child(trPr, 'gridBefore')?.attrs.val) ?? 0;
-      const cells: CellInfo[] = [];
-      for (const tc of cellsOf(tr)) {
-        const tcPr = child(tc, 'tcPr');
-        const span = Math.max(1, num(child(tcPr, 'gridSpan')?.attrs.val) ?? 1);
-        const hMerge = child(tcPr, 'hMerge');
-        const prev = cells[cells.length - 1];
-        if (hMerge && hMerge.attrs.val !== 'restart' && prev) {
-          prev.span += span;
-          col += span;
-          continue;
-        }
-        const vm = child(tcPr, 'vMerge');
-        const info: CellInfo = { el: tc, col, span, props: readCellProps(tcPr) };
-        if (vm) info.vMerge = vm.attrs.val === 'restart' ? 'restart' : 'continue';
-        const w = child(tcPr, 'tcW')?.attrs;
-        if (w && (w.type === 'dxa' || w.type === undefined)) info.width = fromTwips(w.w);
-        cells.push(info);
-        col += span;
-      }
-      width = Math.max(width, col + (num(child(trPr, 'gridAfter')?.attrs.val) ?? 0));
-      rows.push({ el: tr, cells });
+      const { row, end } = readRow(tr);
+      width = Math.max(width, end);
+      rows.push(row);
     }
     if (rows.length === 0) return;
     width = Math.max(1, width);
 
-    // Column widths from the grid, else from single-column cells, else shared out evenly.
-    const widths: number[] = Array.from({ length: width }, (_, i) => grid[i] ?? 0);
-    for (const r of rows) for (const c of r.cells) if (c.span === 1 && c.width && !widths[c.col]) widths[c.col] = c.width;
-    const known = widths.filter((w) => w > 0);
-    const fallback = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 451 / width;
+    const widths = columnWidths(grid, rows, width);
     const tableId = ctx.makeId();
     const data: TableData = {
-      rows: rows.map((r) => {
-        const trPr = child(r.el, 'trPr');
-        const row: TableData['rows'][number] = { id: ctx.makeId() };
-        const height = fromTwips(child(trPr, 'trHeight')?.attrs.val);
-        if (height) row.height = height;
-        if (flagOf(child(trPr, 'tblHeader'))) row.header = true;
-        if (flagOf(child(trPr, 'cantSplit'))) row.cantSplit = true;
-        return row;
-      }),
-      cols: widths.map((w) => ({ id: ctx.makeId(), width: round2(w > 0 ? w : fallback) })),
+      rows: rows.map((r) => rowData(r.el, ctx.makeId())),
+      cols: widths.map((w) => ({ id: ctx.makeId(), width: w })),
     };
-    const cells: Record<string, CellProps> = {};
-    // The cell each grid position belongs to, for following vertical merges down.
-    const owner: (CellInfo | undefined)[][] = rows.map(() => Array.from({ length: width }, () => undefined));
-    const origin = new Map<CellInfo, { row: number; rowSpan: number }>();
-
-    rows.forEach((r, ri) => {
-      for (const c of r.cells) {
-        const above = ri > 0 ? owner[ri - 1]![c.col] : undefined;
-        if (c.vMerge === 'continue' && above && above.col === c.col) {
-          const o = origin.get(above)!;
-          o.rowSpan++;
-          for (let k = 0; k < c.span && c.col + k < width; k++) owner[ri]![c.col + k] = above;
-          continue;
-        }
-        origin.set(c, { row: ri, rowSpan: 1 });
-        for (let k = 0; k < c.span && c.col + k < width; k++) owner[ri]![c.col + k] = c;
-      }
-    });
-
-    for (const [c, o] of origin) {
-      if (c.col >= width) continue;
-      const rowId = data.rows[o.row]!.id;
-      const colId = data.cols[c.col]!.id;
-      new StoryReader(ctx, this.part).readStory(cellStoryId(tableId, rowId, colId), c.el.children);
-      const props: CellProps = { ...c.props };
-      const span = Math.min(c.span, width - c.col);
-      if (span > 1) props.colSpan = span;
-      if (o.rowSpan > 1) props.rowSpan = o.rowSpan;
-      if (!isEmptyObject(props)) cells[cellKey(rowId, colId)] = props;
-    }
+    const cells = this.tableCells(tableId, data, mergeOrigins(rows, width), width);
     for (const r of data.rows) {
       for (const c of data.cols) {
         const sid = cellStoryId(tableId, r.id, c.id);
@@ -657,6 +631,23 @@ export class StoryReader {
     ctx.tables[tableId] = data;
     this.b.addObject({ kind: 'table', id: tableId });
     this.endParagraph({});
+  }
+
+  /** Reads each cell's story and returns the cell properties worth keeping, by cell key. */
+  private tableCells(tableId: string, data: TableData, origin: Map<CellInfo, CellOrigin>, width: number): Record<string, CellProps> {
+    const cells: Record<string, CellProps> = {};
+    for (const [c, o] of origin) {
+      if (c.col >= width) continue;
+      const rowId = data.rows[o.row]!.id;
+      const colId = data.cols[c.col]!.id;
+      new StoryReader(this.ctx, this.part).readStory(cellStoryId(tableId, rowId, colId), c.el.children);
+      const props: CellProps = { ...c.props };
+      const span = Math.min(c.span, width - c.col);
+      if (span > 1) props.colSpan = span;
+      if (o.rowSpan > 1) props.rowSpan = o.rowSpan;
+      if (!isEmptyObject(props)) cells[cellKey(rowId, colId)] = props;
+    }
+    return cells;
   }
 
   private tableProps(tblPr: XmlElement | undefined): TableProps {
@@ -679,6 +670,17 @@ export class StoryReader {
 
 // ---------------------------------------------------------------- helpers
 
+/** False for zero, negative numbers and NaN. */
+function isPositive(n: number): boolean {
+  return n > 0;
+}
+
+/** An empty paragraph's borders that are only a bottom line (and no list): Word's horizontal rule. */
+function isRuleBorder(props: ParaProps): boolean {
+  const b = props.borders;
+  return !!b?.bottom && !b.top && !b.left && !b.right && !props.list;
+}
+
 function tidy(style: TextStyle): TextStyle {
   const out: TextStyle = {};
   for (const [k, v] of Object.entries(style)) if (v !== undefined) (out as Record<string, unknown>)[k] = v;
@@ -697,6 +699,95 @@ function sameBorder(a: BorderLine, b: BorderLine): boolean {
 function isBareParagraph(p: XmlElement): boolean {
   if (child(child(p, 'pPr'), 'sectPr')) return false;
   return p.children.every((c) => IGNORED_BLOCK.has(c.name));
+}
+
+/** A table cell as written, placed on its grid column. */
+interface CellInfo {
+  el: XmlElement;
+  col: number;
+  span: number;
+  vMerge?: 'restart' | 'continue';
+  props: CellProps;
+  width?: number;
+}
+
+interface RowInfo {
+  el: XmlElement;
+  cells: CellInfo[];
+}
+
+/** Where a cell starts (its row) and how many rows it spans after vertical merges. */
+interface CellOrigin {
+  row: number;
+  rowSpan: number;
+}
+
+/** A row's cells on the grid (horizontal merges joined); `end` is the grid width the row needs. */
+function readRow(tr: XmlElement): { row: RowInfo; end: number } {
+  const trPr = child(tr, 'trPr');
+  let col = num(child(trPr, 'gridBefore')?.attrs.val) ?? 0;
+  const cells: CellInfo[] = [];
+  for (const tc of cellsOf(tr)) {
+    const tcPr = child(tc, 'tcPr');
+    const span = Math.max(1, num(child(tcPr, 'gridSpan')?.attrs.val) ?? 1);
+    const hMerge = child(tcPr, 'hMerge');
+    const prev = cells[cells.length - 1];
+    if (hMerge && hMerge.attrs.val !== 'restart' && prev) prev.span += span;
+    else cells.push(readCell(tc, tcPr, col, span));
+    col += span;
+  }
+  return { row: { el: tr, cells }, end: col + (num(child(trPr, 'gridAfter')?.attrs.val) ?? 0) };
+}
+
+function readCell(tc: XmlElement, tcPr: XmlElement | undefined, col: number, span: number): CellInfo {
+  const vm = child(tcPr, 'vMerge');
+  const info: CellInfo = { el: tc, col, span, props: readCellProps(tcPr) };
+  if (vm) info.vMerge = vm.attrs.val === 'restart' ? 'restart' : 'continue';
+  const w = child(tcPr, 'tcW')?.attrs;
+  if (w && (w.type === 'dxa' || w.type === undefined)) info.width = fromTwips(w.w);
+  return info;
+}
+
+/** Column widths from the grid, else from single-column cells, else shared out evenly. */
+function columnWidths(grid: number[], rows: RowInfo[], width: number): number[] {
+  const widths: number[] = Array.from({ length: width }, (_, i) => grid[i] ?? 0);
+  for (const r of rows) for (const c of r.cells) if (c.span === 1 && c.width && !widths[c.col]) widths[c.col] = c.width;
+  const known = widths.filter((w) => w > 0);
+  const fallback = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 451 / width;
+  return widths.map((w) => round2(w > 0 ? w : fallback));
+}
+
+function rowData(tr: XmlElement, id: string): TableData['rows'][number] {
+  const trPr = child(tr, 'trPr');
+  const row: TableData['rows'][number] = { id };
+  const height = fromTwips(child(trPr, 'trHeight')?.attrs.val);
+  if (height) row.height = height;
+  if (flagOf(child(trPr, 'tblHeader'))) row.header = true;
+  if (flagOf(child(trPr, 'cantSplit'))) row.cantSplit = true;
+  return row;
+}
+
+/** The cells that start a grid area, in reading order, with the rows a vertical merge adds to them. */
+function mergeOrigins(rows: RowInfo[], width: number): Map<CellInfo, CellOrigin> {
+  // The cell each grid position belongs to, for following vertical merges down.
+  const owner: (CellInfo | undefined)[][] = rows.map(() => Array.from({ length: width }, () => undefined));
+  const origin = new Map<CellInfo, CellOrigin>();
+  const claim = (ri: number, c: CellInfo, by: CellInfo): void => {
+    for (let k = 0; k < c.span && c.col + k < width; k++) owner[ri]![c.col + k] = by;
+  };
+  rows.forEach((r, ri) => {
+    for (const c of r.cells) {
+      const above = ri > 0 ? owner[ri - 1]![c.col] : undefined;
+      if (c.vMerge === 'continue' && above && above.col === c.col) {
+        origin.get(above)!.rowSpan++;
+        claim(ri, c, above);
+      } else {
+        origin.set(c, { row: ri, rowSpan: 1 });
+        claim(ri, c, c);
+      }
+    }
+  });
+  return origin;
 }
 
 function readCellProps(tcPr: XmlElement | undefined): CellProps {
@@ -798,19 +889,26 @@ function mathText(el: XmlElement): string {
   return el.children.map(mathText).join('');
 }
 
+/** Points per unit of a VML length (no unit is points). */
+const VML_UNITS: Record<string, number> = { pt: 1, px: 0.75, in: 72, cm: 72 / 2.54, mm: 72 / 25.4 };
+
 function parseVmlStyle(style: string): { width?: number; height?: number } {
   const out: { width?: number; height?: number } = {};
   for (const part of style.split(';')) {
     const [k, v] = part.split(':').map((s) => s.trim());
     if ((k === 'width' || k === 'height') && v) {
-      const m = /^([\d.]+)(pt|px|in|cm|mm)?$/.exec(v);
-      if (!m) continue;
-      const n = Number(m[1]);
-      const factor = m[2] === 'px' ? 0.75 : m[2] === 'in' ? 72 : m[2] === 'cm' ? 72 / 2.54 : m[2] === 'mm' ? 72 / 25.4 : 1;
-      out[k] = round2(n * factor);
+      const length = vmlLength(v);
+      if (length !== undefined) out[k] = length;
     }
   }
   return out;
+}
+
+/** A VML length in points; undefined when it is not a plain number with a known unit. */
+function vmlLength(v: string): number | undefined {
+  const m = /^([\d.]+)(pt|px|in|cm|mm)?$/.exec(v);
+  if (!m) return undefined;
+  return round2(Number(m[1]) * VML_UNITS[m[2] ?? 'pt']!);
 }
 
 type ParsedField = { kind: 'object'; data: FieldObject } | { kind: 'link'; link: string } | { kind: 'other' } | { kind: 'none' };

@@ -71,10 +71,11 @@ export async function exportPdf(doc: DocModel, options: PdfExportOptions = {}): 
     const annots = await ex.drawPage(content, page, pageDisplay(dl, page, display), dest);
     const contents = await pdf.stream('', latin1(content.text));
     const annotRefs = annots.map((a) => pdf.add(a));
+    const annotsEntry = annotRefs.length ? ` /Annots [${annotRefs.map(ref).join(' ')}]` : '';
     pdf.set(
       n,
       `<< /Type /Page /Parent ${ref(pagesRef)} /MediaBox [0 0 ${num(page.width)} ${num(page.height)}] ` +
-        `/Resources ${ref(resources)} /Contents ${ref(contents)}${annotRefs.length ? ` /Annots [${annotRefs.map(ref).join(' ')}]` : ''} >>`,
+        `/Resources ${ref(resources)} /Contents ${ref(contents)}${annotsEntry} >>`,
     );
   }
   if (!pageRefs.length) {
@@ -144,6 +145,119 @@ function linkAction(link: string, dest: (anchorId: string) => string | null): st
   return SAFE_LINK.test(link) ? `<< /S /URI /URI ${literal(uriBytes(link))} >>` : null;
 }
 
+type DisplayOf<K extends DisplayItem['kind']> = Extract<DisplayItem, { kind: K }>;
+type TextItem = DisplayOf<'text'>;
+
+/** A link annotation being collected: its rectangle in PDF space, target and action. */
+interface PageLink {
+  rect: [number, number, number, number];
+  uri: string;
+  action: string;
+}
+
+function drawRect(c: ContentStream, item: DisplayOf<'rect'>): void {
+  const fill = parseColor(item.fill);
+  if (fill) c.fillRect(item.x, item.y, item.width, item.height, fill, item.radius ?? 0);
+}
+
+function drawLine(c: ContentStream, item: DisplayOf<'line'>): void {
+  const color = parseColor(item.color);
+  if (color) c.line(item.x1, item.y1, item.x2, item.y2, item.width, color, item.style);
+}
+
+/** Adds a text item's link to `links`; pieces of one link on one line become one annotation. */
+function addLink(links: PageLink[], c: ContentStream, item: TextItem, dest: (anchorId: string) => string | null): void {
+  const link = item.style.link;
+  const action = link ? linkAction(link, dest) : null;
+  if (!link || !action) return;
+  const rect: [number, number, number, number] = [item.x, c.y(item.baseline + item.descent), item.x + item.width, c.y(item.baseline - item.ascent)];
+  const last = links[links.length - 1];
+  if (last && last.uri === link && Math.abs(last.rect[1] - rect[1]) < 0.5 && Math.abs(last.rect[2] - rect[0]) < 0.5) {
+    last.rect[2] = rect[2];
+    last.rect[3] = Math.max(last.rect[3], rect[3]);
+  } else links.push({ rect, uri: link, action });
+}
+
+/** What a text item's runs share. */
+interface TextState {
+  size: number;
+  spacing: number;
+  /** Word spacing (justified lines), applied to standard-font runs. */
+  ws: number;
+  baseline: number;
+}
+
+/** One shown glyph: its code and how far to move after it (TJ units). */
+interface RunPart {
+  code: string;
+  adjust: number;
+}
+
+/** Collects glyphs into runs of one font, each shown with one TJ. */
+class TextRuns {
+  /** Glyphs of the run being collected: what to show and how far to move after each. */
+  private run: { font: EmbeddedFont | null; x: number; parts: RunPart[] } | null = null;
+
+  constructor(
+    private readonly c: ContentStream,
+    private readonly t: TextState,
+    /** The standard font's resource name, asked for only when a standard run is shown. */
+    private readonly standardResource: () => string,
+  ) {}
+
+  add(font: EmbeddedFont | null, x: number, part: RunPart): void {
+    if (!this.run || this.run.font !== font) {
+      this.flush();
+      this.run = { font, x, parts: [] };
+    }
+    this.run.parts.push(part);
+  }
+
+  flush(): void {
+    const r = this.run;
+    this.run = null;
+    if (!r?.parts.length) return;
+    const { c, t } = this;
+    const res = r.font ? r.font.resource : this.standardResource();
+    const shown = (s: string): string => (r.font ? `<${s}>` : literal(s));
+    let tj = '';
+    let str = '';
+    for (const p of r.parts) {
+      str += p.code;
+      // TJ numbers are thousandths of an em, positive moves left.
+      if (Math.abs(p.adjust) > 0.05) {
+        tj += `${shown(str)} ${num(p.adjust)} `;
+        str = '';
+      }
+    }
+    if (str) tj += shown(str);
+    c.op('BT');
+    c.op(`/${res} ${num(t.size)} Tf`);
+    c.spacing(t.spacing, r.font ? 0 : t.ws);
+    c.op(`1 0 0 1 ${num(r.x)} ${num(c.y(t.baseline))} Tm`);
+    c.op(`[${tj.trim()}] TJ`);
+    c.op('ET');
+  }
+}
+
+/** A WinAnsi character drawn in the standard font, without waiting for anything; null for the rest. */
+function standardGlyph(ch: string): Glyph | null {
+  const code = winAnsiCode(ch.codePointAt(0)!);
+  return code !== null && !INVISIBLE.test(ch) ? { kind: 'std', code } : null;
+}
+
+/** A standard-font glyph that has to advance `target` points. */
+function standardPart(code: number, target: number, widths: number[], t: TextState): RunPart {
+  const natural = (widths[code - FIRST_CHAR]! / 1000) * t.size + t.spacing + (code === 32 ? t.ws : 0);
+  return { code: String.fromCharCode(code), adjust: (-(target - natural) * 1000) / t.size };
+}
+
+/** An embedded-font glyph that has to advance `target` points. */
+function embeddedPart(font: EmbeddedFont, cid: number, target: number, t: TextState): RunPart {
+  const natural = (font.width(cid) / 1000) * t.size + t.spacing;
+  return { code: hex4(cid), adjust: (-(target - natural) * 1000) / t.size };
+}
+
 class Exporter {
   private readonly standard = new Map<StandardFontName, string>();
   private readonly embedded: EmbeddedFont[] = [];
@@ -163,54 +277,42 @@ class Exporter {
 
   /** Draws a page's display list; returns its link annotations (`dest` resolves links to bookmarks). */
   async drawPage(c: ContentStream, page: PageLayout, items: DisplayItem[], dest: (anchorId: string) => string | null = () => null): Promise<string[]> {
-    const links: { rect: [number, number, number, number]; uri: string; action: string }[] = [];
+    const links: PageLink[] = [];
     const bg = parseColor(page.section.background);
     if (bg) c.fillRect(0, 0, page.width, page.height, bg);
     for (const item of items) {
       switch (item.kind) {
-        case 'rect': {
-          const fill = parseColor(item.fill);
-          if (fill) c.fillRect(item.x, item.y, item.width, item.height, fill, item.radius ?? 0);
+        case 'rect':
+          drawRect(c, item);
           break;
-        }
-        case 'line': {
-          const color = parseColor(item.color);
-          if (color) c.line(item.x1, item.y1, item.x2, item.y2, item.width, color, item.style);
+        case 'line':
+          drawLine(c, item);
           break;
-        }
         case 'checkbox':
           c.checkbox(item.x, item.y, item.size, item.checked, parseColor(item.color) ?? BLACK);
           break;
-        case 'image': {
-          const res = await this.image(item.image.src);
-          if (res) c.image(res, item.x, item.y, item.width, item.height, item.image.crop);
-          else c.fillRect(item.x, item.y, item.width, item.height, PLACEHOLDER);
-          const border = item.image.border;
-          const bc = parseColor(border?.color);
-          if (border && border.width > 0 && bc) c.strokeRect(item.x, item.y, item.width, item.height, bc, border.width);
+        case 'image':
+          await this.drawImage(c, item);
           break;
-        }
-        case 'text': {
+        case 'text':
           await this.drawText(c, item);
-          const link = item.style.link;
-          const action = link ? linkAction(link, dest) : null;
-          if (link && action) {
-            const rect: [number, number, number, number] = [item.x, c.y(item.baseline + item.descent), item.x + item.width, c.y(item.baseline - item.ascent)];
-            const last = links[links.length - 1];
-            // Pieces of one link on one line become one annotation.
-            if (last && last.uri === link && Math.abs(last.rect[1] - rect[1]) < 0.5 && Math.abs(last.rect[2] - rect[0]) < 0.5) {
-              last.rect[2] = rect[2];
-              last.rect[3] = Math.max(last.rect[3], rect[3]);
-            } else links.push({ rect, uri: link, action });
-          }
+          addLink(links, c, item, dest);
           break;
-        }
       }
     }
     return links.map((l) => `<< /Type /Annot /Subtype /Link /Rect [${l.rect.map(num).join(' ')}] /Border [0 0 0] /A ${l.action} >>`);
   }
 
-  private async drawText(c: ContentStream, item: Extract<DisplayItem, { kind: 'text' }>): Promise<void> {
+  private async drawImage(c: ContentStream, item: DisplayOf<'image'>): Promise<void> {
+    const res = await this.image(item.image.src);
+    if (res) c.image(res, item.x, item.y, item.width, item.height, item.image.crop);
+    else c.fillRect(item.x, item.y, item.width, item.height, PLACEHOLDER);
+    const border = item.image.border;
+    const bc = parseColor(border?.color);
+    if (border && border.width > 0 && bc) c.strokeRect(item.x, item.y, item.width, item.height, bc, border.width);
+  }
+
+  private async drawText(c: ContentStream, item: TextItem): Promise<void> {
     const style = item.style;
     const font = style.font;
     const size = font.size;
@@ -220,64 +322,24 @@ class Exporter {
     const std = standardFont(font);
     const stdWidths = this.widthsOf(std);
     const measurer = this.dl.measurer;
+    const t: TextState = { size, spacing, ws, baseline: item.baseline };
+    const runs = new TextRuns(c, t, () => this.standardResource(std));
 
     c.fillColor(color);
     let x = item.x;
-    /** Glyphs of the run being collected: what to show and how far to move after each. */
-    let run: { font: EmbeddedFont | null; x: number; parts: { code: string; adjust: number }[] } | null = null;
-    const flush = (): void => {
-      if (!run) return;
-      const r = run;
-      run = null;
-      if (!r.parts.length) return;
-      const res = r.font ? r.font.resource : this.standardResource(std);
-      let tj = '';
-      let str = '';
-      for (const p of r.parts) {
-        str += p.code;
-        // TJ numbers are thousandths of an em, positive moves left.
-        if (Math.abs(p.adjust) > 0.05) {
-          tj += `${r.font ? `<${str}>` : literal(str)} ${num(p.adjust)} `;
-          str = '';
-        }
-      }
-      if (str) tj += r.font ? `<${str}>` : literal(str);
-      c.op('BT');
-      c.op(`/${res} ${num(size)} Tf`);
-      c.spacing(spacing, r.font ? 0 : ws);
-      c.op(`1 0 0 1 ${num(r.x)} ${num(c.y(item.baseline))} Tm`);
-      c.op(`[${tj.trim()}] TJ`);
-      c.op('ET');
-    };
-
     for (const ch of item.text) {
       const target = measurer.measure(ch, font) + spacing + (ch === ' ' ? ws : 0);
       // Most characters are WinAnsi; only the rest may wait for a font to load.
-      const code = winAnsiCode(ch.codePointAt(0)!);
-      const glyph: Glyph = code !== null && !INVISIBLE.test(ch) ? { kind: 'std', code } : await this.glyph(ch, font);
-      if (glyph.kind === 'std' || glyph.kind === 'cid') {
-        const runFont = glyph.kind === 'cid' ? glyph.font : null;
-        if (!run || run.font !== runFont) {
-          flush();
-          run = { font: runFont, x, parts: [] };
-        }
-        let natural: number;
-        let code: string;
-        if (glyph.kind === 'std') {
-          natural = (stdWidths[glyph.code - FIRST_CHAR]! / 1000) * size + spacing + (glyph.code === 32 ? ws : 0);
-          code = String.fromCharCode(glyph.code);
-        } else {
-          natural = (glyph.font.width(glyph.cid) / 1000) * size + spacing;
-          code = hex4(glyph.cid);
-        }
-        run.parts.push({ code, adjust: (-(target - natural) * 1000) / size });
-      } else {
-        flush();
+      const glyph: Glyph = standardGlyph(ch) ?? (await this.glyph(ch, font));
+      if (glyph.kind === 'std') runs.add(null, x, standardPart(glyph.code, target, stdWidths, t));
+      else if (glyph.kind === 'cid') runs.add(glyph.font, x, embeddedPart(glyph.font, glyph.cid, target, t));
+      else {
+        runs.flush();
         if (glyph.kind === 'shape') this.drawShape(c, glyph.shape, x, target - spacing, item.baseline, size, color);
       }
       x += target;
     }
-    flush();
+    runs.flush();
 
     const thickness = Math.max(0.4, size * 0.05);
     if (style.underline) c.fillRect(item.x, item.baseline + size * 0.1, item.width, thickness, color);
@@ -413,10 +475,8 @@ class Exporter {
     // Fonts that were loaded but never drew a glyph still own a reserved object.
     for (const font of this.embedded) if (font.subset.size <= 1) this.pdf.set(font.n, 'null');
     const xobjects = [...this.imageRefs].map(([res, n]) => `/${res} ${ref(n)}`);
-    return (
-      `<< /ProcSet [/PDF /Text /ImageB /ImageC] /Font << ${fonts.join(' ')} >>` +
-      `${xobjects.length ? ` /XObject << ${xobjects.join(' ')} >>` : ''} >>`
-    );
+    const xobjectEntry = xobjects.length ? ` /XObject << ${xobjects.join(' ')} >>` : '';
+    return `<< /ProcSet [/PDF /Text /ImageB /ImageC] /Font << ${fonts.join(' ')} >>${xobjectEntry} >>`;
   }
 }
 
@@ -430,7 +490,7 @@ function fontCandidates(font: FontSpec): [string, boolean, boolean][] {
 async function writeImage(pdf: PdfWriter, image: PdfImage): Promise<number> {
   if (image.kind === 'jpeg') {
     const { info } = image;
-    const space = info.components === 1 ? '/DeviceGray' : info.components === 3 ? '/DeviceRGB' : '/DeviceCMYK';
+    const space = jpegColorSpace(info.components);
     // Adobe's CMYK JPEGs store inverted values.
     const decode = info.components === 4 && info.adobe ? ' /Decode [1 0 1 0 1 0 1 0]' : '';
     return pdf.stream(
@@ -449,6 +509,11 @@ async function writeImage(pdf: PdfWriter, image: PdfImage): Promise<number> {
     `/Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace ${colors === 1 ? '/DeviceGray' : '/DeviceRGB'} /BitsPerComponent 8${smask}`,
     pixels,
   );
+}
+
+function jpegColorSpace(components: number): string {
+  if (components === 1) return '/DeviceGray';
+  return components === 3 ? '/DeviceRGB' : '/DeviceCMYK';
 }
 
 /** A URI as 7-bit ASCII (PDF URIs are bytes): anything else percent-encoded as UTF-8. */
@@ -472,28 +537,18 @@ interface OutlineNode {
   children: OutlineNode[];
 }
 
-/** Bookmarks from headings (paragraphs whose style has an outline level), nested by level. */
-function writeOutlines(pdf: PdfWriter, dl: DocLayout, pages: PageLayout[], pageRefs: number[]): number | null {
+type PlacedItem = PageLayout['columns'][number]['items'][number];
+
+/** The headings of the laid-out pages, nested by level under a root. */
+function outlineTree(dl: DocLayout, pages: PageLayout[]): OutlineNode {
   const root: OutlineNode = { title: '', level: -1, page: 0, top: 0, children: [] };
   const stack: OutlineNode[] = [root];
-  const body = dl.doc.body;
   pages.forEach((page, pi) => {
     for (const area of page.columns) {
       for (const item of area.items) {
-        if (item.kind !== 'lines' || item.story !== BODY || item.block !== 0 || item.from !== 0) continue;
-        const layout = item.entry.layout;
-        if (!layout) continue;
-        const level = outlineLevel(dl.doc, layout.props);
-        if (level === null) continue;
-        const title = body
-          .text(item.entry.start, item.entry.end)
-          .split(OBJECT)
-          .join('')
-          .replace(/[\p{Cc}\p{Cf}]+/gu, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 250);
-        if (!title) continue;
+        const heading = headingAt(dl, item);
+        if (!heading) continue;
+        const { title, level } = heading;
         while (stack.length > 1 && stack[stack.length - 1]!.level >= level) stack.pop();
         const node: OutlineNode = { title, level, page: pi, top: page.height - item.y, children: [] };
         stack[stack.length - 1]!.children.push(node);
@@ -501,6 +556,30 @@ function writeOutlines(pdf: PdfWriter, dl: DocLayout, pages: PageLayout[], pageR
       }
     }
   });
+  return root;
+}
+
+/** The title and outline level of a heading's first line; null for any other item. */
+function headingAt(dl: DocLayout, item: PlacedItem): { title: string; level: number } | null {
+  if (item.kind !== 'lines' || item.story !== BODY || item.block !== 0 || item.from !== 0) return null;
+  const layout = item.entry.layout;
+  if (!layout) return null;
+  const level = outlineLevel(dl.doc, layout.props);
+  if (level === null) return null;
+  const title = dl.doc.body
+    .text(item.entry.start, item.entry.end)
+    .split(OBJECT)
+    .join('')
+    .replace(/[\p{Cc}\p{Cf}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 250);
+  return title ? { title, level } : null;
+}
+
+/** Bookmarks from headings (paragraphs whose style has an outline level), nested by level. */
+function writeOutlines(pdf: PdfWriter, dl: DocLayout, pages: PageLayout[], pageRefs: number[]): number | null {
+  const root = outlineTree(dl, pages);
   if (!root.children.length) return null;
 
   const outlines = pdf.alloc();

@@ -27,40 +27,60 @@ export function isJpeg(bytes: Uint8Array): boolean {
 export function parseJpeg(bytes: Uint8Array): JpegInfo | null {
   if (!isJpeg(bytes)) return null;
   try {
-    const r = new ByteReader(bytes);
-    let adobe = false;
-    let p = 2;
-    while (p + 4 <= bytes.length) {
-      if (r.u8(p) !== 0xff) return null;
-      const marker = r.u8(p + 1);
-      if (marker === 0xff) {
-        p++; // fill byte
-        continue;
-      }
-      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
-        p += 2;
-        continue;
-      }
-      if (marker === 0xd9 || marker === 0xda) return null; // end of image, or scan data before any frame header
-      const len = r.u16(p + 2);
-      if (marker === 0xee && len >= 7 && r.tag(p + 4) === 'Adob') adobe = true;
-      // SOF0–SOF15, except DHT (C4), JPG (C8) and DAC (CC).
-      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-        const bits = r.u8(p + 4);
-        const height = r.u16(p + 5);
-        const width = r.u16(p + 7);
-        const components = r.u8(p + 9);
-        if (!width || !height || (components !== 1 && components !== 3 && components !== 4)) return null;
-        // An Adobe marker may follow the frame header.
-        adobe = adobe || hasAdobeMarker(r, p + 2 + len);
-        return { width, height, components, bitsPerComponent: bits === 12 ? 12 : 8, adobe };
-      }
-      p += 2 + len;
-    }
+    return scanJpeg(new ByteReader(bytes));
   } catch {
     // Truncated file.
+    return null;
+  }
+}
+
+/** Walks the markers up to the frame header. */
+function scanJpeg(r: ByteReader): JpegInfo | null {
+  let adobe = false;
+  let p = 2;
+  while (p + 4 <= r.length) {
+    if (r.u8(p) !== 0xff) return null;
+    const marker = r.u8(p + 1);
+    if (marker === 0xff) {
+      p++; // fill byte
+      continue;
+    }
+    if (isStandaloneMarker(marker)) {
+      p += 2;
+      continue;
+    }
+    if (marker === 0xd9 || marker === 0xda) return null; // end of image, or scan data before any frame header
+    const len = r.u16(p + 2);
+    if (isAdobeSegment(r, p, marker, len)) adobe = true;
+    if (isFrameHeader(marker)) return frameHeader(r, p, len, adobe);
+    p += 2 + len;
   }
   return null;
+}
+
+/** TEM and RST0–RST7 / SOI: markers with no length after them. */
+function isStandaloneMarker(marker: number): boolean {
+  return marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8);
+}
+
+/** SOF0–SOF15, except DHT (C4), JPG (C8) and DAC (CC). */
+function isFrameHeader(marker: number): boolean {
+  return marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+}
+
+function isAdobeSegment(r: ByteReader, p: number, marker: number, len: number): boolean {
+  return marker === 0xee && len >= 7 && r.tag(p + 4) === 'Adob';
+}
+
+/** The frame header at `p`, whose segment is `len` bytes long. */
+function frameHeader(r: ByteReader, p: number, len: number, adobe: boolean): JpegInfo | null {
+  const bits = r.u8(p + 4);
+  const height = r.u16(p + 5);
+  const width = r.u16(p + 7);
+  const components = r.u8(p + 9);
+  if (!width || !height || (components !== 1 && components !== 3 && components !== 4)) return null;
+  // An Adobe marker may follow the frame header.
+  return { width, height, components, bitsPerComponent: bits === 12 ? 12 : 8, adobe: adobe || hasAdobeMarker(r, p + 2 + len) };
 }
 
 function hasAdobeMarker(r: ByteReader, from: number): boolean {
@@ -91,7 +111,7 @@ export async function readImage(bytes: Uint8Array): Promise<PdfImage | null> {
 
 /** The bytes of a base64 `data:` URL, so inline images need no fetcher. */
 export function dataUrlBytes(src: string): Uint8Array | null {
-  const m = /^data:[^;,]*(;[^,]*)?,(.*)$/s.exec(src);
+  const m = /^data:[^;,]*(;[^,]*)?,([\s\S]*)$/.exec(src);
   if (!m) return null;
   try {
     if (m[1]?.includes('base64')) {

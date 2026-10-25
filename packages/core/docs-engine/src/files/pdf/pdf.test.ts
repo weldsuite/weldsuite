@@ -78,7 +78,7 @@ describe('exportPdf: structure', () => {
     expect(fromLatin1(e.bytes.subarray(e.bytes.length - 6))).toBe('%%EOF\n');
     // Every object is where the xref says (object() checks `n 0 obj` and endobj/endstream).
     const numbers = e.pdf.objectNumbers();
-    expect(numbers.length).toBe(Number(e.pdf.trailer.get('Size')) - 1);
+    expect(numbers).toHaveLength(Number(e.pdf.trailer.get('Size')) - 1);
     for (const n of numbers) expect(() => e.pdf.object(n)).not.toThrow();
     // The xref entries are 20 bytes each.
     const xref = e.pdf.text.slice(e.pdf.startxref);
@@ -101,7 +101,7 @@ describe('exportPdf: structure', () => {
     doc.props.section = { ...doc.props.section, pageWidth: 612, pageHeight: 792 };
     const e = await exported(doc);
     const pages = e.pdf.pages();
-    expect(pages.length).toBe(layoutPageCount(doc));
+    expect(pages).toHaveLength(layoutPageCount(doc));
     expect(pages.length).toBeGreaterThan(2);
     for (const p of pages) expect(p.dict.get('MediaBox')).toEqual([0, 0, 612, 792]);
     const count = e.pdf.dict(e.pdf.dict(e.pdf.trailer.get('Root')).get('Pages')).get('Count');
@@ -144,7 +144,7 @@ describe('exportPdf: text', () => {
     for (const [, d] of ofType(e, 'Subtype', 'Type1')) {
       expect(name(d.get('Encoding'))).toBe('WinAnsiEncoding');
       const widths = d.get('Widths') as number[];
-      expect(widths.length).toBe(224);
+      expect(widths).toHaveLength(224);
       if (name(d.get('BaseFont')) === 'Helvetica') {
         expect(widths[65 - 32]).toBe(667); // A
         expect(widths[0x80 - 32]).toBeGreaterThan(0); // €
@@ -250,7 +250,7 @@ describe('exportPdf: links, tables, lists, bookmarks', () => {
     const uris = annots.map((a) => {
       const d = e.pdf.dict(a);
       expect(name(d.get('Subtype'))).toBe('Link');
-      expect((d.get('Rect') as number[]).length).toBe(4);
+      expect(d.get('Rect') as number[]).toHaveLength(4);
       return (e.pdf.dict(d.get('A')).get('URI') as PdfString).bytes;
     });
     expect(uris).toEqual(['https://weldsuite.org/a%20b', 'mailto:hi@weldsuite.org']);

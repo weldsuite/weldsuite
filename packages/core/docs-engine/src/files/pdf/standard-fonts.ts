@@ -52,13 +52,18 @@ export function standardFont(font: Pick<FontSpec, 'family' | 'bold' | 'italic'>)
 export const FIRST_CHAR = 32;
 export const LAST_CHAR = 255;
 
+/** The family a standard font belongs to. */
+function standardFamily(name: StandardFontName): Family {
+  if (name.startsWith('Times')) return 'serif';
+  return name.startsWith('Courier') ? 'mono' : 'sans';
+}
+
 /**
  * /Widths for codes 32–255 in 1/1000 em: what the measurer gives each
  * character's Unicode equivalent (0 for the five unused codes).
  */
 export function standardWidths(name: StandardFontName, measurer: TextMeasurer): number[] {
-  const family = name.startsWith('Times') ? 'serif' : name.startsWith('Courier') ? 'mono' : 'sans';
-  const spec: FontSpec = { family: REPRESENTATIVE[family], size: 1000, bold: name.includes('Bold'), italic: /Oblique|Italic/.test(name) };
+  const spec: FontSpec = { family: REPRESENTATIVE[standardFamily(name)], size: 1000, bold: name.includes('Bold'), italic: /Oblique|Italic/.test(name) };
   const out: number[] = [];
   for (let code = FIRST_CHAR; code <= LAST_CHAR; code++) {
     const u = WIN_ANSI_TO_UNICODE[code];

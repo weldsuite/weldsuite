@@ -32,7 +32,10 @@ export function readTheme(root: XmlElement | null): Theme {
 function font(rFonts: XmlElement | undefined, theme: Theme): string | undefined {
   if (!rFonts) return undefined;
   const a = rFonts.attrs;
-  const themed = (t: string | undefined) => (t ? (t.startsWith('major') ? theme.major : theme.minor) : undefined);
+  const themed = (t: string | undefined) => {
+    if (!t) return undefined;
+    return t.startsWith('major') ? theme.major : theme.minor;
+  };
   return a.ascii || a.hAnsi || themed(a.asciiTheme) || themed(a.hAnsiTheme) || a.eastAsia || a.cs || undefined;
 }
 
@@ -94,15 +97,26 @@ function readTabs(el: XmlElement | undefined): TabStop[] | undefined {
     const val = t.attrs.val;
     const pos = fromTwips(t.attrs.pos);
     if (pos === undefined || !val || val === 'clear' || val === 'bar' || val === 'num') continue;
-    const align = val === 'center' ? 'center' : val === 'right' || val === 'end' ? 'right' : val === 'decimal' ? 'decimal' : 'left';
-    const stop: TabStop = { pos, align };
-    const leader = t.attrs.leader;
-    if (leader === 'dot' || leader === 'middleDot') stop.leader = 'dot';
-    else if (leader === 'hyphen') stop.leader = 'hyphen';
-    else if (leader === 'underscore' || leader === 'heavy') stop.leader = 'underscore';
+    const stop: TabStop = { pos, align: tabAlign(val) };
+    const leader = tabLeader(t.attrs.leader);
+    if (leader) stop.leader = leader;
     out.push(stop);
   }
   return out;
+}
+
+function tabAlign(val: string): TabStop['align'] {
+  if (val === 'center') return 'center';
+  if (val === 'right' || val === 'end') return 'right';
+  return val === 'decimal' ? 'decimal' : 'left';
+}
+
+/** The engine's leader for Word's; undefined for none and the ones it has no match for. */
+function tabLeader(leader: string | undefined): TabStop['leader'] {
+  if (leader === 'dot' || leader === 'middleDot') return 'dot';
+  if (leader === 'hyphen') return 'hyphen';
+  if (leader === 'underscore' || leader === 'heavy') return 'underscore';
+  return undefined;
 }
 
 function readParaBorders(el: XmlElement | undefined): ParaBorders | undefined {
@@ -131,16 +145,9 @@ export function readParaProps(pPr: XmlElement | undefined): ParaInfo {
   if (!pPr) return info;
   const styleId = child(pPr, 'pStyle')?.attrs.val;
   if (styleId) info.styleId = styleId;
-  for (const key of ['keepNext', 'keepLines', 'pageBreakBefore'] as const) {
-    const v = flag(child(pPr, key));
-    if (v !== undefined) props[key] = v;
-  }
-  if (flag(child(pPr, 'widowControl')) === false) props.widowControl = false;
-  const numPr = child(pPr, 'numPr');
-  if (numPr) {
-    const numId = child(numPr, 'numId')?.attrs.val;
-    if (numId !== undefined) info.numPr = { numId, level: Math.min(LIST_LEVELS - 1, Math.max(0, num(child(numPr, 'ilvl')?.attrs.val) ?? 0)) };
-  }
+  readParaFlags(pPr, props);
+  const numPr = readNumPr(child(pPr, 'numPr'));
+  if (numPr) info.numPr = numPr;
   const borders = readParaBorders(child(pPr, 'pBdr'));
   if (borders) props.borders = borders;
   const shading = fromHex(child(pPr, 'shd')?.attrs.fill);
@@ -148,29 +155,8 @@ export function readParaProps(pPr: XmlElement | undefined): ParaInfo {
   const tabs = readTabs(child(pPr, 'tabs'));
   if (tabs?.length) info.tabs = tabs;
   if (flag(child(pPr, 'bidi'))) props.direction = 'rtl';
-  const spacing = child(pPr, 'spacing')?.attrs;
-  if (spacing) {
-    const before = fromTwips(spacing.before);
-    const after = fromTwips(spacing.after);
-    if (before !== undefined) props.spaceBefore = before;
-    if (after !== undefined) props.spaceAfter = after;
-    const line = num(spacing.line);
-    if (line !== undefined && line > 0) {
-      if (spacing.lineRule === 'exact' || spacing.lineRule === 'atLeast') props.lineHeightExact = round2(line / 20);
-      else props.lineHeight = round2(line / 240);
-    }
-  }
-  const ind = child(pPr, 'ind')?.attrs;
-  if (ind) {
-    const left = fromTwips(ind.left ?? ind.start);
-    const right = fromTwips(ind.right ?? ind.end);
-    const hanging = fromTwips(ind.hanging);
-    const first = fromTwips(ind.firstLine);
-    if (left !== undefined) props.indentLeft = left;
-    if (right !== undefined) props.indentRight = right;
-    if (hanging !== undefined) props.indentFirst = -hanging;
-    else if (first !== undefined) props.indentFirst = first;
-  }
+  readSpacing(child(pPr, 'spacing')?.attrs, props);
+  readIndent(child(pPr, 'ind')?.attrs, props);
   const jc = child(pPr, 'jc')?.attrs.val;
   if (jc && ALIGN[jc]) props.align = ALIGN[jc];
   const outline = num(child(pPr, 'outlineLvl')?.attrs.val);
@@ -178,6 +164,47 @@ export function readParaProps(pPr: XmlElement | undefined): ParaInfo {
   const sectPr = child(pPr, 'sectPr');
   if (sectPr) info.sectPr = sectPr;
   return info;
+}
+
+function readParaFlags(pPr: XmlElement, props: ParaProps): void {
+  for (const key of ['keepNext', 'keepLines', 'pageBreakBefore'] as const) {
+    const v = flag(child(pPr, key));
+    if (v !== undefined) props[key] = v;
+  }
+  if (flag(child(pPr, 'widowControl')) === false) props.widowControl = false;
+}
+
+function readNumPr(numPr: XmlElement | undefined): ParaInfo['numPr'] {
+  const numId = child(numPr, 'numId')?.attrs.val;
+  if (!numPr || numId === undefined) return undefined;
+  return { numId, level: Math.min(LIST_LEVELS - 1, Math.max(0, num(child(numPr, 'ilvl')?.attrs.val) ?? 0)) };
+}
+
+/** `w:spacing`: space before and after, and line height (a multiple, or exact / at least in points). */
+function readSpacing(spacing: XmlElement['attrs'] | undefined, props: ParaProps): void {
+  if (!spacing) return;
+  const before = fromTwips(spacing.before);
+  const after = fromTwips(spacing.after);
+  if (before !== undefined) props.spaceBefore = before;
+  if (after !== undefined) props.spaceAfter = after;
+  const line = num(spacing.line);
+  if (line !== undefined && line > 0) {
+    if (spacing.lineRule === 'exact' || spacing.lineRule === 'atLeast') props.lineHeightExact = round2(line / 20);
+    else props.lineHeight = round2(line / 240);
+  }
+}
+
+/** `w:ind`: left and right indents, and a hanging or first-line indent. */
+function readIndent(ind: XmlElement['attrs'] | undefined, props: ParaProps): void {
+  if (!ind) return;
+  const left = fromTwips(ind.left ?? ind.start);
+  const right = fromTwips(ind.right ?? ind.end);
+  const hanging = fromTwips(ind.hanging);
+  const first = fromTwips(ind.firstLine);
+  if (left !== undefined) props.indentLeft = left;
+  if (right !== undefined) props.indentRight = right;
+  if (hanging !== undefined) props.indentFirst = -hanging;
+  else if (first !== undefined) props.indentFirst = first;
 }
 
 /** Tab stops moved from Word's margin-relative positions to the engine's indent-relative ones. */
@@ -221,47 +248,12 @@ export function tableBorder(el: XmlElement | undefined): BorderLine | undefined 
 }
 
 export function readStyles(root: XmlElement | null, theme: Theme): StyleSheet {
-  const raw = new Map<string, RawStyle>();
-  for (const el of childrenOf(root ?? undefined, 'style')) {
-    const id = el.attrs.styleId;
-    if (!id || raw.has(id)) continue;
-    raw.set(id, {
-      type: el.attrs.type ?? 'paragraph',
-      id,
-      name: child(el, 'name')?.attrs.val ?? id,
-      basedOn: child(el, 'basedOn')?.attrs.val,
-      next: child(el, 'next')?.attrs.val,
-      el,
-    });
-  }
+  const raw = readRawStyles(root);
   const defaults = child(root ?? undefined, 'docDefaults');
   const baseText = readRunProps(child(child(defaults, 'rPrDefault'), 'rPr'), theme);
   const basePara = readParaProps(child(child(defaults, 'pPrDefault'), 'pPr'));
-
-  // Engine ids for the paragraph styles: the default one is normal, built-ins by name, the rest by their Word id.
-  const paraIds = new Map<string, string>();
-  const taken = new Set<string>();
   const paragraphStyles = [...raw.values()].filter((s) => s.type === 'paragraph');
-  const def = paragraphStyles.find((s) => onOff(s.el.attrs.default) && s.el.attrs.default !== undefined) ?? paragraphStyles.find((s) => s.id === 'Normal');
-  if (def) {
-    paraIds.set(def.id, NORMAL);
-    taken.add(NORMAL);
-  }
-  for (const s of paragraphStyles) {
-    if (paraIds.has(s.id)) continue;
-    const builtIn = builtInForName(s.name);
-    if (builtIn && !taken.has(builtIn)) {
-      paraIds.set(s.id, builtIn);
-      taken.add(builtIn);
-    }
-  }
-  for (const s of paragraphStyles) {
-    if (paraIds.has(s.id)) continue;
-    let id = s.id;
-    for (let i = 2; taken.has(id) || Object.hasOwn(BUILT_IN_STYLES, id); i++) id = `${s.id}-${i}`;
-    paraIds.set(s.id, id);
-    taken.add(id);
-  }
+  const paraIds = paragraphStyleIds(paragraphStyles);
 
   const styles: Record<string, NamedStyle> = {};
   for (const [id, style] of Object.entries(BUILT_IN_STYLES)) styles[id] = structuredClone(style);
@@ -271,22 +263,7 @@ export function readStyles(root: XmlElement | null, theme: Theme): StyleSheet {
     const id = paraIds.get(s.id)!;
     const para = readParaProps(child(s.el, 'pPr'));
     const text = readRunProps(child(s.el, 'rPr'), theme);
-    const builtIn = BUILT_IN_STYLES[id];
-    const style: NamedStyle = { name: builtIn?.name ?? s.name };
-    if (id === NORMAL) {
-      style.text = { font: 'Times New Roman', size: 10, color: '#000000', ...baseText, ...text };
-      style.para = { lineHeight: 1, spaceBefore: 0, spaceAfter: 0, ...basePara.props, ...para.props };
-    } else {
-      const based = s.basedOn ? paraIds.get(s.basedOn) : undefined;
-      style.basedOn = based && based !== id ? based : NORMAL;
-      if (!isEmptyObject(text)) style.text = text;
-      if (!isEmptyObject(para.props)) style.para = para.props;
-      const outline = builtIn?.outline ?? para.outline;
-      if (outline !== undefined) style.outline = outline;
-    }
-    const next = s.next ? paraIds.get(s.next) : undefined;
-    if (next && next !== id) style.next = next;
-    styles[id] = style;
+    styles[id] = paragraphStyle(s, id, para, text, { paraIds, text: baseText, para: basePara });
     const tabs = para.tabs ?? (id === NORMAL ? basePara.tabs : undefined);
     if (tabs) tabsOf.set(id, tabs);
   }
@@ -302,6 +279,102 @@ export function readStyles(root: XmlElement | null, theme: Theme): StyleSheet {
     if (numPr && numPr.numId !== '0') styleLists.set(paraIds.get(s.id)!, numPr);
   }
 
+  const { charStyles, tableBorders, tablePadding } = characterAndTableStyles(raw, theme);
+  return { styles, paraIds, styleLists, charStyles, tableBorders, tablePadding };
+}
+
+/** The `w:style` elements by Word id (the first of a repeated id wins). */
+function readRawStyles(root: XmlElement | null): Map<string, RawStyle> {
+  const raw = new Map<string, RawStyle>();
+  for (const el of childrenOf(root ?? undefined, 'style')) {
+    const id = el.attrs.styleId;
+    if (!id || raw.has(id)) continue;
+    raw.set(id, {
+      type: el.attrs.type ?? 'paragraph',
+      id,
+      name: child(el, 'name')?.attrs.val ?? id,
+      basedOn: child(el, 'basedOn')?.attrs.val,
+      next: child(el, 'next')?.attrs.val,
+      el,
+    });
+  }
+  return raw;
+}
+
+/** Engine ids for the paragraph styles: the default one is normal, built-ins by name, the rest by their Word id. */
+function paragraphStyleIds(paragraphStyles: RawStyle[]): Map<string, string> {
+  const paraIds = new Map<string, string>();
+  const taken = new Set<string>();
+  const def = paragraphStyles.find((s) => onOff(s.el.attrs.default) && s.el.attrs.default !== undefined) ?? paragraphStyles.find((s) => s.id === 'Normal');
+  if (def) {
+    paraIds.set(def.id, NORMAL);
+    taken.add(NORMAL);
+  }
+  for (const s of paragraphStyles) {
+    if (paraIds.has(s.id)) continue;
+    const builtIn = builtInForName(s.name);
+    if (builtIn && !taken.has(builtIn)) {
+      paraIds.set(s.id, builtIn);
+      taken.add(builtIn);
+    }
+  }
+  for (const s of paragraphStyles) {
+    if (paraIds.has(s.id)) continue;
+    const id = freeStyleId(s.id, taken);
+    paraIds.set(s.id, id);
+    taken.add(id);
+  }
+  return paraIds;
+}
+
+/** `wordId`, or `wordId-2`, `-3`, … when that is taken or a built-in style's id. */
+function freeStyleId(wordId: string, taken: Set<string>): string {
+  let id = wordId;
+  let n = 2;
+  while (taken.has(id) || Object.hasOwn(BUILT_IN_STYLES, id)) {
+    id = `${wordId}-${n}`;
+    n++;
+  }
+  return id;
+}
+
+/** What every paragraph style is read against: the engine ids, and the document defaults. */
+interface StyleBase {
+  paraIds: Map<string, string>;
+  text: TextStyle;
+  para: ParaInfo;
+}
+
+/** A Word paragraph style as the engine style `id`. */
+function paragraphStyle(s: RawStyle, id: string, para: ParaInfo, text: TextStyle, base: StyleBase): NamedStyle {
+  const builtIn = BUILT_IN_STYLES[id];
+  const style: NamedStyle = { name: builtIn?.name ?? s.name };
+  if (id === NORMAL) {
+    style.text = { font: 'Times New Roman', size: 10, color: '#000000', ...base.text, ...text };
+    style.para = { lineHeight: 1, spaceBefore: 0, spaceAfter: 0, ...base.para.props, ...para.props };
+  } else {
+    style.basedOn = otherStyle(base.paraIds, s.basedOn, id) ?? NORMAL;
+    if (!isEmptyObject(text)) style.text = text;
+    if (!isEmptyObject(para.props)) style.para = para.props;
+    const outline = builtIn?.outline ?? para.outline;
+    if (outline !== undefined) style.outline = outline;
+  }
+  const next = otherStyle(base.paraIds, s.next, id);
+  if (next) style.next = next;
+  return style;
+}
+
+/** The engine id of the Word style `wordId` refers to, unless that is the style `self` itself. */
+function otherStyle(paraIds: Map<string, string>, wordId: string | undefined, self: string): string | undefined {
+  const id = wordId ? paraIds.get(wordId) : undefined;
+  return id && id !== self ? id : undefined;
+}
+
+/** Character styles (basedOn chain folded in) and table styles' default border and cell padding. */
+function characterAndTableStyles(
+  raw: Map<string, RawStyle>,
+  theme: Theme,
+): Pick<StyleSheet, 'charStyles' | 'tableBorders' | 'tablePadding'> {
   const charStyles = new Map<string, TextStyle>();
   const tableBorders = new Map<string, BorderLine>();
   const tablePadding = new Map<string, number>();
@@ -317,7 +390,7 @@ export function readStyles(root: XmlElement | null, theme: Theme): StyleSheet {
       if (pad !== undefined) tablePadding.set(s.id, pad);
     }
   }
-  return { styles, paraIds, styleLists, charStyles, tableBorders, tablePadding };
+  return { charStyles, tableBorders, tablePadding };
 }
 
 /** The style and its basedOn ancestors, nearest first (cycles cut). */
@@ -357,17 +430,20 @@ function bulletGlyph(text: string, fontName: string | undefined): { text: string
   const symbolFont = !!fontName && /symbol|wingdings|webdings/i.test(fontName);
   const pua = code >= 0xf000 && code <= 0xf0ff;
   const low = pua ? code - 0xf000 : code;
-  if (pua || symbolFont) {
-    if (low === 0xb7) return { text: '●', remapped: true };
-    if (low === 0xa7 || low === 0x6e) return { text: '■', remapped: true };
-    if (low === 0x6f || low === 0x71) return { text: '○', remapped: true };
-    if (low === 0xd8) return { text: '➢', remapped: true };
-    if (low === 0xfc) return { text: '✓', remapped: true };
-    if (low === 0x76) return { text: '❖', remapped: true };
-    return { text: '●', remapped: true };
-  }
+  if (pua || symbolFont) return { text: symbolBullet(low), remapped: true };
   if (text === 'o' && fontName && /courier/i.test(fontName)) return { text: '○', remapped: true };
   return { text: text || '●', remapped: false };
+}
+
+/** The Unicode character a symbol-font bullet shows, by its code in the font (a filled circle when unknown). */
+function symbolBullet(low: number): string {
+  if (low === 0xb7) return '●';
+  if (low === 0xa7 || low === 0x6e) return '■';
+  if (low === 0x6f || low === 0x71) return '○';
+  if (low === 0xd8) return '➢';
+  if (low === 0xfc) return '✓';
+  if (low === 0x76) return '❖';
+  return '●';
 }
 
 function readLevel(lvl: XmlElement, index: number, theme: Theme): { level: ListLevel; checked: boolean } {
@@ -405,6 +481,32 @@ interface Abstract {
 }
 
 export function readNumbering(root: XmlElement | null, theme: Theme): Numbering {
+  const abstracts = readAbstracts(root);
+  const lists: Record<string, ListDef> = {};
+  const nums = new Map<string, { listId: string; checked: boolean }>();
+  for (const el of childrenOf(root ?? undefined, 'num')) {
+    const numId = el.attrs.numId;
+    const abstractId = child(el, 'abstractNumId')?.attrs.val;
+    if (numId === undefined || abstractId === undefined) continue;
+    const abstract = definitionOf(abstracts, abstractId);
+    if (!abstract) continue;
+    const { levels, starts } = instanceLevels(el, abstract);
+    // Instances of one definition share their counters in Word, unless they restart it.
+    const named = abstract.name?.startsWith('weld:') ? abstract.name.slice(5) : undefined;
+    const checkedName = named?.endsWith(':checked') ?? false;
+    const base = (checkedName ? named!.slice(0, -8) : named) || `list${abstractId}`;
+    const overridden = starts.size > 0 || childrenOf(el, 'lvlOverride').some((o) => child(o, 'lvl'));
+    const listId = overridden ? `${base}-${numId}` : base;
+
+    const read = readLevels(levels, starts, theme);
+    if (!lists[listId]) lists[listId] = fillLevels(read.levels);
+    nums.set(numId, { listId, checked: checkedName || read.checked });
+  }
+  return { lists, nums };
+}
+
+/** The `w:abstractNum` list definitions by id, each with its first level element per level. */
+function readAbstracts(root: XmlElement | null): Map<string, Abstract> {
   const abstracts = new Map<string, Abstract>();
   for (const el of childrenOf(root ?? undefined, 'abstractNum')) {
     const id = el.attrs.abstractNumId;
@@ -421,47 +523,43 @@ export function readNumbering(root: XmlElement | null, theme: Theme): Numbering 
       levels,
     });
   }
-  const lists: Record<string, ListDef> = {};
-  const nums = new Map<string, { listId: string; checked: boolean }>();
-  for (const el of childrenOf(root ?? undefined, 'num')) {
-    const numId = el.attrs.numId;
-    const abstractId = child(el, 'abstractNumId')?.attrs.val;
-    if (numId === undefined || abstractId === undefined) continue;
-    let abstract = abstracts.get(abstractId);
-    if (!abstract) continue;
-    if (abstract.numStyleLink && abstract.levels.size === 0) {
-      abstract = [...abstracts.values()].find((a) => a.styleLink === abstract!.numStyleLink && a.levels.size) ?? abstract;
-    }
-    const levels = new Map(abstract.levels);
-    const starts = new Map<number, number>();
-    for (const o of childrenOf(el, 'lvlOverride')) {
-      const i = num(o.attrs.ilvl) ?? 0;
-      const start = num(child(o, 'startOverride')?.attrs.val);
-      if (start !== undefined) starts.set(i, start);
-      const lvl = child(o, 'lvl');
-      if (lvl) levels.set(i, lvl);
-    }
-    // Instances of one definition share their counters in Word, unless they restart it.
-    const named = abstract.name?.startsWith('weld:') ? abstract.name.slice(5) : undefined;
-    const checkedName = named?.endsWith(':checked') ?? false;
-    const base = (checkedName ? named!.slice(0, -8) : named) || `list${abstractId}`;
-    const overridden = starts.size > 0 || childrenOf(el, 'lvlOverride').some((o) => child(o, 'lvl'));
-    const listId = overridden ? `${base}-${numId}` : base;
+  return abstracts;
+}
 
-    const read: ListLevel[] = [];
-    let checked = checkedName;
-    for (let i = 0; i < LIST_LEVELS; i++) {
-      const lvl = levels.get(i);
-      if (!lvl) continue;
-      const r = readLevel(lvl, i, theme);
-      if (i === 0 && r.checked) checked = true;
-      if (starts.has(i) && r.level.format !== 'bullet' && r.level.format !== 'check') r.level.start = starts.get(i);
-      read[i] = r.level;
-    }
-    if (!lists[listId]) lists[listId] = fillLevels(read);
-    nums.set(numId, { listId, checked });
+/** The definition an instance counts in; one with no levels that links to a list style uses that style's definition. */
+function definitionOf(abstracts: Map<string, Abstract>, abstractId: string): Abstract | undefined {
+  const abstract = abstracts.get(abstractId);
+  if (!abstract?.numStyleLink || abstract.levels.size !== 0) return abstract;
+  return [...abstracts.values()].find((a) => a.styleLink === abstract.numStyleLink && a.levels.size) ?? abstract;
+}
+
+/** An instance's level elements (the definition's, with overridden ones swapped in) and its restarted start numbers. */
+function instanceLevels(el: XmlElement, abstract: Abstract): { levels: Map<number, XmlElement>; starts: Map<number, number> } {
+  const levels = new Map(abstract.levels);
+  const starts = new Map<number, number>();
+  for (const o of childrenOf(el, 'lvlOverride')) {
+    const i = num(o.attrs.ilvl) ?? 0;
+    const start = num(child(o, 'startOverride')?.attrs.val);
+    if (start !== undefined) starts.set(i, start);
+    const lvl = child(o, 'lvl');
+    if (lvl) levels.set(i, lvl);
   }
-  return { lists, nums };
+  return { levels, starts };
+}
+
+/** The levels an instance defines (sparse), and whether its first level is a ticked checkbox. */
+function readLevels(levels: Map<number, XmlElement>, starts: Map<number, number>, theme: Theme): { levels: ListLevel[]; checked: boolean } {
+  const read: ListLevel[] = [];
+  let checked = false;
+  for (let i = 0; i < LIST_LEVELS; i++) {
+    const lvl = levels.get(i);
+    if (!lvl) continue;
+    const r = readLevel(lvl, i, theme);
+    if (i === 0 && r.checked) checked = true;
+    if (starts.has(i) && r.level.format !== 'bullet' && r.level.format !== 'check') r.level.start = starts.get(i);
+    read[i] = r.level;
+  }
+  return { levels: read, checked };
 }
 
 /** Nine levels, the missing ones from the engine's default bullet or numbered list. */

@@ -32,7 +32,7 @@ import { validateStoryContent } from '../../ops/validate';
 import { REL, fromHex, fromTwips, mimeOf, num, onOff, readPageFmt, readSectionStart } from './convert';
 import { StoryReader, type PartInfo, type ReadContext, type Rel } from './read-body';
 import { readNumbering, readStyles, readTheme } from './read-format';
-import { DocxImportError, type DocxImage, type DocxImport, type DocxImportWarning, type ReadDocxOptions } from './types';
+import { DocxImportError, type DocxImage, type DocxImport, type DocxImportErrorCode, type DocxImportWarning, type ReadDocxOptions } from './types';
 
 export async function readDocx(bytes: Uint8Array, options: ReadDocxOptions = {}): Promise<DocxImport> {
   const limits: ZipLimits = {};
@@ -57,17 +57,70 @@ function importError(e: unknown): DocxImportError {
   if (e instanceof DocxImportError) return e;
   if (e instanceof ZipError) {
     if (e.code === 'not_zip') return new DocxImportError('This file is not a Word document', 'not_docx');
-    return new DocxImportError(e.message, e.code === 'too_large' ? 'too_large' : e.code === 'unsupported' ? 'unsupported' : 'corrupt');
+    return new DocxImportError(e.message, zipErrorCode(e.code));
   }
   if (e instanceof XmlError) return new DocxImportError('The document is damaged', 'corrupt');
   throw e;
+}
+
+function zipErrorCode(code: ZipError['code']): DocxImportErrorCode {
+  if (code === 'too_large') return 'too_large';
+  return code === 'unsupported' ? 'unsupported' : 'corrupt';
+}
+
+/** The internal target of the first relationship of a type. */
+function relTarget(rels: Map<string, Rel>, type: string): string | undefined {
+  return [...rels.values()].find((r) => r.type === type && !r.external)?.target;
+}
+
+/** The footnotes or endnotes part the main part points at, with its notes by id. */
+async function readNotes(zip: ZipReader, main: PartInfo, type: string, tag: string): Promise<ReadContext['footnotes']> {
+  const path = relTarget(main.rels, type);
+  const part = path ? await loadPart(zip, path) : null;
+  if (!part) return null;
+  const map = new Map<string, XmlElement>();
+  for (const el of childrenOf(part.root, tag)) if (el.attrs.id !== undefined) map.set(el.attrs.id, el);
+  return { part, notes: map };
+}
+
+/** The header and footer parts, by the relationship id sections refer to them with. */
+async function readHeaderParts(zip: ZipReader, main: PartInfo): Promise<Map<string, PartInfo>> {
+  const headerParts = new Map<string, PartInfo>();
+  for (const [id, rel] of main.rels) {
+    if (rel.external || (rel.type !== REL.header && rel.type !== REL.footer)) continue;
+    const part = await loadPart(zip, rel.target);
+    if (part) headerParts.set(id, part);
+  }
+  return headerParts;
+}
+
+function headerVariant(type: string | undefined): HeaderVariant {
+  if (type === 'first') return 'first';
+  return type === 'even' ? 'even' : 'default';
+}
+
+/** The bytes of the pictures the document uses, in the order they were met. */
+async function readImages(zip: ZipReader, used: ReadContext['images']): Promise<DocxImage[]> {
+  const images: DocxImage[] = [];
+  for (const [path, entry] of used) {
+    const data = await zip.read(path);
+    if (data) images.push({ src: entry.src, bytes: data, mime: mimeOf(entry.name), name: entry.name });
+  }
+  return images;
+}
+
+/** Refuses a document whose stories the engine would not accept. */
+function checkStories(stories: Record<string, StoryContent>): void {
+  for (const [id, story] of Object.entries(stories)) {
+    const err = validateStoryContent(story) ?? (story.text.endsWith(PARA) ? null : 'does not end with a paragraph mark');
+    if (err) throw new DocxImportError(`The document could not be read (${id}: ${err})`, 'corrupt');
+  }
 }
 
 async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<DocxImport> {
   const makeId = options.makeId ?? (() => newId());
   const warnings = new Set<DocxImportWarning>();
   const rootRels = (await readRels(zip, '')) ?? new Map<string, Rel>();
-  const relTarget = (rels: Map<string, Rel>, type: string) => [...rels.values()].find((r) => r.type === type && !r.external)?.target;
   const mainPath = relTarget(rootRels, REL.officeDocument) ?? 'word/document.xml';
   const main = await loadPart(zip, mainPath);
   if (!main || main.root.name !== 'document') throw new DocxImportError('This file is not a Word document', 'not_docx');
@@ -78,22 +131,10 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
   const sheet = readStyles(await readTree(zip, relTarget(main.rels, REL.styles)), theme);
   const numbering = readNumbering(await readTree(zip, relTarget(main.rels, REL.numbering)), theme);
   const settings = await readTree(zip, relTarget(main.rels, REL.settings));
-  const notes = async (type: string, tag: string) => {
-    const path = relTarget(main.rels, type);
-    const part = path ? await loadPart(zip, path) : null;
-    if (!part) return null;
-    const map = new Map<string, XmlElement>();
-    for (const el of childrenOf(part.root, tag)) if (el.attrs.id !== undefined) map.set(el.attrs.id, el);
-    return { part, notes: map };
-  };
-  const headerParts = new Map<string, PartInfo>();
-  for (const [id, rel] of main.rels) {
-    if (rel.external || (rel.type !== REL.header && rel.type !== REL.footer)) continue;
-    const part = await loadPart(zip, rel.target);
-    if (part) headerParts.set(id, part);
-  }
+  const headerParts = await readHeaderParts(zip, main);
 
-  const evenAndOdd = settings ? !!child(settings, 'evenAndOddHeaders') && onOff(child(settings, 'evenAndOddHeaders')!.attrs.val) : false;
+  const evenAndOddEl = child(settings ?? undefined, 'evenAndOddHeaders');
+  const evenAndOdd = !!evenAndOddEl && onOff(evenAndOddEl.attrs.val);
   const stories: Record<string, StoryContent> = {};
   const tables: Record<string, TableData> = {};
   const breaks: { obj: SectionBreakObject; type: SectionStart }[] = [];
@@ -107,8 +148,8 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
     stories,
     tables,
     images: new Map(),
-    footnotes: await notes(REL.footnotes, 'footnote'),
-    endnotes: await notes(REL.endnotes, 'endnote'),
+    footnotes: await readNotes(zip, main, REL.footnotes, 'footnote'),
+    endnotes: await readNotes(zip, main, REL.endnotes, 'endnote'),
     paragraphs: 0,
     anchors: [],
     sectionBreak(sectPr) {
@@ -125,8 +166,7 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
       if (ref.name !== 'headerReference' && ref.name !== 'footerReference') continue;
       const part = ref.attrs.id ? headerParts.get(ref.attrs.id) : undefined;
       if (!part) continue;
-      const variant: HeaderVariant = ref.attrs.type === 'first' ? 'first' : ref.attrs.type === 'even' ? 'even' : 'default';
-      const storyId = headerStoryId(sectionId, ref.name === 'headerReference' ? 'header' : 'footer', variant);
+      const storyId = headerStoryId(sectionId, ref.name === 'headerReference' ? 'header' : 'footer', headerVariant(ref.attrs.type));
       new StoryReader(ctx, part).readStory(storyId, part.root.children);
     }
   }
@@ -146,11 +186,7 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
 
   if (zip.names().some((n) => /^word\/comments/i.test(n))) warnings.add('comments');
 
-  const images: DocxImage[] = [];
-  for (const [path, entry] of ctx.images) {
-    const data = await zip.read(path);
-    if (data) images.push({ src: entry.src, bytes: data, mime: mimeOf(entry.name), name: entry.name });
-  }
+  const images = await readImages(zip, ctx.images);
 
   const tab = fromTwips(child(settings ?? undefined, 'defaultTabStop')?.attrs.w ?? child(settings ?? undefined, 'defaultTabStop')?.attrs.val);
   const raw: DocSnapshot = {
@@ -162,10 +198,7 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
     tables,
     anchors: uniqueAnchors(ctx.anchors),
   };
-  for (const [id, story] of Object.entries(stories)) {
-    const err = validateStoryContent(story) ?? (story.text.endsWith(PARA) ? null : 'does not end with a paragraph mark');
-    if (err) throw new DocxImportError(`The document could not be read (${id}: ${err})`, 'corrupt');
-  }
+  checkStories(stories);
   const out: DocxImport = { snapshot: DocModel.fromSnapshot(raw).toSnapshot(), images, warnings: [...warnings].sort() };
   const title = await readTitle(zip, relTarget(rootRels, REL.coreProps));
   if (title) out.title = title;

@@ -35,12 +35,22 @@ export function parseColor(color: string | undefined): Rgb | null {
     if (m[2] === '00') return null;
     return [0, 2, 4].map((i) => parseInt(m![1]!.slice(i, i + 2), 16) / 255) as Rgb;
   }
-  m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/.exec(c);
+  m = rgbFunction(c);
   if (m) {
     if (m[4] !== undefined && parseFloat(m[4]) === 0) return null;
     return [m[1], m[2], m[3]].map((v) => Math.min(1, Math.max(0, parseFloat(v!) / 255))) as Rgb;
   }
   return NAMED[c] ?? null;
+}
+
+/**
+ * `rgb(r, g, b)` / `rgba(r g b / a)`: red, green and blue in groups 1–3, the
+ * alpha in group 4. Matched in two steps, the call and then its (trimmed)
+ * arguments.
+ */
+function rgbFunction(c: string): RegExpExecArray | null {
+  const call = /^rgba?\(([^)]*)\)$/.exec(c);
+  return call ? /^([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?$/.exec(call[1]!.trim()) : null;
 }
 
 /** Bézier handle length for a quarter circle. */

@@ -10,7 +10,7 @@
 import { attrs, esc, XML_HEADER } from '@weldsuite/zip-xml';
 import { NORMAL } from '../../model/defaults';
 import { resolveParagraph } from '../../model/resolve';
-import type { BorderLine, ListDef, NamedStyle, ParaBorders, ParaProps, TabStop, TextStyle } from '../../model/styles';
+import type { BorderLine, ListDef, ListLevel, NamedStyle, ParaBorders, ParaProps, TabStop, TextStyle } from '../../model/styles';
 import { BUILT_IN_WORD_STYLES, NS, borderAttrs, halfPoints, hex, highlightName, numFmt, twips } from './convert';
 
 /** What writing paragraph properties needs to know about the document. */
@@ -33,11 +33,7 @@ function toggle(name: string, on: boolean): string {
 export function rPrBody(s: TextStyle): string {
   let out = '';
   if (s.font) out += `<w:rFonts${attrs({ 'w:ascii': s.font, 'w:hAnsi': s.font, 'w:eastAsia': s.font, 'w:cs': s.font })}/>`;
-  if (s.bold !== undefined) out += toggle('b', s.bold) + toggle('bCs', s.bold);
-  if (s.italic !== undefined) out += toggle('i', s.italic) + toggle('iCs', s.italic);
-  if (s.allCaps !== undefined) out += toggle('caps', s.allCaps);
-  if (s.smallCaps !== undefined) out += toggle('smallCaps', s.smallCaps);
-  if (s.strike !== undefined) out += toggle('strike', s.strike);
+  out += runToggles(s);
   if (s.color) out += `<w:color w:val="${hex(s.color)}"/>`;
   if (s.spacing) out += `<w:spacing w:val="${twips(s.spacing)}"/>`;
   if (s.size) out += `<w:sz w:val="${halfPoints(s.size)}"/><w:szCs w:val="${halfPoints(s.size)}"/>`;
@@ -46,6 +42,17 @@ export function rPrBody(s: TextStyle): string {
   if (s.underline !== undefined) out += `<w:u w:val="${s.underline ? 'single' : 'none'}"/>`;
   if (s.highlight && !named) out += `<w:shd w:val="clear" w:color="auto" w:fill="${hex(s.highlight)}"/>`;
   if (s.script) out += `<w:vertAlign w:val="${s.script === 'super' ? 'superscript' : 'subscript'}"/>`;
+  return out;
+}
+
+/** Bold, italic, caps, small caps and strike, each written when set either way. */
+function runToggles(s: TextStyle): string {
+  let out = '';
+  if (s.bold !== undefined) out += toggle('b', s.bold) + toggle('bCs', s.bold);
+  if (s.italic !== undefined) out += toggle('i', s.italic) + toggle('iCs', s.italic);
+  if (s.allCaps !== undefined) out += toggle('caps', s.allCaps);
+  if (s.smallCaps !== undefined) out += toggle('smallCaps', s.smallCaps);
+  if (s.strike !== undefined) out += toggle('strike', s.strike);
   return out;
 }
 
@@ -173,7 +180,11 @@ export function wordStyleIds(styles: Record<string, NamedStyle>): Map<string, st
     if (out.has(id)) continue;
     const base = id.replace(/[^A-Za-z0-9]/g, '') || 'Style';
     let wid = base;
-    for (let i = 2; used.has(wid); i++) wid = `${base}${i}`;
+    let n = 2;
+    while (used.has(wid)) {
+      wid = `${base}${n}`;
+      n++;
+    }
     used.add(wid);
     out.set(id, wid);
   }
@@ -182,34 +193,44 @@ export function wordStyleIds(styles: Record<string, NamedStyle>): Map<string, st
 
 export function stylesXml(ctx: FormatContext): string {
   let body = '<w:docDefaults><w:rPrDefault><w:rPr><w:lang w:val="en-US" w:eastAsia="en-US" w:bidi="ar-SA"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr/></w:pPrDefault></w:docDefaults>';
-  const ids = Object.keys(ctx.styles).sort((a, b) => (a === NORMAL ? -1 : b === NORMAL ? 1 : a < b ? -1 : 1));
-  for (const id of ids) {
-    const style = ctx.styles[id]!;
-    const wid = ctx.styleIds.get(id)!;
-    const builtIn = BUILT_IN_WORD_STYLES[id];
-    const name = builtIn?.name ?? style.name;
-    let s = `<w:style${attrs({ 'w:type': 'paragraph', 'w:default': id === NORMAL ? '1' : undefined, 'w:styleId': wid })}>`;
-    s += `<w:name w:val="${esc(name)}"/>`;
-    if (id !== NORMAL) {
-      const based = style.basedOn && ctx.styleIds.get(style.basedOn);
-      s += `<w:basedOn w:val="${based || 'Normal'}"/>`;
-    }
-    const next = style.next && ctx.styleIds.get(style.next);
-    if (next) s += `<w:next w:val="${next}"/>`;
-    s += '<w:qFormat/>';
-    const para: ParaFormat = { ...style.para };
-    if (id === NORMAL && para.widowControl === undefined) para.widowControl = true;
-    let pPr = flowFlags(para) + paraBody(para, para.tabs?.length ? (resolveParagraph(ctx, { style: id }).indentLeft ?? 0) : 0, para.borders);
-    if (style.outline && style.outline >= 1 && style.outline <= 9) pPr += `<w:outlineLvl w:val="${style.outline - 1}"/>`;
-    if (pPr) s += `<w:pPr>${pPr}</w:pPr>`;
-    s += rPrXml(style.text ?? {});
-    body += `${s}</w:style>`;
-  }
+  const ids = Object.keys(ctx.styles).sort(normalFirst);
+  for (const id of ids) body += styleXml(ctx, id);
   body +=
     '<w:style w:type="character" w:default="1" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style>' +
     '<w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style>' +
     '<w:style w:type="numbering" w:default="1" w:styleId="NoList"><w:name w:val="No List"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/></w:style>';
   return `${XML_HEADER}<w:styles xmlns:w="${NS.w}">${body}</w:styles>`;
+}
+
+/** Style ids in the order they are written: normal first, then by id. */
+function normalFirst(a: string, b: string): number {
+  if (a === NORMAL) return -1;
+  if (b === NORMAL) return 1;
+  return a < b ? -1 : 1;
+}
+
+/** One paragraph style's `w:style`. */
+function styleXml(ctx: FormatContext, id: string): string {
+  const style = ctx.styles[id]!;
+  const wid = ctx.styleIds.get(id)!;
+  const builtIn = BUILT_IN_WORD_STYLES[id];
+  const name = builtIn?.name ?? style.name;
+  let s = `<w:style${attrs({ 'w:type': 'paragraph', 'w:default': id === NORMAL ? '1' : undefined, 'w:styleId': wid })}>`;
+  s += `<w:name w:val="${esc(name)}"/>`;
+  if (id !== NORMAL) {
+    const based = style.basedOn && ctx.styleIds.get(style.basedOn);
+    s += `<w:basedOn w:val="${based || 'Normal'}"/>`;
+  }
+  const next = style.next && ctx.styleIds.get(style.next);
+  if (next) s += `<w:next w:val="${next}"/>`;
+  s += '<w:qFormat/>';
+  const para: ParaFormat = { ...style.para };
+  if (id === NORMAL && para.widowControl === undefined) para.widowControl = true;
+  let pPr = flowFlags(para) + paraBody(para, para.tabs?.length ? (resolveParagraph(ctx, { style: id }).indentLeft ?? 0) : 0, para.borders);
+  if (style.outline && style.outline >= 1 && style.outline <= 9) pPr += `<w:outlineLvl w:val="${style.outline - 1}"/>`;
+  if (pPr) s += `<w:pPr>${pPr}</w:pPr>`;
+  s += rPrXml(style.text ?? {});
+  return `${s}</w:style>`;
 }
 
 // ---------------------------------------------------------------- numbering part
@@ -226,10 +247,15 @@ export function numberingIds(lists: Record<string, ListDef>): Map<string, { numI
   return out;
 }
 
+/** A level's `w:lvlText`: the ticked or empty box for a checklist, nothing for an unnumbered level. */
+function levelText(level: ListLevel, checked: boolean): string {
+  if (level.format === 'check') return checked ? '☑' : '☐';
+  return level.format === 'none' ? '' : level.text;
+}
+
 function levelXml(def: ListDef, i: number, checked: boolean): string {
   const level = def.levels[i]!;
-  const isCheck = level.format === 'check';
-  const text = isCheck ? (checked ? '☑' : '☐') : level.format === 'none' ? '' : level.text;
+  const text = levelText(level, checked);
   let out = `<w:lvl w:ilvl="${i}">`;
   out += `<w:start w:val="${level.start ?? 1}"/>`;
   out += `<w:numFmt w:val="${numFmt(level.format)}"/>`;
@@ -250,7 +276,8 @@ export function numberingXml(lists: Record<string, ListDef>, ids: Map<string, { 
     for (const [numId, checked] of variants) {
       const abstractId = numId - 1;
       let a = `<w:abstractNum w:abstractNumId="${abstractId}"><w:multiLevelType w:val="hybridMultilevel"/>`;
-      a += `<w:name w:val="${esc(`weld:${id}${checked ? ':checked' : ''}`)}"/>`;
+      const name = `weld:${id}${checked ? ':checked' : ''}`;
+      a += `<w:name w:val="${esc(name)}"/>`;
       for (let i = 0; i < Math.min(9, def.levels.length); i++) a += levelXml(def, i, checked);
       abstracts += `${a}</w:abstractNum>`;
       nums += `<w:num w:numId="${numId}"><w:abstractNumId w:val="${abstractId}"/></w:num>`;

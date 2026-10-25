@@ -42,8 +42,8 @@ export function parseTrueType(bytes: Uint8Array): TrueTypeFont | null {
   }
 }
 
-function parse(bytes: Uint8Array): TrueTypeFont | null {
-  const r = new ByteReader(bytes);
+/** The table directory of the font (the first one in a collection); null when it is not TrueType. */
+function readTables(r: ByteReader): Map<string, Uint8Array> | null {
   let base = 0;
   if (r.tag(0) === 'ttcf') base = r.u32(12);
   const version = r.u32(base);
@@ -56,6 +56,42 @@ function parse(bytes: Uint8Array): TrueTypeFont | null {
     const length = r.u32(rec + 12);
     tables.set(r.tag(rec), r.slice(offset, offset + length));
   }
+  return tables;
+}
+
+/** Vertical metrics, weight and slant from head and hhea, refined by OS/2 when the font has it. */
+function styleMetrics(
+  head: ByteReader,
+  hhea: ByteReader,
+  os2Data: Uint8Array | undefined,
+): { ascent: number; descent: number; capHeight: number; weight: number; italic: boolean } {
+  const macStyle = head.u16(44);
+  const ascent = hhea.i16(4);
+  const m = { ascent, descent: hhea.i16(6), capHeight: Math.round(ascent * 0.7), weight: macStyle & 1 ? 700 : 400, italic: (macStyle & 2) !== 0 };
+  if (!os2Data || os2Data.length < 78) return m;
+  const os2 = new ByteReader(os2Data);
+  m.weight = os2.u16(4) || m.weight;
+  const fsSelection = os2.u16(62);
+  if (fsSelection & 1) m.italic = true;
+  // Typo metrics when the font says to use them (USE_TYPO_METRICS), else hhea.
+  if (fsSelection & 0x80) {
+    m.ascent = os2.i16(68);
+    m.descent = os2.i16(70);
+  }
+  if (os2.u16(0) >= 2 && os2Data.length >= 90) m.capHeight = os2.i16(88) || m.capHeight;
+  return m;
+}
+
+/** Italic angle and fixed pitch from the post table, when the font has one. */
+function postInfo(postData: Uint8Array | undefined): { italicAngle: number; fixedPitch: boolean } {
+  if (!postData || postData.length < 16) return { italicAngle: 0, fixedPitch: false };
+  const post = new ByteReader(postData);
+  return { italicAngle: post.i32(4) / 65536, fixedPitch: post.u32(12) !== 0 };
+}
+
+function parse(bytes: Uint8Array): TrueTypeFont | null {
+  const tables = readTables(new ByteReader(bytes));
+  if (!tables) return null;
   const need = (tag: string): ByteReader => {
     const t = tables.get(tag);
     if (!t) throw new Error(`Missing ${tag} table`);
@@ -70,7 +106,6 @@ function parse(bytes: Uint8Array): TrueTypeFont | null {
   const cmap = need('cmap');
   const unitsPerEm = head.u16(18) || 1000;
   const bbox: [number, number, number, number] = [head.i16(36), head.i16(38), head.i16(40), head.i16(42)];
-  const macStyle = head.u16(44);
   const longLoca = head.i16(50) === 1;
   const numGlyphs = maxp.u16(4);
   const numHMetrics = Math.max(1, Math.min(hhea.u16(34), numGlyphs));
@@ -78,33 +113,8 @@ function parse(bytes: Uint8Array): TrueTypeFont | null {
   const offsets = new Uint32Array(numGlyphs + 1);
   for (let g = 0; g <= numGlyphs; g++) offsets[g] = longLoca ? loca.u32(g * 4) : loca.u16(g * 2) * 2;
 
-  let ascent = hhea.i16(4);
-  let descent = hhea.i16(6);
-  let capHeight = Math.round(ascent * 0.7);
-  let weight = macStyle & 1 ? 700 : 400;
-  let italic = (macStyle & 2) !== 0;
-  const os2Data = tables.get('OS/2');
-  if (os2Data && os2Data.length >= 78) {
-    const os2 = new ByteReader(os2Data);
-    weight = os2.u16(4) || weight;
-    const fsSelection = os2.u16(62);
-    if (fsSelection & 1) italic = true;
-    // Typo metrics when the font says to use them (USE_TYPO_METRICS), else hhea.
-    if (fsSelection & 0x80) {
-      ascent = os2.i16(68);
-      descent = os2.i16(70);
-    }
-    if (os2.u16(0) >= 2 && os2Data.length >= 90) capHeight = os2.i16(88) || capHeight;
-  }
-
-  let italicAngle = 0;
-  let fixedPitch = false;
-  const postData = tables.get('post');
-  if (postData && postData.length >= 16) {
-    const post = new ByteReader(postData);
-    italicAngle = post.i32(4) / 65536;
-    fixedPitch = post.u32(12) !== 0;
-  }
+  const { ascent, descent, capHeight, weight, italic } = styleMetrics(head, hhea, tables.get('OS/2'));
+  const { italicAngle, fixedPitch } = postInfo(tables.get('post'));
 
   const names = readNames(tables.get('name'));
   const lookup = cmapLookup(cmap);
@@ -249,17 +259,26 @@ function readNames(data: Uint8Array | undefined): { family: string; postScript: 
       const platform = r.u16(rec);
       const id = r.u16(rec + 6);
       if (id !== 1 && id !== 6) continue;
-      const len = r.u16(rec + 8);
-      const off = strings + r.u16(rec + 10);
-      let s = '';
-      if (platform === 3 || platform === 0) for (let k = 0; k + 1 < len; k += 2) s += String.fromCharCode(r.u16(off + k));
-      else if (platform === 1) for (let k = 0; k < len; k++) s += String.fromCharCode(r.u8(off + k));
-      else continue;
-      if (id === 1 && (!out.family || platform === 3)) out.family = s;
-      if (id === 6 && (!out.postScript || platform === 3)) out.postScript = s.replace(/[^\x21-\x7e]|[[\](){}<>/%#]/g, '');
+      const s = nameString(r, platform, strings + r.u16(rec + 10), r.u16(rec + 8));
+      if (s !== null) keepName(out, id, platform, s);
     }
   } catch {
     // A broken name table only costs the font its name.
   }
   return out;
+}
+
+/** A name record's string: UTF-16BE on Unicode and Windows, single bytes on Mac; null for other platforms. */
+function nameString(r: ByteReader, platform: number, off: number, len: number): string | null {
+  let s = '';
+  if (platform === 3 || platform === 0) for (let k = 0; k + 1 < len; k += 2) s += String.fromCharCode(r.u16(off + k));
+  else if (platform === 1) for (let k = 0; k < len; k++) s += String.fromCharCode(r.u8(off + k));
+  else return null;
+  return s;
+}
+
+/** Takes a family (1) or PostScript (6) name, the Windows one over any other. */
+function keepName(out: { family: string; postScript: string }, id: number, platform: number, s: string): void {
+  if (id === 1 && (!out.family || platform === 3)) out.family = s;
+  if (id === 6 && (!out.postScript || platform === 3)) out.postScript = s.replace(/[^\x21-\x7e]|[[\](){}<>/%#]/g, '');
 }
