@@ -8,7 +8,7 @@
 
 import { DEFAULT_CELL_PADDING, cellHeight, cellContentOffset } from './table';
 import type { DocLayout } from './document-layout';
-import type { CellLayout, LineLayout, PageArea, PageLayout, ParagraphLayout, RunStyle, TableLayout } from './types';
+import type { CellLayout, LineLayout, PageArea, PageLayout, ParagraphLayout, PlacedItem, RunLayout, RunStyle, TableLayout } from './types';
 import type { BorderLine } from '../model/styles';
 import type { ImageObject } from '../model/objects';
 
@@ -47,30 +47,34 @@ const DEFAULT_BORDER: BorderLine = { width: 0.75, color: '#000000' };
 export function pageDisplay(dl: DocLayout, page: PageLayout, options: DisplayOptions = {}): DisplayItem[] {
   const out: DisplayItem[] = [];
   const ctx: Ctx = { dl, page, out, options, pages: dl.pages.length };
-  const areas: PageArea[] = [...page.columns];
-  if (page.header) areas.push(page.header);
-  if (page.footer) areas.push(page.footer);
-  if (page.footnotes) {
-    areas.push(page.footnotes);
-    const f = page.footnotes;
-    out.push({ kind: 'line', x1: f.x, y1: f.y + 6, x2: f.x + Math.min(144, f.width / 3), y2: f.y + 6, width: 0.5, color: '#000000' });
-  }
-  for (const area of areas) {
-    for (const item of area.items) {
-      const layout = item.entry.layout;
-      if (!layout) continue;
-      const block = layout.blocks[item.block];
-      if (!block) continue;
-      if (block.kind === 'lines') {
-        drawLines(ctx, item.story, item.entry.start, layout, block.lines, item.from, item.to, item.x, item.y, item.width);
-      } else {
-        const rows = item.kind === 'rows' ? [...item.repeat] : [];
-        for (let r = item.from; r < item.to; r++) rows.push(r);
-        drawTable(ctx, block.table, rows, item.x, item.y);
-      }
-    }
+  const f = page.footnotes;
+  // The short rule above the footnotes.
+  if (f) out.push({ kind: 'line', x1: f.x, y1: f.y + 6, x2: f.x + Math.min(144, f.width / 3), y2: f.y + 6, width: 0.5, color: '#000000' });
+  for (const area of pageAreas(page)) {
+    for (const item of area.items) drawPlaced(ctx, item);
   }
   return out;
+}
+
+/** The page's columns, then its header, footer and footnotes (those it has). */
+function pageAreas(page: PageLayout): PageArea[] {
+  const areas: PageArea[] = [...page.columns];
+  for (const area of [page.header, page.footer, page.footnotes]) if (area) areas.push(area);
+  return areas;
+}
+
+/** One placed block: lines of a paragraph, or rows of a table (with its repeated header rows). */
+function drawPlaced(ctx: Ctx, item: PlacedItem): void {
+  const layout = item.entry.layout;
+  const block = layout?.blocks[item.block];
+  if (!layout || !block) return;
+  if (block.kind === 'lines') {
+    drawLines(ctx, item.story, item.entry.start, layout, block.lines, item.from, item.to, item.x, item.y, item.width);
+    return;
+  }
+  const rows = item.kind === 'rows' ? [...item.repeat] : [];
+  for (let r = item.from; r < item.to; r++) rows.push(r);
+  drawTable(ctx, block.table, rows, item.x, item.y);
 }
 
 interface Ctx {
@@ -115,53 +119,82 @@ function drawLines(
 }
 
 function drawLine(ctx: Ctx, story: string, paraStart: number, line: LineLayout, x: number, top: number, areaWidth: number): void {
-  const { dl, out } = ctx;
   const baseline = top + line.ascent;
   if (line.rule) {
     const y = top + line.height / 2;
-    out.push({ kind: 'line', x1: x, y1: y, x2: x + areaWidth, y2: y, width: 1, color: '#a0a0a0' });
+    ctx.out.push({ kind: 'line', x1: x, y1: y, x2: x + areaWidth, y2: y, width: 1, color: '#a0a0a0' });
   }
-  if (line.marker) {
-    const m = line.marker;
-    const metrics = dl.measurer.metrics(m.style.font);
-    if (m.text === '☐' || m.text === '☑') {
-      const size = m.style.font.size * 0.9;
-      out.push({ kind: 'checkbox', x: x + m.x, y: baseline - size * 0.85, size, checked: m.text === '☑', color: m.style.color });
-    } else {
-      out.push({ kind: 'text', x: x + m.x, baseline, text: m.text, style: m.style, width: m.width, ascent: metrics.ascent, descent: metrics.descent, story, start: paraStart + line.start, end: paraStart + line.start });
-    }
-  }
+  if (line.marker) drawMarker(ctx, line.marker, x, baseline, { story, start: paraStart + line.start, end: paraStart + line.start });
   for (const run of line.runs) {
-    const rx = x + line.x + run.x;
-    const style = run.style;
-    const metrics = dl.measurer.metrics(style.font);
-    const shift = style.baselineShift ?? 0;
-    const bl = baseline - shift;
-    if (run.kind === 'text' && run.text) {
-      if (style.highlight) out.push({ kind: 'rect', x: rx, y: bl - metrics.ascent, width: run.width, height: metrics.ascent + metrics.descent, fill: style.highlight });
-      const item: DisplayItem = { kind: 'text', x: rx, baseline: bl, text: run.text, style, width: run.width, ascent: metrics.ascent, descent: metrics.descent, story, start: paraStart + run.start, end: paraStart + run.end };
-      if (run.wordSpacing) item.wordSpacing = run.wordSpacing;
-      out.push(item);
-    } else if (run.kind === 'tab' && run.leader && run.leader !== 'none' && run.width > 0) {
-      const ch = run.leader === 'dot' ? '.' : run.leader === 'hyphen' ? '-' : '_';
-      const w = dl.measurer.measure(ch, style.font) || 1;
-      const n = Math.max(0, Math.floor((run.width - w) / w));
-      if (n) out.push({ kind: 'text', x: rx + (run.width - n * w), baseline: bl, text: ch.repeat(n), style: { ...style, underline: false, strike: false }, width: n * w, ascent: metrics.ascent, descent: metrics.descent, story, start: paraStart + run.start, end: paraStart + run.end });
-    } else if (run.kind === 'object' && run.object) {
-      const obj = run.object;
-      if (obj.kind === 'image') {
-        out.push({ kind: 'image', x: rx, y: baseline - obj.height, width: obj.width, height: obj.height, image: obj });
-      } else if (run.text !== undefined) {
-        let text = run.text;
-        if (obj.kind === 'field') text = fieldText(ctx, obj.field, obj.format);
-        if (obj.kind === 'chip') {
-          out.push({ kind: 'rect', x: rx, y: bl - metrics.ascent - 1, width: run.width, height: metrics.ascent + metrics.descent + 2, fill: '#e8eaed', radius: (metrics.ascent + metrics.descent) / 2 });
-        }
-        const pad = obj.kind === 'chip' ? 6 : 0;
-        out.push({ kind: 'text', x: rx + pad, baseline: bl, text, style, width: run.width - 2 * pad, ascent: metrics.ascent, descent: metrics.descent, story, start: paraStart + run.start, end: paraStart + run.end });
-      }
-    }
+    const pos: RunPlace = { story, start: paraStart + run.start, end: paraStart + run.end };
+    drawRun(ctx, run, x + line.x + run.x, baseline, pos);
   }
+}
+
+/** The story and document positions a drawn run stands for. */
+interface RunPlace {
+  story: string;
+  start: number;
+  end: number;
+}
+
+/** Tab leader characters. */
+const LEADER_CHARS: Record<string, string> = { dot: '.', hyphen: '-' };
+
+/** A list marker: a tick box for a checklist, else its text (bullet or number). */
+function drawMarker(ctx: Ctx, m: NonNullable<LineLayout['marker']>, x: number, baseline: number, place: RunPlace): void {
+  if (m.text === '☐' || m.text === '☑') {
+    const size = m.style.font.size * 0.9;
+    ctx.out.push({ kind: 'checkbox', x: x + m.x, y: baseline - size * 0.85, size, checked: m.text === '☑', color: m.style.color });
+    return;
+  }
+  const metrics = ctx.dl.measurer.metrics(m.style.font);
+  ctx.out.push({ kind: 'text', x: x + m.x, baseline, text: m.text, style: m.style, width: m.width, ascent: metrics.ascent, descent: metrics.descent, ...place });
+}
+
+/** One run of a line at `rx`: text (with its highlight), a tab's leader, or an object. */
+function drawRun(ctx: Ctx, run: RunLayout, rx: number, baseline: number, place: RunPlace): void {
+  const bl = baseline - (run.style.baselineShift ?? 0);
+  if (run.kind === 'text' && run.text) drawTextRun(ctx, run, run.text, rx, bl, place);
+  else if (run.kind === 'tab' && run.leader && run.leader !== 'none' && run.width > 0) drawLeader(ctx, run, LEADER_CHARS[run.leader] ?? '_', rx, bl, place);
+  else if (run.kind === 'object' && run.object) drawObject(ctx, run, run.object, rx, baseline, bl, place);
+}
+
+function drawTextRun(ctx: Ctx, run: RunLayout, text: string, rx: number, bl: number, place: RunPlace): void {
+  const style = run.style;
+  const metrics = ctx.dl.measurer.metrics(style.font);
+  if (style.highlight) ctx.out.push({ kind: 'rect', x: rx, y: bl - metrics.ascent, width: run.width, height: metrics.ascent + metrics.descent, fill: style.highlight });
+  const item: DisplayItem = { kind: 'text', x: rx, baseline: bl, text, style, width: run.width, ascent: metrics.ascent, descent: metrics.descent, ...place };
+  if (run.wordSpacing) item.wordSpacing = run.wordSpacing;
+  ctx.out.push(item);
+}
+
+/** A tab leader: as many dots (hyphens, underscores) as fit, flush right. */
+function drawLeader(ctx: Ctx, run: RunLayout, ch: string, rx: number, bl: number, place: RunPlace): void {
+  const style = run.style;
+  const metrics = ctx.dl.measurer.metrics(style.font);
+  const w = ctx.dl.measurer.measure(ch, style.font) || 1;
+  const n = Math.max(0, Math.floor((run.width - w) / w));
+  if (!n) return;
+  ctx.out.push({ kind: 'text', x: rx + (run.width - n * w), baseline: bl, text: ch.repeat(n), style: { ...style, underline: false, strike: false }, width: n * w, ascent: metrics.ascent, descent: metrics.descent, ...place });
+}
+
+/** An inline object: an image, or a field or chip drawn as text (a chip on its grey pill). */
+function drawObject(ctx: Ctx, run: RunLayout, obj: NonNullable<RunLayout['object']>, rx: number, baseline: number, bl: number, place: RunPlace): void {
+  if (obj.kind === 'image') {
+    ctx.out.push({ kind: 'image', x: rx, y: baseline - obj.height, width: obj.width, height: obj.height, image: obj });
+    return;
+  }
+  if (run.text === undefined) return;
+  const style = run.style;
+  const metrics = ctx.dl.measurer.metrics(style.font);
+  const text = obj.kind === 'field' ? fieldText(ctx, obj.field, obj.format) : run.text;
+  const chip = obj.kind === 'chip';
+  if (chip) {
+    ctx.out.push({ kind: 'rect', x: rx, y: bl - metrics.ascent - 1, width: run.width, height: metrics.ascent + metrics.descent + 2, fill: '#e8eaed', radius: (metrics.ascent + metrics.descent) / 2 });
+  }
+  const pad = chip ? 6 : 0;
+  ctx.out.push({ kind: 'text', x: rx + pad, baseline: bl, text, style, width: run.width - 2 * pad, ascent: metrics.ascent, descent: metrics.descent, ...place });
 }
 
 function fieldText(ctx: Ctx, field: string, format: string | undefined): string {
@@ -196,16 +229,21 @@ function drawTable(ctx: Ctx, table: TableLayout, rows: number[], x: number, y: n
     const row = table.rows[r]!;
     // Cells anchored here, plus merged cells from earlier rows when this row starts a page.
     const cells: { cell: CellLayout; top: number }[] = row.cells.map((cell) => ({ cell, top: ry }));
-    if (r === rows[0]) {
-      for (let k = 0; k < r; k++) {
-        for (const cell of table.rows[k]!.cells) {
-          if (k + cell.rowSpan > r) cells.push({ cell, top: ry - rowsBetween(table, k, r) });
-        }
-      }
-    }
+    if (r === rows[0]) cells.push(...mergedFromAbove(table, r, ry));
     for (const { cell, top } of cells) drawCell(ctx, table, cell, tx, top, defaultBorder, rows);
     ry += row.height;
   }
+}
+
+/** Cells of rows above `r` that are merged down into it, with where their top would be. */
+function mergedFromAbove(table: TableLayout, r: number, ry: number): { cell: CellLayout; top: number }[] {
+  const out: { cell: CellLayout; top: number }[] = [];
+  for (let k = 0; k < r; k++) {
+    for (const cell of table.rows[k]!.cells) {
+      if (k + cell.rowSpan > r) out.push({ cell, top: ry - rowsBetween(table, k, r) });
+    }
+  }
+  return out;
 }
 
 function rowsBetween(table: TableLayout, from: number, to: number): number {

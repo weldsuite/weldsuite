@@ -265,7 +265,7 @@ describe('geometry', () => {
     const first = bodyLines(dl)[0]!.line;
     expect(lineBounds(dl, BODY, 3)).toEqual({ start: 0, end: first.end });
     const rects = selectionRects(dl, BODY, 5, doc.body.length - 5);
-    expect(rects.length).toBe(bodyLines(dl).filter((l) => l.start === 0).length);
+    expect(rects).toHaveLength(bodyLines(dl).filter((l) => l.start === 0).length);
   });
 });
 
@@ -309,6 +309,19 @@ describe('review fixes', () => {
     const dl = layoutOf(doc);
     expect(dl.pages).toHaveLength(1);
     expect(Number.isFinite(dl.pages[0]!.height)).toBe(true);
+  });
+
+  it('moves what follows a table row taller than a page below that row', () => {
+    const b = new ContentBuilder();
+    b.addTable([[{ content: { text: `${Array.from({ length: 40 }, () => LOREM).join(' ')}${PARA}` } }]], { widths: [200] });
+    b.endParagraph();
+    b.addText('After').endParagraph();
+    const dl = layoutOf(docOf(b.build()));
+    const placed = dl.pages.flatMap((p) => p.columns[0]!.items.map((item) => ({ page: p.index, item })));
+    const row = placed.find((x) => x.item.kind === 'rows')!;
+    const after = placed[placed.length - 1]!;
+    expect(after.item.kind).toBe('lines');
+    expect(after.page).toBeGreaterThan(row.page);
   });
 
   it('keeps carets in step in all caps when a capital is longer (ß)', () => {

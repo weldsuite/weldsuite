@@ -15,8 +15,12 @@ let words: Segmenter | null | undefined;
 function segmenter(granularity: 'grapheme' | 'word'): Segmenter | null {
   const Ctor = (Intl as unknown as { Segmenter?: new (locale?: string, options?: { granularity: string }) => Segmenter }).Segmenter;
   if (!Ctor) return null;
-  if (granularity === 'grapheme') return (graphemes ??= new Ctor(undefined, { granularity }));
-  return (words ??= new Ctor(undefined, { granularity }));
+  if (granularity === 'grapheme') {
+    graphemes ??= new Ctor(undefined, { granularity });
+    return graphemes;
+  }
+  words ??= new Ctor(undefined, { granularity });
+  return words;
 }
 
 /** How far context reaches around a position when finding boundaries. */
@@ -31,25 +35,38 @@ export function nextGrapheme(story: Story, pos: number, dir: 1 | -1): number {
   const text = story.text(from, to);
   const seg = segmenter('grapheme');
   const local = pos - from;
-  if (!seg) {
-    // Code points, at least: never split a surrogate pair.
-    if (dir > 0) {
-      const c = text.charCodeAt(local);
-      return pos + (c >= 0xd800 && c <= 0xdbff ? 2 : 1);
-    }
-    const c = text.charCodeAt(local - 1);
-    return pos - (c >= 0xdc00 && c <= 0xdfff ? 2 : 1);
+  // Without a segmenter, code points at least: never split a surrogate pair.
+  if (!seg) return pos + dir * codePointLength(text, local, dir);
+  return from + (dir > 0 ? graphemeEndAfter(seg, text, local) : graphemeStartBefore(seg, text, local));
+}
+
+/** Length of the code point after (dir 1) or before (dir -1) offset `local`: 2 for a surrogate pair. */
+function codePointLength(text: string, local: number, dir: 1 | -1): number {
+  if (dir > 0) {
+    const c = text.charCodeAt(local);
+    return c >= 0xd800 && c <= 0xdbff ? 2 : 1;
   }
-  let before = 0;
+  const c = text.charCodeAt(local - 1);
+  return c >= 0xdc00 && c <= 0xdfff ? 2 : 1;
+}
+
+/** End of the grapheme holding offset `local` (the text's end when there is none). */
+function graphemeEndAfter(seg: Segmenter, text: string, local: number): number {
   for (const s of seg.segment(text)) {
     const end = s.index + s.segment.length;
-    if (dir > 0 && end > local) return from + end;
-    if (dir < 0) {
-      if (s.index >= local) break;
-      before = s.index;
-    }
+    if (end > local) return end;
   }
-  return dir > 0 ? to : from + before;
+  return text.length;
+}
+
+/** Start of the last grapheme before offset `local`. */
+function graphemeStartBefore(seg: Segmenter, text: string, local: number): number {
+  let before = 0;
+  for (const s of seg.segment(text)) {
+    if (s.index >= local) break;
+    before = s.index;
+  }
+  return before;
 }
 
 /**
@@ -84,14 +101,8 @@ export function wordAt(story: Story, pos: number): { from: number; to: number } 
   const text = story.text(from, to);
   const seg = segmenter('word');
   const local = pos - from;
-  if (seg) {
-    for (const s of seg.segment(text)) {
-      if (s.index <= local && local < s.index + s.segment.length) {
-        if (s.segment === PARA) break;
-        return { from: from + s.index, to: from + s.index + s.segment.length };
-      }
-    }
-  }
+  const segment = seg ? segmentAt(seg, text, local) : null;
+  if (segment) return { from: from + segment.from, to: from + segment.to };
   const isWordChar = (ch: string | undefined) => !!ch && /[\p{L}\p{N}\p{M}_]/u.test(ch);
   let a = local;
   let b = local;
@@ -99,6 +110,15 @@ export function wordAt(story: Story, pos: number): { from: number; to: number } 
   while (b < text.length && isWordChar(text[b])) b++;
   if (a === b) return { from: pos, to: Math.min(pos + 1, story.length - 1) };
   return { from: from + a, to: from + b };
+}
+
+/** The segment holding offset `local`, unless it is a paragraph mark. */
+function segmentAt(seg: Segmenter, text: string, local: number): { from: number; to: number } | null {
+  for (const s of seg.segment(text)) {
+    const end = s.index + s.segment.length;
+    if (s.index <= local && local < end) return s.segment === PARA ? null : { from: s.index, to: end };
+  }
+  return null;
 }
 
 /** Start of the paragraph holding `pos`, and the position of its mark. */

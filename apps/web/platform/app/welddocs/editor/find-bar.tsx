@@ -20,7 +20,10 @@ export function FindBar({ controller }: { controller: DocController }) {
 
   if (!find) return null;
   const count = find.matches.length;
-  const set = (patch: Partial<typeof find.options> & { query?: string }) => {
+  let countLabel = '';
+  if (count) countLabel = format(tf.count, { index: find.index + 1, count });
+  else if (find.query) countLabel = tf.none;
+  const set =(patch: Partial<typeof find.options> & { query?: string }) => {
     const { query = find.query, ...options } = patch;
     controller.setFind(query, { ...find.options, ...options });
   };
@@ -42,7 +45,7 @@ export function FindBar({ controller }: { controller: DocController }) {
           }}
           className="h-8 min-w-0 flex-1 rounded border bg-background px-2 text-sm outline-none focus:border-primary"
         />
-        <span className="w-16 shrink-0 text-center text-xs text-muted-foreground">{count ? format(tf.count, { index: find.index + 1, count }) : find.query ? tf.none : ''}</span>
+        <span className="w-16 shrink-0 text-center text-xs text-muted-foreground">{countLabel}</span>
         <button type="button" className="rounded p-1 hover:bg-accent disabled:opacity-40" aria-label={tf.previous} disabled={!count} onClick={() => controller.findStep(-1)}>
           <ChevronUp className="size-4" />
         </button>

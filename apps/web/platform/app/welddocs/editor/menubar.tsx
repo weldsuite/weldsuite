@@ -196,8 +196,8 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>{tm.paragraphStyles}</DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              {PARAGRAPH_STYLES.map((id, i) => (
-                <Item key={id} checked={controller.paragraphStyle() === id} shortcut={i === 0 ? `${MOD_LABEL}+Alt+0` : id.startsWith('heading') ? `${MOD_LABEL}+Alt+${id.slice(7)}` : undefined} onSelect={() => controller.setParagraphStyle(id)}>
+              {PARAGRAPH_STYLES.map((id) => (
+                <Item key={id} checked={controller.paragraphStyle() === id} shortcut={styleShortcut(id)} onSelect={() => controller.setParagraphStyle(id)}>
                   {ts[id]}
                 </Item>
               ))}
@@ -243,6 +243,13 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
       </TopMenu>
     </div>
   );
+}
+
+/** Ctrl+Alt+0 for normal text, Ctrl+Alt+1…6 for the headings. */
+function styleShortcut(id: string): string | undefined {
+  if (id === 'normal') return `${MOD_LABEL}+Alt+0`;
+  if (id.startsWith('heading')) return `${MOD_LABEL}+Alt+${id.slice(7)}`;
+  return undefined;
 }
 
 function TopMenu({ label, children }: { label: string; children: ReactNode }) {

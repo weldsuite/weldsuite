@@ -15,6 +15,7 @@ export function PrintView({ controller }: { controller: DocController }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const displays = useMemo(() => pages.map((p) => pageDisplay(controller.layout, p, { title: controller.options.title, locale: language })), [pages, language]);
   const first = pages[0];
+  const pageHeight = controller.doc.props.pageless ? 'auto' : `${first?.height ?? 0}pt`;
 
   useEffect(() => {
     const done = () => controller.setPrinting(false);
@@ -35,7 +36,7 @@ export function PrintView({ controller }: { controller: DocController }) {
         @media print {
           body > *:not(.welddocs-print) { display: none !important; }
           .welddocs-print { display: block; }
-          @page { size: ${first.width}pt ${controller.doc.props.pageless ? 'auto' : `${first.height}pt`}; margin: 0; }
+          @page { size: ${first.width}pt ${pageHeight}; margin: 0; }
         }
         .welddocs-print-page { position: relative; overflow: hidden; break-after: page; page-break-after: always; }
       `}</style>

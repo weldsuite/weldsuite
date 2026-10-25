@@ -8,29 +8,33 @@ export function parseStyleAttr(style: string | undefined): Map<string, string> {
   if (!style) return out;
   let i = 0;
   while (i < style.length) {
-    // Split on ';' outside quotes and parentheses.
-    let depth = 0;
-    let quote = '';
-    let j = i;
-    for (; j < style.length; j++) {
-      const ch = style[j]!;
-      if (quote) {
-        if (ch === quote) quote = '';
-      } else if (ch === '"' || ch === "'") quote = ch;
-      else if (ch === '(') depth++;
-      else if (ch === ')') depth = Math.max(0, depth - 1);
-      else if (ch === ';' && depth === 0) break;
-    }
-    const decl = style.slice(i, j);
+    const end = declarationEnd(style, i);
+    const decl = style.slice(i, end);
     const colon = decl.indexOf(':');
     if (colon > 0) {
       const name = decl.slice(0, colon).trim().toLowerCase();
       const value = decl.slice(colon + 1).replace(/!important/i, '').trim();
       if (name && value) out.set(name, value);
     }
-    i = j + 1;
+    i = end + 1;
   }
   return out;
+}
+
+/** Where the declaration starting at `start` ends: the next ';' outside quotes and parentheses (or the end). */
+function declarationEnd(style: string, start: number): number {
+  let depth = 0;
+  let quote = '';
+  for (let j = start; j < style.length; j++) {
+    const ch = style[j]!;
+    if (quote) {
+      if (ch === quote) quote = '';
+    } else if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    else if (ch === ';' && depth === 0) return j;
+  }
+  return style.length;
 }
 
 const NAMED_COLORS: Record<string, string> = {
@@ -54,17 +58,38 @@ export function parseColor(value: string | undefined): string | null {
   if (m) return `#${[...m[1]!].map((c) => c + c).join('')}`;
   m = /^#([0-9a-f]{6})(?:[0-9a-f]{2})?$/.exec(v);
   if (m) return `#${m[1]}`;
-  m = /^rgba?\(\s*([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)(?:[\s,/]+([\d.]+%?))?\s*\)$/.exec(v);
-  if (m) {
-    const alpha = m[4] === undefined ? 1 : m[4].endsWith('%') ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
-    if (alpha === 0) return null;
-    const channel = (s: string) => {
-      const n = s.endsWith('%') ? (parseFloat(s) * 255) / 100 : parseFloat(s);
-      return Math.max(0, Math.min(255, Math.round(n)));
-    };
-    return `#${[m[1]!, m[2]!, m[3]!].map((c) => channel(c).toString(16).padStart(2, '0')).join('')}`;
-  }
-  return null;
+  const rgb = parseRgbFunction(v);
+  if (!rgb) return null;
+  const alpha = rgb.alpha === undefined ? 1 : cssNumber(rgb.alpha, 1);
+  if (alpha === 0) return null;
+  const channel = (s: string) => Math.max(0, Math.min(255, Math.round(cssNumber(s, 255))));
+  return `#${rgb.channels.map((c) => channel(c).toString(16).padStart(2, '0')).join('')}`;
+}
+
+const CSS_NUMBER = /^[\d.]+%?$/;
+
+/**
+ * The parts of `rgb(r, g, b)` / `rgba(r g b / a)`: three channels separated
+ * by spaces or commas, then optionally an alpha after spaces, commas or a
+ * slash. Read by splitting rather than one big pattern, so it cannot backtrack.
+ */
+function parseRgbFunction(v: string): { channels: string[]; alpha?: string } | null {
+  const prefix = ['rgba(', 'rgb('].find((p) => v.startsWith(p));
+  if (!prefix || !v.endsWith(')')) return null;
+  const open = prefix.length;
+  // Odd entries are the separators, even ones the values.
+  const parts = v.slice(open, -1).trim().split(/([\s,/]+)/);
+  if (parts.length !== 5 && parts.length !== 7) return null;
+  const values = parts.filter((_, i) => i % 2 === 0);
+  if (!values.every((p) => CSS_NUMBER.test(p))) return null;
+  if (parts[1]!.includes('/') || parts[3]!.includes('/')) return null;
+  const channels = values.slice(0, 3);
+  return values.length === 4 ? { channels, alpha: values[3]! } : { channels };
+}
+
+/** A CSS number, where a percentage is of `full`. */
+function cssNumber(s: string, full: number): number {
+  return s.endsWith('%') ? (parseFloat(s) * full) / 100 : parseFloat(s);
 }
 
 const FONT_SIZE_KEYWORDS: Record<string, number> = {

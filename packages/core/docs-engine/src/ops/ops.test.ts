@@ -255,4 +255,25 @@ describe('review fixes', () => {
     const ok: Op = { type: 'insertTableDims', table: 't', axis: 'row', at: 0, items: [{ id: 'rNew' }], content: { stories: { [cell]: { text: `hi${PARA}` } } } };
     expect(validateOp(doc, ok)).toBeNull();
   });
+
+  it('refuses two cells of a new row claiming the same new table or footnote', () => {
+    const doc = tableDoc();
+    const [c1, c2] = doc.tables.get('t')!.cols.map((c) => cellStoryId('t', 'rNew', c.id));
+    const holding = (obj: { kind: 'table' | 'footnote'; id: string }) => ({ text: `${OBJECT}${PARA}`, objects: [[0, obj]] as [number, typeof obj][] });
+    const newRow = (content: Extract<Op, { type: 'insertTableDims' }>['content']): Op => ({
+      type: 'insertTableDims',
+      table: 't',
+      axis: 'row',
+      at: 0,
+      items: [{ id: 'rNew' }],
+      content,
+    });
+    const tables = { x: { rows: [{ id: 'xr' }], cols: [{ id: 'xc', width: 50 }] } };
+    const table = holding({ kind: 'table', id: 'x' });
+    expect(validateOp(doc, newRow({ tables, stories: { [c1!]: table, [c2!]: table } }))).toBe('id x used twice');
+    const footnote = holding({ kind: 'footnote', id: 'f' });
+    expect(validateOp(doc, newRow({ stories: { [c1!]: footnote, [c2!]: footnote, 'fn:f': { text: `note${PARA}` } } }))).toBe('id f used twice');
+    // One cell holding the table is fine.
+    expect(validateOp(doc, newRow({ tables, stories: { [c1!]: table } }))).toBeNull();
+  });
 });

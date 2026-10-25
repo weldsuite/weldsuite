@@ -141,3 +141,4 @@ export {
   unmergeCell,
 } from './editing/tables';
 export type { CellRef } from './editing/tables';
+export { isWellFormedSnapshot } from './ops/snapshot-shape';

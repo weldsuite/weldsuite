@@ -110,7 +110,7 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
       let best: { page: number; x: number; y: number; d: number } | null = null;
       for (const [index, el] of pageRefs.current) {
         const r = el.getBoundingClientRect();
-        const d = clientY < r.top ? r.top - clientY : clientY > r.bottom ? clientY - r.bottom : 0;
+        const d = distanceOutside(clientY, r.top, r.bottom);
         if (!best || d < best.d) {
           const ptPerPx = (pages[index]?.width ?? 1) / r.width;
           best = { page: index, x: (clientX - r.left) * ptPerPx, y: (clientY - r.top) * ptPerPx, d };
@@ -127,62 +127,15 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
     inputRef.current?.focus({ preventScroll: true });
     const at = pageAt(e.clientX, e.clientY);
     if (!at || at.page !== pageIndex) return;
-    const page = pages[pageIndex]!;
     // Double click in an empty top or bottom margin opens the header or footer.
-    if (e.detail === 2 && !controller.readOnly) {
-      const top = page.columns[0]!.y;
-      const bottom = top + page.columns[0]!.height;
-      if (at.y < top && !page.header && !controller.doc.props.pageless) {
-        controller.editHeader('header', pageIndex);
-        return;
-      }
-      if (at.y > bottom && !page.footer && !controller.doc.props.pageless) {
-        controller.editHeader('footer', pageIndex);
-        return;
-      }
-    }
-    if ((e.metaKey || e.ctrlKey) && e.detail === 1) {
-      // The link under the pointer (not the caret's), and only to a safe place.
-      const url = controller.linkAt(at.page, at.x, at.y);
-      if (url && isSafeLink(url) && !url.startsWith('#')) {
-        window.open(url, '_blank', 'noopener,noreferrer');
-        return;
-      }
-    }
+    if (e.detail === 2 && openHeaderOrFooter(controller, pages[pageIndex]!, pageIndex, at.y)) return;
+    if ((e.metaKey || e.ctrlKey) && e.detail === 1 && openLink(controller, at)) return;
     controller.clickAt(at.page, at.x, at.y, { extend: e.shiftKey, detail: e.detail });
     if (e.detail > 1) return;
     dragging.current = true;
-    let scrollTimer: number | null = null;
-    let last = { x: e.clientX, y: e.clientY };
-    const drag = () => {
-      const p = pageAt(last.x, last.y);
-      if (p) controller.dragTo(p.page, p.x, p.y);
-    };
-    const onMove = (ev: MouseEvent) => {
-      last = { x: ev.clientX, y: ev.clientY };
-      drag();
-      const el = scrollRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      const speed = ev.clientY < r.top + 24 ? -20 : ev.clientY > r.bottom - 24 ? 20 : 0;
-      if (speed && scrollTimer === null) {
-        scrollTimer = window.setInterval(() => {
-          el.scrollTop += speed;
-          drag();
-        }, 30);
-      } else if (!speed && scrollTimer !== null) {
-        window.clearInterval(scrollTimer);
-        scrollTimer = null;
-      }
-    };
-    const onUp = () => {
+    followDrag(controller, e, pageAt, () => scrollRef.current, () => {
       dragging.current = false;
-      if (scrollTimer !== null) window.clearInterval(scrollTimer);
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    });
   };
 
   // Text input: beforeinput carries what was typed (after IME and dead keys).
@@ -191,24 +144,10 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
     if (!el) return;
     const onBeforeInput = (e: InputEvent) => {
       if (e.isComposing) return;
-      if (e.inputType === 'insertText' || e.inputType === 'insertReplacementText') {
-        e.preventDefault();
-        if (e.data) controller.type(e.data);
-      } else if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
-        e.preventDefault();
-        if (e.inputType === 'insertLineBreak') controller.lineBreak();
-        else controller.enter();
-      } else if (e.inputType === 'deleteContentBackward') {
-        e.preventDefault();
-        controller.backspace();
-      } else if (e.inputType === 'deleteContentForward') {
-        e.preventDefault();
-        controller.deleteForward();
-      } else if (e.inputType.startsWith('history')) {
-        e.preventDefault();
-        if (e.inputType === 'historyUndo') controller.undo();
-        else controller.redo();
-      }
+      const action = inputAction(controller, e);
+      if (!action) return;
+      e.preventDefault();
+      action();
     };
     const onCompositionUpdate = (e: CompositionEvent) => setComposing(e.data);
     const onCompositionEnd = (e: CompositionEvent) => {
@@ -316,6 +255,109 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
       <style>{'@keyframes welddocs-caret { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }'}</style>
     </div>
   );
+}
+
+type PagePoint = { page: number; x: number; y: number };
+
+/** How far `y` is above `top` or below `bottom` (0 between them). */
+function distanceOutside(y: number, top: number, bottom: number): number {
+  if (y < top) return top - y;
+  if (y > bottom) return y - bottom;
+  return 0;
+}
+
+/** A double click above or below the text, where there is no header or footer yet, opens one. */
+function openHeaderOrFooter(controller: DocController, page: PageLayout, pageIndex: number, y: number): boolean {
+  if (controller.readOnly || controller.doc.props.pageless) return false;
+  const top = page.columns[0]!.y;
+  const bottom = top + page.columns[0]!.height;
+  if (y < top && !page.header) {
+    controller.editHeader('header', pageIndex);
+    return true;
+  }
+  if (y > bottom && !page.footer) {
+    controller.editHeader('footer', pageIndex);
+    return true;
+  }
+  return false;
+}
+
+/** Ctrl+click: opens the link under the pointer (not the caret's), and only to a safe place. */
+function openLink(controller: DocController, at: PagePoint): boolean {
+  const url = controller.linkAt(at.page, at.x, at.y);
+  if (!url || !isSafeLink(url) || url.startsWith('#')) return false;
+  window.open(url, '_blank', 'noopener,noreferrer');
+  return true;
+}
+
+/** Scroll step while dragging near the top or bottom edge of the scroller. */
+function autoScrollSpeed(y: number, r: DOMRect): number {
+  if (y < r.top + 24) return -20;
+  if (y > r.bottom - 24) return 20;
+  return 0;
+}
+
+/** Extends the selection while the button is down, scrolling when the pointer nears an edge. */
+function followDrag(
+  controller: DocController,
+  start: React.MouseEvent,
+  pageAt: (clientX: number, clientY: number) => PagePoint | null,
+  scroller: () => HTMLDivElement | null,
+  onEnd: () => void,
+): void {
+  let scrollTimer: number | null = null;
+  let last = { x: start.clientX, y: start.clientY };
+  const drag = () => {
+    const p = pageAt(last.x, last.y);
+    if (p) controller.dragTo(p.page, p.x, p.y);
+  };
+  const onMove = (ev: MouseEvent) => {
+    last = { x: ev.clientX, y: ev.clientY };
+    drag();
+    const el = scroller();
+    if (!el) return;
+    const speed = autoScrollSpeed(ev.clientY, el.getBoundingClientRect());
+    if (speed && scrollTimer === null) {
+      scrollTimer = window.setInterval(() => {
+        el.scrollTop += speed;
+        drag();
+      }, 30);
+    } else if (!speed && scrollTimer !== null) {
+      window.clearInterval(scrollTimer);
+      scrollTimer = null;
+    }
+  };
+  const onUp = () => {
+    onEnd();
+    if (scrollTimer !== null) window.clearInterval(scrollTimer);
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+  };
+  window.addEventListener('mousemove', onMove);
+  window.addEventListener('mouseup', onUp);
+}
+
+/** What a `beforeinput` event does to the document; null for input the editor leaves alone. */
+function inputAction(controller: DocController, e: InputEvent): (() => void) | null {
+  switch (e.inputType) {
+    case 'insertText':
+    case 'insertReplacementText':
+      return () => {
+        if (e.data) controller.type(e.data);
+      };
+    case 'insertParagraph':
+      return () => controller.enter();
+    case 'insertLineBreak':
+      return () => controller.lineBreak();
+    case 'deleteContentBackward':
+      return () => controller.backspace();
+    case 'deleteContentForward':
+      return () => controller.deleteForward();
+    case 'historyUndo':
+      return () => controller.undo();
+    default:
+      return e.inputType.startsWith('history') ? () => controller.redo() : null;
+  }
 }
 
 function PageBox({

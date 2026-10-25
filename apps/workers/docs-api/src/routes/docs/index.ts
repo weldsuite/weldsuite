@@ -22,7 +22,7 @@
 
 import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { DocModel, type DocSnapshot } from '@weldsuite/docs-engine';
+import { DocModel, isWellFormedSnapshot, type DocSnapshot } from '@weldsuite/docs-engine';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { DataFor } from '@weldsuite/entity-events/events';
@@ -133,18 +133,21 @@ async function editableFolder(c: Ctx, folderId: string | null): Promise<string |
 }
 
 /**
- * The snapshot a new document starts from: the one sent (checked by loading
- * it, which is what a room will do), or one empty paragraph. Or the response
- * to send instead.
+ * The snapshot a new document starts from: the one sent (checked down to its
+ * last link and table, as the room checks ops, then loaded), or one empty
+ * paragraph. Or the response to send instead.
  */
 function startingSnapshot(c: Ctx, sent: { version: number } | undefined): DocSnapshot | Response {
   if (!sent) return DocModel.create().toSnapshot();
   if (JSON.stringify(sent).length > DOC_SNAPSHOT_MAX_BYTES) {
     return error.badRequest(c, 'The document is too large to create', { reason: 'too_large' });
   }
+  if (!isWellFormedSnapshot(sent)) {
+    return error.badRequest(c, 'The snapshot is not a document', { reason: 'invalid_snapshot' });
+  }
   try {
-    // Loading it is the validation; the snapshot written is what the engine makes of it.
-    return DocModel.fromSnapshot(sent as DocSnapshot).toSnapshot();
+    // The snapshot written is what the engine makes of it.
+    return DocModel.fromSnapshot(sent).toSnapshot();
   } catch {
     return error.badRequest(c, 'The snapshot is not a document', { reason: 'invalid_snapshot' });
   }
