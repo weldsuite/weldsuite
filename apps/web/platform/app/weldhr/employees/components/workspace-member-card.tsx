@@ -54,6 +54,18 @@ function pickDefaultRoleId(roles: Array<{ id: string; name: string }> | undefine
   return (member ?? viewer ?? roles[0])!.id;
 }
 
+/** Whether an invitation for this employee's email is still waiting: they are linked on acceptance. */
+function usePendingInvite(employee: HrEmployeeDetail, enabled: boolean) {
+  const { data, refetch } = useTeamMembers(
+    enabled ? { limit: 10, status: 'PENDING', memberType: 'all', search: employee.email } : undefined,
+  );
+  const pendingInvite = useMemo(() => {
+    const email = employee.email.trim().toLowerCase();
+    return (data?.data ?? []).some((m) => (memberEmail(m) ?? '').toLowerCase() === email);
+  }, [data, employee.email]);
+  return { pendingInvite, refetchPending: refetch };
+}
+
 export function EmployeeWorkspaceMemberCard({ employee }: Props) {
   const t = useTranslations();
   const { can } = usePermissions();
@@ -69,16 +81,7 @@ export function EmployeeWorkspaceMemberCard({ employee }: Props) {
   const { data: membersResponse } = useTeamMembers(
     canReadTeam && employee.userId ? { limit: 100, status: 'ACTIVE', memberType: 'all' } : undefined,
   );
-  // An invitation still waiting for this employee's email: they are linked on acceptance.
-  const { data: pendingResponse, refetch: refetchPending } = useTeamMembers(
-    canReadTeam && !employee.userId
-      ? { limit: 10, status: 'PENDING', memberType: 'all', search: employee.email }
-      : undefined,
-  );
-  const pendingInvite = useMemo(() => {
-    const email = employee.email.trim().toLowerCase();
-    return (pendingResponse?.data ?? []).some((m) => (memberEmail(m) ?? '').toLowerCase() === email);
-  }, [pendingResponse, employee.email]);
+  const { pendingInvite, refetchPending } = usePendingInvite(employee, canReadTeam && !employee.userId);
   // Members who are free to link: active INTERNAL / EMPLOYEE, not an employee yet.
   const { data: availableMembers } = useHrAvailableMembers({ limit: 200 }, { enabled: canLink && !employee.userId });
   const { data: rolesResponse } = useWorkspaceRoles(canInvite);

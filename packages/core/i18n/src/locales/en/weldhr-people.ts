@@ -67,6 +67,7 @@ export const weldhrPeople = {
       inviteHint: 'They get a workspace invitation by email. Fill in their HR details now: the employee is linked to them as soon as they accept, and they log their hours in My HR.',
       inviteAndCreate: 'Invite and create',
       invitedAndCreated: 'Invitation sent to {email}. The employee is linked to them as soon as they accept.',
+      emailTaken: 'Another employee already uses this email address.',
       employeeMemberTag: 'Employee',
       teamMember: 'Team member',
       teamMemberPlaceholder: 'Select a team member…',

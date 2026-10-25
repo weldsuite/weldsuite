@@ -67,6 +67,7 @@ export const weldhrPeople = {
       inviteHint: 'Deze persoon krijgt een workspace-uitnodiging per e-mail. Vul de HR-gegevens nu in: de medewerker wordt gekoppeld zodra de uitnodiging is geaccepteerd, en uren schrijft de medewerker zelf in Mijn HR.',
       inviteAndCreate: 'Uitnodigen en aanmaken',
       invitedAndCreated: 'Uitnodiging verstuurd naar {email}. De medewerker wordt gekoppeld zodra de uitnodiging is geaccepteerd.',
+      emailTaken: 'Een andere medewerker gebruikt dit e-mailadres al.',
       employeeMemberTag: 'Medewerker',
       teamMember: 'Teamlid',
       teamMemberPlaceholder: 'Selecteer een teamlid…',

@@ -38,6 +38,7 @@ import {
   hrEmployeeStatusSchema,
   hrEmploymentTypeSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
+import type { CreateHrEmployeeInput } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { HrAvailableMember } from '@weldsuite/app-api-client/domains/weldhr';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { useWorkspaceRoles } from '@/hooks/queries/use-settings-queries';
@@ -96,6 +97,48 @@ function isConflict(err: unknown): boolean {
   return typeof err === 'object' && err !== null && 'status' in err && (err as { status?: unknown }).status === 409;
 }
 
+/**
+ * Invite someone new and create their employee record. The email is checked
+ * against the directory first, and an invitation this call sent is withdrawn
+ * when the create step still fails, so a failed submit never leaves a paid
+ * seat held by someone without an employee record. Resolves to the new id.
+ */
+function useInviteAndCreate() {
+  const t = useTranslations();
+  const { teamMembers, weldhr } = useAppApi();
+  const createEmployee = useCreateHrEmployee();
+
+  return async (input: CreateHrEmployeeInput, invite: { as: InviteAs; roleId: string }): Promise<string> => {
+    const email = input.email.toLowerCase();
+    // Needs employees:read; without it the create step's own check and the withdrawal below still apply.
+    const sameEmail = await weldhr.listEmployees({ search: input.email, limit: 20 }).catch(() => null);
+    if (sameEmail?.data.some((e) => e.email.toLowerCase() === email)) {
+      throw new Error(t('weldhr.employees.create.emailTaken'));
+    }
+
+    let sentMemberId: string | null = null;
+    try {
+      const sent = await teamMembers.inviteMember({
+        email: input.email,
+        name: `${input.firstName} ${input.lastName}`.trim(),
+        // An Employee member's access is fixed; the server ignores a role for them.
+        roleId: invite.as === 'INTERNAL' ? invite.roleId || null : null,
+        memberType: invite.as,
+      });
+      sentMemberId = sent.data.memberId;
+    } catch (err) {
+      if (!isConflict(err)) throw new Error(errorMessage(err, t('weldhr.employees.workspace.inviteFailed')));
+    }
+
+    try {
+      return (await createEmployee.mutateAsync(input)).data.id;
+    } catch (err) {
+      if (sentMemberId) await teamMembers.removeMember(sentMemberId).catch(() => undefined);
+      throw err;
+    }
+  };
+}
+
 export function CreateEmployeeDialog({
   onClose,
   defaultUserId,
@@ -111,9 +154,8 @@ export function CreateEmployeeDialog({
   const formSchema = useMemo(() => buildFormSchema(t), [t]);
   const navigate = useNavigate();
   const { can } = usePermissions();
-  const { teamMembers } = useAppApi();
   const createFromMember = useCreateHrEmployeeFromMember();
-  const createEmployee = useCreateHrEmployee();
+  const inviteAndCreate = useInviteAndCreate();
   const { data: departments } = useHrDepartments();
   const { data: availableMembers, isLoading: membersLoading } = useHrAvailableMembers({ limit: 200 });
   // Inviting takes a paid seat, so it needs team:create like Settings → Team does.
@@ -125,8 +167,6 @@ export function CreateEmployeeDialog({
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
   const [inviteAs, setInviteAs] = useState<InviteAs>('EMPLOYEE');
   const [roleId, setRoleId] = useState<string>('');
-  // The address an invitation already went to in this dialog, so a retry after a failed create doesn't invite twice.
-  const [invitedEmail, setInvitedEmail] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
   const [managerLabel, setManagerLabel] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -152,7 +192,7 @@ export function CreateEmployeeDialog({
     },
   });
 
-  const isSubmitting = createFromMember.isPending || createEmployee.isPending || inviting;
+  const isSubmitting = createFromMember.isPending || inviting;
 
   useEffect(() => {
     if (!roleId && roles.length) setRoleId(pickDefaultRoleId(roles));
@@ -211,25 +251,14 @@ export function CreateEmployeeDialog({
     else void navigate({ to: '/weldhr/employees/$employeeId', params: { employeeId } });
   }
 
-  /** Send the workspace invitation, unless this dialog already did for this address. */
-  async function inviteOnce(values: FormValues): Promise<boolean> {
-    const email = values.email.trim();
-    if (invitedEmail?.toLowerCase() === email.toLowerCase()) return true;
+  async function submitInvite(values: FormValues) {
     setInviting(true);
     try {
-      await teamMembers.inviteMember({
-        email,
-        name: `${values.firstName.trim()} ${values.lastName.trim()}`.trim(),
-        // An Employee member's access is fixed; the server ignores a role for them.
-        roleId: inviteAs === 'INTERNAL' ? roleId || null : null,
-        memberType: inviteAs,
-      });
-      setInvitedEmail(email);
-      return true;
+      const employeeId = await inviteAndCreate(employeeFields(values), { as: inviteAs, roleId });
+      toast.success(t('weldhr.employees.create.invitedAndCreated', { email: values.email.trim() }));
+      finish(employeeId);
     } catch (err) {
-      if (isConflict(err)) return true;
-      setFailure(errorMessage(err, t('weldhr.employees.workspace.inviteFailed')));
-      return false;
+      setFailure(errorMessage(err, t('weldhr.employees.create.failed')));
     } finally {
       setInviting(false);
     }
@@ -238,14 +267,7 @@ export function CreateEmployeeDialog({
   async function onSubmit(values: FormValues) {
     setFailure(null);
     if (mode === 'invite') {
-      if (!(await inviteOnce(values))) return;
-      try {
-        const created = await createEmployee.mutateAsync(employeeFields(values));
-        toast.success(t('weldhr.employees.create.invitedAndCreated', { email: values.email.trim() }));
-        finish(created.data.id);
-      } catch (err) {
-        setFailure(errorMessage(err, t('weldhr.employees.create.failed')));
-      }
+      await submitInvite(values);
       return;
     }
 
