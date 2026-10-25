@@ -11,4 +11,10 @@ export const DRIVE_ENTITY_EVENTS = {
    * checkpoints, not once per edit.
    */
   doc: ['created', 'updated', 'deleted'],
+  /**
+   * A saved version of a WeldDocs document (`doc_versions`): `created` when
+   * someone names one or a restore saves the document as it was, `updated`
+   * when it is renamed.
+   */
+  doc_version: ['created', 'updated'],
 } as const;

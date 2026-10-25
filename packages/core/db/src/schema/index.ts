@@ -45,6 +45,7 @@ export * from './folders';
 export * from './drive-shares';
 export * from './sheets';
 export * from './docs';
+export * from './doc-versions';
 export * from './document-versions';
 export * from './whiteboards';
 

@@ -196,7 +196,7 @@ describe('/api/docs', () => {
     const res = await app().request(`/api/docs/${doc.id}/session`, { method: 'POST' });
     expect(res.status).toBe(200);
     const session = ((await res.json()) as { data: DocSession }).data;
-    expect(session.canEdit).toBe(true);
+    expect(session).toMatchObject({ canEdit: true, mode: 'edit' });
     expect(session.ticket).toBe(`${'f'.repeat(64)}.ticket-for-${ALICE}`);
     expect(rooms.admissions).toEqual([
       {
@@ -218,12 +218,28 @@ describe('/api/docs', () => {
   it('opens read-only sessions without docs:update, and for viewers', async () => {
     const doc = await create({ name: 'Look only' });
     const res = await app({ keys: ['docs:read'] }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
-    expect(((await res.json()) as { data: DocSession }).data.canEdit).toBe(false);
-    expect(rooms.admissions[0]!.admission.canEdit).toBe(false);
+    expect(((await res.json()) as { data: DocSession }).data).toMatchObject({ canEdit: false, mode: 'view' });
+    expect(rooms.admissions[0]!.admission).toMatchObject({ canEdit: false, canComment: false });
 
     await db.update(files).set({ generalAccess: 'workspace_view' }).where(eq(files.id, doc.fileId));
     const viewer = await app({ userId: BOB }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
-    expect(((await viewer.json()) as { data: DocSession }).data.canEdit).toBe(false);
+    expect(((await viewer.json()) as { data: DocSession }).data).toMatchObject({ canEdit: false, mode: 'view' });
+  });
+
+  it('opens comment sessions for viewers with docs:comment', async () => {
+    const doc = await create({ name: 'Review me' });
+    await db.update(files).set({ generalAccess: 'workspace_view' }).where(eq(files.id, doc.fileId));
+    const keys = [...ALL, 'docs:comment'];
+    const viewer = await app({ userId: BOB, keys }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
+    expect(((await viewer.json()) as { data: DocSession }).data).toMatchObject({ canEdit: false, mode: 'comment' });
+    expect(rooms.admissions[0]!.admission).toMatchObject({ userId: BOB, canEdit: false, canComment: true });
+
+    // An editor edits (comments included); the owner without docs:update comments.
+    const owner = await app({ keys }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
+    expect(((await owner.json()) as { data: DocSession }).data).toMatchObject({ canEdit: true, mode: 'edit' });
+    expect(rooms.admissions[1]!.admission).toMatchObject({ canEdit: true, canComment: false });
+    const commenter = await app({ keys: ['docs:read', 'docs:comment'] }).request(`/api/docs/${doc.id}/session`, { method: 'POST' });
+    expect(((await commenter.json()) as { data: DocSession }).data.mode).toBe('comment');
   });
 
   it('serves the room\'s live snapshot to readers, edits not checkpointed yet included', async () => {

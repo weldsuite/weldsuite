@@ -17,11 +17,16 @@
  *     except the last KEEP_LOG for clients catching up. The tenant DB row then
  *     records the new revision and an entity event reports the change.
  *   - Messages longer than a frame go as parts (`toFrames`/`FrameAssembler`).
+ *   - Commenters (`canComment`) may only commit comment ops (comment-access.ts).
+ *   - Versions: `saveVersion()` writes the live document to R2 for the
+ *     versions route; `restoreVersion()` replaces the document with a saved
+ *     one (see there) and tells every client with a `restored` message.
  */
 
 import { DurableObject } from 'cloudflare:workers';
 import {
   FrameAssembler,
+  RoomCore,
   decodeClient,
   encode,
   refusedBatchId,
@@ -29,21 +34,16 @@ import {
   type CommittedOp,
   type Outgoing,
   type Peer,
-  type RoomCore,
+  type RoomOptions,
 } from '@weldsuite/collab';
-import {
-  DocModel,
-  docsAdapter,
-  restoreDocRoom,
-  type DocPresence,
-  type DocSnapshot,
-  type Op,
-} from '@weldsuite/docs-engine';
+import { DocModel, docsAdapter, type DocPresence, type DocSnapshot, type Op } from '@weldsuite/docs-engine';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
 import { recordCheckpoint } from '../services/docs';
+import { insertVersion, versionKeyFor } from '../services/versions';
 import { readSnapshot, writeSnapshot } from './snapshot';
+import { isCommentersOp } from './comment-access';
 
 type DocRoomCore = RoomCore<DocModel, Op, DocSnapshot, DocPresence>;
 type DocPeer = Peer<DocPresence>;
@@ -61,6 +61,8 @@ export interface Admission {
   picture: string | null;
   color: string;
   canEdit: boolean;
+  /** May add comments without editing (ignored when `canEdit`). */
+  canComment: boolean;
 }
 
 /** Which document a room holds, and where its checkpoint is. */
@@ -79,6 +81,25 @@ export interface LiveSnapshot {
   revision: number;
   json: string;
 }
+
+/** A version the room wrote: the revision it is at and its size in R2. */
+export interface SavedVersion {
+  revision: number;
+  size: number;
+}
+
+/** What the restore route asks the room. */
+export interface RestoreRequest {
+  doc: RoomMeta;
+  /** The version to restore, and its snapshot in R2. */
+  versionId: string;
+  versionKey: string;
+  /** Id for the automatic version the document as it is now is saved as. */
+  autoVersionId: string;
+  userId: string;
+}
+
+export type RestoreOutcome = { ok: true; revision: number } | { ok: false; reason: 'missing_version' };
 
 interface Ticket {
   peer: Omit<DocPeer, 'clientId'>;
@@ -109,6 +130,11 @@ const KEEP_LOG = 500;
 const OP_PART = 1_000_000;
 const OP_PREFIX = 'op:';
 const TICKET_PREFIX = 'ticket:';
+/**
+ * Storage key: logged ops below this revision belong to a document a restore
+ * replaced, and are never replayed or sent to a client catching up.
+ */
+const LOG_FLOOR = 'logFloor';
 
 export class DocRoom extends DurableObject<Env> {
   private room: DocRoomCore | null = null;
@@ -121,6 +147,8 @@ export class DocRoom extends DurableObject<Env> {
   private checkpointing: Promise<void> | null = null;
   private alarmPending = false;
   private frameCounter = 0;
+  /** A restore in progress: messages, versions and alarms wait for it. */
+  private restoring: Promise<unknown> | null = null;
 
   /** Registers a ticket for one connection (RPC from the session route). */
   async admit(admission: Admission): Promise<string> {
@@ -144,12 +172,49 @@ export class DocRoom extends DurableObject<Env> {
    * included (RPC from the snapshot route).
    */
   async snapshot(doc: RoomMeta): Promise<LiveSnapshot> {
-    if (!this.meta) {
-      this.meta = doc;
-      await this.ctx.storage.put('meta', doc);
-    }
+    await this.adopt(doc);
+    await this.settled();
     const room = this.room ?? (await this.load());
     return { revision: room.revision, json: JSON.stringify(room.state.toSnapshot()) };
+  }
+
+  /**
+   * Writes the document as the room holds it now to `key` (RPC from the
+   * versions route, which records the version row).
+   */
+  async saveVersion(doc: RoomMeta, key: string): Promise<SavedVersion> {
+    await this.adopt(doc);
+    await this.settled();
+    const room = this.room ?? (await this.load());
+    // Taken in one go, so the document and its revision agree.
+    const snapshot = { revision: room.revision, doc: room.state.toSnapshot() };
+    return { revision: snapshot.revision, size: await writeSnapshot(this.env.PRIVATE_STORAGE, key, snapshot) };
+  }
+
+  /**
+   * Replaces the document with a saved version (RPC from the restore route):
+   *
+   *   1. The document as it is now is checkpointed, then saved as an
+   *      automatic version (a `doc_versions` row with no name), so the
+   *      restore can be undone.
+   *   2. The version becomes the document at the next revision: written as
+   *      the checkpoint, with the op log of the replaced document dropped.
+   *   3. Everyone connected gets a `restored` message with the new document.
+   *
+   * Edits that arrive meanwhile wait for it, then apply to the restored
+   * document (a batch made on the old one is refused as stale and its
+   * sender resyncs).
+   */
+  async restoreVersion(req: RestoreRequest): Promise<RestoreOutcome> {
+    await this.adopt(req.doc);
+    await this.settled();
+    const run = this.replaceWithVersion(req);
+    this.restoring = run.catch(() => undefined);
+    try {
+      return await run;
+    } finally {
+      this.restoring = null;
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -188,6 +253,8 @@ export class DocRoom extends DurableObject<Env> {
     if (typeof message !== 'string') return;
     const state = socketState(ws);
     if (!state) return;
+    // Only when needed: an await here would let the next message overtake this one.
+    if (this.restoring) await this.settled();
     let room: DocRoomCore;
     try {
       room = this.room ?? (await this.load());
@@ -249,12 +316,32 @@ export class DocRoom extends DurableObject<Env> {
 
   async alarm(): Promise<void> {
     this.alarmPending = false;
+    await this.settled();
     if (!this.room) await this.load();
     // A failure throws, and the runtime retries the alarm.
     await this.checkpoint();
   }
 
   // ---- Loading ----
+
+  /** Remembers which document this room holds (the first RPC to reach it tells it). */
+  private async adopt(doc: RoomMeta): Promise<void> {
+    if (this.meta) return;
+    this.meta = doc;
+    await this.ctx.storage.put('meta', doc);
+  }
+
+  /** Waits until no restore is running. */
+  private async settled(): Promise<void> {
+    while (this.restoring) await this.restoring;
+  }
+
+  private roomOptions(): RoomOptions<Op, DocModel, DocPresence> {
+    return {
+      onCommit: (c) => this.persist(c),
+      mayComment: (op, peer, doc) => isCommentersOp(op, peer.userId, doc),
+    };
+  }
 
   /**
    * Drops the in-memory room, whose document may be half-changed, and closes
@@ -289,7 +376,7 @@ export class DocRoom extends DurableObject<Env> {
     this.meta = meta;
     const stored = await readSnapshot(this.env.PRIVATE_STORAGE, meta.snapshotKey);
     const base = stored ?? { revision: 0, doc: DocModel.create().toSnapshot() };
-    const room = restoreDocRoom(base.doc, base.revision, await this.readLog(), { onCommit: (c) => this.persist(c) });
+    const room = RoomCore.restore(docsAdapter(), base.doc, base.revision, await this.readLog(), this.roomOptions());
     this.checkpointed = base.revision;
     this.sockets.clear();
     for (const ws of this.ctx.getWebSockets()) {
@@ -304,9 +391,11 @@ export class DocRoom extends DurableObject<Env> {
 
   private async readLog(): Promise<DocCommittedOp[]> {
     const entries = await this.ctx.storage.list<StoredOp | string>({ prefix: OP_PREFIX });
+    const floor = (await this.ctx.storage.get<number>(LOG_FLOOR)) ?? 0;
     const ops: DocCommittedOp[] = [];
     for (const [key, value] of entries) {
       if (typeof value === 'string') continue; // a part, read with its head
+      if (value.revision < floor) continue; // an op on a document a restore replaced
       const op = value.op ?? (JSON.parse(partKeys(key, value.parts ?? 0).map((k) => entries.get(k) as string).join('')) as Op);
       ops.push({ revision: value.revision, batchId: value.batchId, clientId: value.clientId, op });
     }
@@ -365,6 +454,72 @@ export class DocRoom extends DurableObject<Env> {
       this.assemblers.set(clientId, assembler);
     }
     return assembler;
+  }
+
+  // ---- Versions ----
+
+  private async replaceWithVersion(req: RestoreRequest): Promise<RestoreOutcome> {
+    const room = this.room ?? (await this.load());
+    const meta = this.meta;
+    if (!meta) throw new Error('This room has not been given a document');
+    const bucket = this.env.PRIVATE_STORAGE;
+    const version = await readSnapshot(bucket, req.versionKey);
+    if (!version) return { ok: false, reason: 'missing_version' };
+    // What the engine makes of it, as when a document is created.
+    const restored = DocModel.fromSnapshot(version.doc).toSnapshot();
+
+    // 1. Everything so far is in the checkpoint, so stopping halfway loses nothing.
+    // (A checkpoint already running may have started before the last edits.)
+    while (room.revision > this.checkpointed) await this.checkpoint();
+    const current ={ revision: room.revision, doc: room.state.toSnapshot() };
+    const autoKey = versionKeyFor(meta.snapshotKey, req.autoVersionId);
+    const autoSize = await writeSnapshot(bucket, autoKey, current);
+    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    await insertVersion(db, {
+      id: req.autoVersionId,
+      docId: meta.docId,
+      revision: current.revision,
+      name: null,
+      snapshotKey: autoKey,
+      size: autoSize,
+      createdById: req.userId,
+    });
+
+    // 2. The floor goes first: if the object stops before the new checkpoint
+    // is written, it comes back as the document was, without the old log.
+    const revision = current.revision + 1;
+    const floor = (await this.ctx.storage.get<number>(LOG_FLOOR)) ?? 0;
+    await this.ctx.storage.put(LOG_FLOOR, revision);
+    let size: number;
+    try {
+      size = await writeSnapshot(bucket, meta.snapshotKey, { revision, doc: restored });
+    } catch (err) {
+      await this.ctx.storage.put(LOG_FLOOR, floor);
+      throw err;
+    }
+
+    // 3. The new room takes over everyone connected, and tells them.
+    const next = RoomCore.restore(docsAdapter(), restored, revision, [], this.roomOptions());
+    for (const ws of this.sockets.values()) {
+      const state = socketState(ws);
+      if (state) next.join(state.peer, state.ready);
+    }
+    this.room = next;
+    this.loading = Promise.resolve(next);
+    this.checkpointed = revision;
+    this.dispatch(next, [
+      { to: null, msg: { type: 'restored', revision, snapshot: restored, versionId: req.versionId, userId: req.userId } },
+    ]);
+
+    await this.ctx.storage.put('lastEditor', req.userId);
+    await this.trimLog(revision - 1);
+    try {
+      await recordCheckpoint(db, meta.docId, { revision, snapshotKey: meta.snapshotKey, size, userId: req.userId });
+    } catch (err) {
+      // The checkpoint itself is safe in R2; the row catches up at the next one.
+      console.error('[docs-api/room] recording the restore failed:', err);
+    }
+    return { ok: true, revision };
   }
 
   // ---- Checkpoints ----

@@ -5,7 +5,9 @@
 
 import { FrameAssembler, decodeServer, type ServerMessage } from '@weldsuite/collab';
 import type { DocPresence, DocSnapshot, Op } from '@weldsuite/docs-engine';
-import type { Admission, DocRoom, LiveSnapshot, RoomMeta } from '../room/doc-room';
+import type { Database } from '@weldsuite/worker-kit';
+import type { Admission, DocRoom, LiveSnapshot, RestoreOutcome, RestoreRequest, RoomMeta, SavedVersion } from '../room/doc-room';
+import { insertVersion, versionKeyFor } from '../services/versions';
 
 export type DocServerMessage = ServerMessage<Op, DocSnapshot, DocPresence>;
 
@@ -118,12 +120,16 @@ export function fakeObjectState(id = 'a'.repeat(64)) {
 
 /**
  * DOC_ROOM for route tests: records admissions and hands out a fixed ticket;
- * a snapshot is whatever `liveJson` holds (default an empty object).
+ * a snapshot is whatever `liveJson` holds (default an empty object). Saving
+ * a version reports the live revision; a restore saves the automatic
+ * version's row in `db` (as the real room does) and moves one revision on.
  */
-export function fakeRoomNamespace() {
+export function fakeRoomNamespace(db?: () => Database) {
   const admissions: { name: string; admission: Admission }[] = [];
   const snapshots: { name: string; doc: RoomMeta }[] = [];
-  const state = { liveJson: '{"version":1}', revision: 7 };
+  const saved: { name: string; doc: RoomMeta; key: string }[] = [];
+  const restores: { name: string; request: RestoreRequest }[] = [];
+  const state = { liveJson: '{"version":1}', revision: 7, missingVersion: false };
   const binding = {
     idFromName: (name: string) => ({ name }),
     get: (id: { name: string }) => ({
@@ -135,7 +141,27 @@ export function fakeRoomNamespace() {
         snapshots.push({ name: id.name, doc });
         return { revision: state.revision, json: state.liveJson };
       },
+      saveVersion: async (doc: RoomMeta, key: string): Promise<SavedVersion> => {
+        saved.push({ name: id.name, doc, key });
+        return { revision: state.revision, size: state.liveJson.length };
+      },
+      restoreVersion: async (request: RestoreRequest): Promise<RestoreOutcome> => {
+        restores.push({ name: id.name, request });
+        if (state.missingVersion) return { ok: false, reason: 'missing_version' };
+        if (!db) throw new Error('fakeRoomNamespace needs a database for restores');
+        await insertVersion(db(), {
+          id: request.autoVersionId,
+          docId: request.doc.docId,
+          revision: state.revision,
+          name: null,
+          snapshotKey: versionKeyFor(request.doc.snapshotKey, request.autoVersionId),
+          size: state.liveJson.length,
+          createdById: request.userId,
+        });
+        state.revision++;
+        return { ok: true, revision: state.revision };
+      },
     }),
   };
-  return { admissions, snapshots, live: state, binding: binding as unknown as DurableObjectNamespace<DocRoom> };
+  return { admissions, snapshots, saved, restores, live: state, binding: binding as unknown as DurableObjectNamespace<DocRoom> };
 }

@@ -288,6 +288,11 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       { key: 'docs:read', label: 'Open documents', description: 'Documents this person owns or that are shared with them.' },
       { key: 'docs:create', label: 'Create documents' },
       { key: 'docs:update', label: 'Edit documents' },
+      {
+        key: 'docs:comment',
+        label: 'Comment on documents',
+        description: 'Comment on documents shared with them to view, without editing them.',
+      },
       { key: 'docs:delete', label: 'Delete documents' },
       { key: 'docs:share', label: 'Share documents' },
       {
@@ -715,7 +720,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   // WeldSheets — admins also administer every spreadsheet's sharing (sheets:manage)
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share', 'sheets:manage',
   // WeldDocs — admins also administer every document's sharing (docs:manage)
-  'docs:read', 'docs:create', 'docs:update', 'docs:delete', 'docs:share', 'docs:manage',
+  'docs:read', 'docs:create', 'docs:update', 'docs:comment', 'docs:delete', 'docs:share', 'docs:manage',
   // WeldSign — admins also see every envelope and edit the settings (sign_envelopes:manage)
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void', 'sign_envelopes:manage',
@@ -843,7 +848,7 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // WeldSheets — a sheet's own sharing decides who edits it; these open the app.
   'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share',
   // WeldDocs — a document's own sharing decides who edits it; these open the app.
-  'docs:read', 'docs:create', 'docs:update', 'docs:delete', 'docs:share',
+  'docs:read', 'docs:create', 'docs:update', 'docs:comment', 'docs:delete', 'docs:share',
   // WeldSign — send and track their own signature requests; shared templates are read-only
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void',

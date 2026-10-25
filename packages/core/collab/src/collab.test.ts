@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { OtAdapter } from './adapter';
 import { CollabClient } from './client';
-import { FrameAssembler, decodeClient, encode, refusedBatchId, toFrames, type ClientMessage, type CommittedOp, type ServerMessage } from './protocol';
+import {
+  FrameAssembler,
+  decodeClient,
+  decodeServer,
+  encode,
+  refusedBatchId,
+  toFrames,
+  type ClientMessage,
+  type CommittedOp,
+  type ServerMessage,
+} from './protocol';
 import { RoomCore, type Outgoing } from './room';
 
 // A toy document for the protocol: a list of strings, edited by inserting and
@@ -216,6 +226,61 @@ describe('co-editing a toy document', () => {
     expect(net.room.state.items).toEqual(['a', 'b', 'c']);
     expect(net.clients[1]!.state!.items).toEqual(['a', 'b', 'c']);
     expect(net.clients[1]!.hasPending).toBe(false);
+  });
+
+  it('lets a commenter commit only what mayComment accepts, against the transformed op', () => {
+    // A "comment" here is an item starting with '#', and only at the end.
+    const seen: ListOp[] = [];
+    const mayComment = (op: ListOp, peer: { userId: string }, state: ListState) => {
+      seen.push(op);
+      return peer.userId === 'u_c' && flatten(op).every((o) => o.type === 'ins' && o.item.startsWith('#') && o.at === state.items.length);
+    };
+    const room = new RoomCore(listAdapter, ['a'], 0, { mayComment });
+    room.join({ clientId: 'e', userId: 'u_e', name: 'E', color: '#000', canEdit: true });
+    room.join({ clientId: 'c', userId: 'u_c', name: 'C', color: '#000', canEdit: false, canComment: true });
+    room.join({ clientId: 'v', userId: 'u_v', name: 'V', color: '#000', canEdit: false });
+    for (const id of ['e', 'c', 'v']) room.receive(id, { type: 'hello', revision: null });
+    room.receive('e', { type: 'submit', batchId: 'e:1', baseRevision: 0, op: { type: 'ins', at: 0, item: 'z' } });
+
+    const submit = (id: string, batchId: string, op: ListOp) =>
+      room.receive(id, { type: 'submit', batchId, baseRevision: 0, op }).map((o) => o.msg)[0];
+    // Made at the end of ['a'], transformed past the editor's insert to the end of ['z', 'a'].
+    expect(submit('c', 'c:1', { type: 'ins', at: 1, item: '#note' })).toEqual({ type: 'ack', batchId: 'c:1', revision: 2 });
+    expect(seen[0]).toEqual({ type: 'ins', at: 2, item: '#note' });
+    expect(submit('c', 'c:2', { type: 'del', at: 0 })).toEqual({ type: 'reject', batchId: 'c:2', reason: 'read-only' });
+    // A viewer (no canComment) is never asked about.
+    expect(submit('v', 'v:1', { type: 'ins', at: 1, item: '#note' })).toEqual({ type: 'reject', batchId: 'v:1', reason: 'read-only' });
+    expect(seen).toHaveLength(2);
+    expect(room.state.items).toEqual(['z', 'a', '#note']);
+
+    // Without the option, a commenter is a viewer.
+    const plain = new RoomCore(listAdapter, ['a'], 0);
+    plain.join({ clientId: 'c', userId: 'u_c', name: 'C', color: '#000', canEdit: false, canComment: true });
+    plain.receive('c', { type: 'hello', revision: null });
+    const [out] = plain.receive('c', { type: 'submit', batchId: 'c:1', baseRevision: 0, op: { type: 'ins', at: 1, item: '#x' } });
+    expect(out!.msg).toEqual({ type: 'reject', batchId: 'c:1', reason: 'read-only' });
+  });
+
+  it('starts a client over from a restored document', () => {
+    const restored: { versionId: string; userId: string; revision: number }[] = [];
+    const resets: boolean[] = [];
+    const client = new CollabClient(listAdapter, {
+      send: () => undefined,
+      sessionId: 's',
+      onReset: (_state, info) => resets.push(info.lostEdits),
+      onRestored: (info) => restored.push(info),
+    });
+    client.receive({ type: 'welcome', clientId: 'x', revision: 4, peers: [], canEdit: true, snapshot: ['a', 'b'] });
+    client.apply({ type: 'ins', at: 0, item: 'unsent' });
+    const msg: ServerMessage<ListOp, string[], Cursor> = { type: 'restored', revision: 5, snapshot: ['old'], versionId: 'v1', userId: 'u2' };
+    // Passes the client-side decoder like any server message.
+    expect(decodeServer(encode(msg))).toEqual(msg);
+    client.receive(msg);
+    expect(client.state!.items).toEqual(['old']);
+    expect(client.revision).toBe(5);
+    expect(client.hasPending).toBe(false);
+    expect(resets).toEqual([false, true]);
+    expect(restored).toEqual([{ versionId: 'v1', userId: 'u2', revision: 5 }]);
   });
 
   it('undoes a batch that fails halfway and asks to be rebuilt', () => {

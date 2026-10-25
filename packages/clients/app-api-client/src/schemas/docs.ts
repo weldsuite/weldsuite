@@ -81,16 +81,70 @@ export interface DocSummary {
   canEdit: boolean;
 }
 
+/**
+ * What the room lets this person do: `edit` everything; `comment` only add,
+ * edit and delete their own comments and resolve or reopen discussions (a
+ * viewer with `docs:comment`); `view` nothing (any other op is refused).
+ */
+export type DocSessionMode = 'edit' | 'comment' | 'view';
+
 export interface DocSession {
   /** Single-use, valid for a minute: `${DOC_CONNECT_PATH}?ticket=…` opens the room. */
   ticket: string;
+  /** Same as `mode === 'edit'`. */
   canEdit: boolean;
+  mode: DocSessionMode;
   /** This person's colour in the room (caret, selection, avatar). */
   color: string;
 }
 
-/** The room's live document (`GET /api/docs/:id/snapshot`), edits not yet checkpointed included. */
+/**
+ * The room's live document (`GET /api/docs/:id/snapshot`), edits not yet
+ * checkpointed included; or a saved version's
+ * (`GET /api/docs/:id/versions/:versionId/snapshot`).
+ */
 export interface DocSnapshotResponse<Snapshot = DocSnapshotLike> {
   revision: number;
   snapshot: Snapshot;
+}
+
+// ---------------------------------------------------------------- versions
+
+const versionName = z.string().trim().min(1).max(255);
+
+/** `POST /api/docs/:id/versions`: save the document as it is now under a name. */
+export const createDocVersionSchema = z.object({ name: versionName });
+export type CreateDocVersionInput = z.infer<typeof createDocVersionSchema>;
+
+/** `PATCH /api/docs/:id/versions/:versionId`: rename a version. */
+export const updateDocVersionSchema = z.object({ name: versionName });
+export type UpdateDocVersionInput = z.infer<typeof updateDocVersionSchema>;
+
+/** `GET /api/docs/:id/versions`: newest first; `cursor` is the previous page's `pagination.cursor`. */
+export const listDocVersionsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+  cursor: z.string().min(1).max(255).optional(),
+});
+export type ListDocVersionsQuery = z.infer<typeof listDocVersionsQuerySchema>;
+
+/** A saved copy of a document at one revision. */
+export interface DocVersion {
+  id: string;
+  docId: string;
+  /** The room's revision the copy is at. */
+  revision: number;
+  /** Null for an automatic version (the document as it was before a restore). */
+  name: string | null;
+  /** Size of the stored snapshot, bytes. */
+  size: number;
+  createdAt: string;
+  createdById: string | null;
+}
+
+/** `POST /api/docs/:id/versions/:versionId/restore`. */
+export interface DocRestoreResult {
+  /** The document's revision after the restore: the room's revision before it, plus one. */
+  revision: number;
+  /** The document as it was just before the restore, saved as an automatic version. */
+  autoVersion: DocVersion;
 }
