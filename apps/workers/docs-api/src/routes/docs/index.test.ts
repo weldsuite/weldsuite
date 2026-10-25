@@ -90,6 +90,13 @@ describe('/api/docs', () => {
     };
     expect(await refused({ version: 99, props: {}, styles: {}, lists: {}, stories: {}, tables: {}, anchors: [] })).toBe('invalid_snapshot');
     expect(await refused({ version: 1 })).toBe('invalid_snapshot');
+    // What the room would refuse as ops is refused here too: a script link, a table without rows.
+    const scripted = DocModel.create().toSnapshot();
+    scripted.stories['body'] = { text: 'click\n', runs: [[5, { link: 'javascript:alert(1)' }]] };
+    expect(await refused(scripted)).toBe('invalid_snapshot');
+    const rowless = DocModel.create().toSnapshot();
+    rowless.tables['t1'] = { rows: [], cols: [{ id: 'c1', width: 100 }] };
+    expect(await refused(rowless)).toBe('invalid_snapshot');
     expect(await refused('nope')).toBeUndefined();
     expect(await db.select().from(docs)).toHaveLength(1);
   });
