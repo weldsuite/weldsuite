@@ -59,6 +59,26 @@ export const weldsign = {
     },
   },
 
+  /** "Versturen voor ondertekening" vanuit WeldDrive en vanuit CRM-records. */
+  start: {
+    action: 'Versturen voor ondertekening',
+    preparing: '"{name}" voorbereiden voor ondertekening…',
+    failed: 'Het ondertekenverzoek kon niet worden gestart',
+    documentFailed: 'Het verzoek is aangemaakt, maar "{name}" kon niet worden toegevoegd: {reason}',
+    recordTitle: 'Document voor {name}',
+  },
+
+  /** Waar een verzoek vandaan komt: een bestand in WeldDrive of een CRM-record. */
+  source: {
+    from: 'Van {name}',
+    gone: {
+      file: 'Van een bestand dat is verwijderd',
+      company: 'Van een bedrijf dat is verwijderd',
+      person: 'Van een persoon die is verwijderd',
+      opportunity: 'Van een kans die is verwijderd',
+    },
+  },
+
   editor: {
     loadFailed: 'Dit verzoek kon niet worden geladen.',
     notFound: 'Dit verzoek bestaat niet of je kunt het niet zien.',
@@ -66,6 +86,7 @@ export const weldsign = {
     back: 'Terug',
     next: 'Volgende',
     titleLabel: 'Naam van het verzoek',
+    stepsLabel: 'Stappen',
     saved: 'Opgeslagen',
     saving: 'Opslaan…',
     saveFailed: 'Opslaan mislukt',
@@ -74,6 +95,8 @@ export const weldsign = {
       recipients: 'Ontvangers',
       fields: 'Velden',
       review: 'Controleren',
+      roles: 'Rollen',
+      settings: 'Instellingen',
     },
 
     documents: {
@@ -93,6 +116,13 @@ export const weldsign = {
       removeTitle: 'Dit document verwijderen?',
       removeDescription: 'De velden op "{name}" worden ook verwijderd.',
       empty: 'Nog geen documenten.',
+      fromDrive: 'Toevoegen uit WeldDrive',
+      drive: {
+        title: 'Toevoegen uit WeldDrive',
+        description: "Kies de pdf's die je wilt toevoegen. Ze worden gekopieerd, dus latere wijzigingen in WeldDrive hebben geen invloed op het verzoek.",
+        confirm: 'Toevoegen',
+        adding: 'Toevoegen…',
+      },
     },
 
     recipients: {
@@ -128,6 +158,11 @@ export const weldsign = {
       saveFailed: '{name} kon niet worden opgeslagen',
       invalidEmail: 'Vul een geldig e-mailadres in',
       nameRequired: 'Vul een naam in',
+      templateRole: 'Rol in het sjabloon: {role}',
+      suggestions: {
+        title: 'Voorgesteld vanuit {name}',
+        add: '{name} toevoegen als ondertekenaar',
+      },
     },
 
     fields: {
@@ -135,7 +170,9 @@ export const weldsign = {
       description: 'Kies een ondertekenaar, dan een veld, en klik op de pagina om het te plaatsen.',
       needDocuments: 'Voeg eerst een document toe.',
       needSigners: 'Voeg eerst minstens één ondertekenaar toe.',
+      needRoles: 'Voeg eerst minstens één rol toe die tekent.',
       signer: 'Ondertekenaar',
+      role: 'Rol',
       fieldTypes: 'Velden',
       types: {
         signature: 'Handtekening',
@@ -187,6 +224,21 @@ export const weldsign = {
       sending: 'Versturen…',
       sent: 'Verzoek verstuurd',
       sendFailed: 'Het verzoek kon niet worden verstuurd',
+      signedCopy: {
+        title: 'Ondertekende kopie',
+        toDefault: 'Opgeslagen in WeldSign/{year} in je WeldDrive, een map die alleen jij kunt zien.',
+        toFolder: 'Opgeslagen in de map "{name}" in WeldDrive.',
+        toFolderUnknown: 'Opgeslagen in de map die je in WeldDrive hebt gekozen.',
+        alsoRecord: 'Een kopie wordt ook opgeslagen bij de bestanden van {name}, met een notitie in de activiteit.',
+        alsoOpportunity: 'Een kopie wordt ook opgeslagen bij de bestanden van het bedrijf van de kans, met een notitie bij {name}.',
+        change: 'Wijzigen',
+        useDefault: 'Standaard gebruiken',
+        pickTitle: 'Kies een map voor de ondertekende kopie',
+        pickDescription:
+          'De ondertekende pdf wordt in deze map opgeslagen zodra iedereen heeft getekend. Je kunt alleen mappen kiezen waaraan je bestanden mag toevoegen.',
+        pickConfirm: 'Deze map gebruiken',
+        saveFailed: 'Kon niet wijzigen waar de ondertekende kopie wordt opgeslagen',
+      },
     },
   },
 
@@ -215,6 +267,18 @@ export const weldsign = {
     voidedReason: 'Reden: {reason}',
     fingerprint: 'SHA-256 van de ondertekende pdf',
     viewDocuments: 'Documenten en velden bekijken',
+
+    filing: {
+      title: 'Waar de ondertekende kopie is opgeslagen',
+      drive: 'Opgeslagen in WeldDrive',
+      viewFile: 'Bestand bekijken',
+      openFolder: 'Map openen',
+      onRecord: 'Opgeslagen bij {name}',
+      recordFallback: {
+        company: 'het bedrijf',
+        person: 'de persoon',
+      },
+    },
 
     signNow: 'Nu tekenen',
     signNowFailed: 'De ondertekenpagina kon niet worden geopend',
@@ -288,9 +352,126 @@ export const weldsign = {
         expired: 'Verzoek verlopen',
         completed: 'Iedereen heeft getekend, verzoek voltooid',
         downloaded: 'Ondertekende pdf gedownload',
+        filed: 'Ondertekende pdf opgeslagen in WeldDrive',
       },
+      filedWithCompany: 'Ondertekende pdf opgeslagen in WeldDrive en bij de bestanden van het bedrijf',
+      filedWithPerson: 'Ondertekende pdf opgeslagen in WeldDrive en bij de bestanden van de persoon',
       remindedAutomatically: 'Automatische herinnering verstuurd naar {name}',
       recipientCorrectedPlain: 'E-mailadres van {name} gecorrigeerd',
+    },
+  },
+
+  templates: {
+    title: 'Sjablonen',
+    noAccess: 'Je hebt geen toegang tot sjablonen.',
+    untitled: 'Naamloos sjabloon',
+    newTemplate: 'Nieuw sjabloon',
+    searchPlaceholder: 'Zoek sjablonen',
+    table: {
+      title: 'Sjabloon',
+      roles: 'Rollen',
+      documents: 'Documenten',
+      updated: 'Bijgewerkt',
+      madeBy: 'Gemaakt door',
+    },
+    rolesMore: '+{count}',
+    noRoles: 'Nog geen rollen',
+    useAction: 'Gebruiken',
+    useActionLabel: '{name} gebruiken',
+    cannotUse: 'Voeg een document en een rol aan dit sjabloon toe voordat je het gebruikt.',
+    emptyTitle: 'Nog geen sjablonen',
+    emptyDescription:
+      'Een sjabloon is een ondertekenverzoek dat je opnieuw kunt gebruiken. Voeg de documenten toe, plaats de velden en geef de rollen een naam, zoals "Klant" of "Directeur". Als je het gebruikt, geef je alleen nog aan wie welke rol invult.',
+    noResultsTitle: 'Geen sjablonen gevonden',
+    noResultsDescription: 'Probeer een andere zoekopdracht.',
+    createFailed: 'Het sjabloon kon niet worden aangemaakt',
+    delete: {
+      title: 'Dit sjabloon verwijderen?',
+      description:
+        '"{name}" en de documenten worden verwijderd. Verzoeken die al met dit sjabloon zijn gemaakt, houden hun eigen kopie. Dit kan niet ongedaan worden gemaakt.',
+      confirm: 'Verwijderen',
+      done: 'Sjabloon verwijderd',
+      failed: 'Het sjabloon kon niet worden verwijderd',
+    },
+
+    editor: {
+      loadFailed: 'Dit sjabloon kon niet worden geladen.',
+      notFound: 'Dit sjabloon bestaat niet of je kunt het niet zien.',
+      readOnly: 'Je kunt dit sjabloon bekijken, maar je mag het niet wijzigen.',
+      badge: 'Sjabloon',
+      titleLabel: 'Naam van het sjabloon',
+    },
+
+    roles: {
+      title: 'Rollen',
+      description:
+        'Een rol staat voor een persoon die je nog niet kent, zoals "Klant". Als het sjabloon wordt gebruikt, kies je wie welke rol invult.',
+      add: 'Rol toevoegen',
+      empty: 'Nog geen rollen. Voeg hieronder de eerste toe.',
+      roleName: 'Naam van de rol',
+      roleNamePlaceholder: 'Klant',
+      type: 'Soort',
+      usualName: 'Gebruikelijke naam (optioneel)',
+      usualEmail: 'Gebruikelijk e-mailadres (optioneel)',
+      defaultsHint:
+        'Vult dezelfde persoon deze rol meestal in? Zet hem of haar hier neer. Dit wordt ingevuld als het sjabloon wordt gebruikt.',
+      accessCodeNote: 'De toegangscode kies je als het sjabloon wordt gebruikt.',
+      remove: 'Rol verwijderen',
+      removeTitle: 'Deze rol verwijderen?',
+      removeDescription: 'De velden die voor "{name}" zijn geplaatst, worden ook verwijderd.',
+      roleNameRequired: 'Vul een naam voor de rol in',
+      duplicateName: 'Er is al een rol met de naam "{name}"',
+      invalidEmail: 'Vul een geldig e-mailadres in',
+      saveFailed: '{name} kon niet worden opgeslagen',
+    },
+
+    settings: {
+      title: 'Instellingen',
+      description:
+        'Standaardwaarden voor elk verzoek dat met dit sjabloon wordt gemaakt. De naam van het sjabloon staat bovenaan de pagina.',
+      summary: 'Overzicht',
+      summaryRoles: 'Rollen',
+      problems: 'Nog niet in orde',
+      noDocuments: 'Voeg minstens één document toe.',
+      noSigners: 'Voeg minstens één rol toe die tekent.',
+      signerWithoutSignature: 'De rol "{name}" heeft geen handtekeningveld.',
+      ready: 'Compleet: een verzoek dat met dit sjabloon is gemaakt, kan direct worden verstuurd.',
+      useTemplate: 'Sjabloon gebruiken',
+    },
+
+    useTemplate: {
+      title: 'Sjabloon gebruiken',
+      description: 'Wie vult welke rol van "{name}" in? Je kunt in het concept nog alles aanpassen.',
+      loading: 'Sjabloon laden…',
+      loadFailed: 'Het sjabloon kon niet worden geladen.',
+      signs: 'Tekent',
+      copy: 'Krijgt een kopie',
+      step: 'Stap {position}',
+      name: 'Naam',
+      email: 'E-mail',
+      nameRequired: 'Vul een naam in',
+      invalidEmail: 'Vul een geldig e-mailadres in',
+      duplicateEmail: 'Elke rol heeft een ander e-mailadres nodig',
+      accessCode: 'Toegangscode',
+      accessCodeRequired: 'Vul een toegangscode van minstens 4 tekens in',
+      details: 'Gegevens van het verzoek',
+      requestTitle: 'Titel',
+      titleRequired: 'Vul een titel in',
+      message: 'Bericht aan de ontvangers',
+      submit: 'Concept maken',
+      submitting: 'Maken…',
+      failed: 'Het sjabloon kon niet worden gebruikt',
+    },
+
+    picker: {
+      action: 'Vanuit sjabloon',
+      title: 'Beginnen met een sjabloon',
+      description: 'Kies een sjabloon. Daarna geef je aan wie welke rol invult.',
+      searchPlaceholder: 'Zoek sjablonen',
+      loading: 'Sjablonen laden…',
+      loadFailed: 'De sjablonen konden niet worden geladen.',
+      empty: 'Geen sjablonen gevonden.',
+      loadMore: 'Meer tonen',
     },
   },
 };

@@ -19,6 +19,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { cn } from '@/lib/utils';
 import { useCreateSignEnvelope, useDeleteSignEnvelope, useSignEnvelopes } from '@/hooks/queries/use-weldsign-queries';
 import { EnvelopeStatusBadge } from './components/status-badge';
+import { FromTemplateButton } from './templates/from-template';
 
 type HomeStrings = ReturnType<typeof useI18n>['t']['weldsign']['home'];
 
@@ -156,6 +157,7 @@ export default function WeldSignHome() {
             ))}
           </div>
         }
+        actionButtons={<FromTemplateButton />}
         createButton={canCreate ? { label: th.newRequest, onClick: () => void newRequest() } : undefined}
         hasMore={query.hasNextPage}
         isLoadingMore={query.isFetchingNextPage}

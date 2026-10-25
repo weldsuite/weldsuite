@@ -40,6 +40,7 @@ import { CreateFolderDialog } from './create-folder-dialog';
 import { DriveRenameDialog } from './drive-rename-dialog';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { MoveToFolderDialog } from './move-to-folder-dialog';
+import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { FileDetailPanel } from './file-detail-panel';
 import { ShareDialog, type DriveShareTarget } from './share-dialog';
 import type { TaskComment } from '@/components/task-detail/task-detail-content';
@@ -397,6 +398,7 @@ function FileRowMenuContent({ file, isStarred, actions, align }: Readonly<{
         <UserPlus className="h-4 w-4 mr-0.5" />
         {t.welddrive.page.actions.share}
       </DropdownMenuItem>
+      <SendFileForSignatureItem file={file} iconClassName="h-4 w-4 mr-0.5" />
       {canChange && (
         <>
           <DropdownMenuSeparator />

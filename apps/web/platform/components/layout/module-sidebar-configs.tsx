@@ -93,6 +93,7 @@ import {
   WalletCards,
   MessageSquareText,
   Signature,
+  LayoutTemplate,
   Shuffle,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
@@ -235,7 +236,10 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     getMenuItems: (t) => [
       {
         group: t.navigation.moduleSidebar.groups.general,
-        items: [{ title: t.navigation.moduleSidebar.weldsign.envelopes, href: '/weldsign', icon: Signature, permission: 'sign_envelopes:read' }],
+        items: [
+          { title: t.navigation.moduleSidebar.weldsign.envelopes, href: '/weldsign', icon: Signature, permission: 'sign_envelopes:read' },
+          { title: t.navigation.moduleSidebar.weldsign.templates, href: '/weldsign/templates', icon: LayoutTemplate, permission: 'sign_templates:read' },
+        ],
       },
     ],
   },

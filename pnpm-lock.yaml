@@ -6622,6 +6622,12 @@ importers:
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/app-api-client
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/core
+      '@weldsuite/crm-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/crm
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db

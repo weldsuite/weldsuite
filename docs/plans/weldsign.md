@@ -394,8 +394,72 @@ sign-portal scaffold, docs (SIGN-001..004).
 - Platform: the "Action required" folder, Sign now, Remind, Void, Resend link
   and Correct email on a sent request, and its activity timeline.
 
+**Phase 4: done.**
+
+- Templates are `sign_envelopes` rows of kind `template` (always a draft)
+  with their own documents, fields and roles: recipient rows with
+  `role_name` set and, optionally, who usually fills the role. They belong
+  to the workspace: `sign_templates:read` sees them all; `:create`,
+  `:update` and `:delete` change them (OWNER/ADMIN by default, MEMBER and
+  VIEWER read and use them).
+- `/api/sign/templates`: list, create, get, settings, delete, `/roles`, and
+  the draft's `/documents` and `/fields` routes (shared through a scope, so
+  one implementation serves both). The detail has the editor's envelope
+  shape with `kind: 'template'`.
+- `POST /api/sign/templates/:id/use` (`sign_envelopes:create` and
+  `sign_templates:read`): a new draft request with a person in every role.
+  PDFs are copied to the draft's own keys (deleting either never touches the
+  other), fields move to the new documents and people, and the title,
+  message, signing order and reminders come from the template. Every role
+  must be filled exactly once, with distinct addresses and an access code
+  where the role asks for one; a refusal leaves nothing behind.
+- Entity events: `sign_template` `created` / `updated` / `deleted`; using a
+  template publishes `sign_envelope` `created` with the `templateId`.
+- Platform: templates list and editor (documents, roles, fields, settings),
+  the Use template dialog (from the list, the editor and "New request"), and
+  the new draft opening on its Review step, ready to send.
+
+**Phase 5: done.**
+
+- A request can start from a WeldDrive file or a CRM company, person or
+  opportunity (`sign_envelopes.source`): only one the member may read
+  (`files:read` plus Drive access, `companies:read`, `people:read`,
+  `opportunities:read`), anything else is a 404.
+- `POST /api/sign/{envelopes,templates}/:id/documents/from-drive` copies a
+  WeldDrive PDF in (`files:read`, Drive access, this workspace's object only);
+  later changes in Drive never touch what is signed.
+- `GET /api/sign/envelopes/:id/recipients/suggestions`: the people on the
+  draft's CRM record who have an email (a company's via person-companies, an
+  opportunity's primary contact and people).
+- Filing back is the last step of the FinalizeEnvelope Workflow, idempotent
+  through a new `filed` evidence event. A copy goes to WeldDrive: the chosen
+  folder (`file_back_folder_id`, which defaults to the source file's folder,
+  only a folder the member may add files to), else the sender's own
+  restricted `WeldSign/<year>` (created on first use, never shared between
+  senders). For a CRM source a second copy goes on the company or person as a
+  record file (an opportunity's on its company) with a completed note
+  activity. Shared code only: `@weldsuite/core-domain` (files, the new
+  `ensureOwnedFolder`) and `@weldsuite/crm-domain` (activities).
+- sign-api reads the public bucket too (`STORAGE`, read only), for Drive files
+  from before the private bucket.
+- Platform: "Send for signature" on PDFs in WeldDrive and on CRM companies,
+  people and opportunities; "Add from WeldDrive" in the documents step;
+  suggested recipients; the signed copy's destination on Review; and where
+  it was filed on a completed request.
+
 Changes against the plan above:
 
+- Quotes are not a source yet: nothing renders a quote PDF, so "Send for
+  signature" on a quote waits until quotes have a document of their own.
+- The default Drive folder is the sender's own restricted `WeldSign/<year>`,
+  not one folder for the workspace: a shared folder would let whoever made it
+  read every signed contract.
+- The CRM note is written in English for every workspace, like the
+  certificate page.
+
+- A template never holds an access code: a role with `access_code` gets one
+  when the template is used. A copy role always opens by link alone: it signs nothing,
+  so it is never asked for a code.
 - Void notices are not counted by the outbound guard: they only reach people
   who already had the request. Reminders, new links and corrections are.
 - A reminder sent by hand does not use up an automatic one; it only moves the
@@ -433,6 +497,8 @@ ADRs under a new `SIGN` area, written in phase 0 (skill `weldsuite-docs`):
 - SIGN-003 Simple electronic signatures with an append-only evidence trail,
   hashed documents and a certificate page; no PDF seal in v1.
 - SIGN-004 Signed artefacts live only in the private bucket.
+- SIGN-005 (phase 5) Signed copies go to the sender's own private WeldDrive
+  folder by default.
 
 ## Open items
 
@@ -443,4 +509,5 @@ ADRs under a new `SIGN` area, written in phase 0 (skill `weldsuite-docs`):
   completion, and what happens on workspace deletion (proposal: kept until the
   workspace deletes them; deleting a completed envelope keeps its `sign_events`
   and hashes).
-- DNS and Vercel project for `sign.weldsuite.org` / `sign-test.weldsuite.org`.
+- Done: Vercel project `weldsuite-sign-portal` with `sign.weldsuite.org` /
+  `sign-test.weldsuite.org`, deployed by `deploy.yml` (weldsuite/weldsuite#1315).

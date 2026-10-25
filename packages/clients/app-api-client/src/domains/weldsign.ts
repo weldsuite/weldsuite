@@ -1,17 +1,22 @@
 /**
  * App-API WeldSign domain client — `/api/sign/*` (sign-api).
  *
- * Drafts (envelopes, their PDFs, recipients and fields), sending, and a sent
- * request's lifecycle: void, remind, resend, correct an email, activity.
+ * Drafts (envelopes, their PDFs, recipients and fields), sending, a sent
+ * request's lifecycle (void, remind, resend, correct an email, activity), and
+ * templates (`/api/sign/templates/*`).
  */
 
 import type { ClientApi, DataResponse, ListResponse } from '../types';
 import { buildQueryString } from '../types';
 import type {
+  AddSignDocumentFromDriveInput,
   CorrectSignRecipientInput,
   CreateSignEnvelopeInput,
   CreateSignRecipientInput,
+  CreateSignTemplateInput,
+  CreateSignTemplateRoleInput,
   ListSignEnvelopesQuery,
+  ListSignTemplatesQuery,
   ReorderSignDocumentsInput,
   ReplaceSignFieldsInput,
   SendSignEnvelopeInput,
@@ -21,14 +26,20 @@ import type {
   SignEventDto,
   SignFieldDto,
   SignRecipientDto,
+  SignRecipientSuggestion,
   SignRemindResult,
   SignSigningLink,
+  SignTemplateSummary,
   UpdateSignEnvelopeInput,
   UpdateSignRecipientInput,
+  UpdateSignTemplateInput,
+  UpdateSignTemplateRoleInput,
+  UseSignTemplateInput,
   VoidSignEnvelopeInput,
 } from '../schemas/weldsign';
 
 const base = '/sign/envelopes';
+const templates = '/sign/templates';
 
 export function createWeldSignApi(api: ClientApi) {
   return {
@@ -64,6 +75,10 @@ export function createWeldSignApi(api: ClientApi) {
     removeDocument(id: string, documentId: string): Promise<void> {
       return api.delete(`${base}/${id}/documents/${documentId}`);
     },
+    /** Copy a WeldDrive PDF into the draft. */
+    addDocumentFromDrive(id: string, input: AddSignDocumentFromDriveInput): Promise<DataResponse<SignDocumentDto>> {
+      return api.post(`${base}/${id}/documents/from-drive`, input);
+    },
 
     addRecipient(id: string, input: CreateSignRecipientInput): Promise<DataResponse<SignRecipientDto>> {
       return api.post(`${base}/${id}/recipients`, input);
@@ -73,6 +88,10 @@ export function createWeldSignApi(api: ClientApi) {
     },
     removeRecipient(id: string, recipientId: string): Promise<void> {
       return api.delete(`${base}/${id}/recipients/${recipientId}`);
+    },
+    /** People on the draft's CRM record (company, person or opportunity), to add as recipients. */
+    recipientSuggestions(id: string): Promise<DataResponse<SignRecipientSuggestion[]>> {
+      return api.get(`${base}/${id}/recipients/suggestions`);
     },
 
     replaceFields(id: string, input: ReplaceSignFieldsInput): Promise<DataResponse<SignFieldDto[]>> {
@@ -111,6 +130,69 @@ export function createWeldSignApi(api: ClientApi) {
     /** A fresh link for the caller's own turn to sign. */
     signingLink(id: string): Promise<DataResponse<SignSigningLink>> {
       return api.post(`${base}/${id}/signing-link`, {});
+    },
+
+    /**
+     * Templates: the same documents and fields as a draft, with roles in place
+     * of people. The detail is a `SignEnvelopeDetail` of kind `template`.
+     */
+    templates: {
+      list(params: ListSignTemplatesQuery = {}): Promise<ListResponse<SignTemplateSummary>> {
+        return api.get(`${templates}${buildQueryString(params)}`);
+      },
+      get(id: string): Promise<DataResponse<SignEnvelopeDetail>> {
+        return api.get(`${templates}/${id}`);
+      },
+      create(input: CreateSignTemplateInput): Promise<DataResponse<SignEnvelopeDetail>> {
+        return api.post(templates, input);
+      },
+      update(id: string, input: UpdateSignTemplateInput): Promise<DataResponse<SignEnvelopeDetail>> {
+        return api.patch(`${templates}/${id}`, input);
+      },
+      /** Deletes the template with its files; requests made from it keep their own copies. */
+      remove(id: string): Promise<void> {
+        return api.delete(`${templates}/${id}`);
+      },
+
+      uploadDocument(id: string, file: File): Promise<DataResponse<SignDocumentDto>> {
+        const form = new FormData();
+        form.append('file', file);
+        return api.postForm(`${templates}/${id}/documents`, form);
+      },
+      /** The PDF bytes; the caller reads the response as an ArrayBuffer. */
+      documentContent(id: string, documentId: string): Promise<Response> {
+        return api.getRaw(`${templates}/${id}/documents/${documentId}/content`);
+      },
+      reorderDocuments(id: string, input: ReorderSignDocumentsInput): Promise<DataResponse<SignDocumentDto[]>> {
+        return api.put(`${templates}/${id}/documents/order`, input);
+      },
+      removeDocument(id: string, documentId: string): Promise<void> {
+        return api.delete(`${templates}/${id}/documents/${documentId}`);
+      },
+      /** Copy a WeldDrive PDF into the template. */
+      addDocumentFromDrive(id: string, input: AddSignDocumentFromDriveInput): Promise<DataResponse<SignDocumentDto>> {
+        return api.post(`${templates}/${id}/documents/from-drive`, input);
+      },
+
+      addRole(id: string, input: CreateSignTemplateRoleInput): Promise<DataResponse<SignRecipientDto>> {
+        return api.post(`${templates}/${id}/roles`, input);
+      },
+      updateRole(id: string, roleId: string, input: UpdateSignTemplateRoleInput): Promise<DataResponse<SignRecipientDto>> {
+        return api.patch(`${templates}/${id}/roles/${roleId}`, input);
+      },
+      /** Removes the role and its fields. */
+      removeRole(id: string, roleId: string): Promise<void> {
+        return api.delete(`${templates}/${id}/roles/${roleId}`);
+      },
+
+      replaceFields(id: string, input: ReplaceSignFieldsInput): Promise<DataResponse<SignFieldDto[]>> {
+        return api.put(`${templates}/${id}/fields`, input);
+      },
+
+      /** A new draft request with a person in every role; it opens ready to review and send. */
+      use(id: string, input: UseSignTemplateInput): Promise<DataResponse<SignEnvelopeDetail>> {
+        return api.post(`${templates}/${id}/use`, input);
+      },
     },
   };
 }
