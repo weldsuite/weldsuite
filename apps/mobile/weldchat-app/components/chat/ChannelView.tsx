@@ -513,13 +513,18 @@ function SystemMessage({ content, styles }: Readonly<{ content: string; styles: 
   );
 }
 
-/** The server's "2m 34s" / "45s" as seconds; null when there is none. */
+const DURATION_UNIT_SECONDS: Record<string, number> = { m: 60, s: 1 };
+
+/** The server's "2m 34s" / "2m" / "45s" as seconds; null when there is none. */
 function callDurationSeconds(duration: string | undefined): number | null {
-  if (!duration) return null;
-  const minutes = /(\d+)\s*m/.exec(duration);
-  const seconds = /(\d+)\s*s/.exec(duration);
-  if (!minutes && !seconds) return null;
-  return Number(minutes?.[1] ?? 0) * 60 + Number(seconds?.[1] ?? 0);
+  let total: number | null = null;
+  for (const part of duration?.split(' ') ?? []) {
+    const amount = Number.parseInt(part, 10);
+    const unit = DURATION_UNIT_SECONDS[part.at(-1) ?? ''];
+    if (Number.isNaN(amount) || !unit) continue;
+    total = (total ?? 0) + amount * unit;
+  }
+  return total;
 }
 
 /**

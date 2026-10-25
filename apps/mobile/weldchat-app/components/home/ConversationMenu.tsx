@@ -69,7 +69,7 @@ export function ConversationMenu({ conversation, onChange, children }: Readonly<
   const { userId } = useAuth();
   const { id, kind } = conversation;
   const [level, setLevel] = useState<NotificationLevel | null>(
-    () => cachedMembership(id)?.notificationPreference ?? null,
+    () => cachedMembership(id, userId)?.notificationPreference ?? null,
   );
 
   // A long-press starts with a press-in: load the notification level then, so

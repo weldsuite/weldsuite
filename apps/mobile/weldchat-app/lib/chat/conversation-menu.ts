@@ -26,15 +26,18 @@ export function conversationWebUrl(
 }
 
 // One request per conversation per session: the menu reads it again on every
-// long-press, and every change below keeps it current.
+// long-press, and every change below keeps it current. Keyed by the person
+// too, so whoever signs in next on this phone never gets the last one's row.
 const memberships = new Map<string, MyMembership>();
 
-export function cachedMembership(channelId: string): MyMembership | undefined {
-  return memberships.get(channelId);
+const membershipKey = (channelId: string, userId: string) => `${userId}:${channelId}`;
+
+export function cachedMembership(channelId: string, userId: string | null | undefined): MyMembership | undefined {
+  return userId ? memberships.get(membershipKey(channelId, userId)) : undefined;
 }
 
 export async function loadMembership(channelId: string, userId: string): Promise<MyMembership | null> {
-  const cached = memberships.get(channelId);
+  const cached = memberships.get(membershipKey(channelId, userId));
   if (cached) return cached;
   const res = await appApiClient.get<{ data: MyMembership[] }>(
     `/channel-members?channelId=${encodeURIComponent(channelId)}&userId=${encodeURIComponent(userId)}`,
@@ -46,7 +49,7 @@ export async function loadMembership(channelId: string, userId: string): Promise
     isMuted: !!row.isMuted,
     notificationPreference: row.notificationPreference ?? 'all',
   };
-  memberships.set(channelId, membership);
+  memberships.set(membershipKey(channelId, userId), membership);
   return membership;
 }
 
@@ -62,5 +65,5 @@ export async function updateMembership(
   const membership = await loadMembership(channelId, userId);
   if (!membership) throw new Error('Not a member of this conversation');
   await appApiClient.patch(`/channel-members/${membership.id}`, patch);
-  memberships.set(channelId, { ...membership, ...patch });
+  memberships.set(membershipKey(channelId, userId), { ...membership, ...patch });
 }

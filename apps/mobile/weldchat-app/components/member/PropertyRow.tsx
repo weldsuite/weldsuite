@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, type TextStyle } from 'react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useI18n } from '@/lib/i18n';
 
@@ -54,15 +54,12 @@ export function PropertyRow({
   let content: ReactNode;
   if (editing) {
     content = (
-      <TextInput
+      <PropertyInput
         value={draft}
         onChangeText={setDraft}
-        onBlur={commit}
-        onSubmitEditing={multiline ? undefined : commit}
-        autoFocus
+        onDone={commit}
         multiline={multiline}
         keyboardType={keyboardType}
-        returnKeyType={multiline ? 'default' : 'done'}
         style={styles.input}
       />
     );
@@ -88,6 +85,37 @@ export function PropertyRow({
         {content}
       </Pressable>
     </View>
+  );
+}
+
+/** A row's value while editing: done on blur, and on return unless it is multiline. */
+function PropertyInput({
+  value,
+  onChangeText,
+  onDone,
+  multiline,
+  keyboardType,
+  style,
+}: Readonly<{
+  value: string;
+  onChangeText: (text: string) => void;
+  onDone: () => void;
+  multiline?: boolean;
+  keyboardType?: 'default' | 'phone-pad' | 'decimal-pad';
+  style: TextStyle;
+}>) {
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      onBlur={onDone}
+      onSubmitEditing={multiline ? undefined : onDone}
+      autoFocus
+      multiline={multiline}
+      keyboardType={keyboardType}
+      returnKeyType={multiline ? 'default' : 'done'}
+      style={style}
+    />
   );
 }
 

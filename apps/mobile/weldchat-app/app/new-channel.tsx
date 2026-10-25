@@ -57,6 +57,15 @@ function toChannelName(text: string): string {
     .slice(0, NAME_MAX);
 }
 
+/** Without dashes at either end: "-marketing-" is "marketing". */
+function trimDashes(name: string): string {
+  let start = 0;
+  let end = name.length;
+  while (start < end && name[start] === '-') start++;
+  while (end > start && name[end - 1] === '-') end--;
+  return name.slice(start, end);
+}
+
 /**
  * Create a channel the way Slack does on mobile, one thing per step: the name,
  * then public or private (and the category on Home), then, for a private
@@ -69,7 +78,6 @@ export default function NewChannelScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { userId } = useAuth();
-  const { organization } = useOrganization();
   const { width } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const nameInputRef = useRef<TextInput>(null);
@@ -104,7 +112,7 @@ export default function NewChannelScreen() {
   }, []);
 
   // A dash typed last ("marketing-") is dropped on create, not while typing.
-  const finalName = name.replace(/^-+|-+$/g, '');
+  const finalName = trimDashes(name);
   const isPrivate = visibility === 'private';
   const lastStep = isPrivate ? 2 : 1;
 
@@ -150,6 +158,8 @@ export default function NewChannelScreen() {
   };
 
   const titles = [t.newChannel.title, t.newChannel.visibilityLabel, t.newChannel.peopleTitle];
+  // The error shows on the step you are on.
+  const stepError = (index: number) => (index === step ? error : null);
   const canContinue = step === 0 ? finalName.length > 0 : !creating;
   const onPrimary = () => {
     if (!canContinue) return;
@@ -178,141 +188,257 @@ export default function NewChannelScreen() {
 
         <View style={styles.viewport}>
           <Animated.View style={[styles.pager, { width: width * 3 }, pagerStyle]}>
-            {/* 1. Name */}
-            <ScrollView
-              style={{ width }}
-              contentContainerStyle={styles.page}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              <Text style={styles.label}>{t.newChannel.nameLabel}</Text>
-              <Pressable
-                style={[styles.nameField, error && step === 0 && styles.nameFieldError]}
-                onPress={() => nameInputRef.current?.focus()}
-              >
-                {isPrivate ? (
-                  <Lock size={17} color={colors.muted} strokeWidth={2.2} />
-                ) : (
-                  <Hash size={18} color={colors.muted} strokeWidth={2.2} />
-                )}
-                <TextInput
-                  ref={nameInputRef}
-                  style={styles.nameInput}
-                  value={name}
-                  onChangeText={(text) => {
-                    setName(toChannelName(text));
-                    setError(null);
-                  }}
-                  placeholder={t.newChannel.namePlaceholder}
-                  placeholderTextColor={colors.muted}
-                  autoFocus
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                  onSubmitEditing={onPrimary}
-                  maxLength={NAME_MAX}
-                />
-                <Text style={styles.counter}>{NAME_MAX - name.length}</Text>
-              </Pressable>
-              {error && step === 0 ? (
-                <Text style={[styles.hint, styles.hintError]}>{error}</Text>
-              ) : (
-                <Text style={styles.hint}>{t.newChannel.nameHint}</Text>
-              )}
-            </ScrollView>
-
-            {/* 2. Public or private, and where it sits on Home */}
-            <ScrollView style={{ width }} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
-              <View style={styles.optionList}>
-                <OptionRow
-                  icon={<Hash size={18} color={colors.text} strokeWidth={2.1} />}
-                  title={t.newChannel.publicTitle}
-                  hint={format(t.newChannel.publicHint, {
-                    workspace: organization?.name || t.home.workspaceFallback,
-                  })}
-                  selected={!isPrivate}
-                  onPress={() => setVisibility('public')}
-                  styles={styles}
-                  colors={colors}
-                />
-                <View style={styles.optionDivider} />
-                <OptionRow
-                  icon={<Lock size={17} color={colors.text} strokeWidth={2.1} />}
-                  title={t.newChannel.privateTitle}
-                  hint={t.newChannel.privateHint}
-                  selected={isPrivate}
-                  onPress={() => setVisibility('private')}
-                  styles={styles}
-                  colors={colors}
-                />
-              </View>
-
-              {sections.length > 0 && (
-                <>
-                  <Text style={[styles.label, styles.labelSpaced]}>{t.newChannel.categoryLabel}</Text>
-                  <View style={styles.chips}>
-                    <Chip
-                      label={t.newChannel.noCategory}
-                      selected={!sectionId}
-                      onPress={() => setSectionId(undefined)}
-                      styles={styles}
-                    />
-                    {sections.map((sec) => (
-                      <Chip
-                        key={sec.id}
-                        label={sec.name}
-                        selected={sectionId === sec.id}
-                        onPress={() => setSectionId(sec.id)}
-                        styles={styles}
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.hint}>{t.newChannel.categoryHint}</Text>
-                </>
-              )}
-              {error && step === 1 && <Text style={[styles.hint, styles.hintError]}>{error}</Text>}
-            </ScrollView>
-
-            {/* 3. Who is in a private channel */}
-            <View style={{ width }}>
-              <SearchField
-                placeholder={t.newChannel.peopleSearch}
-                value={query}
-                onChangeText={setQuery}
-                onClear={() => setQuery('')}
-                style={styles.search}
-              />
-              <Text style={styles.peopleHint}>
-                {format(t.newChannel.peopleHint, { name: finalName || t.newChannel.namePlaceholder })}
-              </Text>
-              {error && step === 2 && <Text style={[styles.peopleHint, styles.hintError]}>{error}</Text>}
-              {membersLoading ? (
-                <ActivityIndicator style={styles.loader} color={colors.mutedForeground} />
-              ) : (
-                <ScrollView
-                  contentContainerStyle={styles.peopleList}
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode="on-drag"
-                  showsVerticalScrollIndicator={false}
-                >
-                  {people.map((m) => (
-                    <PersonRow
-                      key={m.userId}
-                      member={m}
-                      selected={selected.includes(m.userId)}
-                      onPress={() => togglePerson(m.userId)}
-                      styles={styles}
-                      colors={colors}
-                    />
-                  ))}
-                  {people.length === 0 && <Text style={styles.empty}>{t.newChannel.noPeople}</Text>}
-                </ScrollView>
-              )}
-            </View>
+            <NameStep
+              width={width}
+              name={name}
+              onChangeName={(text) => {
+                setName(toChannelName(text));
+                setError(null);
+              }}
+              isPrivate={isPrivate}
+              error={stepError(0)}
+              onSubmit={onPrimary}
+              inputRef={nameInputRef}
+              styles={styles}
+              colors={colors}
+            />
+            <VisibilityStep
+              width={width}
+              isPrivate={isPrivate}
+              onChangeVisibility={setVisibility}
+              sections={sections}
+              sectionId={sectionId}
+              onChangeSection={setSectionId}
+              error={stepError(1)}
+              styles={styles}
+              colors={colors}
+            />
+            <PeopleStep
+              width={width}
+              channelName={finalName}
+              query={query}
+              onChangeQuery={setQuery}
+              loading={membersLoading}
+              people={people}
+              selected={selected}
+              onToggle={togglePerson}
+              error={stepError(2)}
+              styles={styles}
+              colors={colors}
+            />
           </Animated.View>
         </View>
       </View>
     </>
+  );
+}
+
+/** Step 1: the name. `error` is only set while this step shows. */
+function NameStep({
+  width,
+  name,
+  onChangeName,
+  isPrivate,
+  error,
+  onSubmit,
+  inputRef,
+  styles,
+  colors,
+}: Readonly<{
+  width: number;
+  name: string;
+  onChangeName: (text: string) => void;
+  isPrivate: boolean;
+  error: string | null;
+  onSubmit: () => void;
+  inputRef: React.RefObject<TextInput | null>;
+  styles: Styles;
+  colors: ThemeColors;
+}>) {
+  const { t } = useI18n();
+  return (
+    <ScrollView
+      style={{ width }}
+      contentContainerStyle={styles.page}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.label}>{t.newChannel.nameLabel}</Text>
+      <Pressable
+        style={[styles.nameField, !!error && styles.nameFieldError]}
+        onPress={() => inputRef.current?.focus()}
+      >
+        {isPrivate ? (
+          <Lock size={17} color={colors.muted} strokeWidth={2.2} />
+        ) : (
+          <Hash size={18} color={colors.muted} strokeWidth={2.2} />
+        )}
+        <TextInput
+          ref={inputRef}
+          style={styles.nameInput}
+          value={name}
+          onChangeText={onChangeName}
+          placeholder={t.newChannel.namePlaceholder}
+          placeholderTextColor={colors.muted}
+          autoFocus
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="next"
+          onSubmitEditing={onSubmit}
+          maxLength={NAME_MAX}
+        />
+        <Text style={styles.counter}>{NAME_MAX - name.length}</Text>
+      </Pressable>
+      {error ? (
+        <Text style={[styles.hint, styles.hintError]}>{error}</Text>
+      ) : (
+        <Text style={styles.hint}>{t.newChannel.nameHint}</Text>
+      )}
+    </ScrollView>
+  );
+}
+
+/** Step 2: public or private, and where it sits on Home. */
+function VisibilityStep({
+  width,
+  isPrivate,
+  onChangeVisibility,
+  sections,
+  sectionId,
+  onChangeSection,
+  error,
+  styles,
+  colors,
+}: Readonly<{
+  width: number;
+  isPrivate: boolean;
+  onChangeVisibility: (visibility: Visibility) => void;
+  sections: Section[];
+  sectionId: string | undefined;
+  onChangeSection: (sectionId: string | undefined) => void;
+  error: string | null;
+  styles: Styles;
+  colors: ThemeColors;
+}>) {
+  const { t, format } = useI18n();
+  const { organization } = useOrganization();
+  return (
+    <ScrollView style={{ width }} contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
+      <View style={styles.optionList}>
+        <OptionRow
+          icon={<Hash size={18} color={colors.text} strokeWidth={2.1} />}
+          title={t.newChannel.publicTitle}
+          hint={format(t.newChannel.publicHint, {
+            workspace: organization?.name || t.home.workspaceFallback,
+          })}
+          selected={!isPrivate}
+          onPress={() => onChangeVisibility('public')}
+          styles={styles}
+          colors={colors}
+        />
+        <View style={styles.optionDivider} />
+        <OptionRow
+          icon={<Lock size={17} color={colors.text} strokeWidth={2.1} />}
+          title={t.newChannel.privateTitle}
+          hint={t.newChannel.privateHint}
+          selected={isPrivate}
+          onPress={() => onChangeVisibility('private')}
+          styles={styles}
+          colors={colors}
+        />
+      </View>
+
+      {sections.length > 0 && (
+        <>
+          <Text style={[styles.label, styles.labelSpaced]}>{t.newChannel.categoryLabel}</Text>
+          <View style={styles.chips}>
+            <Chip
+              label={t.newChannel.noCategory}
+              selected={!sectionId}
+              onPress={() => onChangeSection(undefined)}
+              styles={styles}
+            />
+            {sections.map((sec) => (
+              <Chip
+                key={sec.id}
+                label={sec.name}
+                selected={sectionId === sec.id}
+                onPress={() => onChangeSection(sec.id)}
+                styles={styles}
+              />
+            ))}
+          </View>
+          <Text style={styles.hint}>{t.newChannel.categoryHint}</Text>
+        </>
+      )}
+      {error ? <Text style={[styles.hint, styles.hintError]}>{error}</Text> : null}
+    </ScrollView>
+  );
+}
+
+/** Step 3: who is in a private channel. */
+function PeopleStep({
+  width,
+  channelName,
+  query,
+  onChangeQuery,
+  loading,
+  people,
+  selected,
+  onToggle,
+  error,
+  styles,
+  colors,
+}: Readonly<{
+  width: number;
+  channelName: string;
+  query: string;
+  onChangeQuery: (query: string) => void;
+  loading: boolean;
+  people: WorkspaceMember[];
+  selected: string[];
+  onToggle: (userId: string) => void;
+  error: string | null;
+  styles: Styles;
+  colors: ThemeColors;
+}>) {
+  const { t, format } = useI18n();
+  return (
+    <View style={{ width }}>
+      <SearchField
+        placeholder={t.newChannel.peopleSearch}
+        value={query}
+        onChangeText={onChangeQuery}
+        onClear={() => onChangeQuery('')}
+        style={styles.search}
+      />
+      <Text style={styles.peopleHint}>
+        {format(t.newChannel.peopleHint, { name: channelName || t.newChannel.namePlaceholder })}
+      </Text>
+      {error ? <Text style={[styles.peopleHint, styles.hintError]}>{error}</Text> : null}
+      {loading ? (
+        <ActivityIndicator style={styles.loader} color={colors.mutedForeground} />
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.peopleList}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          {people.map((m) => (
+            <PersonRow
+              key={m.userId}
+              member={m}
+              selected={selected.includes(m.userId)}
+              onPress={() => onToggle(m.userId)}
+              styles={styles}
+              colors={colors}
+            />
+          ))}
+          {people.length === 0 && <Text style={styles.empty}>{t.newChannel.noPeople}</Text>}
+        </ScrollView>
+      )}
+    </View>
   );
 }
 
