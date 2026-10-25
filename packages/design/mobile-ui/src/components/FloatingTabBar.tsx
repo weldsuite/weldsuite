@@ -109,6 +109,8 @@ export interface FloatingTabBarProps {
   renderAccentFallbackIcon?: (props: TabBarIconProps) => ReactNode;
   /** Background for options.tabBarBadge (defaults to destructive red). */
   badgeColor?: string;
+  /** Hairline around the bar (defaults to a faint black/white). */
+  borderColor?: string;
 }
 
 export function FloatingTabBar({
@@ -120,6 +122,7 @@ export function FloatingTabBar({
   renderRouteAccessory,
   renderAccentFallbackIcon,
   badgeColor = '#EF4444',
+  borderColor,
 }: Readonly<FloatingTabBarProps>) {
   const { colors, theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -159,7 +162,7 @@ export function FloatingTabBar({
   const shellBackground =
     theme === 'dark' ? 'rgba(28, 28, 30, 0.92)' : 'rgba(255, 255, 255, 0.94)';
   const shellBorder =
-    theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
+    borderColor ?? (theme === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)');
   const indicatorBackground =
     theme === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)';
 

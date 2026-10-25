@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
   ScrollView,
   Keyboard,
+  Linking,
+  useWindowDimensions,
   type GestureResponderEvent,
   type LayoutChangeEvent,
   type StyleProp,
@@ -21,26 +23,22 @@ import {
 import { useOrganization, useAuth, useUser } from '@clerk/expo';
 import { useObserve } from 'expo-observe';
 import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolate, Extrapolation } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeOut, useAnimatedStyle, useSharedValue, withSpring, withTiming, interpolate, Extrapolation } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
 
-import { Archive, ArrowUp, AtSign, AudioLines, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Paperclip, Pencil, Phone, PhoneMissed, Plus, Reply, X } from 'lucide-react-native';
-import { VideoCameraIcon } from '@/components/icons/VideoCameraIcon';
+import { Archive, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { getRandomBytes, randomUUID } from 'expo-crypto';
-import * as ImagePicker from 'expo-image-picker';
-import * as DocumentPicker from 'expo-document-picker';
-import { File as ExpoFile } from 'expo-file-system';
-import { BlurView } from 'expo-blur';
+import { randomUUID } from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { BRAND } from '@/lib/brand';
-import { useI18n } from '@/lib/i18n';
+import { ACCENTS, BRAND } from '@/lib/brand';
+import { useI18n, type Translations } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
+import { VideoCameraIcon } from '@/components/icons/VideoCameraIcon';
 import { useCall } from '@/contexts/CallContext';
 import { useChatRealtime } from '@/hooks/useChatRealtime';
 import { useVoiceRecorder } from '@/hooks/useVoiceRecorder';
@@ -50,66 +48,35 @@ import { ReactionBar } from './ReactionBar';
 import { MessageActions } from './MessageActions';
 import { EmojiPicker } from './EmojiPicker';
 import { MentionPicker } from './MentionPicker';
-import { mentionBadgeColors, renderMessageText } from './MessageText';
+import { renderMessageText } from './MessageText';
 import { AudioPlayer } from './AudioPlayer';
 import { ImageViewer } from './ImageViewer';
+import {
+  CollapsedComposer,
+  ComposerBarFrame,
+  ExpandedComposer,
+  PendingFiles,
+  RecordingPill,
+  useComposerBarStyle,
+  useKeyboardHide,
+  type ExpandedComposerProps,
+} from './ComposerBar';
+import {
+  MIN_VOICE_MESSAGE_MS,
+  openAttachmentPicker,
+  uploadChatAttachment,
+  type ChatAttachment,
+  type RNFile,
+} from '@/lib/chat/attachments';
 import { appApi, appApiClient } from '@/services/app-api';
 import {
   detectMentionQuery,
-  hasMentionTokens,
   insertMention,
-  mentionLabel,
-  mentionTokenRegex,
   mentionsToPlainText,
 } from '@/lib/chat/mentions';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 type Styles = ReturnType<typeof makeStyles>;
-
-interface ChatAttachment {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  mimeType: string;
-  url: string;
-}
-
-/** React Native file descriptor produced by the document/image pickers. */
-type RNFile = { name: string; uri: string; mimeType: string };
-
-/**
- * A picked file as a multipart part. The global `fetch` is Expo's (SDK 57),
- * which rejects React Native's `{ uri, type, name }` descriptor with
- * "Unsupported FormDataPart implementation"; it sends any part that has
- * `bytes()`, using its `name` and `type` as the part's filename and
- * Content-Type. The bytes come from expo-file-system so the picker's file name
- * survives (an `ExpoFile` alone would be named after its cache path).
- */
-function multipartFilePart(file: RNFile) {
-  const source = new ExpoFile(file.uri);
-  return { name: file.name, type: file.mimeType, bytes: () => source.bytes() };
-}
-
-/**
- * Upload a picked RN file to app-api and map the response to a ChatAttachment.
- * The shared `upload` domain types its argument as a DOM `File`, so the part
- * is cast through `unknown`. Returns null on failure.
- */
-async function uploadChatAttachment(
-  channelId: string,
-  file: RNFile,
-): Promise<ChatAttachment | null> {
-  try {
-    const part = multipartFilePart(file);
-    const res = await appApi.chatMessages.upload(part as unknown as File, channelId);
-    // The server returns `{ id, fileName, fileSize, mimeType, url, fileKey }`
-    // (the upload service result); the shared response type omits `id`.
-    return res.data as unknown as ChatAttachment;
-  } catch (err) {
-    console.error('[WeldChat] uploadChatAttachment failed:', err);
-    return null;
-  }
-}
 
 interface Message {
   id: string;
@@ -154,9 +121,30 @@ interface ReplyTarget {
   authorName: string;
   authorAvatar?: string | null;
   content: string;
+  /** Files only, no text: the reply bar previews it as "Attachment". */
+  hasAttachments?: boolean;
   /** Chain depth of the target itself (0 for a plain message). */
   depth: number;
   rootId: string;
+}
+
+/** `reactions` with `userId` added to or removed from `emoji`. */
+function withReaction(
+  reactions: Record<string, string[]> | undefined,
+  emoji: string,
+  userId: string,
+  add: boolean,
+): Record<string, string[]> {
+  const next = { ...reactions };
+  const users = next[emoji] ?? [];
+  if (add) {
+    if (!users.includes(userId)) next[emoji] = [...users, userId];
+  } else {
+    const rest = users.filter((u) => u !== userId);
+    if (rest.length > 0) next[emoji] = rest;
+    else delete next[emoji];
+  }
+  return next;
 }
 
 /**
@@ -174,6 +162,7 @@ function replyTargetFor(message: Message): ReplyTarget {
     authorName: message.authorName,
     authorAvatar: message.authorAvatar ?? null,
     content: message.content,
+    hasAttachments: !!message.hasAttachments || (message.attachments?.length ?? 0) > 0,
     depth: ref?.depth ?? 0,
     rootId: ref?.rootId ?? message.id,
   };
@@ -187,9 +176,10 @@ function optimisticAuthorName(
   userId: string | null | undefined,
   membersMap: Map<string, string>,
   fallbacks: ReadonlyArray<string | null | undefined>,
+  youLabel: string,
 ): string {
   const memberName = userId ? membersMap.get(userId) : undefined;
-  return memberName || fallbacks.find(Boolean) || 'You';
+  return memberName || fallbacks.find(Boolean) || youLabel;
 }
 
 /** `metadata.replyTo` for an optimistic reply, mirroring what the server stores. */
@@ -209,18 +199,83 @@ function optimisticReplyMetadata(reply: ReplyTarget | null): Message['metadata']
 }
 
 /**
- * Classify a `type: 'system'` message that represents a call event so it can be
- * themed green (made/connected) or red (missed) in the conversation, à la
- * WhatsApp. Backend content strings: "<name> started a voice/video call",
- * "Call ended — 2:34", "Missed call". Returns null for non-call system rows.
+ * A call event the server posts as a `type: 'system'` message. Every call gets
+ * two: "<name> started a voice/video call" when it starts, then "Call ended —
+ * 2m 34s", "Call ended" or "Missed call" when it ends.
  */
-function classifyCallSystemMessage(content: string): { kind: 'missed' | 'made'; isVideo: boolean } | null {
+type CallEvent =
+  | { kind: 'start'; isVideo: boolean }
+  | { kind: 'ended' | 'missed'; isVideo: boolean; duration?: string };
+
+function parseCallEvent(content: string): CallEvent | null {
   const text = content.toLowerCase();
-  if (!text.includes('call')) return null;
   const isVideo = text.includes('video call');
-  if (text.includes('missed call')) return { kind: 'missed', isVideo };
-  if (text.includes('started a') || text.includes('call ended')) return { kind: 'made', isVideo };
+  if (text.startsWith('missed') && text.endsWith('call')) return { kind: 'missed', isVideo };
+  if (text.startsWith('call ended')) {
+    return { kind: 'ended', isVideo, duration: content.split('—')[1]?.trim() || undefined };
+  }
+  if (/ started an? (voice |video )?call$/.test(text)) return { kind: 'start', isVideo };
   return null;
+}
+
+/** One call in the conversation, shown as a single card. */
+interface CallLogEntry {
+  /** Unknown while the call runs, or when its end is not loaded. */
+  outcome: 'ended' | 'missed' | null;
+  isVideo: boolean;
+  duration?: string;
+  callerId: string;
+  callerName: string;
+  callerAvatar?: string;
+}
+
+/**
+ * Pair each call's start and end messages. The card sits where the call
+ * started; the end message folds into it. Calls in one conversation never
+ * overlap, so an end belongs to the start before it. An end whose start is
+ * on an older page stands on its own until that page loads.
+ */
+function buildCallLog(chronological: Message[]): {
+  entries: Map<string, CallLogEntry>;
+  folded: Set<string>;
+  /** The newest start with no end yet: the call that may still be running. */
+  openId: string | null;
+} {
+  const entries = new Map<string, CallLogEntry>();
+  const folded = new Set<string>();
+  let openId: string | null = null;
+  for (const m of chronological) {
+    if (m.type !== 'system') continue;
+    const event = parseCallEvent(m.content);
+    if (!event) continue;
+    if (event.kind === 'start') {
+      entries.set(m.id, {
+        outcome: null,
+        isVideo: event.isVideo,
+        callerId: m.authorId,
+        callerName: m.authorName,
+        callerAvatar: m.authorAvatar,
+      });
+      openId = m.id;
+      continue;
+    }
+    const start = openId ? entries.get(openId) : undefined;
+    if (openId && start) {
+      entries.set(openId, { ...start, outcome: event.kind, duration: event.duration });
+      folded.add(m.id);
+      openId = null;
+    } else {
+      entries.set(m.id, {
+        outcome: event.kind,
+        isVideo: event.isVideo,
+        duration: event.duration,
+        callerId: m.authorId,
+        callerName: m.authorName,
+        callerAvatar: m.authorAvatar,
+      });
+    }
+  }
+  return { entries, folded, openId };
 }
 
 /** Whether `item` opens a new calendar day relative to the chronologically previous message. */
@@ -251,99 +306,10 @@ function isCompactMessage(item: Message, prev: Message | undefined): boolean {
   );
 }
 
-/** Uniform random number in [0, 1) from the platform CSPRNG. */
-function randomUnit(): number {
-  return getRandomBytes(1)[0] / 256;
-}
-
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
-/** Render input text with inline mention badges (overlay on TextInput) */
-function renderInputWithBadges(text: string, members: Map<string, string>, colors: ThemeColors) {
-  const mentionRegex = mentionTokenRegex();
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = mentionRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(
-        <Text key={`t${match.index}`} style={{ fontSize: 16, color: colors.text }}>
-          {text.substring(lastIndex, match.index)}
-        </Text>
-      );
-    }
-    const name = mentionLabel(match[1], members);
-    parts.push(
-      <Text key={`m${match.index}`} style={{ fontSize: 15, fontWeight: '700', borderRadius: 4, paddingHorizontal: 3, overflow: 'hidden', ...mentionBadgeColors(colors) }}>@{name}</Text>
-    );
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push(
-      <Text key="end" style={{ fontSize: 16, color: colors.text }}>
-        {text.substring(lastIndex)}
-      </Text>
-    );
-  }
-
-  return <Text style={{ fontSize: 16, color: colors.text }}>{parts}</Text>;
-}
-
-/** Live audio waveform driven by the recorder's meter (dB). Bars shift left
- *  each tick; the newest bar is sized by the current input level. Silent
- *  input → all bars collapse to a flat baseline. */
-function Waveform({ active, color, level }: Readonly<{ active: boolean; color: string; level: number }>) {
-  const BAR_COUNT = 56;
-  // Each bar carries a stable id so React keeps the same element as bars shift left.
-  const nextBarId = useRef(BAR_COUNT);
-  const [bars, setBars] = useState<{ id: number; value: number }[]>(() =>
-    Array.from({ length: BAR_COUNT }, (_, id) => ({ id, value: 0 })),
-  );
-  const levelRef = useRef(level);
-  useEffect(() => { levelRef.current = level; }, [level]);
-
-  useEffect(() => {
-    if (!active) {
-      setBars((prev) => prev.map((bar) => ({ id: bar.id, value: 0 })));
-      return;
-    }
-    const id = setInterval(() => {
-      setBars((prev) => {
-        // Map dB (-60..0) to 0..1; ignore anything below -60 (effectively silence).
-        const db = levelRef.current;
-        const norm = Math.max(0, Math.min(1, (db + 60) / 60));
-        // Add a touch of jitter so the newest bar still feels alive, but only
-        // proportional to the current level (so silence stays flat).
-        const jitter = (randomUnit() - 0.5) * 0.15 * norm;
-        const next = Math.max(0, Math.min(1, norm + jitter));
-        return [...prev.slice(1), { id: nextBarId.current++, value: next }];
-      });
-    }, 60);
-    return () => clearInterval(id);
-  }, [active]);
-
-  return (
-    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 32, paddingHorizontal: 4 }}>
-      {bars.map(({ id, value }) => (
-        <View
-          key={id}
-          style={{
-            width: 2,
-            height: Math.max(2, value * 26),
-            borderRadius: 1,
-            backgroundColor: color,
-            opacity: 0.75,
-          }}
-        />
-      ))}
-    </View>
-  );
 }
 
 /**
@@ -355,13 +321,22 @@ function Waveform({ active, color, level }: Readonly<{ active: boolean; color: s
 function SwipeableMessage({
   onLongPress,
   onSwipeReply,
+  highlighted,
+  flashing,
+  compact,
   children,
 }: Readonly<{
   onLongPress: () => void;
   onSwipeReply: () => void;
+  /** Being replied to: tinted the full width, as in Discord. */
+  highlighted?: boolean;
+  /** Just jumped to from a reply: the same tint, fading out slowly. */
+  flashing?: boolean;
+  /** A follow-up row in a group (no author line, small top gap). */
+  compact?: boolean;
   children: React.ReactNode;
 }>) {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const translateX = useSharedValue(0);
   const crossedThreshold = useSharedValue(false);
   // Press-and-hold highlight: a soft area behind the message. It only appears
@@ -439,6 +414,20 @@ function SwipeableMessage({
   return (
     <GestureDetector gesture={composed}>
       <View>
+        {(highlighted || flashing) && (
+          <Animated.View
+            pointerEvents="none"
+            entering={FadeIn.duration(150)}
+            exiting={FadeOut.duration(flashing ? 700 : 150)}
+            style={[
+              swipeReplyStyles.pressHighlight,
+              // Even space above the author line and below the text: a full
+              // row's 12pt top margin is mostly left out of the band.
+              !compact && swipeReplyStyles.replyTargetBand,
+              { backgroundColor: theme === 'dark' ? REPLY_TARGET_TINT.dark : REPLY_TARGET_TINT.light },
+            ]}
+          />
+        )}
         <Animated.View
           pointerEvents="none"
           style={[swipeReplyStyles.pressHighlight, { backgroundColor: colors.cardBackground }, highlightStyle]}
@@ -454,6 +443,12 @@ function SwipeableMessage({
   );
 }
 
+/** How long a message jumped to from a reply stays tinted, before fading. */
+const JUMP_FLASH_MS = 1800;
+
+// Discord's blurple, faint, behind the message being replied to.
+const REPLY_TARGET_TINT = { light: 'rgba(88, 101, 242, 0.12)', dark: 'rgba(88, 101, 242, 0.24)' };
+
 const swipeReplyStyles = StyleSheet.create({
   pressHighlight: {
     position: 'absolute',
@@ -465,6 +460,7 @@ const swipeReplyStyles = StyleSheet.create({
     right: -16,
     borderRadius: 0,
   },
+  replyTargetBand: { top: 6, bottom: -6 },
   iconWrap: {
     position: 'absolute',
     left: 0,
@@ -484,10 +480,6 @@ const swipeReplyStyles = StyleSheet.create({
 
 const HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 };
 
-function blurTintFor(theme: string): BlurTint {
-  return theme === 'dark' ? 'dark' : 'light';
-}
-
 function hasSendableContent(input: string, files: RNFile[]): boolean {
   return input.trim().length > 0 || files.length > 0;
 }
@@ -495,11 +487,10 @@ function hasSendableContent(input: string, files: RNFile[]): boolean {
 /** Whether a reply/edit/file/typing row sits above the composer divider. */
 function hasComposerContext(ctx: {
   editing: boolean;
-  replying: boolean;
   fileCount: number;
   typingCount: number;
 }): boolean {
-  return ctx.editing || ctx.replying || ctx.fileCount > 0 || ctx.typingCount > 0;
+  return ctx.editing || ctx.fileCount > 0 || ctx.typingCount > 0;
 }
 
 /** Index of the pinned message currently shown (cycles through the pins). */
@@ -513,36 +504,114 @@ type OpenImage = (url: string, origin: ImageOrigin | null) => void;
 type MeasurableTarget = {
   measureInWindow?: (cb: (x: number, y: number, w: number, h: number) => void) => void;
 } | null;
-type BlurTint = 'dark' | 'light';
 
-function SystemMessage({
-  content,
-  colors,
-  styles,
-}: Readonly<{ content: string; colors: ThemeColors; styles: Styles }>) {
-  const call = classifyCallSystemMessage(content);
-  if (!call) {
-    return (
-      <View style={styles.systemMessage}>
-        <Text style={styles.systemText}>{content}</Text>
-      </View>
-    );
-  }
-  // Missed calls stay red; past/answered calls get a neutral gray theme.
-  const isMissed = call.kind === 'missed';
-  const bg = isMissed ? colors.destructive : colors.secondary;
-  const fg = isMissed ? '#fff' : colors.mutedForeground;
-  const PhoneIcon = isMissed ? PhoneMissed : Phone;
+function SystemMessage({ content, styles }: Readonly<{ content: string; styles: Styles }>) {
   return (
     <View style={styles.systemMessage}>
-      <View style={[styles.callSystemPill, { backgroundColor: bg }]}>
-        {call.isVideo && !isMissed ? (
-          <VideoCameraIcon size={14} color={fg} fill={fg} strokeWidth={2} />
-        ) : (
-          <PhoneIcon size={13} color={fg} fill={fg} strokeWidth={2} />
-        )}
-        <Text style={[styles.callSystemText, { color: fg }]}>{content}</Text>
+      <Text style={styles.systemText}>{content}</Text>
+    </View>
+  );
+}
+
+const DURATION_UNIT_SECONDS: Record<string, number> = { m: 60, s: 1 };
+
+/** The server's "2m 34s" / "2m" / "45s" as seconds; null when there is none. */
+function callDurationSeconds(duration: string | undefined): number | null {
+  let total: number | null = null;
+  for (const part of duration?.split(' ') ?? []) {
+    const amount = Number.parseInt(part, 10);
+    const unit = DURATION_UNIT_SECONDS[part.at(-1) ?? ''];
+    if (Number.isNaN(amount) || !unit) continue;
+    total = (total ?? 0) + amount * unit;
+  }
+  return total;
+}
+
+/**
+ * A call in the conversation, as Discord draws it: a gray card with the call's
+ * icon, how it went, how long it lasted and when, and the caller's avatar.
+ * A call still running offers "Join" in place of the avatar.
+ */
+function CallLogCard({
+  entry,
+  ongoing,
+  joinable,
+  createdAt,
+  colors,
+  styles,
+  onJoin,
+}: Readonly<{
+  entry: CallLogEntry;
+  ongoing: boolean;
+  /** Running and you are not in it. */
+  joinable: boolean;
+  createdAt: string;
+  colors: ThemeColors;
+  styles: Styles;
+  onJoin: (callType: 'voice' | 'video') => void;
+}>) {
+  const { t, plural, intlLocale } = useI18n();
+  const missed = entry.outcome === 'missed';
+
+  let title = t.channel.callStarted;
+  if (ongoing) title = t.channel.callOngoing;
+  else if (missed) title = t.channel.missedCall;
+  else if (entry.outcome === 'ended') title = t.channel.callEnded;
+
+  const seconds = callDurationSeconds(entry.duration);
+  let lasted: string | null = null;
+  if (seconds !== null && seconds < 60) lasted = t.channel.callFewSeconds;
+  else if (seconds !== null && seconds < 3600) lasted = plural(Math.round(seconds / 60), t.channel.callMinutes);
+  else if (seconds !== null) lasted = plural(Math.round(seconds / 3600), t.channel.callHours);
+  const when = new Date(createdAt).toLocaleString(intlLocale, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  let iconColor = colors.mutedForeground;
+  if (missed) iconColor = colors.destructive;
+  else if (ongoing) iconColor = BRAND;
+  // The app's call icons, solid, as the call events always used.
+  let icon = <Phone size={20} color={iconColor} fill={iconColor} strokeWidth={2} />;
+  if (missed) icon = <PhoneMissed size={20} color={iconColor} fill={iconColor} strokeWidth={2} />;
+  else if (entry.isVideo) icon = <VideoCameraIcon size={22} color={iconColor} fill={iconColor} strokeWidth={2} />;
+
+  return (
+    <View style={styles.callCard}>
+      <View style={styles.callCardIcon}>
+        {icon}
       </View>
+      <View style={styles.callCardText}>
+        <Text style={styles.callCardTitle} numberOfLines={1}>{title}</Text>
+        <Text style={styles.callCardMeta} numberOfLines={1}>
+          {lasted ? `${lasted} — ${when}` : when}
+        </Text>
+      </View>
+      {joinable ? (
+        <TouchableOpacity
+          style={styles.callCardJoin}
+          activeOpacity={0.7}
+          onPress={() => onJoin(entry.isVideo ? 'video' : 'voice')}
+          accessibilityRole="button"
+          accessibilityLabel={t.channel.joinCall}
+        >
+          <Text style={styles.callCardJoinText}>{t.channel.joinCall}</Text>
+        </TouchableOpacity>
+      ) : (
+        <CallerAvatar name={entry.callerName} avatar={entry.callerAvatar} styles={styles} />
+      )}
+    </View>
+  );
+}
+
+function CallerAvatar({ name, avatar, styles }: Readonly<{ name: string; avatar?: string; styles: Styles }>) {
+  if (avatar) return <Image source={{ uri: avatar }} style={styles.callCardAvatar} />;
+  return (
+    <View style={[styles.callCardAvatar, styles.callCardAvatarFallback]}>
+      <Text style={styles.callCardAvatarInitial}>{(name || '?')[0].toUpperCase()}</Text>
     </View>
   );
 }
@@ -557,11 +626,15 @@ function DateSeparator({ label, styles }: Readonly<{ label: string; styles: Styl
   );
 }
 
-function replyQuoteText(replyRef: ChatReplyReference, membersMap: Map<string, string>): string {
+function replyQuoteText(
+  replyRef: ChatReplyReference,
+  membersMap: Map<string, string>,
+  labels: { attachment: string; originalMessage: string },
+): string {
   if (replyRef.content) {
     return mentionsToPlainText(replyRef.content, membersMap).replaceAll(/\s+/g, ' ');
   }
-  return replyRef.hasAttachments ? 'Attachment' : 'Original message';
+  return replyRef.hasAttachments ? labels.attachment : labels.originalMessage;
 }
 
 function ReplyQuote({
@@ -575,10 +648,12 @@ function ReplyQuote({
   styles: Styles;
   onJump: (messageId: string) => void;
 }>) {
+  const { t } = useI18n();
   return (
     <TouchableOpacity
       style={styles.replyQuote}
       activeOpacity={0.6}
+      hitSlop={{ top: 6, bottom: 4 }}
       onPress={() => onJump(replyRef.messageId)}
     >
       <View style={styles.replyQuoteSpine} />
@@ -593,7 +668,7 @@ function ReplyQuote({
         {replyRef.authorName}
       </Text>
       <Text style={styles.replyQuoteText} numberOfLines={1}>
-        {replyQuoteText(replyRef, membersMap)}
+        {replyQuoteText(replyRef, membersMap, t.channel)}
       </Text>
     </TouchableOpacity>
   );
@@ -692,13 +767,14 @@ function MessageExtras({
   colors: ThemeColors;
   styles: Styles;
   onOpenImage: OpenImage;
-  onToggleReaction: (messageId: string, emoji: string, hasReacted: boolean) => void;
+  onToggleReaction: (messageId: string, emoji: string) => void;
 }>) {
+  const { t } = useI18n();
   const { reactions, attachments } = item;
   return (
     <>
       {item.content ? renderMessageText(item.content, membersMap, colors) : null}
-      {item.editedAt ? <Text style={styles.editedLabel}>(edited)</Text> : null}
+      {item.editedAt ? <Text style={styles.editedLabel}>{t.channel.edited}</Text> : null}
       {attachments && attachments.length > 0 && (
         <MessageAttachments
           attachments={attachments}
@@ -711,7 +787,7 @@ function MessageExtras({
         <ReactionBar
           reactions={reactions}
           currentUserId={currentUserId}
-          onToggle={(emoji, hasReacted) => onToggleReaction(item.id, emoji, hasReacted)}
+          onToggle={(emoji) => onToggleReaction(item.id, emoji)}
         />
       ) : null}
     </>
@@ -737,12 +813,11 @@ function ThreadLink({
   styles,
   onPress,
 }: Readonly<{ count: number; colors: ThemeColors; styles: Styles; onPress: () => void }>) {
+  const { t, plural } = useI18n();
   return (
     <TouchableOpacity style={styles.threadLink} onPress={onPress}>
       <MessageSquare size={14} color={colors.info} />
-      <Text style={styles.threadText}>
-        {count} {count === 1 ? 'reply' : 'replies'}
-      </Text>
+      <Text style={styles.threadText}>{plural(count, t.channel.replyCount)}</Text>
     </TouchableOpacity>
   );
 }
@@ -752,6 +827,7 @@ function HeaderAvatar({
   isPrivate,
   picture,
   channelName,
+  peerIsOnline,
   colors,
   styles,
 }: Readonly<{
@@ -759,6 +835,7 @@ function HeaderAvatar({
   isPrivate: boolean;
   picture?: string | null;
   channelName: string;
+  peerIsOnline: boolean | null;
   colors: ThemeColors;
   styles: Styles;
 }>) {
@@ -766,18 +843,22 @@ function HeaderAvatar({
     const ChannelIcon = isPrivate ? Lock : Hash;
     return (
       <View style={styles.headerChannelIcon}>
-        <ChannelIcon size={21} color={colors.text} strokeWidth={2.25} />
+        <ChannelIcon size={20} color={colors.text} strokeWidth={2.2} />
       </View>
     );
   }
-  if (picture) {
-    return <Image source={{ uri: picture }} style={styles.headerAvatar} />;
-  }
   return (
-    <View style={styles.headerAvatarFallback}>
-      <Text style={styles.headerAvatarText}>
-        {(channelName || '?')[0].toUpperCase()}
-      </Text>
+    <View style={styles.headerAvatarWrap}>
+      {picture ? (
+        <Image source={{ uri: picture }} style={styles.headerAvatar} />
+      ) : (
+        <View style={styles.headerAvatarFallback}>
+          <Text style={styles.headerAvatarText}>
+            {(channelName || '?')[0].toUpperCase()}
+          </Text>
+        </View>
+      )}
+      {peerIsOnline && <View style={styles.headerPresenceDot} />}
     </View>
   );
 }
@@ -790,6 +871,7 @@ function ChannelHeader({
   picture,
   peerIsOnline,
   inCall,
+  joinableCall,
   identityEnabled,
   colors,
   styles,
@@ -804,6 +886,8 @@ function ChannelHeader({
   picture?: string | null;
   peerIsOnline: boolean | null;
   inCall: boolean;
+  /** A call is running here that you are not in: the call buttons become "Join". */
+  joinableCall: ActiveCall['callType'] | null;
   /** Tapping the name opens the DM peer's profile, or the channel details. */
   identityEnabled: boolean;
   colors: ThemeColors;
@@ -815,16 +899,22 @@ function ChannelHeader({
   const { t } = useI18n();
   return (
     <View style={styles.header}>
-      <View style={styles.headerContent}>
+      <View style={[styles.headerContent, hideBackButton && styles.headerContentNoBack]}>
         {!hideBackButton && (
-          <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={HIT_SLOP}>
-            <ChevronLeft size={26} color={colors.text} strokeWidth={2.2} />
+          <TouchableOpacity
+            onPress={onBack}
+            style={styles.backBtn}
+            hitSlop={HIT_SLOP}
+            accessibilityRole="button"
+            accessibilityLabel={t.common.back}
+          >
+            <ChevronLeft size={28} color={colors.text} strokeWidth={2} />
           </TouchableOpacity>
         )}
 
         <TouchableOpacity
           style={styles.headerIdentity}
-          activeOpacity={0.7}
+          activeOpacity={0.6}
           onPress={onOpenIdentity}
           disabled={!identityEnabled}
           accessibilityRole={identityEnabled ? 'button' : undefined}
@@ -837,6 +927,7 @@ function ChannelHeader({
             isPrivate={isPrivate}
             picture={picture}
             channelName={channelName}
+            peerIsOnline={peerIsOnline}
             colors={colors}
             styles={styles}
           />
@@ -845,76 +936,58 @@ function ChannelHeader({
               {channelName || t.channel.loadingTitle}
             </Text>
             {isDm && peerIsOnline !== null && (
-              <Text style={styles.headerPresenceText} numberOfLines={1}>
+              <Text style={styles.headerSubtitle} numberOfLines={1}>
                 {peerIsOnline ? t.channel.activeNow : t.channel.offline}
               </Text>
             )}
           </View>
         </TouchableOpacity>
 
-        <View style={styles.headerActions}>
-          {/* While a call is already active (e.g. minimized to the top bar),
-              disable the call buttons so tapping them can't start a second call. */}
+        {joinableCall ? (
           <TouchableOpacity
-            style={[styles.headerAction, inCall && styles.headerActionDisabled]}
-            activeOpacity={0.6}
-            disabled={inCall}
-            onPress={() => onStartCall('video')}
+            style={styles.headerJoin}
+            activeOpacity={0.7}
+            onPress={() => onStartCall(joinableCall)}
             accessibilityRole="button"
-            accessibilityLabel={t.channel.startVideoCall}
+            accessibilityLabel={`${t.channel.joinCall}: ${
+              joinableCall === 'video' ? t.inCall.videoCall : t.inCall.voiceCall
+            }`}
           >
-            <VideoCameraIcon size={30} color={colors.text} strokeWidth={1.6} />
+            {joinableCall === 'video' ? (
+              <VideoCameraIcon size={18} color="#fff" fill="#fff" strokeWidth={2} />
+            ) : (
+              <Phone size={16} color="#fff" fill="#fff" strokeWidth={2} />
+            )}
+            <Text style={styles.headerJoinText}>{t.channel.joinCall}</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.headerAction, inCall && styles.headerActionDisabled]}
-            activeOpacity={0.6}
-            disabled={inCall}
-            onPress={() => onStartCall('voice')}
-            accessibilityRole="button"
-            accessibilityLabel={t.channel.startVoiceCall}
-          >
-            <Phone size={22} color={colors.text} strokeWidth={2} />
-          </TouchableOpacity>
-        </View>
+        ) : (
+          <View style={styles.headerActions}>
+            {/* While a call is already active (e.g. minimized to the top bar),
+                disable the call buttons so tapping them can't start a second call. */}
+            <TouchableOpacity
+              style={[styles.headerAction, inCall && styles.headerActionDisabled]}
+              activeOpacity={0.5}
+              disabled={inCall}
+              onPress={() => onStartCall('video')}
+              accessibilityRole="button"
+              accessibilityLabel={t.channel.startVideoCall}
+            >
+              <Video size={24} color={colors.text} strokeWidth={1.8} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.headerAction, inCall && styles.headerActionDisabled]}
+              activeOpacity={0.5}
+              disabled={inCall}
+              onPress={() => onStartCall('voice')}
+              accessibilityRole="button"
+              accessibilityLabel={t.channel.startVoiceCall}
+            >
+              <Phone size={21} color={colors.text} strokeWidth={1.8} />
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </View>
-  );
-}
-
-/** Active-call banner — tap to join the ongoing call. */
-function CallBanner({
-  activeCall,
-  sessionCallId,
-  colors,
-  styles,
-  onJoin,
-}: Readonly<{
-  activeCall: ActiveCall | null;
-  sessionCallId?: string;
-  colors: ThemeColors;
-  styles: Styles;
-  onJoin: (callType: ActiveCall['callType']) => void;
-}>) {
-  if (!activeCall || sessionCallId === activeCall.callId) return null;
-  const isVideo = activeCall.callType === 'video';
-  const CallIcon = isVideo ? VideoCameraIcon : Phone;
-  return (
-    <TouchableOpacity
-      style={styles.callBanner}
-      activeOpacity={0.85}
-      onPress={() => onJoin(activeCall.callType)}
-    >
-      <View style={styles.callBannerLeft}>
-        <View style={styles.callBannerDot} />
-        <CallIcon size={18} color={colors.success} strokeWidth={2} />
-        <Text style={styles.callBannerText} numberOfLines={1}>
-          {isVideo ? 'Video call in progress' : 'Voice call in progress'}
-        </Text>
-      </View>
-      <View style={styles.callBannerJoinBtn}>
-        <Text style={styles.callBannerJoinText}>Join</Text>
-      </View>
-    </TouchableOpacity>
   );
 }
 
@@ -936,6 +1009,7 @@ function PinnedBar({
   onPress: () => void;
   onUnpin: () => void;
 }>) {
+  const { t, format } = useI18n();
   if (!current) return null;
   return (
     <TouchableOpacity style={styles.pinnedBar} onPress={onPress} activeOpacity={0.7}>
@@ -954,7 +1028,7 @@ function PinnedBar({
         <Text style={styles.pinnedAuthor} numberOfLines={1}>
           {current.authorName}
           {count > 1 && (
-            <Text style={styles.pinnedCount}>{`  ${position + 1} of ${count}`}</Text>
+            <Text style={styles.pinnedCount}>{`  ${format(t.channel.pinPosition, { position: position + 1, count })}`}</Text>
           )}
         </Text>
         <Text style={styles.pinnedText} numberOfLines={1}>
@@ -975,12 +1049,13 @@ function EditBar({
   styles,
   onClose,
 }: Readonly<{ active: boolean; colors: ThemeColors; styles: Styles; onClose: () => void }>) {
+  const { t } = useI18n();
   if (!active) return null;
   return (
     <View style={styles.editBar}>
       <Pencil size={14} color={BRAND} strokeWidth={2.5} />
       <Text style={styles.editBarLabel} numberOfLines={1}>
-        Editing message
+        {t.channel.editingMessage}
       </Text>
       <TouchableOpacity style={styles.editBarClose} onPress={onClose} hitSlop={HIT_SLOP}>
         <X size={14} color={colors.text} strokeWidth={3} />
@@ -1003,20 +1078,21 @@ function ThreadSuggestion({
   onContinue: () => void;
   onDismiss: () => void;
 }>) {
+  const { t } = useI18n();
   if (!visible) return null;
   return (
     <View style={styles.threadSuggest}>
       <MessageSquare size={16} color={BRAND} strokeWidth={2.2} />
       <Text style={styles.threadSuggestText} numberOfLines={2}>
-        Looks like a conversation. Continue it in a thread?
+        {t.channel.threadSuggestion}
       </Text>
       <TouchableOpacity style={styles.threadSuggestBtn} onPress={onContinue} activeOpacity={0.8}>
-        <Text style={styles.threadSuggestBtnText}>Create thread</Text>
+        <Text style={styles.threadSuggestBtnText}>{t.channel.createThread}</Text>
       </TouchableOpacity>
       <TouchableOpacity
         onPress={onDismiss}
         hitSlop={HIT_SLOP}
-        accessibilityLabel="Dismiss thread suggestion"
+        accessibilityLabel={t.channel.dismissThreadSuggestion}
       >
         <X size={14} color={colors.muted} strokeWidth={2.5} />
       </TouchableOpacity>
@@ -1025,82 +1101,53 @@ function ThreadSuggestion({
 }
 
 /** Reply preview. */
-function ReplyBar({
+/**
+ * The reply row at the top of the composer card, as in Discord: who you're
+ * replying to, and close.
+ */
+function ReplyHeader({
   replyTo,
-  replyMention,
   colors,
   styles,
   onClose,
-  onToggleMention,
 }: Readonly<{
-  replyTo: ReplyTarget | null;
-  replyMention: boolean;
+  replyTo: ReplyTarget;
   colors: ThemeColors;
   styles: Styles;
   onClose: () => void;
-  onToggleMention: () => void;
 }>) {
-  if (!replyTo) return null;
-  const mentionColor = replyMention ? BRAND : colors.muted;
+  const { t } = useI18n();
   return (
-    <View style={styles.replyBar}>
-      <View style={styles.replyBarRow}>
-        <TouchableOpacity style={styles.replyBarClose} onPress={onClose} hitSlop={HIT_SLOP}>
-          <X size={14} color={colors.text} strokeWidth={3} />
-        </TouchableOpacity>
-        <Text style={styles.replyBarLabel} numberOfLines={1}>
-          Replying to <Text style={styles.replyBarLabelName}>{replyTo.authorName}</Text>
-        </Text>
-        <TouchableOpacity
-          style={styles.replyBarMention}
-          onPress={onToggleMention}
-          hitSlop={HIT_SLOP}
-          activeOpacity={0.6}
-        >
-          <AtSign size={16} color={mentionColor} strokeWidth={2.5} />
-          <Text style={[styles.replyBarMentionText, { color: mentionColor }]}>
-            {replyMention ? 'ON' : 'OFF'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    <>
+      <Text style={styles.replyHeaderLabel} numberOfLines={1}>
+        {t.channel.replyingTo} <Text style={styles.replyHeaderName}>{replyTo.authorName}</Text>
+      </Text>
+      <TouchableOpacity
+        style={styles.replyHeaderClose}
+        onPress={onClose}
+        hitSlop={HIT_SLOP}
+        accessibilityRole="button"
+        accessibilityLabel={t.channel.cancelReply}
+      >
+        <X size={18} color={colors.mutedForeground} strokeWidth={2.4} />
+      </TouchableOpacity>
+    </>
   );
 }
 
-function PendingFiles({
-  files,
-  colors,
-  styles,
-  onRemove,
-}: Readonly<{
-  files: RNFile[];
-  colors: ThemeColors;
-  styles: Styles;
-  onRemove: (index: number) => void;
-}>) {
-  if (files.length === 0) return null;
-  return (
-    <View style={styles.pendingFiles}>
-      {files.map((f, i) => (
-        <View key={f.uri} style={styles.pendingFile}>
-          <Paperclip size={12} color={colors.muted} />
-          <Text style={styles.pendingFileName} numberOfLines={1}>{f.name}</Text>
-          <TouchableOpacity onPress={() => onRemove(i)}>
-            <X size={14} color={colors.muted} />
-          </TouchableOpacity>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function typingLabel(typingUsers: string[], membersMap: Map<string, string>): string {
-  const first = membersMap.get(typingUsers[0]) ?? 'Someone';
-  if (typingUsers.length === 1) return `${first} is typing...`;
+function typingLabel(
+  typingUsers: string[],
+  membersMap: Map<string, string>,
+  t: Translations,
+  format: (template: string, values?: Record<string, unknown>) => string,
+): string {
+  const name = membersMap.get(typingUsers[0]) ?? t.channel.someone;
+  if (typingUsers.length === 1) return format(t.channel.typingOne, { name });
   if (typingUsers.length === 2) {
-    return `${first} and ${membersMap.get(typingUsers[1]) ?? 'someone'} are typing...`;
+    const other = membersMap.get(typingUsers[1]) ?? t.channel.someone.toLowerCase();
+    return format(t.channel.typingTwo, { name, other });
   }
-  return `${first} and ${typingUsers.length - 1} others are typing...`;
+  return format(t.channel.typingMany, { name, count: typingUsers.length - 1 });
 }
 
 function TypingIndicator({
@@ -1108,258 +1155,32 @@ function TypingIndicator({
   membersMap,
   styles,
 }: Readonly<{ typingUsers: string[]; membersMap: Map<string, string>; styles: Styles }>) {
+  const { t, format } = useI18n();
   if (typingUsers.length === 0) return null;
   return (
     <View style={styles.typingRow}>
-      <Text style={styles.typingText}>{typingLabel(typingUsers, membersMap)}</Text>
-    </View>
-  );
-}
-
-function RecordingPill({
-  meteringDb,
-  colors,
-  styles,
-  onCancel,
-  onSend,
-}: Readonly<{
-  meteringDb: number;
-  colors: ThemeColors;
-  styles: Styles;
-  onCancel: () => void;
-  onSend: () => void;
-}>) {
-  const { t } = useI18n();
-  return (
-    <View style={styles.recordingPill}>
-      <TouchableOpacity
-        style={styles.stopBtnInline}
-        onPress={onCancel}
-        activeOpacity={0.8}
-        accessibilityRole="button"
-        accessibilityLabel={t.composer.cancelRecording}
-        testID="composer-recording-cancel"
-      >
-        <View style={styles.stopSquare} />
-      </TouchableOpacity>
-      <Waveform active color={colors.mutedForeground} level={meteringDb} />
-      <TouchableOpacity
-        style={styles.sendBtn}
-        onPress={onSend}
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        accessibilityLabel={t.composer.sendVoice}
-        testID="composer-recording-send"
-      >
-        <ArrowUp size={17} color={colors.background} strokeWidth={2.5} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function SendButtonIcon({
-  uploading,
-  canSend,
-  colors,
-}: Readonly<{ uploading: boolean; canSend: boolean; colors: ThemeColors }>) {
-  if (uploading) return <ActivityIndicator size="small" color={colors.background} />;
-  if (canSend) return <ArrowUp size={20} color={colors.background} strokeWidth={2.6} />;
-  return <AudioLines size={19} color={colors.background} strokeWidth={2} />;
-}
-
-interface ExpandedComposerProps {
-  input: string;
-  placeholder: string;
-  members: Map<string, string>;
-  uploading: boolean;
-  canSend: boolean;
-  blurTint: BlurTint;
-  colors: ThemeColors;
-  styles: Styles;
-  inputRef: React.RefObject<TextInput | null>;
-  inputScrollRef: React.RefObject<ScrollView | null>;
-  inputContentHeightRef: React.RefObject<number>;
-  inputUserScrollingRef: React.RefObject<boolean>;
-  onChangeText: (text: string) => void;
-  onFocus: () => void;
-  onBlur: () => void;
-  onAttach: () => void;
-  onSend: () => void;
-  onStartRecording: () => void;
-}
-
-function ExpandedComposer({
-  input,
-  placeholder,
-  members,
-  uploading,
-  canSend,
-  blurTint,
-  colors,
-  styles,
-  inputRef,
-  inputScrollRef,
-  inputContentHeightRef,
-  inputUserScrollingRef,
-  onChangeText,
-  onFocus,
-  onBlur,
-  onAttach,
-  onSend,
-  onStartRecording,
-}: Readonly<ExpandedComposerProps>) {
-  const { t } = useI18n();
-  const hasMentions = hasMentionTokens(input);
-  return (
-    <View style={styles.composerShadow}>
-      <View style={styles.inputContainer}>
-        <BlurView
-          intensity={100}
-          tint={blurTint}
-          blurMethod="dimezisBlurView"
-          style={styles.composerGlass}
-          pointerEvents="none"
-        />
-        {/* Text input area */}
-        <ScrollView
-          ref={inputScrollRef}
-          style={styles.inputWrapper}
-          contentContainerStyle={styles.inputWrapperContent}
-          keyboardShouldPersistTaps="always"
-          showsVerticalScrollIndicator
-          nestedScrollEnabled
-          overScrollMode="never"
-          decelerationRate="normal"
-          onScrollBeginDrag={() => { inputUserScrollingRef.current = true; }}
-          onScrollEndDrag={(e) => {
-            const v = e.nativeEvent.velocity?.y ?? 0;
-            if (Math.abs(v) < 0.05) {
-              inputUserScrollingRef.current = false;
-            }
-          }}
-          onMomentumScrollEnd={() => { inputUserScrollingRef.current = false; }}
-          onContentSizeChange={(_, h) => {
-            const grew = h > inputContentHeightRef.current;
-            inputContentHeightRef.current = h;
-            if (grew && !inputUserScrollingRef.current) {
-              inputScrollRef.current?.scrollToEnd({ animated: false });
-            }
-          }}
-        >
-          <TextInput
-            ref={inputRef}
-            style={[styles.input, hasMentions && styles.inputTransparent]}
-            value={input}
-            onChangeText={onChangeText}
-            onFocus={onFocus}
-            onBlur={onBlur}
-            placeholder={placeholder}
-            placeholderTextColor={colors.mutedForeground}
-            multiline
-            autoFocus
-            scrollEnabled={false}
-            textAlignVertical="top"
-          />
-          {hasMentions && (
-            <View style={styles.inputOverlay} pointerEvents="none">
-              {renderInputWithBadges(input, members, colors)}
-            </View>
-          )}
-        </ScrollView>
-
-        {/* Bottom action bar — ChatGPT-style: "+" on the left, mic + a solid
-            circular voice/send button on the right. */}
-        <View style={styles.inputActions}>
-          <TouchableOpacity
-            style={styles.composerPlusBtn}
-            onPress={onAttach}
-            activeOpacity={0.6}
-            accessibilityRole="button"
-            accessibilityLabel={t.composer.attach}
-          >
-            <Plus size={24} color={colors.text} strokeWidth={2.1} />
-          </TouchableOpacity>
-          <View style={styles.composerActionsRight}>
-            <TouchableOpacity
-              style={[styles.composerSolidBtn, uploading && styles.sendBtnDisabled]}
-              onPress={canSend ? onSend : onStartRecording}
-              disabled={uploading}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel={canSend ? t.composer.send : t.composer.recordVoice}
-              accessibilityState={{ disabled: uploading }}
-            >
-              <SendButtonIcon uploading={uploading} canSend={canSend} colors={colors} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function CollapsedComposer({
-  placeholder,
-  blurTint,
-  colors,
-  styles,
-  onAttach,
-  onExpand,
-  onStartRecording,
-}: Readonly<{
-  placeholder: string;
-  blurTint: BlurTint;
-  colors: ThemeColors;
-  styles: Styles;
-  onAttach: () => void;
-  onExpand: () => void;
-  onStartRecording: () => void;
-}>) {
-  const { t } = useI18n();
-  return (
-    <View style={styles.composerShadowCollapsed}>
-      <View style={styles.inputContainerCollapsed}>
-        <BlurView
-          intensity={100}
-          tint={blurTint}
-          blurMethod="dimezisBlurView"
-          style={styles.composerGlass}
-          pointerEvents="none"
-        />
-        <TouchableOpacity
-          style={styles.plainBtn}
-          onPress={onAttach}
-          accessibilityRole="button"
-          accessibilityLabel={t.composer.attach}
-        >
-          <Plus size={24} color={colors.text} strokeWidth={2.1} />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.collapsedInputArea} onPress={onExpand} activeOpacity={0.7}>
-          <Text style={styles.collapsedPlaceholder} numberOfLines={1}>
-            {placeholder}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.composerSolidBtn}
-          onPress={onStartRecording}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel={t.composer.recordVoice}
-        >
-          <AudioLines size={19} color={colors.background} strokeWidth={2} />
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.typingText}>{typingLabel(typingUsers, membersMap, t, format)}</Text>
     </View>
   );
 }
 
 interface ComposerProps extends Omit<ExpandedComposerProps, 'onFocus' | 'onBlur' | 'placeholder'> {
+  colors: ThemeColors;
+  styles: Styles;
   isDm: boolean;
   channelName: string;
   isArchived: boolean;
+  /** Recording, or uploading the recording just taken. */
   isRecording: boolean;
+  isSendingVoice: boolean;
   isInputExpanded: boolean;
   meteringDb: number;
+  recordingMs: number;
+  /** Animated side/bottom insets: pill while idle, card while typing. */
+  barStyle: ReturnType<typeof useComposerBarStyle>;
+  bottomInset: number;
+  /** The idle pill's mic. */
+  onStartRecording: () => void;
   onFocusInput: () => void;
   onBlurInput: () => void;
   onUnarchive: () => void;
@@ -1383,8 +1204,8 @@ function Composer(props: Readonly<ComposerProps>) {
     inputBody = (
       <RecordingPill
         meteringDb={props.meteringDb}
-        colors={colors}
-        styles={styles}
+        durationMs={props.recordingMs}
+        sending={props.isSendingVoice}
         onCancel={props.onCancelRecording}
         onSend={props.onSendRecording}
       />
@@ -1402,9 +1223,6 @@ function Composer(props: Readonly<ComposerProps>) {
     inputBody = (
       <CollapsedComposer
         placeholder={placeholder}
-        blurTint={props.blurTint}
-        colors={colors}
-        styles={styles}
         onAttach={props.onAttach}
         onExpand={props.onFocusInput}
         onStartRecording={props.onStartRecording}
@@ -1424,19 +1242,24 @@ function Composer(props: Readonly<ComposerProps>) {
         </View>
       ) : null}
       {/* Input bar */}
-      <View style={[styles.inputBar, !isInputExpanded && styles.inputBarCollapsed, isArchived && styles.inputBarHidden]}>
+      <ComposerBarFrame
+        idle={!isRecording && !isInputExpanded}
+        animatedStyle={props.barStyle}
+        bottomInset={props.bottomInset}
+        style={[styles.inputBar, isArchived && styles.inputBarHidden]}
+      >
         {inputBody}
-      </View>
+      </ComposerBarFrame>
     </>
   );
 }
 
 const PIN_DURATIONS = [
-  { label: '24 hours', value: '24h' },
-  { label: '7 days', value: '7d' },
-  { label: '30 days', value: '30d' },
-  { label: 'Always', value: 'forever' },
-];
+  { label: 'pin24h', value: '24h' },
+  { label: 'pin7d', value: '7d' },
+  { label: 'pin30d', value: '30d' },
+  { label: 'pinAlways', value: 'forever' },
+] as const;
 
 const PIN_DURATION_MS: Record<string, number | undefined> = {
   '24h': 24 * 60 * 60 * 1000,
@@ -1464,6 +1287,7 @@ function PinDurationModal({
   onSelectDuration: (duration: string) => void;
   onConfirm: (silent: boolean) => void;
 }>) {
+  const { t } = useI18n();
   const optionStyle = ({ pressed }: { pressed: boolean }) => [
     styles.pinDurationOption,
     pressed && styles.pinDurationOptionPressed,
@@ -1471,7 +1295,7 @@ function PinDurationModal({
 
   const durationStep = (
     <>
-      <Text style={styles.pinDurationTitle}>Pin for how long?</Text>
+      <Text style={styles.pinDurationTitle}>{t.channel.pinForHowLong}</Text>
       {PIN_DURATIONS.map((opt) => (
         <Pressable
           key={opt.value}
@@ -1483,7 +1307,7 @@ function PinDurationModal({
           ) : (
             <Clock size={20} color={colors.text} />
           )}
-          <Text style={styles.pinDurationOptionText}>{opt.label}</Text>
+          <Text style={styles.pinDurationOptionText}>{t.channel[opt.label]}</Text>
         </Pressable>
       ))}
     </>
@@ -1491,19 +1315,19 @@ function PinDurationModal({
 
   const notifyStep = (
     <>
-      <Text style={styles.pinDurationTitle}>Notify others?</Text>
+      <Text style={styles.pinDurationTitle}>{t.channel.notifyOthers}</Text>
       <Pressable style={optionStyle} onPress={() => onConfirm(false)}>
         <Bell size={20} color={colors.text} />
         <View style={styles.pinOptionContent}>
-          <Text style={styles.pinDurationOptionText}>Pin with alert</Text>
-          <Text style={styles.pinOptionDesc}>Members will be notified</Text>
+          <Text style={styles.pinDurationOptionText}>{t.channel.pinWithAlert}</Text>
+          <Text style={styles.pinOptionDesc}>{t.channel.pinWithAlertHint}</Text>
         </View>
       </Pressable>
       <Pressable style={optionStyle} onPress={() => onConfirm(true)}>
         <BellOff size={20} color={colors.muted} />
         <View style={styles.pinOptionContent}>
-          <Text style={styles.pinDurationOptionText}>Pin silently</Text>
-          <Text style={styles.pinOptionDesc}>No one will be notified</Text>
+          <Text style={styles.pinDurationOptionText}>{t.channel.pinSilently}</Text>
+          <Text style={styles.pinOptionDesc}>{t.channel.pinSilentlyHint}</Text>
         </View>
       </Pressable>
     </>
@@ -1585,7 +1409,7 @@ export function ChannelView({
   initialType,
 }: Readonly<ChannelViewProps>) {
   const { markInteractive } = useObserve();
-  const { t } = useI18n();
+  const { t, format, intlLocale } = useI18n();
   const { userId } = useAuth();
   const { user } = useUser();
   const { organization } = useOrganization();
@@ -1593,7 +1417,7 @@ export function ChannelView({
   const toast = useToast();
   const { startCall, joinCall, activeChannelCalls, setChannelActiveCall, session } = useCall();
   const router = useRouter();
-  const { colors, theme } = useTheme();
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
     () => makeStyles(colors, insets.top, insets.bottom),
@@ -1671,6 +1495,27 @@ export function ChannelView({
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showActions, setShowActions] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // Older history, a page at a time as the list is scrolled up.
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
+  // Once an older page is in, a refresh of the newest page keeps it and no
+  // longer moves the cursor back to the start.
+  const olderLoadedRef = useRef(false);
+  const channelIdRef = useRef(channelId);
+  channelIdRef.current = channelId;
+  // The messages' height: while they don't fill the screen there is nothing to
+  // scroll, so the next page is fetched straight away. (The list's own height
+  // moves with the keyboard on the UI thread, without layout events, so the
+  // screen's height is the measure.)
+  const { height: windowHeight } = useWindowDimensions();
+  const contentHeightRef = useRef(0);
+  // The message "More reactions" was opened for. Kept apart from
+  // selectedMessage, which the actions sheet clears as it closes.
+  const [reactionTarget, setReactionTarget] = useState<Message | null>(null);
+  // Whatever was being typed when an edit started, put back afterwards.
+  const draftBeforeEditRef = useRef('');
   const [viewingImage, setViewingImage] = useState<string | null>(null);
   const [viewingImageOrigin, setViewingImageOrigin] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [showPinDuration, setShowPinDuration] = useState(false);
@@ -1716,6 +1561,13 @@ export function ChannelView({
     flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
   }, []);
 
+  const { isRecording, durationMs, meteringDb, startRecording, stopRecording, cancelRecording } =
+    useVoiceRecorder();
+  // A recorded voice message is uploading: the recording bar stays up, frozen
+  // at the final length, with a spinner in the send button.
+  const [sendingVoiceMs, setSendingVoiceMs] = useState<number | null>(null);
+  const showRecordingBar = isRecording || sendingVoiceMs !== null;
+
   const isInputExpanded =
     isInputFocused || input.length > 0 || pendingFiles.length > 0 || replyTo !== null;
 
@@ -1726,11 +1578,23 @@ export function ChannelView({
     inputExpandedSV.value = isInputExpanded ? 1 : 0;
   }, [isInputExpanded, inputExpandedSV]);
 
+  // The composer widens from the idle pill (38pt insets) to the card (12pt)
+  // in step with the keyboard, as ChatGPT's does, instead of jumping on tap.
+  // With the keyboard down but text still in the field it stays a card; the
+  // recording bar is always the pill.
+  const composerHeldOpenSV = useSharedValue(0);
+  useEffect(() => {
+    composerHeldOpenSV.value = isInputExpanded && !isInputFocused && !showRecordingBar ? 1 : 0;
+  }, [isInputExpanded, isInputFocused, showRecordingBar, composerHeldOpenSV]);
+  const composerBarStyle = useComposerBarStyle(progress, composerHeldOpenSV, insets.bottom);
+  // Collapse as the keyboard goes down, not a beat after it (see useKeyboardHide).
+  const handleKeyboardHide = useCallback(() => setIsInputFocused(false), []);
+  useKeyboardHide(handleKeyboardHide);
+
   // The expanded TextInput uses `autoFocus`, so it grabs focus the instant it
   // mounts — no setTimeout tick, no perceptible delay when the user taps the
   // collapsed placeholder to expand the composer.
 
-  const { isRecording, meteringDb, startRecording, stopRecording } = useVoiceRecorder();
 
   // Load workspace members for mention resolution
   useEffect(() => {
@@ -1754,73 +1618,55 @@ export function ChannelView({
   // Subscribe to realtime updates
   const { typingUsers, onKeystroke, onSend } = useChatRealtime(channelId, loadMessages);
 
-  const openAttachmentPicker = useCallback(() => {
-    Alert.alert('Attach', undefined, [
-      {
-        text: 'Photo Library',
-        onPress: async () => {
-          const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            allowsMultipleSelection: true,
-            quality: 0.8,
-          });
-          if (!result.canceled && result.assets) {
-            setPendingFiles((prev) => [
-              ...prev,
-              ...result.assets.map((a) => ({
-                name: a.fileName || `photo_${Date.now()}.jpg`,
-                uri: a.uri,
-                mimeType: a.mimeType || 'image/jpeg',
-              })),
-            ]);
-          }
-        },
-      },
-      {
-        text: 'File',
-        onPress: async () => {
-          const result = await DocumentPicker.getDocumentAsync({ multiple: true });
-          if (!result.canceled && result.assets) {
-            setPendingFiles((prev) => [
-              ...prev,
-              ...result.assets.map((a) => ({
-                name: a.name,
-                uri: a.uri,
-                mimeType: a.mimeType || 'application/octet-stream',
-              })),
-            ]);
-          }
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+  const handleAttach = useCallback(() => {
+    openAttachmentPicker((files) => setPendingFiles((prev) => [...prev, ...files]));
   }, []);
 
   const handleStartRecording = useCallback(async () => {
-    await startRecording();
-  }, [startRecording]);
+    Keyboard.dismiss();
+    const result = await startRecording();
+    if (result === 'started') {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } else if (result === 'denied') {
+      Alert.alert(t.composer.micPermissionTitle, t.composer.micPermissionBody, [
+        { text: t.common.cancel, style: 'cancel' },
+        { text: t.composer.openSettings, onPress: () => void Linking.openSettings() },
+      ]);
+    } else {
+      toast.error(t.composer.recordFailed);
+    }
+  }, [startRecording, t, toast]);
 
+  // Throws the recording away; nothing is uploaded.
   const handleCancelRecording = useCallback(async () => {
-    await stopRecording();
-  }, [stopRecording]);
+    await cancelRecording();
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [cancelRecording]);
 
   const handleSendRecording = useCallback(async () => {
-    const result = await stopRecording();
-    if (!result) {
-      toast.error(t.composer.sendFailed);
+    // A tap-and-send by accident gives a near-silent clip: drop it instead.
+    if (durationMs < MIN_VOICE_MESSAGE_MS) {
+      await cancelRecording();
+      toast.error(t.composer.voiceTooShort);
       return;
     }
+    setSendingVoiceMs(durationMs);
+    const result = await stopRecording();
     try {
+      if (!result) throw new Error('No recording to send');
       const uploaded = await uploadChatAttachment(channelId, result);
       if (!uploaded) throw new Error('Voice message upload failed');
       await appApi.chatMessages.create({ channelId, body: '', attachments: [uploaded] });
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       void loadMessages();
       onSend();
     } catch (err) {
       console.error('[WeldChat] Voice message send failed:', err);
-      toast.error(t.composer.sendFailed);
+      toast.error(t.composer.voiceSendFailed);
+    } finally {
+      setSendingVoiceMs(null);
     }
-  }, [stopRecording, channelId, onSend, toast, t]);
+  }, [durationMs, cancelRecording, stopRecording, channelId, onSend, t, toast]);
 
   useEffect(() => {
     setMessages([]);
@@ -1831,6 +1677,9 @@ export function ChannelView({
     setMentionQuery(null);
     pendingSendsRef.current.clear();
     draftIdRef.current = null;
+    olderLoadedRef.current = false;
+    setOlderCursor(null);
+    setHasOlder(false);
     setMessagesLoading(true);
     void loadChannel();
     void loadMessages();
@@ -1903,10 +1752,23 @@ export function ChannelView({
         if (entry.serverId && fetchedIds.has(entry.serverId)) pendingSendsRef.current.delete(tempId);
       }
       const pending = [...pendingSendsRef.current.values()].map((entry) => entry.message);
+      const oldestFetched = msgs.reduce(
+        (oldest, m) => Math.min(oldest, new Date(m.createdAt).getTime()),
+        Number.POSITIVE_INFINITY,
+      );
       setMessages((prev) => {
         const localSystemMsgs = prev.filter((m) => m.type === 'system' && m.id.startsWith('pin-'));
-        return [...merged, ...localSystemMsgs, ...pending];
+        // Older pages already loaded stay; this refresh only covers the newest.
+        const older = prev.filter(
+          (m) => !m.pending && !m.id.startsWith('pin-') && !fetchedIds.has(m.id)
+            && new Date(m.createdAt).getTime() < oldestFetched,
+        );
+        return [...older, ...merged, ...localSystemMsgs, ...pending];
       });
+      if (!olderLoadedRef.current) {
+        setOlderCursor(res.pagination?.cursor ?? null);
+        setHasOlder(!!res.pagination?.hasMore);
+      }
       // We're viewing this channel, so mark it read — advances our lastReadAt
       // past the latest message (incl. one we just sent). Without this the
       // channel keeps rendering as "unread" (tinted row + accent timestamp) in
@@ -1918,6 +1780,45 @@ export function ChannelView({
       setMessagesLoading(false);
     }
   }
+
+  // The next page of history, when the list nears its oldest message.
+  const loadOlder = useCallback(async () => {
+    if (!hasOlder || !olderCursor || loadingOlderRef.current) return;
+    const forChannel = channelId;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const res = await appApi.chatMessages.list({ channelId: forChannel, cursor: olderCursor });
+      if (channelIdRef.current !== forChannel) return;
+      const raw = res.data ?? [];
+      const page: Message[] = Array.isArray(raw) ? (raw as unknown as Message[]) : [];
+      olderLoadedRef.current = true;
+      setMessages((prev) => {
+        const known = new Set(prev.map((m) => m.id));
+        const fresh = page
+          .filter((m) => !known.has(m.id))
+          .map((m) => ({ ...m, isPinned: m.isPinned || localPinnedIds.has(m.id) }));
+        return [...fresh, ...prev];
+      });
+      setOlderCursor(res.pagination?.cursor ?? null);
+      setHasOlder(!!res.pagination?.hasMore);
+    } catch (err) {
+      console.error('[WeldChat] Loading older messages failed:', err);
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [channelId, hasOlder, olderCursor, localPinnedIds]);
+
+  const fillScreenWithHistory = useCallback(() => {
+    const content = contentHeightRef.current;
+    if (content > 0 && content < windowHeight) void loadOlder();
+  }, [loadOlder, windowHeight]);
+
+  // A page arrived (or the cursor moved on): keep going while the screen isn't full.
+  useEffect(() => {
+    if (hasOlder) fillScreenWithHistory();
+  }, [hasOlder, olderCursor, fillScreenWithHistory]);
 
   // Draft autosave helpers
   const saveDraft = useCallback((text: string) => {
@@ -1974,17 +1875,19 @@ export function ChannelView({
     const msgId = editingMessage.id;
     // Optimistic update
     setMessages((prev) => prev.map((m) => m.id === msgId ? { ...m, content: trimmed, editedAt: new Date().toISOString() } : m));
-    setInput('');
+    setInput(draftBeforeEditRef.current);
+    draftBeforeEditRef.current = '';
     setEditingMessage(null);
     try {
       await appApi.chatMessages.update(msgId, { content: trimmed });
       void loadMessages();
     } catch (err) {
       console.error('[WeldChat] Edit failed:', err);
+      toast.error(t.channel.editFailed);
       // Revert on failure
       void loadMessages();
     }
-  }, [editingMessage, input]);
+  }, [editingMessage, input, toast, t]);
 
   const handleSend = useCallback(async () => {
     // If in edit mode, submit the edit instead
@@ -2000,7 +1903,7 @@ export function ChannelView({
     // with the AI backend, so surface an unavailable notice instead of
     // calling the (removed) endpoint.
     if (trimmed.startsWith('/ask ') && trimmed.substring(5).trim()) {
-      toast.info('AI is currently unavailable');
+      toast.info(t.channel.aiUnavailable);
       return;
     }
 
@@ -2022,7 +1925,7 @@ export function ChannelView({
     const optimistic: Message = {
       id: tempId,
       authorId: userId ?? '',
-      authorName: optimisticAuthorName(userId, membersMap, [user?.fullName, ownLast?.authorName]),
+      authorName: optimisticAuthorName(userId, membersMap, [user?.fullName, ownLast?.authorName], t.channel.you),
       authorAvatar: user?.imageUrl ?? ownLast?.authorAvatar,
       content: trimmed,
       createdAt: new Date().toISOString(),
@@ -2069,55 +1972,61 @@ export function ChannelView({
       setInput((current) => current || trimmed);
       if (reply) setReplyTo((current) => current ?? reply);
       if (files.length > 0) setPendingFiles((current) => (current.length > 0 ? current : files));
-      toast.error(t.composer.sendFailed);
+      toast.error(t.channel.sendFailed);
     }
   }, [editingMessage, handleEditSubmit, input, channelId, uploading, onSend, userId, user, membersMap, messages, replyTo, replyMention, pendingFiles, clearDraft, toast, t]);
 
-  const handleReaction = useCallback(async (emoji: string) => {
-    if (!selectedMessage) return;
-    const hasReacted = selectedMessage.reactions?.[emoji]?.includes(userId ?? '') ?? false;
+  // Reacting shows at once with a light tap, as in WhatsApp; the server's
+  // version replaces it once the request is done (or puts it back if it failed).
+  const toggleReaction = useCallback(async (message: Message, emoji: string) => {
+    if (!userId) return;
+    const hasReacted = message.reactions?.[emoji]?.includes(userId) ?? false;
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setMessages((prev) =>
+      prev.map((m) => (m.id === message.id ? { ...m, reactions: withReaction(m.reactions, emoji, userId, !hasReacted) } : m)),
+    );
     try {
       if (hasReacted) {
-        await appApi.chatMessages.removeReaction(selectedMessage.id, emoji);
+        await appApi.chatMessages.removeReaction(message.id, emoji);
       } else {
-        await appApi.chatMessages.addReaction(selectedMessage.id, { emoji });
+        await appApi.chatMessages.addReaction(message.id, { emoji });
       }
-      void loadMessages();
     } catch (err) {
-      console.error(err);
+      console.error('[WeldChat] Reaction failed:', err);
+      toast.error(t.channel.reactionFailed);
     }
-  }, [selectedMessage, channelId, userId]);
+    void loadMessages();
+  }, [userId, toast, t]);
+
+  const handleReaction = useCallback((emoji: string) => {
+    if (selectedMessage) void toggleReaction(selectedMessage, emoji);
+  }, [selectedMessage, toggleReaction]);
 
   const handleEmojiSelect = useCallback((emoji: string) => {
-    if (selectedMessage) {
-      void handleReaction(emoji);
-    } else {
-      setInput((prev) => prev + emoji);
-    }
-  }, [selectedMessage, handleReaction]);
+    if (reactionTarget) void toggleReaction(reactionTarget, emoji);
+    setReactionTarget(null);
+  }, [reactionTarget, toggleReaction]);
 
-  const handleToggleReaction = useCallback(async (messageId: string, emoji: string, hasReacted: boolean) => {
-    try {
-      if (hasReacted) {
-        await appApi.chatMessages.removeReaction(messageId, emoji);
-      } else {
-        await appApi.chatMessages.addReaction(messageId, { emoji });
-      }
-      void loadMessages();
-    } catch (err) {
-      console.error(err);
-    }
-  }, [channelId]);
+  const handleToggleReaction = useCallback((messageId: string, emoji: string) => {
+    const message = messages.find((m) => m.id === messageId);
+    if (message) void toggleReaction(message, emoji);
+  }, [messages, toggleReaction]);
 
   // Order for the inverted FlatList: newest first (index 0 renders at the visual
   // bottom). Sort explicitly by createdAt rather than trusting the API/array
   // order — otherwise a newly sent message can land at the top of the chat.
-  const reversedMessages = useMemo(
+  const newestFirst = useMemo(
     () =>
       [...messages].sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
       ),
     [messages],
+  );
+  const callLog = useMemo(() => buildCallLog([...newestFirst].reverse()), [newestFirst]);
+  // What the list shows: a call's end message folds into its start's card.
+  const reversedMessages = useMemo(
+    () => newestFirst.filter((m) => !callLog.folded.has(m.id)),
+    [newestFirst, callLog],
   );
 
   // All image attachments across the conversation, in chronological order — used
@@ -2144,11 +2053,14 @@ export function ChannelView({
       setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isPinned: false } : m));
       appApi.chatMessages.unpin(msg.id).then(() => loadMessages()).catch(console.error);
     } else {
-      if (pinnedMessages.length >= 3) return;
+      if (pinnedMessages.length >= 3) {
+        toast.info(t.channel.pinLimit);
+        return;
+      }
       setMessageToPin(msg);
       setShowPinDuration(true);
     }
-  }, [selectedMessage, channelId, pinnedMessages.length]);
+  }, [selectedMessage, channelId, pinnedMessages.length, toast, t]);
 
   const handleSelectDuration = useCallback((duration: string) => {
     setPinDuration(duration);
@@ -2170,7 +2082,7 @@ export function ChannelView({
             id: `pin-${msg.id}-${Date.now()}`,
             authorId: '',
             authorName: '',
-            content: `${msg.authorName} pinned a message`,
+            content: format(t.channel.pinnedAMessage, { name: msg.authorName }),
             createdAt: new Date().toISOString(),
             type: 'system',
           });
@@ -2186,10 +2098,11 @@ export function ChannelView({
       void loadMessages();
     } catch (err) {
       console.error(err);
+      toast.error(t.channel.pinFailed);
       setLocalPinnedIds((prev) => { const next = new Set(prev); next.delete(msg.id); return next; });
       void loadMessages();
     }
-  }, [messageToPin, channelId, pinDuration]);
+  }, [messageToPin, channelId, pinDuration, toast, t, format]);
 
   const handleSaveMessage = useCallback(async () => {
     const msg = selectedMessage;
@@ -2200,12 +2113,12 @@ export function ChannelView({
         channelId,
         userId,
       });
-      toast.success('Message saved to Later');
+      toast.success(t.channel.savedForLater);
     } catch {
       // Duplicate (already saved) — treat as success
-      toast.success('Already saved');
+      toast.success(t.channel.alreadySaved);
     }
-  }, [selectedMessage, channelId, userId, toast]);
+  }, [selectedMessage, channelId, userId, toast, t]);
 
   const handleDeleteMessage = useCallback(() => {
     const msg = selectedMessage;
@@ -2226,13 +2139,14 @@ export function ChannelView({
               void loadMessages();
             } catch (err) {
               console.error('[WeldChat] Delete failed:', err);
+              toast.error(t.channel.deleteFailed);
               void loadMessages();
             }
           },
         },
       ],
     );
-  }, [selectedMessage, t]);
+  }, [selectedMessage, t, toast]);
 
   const openThread = useCallback((message: Message) => {
     router.push({ pathname: '/thread/[messageId]', params: { messageId: message.id, channelId } } as any);
@@ -2281,39 +2195,82 @@ export function ChannelView({
   }, [replyTo]);
 
   /** Scroll to a message (e.g. the original of a reply) if it's loaded. */
+  // The message a reply's quote jumped to, tinted for a moment so it is clear
+  // which one it was, as Discord does.
+  const [flashMessageId, setFlashMessageId] = useState<string | null>(null);
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+  }, []);
+
   const jumpToMessage = useCallback((messageId: string) => {
     const idx = reversedMessages.findIndex((m) => m.id === messageId);
     if (idx >= 0) {
       flatListRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+      setFlashMessageId(messageId);
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = setTimeout(() => setFlashMessageId(null), JUMP_FLASH_MS);
     } else {
-      toast.info('The original message is further back in the conversation');
+      toast.info(t.channel.originalFurtherBack);
     }
-  }, [reversedMessages, toast]);
+  }, [reversedMessages, toast, t]);
 
+  // As WhatsApp words them: Today, Yesterday, the weekday within the last
+  // week, then the date (with the year once it's not this year), in the app's
+  // language and starting with a capital.
   const formatDateLabel = useCallback((dateStr: string) => {
     const date = new Date(dateStr);
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today.getTime() - 86400000);
     const msgDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const daysAgo = Math.round((today.getTime() - msgDay.getTime()) / 86400000);
 
-    if (msgDay.getTime() === today.getTime()) return 'Today';
-    if (msgDay.getTime() === yesterday.getTime()) return 'Yesterday';
-    return date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
-  }, []);
+    if (daysAgo === 0) return t.channel.today;
+    if (daysAgo === 1) return t.channel.yesterday;
+    let options: Intl.DateTimeFormatOptions;
+    if (daysAgo > 1 && daysAgo < 7) options = { weekday: 'long' };
+    else if (date.getFullYear() === now.getFullYear()) options = { weekday: 'long', day: 'numeric', month: 'long' };
+    else options = { day: 'numeric', month: 'long', year: 'numeric' };
+    const label = date.toLocaleDateString(intlLocale, options);
+    return label.charAt(0).toLocaleUpperCase(intlLocale) + label.slice(1);
+  }, [t, intlLocale]);
 
   const openImage: OpenImage = (url, origin) => {
     setViewingImageOrigin(origin);
     setViewingImage(url);
   };
 
-  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
-    if (item.type === 'system') {
-      return <SystemMessage content={item.content} colors={colors} styles={styles} />;
-    }
+  // Tapping a message's avatar or name opens that person's details.
+  const openAuthorProfile = (authorId: string) => {
+    Keyboard.dismiss();
+    router.push({ pathname: '/user/[userId]', params: { userId: authorId } });
+  };
 
+  const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     // With inverted FlatList, data is reversed: index+1 is the chronologically previous message
     const prev = reversedMessages[index + 1];
+
+    if (item.type === 'system') {
+      const call = callLog.entries.get(item.id);
+      if (!call) return <SystemMessage content={item.content} styles={styles} />;
+      const ongoing = call.outcome === null && callLog.openId === item.id && activeCall !== null;
+      return (
+        <>
+          <CallLogCard
+            entry={call}
+            ongoing={ongoing}
+            joinable={ongoing && session?.callId !== activeCall?.callId}
+            createdAt={item.createdAt}
+            colors={colors}
+            styles={styles}
+            onJoin={handleStartCall}
+          />
+          {startsNewDay(item, prev) ? (
+            <DateSeparator label={formatDateLabel(item.createdAt)} styles={styles} />
+          ) : null}
+        </>
+      );
+    }
 
     // An optimistic row has no server id yet — nothing to act on.
     const onLongPress = () => {
@@ -2330,6 +2287,7 @@ export function ChannelView({
       if (item.pending) return;
       startReply(item);
     };
+    const isReplyTarget = replyTo?.messageId === item.id;
 
     // Show date separator if first message of the day (chronologically)
     const dateSeparator = startsNewDay(item, prev) ? (
@@ -2351,7 +2309,13 @@ export function ChannelView({
     if (isCompactMessage(item, prev)) {
       return (
         <>
-          <SwipeableMessage onLongPress={onLongPress} onSwipeReply={onSwipeReply}>
+          <SwipeableMessage
+            onLongPress={onLongPress}
+            onSwipeReply={onSwipeReply}
+            highlighted={isReplyTarget}
+            flashing={flashMessageId === item.id}
+            compact
+          >
             <View style={[styles.messageCompact, item.pending && styles.messagePending]}>
               {extras}
             </View>
@@ -2374,16 +2338,35 @@ export function ChannelView({
 
     return (
       <>
-        <SwipeableMessage onLongPress={onLongPress} onSwipeReply={onSwipeReply}>
+        <SwipeableMessage
+          onLongPress={onLongPress}
+          onSwipeReply={onSwipeReply}
+          highlighted={isReplyTarget}
+          flashing={flashMessageId === item.id}
+        >
           <View style={item.pending && styles.messagePending}>
           {replyQuote}
           <View style={[styles.message, replyQuote ? styles.messageAfterQuote : null]}>
-            <MessageAvatar item={item} styles={styles} />
+            <Pressable
+              onPress={() => openAuthorProfile(item.authorId)}
+              disabled={!item.authorId}
+              hitSlop={4}
+              accessibilityRole="button"
+              accessibilityLabel={item.authorName}
+            >
+              <MessageAvatar item={item} styles={styles} />
+            </Pressable>
             <View style={styles.msgContent}>
               <View style={styles.msgHeader}>
-                <Text style={styles.msgAuthor}>{item.authorName}</Text>
+                <Text
+                  style={styles.msgAuthor}
+                  onPress={item.authorId ? () => openAuthorProfile(item.authorId) : undefined}
+                  suppressHighlighting
+                >
+                  {item.authorName}
+                </Text>
                 <Text style={styles.msgTime}>
-                  {new Date(item.createdAt).toLocaleTimeString([], {
+                  {new Date(item.createdAt).toLocaleTimeString(intlLocale, {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
@@ -2418,23 +2401,27 @@ export function ChannelView({
 
   const handleStartCall = useCallback(
     async (callType: 'voice' | 'video') => {
+      // Down before the call screen slides up, not after the request answers.
+      Keyboard.dismiss();
       try {
         // If a call is already running in this channel, join it instead of
         // starting a new one. (The backend's start-and-join is idempotent too,
         // so this is also race-safe.)
-        // For a DM, hand the peer's name/avatar to the call so the WhatsApp-style
-        // call screen can show them — on both the start and join-active paths.
-        const peer = isDm ? { name: channelName, avatar: channel?.picture, isDirect: true } : undefined;
+        // Hand the call screen who it is with, on both the start and join-active
+        // paths: the person for a DM, the channel's name otherwise.
+        const peer = isDm
+          ? { name: channelName, avatar: channel?.picture, isDirect: true }
+          : { name: channelName ? `#${channelName}` : undefined };
         if (activeCall) {
           await joinCall(activeCall.callId, peer);
         } else {
           await startCall(channelId, callType, peer);
         }
       } catch {
-        Alert.alert('Call failed', 'Could not connect to the call. Please try again.');
+        Alert.alert(t.channel.callFailedTitle, t.channel.callFailedBody);
       }
     },
-    [activeCall, joinCall, startCall, channelId, isDm, channelName, channel?.picture],
+    [activeCall, joinCall, startCall, channelId, isDm, channelName, channel?.picture, t],
   );
 
   const handleUnarchive = useCallback(async () => {
@@ -2496,12 +2483,22 @@ export function ChannelView({
     }
   };
 
+  // The bar's X unpins for everyone in the channel, so it asks first.
   const handleUnpinCurrent = () => {
     const msg = currentPinned;
     if (!msg) return;
-    setLocalPinnedIds((prev) => { const next = new Set(prev); next.delete(msg.id); return next; });
-    setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isPinned: false } : m));
-    appApi.chatMessages.unpin(msg.id).then(() => loadMessages()).catch(console.error);
+    Alert.alert(t.channel.unpinTitle, t.channel.unpinBody, [
+      { text: t.common.cancel, style: 'cancel' },
+      {
+        text: t.channel.unpin,
+        style: 'destructive',
+        onPress: () => {
+          setLocalPinnedIds((prev) => { const next = new Set(prev); next.delete(msg.id); return next; });
+          setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, isPinned: false } : m));
+          appApi.chatMessages.unpin(msg.id).then(() => loadMessages()).catch(console.error);
+        },
+      },
+    ]);
   };
 
   const handleInputChange = (text: string) => {
@@ -2519,11 +2516,9 @@ export function ChannelView({
     setMentionQuery(detectMentionQuery(text));
   };
 
-  const blurTint = blurTintFor(theme);
   const canSend = hasSendableContent(input, pendingFiles);
   const composerConnected = hasComposerContext({
     editing: !!editingMessage,
-    replying: !!replyTo,
     fileCount: pendingFiles.length,
     typingCount: typingUsers.length,
   });
@@ -2540,6 +2535,7 @@ export function ChannelView({
           picture={channel?.picture}
           peerIsOnline={peerIsOnline}
           inCall={inCall}
+          joinableCall={activeCall && session?.callId !== activeCall.callId ? activeCall.callType : null}
           identityEnabled={isDm || channel !== null}
           colors={colors}
           styles={styles}
@@ -2549,14 +2545,6 @@ export function ChannelView({
         />
       )}
 
-      {/* Active-call banner — tap to join the ongoing call */}
-      <CallBanner
-        activeCall={activeCall}
-        sessionCallId={session?.callId}
-        colors={colors}
-        styles={styles}
-        onJoin={handleStartCall}
-      />
 
       {/* Pinned message bar */}
       <PinnedBar
@@ -2599,6 +2587,16 @@ export function ChannelView({
               flatListRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
             }, 250);
           }}
+          // Inverted: the list's end is the oldest message, at the top.
+          onEndReached={() => void loadOlder()}
+          onEndReachedThreshold={0.5}
+          onContentSizeChange={(_, height) => {
+            contentHeightRef.current = height;
+            fillScreenWithHistory();
+          }}
+          ListFooterComponent={
+            loadingOlder ? <ActivityIndicator style={styles.olderLoader} color={colors.muted} /> : null
+          }
           initialNumToRender={20}
           maxToRenderPerBatch={10}
           windowSize={10}
@@ -2616,7 +2614,7 @@ export function ChannelView({
       </Animated.View>
 
       <KeyboardStickyView
-        style={styles.bottomStack}
+        style={[styles.bottomStack, composerConnected && styles.bottomStackSolid]}
         pointerEvents="box-none"
         offset={{ closed: 0, opened: insets.bottom }}
         onLayout={(e) => {
@@ -2639,13 +2637,6 @@ export function ChannelView({
           onPress={scrollToBottom}
           accessibilityLabel={t.channel.scrollToLatest}
         >
-          <BlurView
-            intensity={100}
-            tint={blurTint}
-            blurMethod="dimezisBlurView"
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
           <ChevronDown size={21} color={colors.text} strokeWidth={2.5} />
         </TouchableOpacity>
       )}
@@ -2654,7 +2645,7 @@ export function ChannelView({
           absolutely positioned composer and the keyboard, i.e. invisible. */}
       <MentionPicker
         query={mentionQuery ?? ''}
-        visible={mentionQuery !== null && !isRecording}
+        visible={mentionQuery !== null && !showRecordingBar}
         onSelect={(member) => {
           setInput((prev) => insertMention(prev, member.userId));
           setMentionQuery(null);
@@ -2667,7 +2658,8 @@ export function ChannelView({
         styles={styles}
         onClose={() => {
           setEditingMessage(null);
-          setInput('');
+          setInput(draftBeforeEditRef.current);
+          draftBeforeEditRef.current = '';
         }}
       />
 
@@ -2680,49 +2672,29 @@ export function ChannelView({
         onDismiss={dismissThreadSuggestion}
       />
 
-      {/* Reply preview */}
-      <ReplyBar
-        replyTo={replyTo}
-        replyMention={replyMention}
-        colors={colors}
-        styles={styles}
-        onClose={() => setReplyTo(null)}
-        onToggleMention={() => setReplyMention((v) => !v)}
-      />
-
       {/* Pending files */}
       <PendingFiles
         files={pendingFiles}
-        colors={colors}
-        styles={styles}
         onRemove={(i) => setPendingFiles((prev) => prev.filter((_, j) => j !== i))}
       />
 
       {/* Typing indicator */}
       <TypingIndicator typingUsers={typingUsers} membersMap={membersMap} styles={styles} />
 
-      {/* Divider line — sits directly above the input; any reply/edit/file/
-          typing context rows render above this line, connecting to it flush. */}
-      <View
-        style={[
-          styles.composerDivider,
-          composerConnected && styles.composerDividerConnected,
-        ]}
-      />
-
       {/* Archived banner or input bar */}
       <Composer
         isArchived={isArchived}
-        isRecording={isRecording}
+        isRecording={showRecordingBar}
+        isSendingVoice={sendingVoiceMs !== null}
         isInputExpanded={isInputExpanded}
         meteringDb={meteringDb}
+        recordingMs={sendingVoiceMs ?? durationMs}
         input={input}
         isDm={isDm}
         channelName={channelName}
         members={membersMap}
         uploading={uploading}
         canSend={canSend}
-        blurTint={blurTint}
         colors={colors}
         styles={styles}
         inputRef={inputRef}
@@ -2732,11 +2704,23 @@ export function ChannelView({
         onChangeText={handleInputChange}
         onFocusInput={() => setIsInputFocused(true)}
         onBlurInput={() => setIsInputFocused(false)}
-        onAttach={openAttachmentPicker}
+        onAttach={handleAttach}
         onSend={handleSend}
         onStartRecording={handleStartRecording}
         onCancelRecording={handleCancelRecording}
         onSendRecording={handleSendRecording}
+        header={
+          replyTo ? (
+            <ReplyHeader
+              replyTo={replyTo}
+              colors={colors}
+              styles={styles}
+              onClose={() => setReplyTo(null)}
+            />
+          ) : undefined
+        }
+        barStyle={composerBarStyle}
+        bottomInset={insets.bottom}
         onUnarchive={handleUnarchive}
       />
       </KeyboardStickyView>
@@ -2749,16 +2733,23 @@ export function ChannelView({
         onReply={() => {
           if (selectedMessage) startReply(selectedMessage);
         }}
-        onReact={() => setShowEmojiPicker(true)}
+        onReact={() => {
+          setReactionTarget(selectedMessage);
+          setShowEmojiPicker(true);
+        }}
         onThread={() => selectedMessage && openThread(selectedMessage)}
         onPin={handlePin}
         onCopy={() => {
-          if (selectedMessage) Clipboard.setString(selectedMessage.content);
+          if (!selectedMessage) return;
+          Clipboard.setString(mentionsToPlainText(selectedMessage.content, membersMap));
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          toast.success(t.channel.copied);
         }}
         onQuickReact={handleReaction}
         onSave={handleSaveMessage}
         onEdit={() => {
           if (selectedMessage) {
+            if (!editingMessage) draftBeforeEditRef.current = input;
             setEditingMessage(selectedMessage);
             setInput(selectedMessage.content);
             focusComposer();
@@ -2771,7 +2762,10 @@ export function ChannelView({
       {/* Emoji picker */}
       <EmojiPicker
         visible={showEmojiPicker}
-        onClose={() => setShowEmojiPicker(false)}
+        onClose={() => {
+          setShowEmojiPicker(false);
+          setReactionTarget(null);
+        }}
         onSelect={handleEmojiSelect}
       />
 
@@ -2814,77 +2808,88 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       flexDirection: 'row',
       alignItems: 'center',
       height: 56,
-      paddingLeft: 16,
-      paddingRight: 8,
+      paddingLeft: 4,
+      paddingRight: 6,
     },
+    // iPad split view has no back button; keep the tile off the edge.
+    headerContentNoBack: { paddingLeft: 16 },
     backBtn: {
-      width: 28,
-      height: 40,
-      justifyContent: 'flex-start',
+      width: 40,
+      height: 44,
+      justifyContent: 'center',
       alignItems: 'center',
-      flexDirection: 'row',
     },
     headerIdentity: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 10,
-      paddingLeft: 10,
-      paddingRight: 4,
+      gap: 11,
+      paddingRight: 8,
     },
     headerIdentityText: {
       flex: 1,
       justifyContent: 'center',
     },
-    headerTitle: { fontSize: 16, fontWeight: '600', color: c.text, lineHeight: 22 },
-    headerPresenceText: { fontSize: 12, color: c.mutedForeground, lineHeight: 15, marginTop: -1 },
-    headerAvatar: { width: 33, height: 33, borderRadius: 12.5 },
+    headerTitle: {
+      fontSize: 17,
+      fontWeight: '600',
+      letterSpacing: -0.3,
+      color: c.text,
+      lineHeight: 21,
+    },
+    headerSubtitle: { fontSize: 13, color: c.mutedForeground, lineHeight: 16, marginTop: 1 },
+    // Same size and radius as the DM list avatars.
+    headerAvatarWrap: { width: 36, height: 36 },
+    headerAvatar: { width: 36, height: 36, borderRadius: 13 },
     headerAvatarFallback: {
-      width: 33,
-      height: 33,
-      borderRadius: 12.5,
+      width: 36,
+      height: 36,
+      borderRadius: 13,
       backgroundColor: BRAND,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    headerAvatarText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+    headerAvatarText: { fontSize: 15, fontWeight: '600', color: '#fff' },
+    headerPresenceDot: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: c.background,
+      backgroundColor: ACCENTS.online,
+    },
     headerChannelIcon: {
+      width: 24,
+      height: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 2,
     },
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
     },
     headerAction: {
-      width: 36,
-      height: 40,
+      width: 42,
+      height: 44,
       justifyContent: 'center',
       alignItems: 'center',
     },
     headerActionDisabled: { opacity: 0.35 },
+    headerJoin: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      height: 34, paddingHorizontal: 14, borderRadius: 13, marginRight: 10,
+      backgroundColor: BRAND,
+    },
+    headerJoinText: { color: '#fff', fontSize: 15, fontWeight: '600' },
     pinnedBar: {
       flexDirection: 'row', alignItems: 'center', gap: 10,
       paddingHorizontal: 16, paddingVertical: 10,
       backgroundColor: c.background,
       borderBottomWidth: 1, borderBottomColor: c.secondary,
     },
-    callBanner: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-      paddingHorizontal: 16, paddingVertical: 10,
-      backgroundColor: c.success + '1A',
-      borderBottomWidth: 1, borderBottomColor: c.success + '33',
-    },
-    callBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
-    callBannerDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.success },
-    callBannerText: { fontSize: 14, fontWeight: '600', color: c.text, flexShrink: 1 },
-    callBannerJoinBtn: {
-      backgroundColor: c.success, borderRadius: 16,
-      paddingHorizontal: 16, paddingVertical: 6,
-    },
-    callBannerJoinText: { color: '#fff', fontSize: 13, fontWeight: '700' },
     pinnedLineContainer: { width: 3, alignSelf: 'stretch', borderRadius: 2, gap: 2, overflow: 'hidden' },
     pinnedLineSegment: { flex: 1, borderRadius: 2 },
     pinnedContent: { flex: 1 },
@@ -2892,14 +2897,17 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
     pinnedCount: { fontSize: 11, fontWeight: '500', color: c.muted },
     pinnedText: { fontSize: 13, color: c.mutedForeground, marginTop: 1 },
     listContainer: { flex: 1 },
+    olderLoader: { marginVertical: 16 },
     list: {
       paddingHorizontal: 16,
       // No paddingTop here: the visual bottom padding of the inverted list is
       // produced by the *animated* marginBottom on the Animated.View wrapper, so it
       // can interpolate smoothly when the composer grows / shrinks.
       paddingBottom: 8,
-      flexGrow: 1,
-      justifyContent: 'flex-end',
+      // No flexGrow: the inverted list already keeps a short conversation at
+      // the bottom, right above the composer (as in WhatsApp), and a content
+      // area no taller than its messages lets onEndReached see that a short
+      // first page doesn't fill the screen and fetch older messages.
     },
     // Top-only margins so spacing doesn't double-count (prev row's bottom margin
     // + this row's top margin). New-group messages get a clear gap; consecutive
@@ -2907,33 +2915,36 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
     message: { flexDirection: 'row', marginTop: 12, marginBottom: 0 },
     messageCompact: { paddingLeft: 42, marginTop: 3, marginBottom: 0 },
     messagePending: { opacity: 0.55 },
-    messageAfterQuote: { marginTop: 2 },
+    messageAfterQuote: { marginTop: 4 },
     // Discord-style quote of the replied-to message, above the reply's header.
-    // The spine curves from the avatar column up into the quote.
+    // It starts in the name column (16 + 32 avatar + 10); the spine leaves the
+    // avatar's centre just above it, runs up to the middle of the quote and
+    // stops 4pt short of the quote's avatar.
     replyQuote: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 5,
       marginTop: 12,
-      paddingLeft: 15,
+      paddingLeft: 42,
       paddingRight: 8,
       minHeight: 20,
     },
     replyQuoteSpine: {
-      width: 18,
-      height: 9,
-      marginTop: 9,
-      marginRight: 2,
-      borderLeftWidth: 2,
-      borderTopWidth: 2,
+      position: 'absolute',
+      left: 15.25,
+      top: 9.25,
+      bottom: -2,
+      width: 22.75,
+      borderLeftWidth: 1.5,
+      borderTopWidth: 1.5,
       borderTopLeftRadius: 6,
-      borderColor: c.border,
+      borderColor: c.mutedForeground + '66',
     },
     replyQuoteAvatar: { width: 16, height: 16, borderRadius: 6 },
     replyQuoteAvatarFallback: { backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center' },
     replyQuoteAvatarText: { fontSize: 9, fontWeight: '700', color: '#fff' },
-    replyQuoteAuthor: { fontSize: 13, fontWeight: '600', color: c.text, maxWidth: '40%' },
-    replyQuoteText: { flex: 1, fontSize: 13, color: c.muted },
+    replyQuoteAuthor: { fontSize: 14, fontWeight: '600', color: c.text, maxWidth: '40%' },
+    replyQuoteText: { flex: 1, fontSize: 14, color: c.mutedForeground },
     messagePressed: { backgroundColor: c.cardBackground, marginHorizontal: -16, paddingHorizontal: 16 },
     dateSeparator: {
       flexDirection: 'row', alignItems: 'center', marginVertical: 16, gap: 12,
@@ -2951,12 +2962,27 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       borderRadius: 9, overflow: 'hidden',
     },
     // Call events (made = green, missed = red) — tint applied inline.
-    callSystemPill: {
-      flexDirection: 'row', alignItems: 'center', gap: 6,
-      paddingHorizontal: 12, paddingVertical: 6, borderRadius: 9,
+    // Discord's call card: 16pt apart, icon column, two lines, avatar.
+    callCard: {
+      flexDirection: 'row', alignItems: 'center',
+      marginVertical: 8, minHeight: 58,
+      paddingVertical: 10, paddingLeft: 16, paddingRight: 12,
+      borderRadius: 8,
+      backgroundColor: c.secondary,
     },
+    callCardIcon: { width: 24, height: 24, marginRight: 12, alignItems: 'center', justifyContent: 'center' },
+    callCardText: { flex: 1, minWidth: 0 },
+    callCardTitle: { fontSize: 17, lineHeight: 22, fontWeight: '600', color: c.text },
+    callCardMeta: { fontSize: 14, lineHeight: 18, color: c.mutedForeground, marginTop: 1 },
+    callCardAvatar: { width: 24, height: 24, borderRadius: 8, marginLeft: 12 },
+    callCardAvatarFallback: { backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center' },
+    callCardAvatarInitial: { fontSize: 12, fontWeight: '700', color: '#fff' },
+    callCardJoin: {
+      height: 32, paddingHorizontal: 14, marginLeft: 12, borderRadius: 8,
+      backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center',
+    },
+    callCardJoinText: { color: '#fff', fontSize: 15, fontWeight: '600' },
 
-    callSystemText: { fontSize: 13, fontWeight: '600' },
     // Floating circular "jump to newest" button, pinned just above the composer.
     scrollToBottomBtn: {
       position: 'absolute',
@@ -2966,12 +2992,10 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       width: 38,
       height: 38,
       borderRadius: 19,
-      // Frosted glass: only a faint tint so the clipped BlurView material below
-      // stays visible (a high-alpha fill would hide the blur and look solid).
-      backgroundColor: c.background + '1f',
+      // Solid, so the messages don't show through it.
+      backgroundColor: c.background,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
-      overflow: 'hidden',
       alignItems: 'center',
       justifyContent: 'center',
       shadowColor: '#000',
@@ -3007,142 +3031,21 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       backgroundColor: BRAND, borderRadius: 8,
     },
     unarchiveBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
-    inputBar: {
-      paddingHorizontal: 12, paddingTop: 0, paddingBottom: 8 + bottomInset,
-    },
-    inputBarCollapsed: {
-      paddingHorizontal: 20,
-      paddingBottom: bottomInset,
-    },
+    // Composer geometry is measured from the ChatGPT iOS composer: a 48pt pill
+    // inset 38pt from the sides and bottom while idle, a card inset 12pt and
+    // sitting 12pt above the keyboard while typing. The plus and the send
+    // button are centred 24pt in from the edges; the mic sits 40pt from send.
+    // Side and bottom insets are animated between those two (composerBarStyle).
+    inputBar: { paddingTop: 0 },
     inputBarHidden: { display: 'none' },
+    // Transparent, so the messages scroll on behind the floating composer.
     bottomStack: {
       position: 'absolute',
       bottom: 0, left: 0, right: 0,
-      // Solid white composer area. The divider line is a separate element
-      // (composerDivider) so reply/edit context rows can sit above it.
-      backgroundColor: '#ffffff',
     },
-    // Horizontal line directly above the input field. Reply/edit/file/typing
-    // context rows render above this line; the input field below it.
-    composerDivider: {
-      height: StyleSheet.hairlineWidth,
-      backgroundColor: c.border,
-      marginTop: 10,
-      marginBottom: 10,
-    },
-    // When a context row (reply/edit/files/typing) sits above the line, drop the
-    // top gap so the row connects flush to the line.
-    composerDividerConnected: {
-      marginTop: 0,
-    },
-    inputContainer: {
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
-      borderRadius: 26,
-      // Frosted-glass input field: translucent fill + a BlurView material behind
-      // the content (clipped to the rounded corners). Reads as glass on iOS;
-      // falls back to the translucent tint where blur is unavailable.
-      // NOTE: shadow lives on the composerShadow wrapper — overflow:hidden here
-      // (needed to clip the blur) would otherwise clip the shadow away.
-      backgroundColor: `${c.background}0d`,
-      overflow: 'hidden',
-      paddingHorizontal: 8,
-      paddingTop: 6,
-      paddingBottom: 8,
-    },
-    // Wraps the clipped glass pill. No drop-shadow — flat composer look.
-    composerShadow: {
-      borderRadius: 26,
-    },
-    inputContainerCollapsed: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderRadius: 26,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
-      backgroundColor: `${c.background}0d`,
-      overflow: 'hidden',
-      paddingHorizontal: 8,
-      paddingVertical: 5,
-      gap: 4,
-    },
-    composerShadowCollapsed: {
-      marginHorizontal: 12,
-      borderRadius: 26,
-    },
-    composerGlass: {
-      ...StyleSheet.absoluteFill,
-    },
-    collapsedInputArea: {
-      flex: 1,
-      paddingHorizontal: 4,
-      minHeight: 30,
-      justifyContent: 'center',
-    },
-    collapsedPlaceholder: {
-      fontSize: 17, fontWeight: '500', color: c.text, opacity: 0.45,
-    },
-    plainBtn: {
-      width: 35, height: 35,
-      justifyContent: 'center', alignItems: 'center',
-    },
-    inputWrapper: { maxHeight: 140 },
-    inputWrapperContent: { position: 'relative' },
-    input: {
-      fontSize: 16, lineHeight: 22, color: c.text,
-      paddingTop: 4, paddingBottom: 4, paddingHorizontal: 8,
-      minHeight: 33,
-    },
-    inputTransparent: { color: 'transparent' },
-    inputOverlay: {
-      position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-      paddingTop: 7, paddingBottom: 8, paddingHorizontal: 8, justifyContent: 'center',
-    },
-    inputActions: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingHorizontal: 2,
-    },
-    composerPlusBtn: {
-      width: 36, height: 36, borderRadius: 18,
-      justifyContent: 'center', alignItems: 'center',
-    },
-    composerActionsRight: {
-      flexDirection: 'row', alignItems: 'center', gap: 4,
-    },
-    composerSolidBtn: {
-      width: 33, height: 33, borderRadius: 16.5,
-      backgroundColor: c.text,
-      justifyContent: 'center', alignItems: 'center',
-    },
-    sendBtn: {
-      width: 33, height: 33, borderRadius: 16.5,
-      backgroundColor: c.text,
-      justifyContent: 'center', alignItems: 'center',
-      marginRight: 2,
-    },
-    sendBtnDisabled: {
-      opacity: 0.3,
-    },
-    recordingPill: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderRadius: 999,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.secondary,
-      backgroundColor: c.background,
-      marginHorizontal: 12,
-      paddingHorizontal: 7,
-      paddingVertical: 6,
-      gap: 6,
-    },
-    stopBtnInline: {
-      width: 38, height: 38, borderRadius: 19,
-      justifyContent: 'center', alignItems: 'center',
-    },
-    stopSquare: {
-      width: 13, height: 13, borderRadius: 2.5,
-      backgroundColor: c.text,
-    },
+    // A reply/edit/file/typing row sits above the composer: give the stack a
+    // solid floor so the row and the composer read as one block.
+    bottomStackSolid: { backgroundColor: c.background },
     editBar: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -3189,56 +3092,10 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       backgroundColor: BRAND,
     },
     threadSuggestBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
-    replyBar: {
-      position: 'relative',
-      backgroundColor: c.cardBackground,
-      // Solid line at the top of the reply row (doesn't fade out).
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: c.border,
-    },
-    replyBarRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      gap: 12,
-    },
-    replyBarClose: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
-      backgroundColor: c.cardBackground,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    replyBarLabel: {
-      flex: 1,
-      fontSize: 14,
-      color: c.muted,
-    },
-    replyBarLabelName: {
-      fontWeight: '700',
-      color: c.text,
-    },
-    replyBarMention: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 4,
-    },
-    replyBarMentionText: {
-      fontSize: 14,
-      fontWeight: '700',
-      letterSpacing: 0.3,
-    },
-    pendingFiles: {
-      flexDirection: 'row', flexWrap: 'wrap', gap: 6,
-      paddingHorizontal: 12, paddingTop: 8, backgroundColor: c.background,
-    },
-    pendingFile: {
-      flexDirection: 'row', alignItems: 'center', gap: 4,
-      backgroundColor: c.secondary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8,
-    },
-    pendingFileName: { fontSize: 12, color: c.mutedForeground, maxWidth: 100 },
+    // The reply row inside the composer card (Discord's layout).
+    replyHeaderLabel: { flex: 1, minWidth: 0, fontSize: 15, color: c.mutedForeground },
+    replyHeaderName: { fontWeight: '700', color: c.text },
+    replyHeaderClose: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
     attachmentList: { marginTop: 6, gap: 6 },
     attachmentImage: {
       width: '100%' as any, maxWidth: 280, aspectRatio: 4 / 3, borderRadius: 8, backgroundColor: c.cardBackground,

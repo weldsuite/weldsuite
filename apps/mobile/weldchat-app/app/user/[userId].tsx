@@ -1,446 +1,307 @@
-import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Alert } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Linking,
+  Alert,
+  ActionSheetIOS,
+  Platform,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import {
-  Phone,
-  Video,
-  Mail,
-  MessageSquare,
-  LayoutGrid,
-  ChevronLeft,
-} from 'lucide-react-native';
+import { useAuth } from '@clerk/expo';
+import { ChartNoAxesGantt, ChevronLeft, EllipsisVertical, HeartHandshake, SquareActivity } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
-import { BRAND } from '@/lib/brand';
+import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
-import { ChannelView } from '@/components/chat/ChannelView';
 import { useCall } from '@/contexts/CallContext';
+import { useI18n } from '@/lib/i18n';
+import { MemberOverview } from '@/components/member/MemberOverview';
+import { MemberCommon } from '@/components/member/MemberCommon';
+import { MemberActivity } from '@/components/member/MemberActivity';
+import {
+  fetchMemberPresence,
+  fetchMemberProfile,
+  type MemberPresence,
+  type MemberProfile,
+} from '@/lib/member/api';
 
-interface Member {
-  id: string;
-  userId: string;
-  name: string;
-  email: string;
-  picture?: string | null;
-  role?: string;
-  status?: string;
-}
+type MemberTab = 'overview' | 'common' | 'activity';
 
-type Tab = 'details' | 'messages';
+// tailwind green-500 / orange-500 / red-500 / yellow-500 / gray-400, as the
+// platform's StatusDot.
+const PRESENCE_COLORS: Record<MemberPresence['status'], string> = {
+  online: '#22C55E',
+  busy: '#F97316',
+  dnd: '#EF4444',
+  away: '#EAB308',
+  offline: '#9CA3AF',
+};
 
-function getRoleLabel(role?: string): string {
-  return (role || 'MEMBER').toUpperCase();
-}
-
+/**
+ * A team member's details, laid out like the platform's team-member panel:
+ * a header (back, avatar with presence, name + custom status, "⋮" actions)
+ * and Overview / Common / Activity tabs.
+ */
 export default function UserDetailsScreen() {
   const { userId } = useLocalSearchParams<{ userId: string }>();
   const router = useRouter();
+  const { userId: viewerId } = useAuth();
   const { colors } = useTheme();
+  const { t } = useI18n();
+  const toast = useToast();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.top, insets.bottom), [colors, insets.top, insets.bottom]);
   const { startCall } = useCall();
 
-  const [member, setMember] = useState<Member | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('details');
-  const [dmChannelId, setDmChannelId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<MemberProfile | null>(null);
+  const [presence, setPresence] = useState<MemberPresence | null>(null);
+  const [activeTab, setActiveTab] = useState<MemberTab>('overview');
+  const isSelf = !!viewerId && viewerId === userId;
 
   useEffect(() => {
-    if (activeTab !== 'messages' || !userId) return;
+    if (!userId) return;
     let cancelled = false;
-    appApi.chatDm.list().then((res) => {
-      if (cancelled) return;
-      const dms = res.data ?? [];
-      const existing = Array.isArray(dms)
-        ? dms.find((d: any) => d.otherUserId === userId || d.name === member?.name)
-        : null;
-      setDmChannelId(existing?.id ?? null);
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [activeTab, userId, member?.name]);
-
-  useEffect(() => {
-    let cancelled = false;
-    appApi.chatMembers.list().then((res) => {
-      if (cancelled) return;
-      const members = (res.data ?? []) as unknown as Member[];
-      setMember(members.find((m) => m.userId === userId) ?? null);
-    }).catch(() => {});
-    return () => { cancelled = true; };
+    fetchMemberProfile(userId)
+      .then((p) => !cancelled && setProfile(p))
+      .catch(() => {});
+    fetchMemberPresence(userId)
+      .then((p) => !cancelled && setPresence(p))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [userId]);
 
-  const ensureDmChannelId = async (): Promise<string | null> => {
+  const name = profile ? profile.name || profile.email || t.member.fallbackName : '';
+  const customStatus =
+    presence?.statusText || presence?.statusEmoji
+      ? `${presence.statusEmoji ?? ''} ${presence.statusText ?? ''}`.trim()
+      : null;
+
+  // The DM with this person, created if there isn't one yet.
+  const ensureDm = useCallback(async (): Promise<string | null> => {
     try {
       const res = await appApi.chatDm.list();
-      const dms = res.data ?? [];
-      const existing = Array.isArray(dms)
-        ? dms.find((d: any) => d.otherUserId === userId || d.name === member?.name)
-        : null;
-      if (existing?.id) return existing.id;
-      // Create a new DM with this user
-      const created = await appApi.chatDm.create({ userIds: [userId as string] });
-      return (created as any).data?.id ?? null;
+      const dms = (res.data ?? []) as unknown as { id: string; otherMembers?: { userId: string }[] }[];
+      const existing = dms.find(
+        (d) => (d.otherMembers ?? []).length === 1 && d.otherMembers?.[0]?.userId === userId,
+      );
+      if (existing) return existing.id;
+      const created = (await appApi.chatDm.create({ userIds: [userId as string] })) as unknown as {
+        data?: { id?: string };
+      };
+      return created.data?.id ?? null;
     } catch {
       return null;
     }
-  };
+  }, [userId]);
 
-  const handleMessage = () => {
-    appApi.chatDm.list().then((res) => {
-      const dms = res.data ?? [];
-      const existing = Array.isArray(dms)
-        ? dms.find((d: any) => d.otherUserId === userId || d.name === member?.name)
-        : null;
-      if (existing?.id) {
-        router.replace(`/dm/${existing.id}` as any);
-      } else {
-        router.push('/new-dm' as any);
+  const call = useCallback(
+    async (kind: 'voice' | 'video') => {
+      const channelId = await ensureDm();
+      if (!channelId) {
+        toast.error(t.member.startCallFailed);
+        return;
       }
-    }).catch(() => router.push('/new-dm' as any));
-  };
-
-  const handleEmail = () => {
-    if (!member?.email) return;
-    Linking.openURL(`mailto:${member.email}`).catch(() => Alert.alert('Unable to open mail app'));
-  };
-
-  const handleCall = async () => {
-    const channelId = await ensureDmChannelId();
-    if (!channelId) {
-      Alert.alert('Could not start call', 'Unable to open a conversation with this user.');
-      return;
-    }
-    try {
-      await startCall(channelId, 'voice', { name: member?.name, avatar: member?.picture, isDirect: true });
-    } catch {
-      Alert.alert('Call failed', 'Could not connect to the call. Please try again.');
-    }
-  };
-
-  const handleVideo = async () => {
-    const channelId = await ensureDmChannelId();
-    if (!channelId) {
-      Alert.alert('Could not start call', 'Unable to open a conversation with this user.');
-      return;
-    }
-    try {
-      await startCall(channelId, 'video', { name: member?.name, avatar: member?.picture, isDirect: true });
-    } catch {
-      Alert.alert('Call failed', 'Could not connect to the call. Please try again.');
-    }
-  };
-
-  const name = member?.name || 'Team member';
-  const initial = (member?.name || member?.email || '?').charAt(0).toUpperCase();
-  const status = member?.status === 'ACTIVE' ? 'online' : 'offline';
-  const localTime = useMemo(() => {
-    const d = new Date();
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }, []);
-  const tzOffset = useMemo(() => {
-    const offsetMin = -new Date().getTimezoneOffset();
-    const sign = offsetMin >= 0 ? '+' : '-';
-    const abs = Math.abs(offsetMin);
-    const h = Math.floor(abs / 60);
-    return `GMT${sign}${h}`;
-  }, []);
-
-  const messagesPane = dmChannelId ? (
-    <ChannelView channelId={dmChannelId} hideHeader hideBackButton />
-  ) : (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateText}>No conversation with this person yet.</Text>
-      <TouchableOpacity style={styles.messageBtn} onPress={handleMessage}>
-        <Text style={styles.messageBtnText}>Start conversation</Text>
-      </TouchableOpacity>
-    </View>
+      try {
+        await startCall(channelId, kind, { name, avatar: profile?.picture, isDirect: true });
+      } catch {
+        toast.error(t.member.startCallFailed);
+      }
+    },
+    [ensureDm, startCall, name, profile?.picture, toast, t],
   );
+
+  const openChat = useCallback(async () => {
+    const channelId = await ensureDm();
+    if (channelId) router.push({ pathname: '/dm/[channelId]', params: { channelId, name, type: 'dm' } });
+  }, [ensureDm, router, name]);
+
+  // Email, call, video and chat all live in the "⋮" menu, as on the platform.
+  const openActions = () => {
+    const actions: { label: string; run: () => void }[] = [];
+    if (profile?.email) {
+      const email = profile.email;
+      actions.push({ label: t.member.composeEmail, run: () => void Linking.openURL(`mailto:${email}`) });
+    }
+    if (!isSelf) {
+      actions.push(
+        { label: t.member.call, run: () => void call('voice') },
+        { label: t.member.videoCall, run: () => void call('video') },
+        { label: t.member.openChat, run: () => void openChat() },
+      );
+    }
+    if (actions.length === 0) return;
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        { options: [...actions.map((a) => a.label), t.common.cancel], cancelButtonIndex: actions.length },
+        (index) => actions[index]?.run(),
+      );
+    } else {
+      Alert.alert(name, undefined, [
+        ...actions.map((a) => ({ text: a.label, onPress: a.run })),
+        { text: t.common.cancel, style: 'cancel' as const },
+      ]);
+    }
+  };
+
+  const tabs: { id: MemberTab; label: string; icon: typeof ChartNoAxesGantt }[] = [
+    { id: 'overview', label: t.member.tabs.overview, icon: ChartNoAxesGantt },
+    // Nothing is "in common" with yourself, so that tab is left out.
+    ...(isSelf ? [] : [{ id: 'common' as const, label: t.member.tabs.common, icon: HeartHandshake }]),
+    { id: 'activity', label: t.member.tabs.activity, icon: SquareActivity },
+  ];
 
   return (
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.container}>
-        {/* Back navigation */}
-        <View style={styles.navBar}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.navBack} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} activeOpacity={0.6}>
-            <ChevronLeft size={22} color={BRAND} strokeWidth={2.2} />
-            <Text style={styles.navBackText}>Back</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Header — single horizontal row */}
         <View style={styles.header}>
-          {/* Left: avatar + name */}
-          <View style={styles.headerIdentity}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.iconBtn}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t.member.back}
+          >
+            <ChevronLeft size={16} color={colors.mutedForeground} strokeWidth={2} />
+          </TouchableOpacity>
+
+          {profile ? (
             <View style={styles.avatarWrap}>
-              {member?.picture ? (
-                <Image source={{ uri: member.picture }} style={styles.avatar} />
+              {profile.picture ? (
+                <Image source={{ uri: profile.picture }} style={styles.avatar} />
               ) : (
                 <View style={[styles.avatar, styles.avatarFallback]}>
-                  <Text style={styles.avatarText}>{initial}</Text>
+                  <Text style={styles.avatarText}>{(name.trim()[0] ?? '#').toUpperCase()}</Text>
                 </View>
               )}
               <View
-                style={[
-                  styles.statusDot,
-                  { backgroundColor: status === 'online' ? colors.success : colors.muted },
-                ]}
+                style={[styles.statusDot, { backgroundColor: PRESENCE_COLORS[presence?.status ?? 'offline'] }]}
               />
             </View>
-            <Text style={styles.headerName} numberOfLines={1}>{name}</Text>
+          ) : (
+            <View style={[styles.avatar, styles.skeleton]} />
+          )}
+
+          <View style={styles.titleBlock}>
+            {profile ? (
+              <>
+                <Text style={styles.title} numberOfLines={1}>{name}</Text>
+                {customStatus ? <Text style={styles.customStatus} numberOfLines={1}>{customStatus}</Text> : null}
+              </>
+            ) : (
+              <View style={styles.titleSkeleton} />
+            )}
           </View>
 
-          {/* Right: action icons */}
-          <View style={styles.headerActions}>
-            <HeaderIconBtn onPress={handleCall} colors={colors}>
-              <Phone size={20} color={colors.muted} />
-            </HeaderIconBtn>
-            <HeaderIconBtn onPress={handleVideo} colors={colors}>
-              <Video size={28} color={colors.muted} strokeWidth={1.6} />
-            </HeaderIconBtn>
-            <HeaderIconBtn onPress={handleEmail} colors={colors}>
-              <Mail size={20} color={colors.muted} />
-            </HeaderIconBtn>
-          </View>
+          {profile && (
+            <TouchableOpacity
+              onPress={openActions}
+              style={styles.iconBtn}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={t.member.moreActions}
+            >
+              <EllipsisVertical size={16} color={colors.mutedForeground} strokeWidth={2} />
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Tab bar — Details / Messages only */}
-        <View style={styles.tabs}>
-          <TabBtn label="Details" icon={<LayoutGrid size={16} color={activeTab === 'details' ? colors.text : colors.muted} />} active={activeTab === 'details'} onPress={() => setActiveTab('details')} styles={styles} />
-          <TabBtn label="Messages" icon={<MessageSquare size={16} color={activeTab === 'messages' ? colors.text : colors.muted} />} active={activeTab === 'messages'} onPress={() => setActiveTab('messages')} styles={styles} />
+        <View style={styles.tabs} accessibilityRole="tablist">
+          {tabs.map((tab, index) => {
+            const active = tab.id === activeTab;
+            const Icon = tab.icon;
+            return (
+              <TouchableOpacity
+                key={tab.id}
+                style={styles.tab}
+                onPress={() => setActiveTab(tab.id)}
+                activeOpacity={0.6}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+              >
+                <View style={[styles.tabInner, index === 0 && styles.tabFirst]}>
+                  <Icon size={16} color={active ? colors.text : colors.mutedForeground} strokeWidth={2} />
+                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
+                </View>
+                {active && <View style={[styles.tabUnderline, index === 0 && styles.tabUnderlineFirst]} />}
+              </TouchableOpacity>
+            );
+          })}
         </View>
-        <View style={styles.tabsDivider} />
 
-        {/* Messages tab renders an embedded ChannelView */}
-        {activeTab === 'messages' ? (
-          messagesPane
-        ) : (
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          nestedScrollEnabled
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
         >
-          {activeTab === 'details' && (
-            <>
-              {/* About */}
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>About</Text>
-                <Text style={styles.aboutEmpty}>No bio yet.</Text>
-              </View>
-
-              {/* Info rows */}
-              <View style={styles.section}>
-                <InfoRow label="Email" styles={styles}>
-                  <Text style={styles.infoValue} numberOfLines={1}>{member?.email || '—'}</Text>
-                </InfoRow>
-                <InfoRow label="Role" styles={styles}>
-                  <Text style={styles.infoValue}>{getRoleLabel(member?.role)}</Text>
-                </InfoRow>
-                <InfoRow label="Timezone" styles={styles}>
-                  <Text style={styles.infoValue}>
-                    UTC <Text style={styles.timezoneDot}>·</Text>{' '}
-                    <Text style={styles.timezoneTime}>{localTime}</Text>{' '}
-                    <Text style={styles.timezoneOffset}>({tzOffset})</Text>
-                  </Text>
-                </InfoRow>
-              </View>
-            </>
+          {profile && activeTab === 'overview' && <MemberOverview profile={profile} onProfileChange={setProfile} />}
+          {profile && activeTab === 'common' && !isSelf && <MemberCommon userId={profile.userId} isSelf={isSelf} />}
+          {profile && activeTab === 'activity' && (
+            <MemberActivity userId={profile.userId} memberName={profile.name || undefined} />
           )}
         </ScrollView>
-        )}
       </View>
     </>
   );
 }
 
-function HeaderIconBtn({
-  onPress,
-  children,
-  colors: _colors,
-}: Readonly<{
-  onPress: () => void;
-  children: React.ReactNode;
-  colors: ThemeColors;
-}>) {
-  return (
-    <TouchableOpacity onPress={onPress} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }} style={styles_iconBtn}>
-      {children}
-    </TouchableOpacity>
-  );
-}
-
-function TabBtn({
-  label,
-  icon,
-  active,
-  onPress,
-  styles,
-}: Readonly<{
-  label: string;
-  icon: React.ReactNode;
-  active: boolean;
-  onPress: () => void;
-  styles: ReturnType<typeof makeStyles>;
-}>) {
-  return (
-    <TouchableOpacity onPress={onPress} style={styles.tabBtn} activeOpacity={0.7}>
-      <View style={styles.tabBtnInner}>
-        {icon}
-        <Text style={[styles.tabBtnLabel, active && styles.tabBtnLabelActive]}>{label}</Text>
-        {active && <View style={styles.tabActiveUnderline} />}
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-function InfoRow({
-  label,
-  children,
-  styles,
-}: Readonly<{
-  label: string;
-  children: React.ReactNode;
-  styles: ReturnType<typeof makeStyles>;
-}>) {
-  return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <View style={styles.infoValueWrap}>{children}</View>
-    </View>
-  );
-}
-
-const styles_iconBtn = {
-  width: 32,
-  height: 32,
-  justifyContent: 'center' as const,
-  alignItems: 'center' as const,
-};
-
 const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: c.background },
 
-    /* ─── Back nav ─── */
-    navBar: {
-      paddingTop: topInset + 4,
-      paddingHorizontal: 16,
-      paddingBottom: 2,
-      backgroundColor: c.background,
-    },
-    navBack: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 2,
-      paddingVertical: 6,
-      paddingRight: 8,
-      alignSelf: 'flex-start',
-    },
-    navBackText: { fontSize: 17, color: BRAND, fontWeight: '400' },
-
-    /* ─── Header ─── */
+    // The panel header: 12pt above, 13pt below, controls 28pt.
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingTop: 4,
+      gap: 8,
+      minHeight: 52,
+      paddingTop: topInset + 12,
+      paddingBottom: 13,
       paddingHorizontal: 16,
-      paddingBottom: 8,
-      gap: 8,
-      backgroundColor: c.background,
     },
-    headerIdentity: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      flexShrink: 1,
-      minWidth: 0,
-    },
+    iconBtn: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
     avatarWrap: { position: 'relative' },
-    avatar: { width: 28, height: 28, borderRadius: 10 },
-    avatarFallback: { backgroundColor: '#a78bfa', justifyContent: 'center', alignItems: 'center' },
-    avatarText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+    avatar: { width: 22, height: 22, borderRadius: 8 },
+    avatarFallback: { backgroundColor: c.secondary, alignItems: 'center', justifyContent: 'center' },
+    avatarText: { fontSize: 10, fontWeight: '500', color: c.text },
     statusDot: {
       position: 'absolute',
-      bottom: -2,
       right: -2,
-      width: 10,
-      height: 10,
-      borderRadius: 5,
-      borderWidth: 1.5,
+      bottom: -2,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      borderWidth: 1,
       borderColor: c.background,
     },
-    headerName: { fontSize: 17, fontWeight: '600', color: c.text, flexShrink: 1 },
+    skeleton: { backgroundColor: c.secondary },
+    titleBlock: { flex: 1, minWidth: 0 },
+    title: { fontSize: 15, fontWeight: '500', lineHeight: 24, color: c.text },
+    customStatus: { fontSize: 12, color: c.mutedForeground },
+    titleSkeleton: { width: 128, height: 16, borderRadius: 4, backgroundColor: c.secondary },
 
-    headerActions: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 2,
-      flexShrink: 0,
-    },
+    // Tab strip: icon + label, the active tab underlined in the text colour.
+    tabs: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingLeft: 16, paddingRight: 16, paddingTop: 8 },
+    tab: { paddingBottom: 8 },
+    tabInner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 4 },
+    tabFirst: { marginLeft: -8 },
+    tabLabel: { fontSize: 14, fontWeight: '500', color: c.mutedForeground },
+    tabLabelActive: { color: c.text },
+    tabUnderline: { position: 'absolute', bottom: -1, left: 8, right: 8, height: 2, backgroundColor: c.text },
+    tabUnderlineFirst: { left: 0 },
 
-    /* ─── Tabs ─── */
-    tabs: {
-      flexDirection: 'row',
-      paddingHorizontal: 16,
-      paddingTop: 4,
-      gap: 20,
-    },
-    tabBtn: { paddingTop: 10, paddingBottom: 12 },
-    tabBtnInner: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      paddingVertical: 4,
-    },
-    tabBtnLabel: { fontSize: 15, fontWeight: '500', color: c.muted },
-    tabBtnLabelActive: { color: c.text, fontWeight: '600' },
-    tabActiveUnderline: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: -12,
-      height: 2,
-      backgroundColor: c.text,
-    },
-    tabsDivider: { height: StyleSheet.hairlineWidth, backgroundColor: c.border },
-
-    /* ─── Body ─── */
-    scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24 + bottomInset },
-    section: { marginBottom: 20 },
-    sectionTitle: {
-      fontSize: 14,
-      fontWeight: '500',
-      color: c.text,
-      marginBottom: 4,
-    },
-    aboutEmpty: { fontSize: 14, color: c.muted },
-
-    /* Info rows: label-left value-right */
-    infoRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
-      paddingVertical: 4,
-      gap: 24,
-    },
-    infoLabel: { width: 80, fontSize: 14, color: c.muted },
-    infoValueWrap: { flex: 1 },
-    infoValue: { fontSize: 14, color: c.text },
-    timezoneDot: { color: c.muted },
-    timezoneTime: { fontWeight: '600', fontVariant: ['tabular-nums'] },
-    timezoneOffset: { color: c.muted },
-
-    emptyState: { paddingVertical: 60, alignItems: 'center', gap: 12 },
-    emptyStateText: { fontSize: 14, color: c.muted },
-    messageBtn: {
-      paddingHorizontal: 20,
-      paddingVertical: 10,
-      backgroundColor: BRAND,
-      borderRadius: 10,
-    },
-    messageBtnText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+    body: { flex: 1 },
+    bodyContent: { paddingBottom: 24 + bottomInset },
   });

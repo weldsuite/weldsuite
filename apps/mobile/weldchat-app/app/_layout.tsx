@@ -276,6 +276,18 @@ function AppStack() {
                           name="new-dm"
                           options={{ headerShown: false, presentation: 'modal' }}
                         />
+                        <Stack.Screen
+                          name="new-message"
+                          options={{ headerShown: false, presentation: 'modal' }}
+                        />
+                        <Stack.Screen
+                          name="new-category"
+                          options={{ headerShown: false, presentation: 'modal' }}
+                        />
+                        <Stack.Screen
+                          name="invite-people/[channelId]"
+                          options={{ headerShown: false, presentation: 'modal' }}
+                        />
                         <Stack.Screen name="search" />
                         <Stack.Screen name="settings" />
                         <Stack.Screen name="profile" />

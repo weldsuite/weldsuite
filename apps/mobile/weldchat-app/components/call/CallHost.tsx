@@ -11,10 +11,11 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, PermissionsAndroid, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Keyboard, PermissionsAndroid, Platform } from 'react-native';
 import { useSafeAreaInsets, SafeAreaInsetsContext } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Phone, Mic, MicOff } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { Phone, MicOff } from 'lucide-react-native';
 import {
   RealtimeKitProvider,
   useRealtimeKitClient,
@@ -102,7 +103,19 @@ function getCallStatus(
 /** Height of the minimized call bar's body (below the status-bar inset). */
 export const CALL_BAR_BODY_HEIGHT = 60;
 /** Rounded top corners of the app page peeking out below the bar. */
-const PAGE_CORNER_RADIUS = 30;
+const PAGE_CORNER_RADIUS = 16;
+
+// WhatsApp's call bar, measured from its iOS app: a dark bar in light and dark
+// mode alike, a near-black mute button, the red hang-up button and the name +
+// status in green.
+const CALL_BAR = {
+  background: '#242625',
+  button: '#101010',
+  buttonRim: '#2C2E2D',
+  green: '#82E382',
+  red: '#D62E3F',
+  icon: '#FFFFFF',
+};
 
 /**
  * Wraps the app's navigator. When a call is minimized it reserves space at the
@@ -113,7 +126,6 @@ const PAGE_CORNER_RADIUS = 30;
  */
 export function CallInsetContainer({ children }: Readonly<{ children: React.ReactNode }>) {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
   const { minimized, session } = useCall();
   const showBar = minimized && !!session;
   const childInsets = useMemo(
@@ -124,7 +136,7 @@ export function CallInsetContainer({ children }: Readonly<{ children: React.Reac
     <View
       style={[
         { flex: 1 },
-        showBar && { backgroundColor: colors.card, paddingTop: insets.top + CALL_BAR_BODY_HEIGHT },
+        showBar && { backgroundColor: CALL_BAR.background, paddingTop: insets.top + CALL_BAR_BODY_HEIGHT },
       ]}
     >
       <View
@@ -150,6 +162,20 @@ export function CallHost() {
 function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
   const { minimized, minimizeCall, expandCall, leaveCall, markConnected } = useCall();
   const [meeting, initMeeting] = useRealtimeKitClient();
+  const router = useRouter();
+
+  // The call screen covers the chat: a keyboard left up from the composer
+  // would sit on top of it, when the call starts and when it is expanded.
+  useEffect(() => {
+    if (!minimized) Keyboard.dismiss();
+  }, [minimized]);
+
+  // The call keeps going in the bar; its chat opens underneath.
+  const openChat = useCallback(() => {
+    minimizeCall();
+    const base = session.isDirect ? '/dm' : '/channel';
+    router.navigate(`${base}/${session.channelId}` as never);
+  }, [minimizeCall, router, session.isDirect, session.channelId]);
 
   const initTriggered = useRef(false);
   const leftRef = useRef(false);
@@ -350,9 +376,11 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
               meeting={meeting}
               peerName={session.peerName}
               peerAvatar={session.peerAvatar ?? undefined}
+              isDirect={session.isDirect}
               callType={session.callType}
               status={callStatus}
               onMinimize={minimizeCall}
+              onOpenChat={openChat}
               onLeave={handleLeave}
             />
           </RealtimeKitProvider>
@@ -396,35 +424,39 @@ function MinimizedCallBar({
   onLeave: () => void;
 }>) {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
   return (
-    <View style={[styles.bar, { paddingTop: insets.top, backgroundColor: colors.card }]}>
-      <StatusBar style="auto" />
+    <View style={[styles.bar, { paddingTop: insets.top }]}>
+      {/* Light status bar text on the dark bar, until the bar goes. */}
+      <StatusBar style="light" />
       <View style={styles.barRow}>
+        {/* Muted: the button turns white, as in WhatsApp. */}
         <TouchableOpacity
-          style={[styles.circleBtn, { backgroundColor: colors.secondary }]}
+          style={[styles.circleBtn, styles.muteBtn, isMuted && styles.muteBtnOn]}
           onPress={onToggleMute}
           hitSlop={6}
+          accessibilityRole="button"
           accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
+          accessibilityState={{ selected: isMuted }}
         >
-          {isMuted ? <MicOff size={17} color={colors.text} /> : <Mic size={17} color={colors.text} />}
+          <MicOff size={20} color={isMuted ? CALL_BAR.button : CALL_BAR.icon} strokeWidth={2} />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.barCenter} onPress={onExpand} activeOpacity={0.7} accessibilityLabel="Return to call">
-          <Phone size={15} color={BRAND} fill={BRAND} />
-          <Text style={[styles.barText, { color: BRAND }]} numberOfLines={1}>
+          <Phone size={15} color={CALL_BAR.green} fill={CALL_BAR.green} />
+          <Text style={styles.barText} numberOfLines={1}>
             {peerName ? `${peerName} - ${status}` : status}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.circleBtn, { backgroundColor: colors.secondary }]}
+          style={[styles.circleBtn, styles.hangupBtn]}
           onPress={onLeave}
           hitSlop={6}
+          accessibilityRole="button"
           accessibilityLabel="End call"
         >
           <View style={styles.hangupIcon}>
-            <Phone size={17} color={colors.destructive} fill={colors.destructive} />
+            <Phone size={18} color={CALL_BAR.icon} fill={CALL_BAR.icon} />
           </View>
         </TouchableOpacity>
       </View>
@@ -452,29 +484,39 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 1001,
     elevation: 1001,
+    backgroundColor: CALL_BAR.background,
   },
+  // The buttons sit a little above the middle of the bar, as in WhatsApp.
   barRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: CALL_BAR_BODY_HEIGHT,
-    paddingHorizontal: 20,
+    height: CALL_BAR_BODY_HEIGHT - 4,
+    paddingHorizontal: 16,
   },
   circleBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  muteBtn: {
+    backgroundColor: CALL_BAR.button,
+    borderWidth: 1,
+    borderColor: CALL_BAR.buttonRim,
+  },
+  muteBtnOn: { backgroundColor: CALL_BAR.icon, borderColor: CALL_BAR.icon },
+  hangupBtn: { backgroundColor: CALL_BAR.red },
+  // The handset lies flat, receiver ends down.
   hangupIcon: { transform: [{ rotate: '135deg' }] },
   barCenter: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     paddingHorizontal: 8,
   },
-  barText: { fontSize: 15, fontWeight: '600', flexShrink: 1 },
+  barText: { fontSize: 15, fontWeight: '600', color: CALL_BAR.green, flexShrink: 1 },
 });

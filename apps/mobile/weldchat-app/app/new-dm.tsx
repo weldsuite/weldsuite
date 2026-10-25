@@ -8,17 +8,19 @@ import {
   FlatList,
   Image,
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Check } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/expo';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
 import { SearchField } from '@/components/chat/SearchField';
+import { SheetHeader } from '@/components/ui/SheetHeader';
 
 interface WorkspaceMember {
   id: string;
@@ -39,6 +41,10 @@ function MemberListSeparator() {
 }
 
 export default function NewDmScreen() {
+  const { t, format } = useI18n();
+  // From the DM list's compose card: a group needs at least two people.
+  const isGroup = useLocalSearchParams<{ group?: string }>().group === '1';
+  const minSelected = isGroup ? 2 : 1;
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -83,7 +89,7 @@ export default function NewDmScreen() {
   // One or more selected → create a 1:1 or group DM (the backend reuses an
   // existing channel with the same participants if one exists).
   const handleCreate = async () => {
-    if (creating || selected.length === 0) return;
+    if (creating || selected.length < minSelected) return;
     setCreating(true);
     try {
       const res = await appApi.chatDm.create({ userIds: selected });
@@ -103,35 +109,24 @@ export default function NewDmScreen() {
     <>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={styles.container}>
-        {/* Handle */}
-        <View style={styles.handleBar}>
-          <View style={styles.handle} />
-        </View>
-
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.headerSide}>
-            <Text style={styles.cancelBtn}>Cancel</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>New Message</Text>
-          <TouchableOpacity
-            onPress={handleCreate}
-            style={[styles.headerSide, styles.headerSideRight]}
-            disabled={selected.length === 0 || creating}
-          >
-            {creating ? (
-              <ActivityIndicator size="small" color={BRAND} />
-            ) : (
-              <Text style={[styles.startBtn, selected.length === 0 && styles.startBtnDisabled]}>
-                Start{selected.length > 1 ? ` (${selected.length})` : ''}
-              </Text>
-            )}
-          </TouchableOpacity>
-        </View>
+        <SheetHeader
+          title={isGroup ? t.dms.newGroup : t.newMessage.title}
+          onLeadingPress={() => router.back()}
+          leadingLabel={t.newMessage.close}
+          action={{
+            label:
+              selected.length > 1
+                ? format(t.newMessage.startWithCount, { count: selected.length })
+                : t.newMessage.start,
+            onPress: handleCreate,
+            disabled: selected.length < minSelected,
+            loading: creating,
+          }}
+        />
 
         {/* Search */}
         <SearchField
-          placeholder="Search people..."
+          placeholder={t.invitePeople.search}
           value={search}
           onChangeText={setSearch}
           onClear={() => setSearch('')}
@@ -180,7 +175,7 @@ export default function NewDmScreen() {
             }}
             ListEmptyComponent={
               <Text style={styles.emptyText}>
-                {search.trim() ? 'No people match your search' : 'No other members in this workspace'}
+                {search.trim() ? t.invitePeople.noMatch : t.dms.noOtherMembers}
               </Text>
             }
             ItemSeparatorComponent={MemberListSeparator}
@@ -194,22 +189,6 @@ export default function NewDmScreen() {
 const makeStyles = (c: ThemeColors, _bottomInset: number) =>
   StyleSheet.create({
     container: { flex: 1, backgroundColor: c.background },
-    handleBar: { alignItems: 'center', paddingTop: 10, paddingBottom: 4 },
-    handle: { width: 36, height: 5, borderRadius: 3, backgroundColor: c.secondary },
-    header: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingVertical: 16,
-      borderBottomWidth: 1,
-      borderBottomColor: c.secondary,
-    },
-    headerSide: { width: 60 },
-    headerSideRight: { alignItems: 'flex-end' },
-    headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: c.text, textAlign: 'center' },
-    cancelBtn: { fontSize: 16, color: c.text, fontWeight: '500' },
-    startBtn: { fontSize: 16, color: BRAND, fontWeight: '600' },
-    startBtnDisabled: { color: c.muted },
     // Only outer spacing — the pill look lives in <SearchField>.
     searchRow: {
       marginHorizontal: 16,

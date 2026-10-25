@@ -30,6 +30,9 @@ import { createDashboardApi } from '@weldsuite/app-api-client/domains/dashboard'
 /** app-api base URL. Defaults to the local wrangler dev port. */
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
 
+/** The web app, for links people open in a browser: set, else the API host without `-api`. */
+export const PLATFORM_URL = process.env.EXPO_PUBLIC_PLATFORM_URL || APP_API_URL.replace('//app-api', '//app');
+
 /**
  * Modules served by their own worker (`<module>-api` host), from
  * `EXPO_PUBLIC_API_MODULES` (e.g. `pass,host`). Everything else goes to app-api,
