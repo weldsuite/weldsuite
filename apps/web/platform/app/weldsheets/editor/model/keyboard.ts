@@ -34,6 +34,11 @@ export function handleGridKey(ctl: SheetController, e: KeyInput, pageRows: numbe
 }
 
 function handleModKey(ctl: SheetController, e: KeyInput): boolean {
+  // Ctrl+Alt+M (on a Mac, Option makes the key µ): a comment on the active cell.
+  if (e.altKey && (e.key.toLowerCase() === 'm' || e.key === 'µ')) {
+    ctl.startComment();
+    return true;
+  }
   switch (e.key.toLowerCase()) {
     case 'z':
       if (e.shiftKey) ctl.redo();

@@ -53,6 +53,7 @@ import {
   getTemplateByShareToken,
   installTemplate,
   startTeachSession,
+  getTeachSessionAgentId,
   appendTeachStep,
   stopTeachSession,
 } from '@weldsuite/agent-domain/parity';
@@ -300,6 +301,10 @@ app.delete('/memories/:id', requirePermission('weldagent:update', 'weldagent:man
 // ----- Templates -----
 app.post('/templates/export', requirePermission('weldagent:create', 'weldagent:manage'), zValidator('json', exportTemplateSchema), async (c) => {
   const data = c.req.valid('json');
+  // The template carries the agent's prompt, grants, routines and memories
+  // plus a bearer share token, so only the agent's owner may export it.
+  const denied = await agentGuard(c, data.agentId, 'edit');
+  if (denied) return denied;
   const template = await exportAgentTemplate(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
   if (!template) return error.notFound(c, 'Agent not found');
   return success(c, template, 201);
@@ -343,6 +348,10 @@ app.post('/agents/:id/teach/start', requirePermission('weldagent:update', 'welda
 });
 
 app.post('/teach/:id/steps', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', appendTeachStepSchema), async (c) => {
+  const sessionAgentId = await getTeachSessionAgentId(c.get('tenantDb'), c.req.param('id'));
+  if (!sessionAgentId) return error.notFound(c, 'Teach session not found or not recording');
+  const denied = await agentGuard(c, sessionAgentId, 'edit');
+  if (denied) return denied;
   const session = await appendTeachStep(c.get('tenantDb'), c.req.param('id'), c.req.valid('json').step);
   if (!session) return error.notFound(c, 'Teach session not found or not recording');
   return success(c, session);
@@ -350,6 +359,10 @@ app.post('/teach/:id/steps', requirePermission('weldagent:update', 'weldagent:ma
 
 app.post('/teach/:id/stop', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', stopTeachSchema), async (c) => {
   const data = c.req.valid('json');
+  const sessionAgentId = await getTeachSessionAgentId(c.get('tenantDb'), c.req.param('id'));
+  if (!sessionAgentId) return error.notFound(c, 'Teach session not found');
+  const denied = await agentGuard(c, sessionAgentId, 'edit');
+  if (denied) return denied;
   const session = await stopTeachSession(c.get('tenantDb'), c.req.param('id'), {
     createSkill: data.createSkill,
     skillName: data.skillName,

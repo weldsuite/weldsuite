@@ -341,13 +341,14 @@ export interface DocumentSummary {
   isPinned: boolean;
 }
 
-/** Normalized (`.xlsx` suffix stripped) row returned by `tablesApi`'s
- * list/create helpers, which wrap the underlying `files` rows. */
+/** A project sheet as `tablesApi.listTables` returns it: its drive file, name without `.xlsx`. */
 export interface SheetSummary {
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
+  /** The WeldSheets spreadsheet; null for a sheet of the old grid nobody opened since. */
+  weldsheetId: string | null;
 }
 
 /** Config accepted by `analyticsApi.getChartsData` — one entry per chart. */
@@ -515,36 +516,6 @@ async function appApiDelete<T>(path: string): Promise<ApiResponse<T>> {
     return { success: true } as ApiResponse<T>;
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Network error' };
-  }
-}
-
-// Fetch the xlsx binary for a sheet file as an ArrayBuffer. 404 means the file
-// row exists but no R2 object yet (freshly-created sheet) — caller should
-// treat that as an empty workbook.
-export async function fetchSheetContent(fileId: string): Promise<ArrayBuffer | null> {
-  const token = await getAuthToken();
-  const res = await fetch(apiUrl(`/api/files/${fileId}/content`), {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Failed to load sheet (${res.status})`);
-  return res.arrayBuffer();
-}
-
-// Overwrite the xlsx file in R2. Used by the spreadsheet editor's debounced
-// auto-save. Returns the updated file row.
-export async function putSheetContent(fileId: string, body: ArrayBuffer): Promise<void> {
-  const token = await getAuthToken();
-  const res = await fetch(apiUrl(`/api/files/${fileId}/content`), {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`Failed to save sheet (${res.status})`);
   }
 }
 
@@ -1536,14 +1507,14 @@ export const workloadApi = {
   getProject: (projectId: string) => appApiGet<ApiTeamMemberWorkload[]>(`/projects/${projectId}/workload`),
 };
 
-// ============ TABLES (Spreadsheet workbooks) ============
+// ============ TABLES (project sheets) ============
 //
-// Each "table" in the WeldFlow UI is now an .xlsx file in WeldDrive, stored
-// as a row in the `files` table (`entityType='project'`, `entityId=projectId`,
-// `fileType='spreadsheet'`). The xlsx binary lives in R2 and is fetched /
-// overwritten via `fetchSheetContent` / `putSheetContent`. Workbook contents
-// (sheets / columns / rows / cell formatting) are managed entirely on the
-// client — the server only sees opaque xlsx bytes.
+// A project's sheets are drive files (`entityType='project'`,
+// `entityId=projectId`, `fileType='spreadsheet'`) listed by flow-api. Each is
+// a WeldSheets spreadsheet (`metadata.weldsheetId`), edited and created
+// through sheets-api, or an .xlsx file saved by the old project grid, which
+// sheets-api converts the first time it is opened. Until then it can still be
+// renamed and deleted as a file.
 
 interface SheetFileRow {
   id: string;
@@ -1554,6 +1525,8 @@ interface SheetFileRow {
   entityType: string | null;
   entityId: string | null;
   fileType: string;
+  /** `weldsheetId` once the sheet is a WeldSheets spreadsheet. */
+  metadata: { weldsheetId?: string } | null;
 }
 
 const stripXlsx = (name: string) => name.replace(/\.xlsx$/i, '');
@@ -1569,43 +1542,21 @@ export const tablesApi = {
         name: stripXlsx(f.fileName),
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
+        weldsheetId: f.metadata?.weldsheetId ?? null,
       })),
     } as ApiResponse<SheetSummary[]>;
   },
 
-  createTable: async (projectId: string, data: { name: string; copyFromFileId?: string }) => {
-    const res = await appApiPost<SheetFileRow>(`/project-sheets/${projectId}`, data);
-    if (!res.success || !res.data) return res as unknown as ApiResponse<SheetSummary>;
-    return {
-      success: true,
-      data: {
-        id: res.data.id,
-        name: stripXlsx(res.data.fileName),
-        createdAt: res.data.createdAt,
-        updatedAt: res.data.updatedAt,
-      },
-    } as ApiResponse<SheetSummary>;
-  },
-
-  updateTable: async (
-    _projectId: string,
-    fileId: string,
-    data: { name?: string; position?: number; settings?: Record<string, unknown> },
-  ) => {
+  /** Renames an old .xlsx sheet (a WeldSheets one is renamed through sheets-api). */
+  updateTable: async (_projectId: string, fileId: string, data: { name?: string }) => {
     if (data.name === undefined) return { success: true } as ApiResponse<SheetSummary>;
     const fileName = data.name.endsWith('.xlsx') ? data.name : `${data.name}.xlsx`;
     return appApiPatch<SheetSummary>(`/files/${fileId}`, { fileName });
   },
 
+  /** Deletes an old .xlsx sheet (a WeldSheets one is deleted through sheets-api). */
   deleteTable: (_projectId: string, fileId: string) =>
     appApiDelete<{ success: boolean }>(`/files/${fileId}`),
-
-  // No-op for now — reordering xlsx files would require a new column on `files`
-  // (e.g. listPosition). Kept on the API (with its real signature) so future
-  // call sites can adopt it without an API shape change.
-   
-  reorderTables: (_projectId: string, _fileIds: string[]) =>
-    Promise.resolve({ success: true, data: { reordered: true } } as ApiResponse<{ reordered: boolean }>),
 };
 
 // ============ ANALYTICS ============

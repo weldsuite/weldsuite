@@ -13,3 +13,13 @@ export class DurableObject<Env = unknown> {
     this.env = env;
   }
 }
+
+/** The `SheetsInternal` entrypoint extends this; tests call its `fetch` directly. */
+export class WorkerEntrypoint<Env = unknown> {
+  protected readonly ctx: ExecutionContext;
+  protected readonly env: Env;
+  constructor(ctx: ExecutionContext, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+}

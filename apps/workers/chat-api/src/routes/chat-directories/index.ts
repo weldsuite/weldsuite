@@ -14,10 +14,11 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, ilike, isNull, or, sql } from 'drizzle-orm';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import { unreadableRecordChatIds } from '../../services/chat/channel-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -67,7 +68,15 @@ app.get('/channels', requirePermission('channels:read'), zValidator('query', lis
       .where(and(...conditions))
       .orderBy(chatChannels.name);
 
-    const channels = rows.map((row) => ({
+    // A followed record chat whose record the caller can no longer see drops out.
+    const unreadable = await unreadableRecordChatIds(
+      db,
+      userId,
+      rows.filter((row) => row.type === 'entity').map((row) => row.id),
+      { can: (permission) => hasContextPermission(c, permission) },
+    );
+
+    const channels = rows.filter((row) => !unreadable.has(row.id)).map((row) => ({
       id: row.id,
       name: row.name,
       description: row.description ?? null,

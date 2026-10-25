@@ -1,35 +1,22 @@
 /**
  * Project sheet routes — /api/project-sheets/*.
  *
- * Sheets are stored as .xlsx files in R2, registered in the `files` table.
- * One file row per sheet, with entityType='project' + entityId=<projectId> +
- * fileType='spreadsheet'. The xlsx binary is fetched/saved through
- * /api/files/:id/content. This route just lists and creates the file row.
+ * A project's sheets are drive files with entityType='project' +
+ * entityId=<projectId> + fileType='spreadsheet': WeldSheets spreadsheets
+ * (`metadata.weldsheetId`), and .xlsx files saved by the old project grid
+ * that nobody has opened since (sheets-api converts one on first open). This
+ * route lists them; sheets-api creates, edits and converts them.
  */
 
 import { Hono } from 'hono';
-import { zValidator } from '@hono/zod-validator';
-import { z } from 'zod';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
-import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
-import { canAccessProject, canWriteProject } from '../../lib/project-access';
-import * as filesService from '@weldsuite/core-domain/files';
-import { buildEmptyXlsx } from '../../lib/office-templates';
-import { getStoredObject } from '@weldsuite/worker-kit/storage';
+import { canAccessProject } from '../../lib/project-access';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-const SPREADSHEET_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-const createSheetSchema = z.object({
-  name: z.string().min(1).max(255),
-  /** Duplicate: seed the new sheet with the contents of this sheet of the same project. */
-  copyFromFileId: z.string().max(64).optional(),
-});
 
 app.get('/:projectId', requirePermission('projects:read'), async (c) => {
   const projectId = c.req.param('projectId');
@@ -56,101 +43,5 @@ app.get('/:projectId', requirePermission('projects:read'), async (c) => {
     return error.internal(c, 'Failed to list project sheets');
   }
 });
-
-app.post(
-  '/:projectId',
-  requirePermission('projects:update'),
-  zValidator('json', createSheetSchema),
-  async (c) => {
-    const projectId = c.req.param('projectId');
-    const userId = c.get('userId');
-    if (!userId) return error.unauthorized(c);
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
-    if (!workspaceId) return error.orgRequired(c);
-    if (!(await canWriteProject(c, projectId))) {
-      return error.forbidden(c, 'You do not have write access to this project');
-    }
-    // A workspace admin (scope:all) passes the access gate for any id, so the
-    // project itself must exist (and not be deleted) before a sheet is filed under it.
-    const [project] = await c
-      .get('tenantDb')
-      .select({ id: schema.projects.id })
-      .from(schema.projects)
-      .where(and(eq(schema.projects.id, projectId), isNull(schema.projects.deletedAt)))
-      .limit(1);
-    if (!project) return error.notFound(c, 'Project', projectId);
-
-    const { name, copyFromFileId } = c.req.valid('json');
-    const fileName = name.endsWith('.xlsx') ? name : `${name}.xlsx`;
-    const sanitized = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-    const fileKey = `workspaces/${workspaceId}/sheets/${projectId}/${Date.now()}_${sanitized}`;
-    const r2PublicUrl = c.env.R2_PUBLIC_URL || 'https://weldsuite-storage-test.weldsuite.org';
-    const publicUrl = `${r2PublicUrl}/${fileKey}`;
-
-    try {
-      // Seed R2 with a minimal valid empty .xlsx so the file is downloadable
-      // before the editor's first auto-save. Without this seed, a brand-new
-      // sheet 404s from R2 when downloaded via /welddrive.
-      let content: ArrayBuffer | Uint8Array = buildEmptyXlsx();
-      if (copyFromFileId) {
-        // Scoped to this project's spreadsheets so a caller can't copy any file by id.
-        const [source] = await c
-          .get('tenantDb')
-          .select()
-          .from(schema.files)
-          .where(
-            and(
-              eq(schema.files.id, copyFromFileId),
-              eq(schema.files.entityType, 'project'),
-              eq(schema.files.entityId, projectId),
-              eq(schema.files.fileType, 'spreadsheet'),
-              isNull(schema.files.deletedAt),
-            ),
-          )
-          .limit(1);
-        if (!source) return error.notFound(c, 'Sheet', copyFromFileId);
-        const sourceObject = await getStoredObject(c.env, source.fileKey ?? source.storagePath);
-        if (sourceObject) content = await sourceObject.arrayBuffer();
-      }
-      if (c.env.STORAGE) {
-        await c.env.STORAGE.put(fileKey, content, {
-          httpMetadata: { contentType: SPREADSHEET_MIME },
-        });
-      }
-
-      const row = await filesService.createFile(c.get('tenantDb'), {
-        fileName,
-        originalName: fileName,
-        mimeType: SPREADSHEET_MIME,
-        fileSize: content.byteLength,
-        fileType: 'spreadsheet',
-        storagePath: fileKey,
-        fileKey,
-        url: publicUrl,
-        entityType: 'project',
-        entityId: projectId,
-        uploadedById: userId,
-      });
-      publishEntityEvent({
-        c,
-        entityType: 'file',
-        entityId: row.id,
-        action: 'created',
-        data: {
-          id: row.id,
-          name: row.fileName,
-          folderId: row.folderId,
-          fileType: row.fileType,
-          fileSize: row.fileSize,
-          mimeType: row.mimeType,
-        },
-      });
-      return success(c, row, 201);
-    } catch (err) {
-      console.error('[app-api/project-sheets] create failed:', err);
-      return error.internal(c, 'Failed to create project sheet');
-    }
-  },
-);
 
 export const projectSheetsRoutes = app;

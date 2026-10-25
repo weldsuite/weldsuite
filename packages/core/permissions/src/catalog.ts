@@ -267,6 +267,11 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
       { key: 'sheets:read', label: 'Open spreadsheets', description: 'Spreadsheets this person owns or that are shared with them.' },
       { key: 'sheets:create', label: 'Create spreadsheets' },
       { key: 'sheets:update', label: 'Edit spreadsheets' },
+      {
+        key: 'sheets:comment',
+        label: 'Comment on spreadsheets',
+        description: 'Comment on spreadsheets shared with them to view, without editing them.',
+      },
       { key: 'sheets:delete', label: 'Delete spreadsheets' },
       { key: 'sheets:share', label: 'Share spreadsheets' },
       {
@@ -718,7 +723,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   // WeldKnow — admins also see and fix every teamspace (knowledge:manage)
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete', 'knowledge:manage',
   // WeldSheets — admins also administer every spreadsheet's sharing (sheets:manage)
-  'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share', 'sheets:manage',
+  'sheets:read', 'sheets:create', 'sheets:update', 'sheets:comment', 'sheets:delete', 'sheets:share', 'sheets:manage',
   // WeldDocs — admins also administer every document's sharing (docs:manage)
   'docs:read', 'docs:create', 'docs:update', 'docs:comment', 'docs:delete', 'docs:share', 'docs:manage',
   // WeldSign — admins also see every envelope and edit the settings (sign_envelopes:manage)
@@ -846,7 +851,7 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   // edits, so these only open the app; they grant nothing inside a teamspace.
   'knowledge:read', 'knowledge:create', 'knowledge:update', 'knowledge:delete',
   // WeldSheets — a sheet's own sharing decides who edits it; these open the app.
-  'sheets:read', 'sheets:create', 'sheets:update', 'sheets:delete', 'sheets:share',
+  'sheets:read', 'sheets:create', 'sheets:update', 'sheets:comment', 'sheets:delete', 'sheets:share',
   // WeldDocs — a document's own sharing decides who edits it; these open the app.
   'docs:read', 'docs:create', 'docs:update', 'docs:comment', 'docs:delete', 'docs:share',
   // WeldSign — send and track their own signature requests; shared templates are read-only

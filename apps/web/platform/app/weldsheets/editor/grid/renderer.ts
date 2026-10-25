@@ -11,6 +11,8 @@ const DEFAULT_FONT_PT = 10;
 const CELL_PADDING = 4;
 /** How far left of the viewport to look for text that overflows into it. */
 const OVERFLOW_LOOKBEHIND = 30;
+/** Outline of a connected table (WeldSuite data). */
+const DATA_TABLE_COLOR = '#4285f4';
 
 type HAlign = 'left' | 'center' | 'right';
 
@@ -121,6 +123,37 @@ function drawPane(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segme
   drawTexts(ctx, state, rows, cols);
   for (const m of merges) drawCellText(ctx, state, m.r1, m.c1, rangeRect(state.layout, sheet, m), m);
   drawBorders(ctx, state, rows, cols);
+  if (sheet.comments.length) drawCommentMarks(ctx, state, rows, cols);
+  if (sheet.dataTables.length) drawDataTables(ctx, state);
+}
+
+/** A thin outline around connected tables: a refresh rewrites what is inside. */
+function drawDataTables(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  const sheet = state.controller.sheet;
+  ctx.strokeStyle = DATA_TABLE_COLOR;
+  ctx.lineWidth = 1;
+  for (const table of sheet.dataTables) {
+    const rect = rangeRect(state.layout, sheet, table.range);
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+  }
+}
+
+/** A corner on cells with a comment thread: orange while one is open, grey when all are resolved. */
+function drawCommentMarks(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
+  for (const r of rows) {
+    for (const c of cols) {
+      const open = state.controller.commentAt(r.index, c.index);
+      if (open === undefined) continue;
+      const right = c.start + c.size - 1;
+      ctx.fillStyle = open ? '#f29900' : state.theme.headerText;
+      ctx.beginPath();
+      ctx.moveTo(right - 7, r.start);
+      ctx.lineTo(right, r.start);
+      ctx.lineTo(right, r.start + 7);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
 }
 
 /** The cell's style with any conditional formatting on top. */

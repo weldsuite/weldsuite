@@ -90,6 +90,8 @@ export interface Env {
   PASS_API?: Fetcher;
   /** sheets-api (WeldSheets). Target of the forwarder for /api/sheets. */
   SHEETS_API?: Fetcher;
+  /** sheets-api SheetsInternal entrypoint: the WeldAgent spreadsheet tools (not the forwarder above). */
+  SHEETS_INTERNAL?: Fetcher;
   /** docs-api (WeldDocs). Target of the forwarder for /api/docs. */
   DOCS_API?: Fetcher;
   /** sign-api (WeldSign). Target of the forwarder for /api/sign. */

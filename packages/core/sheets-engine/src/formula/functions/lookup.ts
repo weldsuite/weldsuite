@@ -1069,8 +1069,8 @@ export const lookupFunctions: FunctionSpec[] = [
   { name: 'CHOOSE', minArgs: 2, maxArgs: 255, lazy: true, impl: choose },
   { name: 'OFFSET', minArgs: 3, maxArgs: 5, volatile: true, impl: offset },
   { name: 'INDIRECT', minArgs: 1, maxArgs: 2, volatile: true, scalarArgs: [0, 1], impl: indirect },
-  { name: 'ROW', minArgs: 0, maxArgs: 1, impl: (a, ctx) => rowOrColumn(a, ctx, true) },
-  { name: 'COLUMN', minArgs: 0, maxArgs: 1, impl: (a, ctx) => rowOrColumn(a, ctx, false) },
+  { name: 'ROW', minArgs: 0, maxArgs: 1, readsPosition: true, impl: (a, ctx) => rowOrColumn(a, ctx, true) },
+  { name: 'COLUMN', minArgs: 0, maxArgs: 1, readsPosition: true, impl: (a, ctx) => rowOrColumn(a, ctx, false) },
   {
     name: 'ROWS',
     minArgs: 1,

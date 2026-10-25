@@ -17,6 +17,7 @@ import templatesRoutes from './routes/templates';
 import { isLifecycleSweepCron, runLifecycleSweep } from './cron/lifecycle-sweep';
 
 export { FinalizeEnvelopeWorkflow } from './workflows/finalize-envelope';
+export { SignCodeAttempts } from '@weldsuite/sign-domain/code-attempts';
 
 const app = createModuleApi<Env, Variables>({ service: 'sign-api' });
 

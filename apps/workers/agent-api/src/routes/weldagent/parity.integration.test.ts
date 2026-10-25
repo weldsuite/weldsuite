@@ -98,6 +98,50 @@ describe('weldagent parity routes', () => {
     expect(memory.status).toBe(201);
   });
 
+  it('keeps template export and teaching to the agent\'s owner', async () => {
+    const member = permissions('weldagent:read', 'weldagent:use', 'weldagent:create', 'weldagent:update');
+    const as = (userId: string) =>
+      createTestApp('/api/weldagent', weldagentRoutes, { context: { userId, permissions: member, tenantDb: db } })
+        .request;
+    const json = (body: unknown) => ({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const created = await as('user_owner')(
+      '/api/weldagent/agents',
+      json({ name: 'Private Bot', systemPrompt: 'When a ticket arrives, triage it.' }),
+    );
+    const { data: agent } = (await created.json()) as { data: { id: string } };
+    // Workspace-visible by default: the teammate may see the agent, not change it.
+    const owner = as('user_owner');
+    const teammate = as('user_teammate');
+    expect((await teammate(`/api/weldagent/agents/${agent.id}`)).status).toBe(200);
+
+    expect((await teammate('/api/weldagent/templates/export', json({ agentId: agent.id }))).status).toBe(403);
+    const exported = await owner('/api/weldagent/templates/export', json({ agentId: agent.id }));
+    expect(exported.status).toBe(201);
+
+    const started = await owner(`/api/weldagent/agents/${agent.id}/teach/start`, json({ title: 'Triage a ticket' }));
+    expect(started.status).toBe(201);
+    const { data: session } = (await started.json()) as { data: { id: string } };
+
+    expect((await teammate(`/api/weldagent/teach/${session.id}/steps`, json({ step: { action: 'click' } }))).status).toBe(403);
+    expect((await teammate(`/api/weldagent/teach/${session.id}/stop`, json({ createSkill: true }))).status).toBe(403);
+    expect((await owner(`/api/weldagent/teach/${session.id}/steps`, json({ step: { action: 'click' } }))).status).toBe(200);
+    expect((await owner(`/api/weldagent/teach/${session.id}/stop`, json({ createSkill: false }))).status).toBe(200);
+
+    // A private agent is invisible to the teammate: not found, not forbidden.
+    await owner(`/api/weldagent/agents/${agent.id}/access`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ visibility: 'private' }),
+    });
+    expect((await teammate('/api/weldagent/templates/export', json({ agentId: agent.id }))).status).toBe(404);
+    expect((await teammate(`/api/weldagent/teach/${session.id}/stop`, json({}))).status).toBe(404);
+  });
+
   it('exposes pure helpers', () => {
     expect(toolRiskLevel('create_ticket')).toBe('high');
     expect(computeNextHourlyRun(new Date('2026-01-01T00:30:00Z')).getUTCHours()).toBe(1);

@@ -36,9 +36,10 @@ import {
 import type { z } from 'zod';
 import type { FinalizeEnvelopeParams, SignEnv } from './env';
 import { SignError } from './errors';
-import { resolveLink, revokeEnvelopeLinks, type ResolvedLink } from './links';
+import { resolveLink, resolveLinkByHash, revokeEnvelopeLinks, type ResolvedLink } from './links';
 import { signSession, verifySession, type SignerSession } from './session';
 import { checkCode, emailCodeHash, emailHint, isLocked, issueEmailCode, newEmailCode, CODE_TTL_SECONDS } from './codes';
+import { codeAttemptsFor } from './code-attempts';
 import {
   closedReason,
   completeSigning,
@@ -187,6 +188,7 @@ export function createSignPortal(overrides: Partial<PortalDeps> = {}) {
       orgId: opened.link.clerkOrgId,
       envelopeId: opened.link.envelopeId,
       recipientId: opened.link.recipientId,
+      tokenHash: opened.link.tokenHash,
     });
     return ok({ state: 'ready', session: token, expiresAt: expiresAt.toISOString() } satisfies SignPortalSessionResponse);
   }
@@ -196,6 +198,11 @@ export function createSignPortal(overrides: Partial<PortalDeps> = {}) {
     if (!ctx.env.SIGN_SESSION_SECRET) return unavailable('Signing is not configured');
     const session = sessionToken ? await verifySession(ctx.env.SIGN_SESSION_SECRET, sessionToken) : null;
     if (!session) return fail(401, 'UNAUTHORIZED', 'Your session has expired. Open the link again.');
+    // A session lasts only as long as its link: a corrected email, void or decline revokes the link.
+    const link = await resolveLinkByHash(deps.master(ctx.env), session.tokenHash);
+    if (!link || link.envelopeId !== session.envelopeId || link.recipientId !== session.recipientId || link.clerkOrgId !== session.orgId) {
+      return fail(401, 'UNAUTHORIZED', 'Your session has expired. Open the link again.');
+    }
     let workspace: PortalWorkspace;
     try {
       workspace = await deps.workspace(ctx.env, session.orgId);
@@ -247,7 +254,7 @@ export function createSignPortal(overrides: Partial<PortalDeps> = {}) {
       if (recipient.authMode === 'link' || recipient.role === 'cc') return ready(ctx, opened);
 
       const kv = ctx.env.WORKSPACE_CACHE;
-      if (await isLocked(kv, opened.link.tokenHash)) return locked();
+      if (await isLocked(codeAttemptsFor(ctx.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash))) return locked();
       if (recipient.authMode === 'email_code') {
         const code = newEmailCode();
         if (await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(ctx.env, recipient.id))) {
@@ -279,7 +286,14 @@ export function createSignPortal(overrides: Partial<PortalDeps> = {}) {
       if (recipient.authMode === 'link') return ready(ctx, opened);
       const kv = ctx.env.WORKSPACE_CACHE;
       const expected = recipient.authMode === 'email_code' ? await emailCodeHash(kv, opened.link.tokenHash) : recipient.accessCodeHash;
-      const result = await checkCode(kv, opened.link.tokenHash, expected, code, hasherFor(ctx.env, recipient.id));
+      const result = await checkCode(
+        kv,
+        codeAttemptsFor(ctx.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash),
+        opened.link.tokenHash,
+        expected,
+        code,
+        hasherFor(ctx.env, recipient.id),
+      );
       await recordCodeCheck(opened.workspace.db, opened.ref, result.ok, ctx.meta);
       if (!result.ok) {
         return result.locked ? locked() : fail(400, 'INVALID_CODE', 'That code is not correct', { attemptsLeft: result.attemptsLeft });
@@ -296,7 +310,7 @@ export function createSignPortal(overrides: Partial<PortalDeps> = {}) {
       const { recipient, envelope } = opened.ref;
       if (recipient.authMode !== 'email_code' || closedReason(envelope)) return conflict('No code to send');
       const kv = ctx.env.WORKSPACE_CACHE;
-      if (await isLocked(kv, opened.link.tokenHash)) return locked();
+      if (await isLocked(codeAttemptsFor(ctx.env.SIGN_CODE_ATTEMPTS, opened.link.tokenHash))) return locked();
       const code = newEmailCode();
       if (!(await issueEmailCode(kv, opened.link.tokenHash, code, hasherFor(ctx.env, recipient.id)))) {
         return fail(429, 'TOO_SOON', 'A code was sent a moment ago');

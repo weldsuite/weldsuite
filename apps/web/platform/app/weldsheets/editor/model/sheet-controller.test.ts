@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { EN_LOCALE, NL_LOCALE } from '@weldsuite/sheets-engine';
+import { applyOp, EN_LOCALE, NL_LOCALE, type Op } from '@weldsuite/sheets-engine';
 import { copySelection, parseHtmlTable, parseTsv, pasteInto } from './clipboard';
 import { acceptsReference, functionPrefixAt, referenceText, refsInEdit, suggestFunctions } from './formula-edit';
 import { handleEditKey, handleGridKey, type KeyInput } from './keyboard';
@@ -396,5 +396,103 @@ describe('formula editing helpers', () => {
     expect(functionPrefixAt('=A1+xl', 6)).toEqual({ start: 4, prefix: 'xl' });
     expect(functionPrefixAt('=SUM(A1)', 8)).toBeNull();
     expect(suggestFunctions('xloo')).toEqual(['XLOOKUP']);
+  });
+});
+
+describe('a co-editor changes rows and columns under the user', () => {
+  /** What the room client does: the op lands in the engine, then the controller hears of it. */
+  const remote = (ctl: SheetController, op: Op) => {
+    applyOp(ctl.engine, op);
+    ctl.remoteOp(op);
+  };
+  const dims = (ctl: SheetController, type: 'insertDims' | 'deleteDims', axis: 'row' | 'col', at: number, count = 1, sheetId = ctl.activeSheetId): Op => ({
+    type,
+    sheetId,
+    sheetName: ctl.engine.workbook.getSheet(sheetId)!.name,
+    axis,
+    at,
+    count,
+  });
+
+  it('keeps an edit on its cell when a row is inserted above it', () => {
+    const { ctl } = make();
+    ctl.setInput(4, 1, 'old');
+    ctl.select(cellSelection(4, 1));
+    ctl.beginEdit({ text: 'mine' });
+    remote(ctl, dims(ctl, 'insertDims', 'row', 4));
+    expect(ctl.editing).toMatchObject({ row: 5, col: 1, text: 'mine' });
+    expect(ctl.selection.active).toEqual({ row: 5, col: 1 });
+    expect(ctl.commitEdit()).toBe(true);
+    expect(value(ctl, 5, 1)).toBe('mine');
+    expect(value(ctl, 4, 1)).toBeNull();
+  });
+
+  it('leaves an edit where it is for a row inserted below it', () => {
+    const { ctl } = make();
+    ctl.select(cellSelection(4, 1));
+    ctl.beginEdit({ text: 'mine' });
+    remote(ctl, dims(ctl, 'insertDims', 'row', 5));
+    expect(ctl.editing).toMatchObject({ row: 4, col: 1 });
+    expect(ctl.selection.active).toEqual({ row: 4, col: 1 });
+  });
+
+  it('drops the edit when the row it is in is deleted', () => {
+    const { ctl } = make();
+    ctl.select(cellSelection(4, 1));
+    ctl.beginEdit({ text: 'mine' });
+    remote(ctl, dims(ctl, 'deleteDims', 'row', 4));
+    expect(ctl.editing).toBeNull();
+    expect(ctl.selection.active).toEqual({ row: 4, col: 1 });
+    expect(ctl.commitEdit()).toBe(true);
+    expect(value(ctl, 4, 1)).toBeNull();
+  });
+
+  it('moves an edit up when a row above it is deleted', () => {
+    const { ctl } = make();
+    ctl.select(cellSelection(4, 1));
+    ctl.beginEdit({ text: 'mine' });
+    remote(ctl, dims(ctl, 'deleteDims', 'row', 1, 2));
+    expect(ctl.editing).toMatchObject({ row: 2, col: 1 });
+    ctl.commitEdit();
+    expect(value(ctl, 2, 1)).toBe('mine');
+  });
+
+  it('shifts a selected range when a column is inserted left of it', () => {
+    const { ctl } = make();
+    ctl.select({ ranges: [{ r1: 1, c1: 2, r2: 3, c2: 4 }], active: { row: 1, col: 2 }, anchor: { row: 1, col: 2 } });
+    remote(ctl, dims(ctl, 'insertDims', 'col', 0, 2));
+    expect(ctl.selection.ranges).toEqual([{ r1: 1, c1: 4, r2: 3, c2: 6 }]);
+    expect(ctl.selection.active).toEqual({ row: 1, col: 4 });
+    expect(ctl.selection.anchor).toEqual({ row: 1, col: 4 });
+  });
+
+  it('shrinks a selected range over deleted rows and collapses it when all of them go', () => {
+    const { ctl } = make();
+    ctl.select({ ranges: [{ r1: 2, c1: 0, r2: 5, c2: 0 }], active: { row: 2, col: 0 }, anchor: { row: 2, col: 0 } });
+    remote(ctl, dims(ctl, 'deleteDims', 'row', 4, 5));
+    expect(ctl.selection.ranges).toEqual([{ r1: 2, c1: 0, r2: 3, c2: 0 }]);
+    remote(ctl, dims(ctl, 'deleteDims', 'row', 0, 6));
+    expect(ctl.selection.ranges).toEqual([{ r1: 2, c1: 0, r2: 2, c2: 0 }]);
+  });
+
+  it('does not shift this sheet for a change on another sheet', () => {
+    const { ctl } = make();
+    ctl.addSheet();
+    const [first, other] = ctl.engine.workbook.sheets;
+    ctl.setActiveSheet(first!.id);
+    ctl.select(cellSelection(4, 1));
+    ctl.beginEdit({ text: 'mine' });
+    remote(ctl, dims(ctl, 'insertDims', 'row', 0, 3, other!.id));
+    expect(ctl.editing).toMatchObject({ row: 4, col: 1 });
+    expect(ctl.selection.active).toEqual({ row: 4, col: 1 });
+  });
+
+  it('follows a change inside a batch', () => {
+    const { ctl } = make();
+    ctl.select(cellSelection(4, 1));
+    ctl.beginEdit({ text: 'mine' });
+    remote(ctl, { type: 'batch', ops: [dims(ctl, 'insertDims', 'row', 0), dims(ctl, 'insertDims', 'col', 0)] });
+    expect(ctl.editing).toMatchObject({ row: 5, col: 2 });
+    expect(ctl.selection.active).toEqual({ row: 5, col: 2 });
   });
 });

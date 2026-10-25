@@ -41,6 +41,7 @@ import {
   type PlatformToolDefinition,
 } from './tools';
 import { getSubagents, type SerializedAgent } from './agents';
+import { agentViewerFor, canEditAgent } from './access';
 import {
   budgetForUsd,
   buildManagedTools,
@@ -158,8 +159,23 @@ const SETUP_INTERVIEW_INSTRUCTIONS =
   'After a successful save, confirm in two or three sentences who you are and what you will do.';
 
 /** The setup interview's tools, from the first turn on: ask_user and save_agent_setup. */
-function setupTools(): PlatformToolDefinition[] {
-  return resolveAgentTools([], []).filter((tool) => tool.id === 'agent.ask_user' || tool.id === 'agent.save_setup');
+function setupTools(canEdit = true): PlatformToolDefinition[] {
+  return resolveAgentTools([], [], canEdit).filter(
+    (tool) => tool.id === 'agent.ask_user' || tool.id === 'agent.save_setup',
+  );
+}
+
+/**
+ * Whether the person driving the turn may change the agent: its owner or a
+ * manager, the rule its routes apply. Unattended runs (no actor permissions)
+ * keep maintaining their own agent.
+ */
+function actorMayEdit(
+  agent: { ownerId: string | null },
+  input: { actorUserId: string; actorPermissions?: string[] | null },
+): boolean {
+  if (!input.actorPermissions) return true;
+  return canEditAgent(agent, agentViewerFor(input.actorUserId, { permissions: input.actorPermissions }));
 }
 
 /**
@@ -173,14 +189,18 @@ export function toolsForAgentTurn(input: {
   systemPrompt: string;
   userMessageCount: number;
   actorPermissions?: string[] | null;
+  /** False when the person chatting may not change the agent: it gets no setup, routine, skill or memory tools. */
+  canEdit?: boolean;
 }): PlatformToolDefinition[] {
+  const canEdit = input.canEdit ?? true;
   if (agentNeedsSetup(input.systemPrompt)) {
-    const tools = setupTools();
+    const tools = setupTools(canEdit);
     return input.userMessageCount < 2 ? tools.filter((tool) => tool.id === 'agent.ask_user') : tools;
   }
   return resolveAgentTools(
     effectiveAgentPermissions(input.permissions, input.actorPermissions),
     input.enabledTools,
+    canEdit,
   );
 }
 
@@ -894,6 +914,8 @@ interface PreparedTurn {
   metering: AiMetering | null;
   modelId: string;
   setup: boolean;
+  /** Whether the person chatting may change the agent (its owner or a manager). */
+  canEdit: boolean;
   /** Platform tools that may run this turn. */
   allowedNow: PlatformToolDefinition[];
   /** Platform tools the session declares (setup: save_agent_setup from the start). */
@@ -915,6 +937,8 @@ interface SubagentMember {
   objectId: string;
   /** Its grants narrowed to the actor (unattended runs: as granted). */
   permissions: string[];
+  /** Whether the actor may change this sub-agent (its owner or a manager). */
+  canEdit: boolean;
   /** Platform tools it may run this turn. */
   tools: PlatformToolDefinition[];
 }
@@ -927,8 +951,8 @@ interface SubagentTeam {
 /** Platform tools a sub-agent never gets: it does not interview the user or set itself up. */
 const WORKER_EXCLUDED_TOOLS = new Set(['agent.ask_user', 'agent.save_setup']);
 
-function workerTools(permissions: string[], enabledTools: string[]): PlatformToolDefinition[] {
-  return resolveAgentTools(permissions, enabledTools).filter((tool) => !WORKER_EXCLUDED_TOOLS.has(tool.id));
+function workerTools(permissions: string[], enabledTools: string[], canEdit = true): PlatformToolDefinition[] {
+  return resolveAgentTools(permissions, enabledTools, canEdit).filter((tool) => !WORKER_EXCLUDED_TOOLS.has(tool.id));
 }
 
 /**
@@ -974,7 +998,15 @@ async function prepareTeam(
         variant: 'worker',
       });
       const permissions = effectiveAgentPermissions(sub.permissions, input.actorPermissions);
-      return { agent: sub, objectId: ref.id, ref, permissions, tools: workerTools(permissions, sub.enabledTools) };
+      const canEdit = actorMayEdit(sub, input);
+      return {
+        agent: sub,
+        objectId: ref.id,
+        ref,
+        permissions,
+        canEdit,
+        tools: workerTools(permissions, sub.enabledTools, canEdit),
+      };
     }),
   );
   const roster: SubagentTeam['roster'] = members.map((member) => member.ref);
@@ -1009,6 +1041,14 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
 
   const modelId = resolveManagedModel(input.agent.modelId);
   const setup = agentNeedsSetup(input.agent.systemPrompt);
+  // Read from the row, not the caller: who owns the agent decides whether the
+  // person chatting may change it through the setup, routine, skill and memory tools.
+  const [ownerRow] = await input.toolContext.db
+    .select({ ownerId: schema.weldagentAgents.ownerId })
+    .from(schema.weldagentAgents)
+    .where(eq(schema.weldagentAgents.id, input.agent.id))
+    .limit(1);
+  const canEdit = actorMayEdit({ ownerId: ownerRow?.ownerId ?? null }, input);
   // During setup the session declares both setup tools from the start (one
   // session for the whole interview); saving too early is refused.
   const allowedNow = toolsForAgentTurn({
@@ -1017,8 +1057,9 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
     systemPrompt: input.agent.systemPrompt,
     userMessageCount: input.messages.filter((m) => m.role === 'user').length,
     actorPermissions: input.actorPermissions,
+    canEdit,
   });
-  const declared = setup ? setupTools() : allowedNow;
+  const declared = setup ? setupTools(canEdit) : allowedNow;
   const sessionTools = await buildManagedTools(
     declared,
     setup
@@ -1049,6 +1090,7 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
     metering,
     modelId,
     setup,
+    canEdit,
     allowedNow,
     declared,
     sessionTools,
@@ -1162,7 +1204,7 @@ function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocat
       }
       return executePlatformTool(
         def,
-        { ...input.toolContext, agentId: member.agent.id },
+        { ...input.toolContext, agentId: member.agent.id, actorCanEdit: member.canEdit },
         args,
         invocations,
         {
@@ -1187,7 +1229,7 @@ function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocat
       invocations.push({ toolName: name, state: 'error', args, result: { error } });
       return { result: { error }, isError: true };
     }
-    return executePlatformTool(def, input.toolContext, args, invocations, {
+    return executePlatformTool(def, { ...input.toolContext, actorCanEdit: turn.canEdit }, args, invocations, {
       autoReviewEnabled: input.agent.autoReviewEnabled,
       skipApprovals: input.skipApprovals,
     });

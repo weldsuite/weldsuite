@@ -65,6 +65,13 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
+# Wrong-code counter, one per link: sign-api's SignCodeAttempts (it owns the
+# class and its migration), so both Workers count against the same object.
+[[durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+script_name = "weldsuite-sign-api-dev"
+
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "1101"
@@ -129,6 +136,11 @@ script_name = "weldsuite-mail-api-test"
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+script_name = "weldsuite-sign-api-test"
 
 [[env.test.ratelimits]]
 name = "OUTBOUND_BACKSTOP"
@@ -201,6 +213,11 @@ script_name = "weldsuite-mail-api"
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "SIGN_CODE_ATTEMPTS"
+class_name = "SignCodeAttempts"
+script_name = "weldsuite-sign-api"
 
 [[env.production.ratelimits]]
 name = "OUTBOUND_BACKSTOP"

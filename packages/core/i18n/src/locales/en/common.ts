@@ -269,6 +269,8 @@ export const common = {
       expandGroup: 'Expand group',
       collapseGroup: 'Collapse group',
       addToGroup: 'Add {group}',
+      unreadInGroup: '{count} unread',
+      mentionsInGroup: '{count} mentions',
     },
     /** Display names for the colour and icon pickers (keys are the lowercase identifiers). */
     coloredSquare: {

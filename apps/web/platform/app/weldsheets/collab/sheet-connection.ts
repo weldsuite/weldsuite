@@ -24,6 +24,8 @@ export interface ConnectionEvents {
   onStatus(): void;
   /** The sheet is gone, or the caller may no longer open it. */
   onGone(): void;
+  /** Someone restored an earlier version; `onReset` has already loaded it. */
+  onRestored?(info: { versionId: string; userId: string; revision: number }): void;
 }
 
 export interface ConnectionOptions {
@@ -69,6 +71,7 @@ export class SheetConnection {
       onRemoteOp: (op) => events.onRemoteOp(op),
       onAck: () => events.onStatus(),
       onPeers: (peers) => events.onPeers(peers),
+      onRestored: (info) => events.onRestored?.(info),
     });
   }
 

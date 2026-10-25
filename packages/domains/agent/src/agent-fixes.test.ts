@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAgentTools, effectiveAgentPermissions, explicitToolAllowList } from './tools';
+import { PLATFORM_TOOLS, resolveAgentTools, effectiveAgentPermissions, explicitToolAllowList } from './tools';
+import { toolsForAgentTurn } from './executor';
 import { computeRoutineNextRun, toolRiskLevel, allowsAutoReview } from './parity';
 import { toModelHistory } from './complete-turn';
 
@@ -14,6 +15,43 @@ describe('resolveAgentTools', () => {
     const tools = resolveAgentTools(['people:read', 'tickets:read'], ['tickets.list', 'agent.auto_review']);
     expect(tools.some((t) => t.id === 'tickets.list')).toBe(true);
     expect(tools.some((t) => t.id === 'people.list')).toBe(false);
+  });
+});
+
+describe('tools that change the agent', () => {
+  const editIds = [
+    'agent.save_setup',
+    'agent.save_skill',
+    'agent.remember',
+    'agent.create_routine',
+    'agent.update_routine',
+  ];
+
+  it('are left out of the turn when the actor may not edit the agent', () => {
+    const ids = resolveAgentTools(['people:read'], [], false).map((t) => t.id);
+    for (const id of editIds) expect(ids).not.toContain(id);
+    // Reading stays: asking questions, listing routines, the agent's other tools.
+    expect(ids).toEqual(expect.arrayContaining(['agent.ask_user', 'agent.list_routines', 'people.list']));
+    const editorIds = resolveAgentTools(['people:read'], []).map((t) => t.id);
+    for (const id of editIds) expect(editorIds).toContain(id);
+  });
+
+  it('are also dropped from the setup interview and refuse inside the tool', async () => {
+    const setup = toolsForAgentTurn({
+      permissions: [],
+      enabledTools: [],
+      systemPrompt: '',
+      userMessageCount: 3,
+      canEdit: false,
+    });
+    expect(setup.map((t) => t.id)).toEqual(['agent.ask_user']);
+
+    const ctx = { db: {} as never, agentId: 'agt_1', actorUserId: 'user_2', workspaceId: 'org_1', actorCanEdit: false };
+    for (const id of editIds) {
+      const tool = PLATFORM_TOOLS.find((t) => t.id === id)!;
+      // Refused before the arguments are even parsed or the db is touched.
+      await expect(tool.execute(ctx, {})).resolves.toMatchObject({ error: expect.stringContaining('owner') });
+    }
   });
 });
 

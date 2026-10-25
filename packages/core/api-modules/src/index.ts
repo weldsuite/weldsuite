@@ -495,6 +495,42 @@ export function missingLicensedApp(module: ApiModule, licensedApps: ReadonlySet<
   return module.apps.some((code) => licensedApps.has(code)) ? null : module.apps[0]!;
 }
 
+/**
+ * A record's chat (`/api/chat-entity-channels/<type>/<id>/…`) is a screen of
+ * the record's own app as much as of WeldChat: the company panel posts to the
+ * company's chat (crm-api forwards `/api/companies/:id/chat/*` there). Those
+ * paths also open to the apps of the module that owns the record. The WeldChat
+ * lists (`/api/chat-entity-channels`, `/summary`) stay WeldChat's.
+ */
+const RECORD_CHAT_PREFIX = '/api/chat-entity-channels/';
+const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
+  company: 'crm',
+  person: 'crm',
+  contact: 'crm',
+  task: 'flow',
+  project: 'flow',
+  domain: 'host',
+};
+
+/** The apps that open a first-party path for a licensed workspace; `null` when it is never gated. */
+export function licenceAppsForPath(path: string): readonly string[] | null {
+  const apps = findModuleForPath(path).apps;
+  if (!apps || !path.startsWith(RECORD_CHAT_PREFIX)) return apps;
+  const owner = RECORD_CHAT_OWNER[path.slice(RECORD_CHAT_PREFIX.length).split(/[/?]/)[0]!];
+  if (!owner) return apps;
+  return [...new Set([...apps, ...(getApiModule(owner).apps ?? [])])];
+}
+
+/**
+ * Licence check for a first-party path: `null` when allowed, otherwise the
+ * app it is missing (the owning module's own app).
+ */
+export function missingLicensedAppForPath(path: string, licensedApps: ReadonlySet<string>): string | null {
+  const apps = licenceAppsForPath(path);
+  if (!apps) return null;
+  return apps.some((code) => licensedApps.has(code)) ? null : apps[0]!;
+}
+
 /** The 403 body every licence gate returns, so all workers answer alike. */
 export function appNotLicensedBody(app: string) {
   return {

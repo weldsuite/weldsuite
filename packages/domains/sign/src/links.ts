@@ -57,7 +57,11 @@ export interface ResolvedLink {
 
 /** The live link for a token, or null (unknown, revoked or past its expiry). */
 export async function resolveLink(master: MasterDatabase, token: string, now = new Date()): Promise<ResolvedLink | null> {
-  const tokenHash = await sha256Hex(token);
+  return resolveLinkByHash(master, await sha256Hex(token), now);
+}
+
+/** The live link for a token hash: what a signer session re-checks on every request. */
+export async function resolveLinkByHash(master: MasterDatabase, tokenHash: string, now = new Date()): Promise<ResolvedLink | null> {
   const [row] = await master
     .select()
     .from(signLinkRegistry)

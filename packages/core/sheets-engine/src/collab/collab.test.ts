@@ -231,7 +231,16 @@ describe('co-editing', () => {
       const axis = rand(2) ? 'row' : 'col';
       const r = rand(12);
       const col = rand(6);
-      switch (rand(17)) {
+      switch (rand(19)) {
+        case 17: {
+          const id = `cm${rand(3)}`;
+          const root = rand(2) === 0;
+          return rand(5)
+            ? { type: 'patchComments', sheetId, set: [{ id: root ? id : `${id}r${rand(3)}`, thread: id, author: { id: `u${rand(2)}`, name: 'U' }, createdAt: 1, body: `c${rand(9)}`, ...(root ? { cell: { row: r, col }, resolved: !!rand(2) } : {}) }] }
+            : { type: 'patchComments', sheetId, remove: [id] };
+        }
+        case 18:
+          return { type: 'patchDataTables', sheetId, set: [{ id: `dt${rand(2)}`, range: { r1: r, c1: col, r2: r + rand(4), c2: col + rand(3) } }], remove: rand(5) ? [] : [`dt${rand(2)}`] };
         case 15:
           return { type: 'patchCharts', sheetId, set: [{ id: `ch${rand(2)}`, type: rand(2) ? 'column' : 'line', categories: `$A$1:$A$${2 + rand(8)}`, series: [{ name: '$B$1', values: `$B$2:$B$${2 + rand(8)}` }], anchor: { row: r, col, dx: rand(20), dy: 0 }, width: 300, height: 200 }], remove: rand(5) ? [] : [`ch${rand(2)}`] };
         case 16:

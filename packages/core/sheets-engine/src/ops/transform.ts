@@ -39,6 +39,7 @@ import {
 import type { DefinedName } from '../model/workbook';
 import { mapFilterFormulas, mapFormatFormulas, mapValidationFormulas } from '../model/rules';
 import { anchorAfter, mapChartFormulas } from '../model/charts';
+import { commentAfter } from '../model/anchors';
 import { nameKey, NOOP, normalize, type CellPatch, type NameKey, type Op } from './types';
 
 export function transform(op: Op, against: Op, opWins: boolean): Op {
@@ -116,12 +117,14 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
     case 'patchConditionalFormats':
     case 'patchValidations':
     case 'patchCharts':
+    case 'patchComments':
+    case 'patchDataTables':
       return overPatchRules(a, b, aWins);
   }
 }
 
-type RuleOp = OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>;
-type RulePatch = OpOf<'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>;
+type RuleOp = OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations' | 'patchCharts' | 'patchComments' | 'patchDataTables'>;
+type RulePatch = OpOf<'patchConditionalFormats' | 'patchValidations' | 'patchCharts' | 'patchComments' | 'patchDataTables'>;
 
 /** Two patches of one sheet's rules: the later one decides each rule both touch, so a losing patch drops those. */
 function overPatchRules(a: Simple, b: RulePatch, aWins: boolean): Op {
@@ -156,6 +159,8 @@ function overStructural(a: Simple, b: Structural, aWins: boolean): Op {
     case 'patchConditionalFormats':
     case 'patchValidations':
     case 'patchCharts':
+    case 'patchComments':
+    case 'patchDataTables':
       return rulesAfter(a, b);
     default:
       // Everything else changes only when it is about b's own sheet.
@@ -221,7 +226,19 @@ function rulesAfter(a: RuleOp, b: Structural): Op {
       const max = b.axis === 'row' ? MAX_ROWS : MAX_COLS;
       return moved.set ? { ...moved, set: moved.set.map((c) => ({ ...c, anchor: anchorAfter(c.anchor, b.axis, index, max) })) } : moved;
     }
+    case 'patchComments':
+      return commentsAfter(moved, b);
+    case 'patchDataTables':
+      return moved.set ? { ...moved, set: moved.set.flatMap((t) => (range(t.range) ? [{ ...t, range: range(t.range)! }] : [])) } : moved;
   }
+}
+
+/** Comments set past a row/column change: their cells follow, and a thread whose cell went loses it. */
+function commentsAfter(a: OpOf<'patchComments'>, b: Structural): Op {
+  if (!a.set) return a;
+  const index = indexMapper(b);
+  const max = b.axis === 'row' ? MAX_ROWS : MAX_COLS;
+  return { ...a, set: a.set.map((c) => commentAfter(c, b.axis, index, max)) };
 }
 
 function filterAfter(a: OpOf<'setFilter'>, b: Structural, range: (r: Range) => Range | null): Op {

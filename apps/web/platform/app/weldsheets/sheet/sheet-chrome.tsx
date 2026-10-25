@@ -1,11 +1,14 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Button } from '@weldsuite/ui/components/button';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Link } from '@tanstack/react-router';
-import { AlertCircle, Check, CloudOff, Eye, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Check, CloudOff, Eye, Loader2, MessageSquare } from 'lucide-react';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
+import type { SheetController, SidePanel } from '../editor/model/sheet-controller';
 import { useI18n } from '@/lib/i18n/provider';
 
 /** What the header says about the sheet's changes. */
-export type SheetStatus = 'saved' | 'saving' | 'failed' | 'reconnecting' | 'offline-pending' | 'view-only';
+export type SheetStatus = 'saved' | 'saving' | 'failed' | 'reconnecting' | 'offline-pending' | 'view-only' | 'comment-only';
 
 /** The bar above the editor: the sheet's name (renamed in place), its status, and whatever else goes on the right. */
 export function SheetHeader({
@@ -14,6 +17,7 @@ export function SheetHeader({
   onRename,
   status,
   children,
+  onBack,
 }: {
   name: string;
   canRename: boolean;
@@ -21,6 +25,8 @@ export function SheetHeader({
   onRename: (name: string) => void;
   status: SheetStatus;
   children?: ReactNode;
+  /** Shown as a back button (a sheet opened inside another page, such as a WeldFlow project). */
+  onBack?: () => void;
 }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState(name);
@@ -34,6 +40,11 @@ export function SheetHeader({
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-3 border-b px-3">
+      {onBack && (
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onBack} aria-label={t.weldsheets.home.backHome}>
+          <ArrowLeft className="size-4" />
+        </Button>
+      )}
       <input
         value={draft}
         readOnly={!canRename}
@@ -61,6 +72,7 @@ function StatusLabel({ status }: { status: SheetStatus }) {
     reconnecting: te.reconnecting,
     'offline-pending': te.offlinePending,
     'view-only': te.viewOnly,
+    'comment-only': te.commentOnly,
   }[status];
   const warn = status === 'failed' || status === 'offline-pending';
   let icon = <Check className="size-3.5" />;
@@ -68,11 +80,45 @@ function StatusLabel({ status }: { status: SheetStatus }) {
   else if (status === 'failed') icon = <AlertCircle className="size-3.5" />;
   else if (status === 'offline-pending') icon = <CloudOff className="size-3.5" />;
   else if (status === 'view-only') icon = <Eye className="size-3.5" />;
+  else if (status === 'comment-only') icon = <MessageSquare className="size-3.5" />;
   return (
     <span className={`flex min-w-0 items-center gap-1 truncate text-xs ${warn ? 'text-destructive' : 'text-muted-foreground'}`} aria-live="polite">
       {icon}
       {label}
     </span>
+  );
+}
+
+/** A small icon button in the header that opens and closes a side panel, and shows whether it is open. */
+export function PanelToggle({
+  controller,
+  panel,
+  label,
+  children,
+}: {
+  controller: SheetController;
+  panel: Exclude<SidePanel, null>;
+  label: string;
+  children: ReactNode;
+}) {
+  useSyncExternalStore(controller.subscribe, controller.getVersion);
+  const active = controller.panel === panel;
+  const onClick = () => {
+    if (active) controller.openPanel(null);
+    else if (panel === 'comments') controller.openThread(null);
+    else controller.openPanel(panel);
+  };
+  return (
+    <TooltipProvider delayDuration={400}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="sm" className={`h-7 w-7 p-0 ${active ? 'bg-accent' : ''}`} onClick={onClick} aria-label={label} aria-pressed={active}>
+            {children}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

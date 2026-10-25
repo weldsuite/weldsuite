@@ -59,8 +59,11 @@ import { driveItemLink, isDriveUpload } from './drive-utils';
 export type DriveShareTarget =
   | { kind: 'file'; file: UnifiedFile }
   | { kind: 'folder'; folder: DriveFolder }
-  /** A drive file shared from the module that opens it (a WeldDocs document): its id, name and in-app link. */
-  | { kind: 'item'; fileId: string; name: string; link: string };
+  /**
+   * A drive file shared from the module that opens it (a WeldDocs document): its id, name and in-app link.
+   * `recordFile`: the module keeps it for one of its records (a WeldFlow project sheet), whose access it follows.
+   */
+  | { kind: 'item'; fileId: string; name: string; link: string; recordFile?: boolean };
 
 interface ShareDialogProps {
   target: DriveShareTarget | null;
@@ -84,7 +87,7 @@ function targetLink(target: DriveShareTarget | null): string | null {
 function sharingItem(target: DriveShareTarget | null): DriveItemRef | null {
   if (!target) return null;
   if (target.kind === 'folder') return { kind: 'folder', id: target.folder.id };
-  if (target.kind === 'item') return { kind: 'file', id: target.fileId };
+  if (target.kind === 'item') return target.recordFile ? null : { kind: 'file', id: target.fileId };
   return isDriveUpload(target.file) ? { kind: 'file', id: target.file.id } : null;
 }
 

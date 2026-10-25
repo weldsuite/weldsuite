@@ -17,7 +17,7 @@ import { and, eq, getTableColumns, inArray, isNotNull, isNull, ne, or, sql, type
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
 import { asText } from '@weldsuite/text';
-import { fileDescription } from '@weldsuite/core-domain/files';
+import { fileDescription, listDocumentSnapshotKeys } from '@weldsuite/core-domain/files';
 import {
   isWorkspaceAdmin,
   loadDriveAccess,
@@ -90,9 +90,9 @@ function buildNavigateUrl(
     case 'crm_contact': return buildResultUrl('contact', entityId);
     case 'crm_customer': return buildResultUrl('customer', entityId);
     case 'project':
-      // WeldFlow project sheets are stored as xlsx files. Clicking one in
-      // WeldDrive should land back in the spreadsheet editor, not the
-      // generic project files page.
+      // A WeldFlow project sheet opens in its project (where an .xlsx one
+      // saved by the old project grid becomes a WeldSheets spreadsheet on
+      // first open), not on the generic project files page.
       if (fileType === 'spreadsheet' && fileId) {
         return `/weldflow/project/${entityId}/table/${fileId}`;
       }
@@ -603,12 +603,18 @@ function purgedFilesWhere(ids: TrashedIds): SQL | undefined {
   return conditions.length > 0 ? or(...conditions) : undefined;
 }
 
-/** The R2 keys of what `purgeTrashed` removes, so the route deletes the objects first. */
+/**
+ * The R2 keys of what `purgeTrashed` removes, so the route deletes the objects
+ * first: the files themselves, and the checkpoint and version snapshots of the
+ * spreadsheets and documents among them.
+ */
 export async function listPurgedFileKeys(db: Database, ids: TrashedIds): Promise<string[]> {
   const where = purgedFilesWhere(ids);
   if (!where) return [];
   const rows = await db.select({ fileKey: files.fileKey, storagePath: files.storagePath }).from(files).where(where);
-  return rows.map((f) => f.fileKey || f.storagePath).filter(Boolean) as string[];
+  const fileKeys = rows.map((f) => f.fileKey || f.storagePath).filter(Boolean) as string[];
+  const snapshotKeys = await listDocumentSnapshotKeys(db, db.select({ id: files.id }).from(files).where(where));
+  return [...fileKeys, ...snapshotKeys];
 }
 
 /**

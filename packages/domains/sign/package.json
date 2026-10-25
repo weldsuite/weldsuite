@@ -5,6 +5,8 @@
   "type": "module",
   "private": true,
   "exports": {
+    "./code-attempts": "./src/code-attempts.ts",
+    "./code-attempts.memory": "./src/code-attempts.memory.ts",
     "./codes": "./src/codes.ts",
     "./documents": "./src/documents.ts",
     "./env": "./src/env.ts",

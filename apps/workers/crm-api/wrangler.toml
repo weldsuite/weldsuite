@@ -63,6 +63,12 @@ binding = "REALTIME"
 service = "weldsuite-realtime-test"
 remote = true
 
+# Company and person chats are forwarded to chat-api
+# (src/lib/record-chat-forward.ts). `pnpm dev:api` runs both workers.
+[[services]]
+binding = "CHAT_API"
+service = "weldsuite-chat-api-dev"
+
 # R2 bucket for avatars / customer logos (lib/logo-fetch.ts).
 [[r2_buckets]]
 binding = "STORAGE"
@@ -135,6 +141,10 @@ queue = "entity-events-test"
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
 
+[[env.test.services]]
+binding = "CHAT_API"
+service = "weldsuite-chat-api-test"
+
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
@@ -199,6 +209,10 @@ queue = "entity-events"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.services]]
+binding = "CHAT_API"
+service = "weldsuite-chat-api"
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

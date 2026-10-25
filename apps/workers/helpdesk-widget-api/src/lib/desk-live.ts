@@ -9,6 +9,9 @@
  *   3. In-app/push notifications — agents hear about a new conversation or a
  *      visitor reply even when the inbox isn't open.
  *
+ * Rating and auto-assignment also publish a `desk_conversation` entity event to
+ * the hub, so audit, webhooks and workflows see them like any other mutation.
+ *
  * All of it is best-effort: a realtime or notification failure never fails
  * the visitor's request.
  */
@@ -16,6 +19,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { createAndDeliverNotification } from '@weldsuite/notifications';
+import { publishEntityEventRaw } from '@weldsuite/entity-events';
 import { schema, type Database } from '../db';
 import type { Env } from '../index';
 import {
@@ -118,12 +122,50 @@ export async function publishConversationUpdated(
 }
 
 /**
- * Push a visitor-made timeline event (a rating) to the agents' inbox and to
- * the conversation room, where the visitor's other tabs pick it up as a
- * system event carrying the updated conversation. `authors` must hold the
- * assignee, or those tabs lose the assignee's name and avatar.
+ * Hub entity event for a conversation mutation the widget worker made (a
+ * rating, an auto-assignment). Runs in `waitUntil`, so it takes the context-free
+ * publisher; that never throws, and no-ops when `ENTITY_EVENTS` isn't bound.
+ */
+async function publishConversationEntityEvent(
+  env: Env,
+  orgId: string,
+  conversation: DeskConversation,
+  action: 'updated' | 'assigned',
+): Promise<void> {
+  await publishEntityEventRaw({
+    env,
+    workspaceId: orgId,
+    userId: 'system',
+    entityType: 'desk_conversation',
+    action,
+    entityId: conversation.id,
+    data: conversation as unknown as Record<string, unknown>,
+  });
+}
+
+/**
+ * Push a visitor-made timeline event (a rating, or the auto-assignment it
+ * triggered) to the agents' inbox and to the conversation room, where the
+ * visitor's other tabs pick it up as a system event carrying the updated
+ * conversation. `authors` must hold the assignee, or those tabs lose the
+ * assignee's name and avatar. `entityAction` is the hub event published
+ * alongside: `assigned` for an assignment, `updated` for a rating.
  */
 export async function publishVisitorEvent(
+  env: Env,
+  orgId: string,
+  conversation: DeskConversation,
+  message: DeskMessage,
+  authors: Map<string, DeskAuthor>,
+  entityAction: 'updated' | 'assigned' = 'updated',
+): Promise<void> {
+  await Promise.all([
+    publishConversationEntityEvent(env, orgId, conversation, entityAction),
+    publishVisitorEventRealtime(env, orgId, conversation, message, authors),
+  ]);
+}
+
+async function publishVisitorEventRealtime(
   env: Env,
   orgId: string,
   conversation: DeskConversation,
@@ -175,7 +217,7 @@ export async function autoAssignConversation(
     });
     if (!result) return conversation;
     const authors = await resolveAuthors(db, [result.conversation.assigneeId]);
-    await publishVisitorEvent(env, orgId, result.conversation, result.message, authors);
+    await publishVisitorEvent(env, orgId, result.conversation, result.message, authors, 'assigned');
     return result.conversation;
   } catch (err) {
     console.error('[widget-api] auto-assignment failed:', err);

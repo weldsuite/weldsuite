@@ -1,6 +1,7 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { DbEnv } from '@weldsuite/worker-kit';
+import type { SignCodeAttempts } from './code-attempts';
 
 /**
  * The bindings WeldSign's domain code uses. Two Workers run it: sign-api (the
@@ -41,6 +42,11 @@ export interface SignEnv
    * both Workers need the same value. Without it the portal cannot open a link.
    */
   SIGN_SESSION_SECRET?: string;
+  /**
+   * Wrong access/email code counts, one Durable Object per signing link
+   * (./code-attempts.ts). Hosted by sign-api; the portal binds it by `script_name`.
+   */
+  SIGN_CODE_ATTEMPTS: DurableObjectNamespace<SignCodeAttempts>;
   /**
    * Builds the signed PDF once the last signer has signed (sign-api's
    * FinalizeEnvelopeWorkflow; the portal binds it by `script_name`). Without

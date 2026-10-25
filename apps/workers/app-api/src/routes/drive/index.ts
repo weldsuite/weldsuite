@@ -22,7 +22,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { listAllFilesQuery } from '@weldsuite/core-api-client/schemas/drive';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import { deleteStoredObject } from '@weldsuite/worker-kit/storage';
+import { deleteStoredObjects } from '@weldsuite/worker-kit/storage';
 import {
   aggregateAllFiles,
   aggregateStats,
@@ -233,13 +233,13 @@ app.delete('/trash/file/:id', requirePermission('files:delete'), async (c) => {
     const role = fileRole(await driveAccess(c), trashed);
     if (!role) return error.notFound(c, 'File', id);
     if (!canEdit(role)) return error.forbidden(c, DRIVE_VIEW_ONLY);
+    // A spreadsheet's or document's snapshots go with it; list them before the rows are gone.
+    const snapshotKeys = await filesService.listDocumentSnapshotKeys(db, [id]);
     const row = await filesService.purgeFile(db, id);
     if (!row) return error.notFound(c, 'File', id);
 
     const r2Key = row.fileKey || row.storagePath;
-    if (r2Key) {
-      await deleteStoredObject(c.env, r2Key).catch(() => {});
-    }
+    await deleteStoredObjects(c.env, [...(r2Key ? [r2Key] : []), ...snapshotKeys]).catch(() => {});
 
     publishEntityEvent({
       c,
@@ -277,12 +277,12 @@ app.delete('/trash/folder/:id', requirePermission('folders:delete'), async (c) =
     }
 
     if (c.env.STORAGE || c.env.PRIVATE_STORAGE) {
-      await Promise.all(
-        loaded.folderFiles.map((f) => {
-          const key = f.fileKey || f.storagePath;
-          return key ? deleteStoredObject(c.env, key).catch(() => {}) : Promise.resolve();
-        }),
+      const fileKeys = loaded.folderFiles.map((f) => f.fileKey || f.storagePath).filter(Boolean) as string[];
+      const snapshotKeys = await filesService.listDocumentSnapshotKeys(
+        db,
+        loaded.folderFiles.map((f) => f.id),
       );
+      await deleteStoredObjects(c.env, [...fileKeys, ...snapshotKeys]).catch(() => {});
     }
     await foldersService.purgeFolder(db, id);
 
@@ -326,7 +326,7 @@ app.delete('/trash/empty', requirePermission('files:delete'), async (c) => {
     };
     if (c.env.STORAGE || c.env.PRIVATE_STORAGE) {
       const keys = await listPurgedFileKeys(db, ids);
-      await Promise.all(keys.map((k) => deleteStoredObject(c.env, k).catch(() => {})));
+      await deleteStoredObjects(c.env, keys).catch(() => {});
     }
     await purgeTrashed(db, ids);
     return success(c, { emptied: true });

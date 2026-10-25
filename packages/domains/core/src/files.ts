@@ -5,11 +5,11 @@
  * of truth for the binary; the row holds metadata + storage key.
  */
 
-import { and, desc, eq, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type AnyColumn, type SQLWrapper } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
-const { files, folders, sheets, docs, documentVersions } = schema;
+const { files, folders, sheets, sheetVersions, docs, documentVersions, docVersions } = schema;
 
 // ============================================================================
 // Name conflict helpers
@@ -365,6 +365,43 @@ export async function restoreFile(db: Database, id: string) {
   return existing;
 }
 
+/**
+ * The R2 keys behind the spreadsheets and WeldDocs documents backed by these
+ * files: each one's latest checkpoint, every saved version, and the .xlsx an
+ * old WeldFlow project sheet was converted from (`metadata.convertedFrom`).
+ * Purging a file removes the `sheets` / `docs` rows (and their versions by
+ * cascade), so list the keys first and delete the objects with
+ * `deleteStoredObjects`.
+ * `fileIds` is a list of ids or a sub-select of them (a purge of a whole
+ * folder can be large, so callers pass the sub-select). Files that are neither
+ * a sheet nor a doc give nothing.
+ */
+export async function listDocumentSnapshotKeys(db: Database, fileIds: string[] | SQLWrapper): Promise<string[]> {
+  if (Array.isArray(fileIds) && fileIds.length === 0) return [];
+  const among = (column: AnyColumn) => inArray(column, fileIds);
+  const convertedFrom = sql<string | null>`${files.metadata}->'convertedFrom'->>'key'`;
+  const [sheetRows, docRows, versionRows, sheetVersionRows, convertedRows] = await Promise.all([
+    db.select({ key: sheets.snapshotKey }).from(sheets).where(among(sheets.fileId)),
+    db.select({ key: docs.snapshotKey }).from(docs).where(among(docs.fileId)),
+    db
+      .select({ key: docVersions.snapshotKey })
+      .from(docVersions)
+      .innerJoin(docs, eq(docs.id, docVersions.docId))
+      .where(among(docs.fileId)),
+    db
+      .select({ key: sheetVersions.snapshotKey })
+      .from(sheetVersions)
+      .innerJoin(sheets, eq(sheets.id, sheetVersions.sheetId))
+      .where(among(sheets.fileId)),
+    db
+      .select({ key: convertedFrom })
+      .from(files)
+      .where(and(among(files.id), isNotNull(convertedFrom))),
+  ]);
+  const keys = [...sheetRows, ...docRows, ...versionRows, ...sheetVersionRows, ...convertedRows].map((r) => r.key);
+  return [...new Set(keys.filter((k): k is string => !!k))];
+}
+
 export async function purgeFile(db: Database, id: string) {
   const [existing] = await db
     .select()
@@ -373,6 +410,7 @@ export async function purgeFile(db: Database, id: string) {
     .limit(1);
   if (!existing) return null;
   // A WeldSheets spreadsheet's or WeldDocs document's row references its file.
+  // Its R2 snapshots are the caller's to delete (`listDocumentSnapshotKeys`).
   await db.delete(sheets).where(eq(sheets.fileId, id));
   await db.delete(documentVersions).where(eq(documentVersions.fileId, id));
   await db.delete(docs).where(eq(docs.fileId, id));

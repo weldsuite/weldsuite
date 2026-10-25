@@ -79,14 +79,16 @@ export async function addRecipient(
   }
   await assertEmailFree(db, envelopeId, input.email);
 
-  const authMode = input.authMode ?? 'link';
+  const role = input.role ?? 'signer';
+  // A copy recipient never opens the request to sign it, so there is no identity to check.
+  const authMode = role === 'cc' ? 'link' : (input.authMode ?? 'link');
   const id = generateId('sgr');
   const [row] = await db
     .insert(signRecipients)
     .values({
       id,
       envelopeId,
-      role: input.role ?? 'signer',
+      role,
       roleName: input.roleName ?? null,
       name: input.name,
       email: input.email,
@@ -112,8 +114,9 @@ export async function updateRecipient(
   const current = await getRecipient(db, envelopeId, recipientId);
   if (input.email !== undefined && input.email !== current.email) await assertEmailFree(db, envelopeId, input.email, recipientId);
 
-  const authMode = input.authMode ?? current.authMode;
   const role = input.role ?? current.role;
+  // The portal gives a copy recipient a session without a code, so one never keeps an auth mode (or code).
+  const authMode = role === 'cc' ? 'link' : (input.authMode ?? current.authMode);
   const [row] = await db
     .update(signRecipients)
     .set({

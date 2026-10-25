@@ -506,6 +506,42 @@ export const sweep = {
       "deleteTitle": "Bericht verwijderen?",
       "reactionFailed": "De reactie kon niet worden toegevoegd"
     },
+    "recordChats": {
+      "follow": "Volgen",
+      "followFailed": "Deze chat kon niet worden gevolgd",
+      "followHint": "Volg deze chat om hem in je WeldChat-zijbalk te houden",
+      "following": "Gevolgd",
+      "groupHidden": "{group} is verborgen in je zijbalk",
+      "groups": {
+        "company": "Bedrijven",
+        "domain": "Domeinen",
+        "person": "Personen",
+        "project": "Projecten",
+        "task": "Taken"
+      },
+      "hideGroup": "Deze groep verbergen",
+      "open": {
+        "company": "Bedrijf openen",
+        "domain": "Domein openen",
+        "person": "Persoon openen",
+        "project": "Project openen",
+        "task": "Taak openen"
+      },
+      "openInWeldChat": "Openen in WeldChat",
+      "openRecord": "Record openen",
+      "showAll": "Alles tonen ({count})",
+      "title": "Recordchats",
+      "types": {
+        "company": "Bedrijf",
+        "domain": "Domein",
+        "person": "Persoon",
+        "project": "Project",
+        "task": "Taak"
+      },
+      "undo": "Ongedaan maken",
+      "unfollow": "Niet meer volgen",
+      "unfollowFailed": "Kon deze chat niet ontvolgen"
+    },
     "relativeTime": {
       "daysAgo": "{count}d geleden",
       "hoursAgo": "{count}u geleden",
