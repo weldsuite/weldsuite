@@ -1548,6 +1548,48 @@
       "when": 1792825926901,
       "tag": "0220_connector_connection_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 221,
+      "version": "7",
+      "when": 1792840684922,
+      "tag": "0221_weldsheets_room",
+      "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "7",
+      "when": 1792845922457,
+      "tag": "0222_first_the_stranger",
+      "breakpoints": true
+    },
+    {
+      "idx": 223,
+      "version": "7",
+      "when": 1792850017519,
+      "tag": "0223_weldsign",
+      "breakpoints": true
+    },
+    {
+      "idx": 224,
+      "version": "7",
+      "when": 1792853032272,
+      "tag": "0224_desk_csat_office_hours",
+      "breakpoints": true
+    },
+    {
+      "idx": 225,
+      "version": "7",
+      "when": 1792884709894,
+      "tag": "0225_welddocs_room",
+      "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "7",
+      "when": 1792912169337,
+      "tag": "0226_welddocs_versions",
+      "breakpoints": true
     }
   ]
 }

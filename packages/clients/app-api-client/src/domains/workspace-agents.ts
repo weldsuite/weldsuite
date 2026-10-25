@@ -3,11 +3,14 @@
  */
 
 import type { ClientApi, DataResponse } from '../types';
+import type { ConversationSummary } from '../schemas/weldagent';
 import { buildQueryString } from '../types';
 import type {
   CreateWorkspaceAgentInput,
   UpdateWorkspaceAgentInput,
   RunWorkspaceAgentInput,
+  UpdateWorkspaceAgentAccessInput,
+  UpdateWorkspaceAgentSubagentsInput,
   WorkspaceAgent,
   WorkspaceAgentRun,
   WorkspaceAgentToolCatalogItem,
@@ -59,6 +62,21 @@ export function createWorkspaceAgentsApi(api: ClientApi) {
 
     listGrantablePermissions(): Promise<DataResponse<string[]>> {
       return api.get('/weldagent/agents/grantable-permissions');
+    },
+
+    /** Owner, visibility and members (owner or weldagent:manage). */
+    updateAccess(id: string, data: UpdateWorkspaceAgentAccessInput): Promise<DataResponse<WorkspaceAgent>> {
+      return api.put(`/weldagent/agents/${id}/access`, data);
+    },
+
+    /** The agents this agent may hand work to. */
+    updateSubagents(id: string, data: UpdateWorkspaceAgentSubagentsInput): Promise<DataResponse<WorkspaceAgent>> {
+      return api.put(`/weldagent/agents/${id}/subagents`, data);
+    },
+
+    /** The caller's one continuous chat with the agent, created on first use. */
+    mainChat(id: string): Promise<DataResponse<ConversationSummary>> {
+      return api.post(`/weldagent/agents/${id}/chat`, {});
     },
   };
 }

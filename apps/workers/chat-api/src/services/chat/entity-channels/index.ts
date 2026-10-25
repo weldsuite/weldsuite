@@ -1,15 +1,13 @@
 /**
- * Entity-linked chat channels (app-api).
+ * Entity-linked chat channels ("record chats").
  *
- * Importing this module registers all known entity providers so that
- * `getEntityProvider(type)` returns the right one at runtime. New entity
- * types are added by creating a file under `./providers` that calls
- * `registerEntityProvider(...)` at import time, and adding an import here.
+ * The provider registry (one provider per record type: who may see the record,
+ * its display name and default followers) lives in
+ * `@weldsuite/chat-domain/entity-channels`, so `canAccessChannel` can use it
+ * in every worker. Creating channels, following and the record chat lists stay
+ * here in chat-api.
  */
-import './providers/task';
-import './providers/project';
-import './providers/contact';
-import './providers/domain';
 
-export * from './registry';
+export * from '@weldsuite/chat-domain/entity-channels';
 export * from './get-or-create-channel';
+export * from './followers';

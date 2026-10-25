@@ -27,7 +27,8 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!linked || !linkedResolved) return;
-    if (conv?.agentId) router.replace(`/agents/${conv.agentId}?conversation=${encodeURIComponent(linked)}`);
+    // Agent chats are one continuous chat per person: open the agent.
+    if (conv?.agentId) router.replace(`/agents/${conv.agentId}`);
     else if (conv) router.replace(`/new-chat?conversation=${encodeURIComponent(linked)}`);
     else router.replace('/agents');
   }, [conv, linked, linkedResolved, router]);

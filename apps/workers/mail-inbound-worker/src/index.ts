@@ -39,6 +39,8 @@ export interface Env {
   REALTIME: Fetcher;
   /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
   REALTIME_INTERNAL_SECRET?: string;
+  /** helpdesk-workflow-worker: WeldDesk auto-assignment picks (`/desk/assign`). */
+  HELPDESK_WORKFLOW?: Fetcher;
   /**
    * Hub queue for entity-event fan-out (inbound `email:created`).
    * Personal `mail:new` stays on REALTIME; this binding is workspace-only.
@@ -177,7 +179,7 @@ async function emailHandler(
               console.log(`[Email] Accounting inbox: ${r.documentIds.length} documents created`);
             }
           }),
-          processHelpdeskInboxEmail(env, email).then((r) => {
+          processHelpdeskInboxEmail(env, email, attachments).then((r) => {
             if (r.processed) {
               console.log(`[Email] Helpdesk inbox: ${r.conversationIds.length} conversations updated/created`);
             }

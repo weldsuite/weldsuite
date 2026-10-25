@@ -74,6 +74,12 @@ export interface Env extends KitEnv {
    *  registered with Discord/Slack keep pointing at app-api, whose forwarder
    *  hands /api/integrations/helpdesk/* to this worker. */
   APP_API_PUBLIC_URL?: string;
+
+  // --- Inbox attachments ---------------------------------------------------
+  /** Public R2 bucket for files agents attach to desk conversations. */
+  STORAGE?: R2Bucket;
+  /** Public base URL of STORAGE, e.g. `https://weldsuite-storage.weldsuite.org`. */
+  R2_PUBLIC_URL?: string;
 }
 
 export type Variables = KitVariables;

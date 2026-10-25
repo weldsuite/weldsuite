@@ -20,6 +20,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { checkCredits } from '@weldsuite/credits';
 import { CREDITS_PER_USD, PROVIDER_MARKUP, providerCostUsd } from '@weldsuite/ai';
 import type { WeldAgentManagedSessionState } from '@weldsuite/db/schema';
+import type { Database as NotificationDatabase, NotificationEnv } from '@weldsuite/notifications/types';
 import {
   ASK_USER_TOOL_NAME,
   encodeQuestionMarker,
@@ -39,10 +40,13 @@ import {
   type ToolContext,
   type PlatformToolDefinition,
 } from './tools';
+import { getSubagents, type SerializedAgent } from './agents';
+import { agentViewerFor, canEditAgent } from './access';
 import {
   budgetForUsd,
   buildManagedTools,
   builtinToolAccess,
+  builtinToolGrant,
   ensureEnvironment,
   ensureManagedAgent,
   isManagedAgentsConfigured,
@@ -83,7 +87,13 @@ export interface AgentExecutorInput {
     autoReviewEnabled?: boolean;
   };
   toolContext: ToolContext;
+  /**
+   * The conversation so far, ending with this turn's user message. For a long
+   * chat only its recent part; `historyOffset` says how many older messages
+   * precede it.
+   */
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  historyOffset?: number;
   /** Extra system context (entity event payload, etc.). */
   extraSystem?: string;
   /**
@@ -141,7 +151,7 @@ const SETUP_INTERVIEW_INSTRUCTIONS =
   'HARD RULES:\n' +
   '- NEVER call save_agent_setup until the user has answered at least one question about routines (when you act).\n' +
   '- NEVER say you are "active", "ready", or "now helping" until save_agent_setup has succeeded.\n' +
-  '- Set activate=true only if the user explicitly asks you to go live / activate; otherwise save as draft (activate=false).\n' +
+  '- Set activate=true only if the user explicitly asks you to go live / activate; otherwise set activate=false and you keep your current status (a new agent stays a draft).\n' +
   '- Do not invent workspace data or claim you already run automations.\n\n' +
   'When purpose and routines are clear, call save_agent_setup with a short display name, lasting systemPrompt, description, ' +
   'and the workspace permissions the job needs (e.g. tasks:read for a task digest, tickets:read and tickets:update for triage). ' +
@@ -149,8 +159,23 @@ const SETUP_INTERVIEW_INSTRUCTIONS =
   'After a successful save, confirm in two or three sentences who you are and what you will do.';
 
 /** The setup interview's tools, from the first turn on: ask_user and save_agent_setup. */
-function setupTools(): PlatformToolDefinition[] {
-  return resolveAgentTools([], []).filter((tool) => tool.id === 'agent.ask_user' || tool.id === 'agent.save_setup');
+function setupTools(canEdit = true): PlatformToolDefinition[] {
+  return resolveAgentTools([], [], canEdit).filter(
+    (tool) => tool.id === 'agent.ask_user' || tool.id === 'agent.save_setup',
+  );
+}
+
+/**
+ * Whether the person driving the turn may change the agent: its owner or a
+ * manager, the rule its routes apply. Unattended runs (no actor permissions)
+ * keep maintaining their own agent.
+ */
+function actorMayEdit(
+  agent: { ownerId: string | null },
+  input: { actorUserId: string; actorPermissions?: string[] | null },
+): boolean {
+  if (!input.actorPermissions) return true;
+  return canEditAgent(agent, agentViewerFor(input.actorUserId, { permissions: input.actorPermissions }));
 }
 
 /**
@@ -164,14 +189,18 @@ export function toolsForAgentTurn(input: {
   systemPrompt: string;
   userMessageCount: number;
   actorPermissions?: string[] | null;
+  /** False when the person chatting may not change the agent: it gets no setup, routine, skill or memory tools. */
+  canEdit?: boolean;
 }): PlatformToolDefinition[] {
+  const canEdit = input.canEdit ?? true;
   if (agentNeedsSetup(input.systemPrompt)) {
-    const tools = setupTools();
+    const tools = setupTools(canEdit);
     return input.userMessageCount < 2 ? tools.filter((tool) => tool.id === 'agent.ask_user') : tools;
   }
   return resolveAgentTools(
     effectiveAgentPermissions(input.permissions, input.actorPermissions),
     input.enabledTools,
+    canEdit,
   );
 }
 
@@ -218,6 +247,36 @@ async function buildSessionSystem(input: AgentExecutorInput): Promise<string> {
 // Platform tool execution (custom tools)
 // ---------------------------------------------------------------------------
 
+/**
+ * Tell the agent's owner an approval is waiting, like a manager asked to sign
+ * off. Not when the owner is the one who asked (they see it in their chat).
+ * Never throws.
+ */
+async function notifyApprovalOwner(ctx: ToolContext, approvalId: string, toolName: string): Promise<void> {
+  if (!ctx.env) return;
+  try {
+    const [agent] = await ctx.db
+      .select({ name: schema.weldagentAgents.name, ownerId: schema.weldagentAgents.ownerId })
+      .from(schema.weldagentAgents)
+      .where(eq(schema.weldagentAgents.id, ctx.agentId))
+      .limit(1);
+    if (!agent?.ownerId || agent.ownerId === ctx.actorUserId) return;
+    const { sendWeldAgentApprovalNotification } = await import('@weldsuite/notifications');
+    await sendWeldAgentApprovalNotification({
+      db: ctx.db as unknown as NotificationDatabase,
+      env: ctx.env as unknown as NotificationEnv,
+      workspaceId: ctx.workspaceId,
+      userId: agent.ownerId,
+      agentId: ctx.agentId,
+      agentName: agent.name,
+      approvalId,
+      toolName,
+    });
+  } catch (err) {
+    console.warn('[weldagent] approval notification failed:', err instanceof Error ? err.message : err);
+  }
+}
+
 async function executePlatformTool(
   def: PlatformToolDefinition,
   ctx: ToolContext,
@@ -245,6 +304,7 @@ async function executePlatformTool(
           riskLevel: 'high',
           createdBy: ctx.actorUserId,
         });
+        await notifyApprovalOwner(ctx, approval.id, def.name);
         const blocked = {
           pendingApproval: true,
           approvalId: approval.id,
@@ -300,6 +360,15 @@ function blocksText(content: unknown): string {
 const DENY_UNREVIEWED =
   'No reviewer is available to approve this action in this session. Choose a safer approach, or tell the user what you wanted to run.';
 
+/** Who runs a session thread: its agent's name and Anthropic object id. */
+export interface ThreadAgent {
+  name: string;
+  objectId: string | null;
+}
+
+/** The stored invocation name for work handed to (and reported back by) a sub-agent. */
+export const DELEGATION_TOOL_NAME = 'delegate_to_agent';
+
 type TurnEvent = BetaManagedAgentsStreamSessionEvents | BetaManagedAgentsSessionEvent;
 type EventOf<T extends TurnEvent['type']> = Extract<TurnEvent, { type: T }>;
 
@@ -322,7 +391,14 @@ export interface DriveTurnParams {
   kickoff: BetaManagedAgentsEventParams[];
   deadline: number;
   maxModelRequests: number;
-  onCustomTool: (name: string, input: unknown) => Promise<{ result: unknown; isError: boolean }>;
+  /** `agent`: the sub-agent whose thread made the call (null: this agent or a copy of it). */
+  onCustomTool: (
+    name: string,
+    input: unknown,
+    agent: ThreadAgent | null,
+  ) => Promise<{ result: unknown; isError: boolean }>;
+  /** A sub-agent's sandbox / web call waiting for a decision: may it run? */
+  allowSubagentBuiltin?: (agent: ThreadAgent | null, toolName: string) => boolean;
   invocations: StoredToolInvocation[];
   onText?: (text: string) => void;
   /** Aborting it (e.g. the client went away) interrupts the turn. */
@@ -353,6 +429,8 @@ class TurnFollower {
   private readonly kickoffIds = new Set<string>();
   /** Built-in tool calls by event id, so results can be matched to names. */
   private readonly builtinCalls = new Map<string, string>();
+  /** Session threads (sub-agents and copies) by id. */
+  private readonly threads = new Map<string, ThreadAgent>();
   /** Preview text already emitted per agent.message id (streaming only). */
   private readonly emitted = new Map<string, number>();
   private emittedAny = false;
@@ -437,6 +515,14 @@ class TurnFollower {
         return this.onBuiltinToolUse(ev);
       case 'agent.tool_result':
         return this.onBuiltinToolResult(ev);
+      case 'session.thread_created':
+        // The event names the agent but not its object; {@link threadAgent}
+        // reads the thread for that when the thread first needs us.
+        return;
+      case 'agent.thread_message_sent':
+        return this.onThreadMessage(ev.to_agent_name, 'call', ev.content);
+      case 'agent.thread_message_received':
+        return this.onThreadMessage(ev.from_agent_name, 'result', ev.content);
       case 'session.error':
         this.lastError = (ev.error as { message?: string }).message || ev.error.type;
         return;
@@ -516,8 +602,49 @@ class TurnFollower {
     }
   }
 
+  /**
+   * The agent running a cross-posted call's thread; null for the primary
+   * thread. Identified by its Anthropic object id (read from the thread once,
+   * then cached), never by name: names can collide after a rename. When the
+   * thread can't be read, `objectId` is null and the caller refuses the call.
+   */
+  private async threadAgent(threadId: string | null | undefined): Promise<ThreadAgent | null> {
+    if (!threadId) return null;
+    const known = this.threads.get(threadId);
+    if (known) return known;
+    try {
+      const thread = await this.params.client.beta.sessions.threads.retrieve(threadId, {
+        session_id: this.params.sessionId,
+      });
+      const agent = thread.agent as { id?: string; name?: string };
+      const found = { name: agent.name ?? '', objectId: agent.id ?? null };
+      this.threads.set(threadId, found);
+      return found;
+    } catch (err) {
+      console.warn('[weldagent/managed] reading a thread failed:', err instanceof Error ? err.message : err);
+      return { name: '', objectId: null };
+    }
+  }
+
+  /** Work handed to a sub-agent (`call`) and its report (`result`), as one stored step. */
+  private onThreadMessage(agentName: string | null | undefined, state: 'call' | 'result', content: unknown): void {
+    if (!agentName) return;
+    const text = blocksText(content);
+    this.params.invocations.push(
+      state === 'call'
+        ? { toolName: DELEGATION_TOOL_NAME, state, args: { agent: agentName, task: text } }
+        : {
+            toolName: DELEGATION_TOOL_NAME,
+            state,
+            args: { agent: agentName },
+            result: text.length > MAX_STORED_RESULT_CHARS ? `${text.slice(0, MAX_STORED_RESULT_CHARS)}…` : text,
+          },
+    );
+  }
+
   private async onCustomToolUse(ev: EventOf<'agent.custom_tool_use'>): Promise<void> {
-    const { result, isError } = await this.params.onCustomTool(ev.name, ev.input);
+    const agent = await this.threadAgent(ev.session_thread_id);
+    const { result, isError } = await this.params.onCustomTool(ev.name, ev.input, agent);
     if (ev.name === ASK_USER_TOOL_NAME && !isError) this.emitQuestion(ev.input);
     await this.send([
       {
@@ -530,6 +657,23 @@ class TurnFollower {
   }
 
   private async onBuiltinToolUse(ev: EventOf<'agent.tool_use'> | EventOf<'agent.mcp_tool_use'>): Promise<void> {
+    if (ev.session_thread_id) {
+      // A sub-agent's call, paused for us (its worker object always asks).
+      if (ev.evaluated_permission !== 'ask') return;
+      const agent = await this.threadAgent(ev.session_thread_id);
+      const allowed = this.params.allowSubagentBuiltin?.(agent, ev.name) ?? false;
+      await this.send([
+        allowed
+          ? { type: 'user.tool_confirmation', tool_use_id: ev.id, result: 'allow' }
+          : {
+              type: 'user.tool_confirmation',
+              tool_use_id: ev.id,
+              result: 'deny',
+              deny_message: 'The person this work is for may not use this tool, so it is not available to you here.',
+            },
+      ]);
+      return;
+    }
     this.builtinCalls.set(ev.id, ev.name);
     this.params.invocations.push({ toolName: ev.name, state: 'call', args: ev.input });
     if (ev.evaluated_permission !== 'ask') return;
@@ -655,13 +799,33 @@ function transcript(messages: AgentExecutorInput['messages']): string {
 }
 
 /** The user message for a turn, with any history the session has not seen. */
-function turnMessage(messages: AgentExecutorInput['messages'], unseen: AgentExecutorInput['messages']): string {
+function turnMessage(
+  messages: AgentExecutorInput['messages'],
+  unseen: AgentExecutorInput['messages'],
+  olderOmitted = false,
+): string {
   const latest = messages[messages.length - 1]?.content ?? '';
   if (unseen.length === 0) return latest;
-  return (
-    'Earlier in this conversation (for context; you did not see these messages yet):\n\n' +
-    `${transcript(unseen)}\n\n---\n\n${latest}`
-  );
+  const intro = olderOmitted
+    ? 'This is a long-running chat. The most recent part of it (for context; you did not see these messages yet; older messages are not included):\n\n'
+    : 'Earlier in this conversation (for context; you did not see these messages yet):\n\n';
+  return `${intro}${transcript(unseen)}\n\n---\n\n${latest}`;
+}
+
+/** Most history a new session is seeded with; the rest of a long chat is summarised away. */
+const SEED_HISTORY_MAX_CHARS = 120_000;
+
+/** The newest messages that fit {@link SEED_HISTORY_MAX_CHARS}, oldest first. */
+function seedHistory(prior: AgentExecutorInput['messages']): AgentExecutorInput['messages'] {
+  let total = 0;
+  let start = prior.length;
+  while (start > 0) {
+    const next = prior[start - 1].content.length + 16;
+    if (total + next > SEED_HISTORY_MAX_CHARS) break;
+    total += next;
+    start -= 1;
+  }
+  return prior.slice(start);
 }
 
 async function loadConversationSession(
@@ -705,6 +869,22 @@ async function sessionListCostUsd(client: Anthropic, sessionId: string): Promise
   return listCostUsd(session.usage?.list_cost);
 }
 
+/**
+ * Archive a kept session's finished sub-agent threads. A session holds at
+ * most 25 child threads, idle ones included, and a continuous chat outlives
+ * that; the reports already came back to the agent. Best effort.
+ */
+async function archiveIdleThreads(client: Anthropic, sessionId: string): Promise<void> {
+  try {
+    for await (const thread of client.beta.sessions.threads.list(sessionId)) {
+      if (!thread.parent_thread_id || thread.archived_at || thread.status !== 'idle') continue;
+      await client.beta.sessions.threads.archive(thread.id, { session_id: sessionId });
+    }
+  } catch (err) {
+    console.warn('[weldagent/managed] archiving sub-agent threads failed:', err instanceof Error ? err.message : err);
+  }
+}
+
 /** Archive a one-off session once it has settled (archive 400s while running). */
 async function archiveSession(client: Anthropic, sessionId: string): Promise<void> {
   try {
@@ -734,6 +914,8 @@ interface PreparedTurn {
   metering: AiMetering | null;
   modelId: string;
   setup: boolean;
+  /** Whether the person chatting may change the agent (its owner or a manager). */
+  canEdit: boolean;
   /** Platform tools that may run this turn. */
   allowedNow: PlatformToolDefinition[];
   /** Platform tools the session declares (setup: save_agent_setup from the start). */
@@ -745,6 +927,105 @@ interface PreparedTurn {
   toolsHash: string;
   systemHash: string;
   allowanceUsd: number;
+  /** The sub-agents this turn may delegate to, by name and worker object id. */
+  team: SubagentTeam | null;
+}
+
+/** A sub-agent as it works in this turn: tools narrowed to the person chatting. */
+interface SubagentMember {
+  agent: SerializedAgent;
+  objectId: string;
+  /** Its grants narrowed to the actor (unattended runs: as granted). */
+  permissions: string[];
+  /** Whether the actor may change this sub-agent (its owner or a manager). */
+  canEdit: boolean;
+  /** Platform tools it may run this turn. */
+  tools: PlatformToolDefinition[];
+}
+
+interface SubagentTeam {
+  roster: Array<ManagedAgentRef | 'self'>;
+  members: SubagentMember[];
+}
+
+/** Platform tools a sub-agent never gets: it does not interview the user or set itself up. */
+const WORKER_EXCLUDED_TOOLS = new Set(['agent.ask_user', 'agent.save_setup']);
+
+function workerTools(permissions: string[], enabledTools: string[], canEdit = true): PlatformToolDefinition[] {
+  return resolveAgentTools(permissions, enabledTools, canEdit).filter((tool) => !WORKER_EXCLUDED_TOOLS.has(tool.id));
+}
+
+/**
+ * Sync the worker objects of the agent's sub-agents and build this turn's
+ * roster. Sub-agents still in setup are left out. Each worker object carries
+ * the sub-agent's full grants (an agent object can't be narrowed per
+ * session), so the driver narrows: custom tools run with the sub-agent's
+ * grants ∩ the actor's, and sandbox / web calls ask first.
+ */
+async function prepareTeam(
+  client: Anthropic,
+  input: AgentExecutorInput,
+  environment: { workspaceId: string; env: Env },
+): Promise<SubagentTeam | null> {
+  // Read from the row, not the caller: every turn (chat, run, room reply)
+  // must sync the same roster, or the agent object's version would flip.
+  const [row] = await input.toolContext.db
+    .select({ subagentIds: schema.weldagentAgents.subagentIds, delegateToSelf: schema.weldagentAgents.delegateToSelf })
+    .from(schema.weldagentAgents)
+    .where(eq(schema.weldagentAgents.id, input.agent.id))
+    .limit(1);
+  const subIds = (row?.subagentIds ?? []) as string[];
+  const self = Boolean(row?.delegateToSelf);
+  if (subIds.length === 0 && !self) return null;
+
+  const subs = (await getSubagents(input.toolContext.db, subIds)).filter(
+    (sub) => sub.id !== input.agent.id && !agentNeedsSetup(sub.systemPrompt),
+  );
+  const members = await Promise.all(
+    subs.map(async (sub): Promise<SubagentMember & { ref: ManagedAgentRef }> => {
+      const ref = await ensureManagedAgent(client, input.toolContext.db, environment.env, {
+        agentId: sub.id,
+        workspaceId: environment.workspaceId,
+        name: sub.name,
+        description: sub.description,
+        modelId: sub.modelId,
+        system: buildSystemPrompt(sub),
+        tools: await buildManagedTools(
+          workerTools(sub.permissions, sub.enabledTools),
+          builtinToolAccess(sub.permissions),
+          'ask',
+        ),
+        variant: 'worker',
+      });
+      const permissions = effectiveAgentPermissions(sub.permissions, input.actorPermissions);
+      const canEdit = actorMayEdit(sub, input);
+      return {
+        agent: sub,
+        objectId: ref.id,
+        ref,
+        permissions,
+        canEdit,
+        tools: workerTools(permissions, sub.enabledTools, canEdit),
+      };
+    }),
+  );
+  const roster: SubagentTeam['roster'] = members.map((member) => member.ref);
+  if (self) roster.push('self');
+  return roster.length > 0 ? { roster, members } : null;
+}
+
+/** The sub-agent running a thread, matched by its worker object id (a copy of the agent itself is none). */
+function findMember(team: SubagentTeam | null, agent: ThreadAgent | null): SubagentMember | null {
+  if (!team || !agent?.objectId) return null;
+  return team.members.find((member) => member.objectId === agent.objectId) ?? null;
+}
+
+/** A sub-agent's sandbox / web call runs only when its narrowed grants allow it. */
+function allowSubagentBuiltin(team: SubagentTeam | null, agent: ThreadAgent | null, toolName: string): boolean {
+  const member = findMember(team, agent);
+  const grant = builtinToolGrant(toolName);
+  if (!member || !grant) return false;
+  return builtinToolAccess(member.permissions)[grant === 'computer:use' ? 'sandbox' : 'web'];
 }
 
 async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Promise<PreparedTurn> {
@@ -760,6 +1041,14 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
 
   const modelId = resolveManagedModel(input.agent.modelId);
   const setup = agentNeedsSetup(input.agent.systemPrompt);
+  // Read from the row, not the caller: who owns the agent decides whether the
+  // person chatting may change it through the setup, routine, skill and memory tools.
+  const [ownerRow] = await input.toolContext.db
+    .select({ ownerId: schema.weldagentAgents.ownerId })
+    .from(schema.weldagentAgents)
+    .where(eq(schema.weldagentAgents.id, input.agent.id))
+    .limit(1);
+  const canEdit = actorMayEdit({ ownerId: ownerRow?.ownerId ?? null }, input);
   // During setup the session declares both setup tools from the start (one
   // session for the whole interview); saving too early is refused.
   const allowedNow = toolsForAgentTurn({
@@ -768,8 +1057,9 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
     systemPrompt: input.agent.systemPrompt,
     userMessageCount: input.messages.filter((m) => m.role === 'user').length,
     actorPermissions: input.actorPermissions,
+    canEdit,
   });
-  const declared = setup ? setupTools() : allowedNow;
+  const declared = setup ? setupTools(canEdit) : allowedNow;
   const sessionTools = await buildManagedTools(
     declared,
     setup
@@ -777,6 +1067,8 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
       : builtinToolAccess(effectiveAgentPermissions(input.agent.permissions, input.actorPermissions)),
   );
   const agentTools = setup ? sessionTools : await agentObjectTools(input);
+  // The roster lives on the agent object, so the worker objects come first.
+  const team = setup ? null : await prepareTeam(client, input, { workspaceId: input.workspaceId, env: input.env });
 
   const [ref, environmentId, system] = await Promise.all([
     ensureManagedAgent(client, input.toolContext.db, input.env, {
@@ -787,6 +1079,7 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
       modelId,
       system: buildSystemPrompt(input.agent),
       tools: agentTools,
+      roster: team?.roster,
     }),
     ensureEnvironment(client, input.env),
     buildSessionSystem(input),
@@ -797,6 +1090,7 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
     metering,
     modelId,
     setup,
+    canEdit,
     allowedNow,
     declared,
     sessionTools,
@@ -806,6 +1100,7 @@ async function prepareTurn(input: AgentExecutorInput, options: TurnOptions): Pro
     toolsHash: await sha256Hex(JSON.stringify(sessionTools)),
     systemHash: await sha256Hex(system),
     allowanceUsd: await turnAllowanceUsd(metering),
+    team,
   };
 }
 
@@ -836,6 +1131,7 @@ async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn)
   const ctx = input.toolContext;
   const conversation = await loadConversationSession(ctx);
   const priorMessages = input.messages.slice(0, -1);
+  const offset = input.historyOffset ?? 0;
   const state = conversation?.state;
 
   if (state && (await canReuse(client, state, turn.ref, turn.toolsHash))) {
@@ -848,9 +1144,16 @@ async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn)
         content: [{ type: 'text', text: `Your instructions and saved context were updated. Current version:\n\n${turn.system}` }],
       });
     }
-    kickoff.push(userMessageEvent(turnMessage(input.messages, priorMessages.slice(state.syncedMessages))));
+    // `syncedMessages` counts from the start of the chat; `priorMessages`
+    // starts `offset` messages in.
+    const unseen = priorMessages.slice(Math.max(0, state.syncedMessages - offset));
+    kickoff.push(userMessageEvent(turnMessage(input.messages, unseen, state.syncedMessages < offset)));
     return { sessionId: state.sessionId, chargedUsd: state.chargedUsd, kickoff, conversation };
   }
+
+  // A new session (first turn, or the agent changed): seed it with the recent
+  // part of the chat; from here the session keeps (and compacts) the rest.
+  const seed = seedHistory(priorMessages);
 
   const session = await client.beta.sessions.create({
     agent: {
@@ -873,7 +1176,7 @@ async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn)
   return {
     sessionId: session.id,
     chargedUsd: 0,
-    kickoff: [userMessageEvent(turnMessage(input.messages, priorMessages))],
+    kickoff: [userMessageEvent(turnMessage(input.messages, seed, offset > 0 || seed.length < priorMessages.length))],
     conversation,
   };
 }
@@ -882,7 +1185,34 @@ async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn)
 function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocations: StoredToolInvocation[]) {
   const allowedNames = new Set(turn.allowedNow.map((tool) => tool.name));
   let asked = false;
-  return async (name: string, args: unknown) => {
+  return async (name: string, args: unknown, threadAgent: ThreadAgent | null) => {
+    // A thread is this agent (primary, or a copy of itself: its main object),
+    // one of its sub-agents (a worker object), or unidentified: refused.
+    const member = findMember(turn.team, threadAgent);
+    if (threadAgent && !member && threadAgent.objectId !== turn.ref.id) {
+      const error = 'This call came from a thread that could not be identified, so it was not run.';
+      invocations.push({ toolName: name, state: 'error', args, result: { error } });
+      return { result: { error }, isError: true };
+    }
+    if (member) {
+      // A sub-agent's call: its own tools, narrowed to the actor, attributed to it.
+      const def = member.tools.find((tool) => tool.name === name);
+      if (!def) {
+        const error = `Tool "${name}" is not available to ${member.agent.name} right now.`;
+        invocations.push({ toolName: name, state: 'error', args, result: { error } });
+        return { result: { error }, isError: true };
+      }
+      return executePlatformTool(
+        def,
+        { ...input.toolContext, agentId: member.agent.id, actorCanEdit: member.canEdit },
+        args,
+        invocations,
+        {
+          autoReviewEnabled: member.agent.autoReviewEnabled,
+          skipApprovals: input.skipApprovals,
+        },
+      );
+    }
     // One question per turn: the user answers one card, then the agent continues.
     if (name === ASK_USER_TOOL_NAME && asked) {
       const error = 'You already asked a question this turn. End your turn and wait for the answer.';
@@ -899,7 +1229,7 @@ function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocat
       invocations.push({ toolName: name, state: 'error', args, result: { error } });
       return { result: { error }, isError: true };
     }
-    return executePlatformTool(def, input.toolContext, args, invocations, {
+    return executePlatformTool(def, { ...input.toolContext, actorCanEdit: turn.canEdit }, args, invocations, {
       autoReviewEnabled: input.agent.autoReviewEnabled,
       skipApprovals: input.skipApprovals,
     });
@@ -933,10 +1263,11 @@ async function finishTurn(
         agentVersion: turn.ref.version,
         toolsHash: turn.toolsHash,
         systemHash: turn.systemHash,
-        // History plus the assistant reply this turn adds.
-        syncedMessages: input.messages.length + 1,
+        // History (from the start of the chat) plus the reply this turn adds.
+        syncedMessages: (input.historyOffset ?? 0) + input.messages.length + 1,
         chargedUsd: totalUsd,
       });
+      if (turn.team) await archiveIdleThreads(turn.client, session.sessionId);
     } else {
       await archiveSession(turn.client, session.sessionId);
     }
@@ -991,6 +1322,7 @@ async function runManagedTurn(input: AgentExecutorInput, options: TurnOptions = 
       onText: options.onText,
       signal: options.signal,
       onCustomTool: customToolRunner(input, turn, invocations),
+      allowSubagentBuiltin: (agent, toolName) => allowSubagentBuiltin(turn.team, agent, toolName),
     });
   } finally {
     creditsUsed = await finishTurn(input, turn, session, outcome);

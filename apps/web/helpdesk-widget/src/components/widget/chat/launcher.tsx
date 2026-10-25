@@ -19,6 +19,8 @@ interface LauncherProps {
   isOpen?: boolean;
   unreadCount?: number;
   onClick?: () => void;
+  /** Draw nothing (widget disabled / not known to be enabled yet) but still run the SDK handshake. */
+  hidden?: boolean;
 }
 
 const DEFAULT_LAUNCHER_COLOR = '#3472E8';
@@ -28,7 +30,8 @@ export function Launcher({
   launcherColor,
   isOpen = false,
   unreadCount = 0,
-  onClick
+  onClick,
+  hidden = false,
 }: Readonly<LauncherProps>) {
   // Detect if we're embedded in an iframe (SDK mode)
   const [isEmbedded, setIsEmbedded] = useState(false);
@@ -83,6 +86,8 @@ export function Launcher({
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [isEmbedded, parentOrigin]);
+
+  if (hidden) return null;
 
   const handleClick = () => {
     // Standalone mode - use onClick handler if provided

@@ -3,8 +3,9 @@ import { format, isSameDay } from 'date-fns';
 import { ArrowDown, Bot, Lock, Paperclip } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import type { DeskConversation, DeskMessage } from '@/hooks/queries/use-desk-queries';
+import type { DeskConversation, DeskMessage, DeskMessageAttachment } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
+import { formatFileSize } from './attachments';
 
 interface MessagesTimelineProps {
   conversation: DeskConversation;
@@ -19,6 +20,42 @@ interface MessagesTimelineProps {
 const GROUP_WINDOW_MS = 5 * 60_000;
 /** How close to the bottom still counts as "following the conversation". */
 const STICK_THRESHOLD_PX = 120;
+
+/** Images as thumbnails, other files as links with their size. */
+function AttachmentList({
+  attachments,
+  spaced,
+}: Readonly<{ attachments: DeskMessageAttachment[] | null; spaced: boolean }>) {
+  if (!attachments?.length) return null;
+  return (
+    <div className={cn('flex flex-col gap-1', spaced && 'mt-2')}>
+      {attachments.map((attachment) =>
+        attachment.contentType.startsWith('image/') ? (
+          <a key={attachment.url} href={attachment.url} target="_blank" rel="noreferrer" title={attachment.name}>
+            <img
+              src={attachment.url}
+              alt={attachment.name}
+              loading="lazy"
+              className="max-h-48 max-w-full rounded-lg object-cover"
+            />
+          </a>
+        ) : (
+          <a
+            key={attachment.url}
+            href={attachment.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
+          >
+            <Paperclip className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{attachment.name}</span>
+            <span className="opacity-70 no-underline">· {formatFileSize(attachment.filesize)}</span>
+          </a>
+        ),
+      )}
+    </div>
+  );
+}
 
 function memberLabel(members: DeskWorkspaceMember[], userId: string | null | undefined): string | null {
   if (!userId) return null;
@@ -37,18 +74,55 @@ function getAvatarColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
-function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[]) {
+function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], visitorLabel: string) {
   const t = getTranslations('deskInbox2');
-  const actor = memberLabel(members, message.authorId) ?? t.timeline.unknownActor;
   const eventType = message.metadata?.eventType;
+  if (eventType === 'rated') {
+    const rating = t.timeline.ratingLabel.replace('{rating}', String(message.metadata?.rating ?? '?'));
+    return t.timeline.ratingChanged.replace('{actor}', visitorLabel).replace('{rating}', rating);
+  }
+  const actor = memberLabel(members, message.authorId) ?? t.timeline.unknownActor;
   if (eventType === 'closed') return t.timeline.closed.replace('{actor}', actor);
   if (eventType === 'reopened') return t.timeline.opened.replace('{actor}', actor);
   if (eventType === 'unassigned') return t.timeline.assignmentUnassigned.replace('{actor}', actor);
   if (eventType === 'assigned') {
     const target = memberLabel(members, message.metadata?.assigneeId ?? null) ?? message.metadata?.assigneeId ?? '';
+    if (message.metadata?.auto) return t.timeline.autoAssigned.replace('{target}', target);
     return t.timeline.assignmentToAdmin.replace('{actor}', actor).replace('{target}', target);
   }
   return message.body || t.timeline.genericEvent.replace('{actor}', actor).replace('{event}', eventType ?? 'event');
+}
+
+/** Who wrote a message: the customer, the AI, or the teammate by name. */
+function authorLabel(message: DeskMessage, members: DeskWorkspaceMember[], visitorLabel: string): string {
+  if (message.authorType === 'visitor') return visitorLabel;
+  if (message.authorType === 'bot') return getTranslations('deskInbox2').pane.ai;
+  const member = members.find((m) => m.userId === message.authorId);
+  return member?.name ?? memberLabel(members, message.authorId) ?? 'Agent';
+}
+
+/** A state change on the timeline; a rating also shows the visitor's comment under it. */
+function EventRow({
+  message,
+  members,
+  visitorLabel,
+}: Readonly<{ message: DeskMessage; members: DeskWorkspaceMember[]; visitorLabel: string }>) {
+  const comment = message.metadata?.eventType === 'rated' ? message.metadata.ratingComment : null;
+  return (
+    <>
+      <p className="text-xs text-muted-foreground text-center py-2 px-4">
+        {eventSentence(message, members, visitorLabel)} · {format(new Date(message.createdAt), 'HH:mm')}
+      </p>
+      {comment && (
+        <p
+          className="mx-auto -mt-1 mb-2 max-w-md px-4 text-center text-xs italic text-foreground/80 whitespace-pre-wrap break-words"
+          data-testid="desk-inbox-rating-comment"
+        >
+          “{comment}”
+        </p>
+      )}
+    </>
+  );
 }
 
 function sameGroup(a: DeskMessage | undefined, b: DeskMessage): boolean {
@@ -160,9 +234,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
             return (
               <div key={message.clientId ?? message.id}>
                 {showDay && <DaySeparator date={created} />}
-                <p className="text-xs text-muted-foreground text-center py-2 px-4">
-                  {eventSentence(message, members)} · {format(created, 'HH:mm')}
-                </p>
+                <EventRow message={message} members={members} visitorLabel={visitorLabel} />
               </div>
             );
           }
@@ -171,10 +243,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
           const isNote = message.kind === 'note';
           const isBot = message.authorType === 'bot';
           const member = members.find((m) => m.userId === message.authorId);
-          let label: string;
-          if (isVisitor) label = visitorLabel;
-          else if (isBot) label = t.pane.ai;
-          else label = member?.name ?? memberLabel(members, message.authorId) ?? 'Agent';
+          const label = authorLabel(message, members, visitorLabel);
           const grouped = !showDay && sameGroup(prev, message);
           const next = messages[index + 1];
           const lastInGroup = !next || !sameGroup(message, next);
@@ -220,22 +289,7 @@ export function MessagesTimeline({ conversation, messages, members, typing, onRe
                     )}
                   >
                     {message.body}
-                    {message.attachments && message.attachments.length > 0 && (
-                      <div className="mt-2 flex flex-col gap-1">
-                        {message.attachments.map((attachment) => (
-                          <a
-                            key={attachment.url}
-                            href={attachment.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-xs underline underline-offset-2"
-                          >
-                            <Paperclip className="h-3 w-3" />
-                            {attachment.name}
-                          </a>
-                        ))}
-                      </div>
-                    )}
+                    <AttachmentList attachments={message.attachments} spaced={Boolean(message.body)} />
                   </div>
                   {message.pending === 'sending' && (
                     <span className="mt-1 text-[11px] text-muted-foreground">{t.pane.sending}</span>

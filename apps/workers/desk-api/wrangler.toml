@@ -58,6 +58,13 @@ CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 # Help center records on WeldHost domains go to the DNS sandbox D1, never to
 # Cloudflare (@weldsuite/cloudflare-zones/sandbox).
 WELDHOST_DNS_MODE = "sandbox"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+# Files agents attach in the inbox (POST /api/desk/conversations/:id/attachments),
+# served from the public bucket domain in R2_PUBLIC_URL, like widget uploads.
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
 
 # WeldHost DNS sandbox (local dev + test only; never in production). Shared
 # with host-api and billing-worker.
@@ -128,6 +135,11 @@ ENVIRONMENT = "test"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 WELDHOST_DNS_MODE = "sandbox"
+R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
 
 [[env.test.d1_databases]]
 binding = "DNS_SANDBOX"
@@ -192,6 +204,11 @@ routes = [
 ENVIRONMENT = "production"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
+R2_PUBLIC_URL = "https://weldsuite-storage.weldsuite.org"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

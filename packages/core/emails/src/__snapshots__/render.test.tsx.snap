@@ -1794,6 +1794,400 @@ Verandert je situatie, dan kun je in de appstore opnieuw toegang aanvragen. Vrag
 WeldSuite https://weldsuite.org"
 `;
 
+exports[`'sign.code' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Your code to open "Service agreement 2027": 482913
+
+Acme Staffing
+
+Your code to open the document
+
+Service agreement 2027
+
+Enter this code on the signing page:
+
+482913
+
+The code expires in 10 minutes.
+
+If you didn't open a signing link just now, you can ignore this email.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.code' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Je code om "Service agreement 2027" te openen: 482913
+
+Acme Staffing
+
+Je code om het document te openen
+
+Service agreement 2027
+
+Vul deze code in op de ondertekenpagina:
+
+482913
+
+De code verloopt over 10 minuten.
+
+Heb je net geen ondertekenlink geopend, dan kun je deze e-mail negeren.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.completed' / 'attachedForSigner' / 'en' > matches the text snapshot 1`] = `
+""Service agreement 2027" is signed
+
+Acme Staffing
+
+Everyone has signed
+
+Service agreement 2027
+
+The signed document is attached, with a certificate of completion that records who signed and when.
+
+Signed by: Ann de Vries, Bob Smith
+
+Download signed PDF https://sign.weldsuite.org/r/abc123
+
+Or open this link: https://sign.weldsuite.org/r/abc123
+
+Keep this email or the PDF as your copy of the signed document.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.completed' / 'attachedForSigner' / 'nl' > matches the text snapshot 1`] = `
+""Service agreement 2027" is ondertekend
+
+Acme Staffing
+
+Iedereen heeft getekend
+
+Service agreement 2027
+
+Het ondertekende document zit in de bijlage, met een certificaat van voltooiing waarin staat wie wanneer heeft getekend.
+
+Getekend door: Ann de Vries, Bob Smith
+
+Ondertekende pdf downloaden https://sign.weldsuite.org/r/abc123
+
+Of open deze link: https://sign.weldsuite.org/r/abc123
+
+Bewaar deze e-mail of de pdf als jouw exemplaar van het ondertekende document.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.completed' / 'forSender' / 'en' > matches the text snapshot 1`] = `
+""Service agreement 2027" is signed
+
+Everyone has signed
+
+Service agreement 2027
+
+The signed document is attached, with a certificate of completion that records who signed and when.
+
+Signed by: Ann de Vries, Bob Smith
+
+Open the request https://app.weldsuite.org/w/acme/weldsign/sgn_1
+
+Keep this email or the PDF as your copy of the signed document.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.completed' / 'forSender' / 'nl' > matches the text snapshot 1`] = `
+""Service agreement 2027" is ondertekend
+
+Iedereen heeft getekend
+
+Service agreement 2027
+
+Het ondertekende document zit in de bijlage, met een certificaat van voltooiing waarin staat wie wanneer heeft getekend.
+
+Getekend door: Ann de Vries, Bob Smith
+
+Het verzoek openen https://app.weldsuite.org/w/acme/weldsign/sgn_1
+
+Bewaar deze e-mail of de pdf als jouw exemplaar van het ondertekende document.
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.completed' / 'linkOnly' / 'en' > matches the text snapshot 1`] = `
+""Large contract" is signed
+
+Acme Staffing
+
+Everyone has signed
+
+Large contract
+
+Download the signed document with its certificate of completion:
+
+Signed by: Ann de Vries
+
+Download signed PDF https://sign.weldsuite.org/r/def456
+
+Or open this link: https://sign.weldsuite.org/r/def456
+
+Keep this email or the PDF as your copy of the signed document.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.completed' / 'linkOnly' / 'nl' > matches the text snapshot 1`] = `
+""Large contract" is ondertekend
+
+Acme Staffing
+
+Iedereen heeft getekend
+
+Large contract
+
+Download het ondertekende document met het certificaat van voltooiing:
+
+Getekend door: Ann de Vries
+
+Ondertekende pdf downloaden https://sign.weldsuite.org/r/def456
+
+Of open deze link: https://sign.weldsuite.org/r/def456
+
+Bewaar deze e-mail of de pdf als jouw exemplaar van het ondertekende document.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.declined' / 'default' / 'en' > matches the text snapshot 1`] = `
+"Bob Smith declined to sign "Service agreement 2027"
+
+Bob Smith declined to sign
+
+Service agreement 2027
+
+Their reason
+
+The notice period in clause 4 is not what we agreed.
+
+The request is closed; nobody else can sign it. You can send a new request once you have sorted it out.
+
+Open the request https://app.weldsuite.org/w/acme/weldsign/sgn_1
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.declined' / 'default' / 'nl' > matches the text snapshot 1`] = `
+"Bob Smith heeft geweigerd "Service agreement 2027" te ondertekenen
+
+Bob Smith heeft geweigerd te ondertekenen
+
+Service agreement 2027
+
+De reden
+
+The notice period in clause 4 is not what we agreed.
+
+Het verzoek is gesloten; niemand anders kan het nog ondertekenen. Je kunt een nieuw verzoek sturen zodra het is opgelost.
+
+Het verzoek openen https://app.weldsuite.org/w/acme/weldsign/sgn_1
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.expired' / 'default' / 'en' > matches the text snapshot 1`] = `
+""Service agreement 2027" expired before everyone signed
+
+Your signing request expired
+
+Service agreement 2027
+
+Not everyone signed before the expiry date, so the request is closed and its links have stopped working. Send a new request if you still need the signatures.
+
+Not signed by: Bob Smith
+
+Open the request https://app.weldsuite.org/w/acme/weldsign/sgn_1
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.expired' / 'default' / 'nl' > matches the text snapshot 1`] = `
+""Service agreement 2027" is verlopen voordat iedereen had getekend
+
+Je ondertekenverzoek is verlopen
+
+Service agreement 2027
+
+Niet iedereen heeft voor de vervaldatum getekend. Het verzoek is daarom gesloten en de links werken niet meer. Stuur een nieuw verzoek als je de handtekeningen nog nodig hebt.
+
+Niet getekend door: Bob Smith
+
+Het verzoek openen https://app.weldsuite.org/w/acme/weldsign/sgn_1
+
+WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.request' / 'plain' / 'en' > matches the text snapshot 1`] = `
+"Acme Staffing sent you "NDA" to sign
+
+Acme Staffing
+
+Acme Staffing sent you a document to sign
+
+NDA
+
+Review and sign https://sign.weldsuite.org/r/def456
+
+Or open this link: https://sign.weldsuite.org/r/def456
+
+The link in this email is personal. Do not forward it: anyone with it can open and sign the document as you.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.request' / 'plain' / 'nl' > matches the text snapshot 1`] = `
+"Acme Staffing heeft je "NDA" gestuurd om te ondertekenen
+
+Acme Staffing
+
+Acme Staffing heeft je een document gestuurd om te ondertekenen
+
+NDA
+
+Bekijken en ondertekenen https://sign.weldsuite.org/r/def456
+
+Of open deze link: https://sign.weldsuite.org/r/def456
+
+De link in deze e-mail is persoonlijk. Stuur hem niet door: iedereen met de link kan het document openen en als jou ondertekenen.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.request' / 'reminder' / 'en' > matches the text snapshot 1`] = `
+"Reminder: Gert van den Berg is waiting for you to sign "Service agreement 2027"
+
+Acme Staffing
+
+Reminder: Gert van den Berg is waiting for your signature
+
+Service agreement 2027
+
+Review and sign https://sign.weldsuite.org/r/ghi789
+
+Or open this link: https://sign.weldsuite.org/r/ghi789
+
+Sign before Monday, November 23, 2026. After that the link stops working.
+
+The link in this email is personal. Do not forward it: anyone with it can open and sign the document as you.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.request' / 'reminder' / 'nl' > matches the text snapshot 1`] = `
+"Herinnering: Gert van den Berg wacht nog op je handtekening voor "Service agreement 2027"
+
+Acme Staffing
+
+Herinnering: Gert van den Berg wacht nog op je handtekening
+
+Service agreement 2027
+
+Bekijken en ondertekenen https://sign.weldsuite.org/r/ghi789
+
+Of open deze link: https://sign.weldsuite.org/r/ghi789
+
+Onderteken voor maandag 23 november 2026. Daarna werkt de link niet meer.
+
+De link in deze e-mail is persoonlijk. Stuur hem niet door: iedereen met de link kan het document openen en als jou ondertekenen.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.request' / 'withMessage' / 'en' > matches the text snapshot 1`] = `
+"Gert van den Berg sent you "Service agreement 2027" to sign
+
+Acme Staffing
+
+Gert van den Berg sent you a document to sign
+
+Service agreement 2027
+
+Message from Gert van den Berg
+
+Hi Ann,
+Here is the agreement we discussed. Let me know if anything is unclear.
+
+Review and sign https://sign.weldsuite.org/r/abc123
+
+Or open this link: https://sign.weldsuite.org/r/abc123
+
+Sign before Monday, November 23, 2026. After that the link stops working.
+
+The link in this email is personal. Do not forward it: anyone with it can open and sign the document as you.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.request' / 'withMessage' / 'nl' > matches the text snapshot 1`] = `
+"Gert van den Berg heeft je "Service agreement 2027" gestuurd om te ondertekenen
+
+Acme Staffing
+
+Gert van den Berg heeft je een document gestuurd om te ondertekenen
+
+Service agreement 2027
+
+Bericht van Gert van den Berg
+
+Hi Ann,
+Here is the agreement we discussed. Let me know if anything is unclear.
+
+Bekijken en ondertekenen https://sign.weldsuite.org/r/abc123
+
+Of open deze link: https://sign.weldsuite.org/r/abc123
+
+Onderteken voor maandag 23 november 2026. Daarna werkt de link niet meer.
+
+De link in deze e-mail is persoonlijk. Stuur hem niet door: iedereen met de link kan het document openen en als jou ondertekenen.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.voided' / 'default' / 'en' > matches the text snapshot 1`] = `
+""Service agreement 2027" was cancelled
+
+Acme Staffing
+
+Gert van den Berg cancelled this signing request
+
+Service agreement 2027
+
+Their reason
+
+We sent the wrong version. A corrected agreement follows today.
+
+You do not need to sign it any more, and the signing link has stopped working.
+
+Sent via WeldSuite https://weldsuite.org"
+`;
+
+exports[`'sign.voided' / 'default' / 'nl' > matches the text snapshot 1`] = `
+""Service agreement 2027" is ingetrokken
+
+Acme Staffing
+
+Gert van den Berg heeft dit ondertekenverzoek ingetrokken
+
+Service agreement 2027
+
+De reden
+
+We sent the wrong version. A corrected agreement follows today.
+
+Je hoeft het niet meer te ondertekenen, en de ondertekenlink werkt niet meer.
+
+Verzonden via WeldSuite https://weldsuite.org"
+`;
+
 exports[`'task.assigned' / 'full' / 'en' > matches the text snapshot 1`] = `
 "Tom Jansen assigned you: Prepare Q4 budget review
 

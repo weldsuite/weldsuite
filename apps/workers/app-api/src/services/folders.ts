@@ -182,7 +182,12 @@ export async function loadFolderFilesForPurge(db: Database, folderId: string) {
 }
 
 export async function purgeFolder(db: Database, folderId: string) {
-  // Caller deletes R2 objects first via loadFolderFilesForPurge.
+  // Caller deletes R2 objects first via loadFolderFilesForPurge. A spreadsheet's
+  // or document's row references its file, so those rows go first.
+  const inFolder = db.select({ id: files.id }).from(files).where(eq(files.folderId, folderId));
+  await db.delete(schema.sheets).where(inArray(schema.sheets.fileId, inFolder));
+  await db.delete(schema.documentVersions).where(inArray(schema.documentVersions.fileId, inFolder));
+  await db.delete(schema.docs).where(inArray(schema.docs.fileId, inFolder));
   await db.delete(files).where(eq(files.folderId, folderId));
   await db.delete(folders).where(eq(folders.id, folderId));
 }

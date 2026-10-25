@@ -6,7 +6,7 @@
  * generateId so workers keep their own id format.
  */
 
-import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
@@ -65,6 +65,14 @@ function previewOf(body: string | null | undefined): string | null {
   if (!body) return null;
   const trimmed = body.replace(/\s+/g, ' ').trim();
   return trimmed.length > 200 ? `${trimmed.slice(0, 197)}…` : trimmed;
+}
+
+/** List preview for a message that is only files: "📎 name" (+N more). */
+function attachmentPreviewOf(attachments: DeskMessageAttachment[] | undefined): string | null {
+  const [first] = attachments ?? [];
+  if (!first || !attachments) return null;
+  const more = attachments.length > 1 ? ` +${attachments.length - 1}` : '';
+  return previewOf(`📎 ${first.name}${more}`);
 }
 
 async function nextConversationNumber(db: AnyDb): Promise<number> {
@@ -135,6 +143,7 @@ export interface CreateDeskConversationInput {
   contactId?: string | null;
   title?: string | null;
   body: string;
+  attachments?: DeskMessageAttachment[];
   authorType?: DeskAuthorType;
   authorId?: string | null;
   metadata?: DeskMessageMetadata;
@@ -185,6 +194,7 @@ export async function createDeskConversation(
     authorType,
     authorId: input.authorId ?? input.visitorId,
     body: input.body,
+    attachments: input.attachments,
     metadata: input.metadata,
   });
 }
@@ -230,7 +240,8 @@ function progressAfterMessage(
   const next: DeskConversationProgress = {
     ...progressOf(current),
     lastMessageAt: now,
-    lastMessagePreview: previewOf(input.body) ?? current.lastMessagePreview,
+    lastMessagePreview:
+      previewOf(input.body) ?? attachmentPreviewOf(input.attachments) ?? current.lastMessagePreview,
   };
   if (input.authorType === 'visitor') {
     next.waitingSince = now;
@@ -291,6 +302,12 @@ export async function appendDeskMessage(
 
   const now = new Date();
   const next = nextConversationProgress(current, input, now);
+  // The owner is written back only by an event that changes it. Every other
+  // append would put the value read above back over a claim another request
+  // (auto-assignment runs right after a visitor message) made in between.
+  const eventType = input.kind === 'event' ? input.metadata?.eventType : undefined;
+  const ownerPatch =
+    eventType === 'assigned' || eventType === 'unassigned' ? { assigneeId: next.assigneeId } : {};
 
   const messageId = input.generateId('dmsg');
   const assigneePatch = input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : null;
@@ -319,7 +336,7 @@ export async function appendDeskMessage(
       updatedAt: now,
       state: next.state,
       waitingSince: next.waitingSince,
-      assigneeId: next.assigneeId,
+      ...ownerPatch,
       lastMessageAt: next.lastMessageAt,
       lastMessagePreview: next.lastMessagePreview,
     })
@@ -327,6 +344,66 @@ export async function appendDeskMessage(
     .returning();
 
   return { conversation, message };
+}
+
+export const DESK_RATING_MIN = 1;
+export const DESK_RATING_MAX = 5;
+
+/** Why a rating was refused: the conversation is still open, or it was rated already. */
+export class DeskRatingRejectedError extends Error {
+  constructor(readonly reason: 'not_closed' | 'already_rated') {
+    super(reason === 'not_closed' ? 'Only a closed conversation can be rated' : 'This conversation was already rated');
+    this.name = 'DeskRatingRejectedError';
+  }
+}
+
+export interface RateDeskConversationInput {
+  generateId: IdGenerator;
+  conversationId: string;
+  /** Who rated: the widget visitor id. */
+  authorId: string | null;
+  rating: number;
+  comment?: string | null;
+}
+
+/**
+ * Store the visitor's CSAT answer on a closed conversation and put it on the
+ * timeline as a `rated` event. One rating per conversation: the update only
+ * lands while rated_at is still empty, so a double submit can't rate twice.
+ */
+export async function rateDeskConversation(
+  db: AnyDb,
+  input: RateDeskConversationInput,
+): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+  if (!Number.isInteger(input.rating) || input.rating < DESK_RATING_MIN || input.rating > DESK_RATING_MAX) {
+    throw new RangeError(`Rating must be a whole number from ${DESK_RATING_MIN} to ${DESK_RATING_MAX}`);
+  }
+  const [current] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, input.conversationId))
+    .limit(1);
+  if (!current) throw new DeskConversationNotFoundError(input.conversationId);
+  if (current.state !== 'closed') throw new DeskRatingRejectedError('not_closed');
+  if (current.ratedAt) throw new DeskRatingRejectedError('already_rated');
+
+  const comment = input.comment?.trim() || null;
+  const now = new Date();
+  const [rated] = await db
+    .update(conversations)
+    .set({ rating: input.rating, ratingComment: comment, ratedAt: now, updatedAt: now })
+    .where(and(eq(conversations.id, input.conversationId), isNull(conversations.ratedAt)))
+    .returning({ id: conversations.id });
+  if (!rated) throw new DeskRatingRejectedError('already_rated');
+
+  return appendDeskMessage(db, {
+    generateId: input.generateId,
+    conversationId: input.conversationId,
+    kind: 'event',
+    authorType: 'visitor',
+    authorId: input.authorId,
+    metadata: { eventType: 'rated', rating: input.rating, ratingComment: comment },
+  });
 }
 
 export async function findOpenConversationForVisitor(
@@ -405,9 +482,39 @@ export interface ListDeskConversationsQuery {
   unassigned?: boolean;
   channel?: DeskChannel;
   visitorId?: string;
+  /** Exact (case-insensitive) customer email, for "other conversations". */
+  email?: string;
+  /** Free text over customer, subject, number and message text. */
+  q?: string;
   sort?: 'newest' | 'oldest' | 'waiting_longest';
   cursor?: string;
   limit?: number;
+}
+
+/** `%term%` for ILIKE, with the user's own `%`, `_` and `\` taken literally. */
+function likePattern(term: string): string {
+  const escaped = term.replaceAll(/[\\%_]/g, String.raw`\$&`);
+  return `%${escaped}%`;
+}
+
+/**
+ * Inbox search: customer name / email, subject, last preview, the
+ * conversation number ("#42" or "42") and the text of any message or note.
+ */
+function searchCondition(q: string | undefined): SQL | undefined {
+  const term = q?.trim();
+  if (!term) return undefined;
+  const pattern = likePattern(term);
+  const parts: SQL[] = [
+    sql`${conversations.name} ILIKE ${pattern}`,
+    sql`${conversations.email} ILIKE ${pattern}`,
+    sql`${conversations.title} ILIKE ${pattern}`,
+    sql`${conversations.lastMessagePreview} ILIKE ${pattern}`,
+    sql`EXISTS (SELECT 1 FROM ${messages} WHERE ${messages.conversationId} = ${conversations.id} AND ${messages.kind} <> 'event' AND ${messages.body} ILIKE ${pattern})`,
+  ];
+  const number = /^#?(\d{1,9})$/.exec(term);
+  if (number) parts.push(eq(conversations.conversationNumber, Number(number[1])));
+  return or(...parts);
 }
 
 function conversationOrderBy(sort: ListDeskConversationsQuery['sort']) {
@@ -431,6 +538,9 @@ export async function listDeskConversations(
   if (query.unassigned) filters.push(isNull(conversations.assigneeId));
   if (query.channel) filters.push(eq(conversations.channel, query.channel));
   if (query.visitorId) filters.push(eq(conversations.visitorId, query.visitorId));
+  if (query.email) filters.push(sql`lower(${conversations.email}) = ${query.email.trim().toLowerCase()}`);
+  const search = searchCondition(query.q);
+  if (search) filters.push(search);
 
   const where = filters.length > 0 ? and(...filters) : undefined;
 
@@ -759,6 +869,8 @@ export interface IngestDeskEmailInput {
   toAddress: string;
   subject: string;
   body: string;
+  /** Files from the email, already stored where the inbox can open them. */
+  attachments?: DeskMessageAttachment[];
   rfcMessageId: string;
   inReplyTo?: string | null;
   references?: string[];
@@ -804,6 +916,7 @@ export async function ingestDeskEmail(
       authorType: 'visitor',
       authorId: visitor.id,
       body: input.body,
+      attachments: input.attachments,
       metadata: {
         ...emailMeta,
         emailThreadMessageId: undefined,
@@ -820,6 +933,7 @@ export async function ingestDeskEmail(
     email: fromEmail,
     title,
     body: input.body,
+    attachments: input.attachments,
     authorType: 'visitor',
     authorId: visitor.id,
     metadata: emailMeta,
@@ -866,6 +980,8 @@ export interface PublicDeskConversation {
   /** True when the last public message came from the team (ball in the visitor's court). */
   lastMessageFromTeam: boolean;
   assignee: DeskAuthorInfo | null;
+  /** The visitor's CSAT answer (1–5), null until they rate a closed conversation. */
+  rating: number | null;
 }
 
 function toIso(value: Date | string | null | undefined): string | null {
@@ -925,5 +1041,6 @@ export function toPublicDeskConversation(
     lastMessagePreview: conversation.lastMessagePreview,
     lastMessageFromTeam: conversation.waitingSince === null && conversation.lastMessageAt !== null,
     assignee: conversation.assigneeId ? authors.get(conversation.assigneeId) ?? null : null,
+    rating: conversation.rating ?? null,
   };
 }

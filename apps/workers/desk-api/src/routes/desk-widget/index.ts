@@ -10,7 +10,11 @@ import { zValidator } from '@hono/zod-validator';
 import { eq } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { createDeskWidgetSchema, updateDeskWidgetSchema } from '@weldsuite/core-api-client/schemas/desk-widget';
+import {
+  createDeskWidgetSchema,
+  updateDeskWidgetSchema,
+  type UpdateDeskWidgetInput,
+} from '@weldsuite/core-api-client/schemas/desk-widget';
 import { isDeskSchemaMissing } from '@weldsuite/db/lib/desk';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -101,7 +105,22 @@ app.get('/:widgetId', requirePermission('settings:read'), async (c) => {
   }
 });
 
-app.patch('/:widgetId', requirePermission('settings:update'), zValidator('json', updateDeskWidgetSchema), async (c) => {
+/** The columns a PATCH body changes: only the fields it sends; an empty away message clears it. */
+function widgetSettingsPatch(data: UpdateDeskWidgetInput) {
+  return {
+    ...(data.widgetName !== undefined ? { widgetName: data.widgetName } : {}),
+    ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
+    ...(data.greeting !== undefined ? { greeting: data.greeting } : {}),
+    ...(data.branding !== undefined ? { branding: data.branding } : {}),
+    ...(data.allowedDomains !== undefined ? { allowedDomains: data.allowedDomains } : {}),
+    ...(data.officeHours !== undefined ? { officeHours: data.officeHours } : {}),
+    ...(data.timezone !== undefined ? { timezone: data.timezone } : {}),
+    ...(data.awayMessage !== undefined ? { awayMessage: data.awayMessage || null } : {}),
+    ...(data.expectedReplyTime !== undefined ? { expectedReplyTime: data.expectedReplyTime } : {}),
+  };
+}
+
+app.patch('/:widgetId',requirePermission('settings:update'), zValidator('json', updateDeskWidgetSchema), async (c) => {
   const db = c.get('tenantDb');
   const widgetId = c.req.param('widgetId');
   const data = c.req.valid('json');
@@ -111,14 +130,7 @@ app.patch('/:widgetId', requirePermission('settings:update'), zValidator('json',
 
     const [updated] = await db
       .update(widgets)
-      .set({
-        updatedAt: new Date(),
-        ...(data.widgetName !== undefined ? { widgetName: data.widgetName } : {}),
-        ...(data.enabled !== undefined ? { enabled: data.enabled } : {}),
-        ...(data.greeting !== undefined ? { greeting: data.greeting } : {}),
-        ...(data.branding !== undefined ? { branding: data.branding } : {}),
-        ...(data.allowedDomains !== undefined ? { allowedDomains: data.allowedDomains } : {}),
-      })
+      .set({ updatedAt: new Date(), ...widgetSettingsPatch(data) })
       .where(eq(widgets.id, existing.id))
       .returning();
 

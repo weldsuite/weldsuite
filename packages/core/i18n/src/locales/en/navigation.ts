@@ -154,6 +154,13 @@ export const navigation = {
       weldsheets: {
         spreadsheets: 'Spreadsheets',
       },
+      weldsign: {
+        envelopes: 'Signature requests',
+        templates: 'Templates',
+      },
+      welddocs: {
+        documents: 'Documents',
+      },
       weldhr: {
         me: {
           overview: 'Overview',
@@ -211,6 +218,8 @@ export const navigation = {
         phoneSettings: 'Phone settings',
         helpCenter: 'Help Center',
         articles: 'Articles',
+        savedReplies: 'Saved replies',
+        assignment: 'Assignment',
       },
       weldmeet: {
         newMeeting: 'New Meeting',

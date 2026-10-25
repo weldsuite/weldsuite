@@ -137,6 +137,22 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Productivity',
     path: '/weldsheets',
   },
+  weldsign: {
+    code: 'weldsign',
+    name: 'WeldSign',
+    description: 'Send PDFs for electronic signature and get them back signed, with a full audit trail',
+    icon: 'Signature',
+    category: 'Productivity',
+    path: '/weldsign',
+  },
+  welddocs: {
+    code: 'welddocs',
+    name: 'WeldDocs',
+    description: 'Documents with rich formatting, pages, headers and footers, tables and live co-editing',
+    icon: 'FileText',
+    category: 'Productivity',
+    path: '/welddocs',
+  },
   weldreach: {
     code: 'weldreach',
     name: 'WeldReach',

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
 import { Button } from '@weldsuite/ui/components/button';
 import { Toggle } from '@weldsuite/ui/components/toggle';
@@ -14,7 +15,9 @@ import {
   type ConversationItem,
 } from '@/components/shared/conversation-list';
 import {
+  useDeskAssignment,
   useDeskConversations,
+  useSetDeskAway,
   type DeskConversation,
   type DeskConversationFilters,
   type DeskConversationSort,
@@ -31,6 +34,8 @@ interface ConversationListProps {
   onSortChange: (sort: DeskConversationSort) => void;
   assigneeFilter: InboxAssigneeFilter;
   onAssigneeFilterChange: (filter: InboxAssigneeFilter) => void;
+  /** Search runs server-side over every conversation, not just loaded pages. */
+  onSearchChange: (query: string) => void;
   selectedId?: string;
   onSelect: (id: string) => void;
 }
@@ -77,6 +82,42 @@ function conversationToItem(conversation: DeskConversation, t: ReturnType<typeof
   };
 }
 
+/**
+ * "Available / Away" for teammates in the auto-assignment rotation: away
+ * means new conversations skip you. Hidden when auto-assignment is off or
+ * you aren't in the rotation.
+ */
+function AvailabilityToggle() {
+  const t = getTranslations('deskInbox2');
+  const { data: assignment } = useDeskAssignment();
+  const setAway = useSetDeskAway();
+  if (!assignment || assignment.mode === 'off' || !assignment.me.inRotation) return null;
+  const away = assignment.me.away;
+
+  const toggle = async () => {
+    try {
+      await setAway.mutateAsync(!away);
+      toast.success(away ? t.assignment.nowAvailable : t.assignment.nowAway);
+    } catch {
+      toast.error(t.assignment.awayError);
+    }
+  };
+
+  return (
+    <Button
+      variant="outline"
+      className="h-8 px-2.5 shadow-none gap-1.5 text-sm"
+      onClick={() => void toggle()}
+      disabled={setAway.isPending}
+      title={t.assignment.yourStatus}
+      data-testid="desk-inbox-availability"
+    >
+      <span className={cn('h-2 w-2 rounded-full', away ? 'bg-muted-foreground/50' : 'bg-emerald-500')} />
+      {away ? t.assignment.away : t.assignment.available}
+    </Button>
+  );
+}
+
 export function ConversationList({
   filters,
   state,
@@ -85,6 +126,7 @@ export function ConversationList({
   onSortChange,
   assigneeFilter,
   onAssigneeFilterChange,
+  onSearchChange,
   selectedId,
   onSelect,
 }: Readonly<ConversationListProps>) {
@@ -211,7 +253,13 @@ export function ConversationList({
       selectedId={selectedId}
       getItemUrl={(item) => `/welddesk/inbox/${item.id}`}
       onItemClick={(item) => onSelect(item.id)}
-      filterContent={filterContent}
+      filterContent={
+        <>
+          {filterContent}
+          <AvailabilityToggle />
+        </>
+      }
+      onSearchChange={onSearchChange}
       error={isError ? t.list.loadError : null}
       isLoading={isLoading}
       emptyMessage={t.list.empty}

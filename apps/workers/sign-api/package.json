@@ -1,0 +1,40 @@
+{
+  "name": "sign-api",
+  "license": "AGPL-3.0-only",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:test": "wrangler deploy --env test",
+    "dev": "wrangler dev --port 8823",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.4.0",
+    "@weldsuite/api-modules": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/crm-domain": "workspace:*",
+    "@weldsuite/db": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
+    "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/mail-domain": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "hono": "4.13.13",
+    "pdf-lib": "^1.17.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250110.0",
+    "@types/node": "^20",
+    "typescript": "^5.7",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.95.0"
+  }
+}

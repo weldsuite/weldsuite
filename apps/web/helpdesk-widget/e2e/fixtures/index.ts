@@ -335,12 +335,18 @@ export interface MessengerApiOptions {
   configFailures?: number;
   /** Answer message sends with a 500. */
   failSend?: boolean;
+  /** Fields merged over `messengerConfig` (office hours, away message, reply time). */
+  config?: Record<string, unknown>;
+  /** Start with one conversation the team already closed, ready to rate. */
+  closedConversation?: boolean;
 }
 
 export interface MessengerApiStats {
   configRequests: number;
   sendRequests: number;
   identifyRequests: number;
+  /** Bodies POSTed to /api/conversations/:id/rating. */
+  ratings: Array<{ rating?: number; comment?: string }>;
 }
 
 /**
@@ -349,7 +355,7 @@ export interface MessengerApiStats {
  * messenger actually renders. Returns live request counters.
  */
 export async function setupMessengerApi(page: Page, options: MessengerApiOptions = {}): Promise<MessengerApiStats> {
-  const stats: MessengerApiStats = { configRequests: 0, sendRequests: 0, identifyRequests: 0 };
+  const stats: MessengerApiStats = { configRequests: 0, sendRequests: 0, identifyRequests: 0, ratings: [] };
   const ok = (data: unknown) => ({
     status: 200,
     contentType: 'application/json',
@@ -367,6 +373,7 @@ export async function setupMessengerApi(page: Page, options: MessengerApiOptions
     lastMessagePreview: null,
     lastMessageFromTeam: false,
     assignee: null,
+    rating: null,
   });
   const visitorMessage = (body: string, clientId: string | null) => ({
     id: `msg-${Date.now()}`,
@@ -384,13 +391,30 @@ export async function setupMessengerApi(page: Page, options: MessengerApiOptions
 
   const sent: ReturnType<typeof visitorMessage>[] = [];
 
+  // A conversation the team already closed (only with `closedConversation`).
+  let closed: (Record<string, unknown> & { id: string; rating: number | null }) | null = options.closedConversation
+    ? { ...conversation(), id: 'conv-closed', state: 'closed', title: 'Order question', lastMessagePreview: 'All sorted!', rating: null }
+    : null;
+  const closedThread = [
+    { ...visitorMessage('Where is my order?', null), id: 'msg-c1', conversationId: 'conv-closed' },
+    {
+      ...visitorMessage('', null),
+      id: 'msg-c2',
+      conversationId: 'conv-closed',
+      kind: 'event',
+      body: null,
+      authorType: 'agent',
+      eventType: 'closed',
+    },
+  ];
+
   await page.route((url) => url.pathname === '/api/config', async (route) => {
     stats.configRequests++;
     if (stats.configRequests <= (options.configFailures ?? 0)) {
       await route.fulfill(fail);
       return;
     }
-    await route.fulfill(ok(messengerConfig));
+    await route.fulfill(ok({ ...messengerConfig, ...options.config }));
   });
 
   await page.route((url) => url.pathname.startsWith('/api/conversations'), async (route) => {
@@ -401,6 +425,25 @@ export async function setupMessengerApi(page: Page, options: MessengerApiOptions
     if (path === '/api/conversations/identify') {
       stats.identifyRequests++;
       await route.fulfill(ok({ visitor: { id: 'visitor-1', name: null, email: input.email ?? null } }));
+      return;
+    }
+    if (closed && path === `/api/conversations/${closed.id}/rating`) {
+      const body = request.postDataJSON() as { rating?: number; comment?: string };
+      stats.ratings.push(body);
+      closed = { ...closed, rating: body.rating ?? null };
+      const event = {
+        ...closedThread[1],
+        id: 'msg-c3',
+        authorType: 'visitor',
+        eventType: 'rated',
+        createdAt: now(),
+      };
+      closedThread.push(event);
+      await route.fulfill({ ...ok({ conversation: closed, message: event }), status: 201 });
+      return;
+    }
+    if (closed && path === `/api/conversations/${closed.id}`) {
+      await route.fulfill(ok({ conversation: closed, messages: closedThread }));
       return;
     }
     if (request.method() === 'POST') {
@@ -415,7 +458,7 @@ export async function setupMessengerApi(page: Page, options: MessengerApiOptions
       return;
     }
     if (path === '/api/conversations') {
-      await route.fulfill(ok(sent.length > 0 ? [conversation()] : []));
+      await route.fulfill(ok([...(sent.length > 0 ? [conversation()] : []), ...(closed ? [closed] : [])]));
       return;
     }
     await route.fulfill(ok({ conversation: conversation(), messages: sent }));

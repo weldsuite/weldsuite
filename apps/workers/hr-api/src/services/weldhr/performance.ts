@@ -231,11 +231,16 @@ export async function deleteEvaluationForm(db: Database, id: string) {
   await db.update(ef).set({ deletedAt: now, updatedAt: now }).where(eq(ef.id, id));
 }
 
+/**
+ * Seed the quality scorecard for a new workspace.
+ * The rows have fixed ids and the insert skips ids that exist, so requests
+ * racing on a fresh workspace (both probes see nothing) still seed one set.
+ */
 export async function ensureDefaultEvaluationForm(db: Database) {
   const [existing] = await db.select({ id: ef.id }).from(ef).limit(1);
   if (existing) return;
   await db.insert(ef).values({
-    id: generateId('hrevf'),
+    id: 'hrevf_default_scorecard',
     name: 'Quality scorecard',
     description: 'Monthly quality and performance review.',
     criteria: [
@@ -245,7 +250,7 @@ export async function ensureDefaultEvaluationForm(db: Database) {
       { id: 'reliability', label: 'Attendance and reliability', weight: 15, maxScore: 5 },
       { id: 'teamwork', label: 'Teamwork', weight: 10, maxScore: 5 },
     ],
-  });
+  }).onConflictDoNothing();
 }
 
 // ---------------------------------------------------------------------------
@@ -503,15 +508,20 @@ export async function deleteKpiDefinition(db: Database, id: string) {
   return { archived: false };
 }
 
+/**
+ * Seed the contact-centre KPIs for a new workspace.
+ * The rows have fixed ids and the insert skips ids that exist, so requests
+ * racing on a fresh workspace (both probes see nothing) still seed one set.
+ */
 export async function ensureDefaultKpis(db: Database) {
   const [existing] = await db.select({ id: kd.id }).from(kd).limit(1);
   if (existing) return;
   await db.insert(kd).values([
-    { id: generateId('hrkpi'), name: 'CSAT', unit: 'percent', direction: 'higher_better', target: 90, description: 'Customer satisfaction score' },
-    { id: generateId('hrkpi'), name: 'Quality score', unit: 'percent', direction: 'higher_better', target: 85 },
-    { id: generateId('hrkpi'), name: 'Average handle time', unit: 'seconds', direction: 'lower_better', target: 360 },
-    { id: generateId('hrkpi'), name: 'First contact resolution', unit: 'percent', direction: 'higher_better', target: 75 },
-  ]);
+    { id: 'hrkpi_default_csat', name: 'CSAT', unit: 'percent', direction: 'higher_better', target: 90, description: 'Customer satisfaction score' },
+    { id: 'hrkpi_default_quality', name: 'Quality score', unit: 'percent', direction: 'higher_better', target: 85 },
+    { id: 'hrkpi_default_aht', name: 'Average handle time', unit: 'seconds', direction: 'lower_better', target: 360 },
+    { id: 'hrkpi_default_fcr', name: 'First contact resolution', unit: 'percent', direction: 'higher_better', target: 75 },
+  ]).onConflictDoNothing();
 }
 
 function isOnTarget(direction: string, value: number, target: number): boolean {

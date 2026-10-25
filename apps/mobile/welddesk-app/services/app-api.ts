@@ -8,6 +8,7 @@ import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspace
 import { createDashboardApi } from '@weldsuite/app-api-client/domains/dashboard';
 import { createMeApi } from '@weldsuite/app-api-client/domains/me';
 import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
+import { createChatMembersApi } from '@weldsuite/app-api-client/domains/chat-members';
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
 
 export const APP_API_URL = process.env.EXPO_PUBLIC_APP_API_URL || 'http://localhost:8789';
@@ -42,6 +43,7 @@ export const appApi = {
   me: createMeApi(client),
   pushTokens: createPushTokensApi(client),
   notifications: createNotificationsApi(client),
+  members: createChatMembersApi(client),
 };
 
 export { client as appApiClient };

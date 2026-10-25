@@ -30,11 +30,11 @@ const VERCEL_APPS = {
   'api-docs': 'weldsuite-api-docs',
   'booking-portal': 'booking-portal',
   docs: 'weldsuite-docs',
-  helpcenter: 'weldsuite-helpcenter',
   'helpdesk-widget': 'weldsuite-helpdesk-widget',
   'hr-portal': 'weldsuite-hr-portal',
   'meeting-portal': 'meeting-portal',
   partner: 'weldsuite-partner',
+  'sign-portal': 'weldsuite-sign-portal',
 };
 
 // Files outside any workspace package that change how every app installs or builds.

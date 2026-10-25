@@ -3,6 +3,7 @@ import { and, isNotNull, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../index';
 import { success } from '../lib/response';
 import { schema } from '../db';
+import { officeHoursAvailability } from '../lib/office-hours';
 
 export const configRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -49,5 +50,8 @@ configRoutes.get('/', async (c) => {
     showBranding: !c.get('removeBranding'),
     realtimeUrl: c.env.REALTIME_PUBLIC_URL ?? null,
     team,
+    availability: officeHoursAvailability(widgetConfig.officeHours, widgetConfig.timezone),
+    awayMessage: widgetConfig.awayMessage?.trim() || null,
+    expectedReplyTime: widgetConfig.expectedReplyTime ?? null,
   });
 });

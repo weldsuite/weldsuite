@@ -22,6 +22,12 @@ import partnerInvitation from './partner/invitation';
 import portalSignIn from './portal/sign-in';
 import reachAccessApproved from './reach/access-approved';
 import reachAccessRejected from './reach/access-rejected';
+import signCode from './sign/code';
+import signCompleted from './sign/completed';
+import signDeclined from './sign/declined';
+import signExpired from './sign/expired';
+import signRequest from './sign/request';
+import signVoided from './sign/voided';
 import taskAssigned from './task/assigned';
 import workspaceInvitation from './workspace/invitation';
 
@@ -45,6 +51,12 @@ export const templates = {
   'internal.outbound-abuse-alert': outboundAbuseAlert,
   'reach.access-approved': reachAccessApproved,
   'reach.access-rejected': reachAccessRejected,
+  'sign.request': signRequest,
+  'sign.code': signCode,
+  'sign.completed': signCompleted,
+  'sign.declined': signDeclined,
+  'sign.voided': signVoided,
+  'sign.expired': signExpired,
 };
 
 export type TemplateId = keyof typeof templates;
@@ -70,5 +82,11 @@ export type { PartnerInvitationEmailProps } from './partner/invitation';
 export type { PortalSignInEmailProps } from './portal/sign-in';
 export type { ReachAccessApprovedEmailProps } from './reach/access-approved';
 export type { ReachAccessRejectedEmailProps } from './reach/access-rejected';
+export type { SignCodeEmailProps } from './sign/code';
+export type { SignCompletedEmailProps } from './sign/completed';
+export type { SignDeclinedEmailProps } from './sign/declined';
+export type { SignExpiredEmailProps } from './sign/expired';
+export type { SignRequestEmailProps } from './sign/request';
+export type { SignVoidedEmailProps } from './sign/voided';
 export type { TaskAssignedEmailProps } from './task/assigned';
 export type { WorkspaceInvitationEmailProps } from './workspace/invitation';

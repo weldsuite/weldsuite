@@ -36,9 +36,29 @@ export interface ToolContext {
   userTimezone?: string | null;
   /** The chatting user's permissions: setup may grant the agent only what they hold. */
   actorPermissions?: string[] | null;
+  /**
+   * False when the person driving this turn may not change the agent (not its
+   * owner or a manager): the setup, routine, skill and memory tools refuse.
+   * Unset for unattended runs, which keep maintaining their own agent.
+   */
+  actorCanEdit?: boolean;
   agentHop?: number;
   maxAgentHops?: number;
 }
+
+/**
+ * Tools that change the agent itself. Its routes are owner-only
+ * (`canEditAgent`), so a teammate chatting with it gets none of these.
+ */
+export const AGENT_EDIT_TOOL_IDS: ReadonlySet<string> = new Set([
+  'agent.save_setup',
+  'agent.save_skill',
+  'agent.remember',
+  'agent.create_routine',
+  'agent.update_routine',
+]);
+
+const NOT_EDITOR = { error: "Only this agent's owner can change it." };
 
 export interface PlatformToolDefinition {
   id: string;
@@ -194,7 +214,7 @@ const saveAgentSetupParams = z.object({
     .boolean()
     .optional()
     .describe(
-      'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false (stay draft).',
+      'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false: the agent keeps its current status (a draft stays a draft, an active agent stays active).',
     ),
 });
 
@@ -208,6 +228,17 @@ const updateRoutineParams = z.object({
   requireApproval: z.boolean().optional(),
 });
 
+/** What save_agent_setup tells the model to confirm, given the status after saving. */
+function saveSetupHint(status: string, activated: boolean): string {
+  if (status === 'paused') {
+    return 'Setup saved; you are still paused. Confirm briefly; they can turn you back on with the Activate button.';
+  }
+  if (status !== 'active') return 'Setup saved as draft. Confirm briefly; ask if they want you activated.';
+  return activated
+    ? 'Setup saved and activated. Confirm briefly with the user.'
+    : 'Setup saved; you are still active. Confirm briefly with the user.';
+}
+
 export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
   {
     id: 'agent.save_setup',
@@ -219,6 +250,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     requiredPermissions: [],
     parameters: saveAgentSetupParams,
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = saveAgentSetupParams.parse(raw);
       const { updateAgent, getAgent } = await import('./agents');
       const { extractEventSubscriptions } = await import('./subscriptions');
@@ -252,7 +284,9 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         description: args.description?.trim() || existing.description,
         permissions,
         eventSubscriptions,
-        ...(args.activate ? { status: 'active' as const } : { status: 'draft' as const }),
+        // Saving only turns an agent on, never off: re-saving the setup of a
+        // live agent from its chat must not pause it and stop its routines.
+        ...(args.activate ? { status: 'active' as const } : {}),
       });
       if (!updated) return { error: 'Failed to save agent setup' };
       await reindexAgentRoutines(routineIndexSync(ctx.env, ctx.workspaceId), ctx.db, ctx.agentId);
@@ -272,9 +306,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
                 'Tell the user these were not granted (they lack them or they do not exist); an admin can add them under Settings → Access.',
             }
           : {}),
-        hint: args.activate
-          ? 'Setup saved and activated. Confirm briefly with the user.'
-          : 'Setup saved as draft. Confirm briefly; ask if they want you activated.',
+        hint: saveSetupHint(updated.status, Boolean(args.activate)),
       };
     },
   },
@@ -329,6 +361,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     requiredPermissions: [],
     parameters: updateRoutineParams,
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const { routineId, ...changes } = updateRoutineParams.parse(raw);
       const { getRoutine, updateRoutine, routineScheduleError } = await import('./parity');
       const existing = await getRoutine(ctx.db, routineId);
@@ -367,6 +400,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       activate: z.boolean().optional(),
     }),
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = z
         .object({
           name: z.string().min(2).max(255),
@@ -398,6 +432,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       content: z.string().min(1).max(5000),
     }),
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = z
         .object({
           kind: z.enum(['preference', 'fact', 'summary', 'correction']).default('preference'),
@@ -437,6 +472,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       connectorRepo: z.string().max(200).optional(),
     }),
     async execute(ctx, raw) {
+      if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = z
         .object({
           name: z.string().min(2).max(255),
@@ -973,6 +1009,8 @@ export function effectiveAgentPermissions(
 export function resolveAgentTools(
   agentPermissions: string[],
   enabledTools: string[] = [],
+  /** False drops the tools that change the agent (see AGENT_EDIT_TOOL_IDS). */
+  canEdit = true,
 ): PlatformToolDefinition[] {
   const alwaysOn = new Set([
     'agent.ask_user',
@@ -985,6 +1023,7 @@ export function resolveAgentTools(
   ]);
   const allowList = explicitToolAllowList(enabledTools);
   return PLATFORM_TOOLS.filter((tool) => {
+    if (!canEdit && AGENT_EDIT_TOOL_IDS.has(tool.id)) return false;
     if (alwaysOn.has(tool.id)) return true;
     if (allowList.length > 0 && !allowList.includes(tool.id)) return false;
     return agentHasGrants(agentPermissions, tool.requiredPermissions);

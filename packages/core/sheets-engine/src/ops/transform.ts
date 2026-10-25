@@ -37,6 +37,8 @@ import {
   renameSheetInFormula,
 } from '../formula/references';
 import type { DefinedName } from '../model/workbook';
+import { mapFilterFormulas, mapFormatFormulas, mapValidationFormulas } from '../model/rules';
+import { anchorAfter, mapChartFormulas } from '../model/charts';
 import { nameKey, NOOP, normalize, type CellPatch, type NameKey, type Op } from './types';
 
 export function transform(op: Op, against: Op, opWins: boolean): Op {
@@ -109,7 +111,26 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
       return (a.type === 'setNames' || a.type === 'patchNames') && !aWins ? NOOP : a;
     case 'patchNames':
       return overPatchNames(a, b, aWins);
+    case 'setFilter':
+      return a.type === 'setFilter' && a.sheetId === b.sheetId && !aWins ? NOOP : a;
+    case 'patchConditionalFormats':
+    case 'patchValidations':
+    case 'patchCharts':
+      return overPatchRules(a, b, aWins);
   }
+}
+
+type RuleOp = OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>;
+type RulePatch = OpOf<'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>;
+
+/** Two patches of one sheet's rules: the later one decides each rule both touch, so a losing patch drops those. */
+function overPatchRules(a: Simple, b: RulePatch, aWins: boolean): Op {
+  if (aWins || a.type !== b.type || a.sheetId !== b.sheetId) return a;
+  const taken = new Set([...(b.set ?? []).map((r) => r.id), ...(b.remove ?? [])]);
+  const out = { ...a };
+  if (out.set) out.set = (out.set as { id: string }[]).filter((r) => !taken.has(r.id)) as typeof out.set;
+  if (out.remove) out.remove = out.remove.filter((id) => !taken.has(id));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +139,7 @@ function transformSimple(a: Simple, b: Simple, aWins: boolean): Op {
 
 type Structural = OpOf<'insertDims' | 'deleteDims' | 'moveDims'>;
 /** Ops that belong to one sheet. */
-type SheetOp = Exclude<Simple, { type: 'setCells' | 'setNames' | 'patchNames' }>;
+type SheetOp = Exclude<Simple, { type: 'setCells' | 'setNames' | 'patchNames' } | RuleOp>;
 /** Ops on one axis of one sheet. */
 type AxisOp = OpOf<'resizeDims' | 'hideDims' | 'insertDims' | 'deleteDims' | 'moveDims'>;
 
@@ -131,6 +152,11 @@ function overStructural(a: Simple, b: Structural, aWins: boolean): Op {
       const formula = formulaAdjuster(b);
       return mapNames(a, (n) => ({ ...n, formula: formula(n.formula, n.sheetId ?? '') }));
     }
+    case 'setFilter':
+    case 'patchConditionalFormats':
+    case 'patchValidations':
+    case 'patchCharts':
+      return rulesAfter(a, b);
     default:
       // Everything else changes only when it is about b's own sheet.
       return a.sheetId === b.sheetId ? sameSheetAfter(a, b, aWins) : a;
@@ -166,6 +192,55 @@ function formulaAdjuster(b: Structural): (f: string, hostSheetId: string) => str
           to: b.to,
         });
     }
+  };
+}
+
+/**
+ * A filter or rule op past a row/column change: its formulas follow on every
+ * sheet, its ranges on b's own (as the engine moves existing rules: a range a
+ * move splits keeps the span its cells now cover; one left without cells goes).
+ */
+function rulesAfter(a: RuleOp, b: Structural): Op {
+  const adjust = formulaAdjuster(b);
+  const moved = mapFormulas(a, (f) => adjust(f, a.sheetId)) as RuleOp;
+  if (moved.sheetId !== b.sheetId) return moved;
+  const range = (r: Range): Range | null => spanOf(mapRange(r, b));
+  const ranges = <T extends { ranges: Range[] }>(rule: T): T[] => {
+    const next = rule.ranges.map(range).filter((r): r is Range => r !== null);
+    return next.length ? [{ ...rule, ranges: next }] : [];
+  };
+  switch (moved.type) {
+    case 'setFilter':
+      return filterAfter(moved, b, range);
+    case 'patchConditionalFormats':
+      return moved.set ? { ...moved, set: moved.set.flatMap(ranges) } : moved;
+    case 'patchValidations':
+      return moved.set ? { ...moved, set: moved.set.flatMap(ranges) } : moved;
+    case 'patchCharts': {
+      const index = indexMapper(b);
+      const max = b.axis === 'row' ? MAX_ROWS : MAX_COLS;
+      return moved.set ? { ...moved, set: moved.set.map((c) => ({ ...c, anchor: anchorAfter(c.anchor, b.axis, index, max) })) } : moved;
+    }
+  }
+}
+
+function filterAfter(a: OpOf<'setFilter'>, b: Structural, range: (r: Range) => Range | null): Op {
+  if (!a.filter) return a;
+  const r = range(a.filter.range);
+  if (!r) return { ...a, filter: null };
+  const index = b.axis === 'col' ? indexMapper(b) : (i: number) => i;
+  const columns = a.filter.columns.flatMap((c) => (index(c.col) < 0 ? [] : [{ ...c, col: index(c.col) }]));
+  return { ...a, filter: { range: r, columns } };
+}
+
+/** The smallest range covering all of `rs`, or null for none. */
+function spanOf(rs: Range[]): Range | null {
+  if (rs.length === 0) return null;
+  return {
+    r1: Math.min(...rs.map((r) => r.r1)),
+    c1: Math.min(...rs.map((r) => r.c1)),
+    r2: Math.max(...rs.map((r) => r.r2)),
+    c2: Math.max(...rs.map((r) => r.c2)),
   };
 }
 
@@ -485,6 +560,14 @@ function mapFormulas(a: Simple, fn: (f: string) => string): Simple {
     case 'setNames':
     case 'patchNames':
       return mapNames(a, (n) => ({ ...n, formula: fn(n.formula) }));
+    case 'setFilter':
+      return a.filter ? { ...a, filter: mapFilterFormulas(a.filter, fn) } : a;
+    case 'patchConditionalFormats':
+      return a.set ? { ...a, set: a.set.map((cf) => mapFormatFormulas(cf, fn)) } : a;
+    case 'patchValidations':
+      return a.set ? { ...a, set: a.set.map((dv) => mapValidationFormulas(dv, fn)) } : a;
+    case 'patchCharts':
+      return a.set ? { ...a, set: a.set.map((c) => mapChartFormulas(c, fn)) } : a;
     default:
       return a;
   }

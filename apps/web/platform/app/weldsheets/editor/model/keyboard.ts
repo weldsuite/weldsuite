@@ -93,10 +93,17 @@ function handlePlainKey(ctl: SheetController, e: KeyInput, pageRows: number): bo
     case 'PageUp':
       ctl.move(-pageRows, 0, { extend: e.shiftKey });
       return true;
-    case ' ':
-      if (!e.shiftKey) return false;
-      selectWholeRows(ctl);
+    case ' ': {
+      if (e.shiftKey) {
+        selectWholeRows(ctl);
+        return true;
+      }
+      // Space ticks a checkbox cell instead of starting to type.
+      const { row, col } = ctl.selection.active;
+      if (ctl.validationAt(row, col)?.criteria.type !== 'checkbox') return false;
+      ctl.toggleCheckbox(row, col);
       return true;
+    }
     default:
       return false;
   }
@@ -133,20 +140,20 @@ export function handleEditKey(ctl: SheetController, e: KeyInput): boolean {
       ctl.fillSelection(edit.text);
       return true;
     }
-    ctl.commitEdit();
-    ctl.advance(e.shiftKey ? -1 : 1, 0);
-    return true;
+    const step = e.shiftKey ? -1 : 1;
+    return commitThen(ctl, () => ctl.advance(step, 0));
   }
   if (e.key === 'Tab') {
-    ctl.commitEdit();
-    ctl.advance(0, e.shiftKey ? -1 : 1);
-    return true;
+    const step = e.shiftKey ? -1 : 1;
+    return commitThen(ctl, () => ctl.advance(0, step));
   }
   const arrow = ARROWS[e.key];
-  if (arrow && edit.replace && !edit.text.startsWith('=')) {
-    ctl.commitEdit();
-    ctl.move(arrow[0], arrow[1]);
-    return true;
-  }
+  if (arrow && edit.replace && !edit.text.startsWith('=')) return commitThen(ctl, () => ctl.move(arrow[0], arrow[1]));
   return false;
+}
+
+/** Commits the edit, then moves on; an edit a validation rule refused stays open where it is. */
+function commitThen(ctl: SheetController, move: () => void): true {
+  if (ctl.commitEdit()) move();
+  return true;
 }

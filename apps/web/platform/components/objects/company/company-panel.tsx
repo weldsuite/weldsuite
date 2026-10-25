@@ -62,6 +62,7 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfigureTabsSubmenu } from '@/components/objects/_shared/configure-tabs-submenu';
+import { SendForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { EditableEntityAvatar } from '@/components/objects/editable-entity-avatar';
@@ -180,7 +181,8 @@ type TabConfigEntry = {
   defaultVisible: boolean;
 };
 
-function CompanyActions({
+/** The header actions of a company: email, call and the kebab menu. */
+export function CompanyActions({
   company,
   onArchiveToggle,
   onDelete,
@@ -260,6 +262,7 @@ function CompanyActions({
         {/* Stock shadcn menu: default widths, default icon sizing, the stock
             destructive item, and the tab toggles as a stock checkbox submenu. */}
         <DropdownMenuContent align="end">
+          <SendForSignatureItem source={{ entityType: 'company', id: company.id, name: company.displayName }} />
           <ConfigureTabsSubmenu
             tabs={tabFields}
             isTabVisible={isTabVisible}

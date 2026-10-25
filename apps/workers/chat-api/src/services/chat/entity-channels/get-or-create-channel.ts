@@ -2,18 +2,27 @@ import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getEntityProvider, type ResolvedEntityInfo } from './registry';
+import { addFollowers, defaultFollowersWhoMayOpen } from './followers';
+import {
+  getEntityProvider,
+  type PermissionCheck,
+  type ResolvedEntityInfo,
+} from '@weldsuite/chat-domain/entity-channels';
 
 export interface GetOrCreateParams {
   db: Database;
   entityType: string;
   entityId: string;
   actingUserId: string;
+  /** The acting user's permission check (providers may consult scope grants). */
+  can: PermissionCheck;
 }
 
 export interface GetOrCreateResult {
   channel: typeof schema.chatChannels.$inferSelect;
   created: boolean;
+  /** Users this call made follow the channel: the acting user and the default members who may open the record. */
+  newFollowerIds: string[];
 }
 
 function slugify(input: string, suffix: string): string {
@@ -74,57 +83,8 @@ export async function findDeletedEntityChannel(
   return row ?? null;
 }
 
-/**
- * Revive a soft-deleted entity channel: clear `deletedAt`, refresh the
- * entity-derived fields, ensure the default members + acting user are present,
- * and recompute the member count. Preserves the channel's id and message
- * history. Returns the refreshed row.
- */
-async function resurrectEntityChannel(
-  db: Database,
-  channelId: string,
-  resolved: ResolvedEntityInfo,
-  actingUserId: string,
-): Promise<typeof schema.chatChannels.$inferSelect> {
-  const { chatChannels, chatChannelMembers } = schema;
-  const now = new Date();
-
-  // Members rows survive the channel soft-delete, but re-assert the expected
-  // set so a reused channel always has its default members + the acting user.
-  const memberIds = new Set<string>(resolved.defaultMemberIds);
-  memberIds.add(actingUserId);
-  for (const userId of memberIds) {
-    try {
-      await db.insert(chatChannelMembers).values({
-        id: generateId('cmb'),
-        channelId,
-        userId,
-        role: userId === actingUserId ? 'owner' : 'member',
-        joinedAt: now,
-        createdAt: now,
-      });
-    } catch {
-      // Already a member — ignore.
-    }
-  }
-
-  const currentMembers = await db
-    .select({ id: chatChannelMembers.id })
-    .from(chatChannelMembers)
-    .where(eq(chatChannelMembers.channelId, channelId));
-
-  await db
-    .update(chatChannels)
-    .set({
-      deletedAt: null,
-      name: resolved.displayName,
-      entityDisplayName: resolved.displayName,
-      icon: resolved.icon ?? null,
-      memberCount: currentMembers.length,
-      updatedAt: now,
-    })
-    .where(eq(chatChannels.id, channelId));
-
+async function loadChannel(db: Database, channelId: string): Promise<typeof schema.chatChannels.$inferSelect> {
+  const { chatChannels } = schema;
   const [channel] = await db
     .select()
     .from(chatChannels)
@@ -133,18 +93,77 @@ async function resurrectEntityChannel(
   return channel;
 }
 
+/**
+ * The users a new or revived record chat starts with: the acting user (who
+ * passed the route's read check) and those default members who may open the
+ * record. A default member who may not is not made to follow.
+ */
+async function initialFollowerIds(
+  db: Database,
+  entityType: string,
+  entityId: string,
+  resolved: ResolvedEntityInfo,
+  actingUserId: string,
+): Promise<string[]> {
+  const defaults = await defaultFollowersWhoMayOpen(db, {
+    entityType,
+    entityId,
+    actingUserId,
+    userIds: resolved.defaultMemberIds,
+  });
+  return [...defaults, actingUserId];
+}
+
+/**
+ * Revive a soft-deleted entity channel: clear `deletedAt`, refresh the
+ * entity-derived fields, and ensure the default members + acting user follow
+ * it. Preserves the channel's id and message history.
+ */
+async function resurrectEntityChannel(
+  db: Database,
+  channelId: string,
+  entityType: string,
+  entityId: string,
+  resolved: ResolvedEntityInfo,
+  actingUserId: string,
+): Promise<GetOrCreateResult> {
+  const { chatChannels } = schema;
+
+  // Members rows survive the channel soft-delete, but re-assert the expected
+  // set so a reused channel always has its default members + the acting user.
+  const newFollowerIds = await addFollowers(
+    db,
+    channelId,
+    await initialFollowerIds(db, entityType, entityId, resolved, actingUserId),
+    { ownerId: actingUserId },
+  );
+
+  await db
+    .update(chatChannels)
+    .set({
+      deletedAt: null,
+      name: resolved.displayName,
+      entityDisplayName: resolved.displayName,
+      icon: resolved.icon ?? null,
+      updatedAt: new Date(),
+    })
+    .where(eq(chatChannels.id, channelId));
+
+  return { channel: await loadChannel(db, channelId), created: false, newFollowerIds };
+}
+
 export async function getOrCreateEntityChannel(params: GetOrCreateParams): Promise<GetOrCreateResult> {
-  const { db, entityType, entityId, actingUserId } = params;
+  const { db, entityType, entityId, actingUserId, can } = params;
 
   const existing = await findEntityChannel(db, entityType, entityId);
-  if (existing) return { channel: existing, created: false };
+  if (existing) return { channel: existing, created: false, newFollowerIds: [] };
 
   const provider = getEntityProvider(entityType);
   if (!provider) {
     throw new Error(`No entity channel provider registered for type "${entityType}"`);
   }
 
-  const resolved = await provider.resolve({ db, actingUserId, entityId });
+  const resolved = await provider.resolve({ db, actingUserId, entityId, can });
   if (!resolved) {
     throw new Error(`Entity ${entityType}:${entityId} not found`);
   }
@@ -155,17 +174,11 @@ export async function getOrCreateEntityChannel(params: GetOrCreateParams): Promi
   // channel, and on tenants where the partial unique index is enforced the
   // insert below would instead fail with a constraint violation.
   const deleted = await findDeletedEntityChannel(db, entityType, entityId);
-  if (deleted) {
-    const channel = await resurrectEntityChannel(db, deleted.id, resolved, actingUserId);
-    return { channel, created: false };
-  }
+  if (deleted) return resurrectEntityChannel(db, deleted.id, entityType, entityId, resolved, actingUserId);
 
-  const { chatChannels, chatChannelMembers } = schema;
+  const { chatChannels } = schema;
   const channelId = generateId('ch');
   const now = new Date();
-
-  const memberIds = new Set<string>(resolved.defaultMemberIds);
-  memberIds.add(actingUserId); // ensure creator is a member
 
   try {
     await db.insert(chatChannels).values({
@@ -178,7 +191,6 @@ export async function getOrCreateEntityChannel(params: GetOrCreateParams): Promi
       entityDisplayName: resolved.displayName,
       icon: resolved.icon ?? null,
       createdBy: actingUserId,
-      memberCount: memberIds.size,
       createdAt: now,
       updatedAt: now,
     });
@@ -187,35 +199,22 @@ export async function getOrCreateEntityChannel(params: GetOrCreateParams): Promi
     // soft-deleted row still holds the slot. Reuse the live row if there is
     // one, else resurrect the deleted row, else surface the error.
     const retry = await findEntityChannel(db, entityType, entityId);
-    if (retry) return { channel: retry, created: false };
+    if (retry) return { channel: retry, created: false, newFollowerIds: [] };
     const retryDeleted = await findDeletedEntityChannel(db, entityType, entityId);
     if (retryDeleted) {
-      const channel = await resurrectEntityChannel(db, retryDeleted.id, resolved, actingUserId);
-      return { channel, created: false };
+      return resurrectEntityChannel(db, retryDeleted.id, entityType, entityId, resolved, actingUserId);
     }
     throw err;
   }
 
-  for (const userId of memberIds) {
-    try {
-      await db.insert(chatChannelMembers).values({
-        id: generateId('cmb'),
-        channelId,
-        userId,
-        role: userId === actingUserId ? 'owner' : 'member',
-        joinedAt: now,
-        createdAt: now,
-      });
-    } catch {
-      // Duplicate membership (concurrent add) — ignore.
-    }
-  }
+  // The creator follows the chat, with the owner role, and so do the default
+  // members who may open the record.
+  const newFollowerIds = await addFollowers(
+    db,
+    channelId,
+    await initialFollowerIds(db, entityType, entityId, resolved, actingUserId),
+    { ownerId: actingUserId },
+  );
 
-  const [channel] = await db
-    .select()
-    .from(chatChannels)
-    .where(eq(chatChannels.id, channelId))
-    .limit(1);
-
-  return { channel, created: true };
+  return { channel: await loadChannel(db, channelId), created: true, newFollowerIds };
 }

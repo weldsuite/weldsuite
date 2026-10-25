@@ -71,10 +71,10 @@ export const weldchatEntityApi = {
     return res.data;
   },
 
-  /** List every channel for an entity type the caller has access to. */
+  /** The first page of record chats of one type that the caller follows. */
   listEntityChannels: async (entityType: string): Promise<EntityChannel[]> => {
     const res = await appApi.get<Envelope<EntityChannel[]>>(
-      `/chat-entity-channels/${encodeURIComponent(entityType)}`,
+      `/chat-entity-channels?type=${encodeURIComponent(entityType)}&filter=following`,
     );
     return res?.data ?? [];
   },

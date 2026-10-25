@@ -58,6 +58,7 @@ import { Avatar, AvatarFallback } from '@weldsuite/ui/components/avatar';
 import { DrawerFieldSettings } from '@weldsuite/ui/components/drawer-field-settings';
 import { MemberPropertyRow, PropertyRow } from '@/components/objects/_shared/property-row';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { SendForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { CustomFieldsSidebarSection } from '@/components/custom-fields/custom-fields-sidebar-section';
 import { ComingSoonTab } from '@/components/objects/_shared/coming-soon-tab';
 import { Popover, PopoverContent, PopoverTrigger } from '@weldsuite/ui/components/popover';
@@ -121,7 +122,8 @@ function OpportunityTitle({ opportunity }: Readonly<{ opportunity?: Opportunity 
   );
 }
 
-function OpportunityActions({
+/** The header actions of an opportunity: the kebab menu. */
+export function OpportunityActions({
   opportunity,
   onMarkWon,
   onMarkLost,
@@ -151,6 +153,7 @@ function OpportunityActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <SendForSignatureItem source={{ entityType: 'opportunity', id: opportunity.id, name: opportunity.name }} />
           {!isClosed && (
             <>
               <DropdownMenuItem onClick={onMarkWon}>

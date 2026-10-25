@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RoomClient } from '@weldsuite/realtime/client';
 import type { ConnectionState, RoomEvent } from '@weldsuite/realtime/types';
 import { widgetApi } from '@/lib/api/client';
-import type { PublicConversation, PublicMessage, ThreadMessage } from '@/lib/api/types';
+import type { MessageAttachment, PublicConversation, PublicMessage, ThreadMessage } from '@/lib/api/types';
 import { getCustomerProfile, getOrCreateVisitorId, saveCustomerProfile } from '@/lib/utils/customer-storage';
 import { loadSeen, saveSeen } from '@/lib/utils/seen-storage';
 import { playMessageReceivedSound } from '@/lib/utils/notification-sound';
@@ -380,12 +380,20 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
 
   /**
    * Send a message. For the draft thread this creates the conversation and
-   * resolves with its id so the view can switch over to it.
+   * resolves with its id so the view can switch over to it. Attachments are
+   * already uploaded (see `uploadAttachment`) and only valid in an existing
+   * conversation: starting one is text-only.
    */
   const send = useCallback(
-    async (threadId: string, body: string, clientId: string = newClientId()): Promise<string | null> => {
+    async (
+      threadId: string,
+      body: string,
+      options: { attachments?: MessageAttachment[]; clientId?: string } = {},
+    ): Promise<string | null> => {
       const trimmed = body.trim();
-      if (!trimmed) return null;
+      const attachments = threadId === DRAFT_ID ? [] : (options.attachments ?? []);
+      if (!trimmed && attachments.length === 0) return null;
+      const clientId = options.clientId ?? newClientId();
       stopTyping();
 
       const optimistic: ThreadMessage = {
@@ -393,11 +401,11 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
         clientId,
         conversationId: threadId,
         kind: 'message',
-        body: trimmed,
+        body: trimmed || null,
         authorType: 'visitor',
         authorName: null,
         authorAvatar: null,
-        attachments: null,
+        attachments: attachments.length > 0 ? attachments : null,
         eventType: null,
         createdAt: new Date().toISOString(),
         status: 'sending',
@@ -426,7 +434,12 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
           return id;
         }
 
-        const result = await widgetApi.sendMessage(widgetId, threadId, { visitorId, body: trimmed, clientId });
+        const result = await widgetApi.sendMessage(widgetId, threadId, {
+          visitorId,
+          body: trimmed || undefined,
+          attachments: attachments.length > 0 ? attachments : undefined,
+          clientId,
+        });
         setThreads((prev) => ({
           ...prev,
           [threadId]: mergeMessage(prev[threadId] ?? [], result.message),
@@ -444,10 +457,38 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
 
   const retry = useCallback(
     (threadId: string, message: ThreadMessage) => {
-      if (!message.body || !message.clientId) return Promise.resolve(null);
-      return send(threadId, message.body, message.clientId);
+      if ((!message.body && !message.attachments?.length) || !message.clientId) return Promise.resolve(null);
+      return send(threadId, message.body ?? '', {
+        attachments: message.attachments ?? undefined,
+        clientId: message.clientId,
+      });
     },
     [send],
+  );
+
+  /** Rate a closed conversation (1–5, optional comment). Throws when the API refuses. */
+  const rate = useCallback(
+    async (conversationId: string, rating: number, comment?: string) => {
+      const result = await widgetApi.rateConversation(widgetId, conversationId, {
+        visitorId,
+        rating,
+        comment: comment?.trim() || undefined,
+      });
+      setConversations((prev) => upsertConversation(prev, result.conversation));
+      setThreads((prev) =>
+        prev[conversationId]
+          ? { ...prev, [conversationId]: mergeMessage(prev[conversationId], result.message) }
+          : prev,
+      );
+    },
+    [widgetId, visitorId],
+  );
+
+  /** Upload one file into an existing conversation, ready to go out with the next message. */
+  const uploadAttachment = useCallback(
+    (conversationId: string, file: File) =>
+      widgetApi.uploadAttachment(widgetId, { conversationId, visitorId, file }),
+    [widgetId, visitorId],
   );
 
   // ---- derived -------------------------------------------------------------
@@ -471,6 +512,8 @@ export function useMessenger({ widgetId, realtimeUrl, isOpen, activeId, initialN
     isUnread,
     unreadCount,
     send,
+    rate,
+    uploadAttachment,
     retry,
     notifyTyping,
     stopTyping,

@@ -2,7 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExter
 import { copySelection, pasteInto } from '../model/clipboard';
 import { acceptsReference, functionPrefixAt, isFormulaText, referenceText, refsInEdit, suggestFunctions } from '../model/formula-edit';
 import { handleEditKey, handleGridKey } from '../model/keyboard';
-import { MAX_COLS, MAX_ROWS } from '@weldsuite/sheets-engine';
+import { MAX_COLS, MAX_ROWS, type Chart } from '@weldsuite/sheets-engine';
+import { useI18n } from '@/lib/i18n/provider';
+import { chartAt, draggedChart, HANDLE_CURSOR, samePlace, type ChartHandle } from '../charts/chart-geometry';
+import { removeChart, saveChart } from '../model/charts';
 import {
   cellSelection,
   extendTo,
@@ -29,21 +32,29 @@ import {
   COL_HEADER_HEIGHT,
   type GridLayout,
   type Hit,
+  type Rect,
 } from './geometry';
-import { fontFor, renderGrid, type RefHighlight } from './renderer';
+import { checkboxRect, dropdownRect, filterButtonRect, fontFor, renderGrid, type RefHighlight, type RemoteCursor } from './renderer';
+import { FilterMenu, ListMenu } from '../rules/cell-menus';
 import { readGridTheme, REFERENCE_COLORS, type GridTheme } from './theme';
+
+/** How long someone's name shows after they move; after that only while the pointer is on their cell. */
+const NAME_LABEL_MS = 3000;
 
 type Drag =
   | { kind: 'select'; anchor: CellPos; additive: boolean }
   | { kind: 'columns'; from: number }
   | { kind: 'rows'; from: number }
   | { kind: 'resize'; axis: 'row' | 'col'; index: number; startPos: number; startSize: number; size: number }
-  | { kind: 'point'; anchor: CellPos; start: number; end: number };
+  | { kind: 'point'; anchor: CellPos; start: number; end: number }
+  | { kind: 'chart'; chart: Chart; handle: ChartHandle | null; startX: number; startY: number; preview: Chart | null };
 
 interface Props {
   controller: SheetController;
   /** The formula bar's input: point mode inserts references there when it is being typed in. */
   barInputRef?: RefObject<HTMLTextAreaElement | null>;
+  /** Opens the "Create pivot table" dialog (context menu). */
+  onCreatePivot?: () => void;
 }
 
 /**
@@ -51,8 +62,9 @@ interface Props {
  * supplies scrollbars and wheel/touch scrolling), and one textarea that is
  * both the keyboard sink and the in-cell editor.
  */
-export function SheetGrid({ controller, barInputRef }: Props) {
+export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   const version = useSyncExternalStore(controller.subscribe, controller.getVersion);
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -60,7 +72,14 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const [resizeGhost, setResizeGhost] = useState<number | null>(null);
+  /** A chart being moved or resized, where it would land. */
+  const [chartPreview, setChartPreview] = useState<Chart | null>(null);
   const [caret, setCaret] = useState(0);
+  /** The cell under the pointer, tracked only while someone else is on this sheet. */
+  const [hoverCell, setHoverCell] = useState<CellPos | null>(null);
+  /** An open filter menu (on a filter header cell) or dropdown list (on a list cell). */
+  const [cellMenu, setCellMenu] = useState<{ kind: 'filter' | 'list'; row: number; col: number } | null>(null);
+  const [, setLabelClock] = useState(0);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
   const themeRef = useRef<GridTheme | null>(null);
   const layoutRef = useRef<GridLayout | null>(null);
@@ -107,6 +126,28 @@ export function SheetGrid({ controller, barInputRef }: Props) {
       }))
     : [];
 
+  // Where the other people in a co-edited sheet are, on this sheet.
+  // Their name shows for a moment after they move (it covers the cell above
+  // theirs), and while the pointer is on their cell.
+  const now = Date.now();
+  const hovered = hoverCell ? (sheet.mergeAt(hoverCell.row, hoverCell.col) ?? { r1: hoverCell.row, c1: hoverCell.col }) : null;
+  let nextHide = Number.POSITIVE_INFINITY;
+  const remote: RemoteCursor[] = controller.peers.flatMap((p) => {
+    if (p.presence?.sheetId !== controller.activeSheetId) return [];
+    const { active, ranges } = p.presence;
+    const until = (controller.peerMovedAt(p.clientId) ?? 0) + NAME_LABEL_MS;
+    if (until > now) nextHide = Math.min(nextHide, until);
+    const pointedAt = hovered?.r1 === active.row && hovered.c1 === active.col;
+    return [{ name: p.name, color: p.color, ranges, active, showName: until > now || pointedAt }];
+  });
+
+  // Draw again when the next name is due to hide.
+  useEffect(() => {
+    if (nextHide === Number.POSITIVE_INFINITY) return;
+    const timer = window.setTimeout(() => setLabelClock((n) => n + 1), nextHide - Date.now() + 20);
+    return () => window.clearTimeout(timer);
+  }, [nextHide]);
+
   // Draw after every render. Renders only happen on a change (edit, selection,
   // scroll, resize), so painting synchronously is cheap and never lags a frame;
   // requestAnimationFrame would also stall while the page is in the background.
@@ -131,6 +172,9 @@ export function SheetGrid({ controller, barInputRef }: Props) {
       selection: controller.selection,
       editing: editing ? { row: editing.row, col: editing.col } : null,
       highlights,
+      remote,
+      chartPreview,
+      emptyChartLabel: t.weldsheets.charts.noData,
     });
     if (resizeGhost !== null) drawResizeGhost(ctx, layout, resizeGhost, dragRef.current, theme);
   });
@@ -160,9 +204,11 @@ export function SheetGrid({ controller, barInputRef }: Props) {
     wasEditing.current = isEditing;
   });
 
-  // The editor follows the active cell and keeps focus unless the formula bar has it.
+  // The editor follows the active cell and keeps focus unless the formula bar has it,
+  // or a field in a side panel or dialog does (a chart panel saves as it is typed in).
   useEffect(() => {
     if (editing?.origin === 'bar') return;
+    if (document.activeElement?.closest('aside, [role="dialog"]')) return;
     editorRef.current?.focus({ preventScroll: true });
   }, [version, editing?.origin]);
 
@@ -186,22 +232,75 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   // Pointer
   // -------------------------------------------------------------------------
 
+  const cellRect = (row: number, col: number): Rect => rangeRect(layout, sheet, sheet.mergeAt(row, col) ?? { r1: row, c1: col, r2: row, c2: col });
+
+  /** A click on a filter button, a checkbox or a dropdown arrow: handled here instead of selecting. */
+  const clickedControl = (hit: Hit, x: number, y: number): boolean => {
+    if (hit.area !== 'cell' || controller.readOnly) return false;
+    const cell = cellRect(hit.row, hit.col);
+    const inside = (r: Rect) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+    const filter = sheet.filter;
+    if (filter && hit.row === filter.range.r1 && hit.col >= filter.range.c1 && hit.col <= filter.range.c2 && inside(filterButtonRect(cell))) {
+      setCellMenu({ kind: 'filter', row: hit.row, col: hit.col });
+      return true;
+    }
+    const rule = controller.validationAt(hit.row, hit.col);
+    if (rule?.criteria.type === 'checkbox' && inside(checkboxRect(cell))) {
+      controller.select(cellSelection(hit.row, hit.col));
+      controller.toggleCheckbox(hit.row, hit.col);
+      return true;
+    }
+    const isList = rule?.criteria.type === 'list' || rule?.criteria.type === 'listRange';
+    if (rule?.dropdown && isList && inside(dropdownRect(cell))) {
+      controller.select(cellSelection(hit.row, hit.col));
+      setCellMenu({ kind: 'list', row: hit.row, col: hit.col });
+      return true;
+    }
+    return false;
+  };
+
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const { hit, x, y } = pointAt(e);
     if (hit.area === 'cell' && x > layout.width - 16 && y > layout.height - 16) return; // scrollbar corner
+    const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
+    if (onChart) {
+      pickChart(onChart.chart, onChart.handle ?? null, e);
+      return;
+    }
+    if (!editing && clickedControl(hit, x, y)) {
+      e.preventDefault();
+      return;
+    }
     const input = activeInput();
     const caretPos = input?.selectionStart ?? 0;
     const pointing = hit.area === 'cell' && !!editing && acceptsReference(editing.text, caretPos);
-    if (pointing) {
-      startPointMode(hit, caretPos);
-    } else {
-      controller.commitEdit();
-      startSelection(hit, e);
+    if (!pointing && !controller.commitEdit()) {
+      // Refused by a strict validation rule: keep editing that cell.
+      e.preventDefault();
+      input?.focus({ preventScroll: true });
+      return;
     }
+    if (pointing) startPointMode(hit, caretPos);
+    else startSelection(hit, e);
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
     (pointing ? input : editorRef.current)?.focus({ preventScroll: true });
+  };
+
+  /** A press on a chart picks it, and starts moving it (or resizing it, on a handle). */
+  const pickChart = (chart: Chart, handle: ChartHandle | null, e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (!controller.commitEdit()) {
+      activeInput()?.focus({ preventScroll: true });
+      return;
+    }
+    controller.selectChart(chart.id);
+    if (!controller.readOnly) {
+      dragRef.current = { kind: 'chart', chart, handle, startX: e.clientX, startY: e.clientY, preview: null };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    editorRef.current?.focus({ preventScroll: true });
   };
 
   /** Where the current edit is typed: the formula bar or the in-cell editor. */
@@ -271,10 +370,26 @@ export function SheetGrid({ controller, barInputRef }: Props) {
     dragRef.current = { kind: 'select', anchor: cell, additive };
   };
 
+  const trackHover = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (remote.length === 0) {
+      if (hoverCell) setHoverCell(null);
+      return;
+    }
+    const { hit } = pointAt(e);
+    const cell = hit.area === 'cell' ? { row: hit.row, col: hit.col } : null;
+    setHoverCell((h) => (h?.row === cell?.row && h?.col === cell?.col ? h : cell));
+  };
+
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (!drag) {
       updateCursor(e);
+      trackHover(e);
+      return;
+    }
+    if (drag.kind === 'chart') {
+      drag.preview = draggedChart(sheet, drag.chart, drag.handle, e.clientX - drag.startX, e.clientY - drag.startY);
+      setChartPreview(drag.preview);
       return;
     }
     if (drag.kind === 'resize') {
@@ -287,7 +402,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
     dragTo(drag, hit);
   };
 
-  const dragTo = (drag: Exclude<Drag, { kind: 'resize' }>, hit: Hit) => {
+  const dragTo = (drag: Exclude<Drag, { kind: 'resize' | 'chart' }>, hit: Hit) => {
     const sel = controller.selection;
     switch (drag.kind) {
       case 'select': {
@@ -326,6 +441,15 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
+    if (drag?.kind === 'chart') {
+      setChartPreview(null);
+      // The chart as it is now (a co-editor may have changed it meanwhile), in its new place.
+      const current = sheet.charts.find((c) => c.id === drag.chart.id);
+      if (current && drag.preview && !samePlace(drag.preview, drag.chart)) {
+        saveChart(controller, { ...current, anchor: drag.preview.anchor, width: drag.preview.width, height: drag.preview.height });
+      }
+      return;
+    }
     if (drag?.kind === 'resize') {
       setResizeGhost(null);
       if (drag.size !== drag.startSize) {
@@ -339,15 +463,22 @@ export function SheetGrid({ controller, barInputRef }: Props) {
     controller.selection.ranges.every((r) => (axis === 'col' ? isWholeColumns(r) : isWholeRows(r)));
 
   const updateCursor = (e: React.PointerEvent<HTMLDivElement>) => {
-    const { hit } = pointAt(e);
+    const { hit, x, y } = pointAt(e);
+    const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
     let cursor = 'cell';
-    if (hit.resize) cursor = hit.resize.axis === 'col' ? 'col-resize' : 'row-resize';
+    if (onChart) cursor = chartCursor(onChart.handle, controller.readOnly);
+    else if (hit.resize) cursor = hit.resize.axis === 'col' ? 'col-resize' : 'row-resize';
     else if (hit.area !== 'cell') cursor = 'default';
     e.currentTarget.style.cursor = cursor;
   };
 
   const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const { hit } = pointAt(e);
+    const { hit, x, y } = pointAt(e);
+    const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
+    if (onChart) {
+      if (!controller.readOnly) controller.openPanel('chart');
+      return;
+    }
     if (hit.resize) {
       controller.resize(hit.resize.axis, [hit.resize.index], null);
       return;
@@ -356,10 +487,14 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   };
 
   const onContextMenuOpen = (e: React.MouseEvent<HTMLDivElement>) => {
-    const { hit } = pointAt(e);
+    const { hit, x, y } = pointAt(e);
+    const onChart = hit.area === 'cell' ? chartAt(layout, sheet, x, y, controller.selectedChart) : null;
+    if (onChart) {
+      if (controller.commitEdit()) controller.selectChart(onChart.chart.id);
+      return;
+    }
     if (hit.area === 'cell' && !selectionContains(controller.selection, hit.row, hit.col)) {
-      controller.commitEdit();
-      controller.select(cellSelection(hit.row, hit.col));
+      if (controller.commitEdit()) controller.select(cellSelection(hit.row, hit.col));
     }
   };
 
@@ -390,9 +525,29 @@ export function SheetGrid({ controller, barInputRef }: Props) {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
+    if (controller.selectedChart && !controller.editing && handleChartKey(e)) {
+      e.preventDefault();
+      return;
+    }
     if (suggestions.length && handleSuggestionKey(e)) return;
     const handled = controller.editing ? handleEditKey(controller, e) : handleGridKey(controller, e, pageRows());
     if (handled) e.preventDefault();
+  };
+
+  /**
+   * Keys while a chart is picked: Delete removes it, Enter opens its editor,
+   * Escape puts it down. Typing does not start a cell edit; other keys (arrows)
+   * go back to the cells.
+   */
+  const handleChartKey = (e: React.KeyboardEvent): boolean => {
+    const id = controller.selectedChart!;
+    if (e.key === 'Escape') controller.selectChart(null);
+    else if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (!controller.readOnly) removeChart(controller, id);
+    } else if (e.key === 'Enter') {
+      if (!controller.readOnly) controller.openPanel('chart');
+    } else return e.key.length === 1 && !e.ctrlKey && !e.metaKey;
+    return true;
   };
 
   const handleSuggestionKey = (e: React.KeyboardEvent): boolean => {
@@ -448,7 +603,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
   return (
     <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden select-none" data-testid="sheet-grid">
       <canvas ref={canvasRef} className="pointer-events-none absolute left-0 top-0" aria-hidden />
-      <GridContextMenu controller={controller}>
+      <GridContextMenu controller={controller} onCreatePivot={onCreatePivot}>
         <div
           ref={scrollerRef}
           className="absolute inset-0 overflow-auto"
@@ -458,6 +613,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onPointerLeave={() => setHoverCell(null)}
           onDoubleClick={onDoubleClick}
           onContextMenu={onContextMenuOpen}
           role="grid"
@@ -475,6 +631,7 @@ export function SheetGrid({ controller, barInputRef }: Props) {
       </GridContextMenu>
       <textarea
         ref={editorRef}
+        rows={editing ? editing.text.split('\n').length : 1}
         value={editing ? editing.text : ''}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -504,6 +661,12 @@ export function SheetGrid({ controller, barInputRef }: Props) {
             : { left: editRect.x, top: editRect.y, width: 1, height: 1, opacity: 0, padding: 0, border: 0 }
         }
       />
+      {cellMenu?.kind === 'filter' && sheet.filter && (
+        <FilterMenu controller={controller} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
+      )}
+      {cellMenu?.kind === 'list' && (
+        <ListMenu controller={controller} row={cellMenu.row} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
+      )}
       {suggestions.length > 0 && (
         <ul
           className="absolute z-20 min-w-[180px] rounded-md border bg-popover py-1 text-sm text-popover-foreground shadow-md"
@@ -546,6 +709,11 @@ function measureEditor(text: string, style: Parameters<typeof fontFor>[0]): numb
   if (!ctx) return 0;
   ctx.font = fontFor(style);
   return Math.max(...text.split('\n').map((line) => ctx.measureText(line).width));
+}
+
+function chartCursor(handle: ChartHandle | undefined, readOnly: boolean): string {
+  if (readOnly) return 'default';
+  return handle ? HANDLE_CURSOR[handle] : 'move';
 }
 
 function drawResizeGhost(ctx: CanvasRenderingContext2D, layout: GridLayout, size: number, drag: Drag | null, theme: GridTheme): void {

@@ -1,0 +1,43 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
+        "EXPO_PUBLIC_API_MODULES": "all",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk"
+      },
+      "channel": "development"
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api-test.weldsuite.org",
+        "EXPO_PUBLIC_API_MODULES": "all",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk"
+      },
+      "channel": "preview"
+    },
+    "production": {
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_APP_API_URL": "https://app-api.weldsuite.org",
+        "EXPO_PUBLIC_API_MODULES": "all",
+        "EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY": "pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ"
+      },
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {
+      "android": {
+        "track": "internal"
+      }
+    }
+  }
+}

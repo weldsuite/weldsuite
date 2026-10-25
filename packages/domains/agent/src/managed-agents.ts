@@ -125,16 +125,31 @@ export function builtinToolAccess(permissions: string[]): BuiltinToolAccess {
   };
 }
 
+/** Is `toolName` a sandbox (`computer:use`) or web (`browser:use`) tool? */
+export function builtinToolGrant(toolName: string): 'computer:use' | 'browser:use' | null {
+  if ((SANDBOX_TOOLS as readonly string[]).includes(toolName)) return 'computer:use';
+  if ((WEB_TOOLS as readonly string[]).includes(toolName)) return 'browser:use';
+  return null;
+}
+
 /**
  * The Anthropic agent toolset for the given access, or null when nothing is
  * granted. `auto` lets the server run safe calls and deny high-risk ones; a
  * call it can't decide pauses and is denied by the driver (no reviewer).
+ * `ask` (worker objects, see {@link ensureManagedAgent}) pauses every call so
+ * the driver can check it against the person the work is done for.
  */
-function agentToolset(access: BuiltinToolAccess): BetaManagedAgentsAgentToolset20260401Params | null {
+function agentToolset(
+  access: BuiltinToolAccess,
+  policy: 'auto' | 'ask' = 'auto',
+): BetaManagedAgentsAgentToolset20260401Params | null {
   if (!access.sandbox && !access.web) return null;
   return {
     type: 'agent_toolset_20260401',
-    default_config: { enabled: false, permission_policy: { type: 'auto' } },
+    default_config: {
+      enabled: false,
+      permission_policy: { type: policy === 'ask' ? 'always_ask' : 'auto' },
+    },
     configs: [
       ...SANDBOX_TOOLS.map((name) => ({ name, enabled: access.sandbox })),
       ...WEB_TOOLS.map((name) => ({ name, enabled: access.web })),
@@ -165,9 +180,10 @@ export type ManagedToolList = NonNullable<AgentCreateParams['tools']>;
 export async function buildManagedTools(
   defs: PlatformToolDefinition[],
   access: BuiltinToolAccess,
+  policy: 'auto' | 'ask' = 'auto',
 ): Promise<ManagedToolList> {
   const tools: ManagedToolList = await Promise.all(defs.map(customTool));
-  const toolset = agentToolset(access);
+  const toolset = agentToolset(access, policy);
   if (toolset) tools.push(toolset);
   return tools;
 }
@@ -195,9 +211,17 @@ export interface ManagedAgentSyncInput {
   /** Base system prompt (skills/memory/run context are added per session). */
   system: string;
   tools: ManagedToolList;
+  /**
+   * Which object to sync: `main` (the agent itself, chats and runs) or
+   * `worker` (the agent as someone's sub-agent). Defaults to `main`.
+   */
+  variant?: 'main' | 'worker';
+  /** Sub-agents the main object may delegate to (worker refs, or itself). */
+  roster?: Array<ManagedAgentRef | 'self'>;
 }
 
 function agentObjectConfig(env: Env, input: ManagedAgentSyncInput) {
+  const roster = input.roster ?? [];
   return {
     name: input.name.slice(0, 256) || 'WeldAgent',
     description: input.description?.slice(0, 2048) || null,
@@ -208,14 +232,41 @@ function agentObjectConfig(env: Env, input: ManagedAgentSyncInput) {
       weldsuite_workspace_id: input.workspaceId,
       weldsuite_agent_id: input.agentId,
       weldsuite_env: env.ENVIRONMENT || 'development',
+      ...(input.variant === 'worker' ? { weldsuite_variant: 'worker' } : {}),
     },
+    // Only set when there is a roster, so agents without sub-agents keep the
+    // config hash (and so the sessions) they had before delegation existed.
+    ...(roster.length > 0
+      ? {
+          multiagent: {
+            type: 'coordinator' as const,
+            agents: roster.map((entry) =>
+              entry === 'self' ? { type: 'self' as const } : { type: 'agent' as const, id: entry.id, version: entry.version },
+            ),
+          },
+        }
+      : {}),
   } satisfies AgentCreateParams;
+}
+
+/** The columns that hold a variant's Anthropic object id, version and config hash. */
+function variantColumns(variant: 'main' | 'worker') {
+  const a = schema.weldagentAgents;
+  return variant === 'worker'
+    ? { id: a.anthropicWorkerAgentId, version: a.anthropicWorkerAgentVersion, hash: a.anthropicWorkerConfigHash }
+    : { id: a.anthropicAgentId, version: a.anthropicAgentVersion, hash: a.anthropicConfigHash };
 }
 
 /**
  * Make sure the agent's Anthropic agent object exists and matches its current
  * config, publishing a new version when it changed. Sessions pin the returned
  * version. Cheap when nothing changed: one hash comparison, no API call.
+ *
+ * An agent has up to two objects: its `main` one, and a `worker` one it runs
+ * as when another agent delegates to it. The worker never has sub-agents (a
+ * Managed Agents roster is one level deep) and its sandbox / web tools ask
+ * the driver first: a roster member runs on its own configuration, which a
+ * session can't narrow to the person chatting, so the driver does.
  */
 export async function ensureManagedAgent(
   client: Anthropic,
@@ -223,13 +274,11 @@ export async function ensureManagedAgent(
   env: Env,
   input: ManagedAgentSyncInput,
 ): Promise<ManagedAgentRef> {
+  const variant = input.variant ?? 'main';
+  const cols = variantColumns(variant);
   const { weldagentAgents } = schema;
   const [row] = await db
-    .select({
-      anthropicAgentId: weldagentAgents.anthropicAgentId,
-      anthropicAgentVersion: weldagentAgents.anthropicAgentVersion,
-      anthropicConfigHash: weldagentAgents.anthropicConfigHash,
-    })
+    .select({ id: cols.id, version: cols.version, hash: cols.hash })
     .from(weldagentAgents)
     .where(eq(weldagentAgents.id, input.agentId))
     .limit(1);
@@ -237,15 +286,16 @@ export async function ensureManagedAgent(
   const config = agentObjectConfig(env, input);
   const hash = await sha256Hex(JSON.stringify(config));
 
-  if (row?.anthropicAgentId && row.anthropicAgentVersion && row.anthropicConfigHash === hash) {
-    return { id: row.anthropicAgentId, version: row.anthropicAgentVersion };
+  if (row?.id && row.version && row.hash === hash) {
+    return { id: row.id, version: row.version };
   }
 
   let agent: { id: string; version: number } | null = null;
-  if (row?.anthropicAgentId) {
+  if (row?.id) {
     try {
-      // Unconditional update: the tenant row is the source of truth.
-      agent = await client.beta.agents.update(row.anthropicAgentId, config);
+      // Unconditional update: the tenant row is the source of truth. An
+      // update without `multiagent` keeps the stored roster, so clear it.
+      agent = await client.beta.agents.update(row.id, { multiagent: null, ...config });
     } catch (err) {
       // Archived or gone (e.g. the WeldAgent agent was deleted and restored):
       // start over with a fresh agent object.
@@ -256,11 +306,11 @@ export async function ensureManagedAgent(
 
   await db
     .update(weldagentAgents)
-    .set({
-      anthropicAgentId: agent.id,
-      anthropicAgentVersion: agent.version,
-      anthropicConfigHash: hash,
-    })
+    .set(
+      variant === 'worker'
+        ? { anthropicWorkerAgentId: agent.id, anthropicWorkerAgentVersion: agent.version, anthropicWorkerConfigHash: hash }
+        : { anthropicAgentId: agent.id, anthropicAgentVersion: agent.version, anthropicConfigHash: hash },
+    )
     .where(eq(weldagentAgents.id, input.agentId));
 
   return { id: agent.id, version: agent.version };

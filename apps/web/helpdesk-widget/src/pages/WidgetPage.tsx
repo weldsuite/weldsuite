@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { widgetApi } from '@/lib/api/client';
+import { isWidgetDisabledError, widgetApi } from '@/lib/api/client';
 import type { WidgetConfigResponse } from '@/lib/api/types';
 import { Messenger } from '@/components/messenger/messenger';
 import { Launcher } from '@/components/widget/chat/launcher';
@@ -34,6 +34,8 @@ export function WidgetPage() {
 
   const [config, setConfig] = useState<WidgetConfigResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** The widget's owner switched it off: render nothing at all. */
+  const [disabled, setDisabled] = useState(false);
   const [isOpen, setIsOpen] = useState(!embedded && searchParams.get('open') === 'true');
 
   const postToParent = useCallback(
@@ -60,6 +62,10 @@ export function WidgetPage() {
         .then((result) => !cancelled && setConfig(result))
         .catch((err: Error) => {
           if (cancelled) return;
+          if (isWidgetDisabledError(err)) {
+            setDisabled(true);
+            return;
+          }
           // A cold worker or flaky network shouldn't leave a dead widget.
           if (attempt < 3) setTimeout(() => load(attempt + 1), 1000 * 2 ** attempt);
           else setError(err.message);
@@ -109,6 +115,7 @@ export function WidgetPage() {
     setIsOpen(false);
   }, [embedded, postToParent]);
 
+  if (disabled || config?.enabled === false) return null;
   if (error) {
     return <div className="p-4 text-sm text-red-600">{error}</div>;
   }

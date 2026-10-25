@@ -614,6 +614,17 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
     return prepared;
   }, []);
 
+  /** The ring for `id` is over without this tab answering it: drop its toast and ringtone. */
+  const stopRinging = useCallback((id: string) => {
+    preparedJoinsRef.current.delete(id);
+    setIncomingCall((ringing) => {
+      if (ringing?.callId !== id) return ringing;
+      // Only the ring is over: when it came in during a call, that call carries on.
+      setStatus((current) => (current === 'ringing-incoming' ? 'idle' : current));
+      return null;
+    });
+  }, []);
+
   const handleIncomingCallEvent = useCallback(
     (event: WorkspaceEvent<{
       callId: string;
@@ -622,6 +633,12 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
       callerName: string;
       callerAvatar?: string;
     }>) => {
+      // Answered in another tab, window or device, or hung up / declined
+      // before we answered: stop ringing here.
+      if (event.event === 'call_answered' || event.event === 'call_ended') {
+        if (event.data?.callId) stopRinging(event.data.callId);
+        return;
+      }
       if (event.event !== 'call_incoming') return;
       // A ring for the call we are already in (our own start, another tab's join).
       if (callIdRef.current === event.data.callId) return;
@@ -647,7 +664,7 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
         setStatus('ringing-incoming');
       }
     },
-    [prepareJoin, clearFarewell, resetCallState],
+    [prepareJoin, clearFarewell, resetCallState, stopRinging],
   );
 
   useTopic(user?.id ? `chat.user.${user.id}` : '', handleIncomingCallEvent);

@@ -1,8 +1,5 @@
-'use client'
-
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import Image from 'next/image'
+import { Link } from '@tanstack/react-router'
 import clsx from 'clsx'
 
 import { ThemeSelector } from '@/components/ThemeSelector'
@@ -33,10 +30,10 @@ export function Header({ config }: Readonly<HeaderProps>) {
       )}
     >
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-6">
-        <Link href="/" className="flex items-center gap-2.5" aria-label="Home">
+        <Link to="/" className="flex items-center gap-2.5" aria-label="Home">
           {config.logo && (
             <>
-              <Image
+              <img
                 src={config.logo}
                 alt={config.siteName || 'Logo'}
                 width={28}
@@ -44,7 +41,7 @@ export function Header({ config }: Readonly<HeaderProps>) {
                 className={clsx('h-7 w-auto', config.logoDark && 'dark:hidden')}
               />
               {config.logoDark && (
-                <Image
+                <img
                   src={config.logoDark}
                   alt={config.siteName || 'Logo'}
                   width={28}
@@ -61,7 +58,7 @@ export function Header({ config }: Readonly<HeaderProps>) {
 
         <div className="flex items-center gap-1.5">
           <Link
-            href="/search"
+            to="/search"
             className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/60 px-3 py-1.5 text-sm text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-zinc-200"
           >
             <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">

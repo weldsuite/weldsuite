@@ -11,26 +11,44 @@ import {
   normalize,
   parseInput,
   Sheet,
+  transform,
   translateFormula,
   Workbook,
+  conditionalStyleAt,
+  passesValidation,
+  validationAt,
+  chartData,
+  pivotTableAt,
+  pivotTablesOn,
   type BorderSide,
+  type Chart,
+  type ChartData,
   type CellPatch,
+  type ConditionalStyle,
+  type DataValidation,
+  type FormatCache,
   type CellStyle,
   type FormatLocale,
   type FormulaLocale,
   type Op,
+  type Peer,
+  type PivotTable,
+  type PivotTableLayout,
+  type Presence,
   type Range,
   type Scalar,
   type StylePatch,
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
 import {
+  cellAfter,
   cellSelection,
   clampToGrid,
   extendTo,
   isWholeColumns,
   isWholeRows,
   primaryRange,
+  selectionAfter,
   type CellPos,
   type Selection,
 } from './selection';
@@ -54,11 +72,25 @@ interface UndoEntry {
 
 export type BorderKind = 'all' | 'outer' | 'inner' | 'top' | 'bottom' | 'left' | 'right' | 'none';
 
+/** The side panels of the editor. */
+export type SidePanel = 'formats' | 'validation' | 'chart' | 'pivot' | null;
+
+/** A pivot table on the active sheet, with the number format each of its values shows in. */
+type PivotOutput = PivotTableLayout & { formats: (string | undefined)[] };
+
 export interface ControllerOptions {
   locale: FormatLocale;
   formulaLocale: FormulaLocale;
-  /** Every local op, after it is applied (autosave, and the collaboration socket later). */
+  /** Every local op, after it is applied (autosave in the preview). */
   onOp?: (op: Op) => void;
+  /** Typed input a strict validation rule refused (the cell keeps its value). */
+  onInputRefused?: (rule: DataValidation) => void;
+  /**
+   * Applies a local op to the engine and returns its inverse. Co-editing
+   * routes it through the room client, which also sends it; without it the
+   * op is applied directly.
+   */
+  applyOp?: (op: Op) => Op;
 }
 
 const UNDO_LIMIT = 200;
@@ -69,24 +101,42 @@ const UNDO_LIMIT = 200;
  * notifies React through `subscribe` (useSyncExternalStore).
  */
 export class SheetController {
-  readonly engine: Engine;
+  /** Replaced when a co-edited sheet reloads from the room (`replaceEngine`). */
+  engine: Engine;
   activeSheetId: string;
   selection: Selection = cellSelection(0, 0);
   editing: EditState | null = null;
   /** Without edit rights (sheets:update) a sheet can be read, selected and copied, not changed. */
   readOnly = false;
+  /** The side panel the editor shows. */
+  panel: SidePanel = null;
+  /** The chart picked on the grid: moved, resized and deleted there, edited in the chart panel. */
+  selectedChart: string | null = null;
   /** Bumped on every change; the React snapshot. */
   version = 0;
+  /** Bumped when the workbook changes (not the selection or a panel): what the memos of charts and pivot tables key on. */
+  private contentVersion = 0;
+  /** Other people in a co-edited sheet, with where they are (drawn on the grid). */
+  peers: Peer[] = [];
+  /** When each of them last moved (epoch ms): their name shows for a moment after. */
+  private readonly peerMoves = new Map<string, number>();
 
   private undoStack: UndoEntry[] = [];
   private redoStack: UndoEntry[] = [];
   private readonly listeners = new Set<() => void>();
   private readonly selections = new Map<string, Selection>();
 
+  /** `source`: a snapshot to open, an engine someone else keeps (the room client's), or null for a new workbook. */
   constructor(
-    snapshot: WorkbookSnapshot | null,
+    source: WorkbookSnapshot | Engine | null,
     readonly options: ControllerOptions,
   ) {
+    if (source instanceof Engine) {
+      this.engine = source;
+      this.activeSheetId = source.workbook.sheets[0]!.id;
+      return;
+    }
+    const snapshot = source;
     let workbook: Workbook;
     if (snapshot) {
       workbook = Workbook.fromJSON(snapshot);
@@ -110,6 +160,136 @@ export class SheetController {
 
   getVersion = (): number => this.version;
 
+  /** Rule results for the current version (the renderer asks per visible cell). */
+  private ruleMemo: { version: number; formats: FormatCache; styles: Map<number, ConditionalStyle | undefined> } | null = null;
+  /** Per sheet: chart ids are only unique within one (an imported file numbers them per sheet). */
+  private chartMemo: { version: number; sheetId: string; data: Map<string, ChartData> } | null = null;
+  private pivotMemo: { version: number; sheetId: string; tables: PivotOutput[] } | null = null;
+
+  openPanel(panel: SidePanel): void {
+    this.panel = panel;
+    this.emit();
+  }
+
+  /** Picks a chart (null: none); the chart panel goes with it. */
+  selectChart(id: string | null): void {
+    this.selectedChart = id;
+    if (id === null && this.panel === 'chart') this.panel = null;
+    this.emit();
+  }
+
+  /** The picked chart, while it is on the active sheet. */
+  get chart(): Chart | undefined {
+    return this.selectedChart ? this.sheet.charts.find((c) => c.id === this.selectedChart) : undefined;
+  }
+
+  /** What a chart on the active sheet shows now (the renderer asks on every draw). */
+  chartData(chart: Chart): ChartData {
+    let memo = this.chartMemo;
+    if (memo?.version !== this.contentVersion || memo.sheetId !== this.activeSheetId) {
+      memo = { version: this.contentVersion, sheetId: this.activeSheetId, data: new Map() };
+      this.chartMemo = memo;
+    }
+    let data = memo.data.get(chart.id);
+    if (!data) {
+      data = chartData(this.engine, this.activeSheetId, chart);
+      memo.data.set(chart.id, data);
+    }
+    return data;
+  }
+
+  /** The pivot table the active cell holds or shows part of (the pivot editor edits it). */
+  get pivot(): PivotTable | null {
+    const { row, col } = this.selection.active;
+    return pivotTableAt(this.engine, this.activeSheetId, row, col);
+  }
+
+  /**
+   * A cell's style: its own, over what a pivot table gives its output (bold
+   * headings and totals, the number format of the field a value sums).
+   */
+  cellStyle(row: number, col: number): CellStyle | undefined {
+    const own = this.engine.workbook.style(this.sheet, row, col);
+    const pivot = this.pivotStyle(row, col);
+    return pivot ? { ...pivot, ...own } : own;
+  }
+
+  private pivotStyle(row: number, col: number): CellStyle | undefined {
+    for (const t of this.pivotTables()) {
+      const a = t.area;
+      if (row < a.r1 || row > a.r2 || col < a.c1 || col > a.c2) continue;
+      const i = row - a.r1;
+      const value = t.layout.valueOf[col - a.c1] ?? -1;
+      const style: CellStyle = {};
+      if (i < t.layout.headerRows || t.layout.totalRows.includes(i)) style.bold = true;
+      const numFmt = value >= 0 && i >= t.layout.headerRows ? t.formats[value] : undefined;
+      if (numFmt) style.numFmt = numFmt;
+      return style;
+    }
+    return undefined;
+  }
+
+  /** The pivot tables on the active sheet with their layout, worked out once per change. */
+  private pivotTables(): PivotOutput[] {
+    const memo = this.pivotMemo;
+    if (memo?.version === this.contentVersion && memo.sheetId === this.activeSheetId) return memo.tables;
+    const tables = pivotTablesOn(this.engine, this.activeSheetId).map((t) => ({ ...t, formats: this.valueFormats(t) }));
+    this.pivotMemo = { version: this.contentVersion, sheetId: this.activeSheetId, tables };
+    return tables;
+  }
+
+  /** For each value of a pivot table, the number format of its field's first value (none for counts). */
+  private valueFormats(t: PivotTableLayout): (string | undefined)[] {
+    const source = t.source!;
+    const sheet = this.engine.workbook.getSheet(source.sheetId);
+    if (!sheet) return [];
+    const { r1, c1, c2 } = source.range;
+    const fieldCol = (field: string) => {
+      for (let c = c1; c <= c2; c++) {
+        const name = this.engine.getValue(source.sheetId, r1, c);
+        if (typeof name === 'string' && name.trim().toLowerCase() === field.trim().toLowerCase()) return c;
+      }
+      return -1;
+    };
+    return t.spec.values.map((v) => {
+      if (v.fn === 'COUNT' || v.fn === 'COUNTA' || v.fn === 'COUNTUNIQUE') return undefined;
+      const col = fieldCol(v.field);
+      return col < 0 ? undefined : this.engine.workbook.style(sheet, r1 + 1, col)?.numFmt;
+    });
+  }
+
+  /** The conditional formatting a cell gets right now, if any. */
+  conditionalStyle(row: number, col: number): ConditionalStyle | undefined {
+    const sheet = this.sheet;
+    if (sheet.conditionalFormats.length === 0) return undefined;
+    if (this.ruleMemo?.version !== this.version) this.ruleMemo = { version: this.version, formats: new Map(), styles: new Map() };
+    const key = row * 16_384 + col;
+    const memo = this.ruleMemo.styles;
+    if (!memo.has(key)) memo.set(key, conditionalStyleAt(this.engine, sheet, row, col, this.ruleMemo.formats));
+    return memo.get(key);
+  }
+
+  /** The validation rule a cell on the active sheet follows. */
+  validationAt(row: number, col: number): DataValidation | undefined {
+    const sheet = this.sheet;
+    return sheet.validations.length ? validationAt(sheet, row, col) : undefined;
+  }
+
+  /** The cell's value fails its validation rule (shown with a marker). */
+  isInvalid(row: number, col: number): boolean {
+    const rule = this.validationAt(row, col);
+    if (!rule) return false;
+    const value = this.engine.getValue(this.activeSheetId, row, col);
+    return !passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value, this.options.locale);
+  }
+
+  /** Ticks or unticks a checkbox cell. */
+  toggleCheckbox(row: number, col: number): void {
+    if (this.readOnly || this.validationAt(row, col)?.criteria.type !== 'checkbox') return;
+    const current = this.engine.getValue(this.activeSheetId, row, col);
+    this.apply({ type: 'setCells', sheetId: this.activeSheetId, cells: [[row, col, { v: current !== true }]] });
+  }
+
   private emit(): void {
     this.version++;
     for (const fn of this.listeners) fn();
@@ -131,6 +311,29 @@ export class SheetController {
   // Applying ops
   // -------------------------------------------------------------------------
 
+  setPeers(peers: Peer[], now = Date.now()): void {
+    const before = new Map(this.peers.map((p) => [p.clientId, p.presence]));
+    for (const p of peers) {
+      if (p.presence && !samePlace(before.get(p.clientId), p.presence)) this.peerMoves.set(p.clientId, now);
+    }
+    for (const id of this.peerMoves.keys()) if (!peers.some((p) => p.clientId === id)) this.peerMoves.delete(id);
+    this.peers = peers;
+    this.emit();
+  }
+
+  /** When this person last moved to another cell or sheet, or started or stopped typing; undefined if never seen moving. */
+  peerMovedAt(clientId: string): number | undefined {
+    return this.peerMoves.get(clientId);
+  }
+
+  /** Jumps to a cell, on another sheet if need be (following someone in the sheet). */
+  goTo(sheetId: string, row: number, col: number): void {
+    this.setActiveSheet(sheetId);
+    if (this.activeSheetId !== sheetId) return;
+    const sheet = this.sheet;
+    this.select(cellSelection(Math.min(row, sheet.rowCount - 1), Math.min(col, sheet.colCount - 1)));
+  }
+
   setReadOnly(readOnly: boolean): void {
     if (this.readOnly === readOnly) return;
     this.readOnly = readOnly;
@@ -144,7 +347,7 @@ export class SheetController {
     const normalized = normalize(op);
     const before = this.selection;
     const sheetId = this.activeSheetId;
-    const inverse = applyOp(this.engine, normalized);
+    const inverse = this.run(normalized);
     this.undoStack.push({ op: normalized, inverse, sheetId, selection: before });
     if (this.undoStack.length > UNDO_LIMIT) this.undoStack.shift();
     this.redoStack = [];
@@ -157,7 +360,7 @@ export class SheetController {
     if (this.readOnly) return;
     const entry = this.undoStack.pop();
     if (!entry) return;
-    const redoInverse = applyOp(this.engine, entry.inverse);
+    const redoInverse = this.run(entry.inverse);
     this.redoStack.push({ op: entry.inverse, inverse: redoInverse, sheetId: entry.sheetId, selection: this.selection });
     this.options.onOp?.(entry.inverse);
     this.restore(entry);
@@ -167,10 +370,72 @@ export class SheetController {
     if (this.readOnly) return;
     const entry = this.redoStack.pop();
     if (!entry) return;
-    const inverse = applyOp(this.engine, entry.inverse);
+    const inverse = this.run(entry.inverse);
     this.undoStack.push({ op: entry.inverse, inverse, sheetId: entry.sheetId, selection: this.selection });
     this.options.onOp?.(entry.inverse);
     this.restore(entry);
+  }
+
+  private run(op: Op): Op {
+    this.contentVersion++;
+    return this.options.applyOp ? this.options.applyOp(op) : applyOp(this.engine, op);
+  }
+
+  /**
+   * Someone else's op was applied (under this user's unconfirmed edits). Undo
+   * and redo entries are moved past it, newest first, so undoing still
+   * reverses this user's own change where it now is.
+   */
+  remoteOp(op: Op): void {
+    for (const stack of [this.undoStack, this.redoStack]) {
+      let against = op;
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const entry = stack[i]!;
+        const inverse = transform(entry.inverse, against, true);
+        against = transform(against, entry.inverse, false);
+        entry.inverse = inverse;
+      }
+    }
+    this.followRemote(op);
+    this.afterOutsideChange();
+  }
+
+  /**
+   * Moves what the user points at through rows and columns the other person
+   * inserted, deleted or moved, so a cell being edited is still that cell
+   * (Enter must not write into whatever now sits at its old address). An edit
+   * whose cell was deleted is dropped.
+   */
+  private followRemote(op: Op): void {
+    this.selection = selectionAfter(op, this.activeSheetId, this.selection);
+    for (const [id, sel] of this.selections) this.selections.set(id, selectionAfter(op, id, sel));
+    const edit = this.editing;
+    if (!edit) return;
+    const cell = cellAfter(op, this.activeSheetId, edit);
+    this.editing = cell ? { ...edit, row: cell.row, col: cell.col } : null;
+  }
+
+  /** The room sent a fresh copy of the workbook (first load is the constructor). Undo history no longer applies. */
+  replaceEngine(engine: Engine): void {
+    this.engine = engine;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.editing = null;
+    this.afterOutsideChange();
+  }
+
+  /** Keeps the active sheet and selection valid after a change this user did not make. */
+  private afterOutsideChange(): void {
+    this.contentVersion++;
+    this.ensureActiveSheet();
+    const sheet = this.sheet;
+    const { active } = this.selection;
+    if (active.row >= sheet.rowCount || active.col >= sheet.colCount) {
+      // Rows or columns under the selection were deleted.
+      this.selection = cellSelection(Math.min(active.row, sheet.rowCount - 1), Math.min(active.col, sheet.colCount - 1));
+      this.editing = null;
+    }
+    this.emit();
   }
 
   private restore(entry: UndoEntry): void {
@@ -187,6 +452,8 @@ export class SheetController {
     if (!this.engine.workbook.getSheet(this.activeSheetId)) {
       this.activeSheetId = this.engine.workbook.sheets[0]!.id;
       this.selection = this.selections.get(this.activeSheetId) ?? cellSelection(0, 0);
+      // An edit open on the vanished sheet would otherwise be committed into this one.
+      this.editing = null;
     }
   }
 
@@ -196,16 +463,35 @@ export class SheetController {
 
   setActiveSheet(sheetId: string): void {
     if (sheetId === this.activeSheetId || !this.engine.workbook.getSheet(sheetId)) return;
-    this.commitEdit();
+    // A refused edit belongs to the sheet being left: drop it.
+    if (!this.commitEdit()) this.editing = null;
     this.selections.set(this.activeSheetId, this.selection);
     this.activeSheetId = sheetId;
     this.selection = this.selections.get(sheetId) ?? cellSelection(0, 0);
+    this.dropChart();
+    this.followPivot();
     this.emit();
   }
 
+  /** Selecting cells puts a picked chart down, and opens the pivot editor on a pivot table. */
   select(selection: Selection): void {
     this.selection = selection;
+    this.dropChart();
+    this.followPivot();
     this.emit();
+  }
+
+  /** The pivot editor comes up on a pivot table's cells and goes off them; other panels stay. */
+  private followPivot(): void {
+    if (this.panel !== null && this.panel !== 'pivot') return;
+    const { row, col } = this.selection.active;
+    this.panel = pivotTableAt(this.engine, this.activeSheetId, row, col) ? 'pivot' : null;
+  }
+
+  private dropChart(): void {
+    if (this.selectedChart === null) return;
+    this.selectedChart = null;
+    if (this.panel === 'chart') this.panel = null;
   }
 
   /** Arrow keys: move (or with `extend`, grow the selection); `jump` goes to the edge of the data. */
@@ -341,27 +627,44 @@ export class SheetController {
     this.emit();
   }
 
-  /** Writes the edit into the cell; returns whether there was one. */
+  /**
+   * Writes the edit into the cell. Returns false when a strict validation rule
+   * refused it: the edit then stays open, with its text, to be corrected.
+   */
   commitEdit(): boolean {
     const edit = this.editing;
-    if (!edit) return false;
+    if (!edit) return true;
     this.editing = null;
-    if (edit.text !== this.inputText(edit.row, edit.col)) {
-      this.setInput(edit.row, edit.col, edit.text);
-    } else {
+    if (edit.text === this.inputText(edit.row, edit.col)) {
       this.emit();
+      return true;
     }
-    return true;
+    if (this.setInput(edit.row, edit.col, edit.text)) return true;
+    this.editing = { ...edit, replace: false };
+    this.emit();
+    return false;
   }
 
-  /** Interprets typed text (number, date, %, formula, …) and writes it to a cell. */
-  setInput(row: number, col: number, text: string): void {
-    const ops: Op[] = [{ type: 'setCells', sheetId: this.activeSheetId, cells: [[row, col, this.contentFor(text)]] }];
+  /** Interprets typed text (number, date, %, formula, …) and writes it to a cell; false when a strict rule refused it. */
+  setInput(row: number, col: number, text: string): boolean {
+    const content = this.contentFor(text);
+    // A strict rule refuses a typed value that fails it; a formula's result is only marked.
+    const rule = this.validationAt(row, col);
+    if (rule?.strict && content?.f === undefined) {
+      const value = content?.v ?? null;
+      if (!passesValidation(this.engine, { sheetId: this.activeSheetId, row, col }, rule, value, this.options.locale)) {
+        this.options.onInputRefused?.(rule);
+        this.emit();
+        return false;
+      }
+    }
+    const ops: Op[] = [{ type: 'setCells', sheetId: this.activeSheetId, cells: [[row, col, content]] }];
     const numFmt = this.impliedFormat(text, row, col);
     if (numFmt) {
       ops.push({ type: 'formatRanges', sheetId: this.activeSheetId, ranges: [{ r1: row, c1: col, r2: row, c2: col }], patch: { numFmt } });
     }
     this.apply({ type: 'batch', ops });
+    return true;
   }
 
   /** Writes the same input into every cell of the selection (ctrl+enter). */
@@ -441,13 +744,17 @@ export class SheetController {
   }
 
   clearFormatting(): void {
+    const sheet = this.sheet;
     const ops: Op[] = [];
     for (const r of this.selection.ranges) {
       const cells: [number, number, string | null][] = [];
-      this.sheet.cells.forEachInRange(r, (row, col, cell) => {
+      sheet.cells.forEachInRange(r, (row, col, cell) => {
         if (cell.s !== undefined) cells.push([row, col, null]);
       });
-      ops.push({ type: 'setStyles', sheetId: this.activeSheetId, cells });
+      // Formatting whole columns or rows is kept on the column or row itself.
+      const cols = isWholeColumns(r) ? styledIn(sheet.cols.styles, r.c1, r.c2) : [];
+      const rows = isWholeRows(r) ? styledIn(sheet.rows.styles, r.r1, r.r2) : [];
+      ops.push({ type: 'setStyles', sheetId: this.activeSheetId, cells, rows, cols });
     }
     this.apply({ type: 'batch', ops });
   }
@@ -625,8 +932,7 @@ export class SheetController {
   displayText(row: number, col: number): { text: string; color?: string } {
     const value = this.engine.getValue(this.activeSheetId, row, col);
     if (value === null) return { text: '' };
-    const style = this.engine.workbook.style(this.sheet, row, col);
-    return formatValue(value, style?.numFmt, this.options.locale);
+    return formatValue(value, this.cellStyle(row, col)?.numFmt, this.options.locale);
   }
 
   /** Sum / average / count of the numbers in the selection (status bar). */
@@ -658,6 +964,16 @@ export class SheetController {
   snapshot(): WorkbookSnapshot {
     return this.engine.toSnapshot();
   }
+}
+
+/** Entries clearing the row or column styles set between `from` and `to`. */
+function styledIn(styles: ReadonlyMap<number, string>, from: number, to: number): [number, null][] {
+  return [...styles.keys()].filter((i) => i >= from && i <= to).map((i) => [i, null]);
+}
+
+/** Same sheet, same active cell, same typing state (a selection drag alone is not a move). */
+function samePlace(a: Presence | undefined, b: Presence): boolean {
+  return !!a && a.sheetId === b.sheetId && a.active.row === b.active.row && a.active.col === b.active.col && !!a.editing === !!b.editing;
 }
 
 export function newSheetId(): string {

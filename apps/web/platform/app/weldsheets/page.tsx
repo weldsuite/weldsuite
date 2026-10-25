@@ -1,30 +1,54 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
 import { useCan } from '@weldsuite/permissions/react';
+import { SHEET_IMPORT_MAX_BYTES } from '@weldsuite/app-api-client/schemas/sheets';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
-import { FileSpreadsheet, MoreHorizontal, Plus } from 'lucide-react';
+import { FileSpreadsheet, MoreHorizontal, Plus, Upload } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@weldsuite/ui/components/dropdown-menu';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { PageLoader } from '@/components/page-loader';
 import { useI18n } from '@/lib/i18n/provider';
+import { IMPORT_ACCEPT } from './files';
 import { useSheetList, useSheetMutations, type SheetMeta } from './store/use-sheet-store';
+import { announceImport, announceImportFailure, fileLocale } from './use-sheet-files';
 
 export default function WeldSheetsHome() {
   const { t, format, language } = useI18n();
   const th = t.weldsheets.home;
+  const tf = t.weldsheets.files;
   const navigate = useNavigate();
   const preview = usePreviewMode();
   const { data: sheets, isLoading } = useSheetList();
-  const { create, rename, remove } = useSheetMutations();
+  const { create, rename, remove, importFile } = useSheetMutations();
   const [deleting, setDeleting] = useState<SheetMeta | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const canCreate = useCan('sheets:create');
   const canUpdate = useCan('sheets:update');
   const canDelete = useCan('sheets:delete');
 
   const createSheet = async () => {
-    const meta = await create.mutateAsync(th.untitled);
+    const meta = await create.mutateAsync({ name: th.untitled, firstTabName: th.firstTab });
     open(meta.id);
+  };
+
+  const importPicked = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > SHEET_IMPORT_MAX_BYTES) {
+      toast.error(format(tf.failed, { name: file.name }), { description: tf.tooLarge });
+      return;
+    }
+    const pending = toast.loading(format(tf.importing, { name: file.name }));
+    try {
+      const { meta, warnings } = await importFile.mutateAsync({ file, locale: fileLocale(language) });
+      toast.dismiss(pending);
+      announceImport(meta.name, warnings, tf, format);
+      open(meta.id);
+    } catch (err) {
+      toast.dismiss(pending);
+      announceImportFailure(err, file.name, tf, format);
+    }
   };
 
   const open = (sheetId: string) => {
@@ -47,7 +71,7 @@ export default function WeldSheetsHome() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6">
       {canCreate && (
-        <section>
+        <section className="flex gap-4">
           <button
             type="button"
             onClick={() => void createSheet()}
@@ -59,6 +83,28 @@ export default function WeldSheetsHome() {
             </span>
             <span className="text-sm font-medium">{th.blank}</span>
           </button>
+          <button
+            type="button"
+            onClick={() => fileInput.current?.click()}
+            disabled={importFile.isPending}
+            className="group flex w-40 flex-col items-stretch gap-2 text-left"
+          >
+            <span className="flex h-28 flex-col items-center justify-center gap-1 rounded-lg border border-dashed bg-card transition group-hover:border-primary">
+              <Upload className="size-7 text-muted-foreground group-hover:text-primary" />
+              <span className="text-xs text-muted-foreground">{tf.importHint}</span>
+            </span>
+            <span className="text-sm font-medium">{tf.importFile}</span>
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            accept={IMPORT_ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              void importPicked(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
         </section>
       )}
 
@@ -66,13 +112,19 @@ export default function WeldSheetsHome() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium text-muted-foreground">{th.recent}</h2>
           {canCreate && (
-            <Button size="sm" onClick={() => void createSheet()} disabled={create.isPending}>
-              <Plus />
-              {th.newSheet}
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => fileInput.current?.click()} disabled={importFile.isPending}>
+                <Upload />
+                {tf.import}
+              </Button>
+              <Button size="sm" onClick={() => void createSheet()} disabled={create.isPending}>
+                <Plus />
+                {th.newSheet}
+              </Button>
+            </div>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">{th.localNotice}</p>
+        {preview && <p className="text-xs text-muted-foreground">{th.localNotice}</p>}
 
         {!sheets?.length ? (
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed py-16 text-center">
@@ -97,8 +149,8 @@ export default function WeldSheetsHome() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onSelect={() => open(sheet.id)}>{th.open}</DropdownMenuItem>
-                    {canUpdate && <DropdownMenuItem onSelect={() => promptRename(sheet)}>{th.rename}</DropdownMenuItem>}
-                    {canDelete && (
+                    {canUpdate && sheet.canEdit && <DropdownMenuItem onSelect={() => promptRename(sheet)}>{th.rename}</DropdownMenuItem>}
+                    {canDelete && sheet.canEdit && (
                       <DropdownMenuItem className="text-destructive" onSelect={() => setDeleting(sheet)}>
                         {th.delete}
                       </DropdownMenuItem>
@@ -115,7 +167,7 @@ export default function WeldSheetsHome() {
         open={!!deleting}
         onOpenChange={(o) => !o && setDeleting(null)}
         title={th.deleteTitle}
-        description={format(th.deleteDescription, { name: deleting?.name ?? '' })}
+        description={format(preview ? th.deletePermanently : th.deleteDescription, { name: deleting?.name ?? '' })}
         confirmLabel={th.delete}
         variant="destructive"
         onConfirm={() => {

@@ -46,7 +46,8 @@ worker that reads or writes sheets (exports, data refresh, agent tools).
   `INDIRECT`, `OFFSET`) recalc on every pass.
 - **Operations**: every edit is a serialisable op (`setCells`, `setStyle`,
   `insertDims`, `deleteDims`, `moveDims`, `resizeDims`, `addSheet`, `merge`,
-  `setFreeze`, …). `apply` returns the inverse op (undo), and
+  `setFreeze`, `setFilter`, `patchConditionalFormats`, `patchValidations`, …).
+  `apply` returns the inverse op (undo), and
   `transform(a, b)` resolves concurrent ops, including rewriting formula
   references inside an op when rows or columns shift under it.
 - **Formats**: Excel number format codes (parse + render), date serials, and
@@ -77,19 +78,29 @@ editing cell, colour) rides the same socket and is never persisted. Undo is
 per user: the inverse of the user's own op, transformed through everything
 committed after it.
 
-The room checkpoints a snapshot to R2 every N ops and when the last client
-leaves; the op log since the checkpoint stays in the DO. Snapshots are stored
-in row chunks so a 1M-row sheet loads the visible part first.
+Every committed op is written to the room's storage before its ack leaves.
+The room checkpoints the workbook (with its revision) to one R2 object per
+sheet every 200 ops, 30 s after an edit and when the last client leaves, then
+trims its log to the last 500 ops and records the checkpoint on the `sheets`
+row. Row-chunked snapshots, so a 1M-row sheet loads the visible part first,
+come with phase 9.
+
+Browsers cannot send a bearer token on a WebSocket: `POST
+/api/sheets/:id/session` (normal auth and access checks) asks the room for a
+single-use ticket, and the socket (`/api/sheets/connect?ticket=…`) presents
+it. Messages over 256 KB travel as numbered parts.
 
 ### `sheets-api` worker
 
 Hono on `@weldsuite/worker-kit`, owns `/api/sheets*`:
 
 - `GET/POST /api/sheets`, `GET/PATCH/DELETE /api/sheets/:id` (metadata; the
-  drive `files` row is created alongside)
-- `GET /api/sheets/:id/connect` → WebSocket upgrade into `SheetRoom`
-- `/api/sheets/:id/versions` (list, name, restore), `/comments`, `/members`
-- `/api/sheets/:id/export?format=xlsx|csv`, `POST /api/sheets/import`
+  drive `files` row is created alongside; delete moves it to the trash) — built
+- `POST /api/sheets/:id/session` + `GET /api/sheets/connect?ticket=…` →
+  WebSocket into `SheetRoom` — built
+- `/api/sheets/:id/versions` (list, name, restore), `/comments`
+- `GET /api/sheets/:id/export?format=xlsx|csv`, `POST /api/sheets/import`
+  (an upload, or a WeldDrive file by id) — built
 - `/api/sheets/:id/data-sources` (live WeldSuite data, below)
 - Entity events: `sheet` created / updated (throttled) / deleted / shared,
   `sheet_comment` created.
@@ -107,9 +118,10 @@ Hono on `@weldsuite/worker-kit`, owns `/api/sheets*`:
 ### Access
 
 Workspace permissions open the door (`sheets:read|create|update|delete|share|manage`).
-Per sheet: owner, editor, commenter, viewer, plus a general-access level for
-the whole workspace (Google-style). Every route resolves access through one
-`requireSheetAccess` helper; a sheet the caller cannot see is a 404.
+Per sheet, access is the WeldDrive role on its file (owner, editor, viewer:
+ownership, shares, folders and general access), resolved in the sheets-api
+routes; a sheet the caller cannot see is a 404. A commenter role (phase 7)
+does not exist in WeldDrive yet.
 
 ### WeldSuite data and AI
 
@@ -120,14 +132,15 @@ the whole workspace (Google-style). Every route resolves access through one
 - **WeldAgent tools**: `sheets.read_range`, `sheets.write_range`,
   `sheets.create`, `sheets.find`, run server-side on the engine.
 
-## Schema (needs approval before any migration)
+## Schema
 
-The unused `sheets` table (`packages/core/db/src/schema/sheets.ts`, migration
-0148) holds a jsonb snapshot, which cannot carry a 1M-row workbook. Proposed:
+Applied in phase 3 (migration `0221_weldsheets_room`, approved 2026-10-24):
+`sheets` gained `revision`, `snapshot_key` (R2) and `snapshot_revision`, and
+its unused jsonb `snapshot` became nullable (to be dropped). Owner and general
+access are the drive file's, so `sheets` has no copy of them.
 
-- `sheets`: add `revision`, `snapshot_key` (R2), `general_access`, `owner_id`;
-  make `snapshot` nullable (dropped later).
-- `sheet_members` (sheet, user, role)
+Still proposed (each needs approval before a migration):
+
 - `sheet_versions` (sheet, revision, name, snapshot_key, created_by)
 - `sheet_comments` (sheet, thread, anchor sheet id + cell, body, mentions,
   resolved)
@@ -163,32 +176,170 @@ The unused `sheets` table (`packages/core/db/src/schema/sheets.ts`, migration
   delete, colour, reorder), right-click menu (insert/delete/hide rows and
   columns), clipboard to and from Excel/Google Sheets, undo/redo,
   status-bar sum/average/count.
-- Every edit goes through `SheetController.apply`, which phase 3 routes to
-  the SheetRoom socket.
-- Storage is temporary: an IndexedDB store per workspace in the browser
-  (`app/weldsheets/store/sheet-store.ts`) behind a `SheetStore` interface that
-  the sheets-api client replaces in phase 3. Nothing leaves the browser yet,
-  and the app only appears where an admin has installed it from the catalog.
+- Every edit goes through `SheetController.apply`.
+- Storage was an IndexedDB store in the browser until phase 3; only the
+  signed-out preview still uses it. The app only appears where an admin has
+  installed it from the catalog.
+
+**Phase 3 (backend and live co-editing): done.**
+
+- `apps/workers/sheets-api`: the routes above, and the `SheetRoom` Durable
+  Object around the engine's `RoomCore` (op log in its storage, checkpoints in
+  R2, hibernatable sockets, single-use tickets). app-api forwards
+  `/api/sheets*` to it, WebSocket upgrades included.
+- Engine `collab/`: protocol, `RoomCore`, `CollabClient` (rebasing), message
+  framing, `validateOp`; a simulation test runs a room and four clients
+  through random edits, delays and reconnects and checks they converge.
+- Platform: the home page lists sheets from sheets-api; an open sheet is
+  edited through `SheetConnection` (reconnects, re-sends unconfirmed edits,
+  warns before leaving with any); undo is moved past other people's ops;
+  presence draws each person's selection in their colour with a name flag,
+  with avatars in the header (click to jump to them).
+- WeldDrive: a sheet is a drive file (`metadata.weldsheetId`) and opens in the
+  editor from WeldDrive; purging it removes its `sheets` row too.
+- `sheet` entity events: created, updated (rename, and content at each
+  checkpoint), deleted.
+
+**Phase 4 (sort, filter, conditional formatting, data validation): done.**
+Freeze and merge came with phase 2.
+
+- Engine `model/rules.ts` and `rules/evaluate.ts`: one `Condition` type
+  (empty, text, number comparisons, between, custom formula) shared by
+  filters, conditional formats and validation rules. Rules are part of the
+  sheet and its snapshot, changed by three new ops (`setFilter`,
+  `patchConditionalFormats`, `patchValidations`, the last two by rule id) with
+  inverses, transforms and shape checks. Rule ranges and formulas follow row
+  and column inserts, deletes and moves; undoing one brings back what it
+  trimmed.
+- Filter: one per sheet, its first row the header; per column, values to hide
+  and/or a condition. Filtered rows are derived, not stored: they are worked
+  out again after every recalculation, so a filter follows the data live.
+  SUBTOTAL and AGGREGATE now skip hidden rows as in Excel (SUBTOTAL 1–11
+  skips filtered rows, 101–111 manually hidden ones too) and nested subtotals.
+- Sort: worked out in the client (`sortRangeOp`) and sent as plain cell and
+  style writes, so it co-edits like a paste and undoes exactly. Formulas move
+  like copied formulas, as in Excel. Blanks go last; numbers, then text,
+  booleans, errors. A range with merged cells is not sorted.
+- Conditional formatting: a condition with a style (fill, text colour, bold,
+  italic, underline, strikethrough), or a colour scale of two or three points.
+  Rules are ordered; the first that matches a cell wins.
+- Data validation: dropdown (listed items or a range), checkbox, or a
+  condition; invalid input is rejected or marked. A rejected entry keeps the
+  cell editor open with a message; formula results and pasted values are only
+  marked. Checkboxes toggle by click or Space.
+- Editor: filter buttons with a menu (sort, filter by condition, by values
+  with search), toolbar (filter, sort A→Z / Z→A, a sort dialog with several
+  keys), side panels for conditional formatting and data validation, and
+  right-click entries for both.
+
+**Phase 5 (files): done.**
+
+- Engine `files/`: a ZIP reader and writer on the platform's
+  `CompressionStream` / `DecompressionStream` (ZIP64 on read; every entry
+  inflated against a size budget, so a zip bomb stops with an error), a small
+  XML scanner (no DTDs, no entity expansion), and SpreadsheetML in both
+  directions: values and formulas with their last values (shared and array
+  formulas on read; spilled formulas written as Excel 365 dynamic arrays;
+  `_xlfn.` prefixes dropped and added), styles (fonts, fills, borders,
+  alignment, number formats; theme and indexed colours on read), column
+  widths and row heights, hidden rows and columns, merges, frozen panes, tab
+  colours, hidden sheets, defined names, the filter, conditional formats
+  (condition rules and colour scales) and data validation (including Excel
+  2010's cross-sheet lists). CSV and TSV: reading as typed input in the
+  reader's locale (separator detected), writing displayed values (';' where
+  the decimal is a comma).
+- What a file has that WeldSheets does not (pictures, comments, pivot
+  tables, table styles, data bars and icon sets, macros, links to other
+  files, formatting within a cell) is left out, and the import says so.
+  Formulas WeldSheets cannot read keep their last value.
+- sheets-api: `POST /api/sheets/import` makes a new spreadsheet from an
+  upload or a WeldDrive file (next to it when the caller may add there; the
+  file stays as it is), up to 25 MB and 250,000 cells until phase 9.
+  `GET /api/sheets/:id/export` is written by the sheet's room from its live
+  workbook, so it includes edits not yet checkpointed. sheets-api now reads
+  the public `STORAGE` bucket too, for drive files uploaded before private
+  storage.
+- Platform: "Import a file" on the WeldSheets home page (the preview reads
+  the file in the browser); a Download menu in the sheet header (.xlsx, or
+  the current tab as .csv), written in the browser from the editor's own
+  workbook; in WeldDrive, "Open in WeldSheets" on .xlsx, .csv and .tsv files,
+  and WeldSheets files download as .xlsx.
+
+**Phase 6 (charts and pivot tables): done.**
+
+- Charts are part of the sheet (`sheet.charts`, in its snapshot), changed by
+  a `patchCharts` op (by chart id, like the rule ops) with an inverse,
+  transforms and shape checks. A chart has a type (column, bar, line and area,
+  each also stacked or 100% stacked; pie, doughnut, scatter), series and
+  categories as absolute, sheet-qualified references (`Sheet1!$B$2:$B$9`),
+  a title, axis titles, a legend position, and a place: a cell plus an offset
+  in pixels, and a size in pixels. Its references follow row and column
+  inserts, deletes and moves and sheet renames like formulas; when its anchor
+  row or column is deleted it moves to the next one.
+- WeldSheets draws charts itself on the grid canvas
+  (`editor/charts/draw-chart.ts`, no chart library): over the cells,
+  scrolling with their anchor cell (one anchored in a frozen pane stays put).
+  A chart is picked with a click, moved, resized with eight handles, deleted
+  with Delete, and every change undoes. "Insert chart" (toolbar, right-click)
+  charts the selection, or the block of data around a single cell: series
+  along its longer side, names and labels where there is text, a line chart
+  over dates. The chart editor panel changes the type, the data range (rows
+  or columns, headers, labels), series colours, titles and legend, saving as
+  it goes.
+- Pivot tables are a spilling formula,
+  `PIVOT(source, rows, columns, values, [filters], [totals])`, for example
+  `=PIVOT(Data!$A$1:$E$500, "Region", "Year", "SUM:Amount")`: field names
+  for rows and columns (`-Name` sorts descending), `FUNCTION:Field` for
+  values (SUM, COUNTA, COUNT, AVERAGE, MIN, MAX, COUNTUNIQUE, MEDIAN), a
+  two-column array of field and shown value for filters, totals on unless
+  FALSE. Being a formula, a pivot table recalculates live, co-edits and
+  undoes as one cell and follows its source when rows and columns move; it
+  needs no op or storage of its own. Its labels are English ("SUM of Amount",
+  "Grand Total").
+- "Create pivot table" (toolbar, right-click) puts one on a new sheet or at a
+  given cell, starting with the first text field as rows and the sum of the
+  first number field. The pivot editor panel opens when a cell of a pivot
+  table is selected and rewrites its formula: source, rows, columns and their
+  order, values and how they are summarised, filters (a checklist of the
+  field's values), totals. Headings and totals show bold, and values take the
+  number format of the field they sum (counts do not); a cell's own format
+  wins.
+- Files: charts are written to .xlsx as DrawingML charts with cached values,
+  so Excel shows them before it recalculates, and read back from Excel files
+  (bar, column, line, area, pie, doughnut, scatter; other chart types,
+  pictures and shapes are left out, and the import says so). Pivot tables are
+  exported as their values; Excel pivot tables are not imported.
+- Phase 6 gaps: no combo charts, secondary axes, trendlines or data labels;
+  a duplicated sheet's charts still read the original sheet. Pivot tables
+  have no calculated fields, date grouping, "show as % of" or drill-down, and
+  the editor works out each pivot table's layout again after every change to
+  style it (phase 9 moves calculation into a worker).
 
 Known gaps, to pick up in later phases:
 
 - Autofill (dragging the fill handle) and auto-fit on double-clicking a
   column border are not built yet; a double-click resets the size.
-- Remote cursors, comments, sharing and version history arrive with the
-  backend (phases 3 and 7).
+- Comments, sharing UI and version history arrive in phase 7.
+- A sheet trashed from WeldSheets gets no automatic 30-day purge (the
+  `TrashCleanupWorkflow` is app-api's); emptying the WeldDrive trash removes
+  it. A purged sheet's room storage stays behind.
+- No state checksums between replicas yet; rebasing keeps them in step, and a
+  rejected batch reloads the client from the room.
 
 - Row/column insert, delete and move rebuild the whole dependency graph
   (phase 9: incremental).
 - Spilled arrays are not persisted, so every formula is evaluated on load
   (phase 9: store spills in the snapshot).
-- SUBTOTAL/AGGREGATE do not skip hidden rows yet: the eval host has no row
-  visibility (phase 4, with filters).
+- Files: no .xls (binary), .ods or Numbers; imports always make a new
+  spreadsheet (no "insert as new tabs" or "replace"); a whole-number or date
+  validation rule comes in as a number rule; a list rule over 255 characters
+  or with commas in its items is left out of an .xlsx.
+- One filter per sheet; no filter views or slicers. Ctrl+Enter and paste
+  write past a strict validation rule (the values are marked).
 - No multi-area references (`(A1:B2,C3)`), structured table references, or
   LET/LAMBDA.
 - Lookups lifted over many values rescan the key column each time; a
   per-pass lookup index would make exact matches O(1).
-- A concurrent row move and delete across a merged range can leave replicas
-  disagreeing about the merge; the room's checksum resync (phase 3) covers it.
 
 ## Phases (one PR each)
 

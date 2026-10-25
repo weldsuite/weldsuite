@@ -1,0 +1,34 @@
+appId: com.weldsuite.weldhr
+name: Request a day off, see it pending, cancel it again
+# Writes to the test workspace and cleans up after itself. Needs a test user
+# linked to an employee record, with leave requests switched on.
+tags: [writes]
+---
+- runFlow: ../subflows/login.yaml
+- tapOn:
+    id: tab-time-off
+- tapOn:
+    id: time-off-new
+- extendedWaitUntil:
+    visible: "Request time off"
+    timeout: 15000
+# The form starts on the next working day, one day long. Pick the first type
+# that needs approval, so the request stays pending.
+- tapOn: "Choose a type"
+- tapOn:
+    text: "Annual leave|Holiday|Vakantie"
+    index: 0
+- assertVisible: "About 1 working day"
+- tapOn:
+    id: leave-submit
+# Back on Time off, the new request is listed as pending (toasts are too
+# short-lived to assert on).
+- extendedWaitUntil:
+    visible: "Pending"
+    timeout: 15000
+# Cancel it so the account stays clean.
+- tapOn: "Pending"
+- tapOn: "Cancel request"
+- extendedWaitUntil:
+    notVisible: "Pending"
+    timeout: 15000

@@ -18,7 +18,8 @@ import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:work
 import { eq } from 'drizzle-orm';
 import type { Env } from '../types';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
-import { deleteStoredObject } from '@weldsuite/worker-kit/storage';
+import { deleteStoredObjects } from '@weldsuite/worker-kit/storage';
+import { listDocumentSnapshotKeys } from '@weldsuite/core-domain/files';
 
 export interface TrashCleanupParams {
   workspaceId: string;
@@ -61,14 +62,19 @@ export class TrashCleanupWorkflow extends WorkflowEntrypoint<Env, TrashCleanupPa
         return;
       }
 
-      // Delete from R2 (whichever bucket holds it; both are optional in Env)
-      if (fileKey) {
-        await deleteStoredObject(this.env, fileKey).catch((err) => {
-          console.error(`[TrashCleanup] Failed to delete R2 object ${fileKey}:`, err);
-        });
-      }
+      // Delete from R2 (whichever bucket holds it; both are optional in Env): the
+      // file, and the snapshots of the spreadsheet or document backed by it. They
+      // are listed while their rows still exist, and deleted before the rows so a
+      // retry of this step finds them again.
+      const keys = [...(fileKey ? [fileKey] : []), ...(await listDocumentSnapshotKeys(db, [fileId]))];
+      await deleteStoredObjects(this.env, keys).catch((err) => {
+        console.error(`[TrashCleanup] Failed to delete R2 objects for ${fileId}:`, err);
+      });
 
-      // Delete from database
+      // Delete from database (a spreadsheet's or WeldDocs document's row references its file)
+      await db.delete(schema.sheets).where(eq(schema.sheets.fileId, fileId));
+      await db.delete(schema.documentVersions).where(eq(schema.documentVersions.fileId, fileId));
+      await db.delete(schema.docs).where(eq(schema.docs.fileId, fileId));
       await db.delete(files).where(eq(files.id, fileId));
 
       console.log(`[TrashCleanup] Permanently deleted file ${fileId} (R2: ${fileKey})`);

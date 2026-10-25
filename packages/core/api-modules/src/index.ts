@@ -41,7 +41,9 @@ export type ApiModuleId =
   | 'ads'
   | 'pass'
   | 'reach'
-  | 'sheets';
+  | 'sheets'
+  | 'sign'
+  | 'docs';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -157,6 +159,7 @@ export const API_MODULES: readonly ApiModule[] = [
     '/api/articles',
     '/api/canned-responses',
     '/api/conversations',
+    '/api/desk/assignment',
     '/api/desk/conversations',
     '/api/desk/widget',
     '/api/helpcenter-settings',
@@ -420,6 +423,12 @@ export const API_MODULES: readonly ApiModule[] = [
   // WeldSheets. Its worker (sheets-api, with the SheetRoom Durable Object)
   // arrives with live co-editing; until then nothing calls these paths.
   mod('sheets', 8822, ['weldsheets'], ['/api/sheets']),
+  // WeldSign (e-signatures, docs/plans/weldsign.md). `/public/sign-portal` is
+  // the signer portal's mount: signers have no Clerk session, so its routes
+  // check the link token or the signer session themselves.
+  mod('sign', 8823, ['weldsign'], ['/api/sign', '/public/sign-portal']),
+  // WeldDocs. Its worker is docs-api (with the DocRoom Durable Object).
+  mod('docs', 8824, ['welddocs'], ['/api/docs']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));
@@ -485,6 +494,42 @@ export function findModuleForExternalPath(path: string): ApiModule {
 export function missingLicensedApp(module: ApiModule, licensedApps: ReadonlySet<string>): string | null {
   if (!module.apps) return null;
   return module.apps.some((code) => licensedApps.has(code)) ? null : module.apps[0]!;
+}
+
+/**
+ * A record's chat (`/api/chat-entity-channels/<type>/<id>/…`) is a screen of
+ * the record's own app as much as of WeldChat: the company panel posts to the
+ * company's chat (crm-api forwards `/api/companies/:id/chat/*` there). Those
+ * paths also open to the apps of the module that owns the record. The WeldChat
+ * lists (`/api/chat-entity-channels`, `/summary`) stay WeldChat's.
+ */
+const RECORD_CHAT_PREFIX = '/api/chat-entity-channels/';
+const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
+  company: 'crm',
+  person: 'crm',
+  contact: 'crm',
+  task: 'flow',
+  project: 'flow',
+  domain: 'host',
+};
+
+/** The apps that open a first-party path for a licensed workspace; `null` when it is never gated. */
+export function licenceAppsForPath(path: string): readonly string[] | null {
+  const apps = findModuleForPath(path).apps;
+  if (!apps || !path.startsWith(RECORD_CHAT_PREFIX)) return apps;
+  const owner = RECORD_CHAT_OWNER[path.slice(RECORD_CHAT_PREFIX.length).split(/[/?]/)[0]!];
+  if (!owner) return apps;
+  return [...new Set([...apps, ...(getApiModule(owner).apps ?? [])])];
+}
+
+/**
+ * Licence check for a first-party path: `null` when allowed, otherwise the
+ * app it is missing (the owning module's own app).
+ */
+export function missingLicensedAppForPath(path: string, licensedApps: ReadonlySet<string>): string | null {
+  const apps = licenceAppsForPath(path);
+  if (!apps) return null;
+  return apps.some((code) => licensedApps.has(code)) ? null : apps[0]!;
 }
 
 /** The 403 body every licence gate returns, so all workers answer alike. */

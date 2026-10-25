@@ -814,6 +814,45 @@ export const manifest: Record<string, SecretEntry[]> = {
   "realtime-worker": [
     "REALTIME_INTERNAL_SECRET",
   ],
+
+  // docs-api: WeldDocs' API worker. The base secrets every API worker needs
+  // for Clerk auth and tenant DB resolution; rooms and checkpoints need no
+  // secret of their own.
+  "docs-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // sheets-api: the sheets module's API worker (split from app-api). Base
+  // secrets every API worker needs for Clerk auth and tenant DB resolution;
+  // add the module's own secrets here as its code moves over.
+  "sheets-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+  ],
+
+  // sign-api: WeldSign's API worker. Base secrets for Clerk auth and tenant
+  // DB resolution, plus SIGN_SESSION_SECRET, the HMAC key of signer sessions
+  // in the signer portal and of the stored access/email code hashes (any long
+  // random string; rotating it signs every signer out and voids the access
+  // codes of requests still open), and SIGN_PORTAL_SECRET, shared with the
+  // sign-portal (a Next.js app; sync does not push to it, set the same value
+  // there by hand) so sign-api trusts the signer IP the portal reports.
+  "sign-api": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "CLERK_SECRET_KEY",
+    "CLERK_JWT_KEY",
+    "SIGN_SESSION_SECRET",
+    "SIGN_PORTAL_SECRET",
+  ],
 };
 
 // ── Helpers ──────────────────────────────────────────────────

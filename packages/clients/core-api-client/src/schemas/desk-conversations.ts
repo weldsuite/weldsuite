@@ -10,6 +10,12 @@ export const listConversationsQuerySchema = z.object({
   assigneeId: z.string().max(255).optional(),
   unassigned: z.coerce.boolean().optional(),
   channel: z.enum(DESK_CHANNELS).optional(),
+  /** One widget visitor's conversations (customer panel when there's no email). */
+  visitorId: z.string().max(64).optional(),
+  /** Exact customer email (case-insensitive): a customer's other conversations. */
+  email: z.string().trim().max(255).optional(),
+  /** Free-text search over customer, subject, number and message text. */
+  q: z.string().trim().max(200).optional(),
   sort: z.enum(DESK_CONVERSATION_SORTS).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
@@ -19,22 +25,26 @@ export const getConversationQuerySchema = z.object({
   include: z.enum(['messages']).optional(),
 });
 
-export const replyToConversationSchema = z.object({
-  kind: z.enum(['message', 'note']).default('message'),
-  body: z.string().min(1),
-  attachments: z
-    .array(
-      z.object({
-        name: z.string(),
-        url: z.string(),
-        contentType: z.string(),
-        filesize: z.number(),
-        width: z.number().optional(),
-        height: z.number().optional(),
-      }),
-    )
-    .optional(),
+export const deskMessageAttachmentSchema = z.object({
+  name: z.string().min(1).max(255),
+  url: z.string().url().max(2000),
+  contentType: z.string().max(255),
+  filesize: z.number().int().nonnegative(),
+  width: z.number().optional(),
+  height: z.number().optional(),
 });
+
+/** A reply needs text, files, or both. */
+export const replyToConversationSchema = z
+  .object({
+    kind: z.enum(['message', 'note']).default('message'),
+    body: z.string().trim().max(20_000).default(''),
+    attachments: z.array(deskMessageAttachmentSchema).max(10).optional(),
+  })
+  .refine((data) => data.body.length > 0 || (data.attachments?.length ?? 0) > 0, {
+    message: 'A reply needs a message or an attachment',
+    path: ['body'],
+  });
 
 export const manageConversationSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('close') }),
@@ -47,4 +57,5 @@ export const manageConversationSchema = z.discriminatedUnion('action', [
 
 export type ListConversationsQuery = z.infer<typeof listConversationsQuerySchema>;
 export type ReplyToConversationInput = z.infer<typeof replyToConversationSchema>;
+export type DeskMessageAttachmentInput = z.infer<typeof deskMessageAttachmentSchema>;
 export type ManageConversationInput = z.infer<typeof manageConversationSchema>;

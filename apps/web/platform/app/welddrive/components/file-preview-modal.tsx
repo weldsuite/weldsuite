@@ -2,6 +2,8 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Download,
   ExternalLink,
+  FileSpreadsheet,
+  FileText,
   X,
   Minus,
   Plus,
@@ -33,7 +35,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@weldsuite/ui/components/popover';
-import { fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile, fetchDriveFileContent } from './drive-file-card';
+import { canOpenInWeldSheets, fileTypeIcons, sourceBadgeStyles, driveLabelClass, formatFileSize, formatDate, downloadFile, fetchDriveFileContent } from './drive-file-card';
+import { useOpenInWeldSheets } from '@/app/weldsheets/use-sheet-files';
+import { canOpenInWeldDocs, useOpenInWeldDocs } from '@/app/welddocs/use-doc-files';
+import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signature-item';
 import { driveSourceKey, driveSourceLabel, fileKindLabel, isTextPreviewable } from './drive-utils';
 import { cn } from '@/lib/utils';
 import type { UnifiedFile } from '@/lib/api/domains/welddrive';
@@ -174,6 +179,8 @@ interface FilePreviewModalProps {
 
 export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onToggleStar, onMoveToFolder, onRename, onCopyLink, onDelete, onShare }: Readonly<FilePreviewModalProps>) {
   const { t } = useI18n();
+  const openInSheets = useOpenInWeldSheets();
+  const openInDocs = useOpenInWeldDocs();
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [skipTransition, setSkipTransition] = useState(false);
@@ -258,12 +265,26 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
           <p className="text-xs text-white/50 mt-0.5">{formatFileSize(file.fileSize)}</p>
         )}
       </div>
-      {(file.source === 'drive' || file.url) && (
-        <Button size="sm" variant="secondary" className="mt-2" onClick={() => downloadFile(file)}>
-          <Download className="h-4 w-4 mr-1.5" />
-          {t.welddrive.filePreview.unsupported.download}
-        </Button>
-      )}
+      <div className="mt-2 flex gap-2">
+        {openInSheets && canOpenInWeldSheets(file) && (
+          <Button size="sm" variant="secondary" onClick={() => void openInSheets(file)}>
+            <FileSpreadsheet className="h-4 w-4 mr-1.5" />
+            {t.welddrive.page.actions.openInWeldSheets}
+          </Button>
+        )}
+        {openInDocs && canOpenInWeldDocs(file) && (
+          <Button size="sm" variant="secondary" onClick={() => void openInDocs(file)}>
+            <FileText className="h-4 w-4 mr-1.5" />
+            {t.welddrive.page.actions.openInWeldDocs}
+          </Button>
+        )}
+        {(file.source === 'drive' || file.url) && (
+          <Button size="sm" variant="secondary" onClick={() => downloadFile(file)}>
+            <Download className="h-4 w-4 mr-1.5" />
+            {t.welddrive.filePreview.unsupported.download}
+          </Button>
+        )}
+      </div>
     </div>
   );
 
@@ -392,6 +413,18 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                     </a>
                   </DropdownMenuItem>
                 )}
+                {openInSheets && canOpenInWeldSheets(file) && (
+                  <DropdownMenuItem onClick={() => void openInSheets(file)}>
+                    <FileSpreadsheet className="h-4 w-4 mr-0.5" />
+                    {t.welddrive.page.actions.openInWeldSheets}
+                  </DropdownMenuItem>
+                )}
+                {openInDocs && canOpenInWeldDocs(file) && (
+                  <DropdownMenuItem onClick={() => void openInDocs(file)}>
+                    <FileText className="h-4 w-4 mr-0.5" />
+                    {t.welddrive.page.actions.openInWeldDocs}
+                  </DropdownMenuItem>
+                )}
                 {(file.source === 'drive' || file.url) && (
                   <DropdownMenuItem onClick={() => downloadFile(file)}>
                     <Download className="h-4 w-4 mr-0.5" />
@@ -427,6 +460,7 @@ export function FilePreviewModal({ file, open, onClose, onNext, onPrevious, onTo
                     {t.welddrive.filePreview.actions.share}
                   </DropdownMenuItem>
                 )}
+                <SendFileForSignatureItem file={file} iconClassName="h-4 w-4 mr-0.5" />
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"

@@ -15,6 +15,7 @@ import type { Env, Variables } from '../index';
 import { success, error } from '../lib/response';
 import { generateId } from '../lib/id';
 import { publishEntityEvent } from '../lib/entity-events';
+import { publicAttachmentUrl, publicStorageBase } from '../lib/attachments';
 
 // Allowed file types for attachments. No SVG: it is a document that can carry script.
 const ALLOWED_TYPES = new Set([
@@ -56,6 +57,12 @@ attachmentsRoutes.post('/upload', async (c) => {
   // Check if R2 storage is configured
   if (!c.env.STORAGE) {
     console.error('[Widget] R2 storage binding not configured');
+    return error.internal(c, 'File upload not available');
+  }
+  // No fallback host: a worker without a public bucket URL must not hand out
+  // links into another environment's bucket.
+  if (!publicStorageBase(c.env)) {
+    console.error('[Widget] R2_PUBLIC_URL not configured');
     return error.internal(c, 'File upload not available');
   }
 
@@ -103,9 +110,8 @@ attachmentsRoutes.post('/upload', async (c) => {
     });
 
     // Generate public URL
-    const publicUrl = c.env.R2_PUBLIC_URL
-      ? `${c.env.R2_PUBLIC_URL}/${fileKey}`
-      : `https://weldsuite-storage-test.weldsuite.org/${fileKey}`;
+    const publicUrl = publicAttachmentUrl(c.env, fileKey);
+    if (!publicUrl) return error.internal(c, 'File upload not available');
 
     console.log(`[Widget] Uploaded attachment ${attachmentId} to ${fileKey}`);
 

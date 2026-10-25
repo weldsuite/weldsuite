@@ -1,13 +1,10 @@
-'use client'
-
 import { useState } from 'react'
 
 interface ArticleFeedbackProps {
   articleId: string
-  domain: string
 }
 
-export function ArticleFeedback({ articleId, domain }: Readonly<ArticleFeedbackProps>) {
+export function ArticleFeedback({ articleId }: Readonly<ArticleFeedbackProps>) {
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
@@ -20,7 +17,7 @@ export function ArticleFeedback({ articleId, domain }: Readonly<ArticleFeedbackP
       const res = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ domain, articleId, helpful }),
+        body: JSON.stringify({ articleId, helpful }),
       })
       if (!res.ok) throw new Error(`Feedback failed: ${res.status}`)
       setSubmitted(true)

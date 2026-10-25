@@ -8,12 +8,14 @@ import { isApiError } from '@weldsuite/api-client/client';
 import type { ApiResponse, Workspace, WorkspaceWithMembership, InstalledApp } from '@weldsuite/mobile-ui/types';
 
 import { appApi, appApiClient, setAppApiTokenGetter } from './app-api';
+import { buildConversationQuery } from '@/lib/desk-query';
 import type {
   DeskConversation,
   DeskConversationFilters,
   DeskConversationSort,
   DeskConversationWithMessages,
   DeskListPagination,
+  DeskMember,
   DeskMessage,
 } from '@/types/desk';
 
@@ -38,22 +40,6 @@ function toError(err: unknown): ApiResponse<never> {
     success: false,
     error: { title: 'network_error', message: err instanceof Error ? err.message : 'Request failed' },
   };
-}
-
-function buildConversationQuery(
-  filters: DeskConversationFilters,
-  sort?: DeskConversationSort,
-  cursor?: string,
-): string {
-  const params = new URLSearchParams();
-  if (filters.state) params.set('state', filters.state);
-  if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
-  if (filters.unassigned) params.set('unassigned', 'true');
-  if (filters.channel) params.set('channel', filters.channel);
-  if (sort) params.set('sort', sort);
-  if (cursor) params.set('cursor', cursor);
-  const qs = params.toString();
-  return qs ? `?${qs}` : '';
 }
 
 class WeldDeskApi {
@@ -173,6 +159,24 @@ class WeldDeskApi {
         data: { conversation: DeskConversation; message: DeskMessage };
       }>(`/desk/conversations/${id}/manage`, data);
       return { success: true, data: res.data };
+    } catch (err) {
+      return toError(err);
+    }
+  }
+
+  /** Active internal workspace members, for the assignee picker. */
+  async listAssignableMembers(): Promise<ApiResponse<DeskMember[]>> {
+    try {
+      const res = await appApi.members.list({ memberType: 'INTERNAL', status: 'ACTIVE', limit: 100 });
+      const members = (res.data ?? [])
+        .filter((m) => Boolean(m.userId))
+        .map((m) => ({
+          userId: m.userId,
+          name: m.name?.trim() || m.email || m.userId,
+          email: m.email ?? '',
+          picture: m.picture ?? null,
+        }));
+      return { success: true, data: members };
     } catch (err) {
       return toError(err);
     }

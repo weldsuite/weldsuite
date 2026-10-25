@@ -3,6 +3,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
 import {
@@ -40,8 +41,10 @@ import {
   markRoutineScheduled,
   findConnectorRoutines,
   listApprovals,
+  getApproval,
   decideApproval,
   listMemories,
+  getMemory,
   createMemory,
   updateMemory,
   deleteMemory,
@@ -50,15 +53,36 @@ import {
   getTemplateByShareToken,
   installTemplate,
   startTeachSession,
+  getTeachSessionAgentId,
   appendTeachStep,
   stopTeachSession,
 } from '@weldsuite/agent-domain/parity';
-import { getAgent } from '@weldsuite/agent-domain/agents';
+import { getAgent, listAgents } from '@weldsuite/agent-domain/agents';
+import { canAccessAgent, canEditAgent } from '@weldsuite/agent-domain/access';
+import { granterHolds } from '@weldsuite/agent-domain/grants';
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import { executeDecidedApproval } from '../../services/weldagent/approvals';
+import { agentViewer } from '../../services/weldagent/viewer';
 import { reindexAgentRoutines, routineIndexSync } from '@weldsuite/agent-domain/routine-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
+
+/**
+ * The error response when the caller may not see (`access`) or change
+ * (`edit`) the agent, else null. Routines, memories, skills and teaching
+ * belong to an agent, so its owner is the one who changes them.
+ */
+async function agentGuard(c: AppContext, agentId: string, mode: 'access' | 'edit'): Promise<Response | null> {
+  const db = c.get('tenantDb');
+  const agent = await getAgent(db, agentId);
+  const viewer = await agentViewer(c);
+  if (!agent || !(await canAccessAgent(db, agent, viewer))) return error.notFound(c, 'Agent not found');
+  if (mode === 'edit' && !canEditAgent(agent, viewer)) {
+    return error.forbidden(c, 'Only the agent\'s owner can change it');
+  }
+  return null;
+}
 
 // ----- Skills -----
 app.get('/skills', requirePermission('weldagent:read'), async (c) => {
@@ -85,35 +109,53 @@ app.delete('/skills/:id', requirePermission('weldagent:manage', 'weldagent:updat
 });
 
 app.get('/agents/:id/skills', requirePermission('weldagent:read'), async (c) => {
+  const denied = await agentGuard(c, c.req.param('id'), 'access');
+  if (denied) return denied;
   return success(c, await listAgentSkills(c.get('tenantDb'), c.req.param('id')));
 });
 
 app.post('/agents/:id/skills/:skillId', requirePermission('weldagent:update', 'weldagent:manage'), async (c) => {
+  const denied = await agentGuard(c, c.req.param('id'), 'edit');
+  if (denied) return denied;
   const skill = await enableSkillForAgent(c.get('tenantDb'), c.req.param('id'), c.req.param('skillId'));
   if (!skill) return error.notFound(c, 'Skill not found');
   return success(c, skill);
 });
 
 app.delete('/agents/:id/skills/:skillId', requirePermission('weldagent:update', 'weldagent:manage'), async (c) => {
+  const denied = await agentGuard(c, c.req.param('id'), 'edit');
+  if (denied) return denied;
   await disableSkillForAgent(c.get('tenantDb'), c.req.param('id'), c.req.param('skillId'));
   return noContent(c);
 });
 
 // ----- Routines -----
 app.get('/routines', requirePermission('weldagent:read'), async (c) => {
-  return success(c, await listRoutines(c.get('tenantDb'), c.req.query('agentId') || undefined));
+  const agentId = c.req.query('agentId') || undefined;
+  if (agentId) {
+    const denied = await agentGuard(c, agentId, 'access');
+    if (denied) return denied;
+    return success(c, await listRoutines(c.get('tenantDb'), agentId));
+  }
+  const visible = new Set((await listAgents(c.get('tenantDb'), undefined, await agentViewer(c))).map((a) => a.id));
+  const routines = await listRoutines(c.get('tenantDb'));
+  return success(c, routines.filter((routine) => visible.has(routine.agentId)));
 });
 
 app.post('/routines', requirePermission('weldagent:create', 'weldagent:manage'), zValidator('json', createRoutineSchema), async (c) => {
   const data = c.req.valid('json');
-  const agent = await getAgent(c.get('tenantDb'), data.agentId);
-  if (!agent) return error.notFound(c, 'Agent not found');
+  const denied = await agentGuard(c, data.agentId, 'edit');
+  if (denied) return denied;
   const routine = await createRoutine(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
   await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), routine.agentId);
   return success(c, routine, 201);
 });
 
 app.patch('/routines/:id', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', updateRoutineSchema), async (c) => {
+  const existing = await getRoutine(c.get('tenantDb'), c.req.param('id'));
+  if (!existing) return error.notFound(c, 'Routine not found');
+  const denied = await agentGuard(c, existing.agentId, 'edit');
+  if (denied) return denied;
   const routine = await updateRoutine(c.get('tenantDb'), c.req.param('id'), c.req.valid('json'));
   if (!routine) return error.notFound(c, 'Routine not found');
   await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), routine.agentId);
@@ -122,6 +164,9 @@ app.patch('/routines/:id', requirePermission('weldagent:update', 'weldagent:mana
 
 app.delete('/routines/:id', requirePermission('weldagent:manage', 'weldagent:update'), async (c) => {
   const existing = await getRoutine(c.get('tenantDb'), c.req.param('id'));
+  if (!existing) return error.notFound(c, 'Routine not found');
+  const denied = await agentGuard(c, existing.agentId, 'edit');
+  if (denied) return denied;
   const ok = await deleteRoutine(c.get('tenantDb'), c.req.param('id'));
   if (!ok || !existing) return error.notFound(c, 'Routine not found');
   await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), existing.agentId);
@@ -129,6 +174,10 @@ app.delete('/routines/:id', requirePermission('weldagent:manage', 'weldagent:upd
 });
 
 app.get('/routines/:id/runs', requirePermission('weldagent:read'), async (c) => {
+  const routine = await getRoutine(c.get('tenantDb'), c.req.param('id'));
+  if (!routine) return error.notFound(c, 'Routine not found');
+  const denied = await agentGuard(c, routine.agentId, 'access');
+  if (denied) return denied;
   return success(c, await listRoutineRuns(c.get('tenantDb'), c.req.param('id'), 20));
 });
 
@@ -136,6 +185,8 @@ app.post('/routines/:id/test', requirePermission('weldagent:update', 'weldagent:
   const db = c.get('tenantDb');
   const routine = await getRoutine(db, c.req.param('id'));
   if (!routine) return error.notFound(c, 'Routine not found');
+  const denied = await agentGuard(c, routine.agentId, 'edit');
+  if (denied) return denied;
   const runId = await createRoutineRun(db, {
     routineId: routine.id,
     agentId: routine.agentId,
@@ -164,17 +215,37 @@ app.post('/routines/:id/test', requirePermission('weldagent:update', 'weldagent:
 });
 
 app.get('/approvals', requirePermission('weldagent:read'), async (c) => {
-  return success(
-    c,
-    await listApprovals(c.get('tenantDb'), {
-      agentId: c.req.query('agentId') || undefined,
-      status: c.req.query('status') || 'pending',
-    }),
-  );
+  const agentId = c.req.query('agentId') || undefined;
+  if (agentId) {
+    const denied = await agentGuard(c, agentId, 'access');
+    if (denied) return denied;
+  }
+  const approvals = await listApprovals(c.get('tenantDb'), {
+    agentId,
+    status: c.req.query('status') || 'pending',
+  });
+  if (agentId) return success(c, approvals);
+  const visible = new Set((await listAgents(c.get('tenantDb'), undefined, await agentViewer(c))).map((a) => a.id));
+  return success(c, approvals.filter((approval) => visible.has(approval.agentId)));
 });
 
-app.post('/approvals/:id/decide', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', decideApprovalSchema), async (c) => {
+/**
+ * Decide an approval: the agent's owner (its manager), whoever's request
+ * raised it, or a holder of weldagent:manage.
+ */
+app.post('/approvals/:id/decide', requirePermission('weldagent:use', 'weldagent:update', 'weldagent:manage'), zValidator('json', decideApprovalSchema), async (c) => {
   const data = c.req.valid('json');
+  const pending = await getApproval(c.get('tenantDb'), c.req.param('id'));
+  if (!pending) return error.notFound(c, 'Approval not found or already decided');
+  const agent = await getAgent(c.get('tenantDb'), pending.agentId);
+  const viewer = await agentViewer(c);
+  // An ownerless (legacy) agent keeps the old rule: anyone who may edit agents.
+  const resolvedPerms = await ensurePermissionsResolved(c);
+  const ownerSide = agent?.ownerId
+    ? canEditAgent(agent, viewer)
+    : Boolean(resolvedPerms && granterHolds(resolvedPerms, 'weldagent:update'));
+  const mayDecide = viewer.canManageAll || pending.createdBy === viewer.userId || ownerSide;
+  if (!mayDecide) return error.forbidden(c, 'Only the agent\'s owner or the person who asked can decide this');
   const approval = await decideApproval(c.get('tenantDb'), c.req.param('id'), {
     decision: data.decision,
     decidedBy: c.get('userId'),
@@ -195,24 +266,34 @@ app.post('/approvals/:id/decide', requirePermission('weldagent:update', 'weldage
 
 // ----- Memory -----
 app.get('/agents/:id/memories', requirePermission('weldagent:read'), async (c) => {
+  const denied = await agentGuard(c, c.req.param('id'), 'access');
+  if (denied) return denied;
   return success(c, await listMemories(c.get('tenantDb'), c.req.param('id')));
 });
 
 app.post('/memories', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', createMemorySchema), async (c) => {
   const data = c.req.valid('json');
-  const agent = await getAgent(c.get('tenantDb'), data.agentId);
-  if (!agent) return error.notFound(c, 'Agent not found');
+  const denied = await agentGuard(c, data.agentId, 'edit');
+  if (denied) return denied;
   const memory = await createMemory(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
   return success(c, memory, 201);
 });
 
 app.patch('/memories/:id', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', updateMemorySchema), async (c) => {
+  const existing = await getMemory(c.get('tenantDb'), c.req.param('id'));
+  if (!existing) return error.notFound(c, 'Memory not found');
+  const denied = await agentGuard(c, existing.agentId, 'edit');
+  if (denied) return denied;
   const memory = await updateMemory(c.get('tenantDb'), c.req.param('id'), c.req.valid('json'));
   if (!memory) return error.notFound(c, 'Memory not found');
   return success(c, memory);
 });
 
 app.delete('/memories/:id', requirePermission('weldagent:update', 'weldagent:manage'), async (c) => {
+  const existing = await getMemory(c.get('tenantDb'), c.req.param('id'));
+  if (!existing) return noContent(c);
+  const denied = await agentGuard(c, existing.agentId, 'edit');
+  if (denied) return denied;
   await deleteMemory(c.get('tenantDb'), c.req.param('id'));
   return noContent(c);
 });
@@ -220,6 +301,10 @@ app.delete('/memories/:id', requirePermission('weldagent:update', 'weldagent:man
 // ----- Templates -----
 app.post('/templates/export', requirePermission('weldagent:create', 'weldagent:manage'), zValidator('json', exportTemplateSchema), async (c) => {
   const data = c.req.valid('json');
+  // The template carries the agent's prompt, grants, routines and memories
+  // plus a bearer share token, so only the agent's owner may export it.
+  const denied = await agentGuard(c, data.agentId, 'edit');
+  if (denied) return denied;
   const template = await exportAgentTemplate(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
   if (!template) return error.notFound(c, 'Agent not found');
   return success(c, template, 201);
@@ -250,6 +335,8 @@ app.post('/templates/install', requirePermission('weldagent:create', 'weldagent:
 
 // ----- Teach -----
 app.post('/agents/:id/teach/start', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', startTeachSchema), async (c) => {
+  const denied = await agentGuard(c, c.req.param('id'), 'edit');
+  if (denied) return denied;
   const agent = await getAgent(c.get('tenantDb'), c.req.param('id'));
   if (!agent) return error.notFound(c, 'Agent not found');
   const session = await startTeachSession(c.get('tenantDb'), {
@@ -261,6 +348,10 @@ app.post('/agents/:id/teach/start', requirePermission('weldagent:update', 'welda
 });
 
 app.post('/teach/:id/steps', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', appendTeachStepSchema), async (c) => {
+  const sessionAgentId = await getTeachSessionAgentId(c.get('tenantDb'), c.req.param('id'));
+  if (!sessionAgentId) return error.notFound(c, 'Teach session not found or not recording');
+  const denied = await agentGuard(c, sessionAgentId, 'edit');
+  if (denied) return denied;
   const session = await appendTeachStep(c.get('tenantDb'), c.req.param('id'), c.req.valid('json').step);
   if (!session) return error.notFound(c, 'Teach session not found or not recording');
   return success(c, session);
@@ -268,6 +359,10 @@ app.post('/teach/:id/steps', requirePermission('weldagent:update', 'weldagent:ma
 
 app.post('/teach/:id/stop', requirePermission('weldagent:update', 'weldagent:manage'), zValidator('json', stopTeachSchema), async (c) => {
   const data = c.req.valid('json');
+  const sessionAgentId = await getTeachSessionAgentId(c.get('tenantDb'), c.req.param('id'));
+  if (!sessionAgentId) return error.notFound(c, 'Teach session not found');
+  const denied = await agentGuard(c, sessionAgentId, 'edit');
+  if (denied) return denied;
   const session = await stopTeachSession(c.get('tenantDb'), c.req.param('id'), {
     createSkill: data.createSkill,
     skillName: data.skillName,

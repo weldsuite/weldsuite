@@ -8,9 +8,15 @@ const mocks = vi.hoisted(() => ({
   setEditingMessage: vi.fn(),
   deleteDraft: vi.fn(),
   getClient: vi.fn(),
+  upload: vi.fn(),
   ctx: {
     replyTo: null as null | { messageId: string; authorName: string; content: string; parentId?: string | null },
-    editingMessage: null as null | { messageId: string; content: string; parentId?: string | null },
+    editingMessage: null as null | {
+      messageId: string;
+      content: string;
+      parentId?: string | null;
+      attachments?: Array<{ id: string; url?: string; fileName?: string }>;
+    },
   },
   channel: { type: 'public' } as Record<string, unknown>,
   restore: null as null | ((content: string, attachments: unknown[]) => void),
@@ -53,6 +59,10 @@ vi.mock('@/hooks/weldchat/use-draft-autosave', () => ({
   },
 }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApiClient: () => ({ getClient: mocks.getClient }) }));
+vi.mock('../lib/chat-upload', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/chat-upload')>()),
+  uploadChatFile: mocks.upload,
+}));
 vi.mock('./chat-context', () => ({
   useChatContext: () => ({
     replyTo: mocks.ctx.replyTo,
@@ -146,9 +156,15 @@ beforeAll(() => {
   if (!('randomUUID' in crypto)) {
     Object.defineProperty(crypto, 'randomUUID', { value: () => '00000000-0000-4000-8000-000000000000' });
   }
+  // jsdom has no object URLs.
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: () => 'blob:local-preview' });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: () => {} });
 });
 
 beforeEach(() => {
+  mocks.getClient.mockReset();
+  mocks.getClient.mockResolvedValue({});
+  mocks.upload.mockReset();
   mocks.send.mockReset();
   mocks.edit.mockReset();
   mocks.setReplyTo.mockReset();
@@ -372,5 +388,153 @@ describe('MessageInput: channel attachment lock', () => {
       );
     });
     expect(mocks.getClient).not.toHaveBeenCalled();
+  });
+});
+
+describe('MessageInput: images pasted into the text', () => {
+  const uploaded = (id: string) => ({ id, url: `https://files.test/${id}.png`, mimeType: 'image/png' });
+
+  /** Put the caret `offset` characters into the editor's first text node. */
+  function caretAt(editor: HTMLElement, offset: number) {
+    const range = document.createRange();
+    range.setStart(editor.firstChild as Text, offset);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  }
+
+  function pasteImage(editor: HTMLElement, name = 'image.png') {
+    const file = new File(['x'], name, { type: 'image/png' });
+    fireEvent.paste(editor, { clipboardData: { items: [{ kind: 'file', getAsFile: () => file }] } });
+  }
+
+  it('places the image at the caret and sends it there', async () => {
+    mocks.upload.mockResolvedValue(uploaded('att_1'));
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    type(editor, 'before after');
+    caretAt(editor, 'before '.length);
+
+    pasteImage(editor);
+    // The placeholder is in the text straight away, before the upload lands.
+    const node = editor.querySelector('.inline-image') as HTMLElement;
+    expect(node.hasAttribute('data-pending')).toBe(true);
+    expect(node.previousSibling?.textContent).toBe('before ');
+    expect(screen.queryByText('Uploading')).toBeNull();
+
+    await act(async () => {});
+    expect(node.dataset.fileId).toBe('att_1');
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    const sent = mocks.send.mock.calls[0][0];
+    expect(sent.content).toBe('before <@file:att_1>after');
+    expect(sent.mentions).toBeUndefined();
+    expect(sent.attachments).toEqual([
+      expect.objectContaining({ id: 'att_1', url: 'https://files.test/att_1.png', mimeType: 'image/png' }),
+    ]);
+  });
+
+  it('blocks sending while the pasted image uploads', () => {
+    mocks.upload.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    type(editor, 'look');
+    pasteImage(editor);
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('takes the image out of the text when its upload fails', async () => {
+    mocks.upload.mockRejectedValue(new Error('nope'));
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    type(editor, 'look');
+    pasteImage(editor);
+    await act(async () => {});
+    expect(editor.querySelector('.inline-image')).toBeNull();
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({ content: 'look', attachments: undefined });
+  });
+
+  it('an image deleted from the text is not sent', async () => {
+    mocks.upload.mockResolvedValue(uploaded('att_1'));
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    type(editor, 'look');
+    pasteImage(editor);
+    await act(async () => {});
+
+    editor.querySelector('.inline-image')?.remove();
+    fireEvent.input(editor);
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({ content: 'look', attachments: undefined });
+  });
+
+  it('a message of only an image keeps the editor content (no placeholder wipe)', async () => {
+    mocks.upload.mockResolvedValue(uploaded('att_1'));
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    editor.focus();
+    pasteImage(editor);
+    await act(async () => {});
+    fireEvent.input(editor);
+    expect(editor.querySelector('.inline-image')).not.toBeNull();
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({ content: '<@file:att_1>' });
+  });
+
+  it('drops file tokens it did not upload (e.g. pasted markup)', () => {
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    editor.innerHTML = 'hi <span class="inline-image" contenteditable="false" data-file-id="att_other"></span>';
+    fireEvent.input(editor);
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(mocks.send.mock.calls[0][0]).toMatchObject({ content: 'hi', attachments: undefined });
+  });
+
+  it('restores a draft with its placed image in the text and the rest in the strip', () => {
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const placed = { id: 'att_1', fileName: 'shot.png', fileSize: 1, mimeType: 'image/png', url: 'https://files.test/att_1.png' };
+    const loose = { id: 'att_2', fileName: 'doc.pdf', fileSize: 1, mimeType: 'application/pdf', url: 'https://files.test/att_2.pdf' };
+    act(() => {
+      mocks.restore?.('see <@file:att_1> here', [placed, loose]);
+    });
+    const editor = editorOf(container);
+    expect(editor.querySelector('.inline-image img')?.getAttribute('src')).toBe(placed.url);
+    expect(screen.getByText('doc.pdf')).toBeTruthy();
+    expect(screen.queryByAltText('shot.png')?.closest('.inline-image')).toBeTruthy();
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    const sent = mocks.send.mock.calls[0][0];
+    expect(sent.content).toBe('see <@file:att_1> here');
+    expect(sent.attachments.map((a: { id: string }) => a.id)).toEqual(['att_2', 'att_1']);
+  });
+
+  it('shows the placed image while editing and keeps its token', () => {
+    mocks.ctx.editingMessage = {
+      messageId: 'msg_1',
+      content: 'old <@file:att_1> text',
+      attachments: [{ id: 'att_1', url: 'https://files.test/att_1.png', fileName: 'shot.png' }],
+    };
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    expect(editor.querySelector('.inline-image img')?.getAttribute('src')).toBe('https://files.test/att_1.png');
+
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(mocks.edit.mock.calls[0][0]).toMatchObject({ content: 'old <@file:att_1> text' });
+  });
+
+  it('a pasted non-image file still goes to the strip', async () => {
+    mocks.upload.mockResolvedValue({ id: 'att_9', url: 'https://files.test/a.pdf', mimeType: 'application/pdf' });
+    const { container } = render(<MessageInput channelId="ch_1" />);
+    const editor = editorOf(container);
+    const file = new File(['x'], 'a.pdf', { type: 'application/pdf' });
+    fireEvent.paste(editor, { clipboardData: { items: [{ kind: 'file', getAsFile: () => file }] } });
+    await act(async () => {});
+    expect(editor.querySelector('.inline-image')).toBeNull();
+    expect(screen.getByText('a.pdf')).toBeTruthy();
   });
 });

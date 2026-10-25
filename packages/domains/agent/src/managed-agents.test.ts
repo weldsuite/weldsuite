@@ -91,6 +91,9 @@ function fakeClient(script: Array<Record<string, unknown>>) {
           })),
           list: vi.fn(async function* () {}),
         },
+        threads: {
+          retrieve: vi.fn(async (id: string) => ({ id, agent: { id: `agent_for_${id}`, name: 'Researcher' } })),
+        },
       },
     },
   };
@@ -125,7 +128,7 @@ describe('driveTurn', () => {
       onCustomTool,
     });
 
-    expect(onCustomTool).toHaveBeenCalledWith('list_people', { limit: 1 });
+    expect(onCustomTool).toHaveBeenCalledWith('list_people', { limit: 1 }, null);
     expect(sent).toContainEqual(
       expect.objectContaining({ type: 'user.custom_tool_result', custom_tool_use_id: 'e3', is_error: false }),
     );
@@ -227,6 +230,55 @@ describe('driveTurn', () => {
 
     expect(outcome.usage.inputTokens).toBe(1110);
     expect(outcome.pricedInputTokens).toBe(10 + 1000 * 0.1 + 100 * 1.25);
+  });
+
+  it('routes a sub-agent thread\'s calls and records the delegation', async () => {
+    const { client, sent } = fakeClient([
+      { type: 'session.status_running', id: 'e1' },
+      { type: 'session.thread_created', id: 'e2', session_thread_id: 'sthr_1', agent_name: 'Researcher', workflow_run_id: null },
+      {
+        type: 'agent.thread_message_sent',
+        id: 'e3',
+        to_session_thread_id: 'sthr_1',
+        to_agent_name: 'Researcher',
+        content: [{ type: 'text', text: 'Find the latest invoices' }],
+      },
+      { type: 'agent.custom_tool_use', id: 'e4', name: 'list_invoices', input: {}, session_thread_id: 'sthr_1' },
+      { type: 'agent.tool_use', id: 'e5', name: 'web_search', input: {}, evaluated_permission: 'ask', session_thread_id: 'sthr_1' },
+      { type: 'agent.tool_use', id: 'e6', name: 'bash', input: {}, evaluated_permission: 'ask', session_thread_id: 'sthr_1' },
+      {
+        type: 'agent.thread_message_received',
+        id: 'e7',
+        from_session_thread_id: 'sthr_1',
+        from_agent_name: 'Researcher',
+        content: [{ type: 'text', text: 'Three invoices are open.' }],
+      },
+      { type: 'agent.message', id: 'e8', content: [{ type: 'text', text: 'You have three open invoices.' }] },
+      { type: 'session.status_idle', id: 'e9', stop_reason: { type: 'end_turn' } },
+    ]);
+    const onCustomTool = vi.fn(async () => ({ result: [], isError: false }));
+    const invocations: DriveTurnParams['invocations'] = [];
+
+    await driveTurn({
+      client,
+      sessionId: 'sesn_1',
+      kickoff: [{ type: 'user.message', content: [{ type: 'text', text: 'Any open invoices?' }] }],
+      deadline: Date.now() + 10_000,
+      maxModelRequests: 10,
+      invocations,
+      onCustomTool,
+      // Web allowed, sandbox not.
+      allowSubagentBuiltin: (_agent, tool) => tool === 'web_search',
+    });
+
+    // Identified by the thread's agent object, read once and cached.
+    expect(onCustomTool).toHaveBeenCalledWith('list_invoices', {}, { name: 'Researcher', objectId: 'agent_for_sthr_1' });
+    expect(sent).toContainEqual(expect.objectContaining({ tool_use_id: 'e5', result: 'allow' }));
+    expect(sent).toContainEqual(expect.objectContaining({ tool_use_id: 'e6', result: 'deny' }));
+    expect(invocations).toEqual([
+      { toolName: 'delegate_to_agent', state: 'call', args: { agent: 'Researcher', task: 'Find the latest invoices' } },
+      { toolName: 'delegate_to_agent', state: 'result', args: { agent: 'Researcher' }, result: 'Three invoices are open.' },
+    ]);
   });
 
   it('reports a failed session', async () => {

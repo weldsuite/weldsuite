@@ -9,6 +9,7 @@ import { infoFunctions } from './info';
 import { logicalFunctions } from './logical';
 import { lookupFunctions } from './lookup';
 import { mathFunctions } from './math';
+import { pivotFunctions } from './pivot';
 import { registerFunctions } from './registry';
 import { statsFunctions } from './stats';
 import { textFunctions } from './text';
@@ -22,6 +23,7 @@ registerFunctions([
   ...datetimeFunctions,
   ...lookupFunctions,
   ...financialFunctions,
+  ...pivotFunctions,
 ]);
 
 export { functionNames, getFunction, registerFunctions } from './registry';

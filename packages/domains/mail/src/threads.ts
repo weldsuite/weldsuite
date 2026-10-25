@@ -245,7 +245,7 @@ function buildThreadSummary(
 }
 
 /** The advanced-search From / To / Subject filters, per message. */
-function fieldFilterConditions(input: ListThreadsByLabelInput): SQL[] {
+function fieldFilterConditions(input: ThreadListFilter): SQL[] {
   const conditions: SQL[] = [];
   if (input.from?.trim()) conditions.push(senderMatches(input.from));
   if (input.to?.trim()) conditions.push(anyRecipientMatches(input.to));
@@ -253,19 +253,24 @@ function fieldFilterConditions(input: ListThreadsByLabelInput): SQL[] {
   return conditions;
 }
 
-export async function listThreadsByLabel(
+/** What decides which threads a listing holds; everything but the paging. */
+export type ThreadListFilter = Omit<ListThreadsByLabelInput, 'page' | 'pageSize' | 'offset'>;
+
+/**
+ * The accounts a thread listing covers and the conditions a message must meet
+ * to put its thread in the list. Null when the caller can read none of the
+ * accounts. Shared by the listing and "mark all as read", so the button acts
+ * on exactly the threads the folder shows.
+ */
+export async function threadListScope(
   db: Database,
   caller: MailCaller,
-  input: ListThreadsByLabelInput,
-): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
-  const page = Math.max(1, input.page ?? 1);
-  const pageSize = Math.min(100, Math.max(1, input.pageSize ?? 25));
-  const offset = input.offset !== undefined ? Math.max(0, input.offset) : (page - 1) * pageSize;
-
+  input: ThreadListFilter,
+): Promise<{ accountScope: SQL; conditions: SQL[] } | null> {
   const baseConditions: SQL[] = [isNull(mailMessages.deletedAt)!];
 
   const accountScope = await resolveAccountScope(db, caller, input.accountId);
-  if (!accountScope) return { threads: [], totalCount: 0 };
+  if (!accountScope) return null;
   baseConditions.push(accountScope);
 
   // Snoozed mail that came due since the last sweep is back in the inbox
@@ -315,6 +320,23 @@ export async function listThreadsByLabel(
   if (excludeCondition) {
     baseConditions.push(sql`${threadKey} NOT IN ${anyMessageOfThread(excludeCondition)}`);
   }
+
+  return { accountScope, conditions: baseConditions };
+}
+
+export async function listThreadsByLabel(
+  db: Database,
+  caller: MailCaller,
+  input: ListThreadsByLabelInput,
+): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
+  const page = Math.max(1, input.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, input.pageSize ?? 25));
+  const offset = input.offset !== undefined ? Math.max(0, input.offset) : (page - 1) * pageSize;
+
+  const scope = await threadListScope(db, caller, input);
+  if (!scope) return { threads: [], totalCount: 0 };
+  const { accountScope, conditions: baseConditions } = scope;
+  const threadIdExpr = sql<string>`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
 
   // ---- count distinct threads -----------------------------------------
   const [countRow] = await db

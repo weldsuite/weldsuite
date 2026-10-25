@@ -7,6 +7,8 @@ import { useAppApi } from '@/lib/api/use-app-api';
 import type {
   CreateWorkspaceAgentInput,
   UpdateWorkspaceAgentInput,
+  UpdateWorkspaceAgentAccessInput,
+  UpdateWorkspaceAgentSubagentsInput,
   WorkspaceAgent,
   WorkspaceAgentRun,
 } from '@weldsuite/app-api-client/schemas/workspace-agents';
@@ -123,6 +125,48 @@ export function useUpdateAgent(id: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: agentKeys.all });
     },
+  });
+}
+
+/** Owner, visibility and members (the agent's owner or a manager). */
+export function useUpdateAgentAccess(id: string) {
+  const api = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: UpdateWorkspaceAgentAccessInput) => api.workspaceAgents.updateAccess(id, data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: agentKeys.all });
+    },
+  });
+}
+
+/** The agents this agent may hand work to. */
+export function useUpdateAgentSubagents(id: string) {
+  const api = useAppApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: UpdateWorkspaceAgentSubagentsInput) => api.workspaceAgents.updateSubagents(id, data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: agentKeys.all });
+    },
+  });
+}
+
+/**
+ * The current user's one continuous chat with the agent (created on first
+ * use, so the POST is safe to repeat).
+ */
+export function useAgentMainChat(agentId: string) {
+  const api = useAppApi();
+  return useQuery({
+    queryKey: [...agentKeys.detail(agentId), 'main-chat'] as const,
+    queryFn: async () => {
+      const res = await api.workspaceAgents.mainChat(agentId);
+      return res.data;
+    },
+    enabled: !!agentId,
+    staleTime: Infinity,
+    retry: false,
   });
 }
 

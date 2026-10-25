@@ -10,13 +10,14 @@ import {
   ContextMenuTrigger,
 } from '@weldsuite/ui/components/context-menu';
 import { useI18n } from '@/lib/i18n/provider';
+import { insertChart, removeChart } from '../model/charts';
 import { copySelection, pasteInto } from '../model/clipboard';
 import { clampToGrid, isWholeColumns, isWholeRows, primaryRange } from '../model/selection';
 import type { SheetController } from '../model/sheet-controller';
 
 const MOD = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
-export function GridContextMenu({ controller, children }: { controller: SheetController; children: ReactNode }) {
+export function GridContextMenu({ controller, onCreatePivot, children }: { controller: SheetController; onCreatePivot?: () => void; children: ReactNode }) {
   const { t, format } = useI18n();
   const tm = t.weldsheets.menu;
   const sheet = controller.sheet;
@@ -25,6 +26,8 @@ export function GridContextMenu({ controller, children }: { controller: SheetCon
   const cols = range.c2 - range.c1 + 1;
   const wholeCols = isWholeColumns(primaryRange(controller.selection));
   const wholeRows = isWholeRows(primaryRange(controller.selection));
+  /** A picked chart gets its own menu. */
+  const chartMenu = !!controller.chart && !controller.readOnly;
 
   const copy = async (cut: boolean) => {
     const payload = copySelection(controller, cut);
@@ -54,14 +57,24 @@ export function GridContextMenu({ controller, children }: { controller: SheetCon
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-      {controller.readOnly ? (
+      {chartMenu && (
+        <ContextMenuContent className="w-64">
+          <ContextMenuItem onSelect={() => controller.openPanel('chart')}>{t.weldsheets.charts.edit}</ContextMenuItem>
+          <ContextMenuItem onSelect={() => removeChart(controller, controller.chart!.id)}>
+            {t.weldsheets.charts.delete}
+            <ContextMenuShortcut>Del</ContextMenuShortcut>
+          </ContextMenuItem>
+        </ContextMenuContent>
+      )}
+      {!chartMenu && controller.readOnly && (
         <ContextMenuContent className="w-64">
           <ContextMenuItem onSelect={() => void copy(false)}>
             {tm.copy}
             <ContextMenuShortcut>{MOD}C</ContextMenuShortcut>
           </ContextMenuItem>
         </ContextMenuContent>
-      ) : (
+      )}
+      {!chartMenu && !controller.readOnly && (
         <ContextMenuContent className="w-64">
           <ContextMenuItem onSelect={() => void copy(true)}>
             {tm.cut}
@@ -130,6 +143,12 @@ export function GridContextMenu({ controller, children }: { controller: SheetCon
             {tm.clearContents}
             <ContextMenuShortcut>Del</ContextMenuShortcut>
           </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => controller.openPanel('formats')}>{t.weldsheets.data.conditionalFormatting}</ContextMenuItem>
+          <ContextMenuItem onSelect={() => controller.openPanel('validation')}>{t.weldsheets.data.dataValidation}</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={() => insertChart(controller)}>{t.weldsheets.charts.insert}</ContextMenuItem>
+          {onCreatePivot && <ContextMenuItem onSelect={onCreatePivot}>{t.weldsheets.pivot.create}</ContextMenuItem>}
         </ContextMenuContent>
       )}
     </ContextMenu>
