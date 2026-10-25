@@ -1,5 +1,5 @@
 /**
- * ZIP container, the package format of .xlsx files.
+ * ZIP container, the package format of .xlsx and .docx files.
  *
  * Built on the platform's CompressionStream / DecompressionStream with
  * 'deflate-raw', so it runs unchanged in browsers, Workers and Node. Reads

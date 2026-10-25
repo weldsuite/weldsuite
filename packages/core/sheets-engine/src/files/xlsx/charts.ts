@@ -17,8 +17,7 @@ import { AxisDims } from '../../model/axis';
 import type { Chart, ChartSeries, ChartType } from '../../model/charts';
 import type { Sheet, SheetSnapshot } from '../../model/workbook';
 import type { ImportWarning } from '../types';
-import { XML_HEADER, child, childrenOf, esc, parseXml, type XmlElement } from '../xml';
-import type { ZipReader } from '../zip';
+import { XML_HEADER, child, childrenOf, esc, parseXml, type XmlElement, type ZipReader } from '@weldsuite/zip-xml';
 import { resolveColor } from './colors';
 import { fromExcelFormula } from './formulas';
 

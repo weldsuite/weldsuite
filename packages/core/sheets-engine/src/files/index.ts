@@ -4,10 +4,10 @@
  * SHEETS-002) on the platform's compression streams.
  */
 
+import { decodeText } from '@weldsuite/zip-xml';
 import { readCsv, type ReadCsvOptions } from './csv';
 import { ImportError, type ImportResult, type ReadXlsxOptions } from './types';
 import { readXlsx } from './xlsx/read';
-import { decodeText } from './zip';
 
 export type SpreadsheetFormat = 'xlsx' | 'csv' | 'tsv';
 

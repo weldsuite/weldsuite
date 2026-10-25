@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { openZip, writeZip } from '@weldsuite/zip-xml';
 import { Engine } from '../../calc/engine';
 import { styleKey, type CellStyle } from '../../model/styles';
 import type { Chart } from '../../model/charts';
 import type { WorkbookSnapshot } from '../../model/workbook';
 import { err, type Scalar } from '../../values';
 import { ImportError } from '../types';
-import { openZip, writeZip } from '../zip';
 import { applyTint } from './colors';
 import { readXlsx } from './read';
 import { writeXlsx } from './write';

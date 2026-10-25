@@ -11,6 +11,7 @@
  * Excel to recalculate everything on load.
  */
 
+import { XML_HEADER, attrs, esc, writeZip, type ZipFile } from '@weldsuite/zip-xml';
 import { MAX_COLS, cellKey, colToLetters, formatA1, quoteSheetName, type Range } from '../../address';
 import type { Engine } from '../../calc/engine';
 import { EN_LOCALE, formatValue, type FormatLocale } from '../../format/number-format';
@@ -19,9 +20,8 @@ import { valueKey, sortFormats, type ColorPoint, type ConditionalFormat, type Da
 import type { Sheet } from '../../model/workbook';
 import { isError, type Scalar } from '../../values';
 import { isPivotFormula } from '../../pivot/pivot';
-import { XML_HEADER, attrs, esc, escCellText } from '../xml';
-import { writeZip, type ZipFile } from '../zip';
 import { CT_CHART, CT_DRAWING, writeDrawing } from './charts';
+import { escCellText } from './text';
 import { toArgb } from './colors';
 import { cellIsForm, conditionFormula, pxToPoints, pxToWidth, quote } from './conditions';
 import { toExcelFormula } from './formulas';

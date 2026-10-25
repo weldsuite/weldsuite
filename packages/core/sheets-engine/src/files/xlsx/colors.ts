@@ -3,7 +3,7 @@
  * legacy indexed palette, all resolved to CSS hex (#rrggbb).
  */
 
-import { child, type XmlElement } from '../xml';
+import { child, type XmlElement } from '@weldsuite/zip-xml';
 
 /** The Office 2013+ theme, in scheme order (dk1, lt1, dk2, lt2, accent1–6, hlink, folHlink). */
 export const DEFAULT_THEME = [

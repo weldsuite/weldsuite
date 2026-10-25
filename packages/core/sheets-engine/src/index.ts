@@ -68,6 +68,8 @@ export type { FormatCache, RuleHost } from './rules/evaluate';
 
 export { RoomCore } from './collab/room';
 export type { Outgoing, RoomOptions } from './collab/room';
+export { sheetsAdapter } from './collab/adapter';
+export type { SheetsAdapter } from './collab/adapter';
 export { CollabClient } from './collab/client';
 export type { CollabClientOptions } from './collab/client';
 export { FrameAssembler, MAX_FRAME, decodeClient, decodeServer, encode, refusedBatchId, toFrames } from './collab/protocol';
@@ -88,8 +90,8 @@ export { detectDelimiter, parseCsv, readCsv, writeCsv } from './files/csv';
 export type { ReadCsvOptions, WriteCsvOptions } from './files/csv';
 export { ImportError } from './files/types';
 export type { ImportErrorCode, ImportResult, ImportWarning, ReadOptions, ReadXlsxOptions } from './files/types';
-export { ZipError, openZip, writeZip } from './files/zip';
-export type { ZipErrorCode, ZipFile, ZipLimits, ZipReader } from './files/zip';
+export { ZipError, openZip, writeZip } from '@weldsuite/zip-xml';
+export type { ZipErrorCode, ZipFile, ZipLimits, ZipReader } from '@weldsuite/zip-xml';
 
 export { CHART_PALETTE, CHART_TYPES, MAX_CHART_SERIES, MAX_CHART_SIZE, MIN_CHART_SIZE, anchorAfter, cloneChart, mapChartFormulas } from './model/charts';
 export type { Chart, ChartAnchor, ChartSeries, ChartType } from './model/charts';

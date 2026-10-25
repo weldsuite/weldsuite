@@ -9,13 +9,13 @@
  * the snapshot works them out again.
  */
 
+import { child, childrenOf, openZip, parseXml, scanXml, XmlError, ZipError, type XmlElement, type ZipReader } from '@weldsuite/zip-xml';
 import { EN_LOCALE, isDateFormat } from '../../format/number-format';
 import type { Chart } from '../../model/charts';
 import type { DefinedName, SheetSnapshot } from '../../model/workbook';
 import { styleKey } from '../../model/styles';
 import { ImportError, type ImportResult, type ImportWarning, type ReadXlsxOptions } from '../types';
-import { child, childrenOf, decodeEscapes, parseXml, scanXml, XmlError, type XmlElement } from '../xml';
-import { openZip, ZipError, type ZipReader } from '../zip';
+import { decodeEscapes } from './text';
 import { readTheme } from './colors';
 import { fromExcelFormula } from './formulas';
 import { chartFromPart, readDrawingCharts } from './charts';

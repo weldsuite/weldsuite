@@ -1,8 +1,8 @@
 /** What reading a spreadsheet file gives, and how it can fail. */
 
+import type { ZipLimits } from '@weldsuite/zip-xml';
 import type { FormatLocale } from '../format/number-format';
 import type { WorkbookSnapshot } from '../model/workbook';
-import type { ZipLimits } from './zip';
 
 /**
  * Parts of a file WeldSheets could not bring over. The workbook is still
