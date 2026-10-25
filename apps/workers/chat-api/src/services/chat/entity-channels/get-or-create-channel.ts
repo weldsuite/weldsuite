@@ -3,7 +3,11 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { addFollowers } from './followers';
-import { getEntityProvider, type PermissionCheck, type ResolvedEntityInfo } from './registry';
+import {
+  getEntityProvider,
+  type PermissionCheck,
+  type ResolvedEntityInfo,
+} from '@weldsuite/chat-domain/entity-channels';
 
 export interface GetOrCreateParams {
   db: Database;

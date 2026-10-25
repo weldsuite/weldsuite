@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql, type SQL } from 'drizzle-orm';
-import { requirePermission, ensurePermissionsResolved } from '@weldsuite/permissions/server';
+import { requirePermission, ensurePermissionsResolved, hasContextPermission } from '@weldsuite/permissions/server';
 import { agentViewerFor, inaccessibleAgentIds } from '@weldsuite/agent-domain/access';
 import { updateChannelMembershipSchema } from '@weldsuite/app-api-client/schemas/chat-dm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -17,7 +17,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { postChatMessage, ChatFeatureError } from '../../services/chat/post-message';
 import { setChannelMuted } from '../../services/chat/dm-membership';
-import { canAccessChannel, isChannelModerator } from '../../services/chat/channel-access';
+import { canAccessChannel, isChannelModerator, unreadableRecordChatIds } from '../../services/chat/channel-access';
 import { consumeChatRateLimit } from '../../services/chat/rate-limit';
 import { createChannel, resolveChannelSlug } from '@weldsuite/chat-domain/create-channel';
 import {
@@ -256,8 +256,17 @@ app.get('/', requirePermission('channels:read'), async (c) => {
     const data = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
     const totalCount = Number(countRes[0]?.count ?? 0);
-    const state = await callerChannelState(db, userId, data.map((r) => r.id));
-    const items = data.map((r) => ({ ...r, ...(state.get(r.id) ?? NO_MEMBERSHIP) }));
+    // A followed record chat whose record the caller can no longer see drops
+    // out: its name and last-message preview are the record's.
+    const unreadable = await unreadableRecordChatIds(
+      db,
+      userId,
+      data.filter((r) => r.type === 'entity').map((r) => r.id),
+      { can: (permission) => hasContextPermission(c, permission) },
+    );
+    const visible = data.filter((r) => !unreadable.has(r.id));
+    const state = await callerChannelState(db, userId, visible.map((r) => r.id));
+    const items = visible.map((r) => ({ ...r, ...(state.get(r.id) ?? NO_MEMBERSHIP) }));
     return list(c, items, cursorPagination(totalCount, hasMore, nextCursor));
   } catch (err) {
     console.error('[app-api/channels] list failed:', err);

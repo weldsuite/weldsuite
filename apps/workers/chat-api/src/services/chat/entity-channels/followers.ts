@@ -12,8 +12,11 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { publishChatUserChannelNew, type WeldChatPublisherEnv } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { userPermissionCheck } from './permissions';
-import { canAccessEntity, getEntityProvider } from './registry';
+import {
+  canAccessEntity,
+  getEntityProvider,
+  userPermissionCheck,
+} from '@weldsuite/chat-domain/entity-channels';
 
 const { chatChannels, chatChannelMembers } = schema;
 

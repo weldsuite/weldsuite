@@ -13,6 +13,7 @@
     "./channel-members": "./src/channel-members.ts",
     "./create-channel": "./src/create-channel.ts",
     "./dm-call-room": "./src/dm-call-room.ts",
+    "./entity-channels": "./src/entity-channels/index.ts",
     "./post-agent-message": "./src/post-agent-message.ts",
     "./post-system-message": "./src/post-system-message.ts",
     "./realtime/weldchat-call-publisher": "./src/realtime/weldchat-call-publisher.ts",
@@ -31,8 +32,11 @@
   },
   "dependencies": {
     "@weldsuite/cloudflare-realtime": "workspace:*",
+    "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/flow-domain": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
+    "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
