@@ -653,7 +653,7 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     category: 'Productivity',
     path: '/welddocs',
     overview:
-      'WeldDocs is a word processor built into WeldSuite. Write letters, reports and contracts on real pages, with headings and styles, lists, tables, images, headers and footers, page numbers and footnotes. Several people can edit the same document at once and see each other's cursors, and you can comment, suggest changes and share a document with colleagues. Open a Word file, or export to Word or PDF, with the layout intact.',
+      'WeldDocs is a word processor built into WeldSuite. Write letters, reports and contracts on real pages, with headings and styles, lists, tables, images, headers and footers, page numbers and footnotes. Several people can edit the same document at once and see each other’s cursors, and you can comment, suggest changes and share a document with colleagues. Open a Word file, or export to Word or PDF, with the layout intact.',
     features: [
       'Paged layout with A4 or Letter, margins, orientation, headers, footers and page numbers',
       'Styles, lists, tables, images, links and footnotes',

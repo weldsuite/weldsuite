@@ -115,5 +115,5 @@ export {
   toggleList,
 } from './editing/commands';
 export type { DeleteUnit, DocSelection, Edit, ListKind } from './editing/commands';
-export { countWords, findAll, queryPattern, replaceAll, storiesInOrder, textStats } from './editing/find';
+export { countWords, findAll, queryPattern, replaceAll, replacementFor, storiesInOrder, textStats } from './editing/find';
 export type { DocumentStats, FindOptions, Match } from './editing/find';

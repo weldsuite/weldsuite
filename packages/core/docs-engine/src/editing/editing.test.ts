@@ -22,7 +22,7 @@ import {
   type DocSelection,
   type Edit,
 } from './commands';
-import { findAll, replaceAll, textStats } from './find';
+import { findAll, replaceAll, replacementFor, textStats } from './find';
 
 function doc(text: string): DocModel {
   const d = DocModel.create();
@@ -180,5 +180,20 @@ describe('boundaries', () => {
     expect(nextGrapheme(s, 5, -1)).toBe(1);
     expect(nextWord(s, 0, 1)).toBe(1);
     expect(wordAt(s, 11)).toEqual({ from: 10, to: 14 });
+  });
+});
+
+describe('regex replace', () => {
+  it('expands groups and keeps lookarounds working, for one match and for all', () => {
+    const d = doc('jan@old and 100 EUR');
+    const groups = replaceAll(d, String.raw`(\w+)@old`, '$1@new', { regex: true });
+    applyOp(d, groups.op);
+    expect(d.body.text()).toBe(`jan@new and 100 EUR${PARA}`);
+    const look = replaceAll(d, String.raw`\d+(?= EUR)`, 'X', { regex: true });
+    expect(look.count).toBe(1);
+    applyOp(d, look.op);
+    expect(d.body.text()).toBe(`jan@new and X EUR${PARA}`);
+    const [m] = findAll(d, '(?<name>jan)@new', { regex: true });
+    expect(replacementFor(d, '(?<name>jan)@new', { regex: true }, m!, '$<name>!$$')).toBe('jan!$');
   });
 });
