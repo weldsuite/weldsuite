@@ -136,13 +136,14 @@ export {
   insertRows,
   insertTable,
   mergeAnchor,
+  mergedBlock,
   mergeCells,
   resizeColumn,
   setHeaderRows,
   setRowHeight,
   unmergeCell,
 } from './editing/tables';
-export type { CellRef } from './editing/tables';
+export type { CellRect, CellRef } from './editing/tables';
 export { TOC_PREFIX, insertToc, tocAt, tocHeadings, tocIds, updateToc } from './editing/toc';
 export type { TocHeading } from './editing/toc';
 export { insertSectionBreak, sectionAt, setSectionAt } from './editing/sections';
