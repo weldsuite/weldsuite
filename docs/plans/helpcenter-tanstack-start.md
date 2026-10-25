@@ -12,7 +12,10 @@ pick the test hostname), then Phase 4.
   `@cloudflare/vite-plugin`. Worker names follow the repo convention:
   `weldsuite-helpcenter-dev` / `-test` / `weldsuite-helpcenter`. The
   `frontend-helpcenter` job in `deploy.yml` replaces the Vercel deploy, and
-  helpcenter is out of `vercel-apps.mjs`.
+  helpcenter is out of `vercel-apps.mjs`. A stub `vercel.json` with
+  `git.deploymentEnabled: false` stays in the app until the Vercel project is
+  archived (Phase 5). Without it, Vercel's Git integration keeps building PR
+  previews of the app as Next.js, and those builds fail.
 - **No routes are attached yet.** Test is reachable on workers.dev only, where
   `FALLBACK_DOMAIN` picks the help center shown. Production has workers.dev off
   and no fallback, so it serves nothing until the Phase 5 cutover. The Vercel
@@ -155,8 +158,9 @@ tenant: title, description, OG, favicon, `lang`, brand CSS variable, custom CSS.
     `workers`, so desk-api deploys first.
   - Gate it on a `release_helpcenter` output from `prepare`, using the same
     change detection the Vercel apps get today (folder plus workspace deps).
-- Remove `helpcenter` from `.github/scripts/vercel-apps.mjs`; delete
-  `vercel.json` and `next.config.mjs`.
+- Remove `helpcenter` from `.github/scripts/vercel-apps.mjs` and delete
+  `next.config.mjs`. Reduce `vercel.json` to `git.deploymentEnabled: false`,
+  so Vercel stops building PR previews; delete it with the project in Phase 5.
 - `ci.yml`: confirm the type-check and lint jobs pick the app up. It isn't
   named in `.github/scripts/typecheck-targets.mjs` today, so check how that
   script finds apps.
