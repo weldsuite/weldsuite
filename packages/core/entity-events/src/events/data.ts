@@ -531,6 +531,16 @@ export interface DocEventData {
   updatedById?: string | null;
 }
 
+export interface DocVersionEventData {
+  id: string;
+  /** The document (docs.id) this is a version of. */
+  docId: string;
+  /** Null for an automatic version (saved before a restore). */
+  name: string | null;
+  revision: number;
+  createdById: string | null;
+}
+
 // ===========================================================================
 // Calendar + meetings
 // ===========================================================================
@@ -663,6 +673,7 @@ export interface EntityEventData {
   file: FileEventData;
   folder: FolderEventData;
   doc: DocEventData;
+  doc_version: DocVersionEventData;
 
   // WeldSheets
   sheet: SheetEventData;

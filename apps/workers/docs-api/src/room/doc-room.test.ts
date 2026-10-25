@@ -2,12 +2,13 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
-import { docs, files } from '@weldsuite/db/schema';
+import { docVersions, docs, files } from '@weldsuite/db/schema';
 import { encode, toFrames, type ClientMessage } from '@weldsuite/collab';
-import { DocModel, type DocPresence, type Op } from '@weldsuite/docs-engine';
+import { DocModel, addComment, applyOp, caretAt, type DocPresence, type Op } from '@weldsuite/docs-engine';
 import type { Env } from '../types';
 import { FakeBucket, FakeSocket, fakeObjectState, type DocServerMessage } from '../test-support/fakes';
 import { createDoc, snapshotKeyFor } from '../services/docs';
+import { versionKeyFor } from '../services/versions';
 import { readSnapshot, writeSnapshot } from './snapshot';
 import { DocRoom, replyCode, type Admission } from './doc-room';
 import { connectToRoom, isConnectRequest } from './connect';
@@ -25,7 +26,7 @@ let state: ReturnType<typeof fakeObjectState>;
 let docId: string;
 let env: Env;
 
-function admission(userId: string, canEdit = true): Admission {
+function admission(userId: string, canEdit = true, canComment = false): Admission {
   return {
     workspaceId: WORKSPACE,
     docId,
@@ -35,12 +36,13 @@ function admission(userId: string, canEdit = true): Admission {
     picture: null,
     color: '#2563eb',
     canEdit,
+    canComment,
   };
 }
 
 /** Admits `userId` and connects a socket for them. */
-async function join(room: DocRoom, userId: string, canEdit = true): Promise<FakeSocket> {
-  const ticket = await room.admit(admission(userId, canEdit));
+async function join(room: DocRoom, userId: string, canEdit = true, canComment = false): Promise<FakeSocket> {
+  const ticket = await room.admit(admission(userId, canEdit, canComment));
   const socket = new FakeSocket();
   expect(await room.accept(socket.asSocket(), ticket.split('.')[1]!)).toBe('ok');
   return socket;
@@ -58,6 +60,7 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  await db.delete(docVersions);
   await db.delete(docs);
   await db.delete(files);
   bucket = new FakeBucket();
@@ -230,6 +233,101 @@ describe('DocRoom', () => {
     expect(live.revision).toBe(0);
     expect(JSON.parse(live.json)).toEqual(DocModel.create().toSnapshot());
     expect(state.storage.data.get('meta')).toEqual(meta());
+  });
+
+  it('lets commenters comment, and nothing else', async () => {
+    const room = new DocRoom(state.ctx, env);
+    const alice = await join(room, 'alice');
+    const cara = await join(room, 'cara', false, true);
+    const vic = await join(room, 'vic', false);
+    for (const s of [alice, cara, vic]) await send(room, s, { type: 'hello', revision: null });
+    await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: typeAt(0, 'Some text') });
+
+    const local = DocModel.create();
+    applyOp(local, typeAt(0, 'Some text'));
+    const comment = (by: string) => addComment(local, caretAt('body', 1), { id: by, name: by }, { body: `from ${by}` }, () => `c_${by}`, 1).op;
+
+    // Their own discussion goes in.
+    await send(room, cara, { type: 'submit', batchId: 'c:1', baseRevision: 1, op: comment('cara') });
+    expect(ofType(cara, 'ack')).toEqual([{ type: 'ack', batchId: 'c:1', revision: 2 }]);
+    // Text, or a discussion in someone else's name, is refused like a viewer's edit.
+    await send(room, cara, { type: 'submit', batchId: 'c:2', baseRevision: 2, op: typeAt(0, 'x') });
+    await send(room, cara, { type: 'submit', batchId: 'c:3', baseRevision: 2, op: comment('alice') });
+    expect(ofType(cara, 'reject').map((r) => [r.batchId, r.reason])).toEqual([
+      ['c:2', 'read-only'],
+      ['c:3', 'read-only'],
+    ]);
+    // A viewer without docs:comment cannot comment at all.
+    await send(room, vic, { type: 'submit', batchId: 'v:1', baseRevision: 2, op: comment('vic') });
+    expect(ofType(vic, 'reject')[0]).toMatchObject({ batchId: 'v:1', reason: 'read-only' });
+    // Editors comment as they like.
+    await send(room, alice, { type: 'submit', batchId: 'a:2', baseRevision: 2, op: comment('alice') });
+    expect(ofType(alice, 'ack').at(-1)).toMatchObject({ batchId: 'a:2', revision: 3 });
+
+    const live = JSON.parse((await room.snapshot(meta())).json) as ReturnType<DocModel['toSnapshot']>;
+    expect(live.comments?.map((c) => c.id)).toEqual(['c_alice', 'c_cara']);
+    expect(live.stories['body']!.text).toBe('Some text\n');
+  });
+
+  it('restores a version: saves the document as it was, replaces it and reloads everyone', async () => {
+    const room = new DocRoom(state.ctx, env);
+    const alice = await join(room, 'alice');
+    const bob = await join(room, 'bob');
+    await send(room, alice, { type: 'hello', revision: null });
+    await send(room, bob, { type: 'hello', revision: null });
+    await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: typeAt(0, 'First') });
+    const versionKey = versionKeyFor(meta().snapshotKey, 'docv_good');
+    expect(await room.saveVersion(meta(), versionKey)).toMatchObject({ revision: 1 });
+    expect(bodyText((await readSnapshot(bucket.asBinding(), versionKey))!.doc)).toBe('First\n');
+    await send(room, alice, { type: 'submit', batchId: 'a:2', baseRevision: 1, op: typeAt(5, ' second') });
+
+    const outcome = await room.restoreVersion({ doc: meta(), versionId: 'docv_good', versionKey, autoVersionId: 'docv_auto', userId: 'bob' });
+    expect(outcome).toEqual({ ok: true, revision: 3 });
+
+    // The document as it was is an automatic version.
+    const [auto] = await db.select().from(docVersions).where(eq(docVersions.id, 'docv_auto'));
+    expect(auto).toMatchObject({ docId, revision: 2, name: null, createdById: 'bob', snapshotKey: versionKeyFor(meta().snapshotKey, 'docv_auto') });
+    expect(bodyText((await readSnapshot(bucket.asBinding(), auto!.snapshotKey))!.doc)).toBe('First second\n');
+    // The version is the document now, checkpointed at the next revision, and the old log is gone.
+    const checkpoint = (await readSnapshot(bucket.asBinding(), meta().snapshotKey))!;
+    expect([checkpoint.revision, bodyText(checkpoint.doc)]).toEqual([3, 'First\n']);
+    expect([...state.storage.data.keys()].filter((k) => k.startsWith('op:'))).toEqual([]);
+    const [row] = await db.select().from(docs).where(eq(docs.id, docId));
+    expect(row).toMatchObject({ revision: 3, updatedById: 'bob' });
+
+    // Everyone starts over from it.
+    for (const s of [alice, bob]) {
+      const restored = ofType(s, 'restored');
+      expect(restored).toHaveLength(1);
+      expect(restored[0]).toMatchObject({ revision: 3, versionId: 'docv_good', userId: 'bob' });
+      expect(bodyText(restored[0]!.snapshot)).toBe('First\n');
+    }
+    // A batch made on the replaced document is stale; one on the restored one goes in.
+    await send(room, bob, { type: 'submit', batchId: 'b:1', baseRevision: 2, op: typeAt(0, 'late ') });
+    expect(ofType(bob, 'reject')[0]).toMatchObject({ batchId: 'b:1', reason: 'stale' });
+    await send(room, alice, { type: 'submit', batchId: 'a:3', baseRevision: 3, op: typeAt(5, '!') });
+    expect(ofType(alice, 'ack').at(-1)).toEqual({ type: 'ack', batchId: 'a:3', revision: 4 });
+
+    // After a restart, an op of the replaced document left in the log is never replayed.
+    state.storage.data.set('op:000000000002', { revision: 2, batchId: 'a:2', clientId: 'x', op: typeAt(0, 'ghost ') });
+    const restarted = new DocRoom(fakeObjectStateFrom(state), env);
+    const live = await restarted.snapshot(meta());
+    expect(live.revision).toBe(4);
+    expect(bodyText(JSON.parse(live.json))).toBe('First!\n');
+  });
+
+  it('refuses to restore a version whose snapshot is gone', async () => {
+    const room = new DocRoom(state.ctx, env);
+    const outcome = await room.restoreVersion({
+      doc: meta(),
+      versionId: 'docv_gone',
+      versionKey: versionKeyFor(meta().snapshotKey, 'docv_gone'),
+      autoVersionId: 'docv_auto',
+      userId: 'alice',
+    });
+    expect(outcome).toEqual({ ok: false, reason: 'missing_version' });
+    expect(await db.select().from(docVersions)).toEqual([]);
+    expect((await readSnapshot(bucket.asBinding(), meta().snapshotKey))?.revision).toBe(0);
   });
 });
 

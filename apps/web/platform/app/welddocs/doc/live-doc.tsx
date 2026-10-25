@@ -1,11 +1,16 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { isApiError } from '@weldsuite/api-client';
-import { DOC_CONNECT_PATH } from '@weldsuite/app-api-client/schemas/docs';
+import { DOC_CONNECT_PATH, type DocSessionMode } from '@weldsuite/app-api-client/schemas/docs';
 import type { DocPeer } from '@weldsuite/docs-engine';
+import { Users } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
+import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
 import { PageLoader } from '@/components/page-loader';
+import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { getApiOriginForPath } from '@/lib/api/public-env';
@@ -16,6 +21,7 @@ import { DocController } from '../editor/model/doc-controller';
 import { docsQueryKey, useDocMutations } from '../store/use-doc-store';
 import { MissingDoc, type DocStatus } from './doc-chrome';
 import { PeerAvatars } from './peer-avatars';
+import { VersionsPanel } from './versions-panel';
 
 /** How often, at most, this person's caret goes out to the others. */
 const PRESENCE_MS = 120;
@@ -43,13 +49,20 @@ export function LiveDoc({ docId }: { docId: string }) {
   const [controller, setController] = useState<DocController | null>(null);
   const [gone, setGone] = useState(false);
   const [roomCanEdit, setRoomCanEdit] = useState(false);
+  const [mode, setMode] = useState<DocSessionMode>('view');
   const [peers, setPeers] = useState<DocPeer[]>([]);
+  const [shareTarget, setShareTarget] = useState<DriveShareTarget | null>(null);
   const [, statusChanged] = useReducer((n: number) => n + 1, 0);
   const connection = useRef<DocConnection | null>(null);
   const strings = useRef(tw);
   strings.current = tw;
   const languageRef = useRef(language);
   languageRef.current = language;
+  const { user } = useUser();
+  const reviewer = useRef({ id: '', name: '' });
+  reviewer.current = { id: user?.id ?? '', name: user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || '' };
+  const members = useWorkspaceMemberDirectory();
+  const people = useMemo(() => (members.data?.data ?? []).map((m) => ({ id: m.userId, name: m.name || m.email || m.userId })), [members.data]);
 
   const recordKey = [...docsQueryKey, 'doc', docId] as const;
   const record = useQuery({
@@ -66,7 +79,11 @@ export function LiveDoc({ docId }: { docId: string }) {
     // The first peer list arrives just before the document.
     let latestPeers: DocPeer[] = [];
     const conn = new DocConnection({
-      openSession: async () => roomUrl((await docsApi.current.session(docId)).data.ticket),
+      openSession: async () => {
+        const { data } = await docsApi.current.session(docId);
+        setMode(data.mode);
+        return roomUrl(data.ticket);
+      },
       events: {
         onReset: (doc, { canEdit, lostEdits }) => {
           setRoomCanEdit(canEdit);
@@ -75,8 +92,9 @@ export function LiveDoc({ docId }: { docId: string }) {
             if (lostEdits) toast.warning(strings.current.editor.resynced);
             return;
           }
-          current = new DocController(doc, { applyOp: (op) => conn.apply(op), title: nameRef.current, locale: languageRef.current });
+          current = new DocController(doc, { applyOp: (op) => conn.apply(op), title: nameRef.current, locale: languageRef.current, reviewer: reviewer.current });
           current.setPeers(latestPeers);
+          current.versionsAvailable = true;
           setController(current);
         },
         onRemoteOp: (op) => current?.remoteOp(op),
@@ -87,6 +105,10 @@ export function LiveDoc({ docId }: { docId: string }) {
         },
         onStatus: statusChanged,
         onGone: () => setGone(true),
+        onRestored: () => {
+          toast.info(strings.current.versions.restored);
+          void queryClient.invalidateQueries({ queryKey: [...docsQueryKey, 'versions', docId] });
+        },
       },
     });
     connection.current = conn;
@@ -95,7 +117,7 @@ export function LiveDoc({ docId }: { docId: string }) {
       conn.stop();
       connection.current = null;
     };
-  }, [docId]);
+  }, [docId, queryClient]);
 
   // Where this person is, for everyone else: sent when it changes, at most every PRESENCE_MS.
   useEffect(() => {
@@ -125,8 +147,10 @@ export function LiveDoc({ docId }: { docId: string }) {
 
   const canEdit = canUpdate && roomCanEdit;
   useEffect(() => {
-    controller?.setReadOnly(!canEdit);
-  }, [controller, canEdit]);
+    if (!controller) return;
+    controller.canComment = mode !== 'view';
+    controller.setReadOnly(!canEdit);
+  }, [controller, canEdit, mode]);
 
   useEffect(() => {
     if (controller) controller.options.title = name;
@@ -176,7 +200,24 @@ export function LiveDoc({ docId }: { docId: string }) {
       status={status}
       canRename={canEdit && !!record.data?.canEdit}
       onRename={onRename}
-      headerExtra={<PeerAvatars peers={peers} onSelect={(peer) => controller.goToPeer(peer)} />}
+      headerExtra={
+        <>
+          <PeerAvatars peers={peers} onSelect={(peer) => controller.goToPeer(peer)} />
+          {record.data && (
+            <Button
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setShareTarget({ kind: 'item', fileId: record.data.fileId, name: name || tw.home.untitled, link: `${window.location.origin}/welddocs/${encodeURIComponent(docId)}` })}
+            >
+              <Users className="size-4" />
+              {tw.editor.share}
+            </Button>
+          )}
+          <ShareDialog target={shareTarget} onOpenChange={(open) => !open && setShareTarget(null)} />
+        </>
+      }
+      people={people}
+      versionsPanel={<VersionsPanel docId={docId} name={name || tw.home.untitled} canEdit={canEdit} people={people} onClose={() => controller.setShowVersions(false)} />}
     />
   );
 }

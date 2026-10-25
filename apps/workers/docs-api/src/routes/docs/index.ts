@@ -11,8 +11,9 @@
  *   GET    /api/docs/:id           → one document
  *   PATCH  /api/docs/:id           → rename and/or move
  *   DELETE /api/docs/:id           → move to the trash
- *   POST   /api/docs/:id/session   → ticket for the document's room socket
+ *   POST   /api/docs/:id/session   → ticket for the document's room socket, and the mode (edit, comment, view)
  *   GET    /api/docs/:id/snapshot  → the document as its room holds it now
+ *   /api/docs/:id/versions/*       → version history (./versions.ts)
  *
  * The content is otherwise edited over the room socket (`/api/docs/connect`,
  * see ../../room/connect.ts). The snapshot route is for what cannot join a
@@ -20,12 +21,11 @@
  * includes edits not checkpointed yet.
  */
 
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { DocModel, isWellFormedSnapshot, type DocSnapshot } from '@weldsuite/docs-engine';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import type { DataFor } from '@weldsuite/entity-events/events';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
@@ -43,12 +43,12 @@ import {
   listDocsQuerySchema,
   updateDocSchema,
   type DocSession,
+  type DocSessionMode,
   type DocSummary,
 } from '@weldsuite/app-api-client/schemas/docs';
 import type { Env, Variables } from '../../types';
 import {
   createDoc,
-  getDoc,
   listDocs,
   memberProfile,
   snapshotKeyFor,
@@ -58,29 +58,16 @@ import {
 } from '../../services/docs';
 import { writeSnapshot } from '../../room/snapshot';
 import { colorFor } from '../../room/people';
-
-type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
+import { VIEW_ONLY, eventData, findDoc, mayEditDoc, mayUpdate, roomFor, roomMeta, type Ctx } from './access';
+import versionRoutes from './versions';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const VIEW_ONLY = 'You can view this document but not change it';
 const DEFAULT_LIMIT = 50;
 /** Room for the JSON envelope around the largest snapshot. */
 const BODY_SLACK = 64 * 1024;
 
-/** The document with the caller's role on it, or the response to send instead. */
-async function findDoc(c: Ctx, id: string): Promise<{ doc: DocRecord; role: DriveRole } | Response> {
-  const db = c.get('tenantDb');
-  const doc = await getDoc(db, id);
-  const role = doc ? fileRole(await loadDriveAccessForUser(db, c.get('userId') ?? null), doc.file) : null;
-  if (!doc || !role) return error.notFound(c, 'Document', id);
-  return { doc, role };
-}
-
-/** Write access needs the drive role, `docs:update`, and a workspace that is not read-only. */
-async function mayUpdate(c: Ctx): Promise<boolean> {
-  return !c.get('readOnly') && (await hasContextPermission(c, 'docs:update'));
-}
+app.route('/:id/versions', versionRoutes);
 
 function toSummary(doc: DocRecord, role: DriveRole, mayEdit: boolean): DocSummary {
   return {
@@ -96,19 +83,6 @@ function toSummary(doc: DocRecord, role: DriveRole, mayEdit: boolean): DocSummar
     role,
     canEdit: mayEdit && canEdit(role),
   };
-}
-
-function eventData(doc: DocRecord): DataFor<'doc'> {
-  return { id: doc.id, fileId: doc.fileId, name: doc.name, revision: doc.revision, updatedById: doc.updatedById };
-}
-
-/** The room for a document: one Durable Object per document, named by workspace and id. */
-function roomFor(c: Ctx, workspaceId: string, doc: DocRecord) {
-  return c.env.DOC_ROOM.get(c.env.DOC_ROOM.idFromName(`${workspaceId}:${doc.id}`));
-}
-
-function snapshotKeyOf(doc: DocRecord, workspaceId: string): string {
-  return doc.snapshotKey ?? snapshotKeyFor(workspaceId, doc.id);
 }
 
 app.get('/', requirePermission('docs:read'), zValidator('query', listDocsQuerySchema), async (c) => {
@@ -188,11 +162,7 @@ app.get('/:id/snapshot', requirePermission('docs:read'), async (c) => {
   const found = await findDoc(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const { doc } = found;
-  const live = await roomFor(c, workspaceId, doc).snapshot({
-    workspaceId,
-    docId: doc.id,
-    snapshotKey: snapshotKeyOf(doc, workspaceId),
-  });
+  const live = await roomFor(c, workspaceId, doc).snapshot(roomMeta(doc, workspaceId));
   // The envelope of success(), around the snapshot's JSON as the room wrote it.
   return new Response(`{"data":{"revision":${live.revision},"snapshot":${live.json}}}`, {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' },
@@ -272,20 +242,30 @@ app.post('/:id/session', requirePermission('docs:read'), async (c) => {
   if (found instanceof Response) return found;
   const { doc, role } = found;
 
-  const mayEdit = canEdit(role) && (await mayUpdate(c));
+  const mode = await sessionMode(c, role);
   const profile = await memberProfile(c.get('tenantDb'), userId);
   const color = colorFor(userId);
   const ticket = await roomFor(c, workspaceId, doc).admit({
-    workspaceId,
-    docId: doc.id,
-    snapshotKey: snapshotKeyOf(doc, workspaceId),
+    ...roomMeta(doc, workspaceId),
     userId,
     name: profile.name ?? 'Unknown',
     picture: profile.picture,
     color,
-    canEdit: mayEdit,
+    canEdit: mode === 'edit',
+    canComment: mode === 'comment',
   });
-  return success(c, { ticket, canEdit: mayEdit, color } satisfies DocSession);
+  return success(c, { ticket, canEdit: mode === 'edit', mode, color } satisfies DocSession);
 });
+
+/**
+ * What the room lets the caller do: edit (owner or editor with
+ * `docs:update`), comment (anyone else who may see it, with `docs:comment`),
+ * or only view. A read-only workspace is view only.
+ */
+async function sessionMode(c: Ctx, role: DriveRole): Promise<DocSessionMode> {
+  if (await mayEditDoc(c, role)) return 'edit';
+  if (!c.get('readOnly') && (await hasContextPermission(c, 'docs:comment'))) return 'comment';
+  return 'view';
+}
 
 export default app;

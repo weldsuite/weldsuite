@@ -19,6 +19,9 @@ export const NS = {
   pic: 'http://schemas.openxmlformats.org/drawingml/2006/picture',
   rels: 'http://schemas.openxmlformats.org/package/2006/relationships',
   ct: 'http://schemas.openxmlformats.org/package/2006/content-types',
+  mc: 'http://schemas.openxmlformats.org/markup-compatibility/2006',
+  w14: 'http://schemas.microsoft.com/office/word/2010/wordml',
+  w15: 'http://schemas.microsoft.com/office/word/2012/wordml',
 };
 
 export const REL = {
@@ -33,6 +36,8 @@ export const REL = {
   image: `${NS.r}/image`,
   hyperlink: `${NS.r}/hyperlink`,
   theme: `${NS.r}/theme`,
+  comments: `${NS.r}/comments`,
+  commentsExtended: 'http://schemas.microsoft.com/office/2011/relationships/commentsExtended',
   coreProps: 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties',
   appProps: `${NS.r}/extended-properties`,
 };
@@ -66,6 +71,24 @@ export function round2(n: number): number {
 /** An OOXML on/off value: present without a value means on. */
 export function onOff(value: string | undefined): boolean {
   return value === undefined || !['0', 'false', 'off', 'none'].includes(value.toLowerCase());
+}
+
+// ---------------------------------------------------------------- dates
+
+/** Epoch ms as Word writes a revision's or comment's date (`2026-10-25T12:00:00Z`); undefined for none or one out of range. */
+export function wordDate(ms: number): string | undefined {
+  if (Number.isNaN(ms) || ms <= 0) return undefined;
+  const d = new Date(ms);
+  return Number.isFinite(d.getTime()) ? d.toISOString().replace(/\.\d{3}Z$/, 'Z') : undefined;
+}
+
+/** Epoch ms of a Word date (UTC when it names no zone); 0 when it is missing or unreadable. */
+export function readWordDate(value: string | undefined): number {
+  if (!value) return 0;
+  const v = value.trim();
+  const zoned = !v.includes('T') || /(?:z|[+-]\d\d:?\d\d)$/i.test(v);
+  const ms = Date.parse(zoned ? v : `${v}Z`);
+  return Number.isFinite(ms) && ms > 0 ? ms : 0;
 }
 
 // ---------------------------------------------------------------- colours

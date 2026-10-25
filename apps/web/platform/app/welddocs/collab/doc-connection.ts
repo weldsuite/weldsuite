@@ -25,6 +25,8 @@ export interface ConnectionEvents {
   onStatus(): void;
   /** The document is gone, or the caller may no longer open it. */
   onGone(): void;
+  /** Someone restored an earlier version (a reset with the version's content follows). */
+  onRestored?(info: { versionId: string; userId: string; revision: number }): void;
 }
 
 export interface ConnectionOptions {
@@ -71,6 +73,7 @@ export class DocConnection {
       onRemoteOp: (op) => events.onRemoteOp(op),
       onAck: () => events.onStatus(),
       onPeers: (peers) => events.onPeers(peers),
+      onRestored: (info) => events.onRestored?.(info),
     });
   }
 

@@ -399,6 +399,36 @@ and `apps/web/platform/app/welddocs`.
   printing from the browser has them), a server-side export for the API
   (phase 8, with the WeldAgent tools).
 
+**Phase 7 (review): done.** Decided with the user (2026-10-25): comments
+live inside the document; named versions in a `doc_versions` table.
+
+- Comments: entries in the document (a thread's first comment and its
+  replies, each by id, so two replies at once both stay), set and removed by
+  a `patchComments` op; a thread sits on its text through a comment anchor.
+  A panel beside the pages: new comment on the selection (Ctrl+Alt+M,
+  toolbar, Insert), @mentions of workspace members, replies, edit and delete
+  your own, resolve and re-open, commented text highlighted.
+- Suggesting mode (Editing / Suggesting / Viewing in the toolbar): typing,
+  deleting, Enter and paste become suggestions (underlined green, struck
+  through red); your own suggested text is deleted outright. Accept or
+  reject from a suggestion's card, or all at once from Tools. Inserting
+  tables, images and other objects is not suggested yet: it applies
+  directly.
+- Commenter access: workspace permission `docs:comment` (MEMBER and up).
+  A WeldDrive viewer with it opens a document in comment mode; the room
+  accepts from them only their own comments and anchors (and resolving).
+- Version history (File › Version history): name the current version,
+  rename, download one as .docx, restore. Restoring saves the current
+  document as an automatic version first, swaps the room's document at the
+  next revision, and every open copy reloads (`restored` server message).
+  Snapshots in R2 under the document's prefix; rows in `doc_versions`
+  (migration 0226, cascade on the document). Purging a document does not
+  delete its version snapshots in R2 yet.
+- .docx: suggestions as `w:ins`/`w:del`, comments with replies and
+  resolved state (`comments.xml`, `commentsExtended.xml`), both ways.
+  Word keeps author names only, so author ids come back as names.
+- Sharing: the WeldDrive share dialog opens from the document's header.
+
 Known gaps, to pick up in later phases:
 
 - Table rows never split across pages, so a row taller than a page

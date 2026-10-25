@@ -1,9 +1,9 @@
 /**
  * Reading a .docx file (Office Open XML WordprocessingML) into a document
  * snapshot: the body, headers and footers per section, footnotes (endnotes
- * become footnotes), named styles, lists, sections and page setup, tables and
- * pictures. What the engine has no counterpart for is left out and named in
- * `warnings`.
+ * become footnotes), named styles, lists, sections and page setup, tables,
+ * pictures, comments and tracked changes (as suggestions). What the engine
+ * has no counterpart for is left out and named in `warnings`.
  *
  * The package is read through the shared ZIP layer, which inflates every part
  * against a byte budget, so a small file that expands without bound is
@@ -19,6 +19,7 @@ import {
   BODY,
   type Anchor,
   DEFAULT_SECTION,
+  type DocComment,
   FINAL_SECTION,
   headerStoryId,
   type HeaderVariant,
@@ -32,6 +33,7 @@ import { validateStoryContent } from '../../ops/validate';
 import { REL, fromHex, fromTwips, mimeOf, num, onOff, readPageFmt, readSectionStart } from './convert';
 import { StoryReader, type PartInfo, type ReadContext, type Rel } from './read-body';
 import { readNumbering, readStyles, readTheme } from './read-format';
+import { readCommentThreads } from './read-review';
 import { DocxImportError, type DocxImage, type DocxImport, type DocxImportErrorCode, type DocxImportWarning, type ReadDocxOptions } from './types';
 
 export async function readDocx(bytes: Uint8Array, options: ReadDocxOptions = {}): Promise<DocxImport> {
@@ -152,6 +154,9 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
     endnotes: await readNotes(zip, main, REL.endnotes, 'endnote'),
     paragraphs: 0,
     anchors: [],
+    revisions: new Map(),
+    suggestionThreads: [],
+    commentRanges: new Map(),
     sectionBreak(sectPr) {
       const obj: SectionBreakObject = { kind: 'sectionBreak', id: makeId(), start: 'nextPage', section: readSection(sectPr, evenAndOdd) };
       readHeaders(sectPr, obj.id);
@@ -184,7 +189,15 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
   if (background) section.background = background;
   if (finalSectPr) readHeaders(finalSectPr, FINAL_SECTION);
 
-  if (zip.names().some((n) => /^word\/comments/i.test(n))) warnings.add('comments');
+  const threads = readCommentThreads(
+    await readTree(zip, relTarget(main.rels, REL.comments)),
+    await readTree(zip, relTarget(main.rels, REL.commentsExtended)),
+    ctx.commentRanges,
+    stories,
+    makeId,
+  );
+  if (threads.dropped) warnings.add('comments');
+  const comments = [...usedSuggestions(ctx.suggestionThreads, stories), ...threads.comments];
 
   const images = await readImages(zip, ctx.images);
 
@@ -196,7 +209,8 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
     lists: { bullet: bulletList(), numbered: numberedList(), check: checkList(), ...numbering.lists },
     stories,
     tables,
-    anchors: uniqueAnchors(ctx.anchors),
+    anchors: uniqueAnchors([...ctx.anchors, ...threads.anchors]),
+    ...(comments.length ? { comments } : {}),
   };
   checkStories(stories);
   const out: DocxImport = { snapshot: DocModel.fromSnapshot(raw).toSnapshot(), images, warnings: [...warnings].sort() };
@@ -287,6 +301,15 @@ async function readTitle(zip: ZipReader, path: string | undefined): Promise<stri
   const root = await readTree(zip, path ?? 'docProps/core.xml').catch(() => null);
   const title = child(root ?? undefined, 'title')?.text.trim();
   return title || undefined;
+}
+
+/** The threads of the suggestions that marked some text (a revision may have held nothing the engine keeps). */
+function usedSuggestions(threads: DocComment[], stories: Record<string, StoryContent>): DocComment[] {
+  const used = new Set<string>();
+  for (const story of Object.values(stories)) {
+    for (const [, style] of story.runs ?? []) if (style.suggestion) used.add(style.suggestion.id);
+  }
+  return threads.filter((t) => used.has(t.id));
 }
 
 /** One bookmark per name (Word's names are unique; a damaged file's may not be). */

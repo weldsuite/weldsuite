@@ -31,7 +31,8 @@ function hasWellFormedDefinitions(s: Record<string, unknown>): boolean {
   return (
     isWellFormedOp({ type: 'patchStyles', set: s.styles }) &&
     isWellFormedOp({ type: 'patchLists', set: s.lists }) &&
-    isWellFormedOp({ type: 'patchAnchors', set: s.anchors })
+    isWellFormedOp({ type: 'patchAnchors', set: s.anchors }) &&
+    (s.comments === undefined || (Array.isArray(s.comments) && isWellFormedOp({ type: 'patchComments', set: s.comments })))
   );
 }
 

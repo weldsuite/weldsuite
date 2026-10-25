@@ -291,6 +291,22 @@ const ANCHOR = obj(
   ['id', 'kind', 'story', 'from', 'to'],
 );
 
+const COMMENT = obj(
+  {
+    id: str(),
+    thread: str(),
+    author: obj({ id: str(), name: str(200, 0) }, ['id', 'name']),
+    createdAt: int(0),
+    editedAt: int(0),
+    body: str(20_000, 0),
+    mentions: arrayOf(str(), 100),
+    resolved: bool,
+    suggestion: str(),
+    quote: str(2000, 0),
+  },
+  ['id', 'thread', 'author', 'createdAt', 'body'],
+);
+
 const DOC_PROPS_PATCH = patchOf({ section: SECTION, pageless: bool, tabInterval: num(1, 500) });
 
 // ---------------------------------------------------------------- ops
@@ -327,6 +343,7 @@ const OP_CHECKS: Record<string, Check> = {
   patchStyles: obj({ type: str(), set: recordOf(NAMED_STYLE, 500), remove: arrayOf(str(100), 500) }),
   patchLists: obj({ type: str(), set: recordOf(LIST_DEF, 5000), remove: arrayOf(str(), 5000) }),
   patchAnchors: obj({ type: str(), set: arrayOf(ANCHOR, 10_000), remove: arrayOf(str(), 10_000) }),
+  patchComments: obj({ type: str(), set: arrayOf(COMMENT, 10_000), remove: arrayOf(str(), 10_000) }),
 };
 
 /** True when `v` is an op of the right shape all the way down (batches nested at most 4 deep). */

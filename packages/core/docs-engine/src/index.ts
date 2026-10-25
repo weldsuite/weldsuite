@@ -152,3 +152,20 @@ export { isWellFormedSnapshot } from './ops/snapshot-shape';
 
 export * from './files/docx';
 export * from './files/pdf';
+export {
+  addComment,
+  deleteComment,
+  editComment,
+  markInserted,
+  replyToThread,
+  resolveSuggestion,
+  setResolved,
+  suggestDelete,
+  suggestDeleteChar,
+  suggestSplit,
+  suggestText,
+  suggestionIds,
+  suggestionRanges,
+  threadsOf,
+} from './editing/review';
+export type { CommentInput, Reviewer, SuggestionRange, Thread } from './editing/review';

@@ -8,8 +8,10 @@ import { DocModel, type DocSnapshot } from '../../model/document';
 import { BODY, DEFAULT_SECTION, footnoteStoryId, type ObjectData, type SectionBreakObject } from '../../model/objects';
 import { toBlocks, type Block, type Inline } from '../../serialize/blocks';
 import { caretAt } from '../../editing/commands';
+import { suggestionRanges, threadsOf } from '../../editing/review';
 import { insertToc } from '../../editing/toc';
 import { applyOp } from '../../ops/apply';
+import { isWellFormedOp } from '../../ops/shape';
 import { counterIds } from '../../test-support';
 import { DocxImportError, readDocx, writeDocx } from './index';
 
@@ -374,13 +376,14 @@ describe('reading a docx written elsewhere', () => {
   it('reads theme fonts, fields, revisions, merges, lists and a floating image', async () => {
     const read = await readDocx(await handWritten(), { makeId: counterIds('h') });
     const s = read.snapshot;
-    expect(read.warnings).toEqual(['comments', 'fields', 'trackedChanges']);
+    expect(read.warnings).toEqual(['fields']);
 
     expect(shape(s, BODY)).toEqual([
       { text: 'Themed heading', style: 'heading1' },
       { text: 'Display auto emphasised', style: 'normal' },
       { text: 'Page [field], see section 2 and the site', style: 'normal' },
-      { text: 'kept text', style: 'normal' },
+      // The deletion stays, marked as a suggested deletion.
+      { text: 'gone kept text', style: 'normal' },
       { text: 'In a content control', style: 'normal' },
       { text: 'Symbol bullet', style: 'normal', list: 'list3:0' },
       { text: 'Restarted', style: 'normal', list: 'list4-6:0' },
@@ -416,6 +419,16 @@ describe('reading a docx written elsewhere', () => {
     const fields = blocks[2]!.type === 'paragraph' ? blocks[2]!.inlines : [];
     expect(fields.find((i) => i.type === 'object')).toMatchObject({ data: { kind: 'field', field: 'page' } });
     expect(fields.find((i) => i.type === 'text' && i.text === 'the site')?.style).toEqual({ link: 'https://example.com' });
+    const revised = blocks[3]!.type === 'paragraph' ? blocks[3]!.inlines.map((i) => [i.type === 'text' ? i.text : '', i.style.suggestion?.kind]) : [];
+    expect(revised).toEqual([
+      ['gone ', 'delete'],
+      ['kept', 'insert'],
+      [' text', undefined],
+    ]);
+    expect(s.comments?.map((c) => [c.author.name, c.createdAt, c.suggestion === c.id])).toEqual([
+      ['A', 0, true],
+      ['B', 0, true],
+    ]);
 
     // Lists: the Symbol-font bullet as a real bullet, the override as its own restarted list.
     expect(s.lists.list3!.levels[0]).toEqual({ format: 'bullet', text: '●', indent: 36, hanging: 18 });
@@ -438,5 +451,206 @@ describe('reading a docx written elsewhere', () => {
 
   it('refuses a package larger than the byte budget', async () => {
     await expect(readDocx(await handWritten(), { maxBytes: 1000 })).rejects.toMatchObject({ code: 'too_large' });
+  });
+});
+
+// ---------------------------------------------------------------- comments and suggestions
+
+const ANN = { id: 'u-ann', name: 'Ann Lee' };
+const BOB = { id: 'u-bob', name: 'Bob' };
+const T1 = Date.UTC(2026, 8, 1, 9, 30);
+const T2 = Date.UTC(2026, 8, 2, 10);
+const T3 = Date.UTC(2026, 8, 3, 11, 15, 20);
+
+/**
+ * A deletion running over two paragraphs (text, then a field), an insertion
+ * with an inserted paragraph break, an insertion inside a link, a suggestion
+ * whose thread is gone, and a resolved discussion with a reply.
+ */
+function reviewedDoc(): DocModel {
+  const b = new ContentBuilder(counterIds('v'));
+  b.addText('Hello ')
+    .addText('brave ', { suggestion: { id: 'del1', kind: 'delete' } })
+    .addText('new', { bold: true, suggestion: { id: 'ins1', kind: 'insert' } })
+    .addText(' world')
+    .endParagraph({}, { suggestion: { id: 'ins1', kind: 'insert' } });
+  b.addText('Second line, ')
+    .addText('linked', { link: 'https://weldsuite.org', suggestion: { id: 'ins2', kind: 'insert' } })
+    .addText(' and page ')
+    .addObject({ kind: 'field', field: 'page' }, { suggestion: { id: 'del1', kind: 'delete' } })
+    .endParagraph();
+  b.addText('Orphan', { suggestion: { id: 'gone', kind: 'insert' } }).endParagraph();
+  const body = b.build();
+  const from = body.text.indexOf('Second');
+  return DocModel.fromSnapshot({
+    ...DocModel.create().toSnapshot(),
+    stories: { [BODY]: body },
+    anchors: [{ id: 'c1', kind: 'comment', story: BODY, from, to: from + 'Second line'.length }],
+    comments: [
+      { id: 'del1', thread: 'del1', author: ANN, createdAt: T1, body: '', suggestion: 'del1' },
+      { id: 'ins1', thread: 'ins1', author: BOB, createdAt: T2, body: '', suggestion: 'ins1' },
+      { id: 'ins2', thread: 'ins2', author: ANN, createdAt: T3, body: '', suggestion: 'ins2' },
+      { id: 'c1', thread: 'c1', author: ANN, createdAt: T1, body: 'Please check\nthe wording, @[Bob](u-bob)', mentions: ['u-bob'], resolved: true, quote: 'Second line' },
+      { id: 'r1', thread: 'c1', author: BOB, createdAt: T3, body: 'Done' },
+    ],
+  });
+}
+
+/** Every discussion with what it is about: a suggestion's stretches of text, or a comment's text. */
+function reviewOf(snapshot: DocSnapshot): unknown[] {
+  const doc = DocModel.fromSnapshot(snapshot);
+  const textOf = (story: string, from: number, to: number) => doc.stories.get(story)!.text(from, to);
+  return threadsOf(doc).map((t) => ({
+    author: t.root.author.name,
+    createdAt: t.root.createdAt,
+    ...(t.root.suggestion
+      ? { suggestion: suggestionRanges(doc, t.root.suggestion).map((r) => `${r.kind}:${textOf(r.story, r.from, r.to)}`) }
+      : { on: t.at && textOf(t.at.story, t.at.from, t.at.to), body: t.root.body, resolved: !!t.root.resolved }),
+    replies: t.replies.map((r) => `${r.author.name}@${r.createdAt}: ${r.body}`),
+  }));
+}
+
+describe('docx comments and suggestions', () => {
+  it('writes suggestions as revisions and threads as comments', async () => {
+    const zip = openZip(await writeDocx(reviewedDoc(), { date: DATE }));
+    for (const name of zip.names()) {
+      if (!name.endsWith('.xml') && !name.endsWith('.rels')) continue;
+      const xml = (await zip.readText(name))!;
+      expect(() => parseXml(xml), name).not.toThrow();
+    }
+    const doc = (await zip.readText('word/document.xml'))!;
+    // The inserted paragraph break (written first) and the insertion share the revision's id.
+    expect(doc).toContain('<w:p><w:pPr><w:rPr><w:ins w:id="0" w:author="Bob" w:date="2026-09-02T10:00:00Z"/></w:rPr></w:pPr>');
+    expect(doc).toContain('<w:ins w:id="0" w:author="Bob" w:date="2026-09-02T10:00:00Z"><w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">new</w:t></w:r></w:ins>');
+    // Both stretches of the deletion, the second a field in its run form.
+    expect(doc).toContain('<w:del w:id="1" w:author="Ann Lee" w:date="2026-09-01T09:30:00Z"><w:r><w:delText xml:space="preserve">brave </w:delText></w:r></w:del>');
+    expect(doc).toMatch(/<w:del w:id="1"[^>]*><w:r><w:fldChar w:fldCharType="begin"\/><\/w:r><w:r><w:delInstrText xml:space="preserve"> PAGE <\/w:delInstrText>/);
+    expect(doc).toMatch(/<w:hyperlink [^>]*><w:ins w:id="\d+"[^>]*><w:r>.*?linked.*?<\/w:ins><\/w:hyperlink>/);
+    // A suggestion without its thread is plain text.
+    expect(doc).toContain('<w:r><w:t xml:space="preserve">Orphan</w:t></w:r>');
+    expect(doc.match(/<w:commentRangeStart /g)).toHaveLength(2);
+    expect(doc.match(/<w:commentReference /g)).toHaveLength(2);
+
+    const comments = (await zip.readText('word/comments.xml'))!;
+    expect(comments).toContain('w:author="Ann Lee" w:date="2026-09-01T09:30:00Z" w:initials="AL"');
+    expect(comments).toContain('<w:t xml:space="preserve">the wording, @Bob</w:t>');
+    const extended = (await zip.readText('word/commentsExtended.xml'))!;
+    expect(extended).toContain('<w15:commentEx w15:paraId="00000002" w15:done="1"/>');
+    expect(extended).toContain('<w15:commentEx w15:paraId="00000003" w15:paraIdParent="00000002" w15:done="1"/>');
+    const types = (await zip.readText('[Content_Types].xml'))!;
+    expect(types).toContain('PartName="/word/comments.xml"');
+    expect(types).toContain('PartName="/word/commentsExtended.xml"');
+    const rels = (await zip.readText('word/_rels/document.xml.rels'))!;
+    expect(rels).toContain('Target="comments.xml"');
+    expect(rels).toContain('Target="commentsExtended.xml"');
+  });
+
+  it('reads back the suggestions and the discussion it wrote', async () => {
+    const original = reviewedDoc();
+    const read = await readDocx(await writeDocx(original, { date: DATE }), { makeId: counterIds('r') });
+    const s = read.snapshot;
+    expect(read.warnings).toEqual([]);
+    expect(s.stories[BODY]!.text).toBe(original.body.text());
+
+    expect(reviewOf(s)).toEqual([
+      { author: 'Ann Lee', createdAt: T1, suggestion: ['delete:brave ', 'delete:￼'], replies: [] },
+      { author: 'Bob', createdAt: T2, suggestion: ['insert:new', `insert:${PARA}`], replies: [] },
+      {
+        author: 'Ann Lee',
+        createdAt: T1,
+        on: 'Second line',
+        body: 'Please check\nthe wording, @Bob',
+        resolved: true,
+        replies: [`Bob@${T3}: Done`],
+      },
+      { author: 'Ann Lee', createdAt: T3, suggestion: ['insert:linked'], replies: [] },
+    ]);
+
+    // Formatting, the link and the field keep their places alongside the marks.
+    const blocks = toBlocks({ ...s.stories[BODY]!, tables: s.tables, stories: s.stories }).blocks;
+    const inlines = blocks.flatMap((b) => (b.type === 'paragraph' ? b.inlines : []));
+    expect(inlines.find((i) => i.type === 'text' && i.text === 'new')?.style).toMatchObject({ bold: true, suggestion: { kind: 'insert' } });
+    expect(inlines.find((i) => i.type === 'text' && i.text === 'linked')?.style).toMatchObject({ link: 'https://weldsuite.org', suggestion: { kind: 'insert' } });
+    expect(inlines.find((i) => i.type === 'object')).toMatchObject({ data: { kind: 'field', field: 'page' }, style: { suggestion: { kind: 'delete' } } });
+    expect(inlines.find((i) => i.type === 'text' && i.text === 'Orphan')?.style).toEqual({});
+
+    // Word knows people by name: the name is the author's id too.
+    expect(new Set(s.comments!.map((c) => c.author.id))).toEqual(new Set(['Ann Lee', 'Bob']));
+    expect(s.comments!.find((c) => c.thread === c.id && !c.suggestion)?.quote).toBe('Second line');
+    expect(isWellFormedOp({ type: 'patchComments', set: s.comments })).toBe(true);
+    expect(() => DocModel.fromSnapshot(s)).not.toThrow();
+  });
+
+  it('reads revisions and threaded comments from a file written elsewhere', async () => {
+    const carol = 'w:id="7" w:author="Carol" w:date="2026-03-04T05:06:07Z"';
+    const document =
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>` +
+      `<w:p><w:pPr><w:rPr><w:ins ${carol}/></w:rPr></w:pPr><w:commentRangeStart w:id="1"/><w:commentRangeStart w:id="2"/>${run('Start ')}` +
+      `<w:ins ${carol}>${run('added')}</w:ins>` +
+      '<w:commentRangeEnd w:id="1"/><w:r><w:rPr><w:rStyle w:val="CommentReference"/></w:rPr><w:commentReference w:id="1"/></w:r>' +
+      '<w:commentRangeEnd w:id="2"/><w:r><w:commentReference w:id="2"/></w:r></w:p>' +
+      '<w:p><w:del w:id="8" w:author="Dan" w:date="2026-03-05T00:00:00"><w:r><w:delText>removed</w:delText></w:r></w:del>' +
+      '<w:moveFrom w:id="9" w:author="Dan"><w:r><w:delText xml:space="preserve"> moved</w:delText></w:r></w:moveFrom>' +
+      `${run(' stays')}<w:moveTo w:id="10" w:author="Dan">${run(' moved')}</w:moveTo><w:r><w:commentReference w:id="3"/></w:r></w:p>` +
+      '<w:sectPr/></w:body></w:document>';
+    const w14 = 'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"';
+    const comment = (id: number, who: string, paras: [string, string][]) =>
+      `<w:comment w:id="${id}" ${who}>${paras.map(([pid, text], i) => `<w:p w14:paraId="${pid}">${i ? '' : '<w:r><w:annotationRef/></w:r>'}${run(text)}</w:p>`).join('')}</w:comment>`;
+    const comments =
+      `<?xml version="1.0" encoding="UTF-8"?><w:comments ${W} ${w14}>` +
+      comment(1, 'w:author="Carol" w:date="2026-03-04T06:00:00Z" w:initials="C"', [
+        ['1A2B3C4D', 'First line'],
+        ['1A2B3C4E', 'second line'],
+      ]) +
+      comment(2, 'w:initials="DD" w:date="2026-03-04T07:00:00Z"', [['2A2B3C4D', 'A reply']]) +
+      comment(3, 'w:author="Eve"', [['3A2B3C4D', 'On a point']]) +
+      comment(4, 'w:author="Eve"', [['4A2B3C4D', 'Nowhere in the text']]) +
+      '</w:comments>';
+    const extended =
+      '<?xml version="1.0" encoding="UTF-8"?><w15:commentsEx xmlns:w15="http://schemas.microsoft.com/office/word/2012/wordml">' +
+      '<w15:commentEx w15:paraId="1A2B3C4E" w15:done="1"/><w15:commentEx w15:paraId="2A2B3C4D" w15:paraIdParent="1A2B3C4E" w15:done="0"/>' +
+      '</w15:commentsEx>';
+    const rels =
+      `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+      `<Relationship Id="rId1" Type="${R}/comments" Target="comments.xml"/>` +
+      '<Relationship Id="rId2" Type="http://schemas.microsoft.com/office/2011/relationships/commentsExtended" Target="commentsExtended.xml"/>' +
+      '</Relationships>';
+    const bytes = await writeZip([
+      {
+        name: '_rels/.rels',
+        data: `<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="word/document.xml"/></Relationships>`,
+      },
+      { name: 'word/document.xml', data: document },
+      { name: 'word/_rels/document.xml.rels', data: rels },
+      { name: 'word/comments.xml', data: comments },
+      { name: 'word/commentsExtended.xml', data: extended },
+    ]);
+
+    const read = await readDocx(bytes, { makeId: counterIds('w') });
+    const s = read.snapshot;
+    // The comment with no place in the text is left out.
+    expect(read.warnings).toEqual(['comments']);
+    expect(s.stories[BODY]!.text).toBe(`Start added${PARA}removed moved stays moved${PARA}`);
+    expect(reviewOf(s)).toEqual([
+      {
+        author: 'Carol',
+        createdAt: Date.UTC(2026, 2, 4, 6),
+        on: 'Start added',
+        body: 'First line\nsecond line',
+        resolved: true,
+        replies: [`DD@${Date.UTC(2026, 2, 4, 7)}: A reply`],
+      },
+      // The inserted text and the inserted paragraph break after it are one stretch.
+      { author: 'Carol', createdAt: Date.UTC(2026, 2, 4, 5, 6, 7), suggestion: [`insert:added${PARA}`], replies: [] },
+      // A date without a zone is UTC; a revision without a date is at 0.
+      { author: 'Dan', createdAt: Date.UTC(2026, 2, 5), suggestion: ['delete:removed'], replies: [] },
+      { author: 'Dan', createdAt: 0, suggestion: ['delete: moved'], replies: [] },
+      { author: 'Dan', createdAt: 0, suggestion: ['insert: moved'], replies: [] },
+      { author: 'Eve', createdAt: 0, on: '', body: 'On a point', resolved: false, replies: [] },
+    ]);
+    // The point comment sits where its mark is: at the end of the second paragraph.
+    const point = s.anchors.find((a) => a.kind === 'comment' && s.comments!.find((c) => c.id === a.id)?.body === 'On a point')!;
+    expect([point.from, point.to]).toEqual([s.stories[BODY]!.text.length - 1, s.stories[BODY]!.text.length - 1]);
+    expect(isWellFormedOp({ type: 'patchComments', set: s.comments })).toBe(true);
   });
 });

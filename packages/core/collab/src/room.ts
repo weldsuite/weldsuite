@@ -20,11 +20,17 @@ export interface Outgoing<Op, Snapshot, Presence> {
   msg: ServerMessage<Op, Snapshot, Presence>;
 }
 
-export interface RoomOptions<Op> {
+export interface RoomOptions<Op, State = unknown, Presence = unknown> {
   /** Committed ops kept for late batches and reconnects; a client further behind gets a snapshot. */
   maxLog?: number;
   /** Called after each commit, before acks go out (the Durable Object persists here). */
   onCommit?: (committed: CommittedOp<Op>) => void;
+  /**
+   * Whether a peer that may only comment (`canComment`, not `canEdit`) may
+   * commit `op`: called with the op as it would be applied (transformed and
+   * validated) and the document before it. Without it such a peer is read-only.
+   */
+  mayComment?: (op: Op, peer: Peer<Presence>, state: State) => boolean;
 }
 
 const DEFAULT_MAX_LOG = 2000;
@@ -49,7 +55,7 @@ export class RoomCore<State, Op, Snapshot, Presence> {
     protected readonly adapter: OtAdapter<State, Op, Snapshot, Presence>,
     snapshot: Snapshot,
     revision: number,
-    private readonly options: RoomOptions<Op> = {},
+    private readonly options: RoomOptions<Op, State, Presence> = {},
   ) {
     this.state = adapter.load(snapshot);
     this.revision = revision;
@@ -66,7 +72,7 @@ export class RoomCore<State, Op, Snapshot, Presence> {
     snapshot: Snapshot,
     snapshotRevision: number,
     ops: CommittedOp<Op>[],
-    options: RoomOptions<Op> = {},
+    options: RoomOptions<Op, State, Presence> = {},
   ): RoomCore<State, Op, Snapshot, Presence> {
     const room = new RoomCore(adapter, snapshot, snapshotRevision, options);
     room.replay(ops);
@@ -165,7 +171,8 @@ export class RoomCore<State, Op, Snapshot, Presence> {
   private submit(peer: Peer<Presence>, batchId: string, baseRevision: number, submitted: Op): Outgoing<Op, Snapshot, Presence>[] {
     const already = this.log.find((c) => c.batchId === batchId);
     if (already) return [{ to: peer.clientId, msg: { type: 'ack', batchId, revision: already.revision } }];
-    if (!peer.canEdit) return this.reject(peer.clientId, batchId, 'read-only');
+    const mayComment = !peer.canEdit && peer.canComment ? this.options.mayComment : undefined;
+    if (!peer.canEdit && !mayComment) return this.reject(peer.clientId, batchId, 'read-only');
     if (baseRevision > this.revision || baseRevision < this.oldestBase) return this.reject(peer.clientId, batchId, 'stale');
 
     if (!this.adapter.isWellFormedOp(submitted)) return this.reject(peer.clientId, batchId, 'invalid');
@@ -177,6 +184,7 @@ export class RoomCore<State, Op, Snapshot, Presence> {
       return this.reject(peer.clientId, batchId, 'invalid');
     }
     if (this.adapter.validate(this.state, op) !== null) return this.reject(peer.clientId, batchId, 'invalid');
+    if (mayComment && !mayComment(op, peer, this.state)) return this.reject(peer.clientId, batchId, 'read-only');
     if (!this.applyAtomically(op)) {
       this.needsReload = true;
       // No resync: the document may be half-changed. The sender takes back its

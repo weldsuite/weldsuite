@@ -266,6 +266,32 @@ export interface Anchor {
   to: number;
 }
 
+/**
+ * One comment of a discussion: a thread's first comment (`thread === id`)
+ * or a reply. Each is its own entry, so two people replying at once both
+ * keep their reply. A thread's place in the text is the comment anchor with
+ * the thread's id; a suggestion's thread has `suggestion` set instead.
+ */
+export interface DocComment {
+  id: string;
+  /** The id of the thread's first comment. */
+  thread: string;
+  author: { id: string; name: string };
+  /** Epoch ms. */
+  createdAt: number;
+  editedAt?: number;
+  /** Plain text; a mention is written `@[Name](userId)`. */
+  body: string;
+  /** People mentioned in `body` (user ids), to notify. */
+  mentions?: string[];
+  /** First comment only: the discussion is done. */
+  resolved?: boolean;
+  /** First comment only: the suggestion (its id on the text) this thread belongs to. */
+  suggestion?: string;
+  /** First comment only: the text commented on, as it was. */
+  quote?: string;
+}
+
 export interface DocProps {
   /** Layout of the last section (the only one in most documents). */
   section: SectionProps;

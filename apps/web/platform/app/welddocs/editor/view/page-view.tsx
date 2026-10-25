@@ -465,6 +465,7 @@ function PageBox({
       data-page={index}
     >
       <div className="absolute left-0 top-0 origin-top-left" style={{ width: `${page.width}pt`, height: `${page.height}pt`, transform: `scale(${scale / PX_PER_PT})` }}>
+        <CommentMarks controller={controller} pageIndex={index} />
         {matchRects.map((r, i) => (
           <div key={`m${i}`} className="absolute" style={{ left: `${r.x}pt`, top: `${r.y}pt`, width: `${r.width}pt`, height: `${r.height}pt`, background: r.current ? 'rgba(255,152,0,0.55)' : 'rgba(255,214,0,0.45)' }} />
         ))}
@@ -482,6 +483,24 @@ function PageBox({
         {imageItem?.kind === 'image' && target && <ImageOverlay controller={controller} item={imageItem} target={target} ptPerPx={1 / scale} />}
       </div>
     </div>
+  );
+}
+
+/** The text open discussions are about, highlighted (the picked one stronger). */
+function CommentMarks({ controller, pageIndex }: { controller: DocController; pageIndex: number }) {
+  if (!controller.showComments) return null;
+  const rects: { x: number; y: number; width: number; height: number; active: boolean }[] = [];
+  for (const t of controller.threads()) {
+    if (t.root.resolved || t.root.suggestion || !t.at || t.at.to <= t.at.from) continue;
+    const active = t.root.id === controller.activeThread;
+    for (const r of selectionRects(controller.layout, t.at.story, t.at.from, t.at.to)) if (r.page === pageIndex) rects.push({ ...r, active });
+  }
+  return (
+    <>
+      {rects.map((r, i) => (
+        <div key={`c${i}`} className="pointer-events-none absolute" style={{ left: `${r.x}pt`, top: `${r.y}pt`, width: `${r.width}pt`, height: `${r.height}pt`, background: r.active ? 'rgba(251,188,4,0.55)' : 'rgba(251,188,4,0.25)' }} />
+      ))}
+    </>
   );
 }
 

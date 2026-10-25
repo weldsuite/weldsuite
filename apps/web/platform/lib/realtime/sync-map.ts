@@ -492,6 +492,8 @@ export const platformSyncMap: EntitySyncMap = {
   // (useHtmlDoc) is local; an open WeldDocs document is live over its own room
   // socket, so this only refreshes the lists.
   doc: inv(['welddocs'], ['drive']),
+  // A version named, renamed or saved by a restore: the version history panels.
+  doc_version: inv(['welddocs', 'versions']),
   // WeldSheets spreadsheets (create/rename/trash also publish `file`). An
   // open sheet is live over its own room socket; this only refreshes lists.
   sheet: inv(['weldsheets'], ['drive']),

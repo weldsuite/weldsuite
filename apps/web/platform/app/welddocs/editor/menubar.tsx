@@ -31,6 +31,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
   const ts = t.welddocs.styles;
   const tx = t.welddocs.text;
   const tt = t.welddocs.toolbar;
+  const tr = t.welddocs.review;
   const navigate = useNavigate();
   const preview = usePreviewMode();
   const download = useDocDownload();
@@ -78,6 +79,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
           </DropdownMenuSubContent>
         </DropdownMenuSub>
         <DropdownMenuSeparator />
+        {controller.versionsAvailable && <Item onSelect={() => controller.setShowVersions(true)}>{t.welddocs.versions.title}</Item>}
         <Item disabled={ro} onSelect={() => controller.openDialog('pageSetup')}>{tm.pageSetup}</Item>
         <Item shortcut={`${MOD_LABEL}+P`} onSelect={() => controller.setPrinting(true)}>
           {tm.print}
@@ -120,6 +122,9 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
         <Item checked={controller.showOutline} onSelect={() => controller.setView({ showOutline: !controller.showOutline })}>
           {tm.showOutline}
         </Item>
+        <Item checked={controller.showComments} onSelect={() => controller.setShowComments(!controller.showComments)}>
+          {tr.showComments}
+        </Item>
         <Item checked={!!controller.doc.props.pageless} disabled={ro} onSelect={() => controller.setPageless(!controller.doc.props.pageless)}>
           {tm.pageless}
         </Item>
@@ -137,6 +142,9 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
 
       {!ro && (
         <TopMenu label={tm.insert}>
+          <Item shortcut={`${MOD_LABEL}+Alt+M`} onSelect={() => controller.startComment()}>
+            {tr.comment}
+          </Item>
           <Item onSelect={() => controller.openDialog('image')}>{tm.image}</Item>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>{t.welddocs.table.insert}</DropdownMenuSubTrigger>
@@ -275,6 +283,13 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
         <Item shortcut={`${MOD_LABEL}+Shift+C`} onSelect={() => controller.openDialog('wordCount')}>
           {tm.wordCount}
         </Item>
+        {!ro && controller.hasSuggestions && (
+          <>
+            <DropdownMenuSeparator />
+            <Item onSelect={() => controller.resolveAllSuggestions(true)}>{tr.acceptAll}</Item>
+            <Item onSelect={() => controller.resolveAllSuggestions(false)}>{tr.rejectAll}</Item>
+          </>
+        )}
       </TopMenu>
 
       <TopMenu label={tm.help}>

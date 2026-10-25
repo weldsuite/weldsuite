@@ -1,6 +1,8 @@
 import {
   BODY,
   CanvasMeasurer,
+  addComment,
+  batch,
   DocLayout,
   DocModel,
   FINAL_SECTION,
@@ -15,8 +17,10 @@ import {
   clearFormatting,
   commonParagraphStyle,
   deleteBackward,
+  deleteComment,
   deleteForward,
   deleteSelection,
+  editComment,
   findAll,
   footnoteStoryId,
   formatParagraphs,
@@ -35,6 +39,7 @@ import {
   isNoop,
   lineBounds,
   linkAt,
+  markInserted,
   newId,
   nextGrapheme,
   nextWord,
@@ -44,6 +49,8 @@ import {
   removeLink,
   replaceAll,
   replaceRange,
+  replyToThread,
+  resolveSuggestion,
   replacementFor,
   resolvedParagraphAt,
   resolvedStyleAt,
@@ -51,9 +58,16 @@ import {
   sectionAt,
   selectionRects,
   setLink,
+  setResolved,
   setSectionAt,
   splitParagraph,
+  suggestDelete,
+  suggestDeleteChar,
+  suggestSplit,
+  suggestText,
+  suggestionIds,
   textStats,
+  threadsOf,
   tocIds,
   toggleChecked,
   toggleList,
@@ -61,6 +75,7 @@ import {
   updateToc,
   wordAt,
   type Affinity,
+  type CommentInput,
   type DocPeer,
   type DocPresence,
   type DocSelection,
@@ -74,17 +89,22 @@ import {
   type Match,
   type Op,
   type PageLayout,
+  type Reviewer,
   type ParaPatch,
   type ParaProps,
   type SectionProps,
   type SectionStart,
   type Story,
   type TextStyle,
+  type Thread,
   type TextMeasurer,
   type TextStylePatch,
 } from '@weldsuite/docs-engine';
 import { copyFragment, readClipboard, type ClipboardPayload } from './clipboard';
 import { leaveCell, moveToCell } from './table-actions';
+
+/** Editing, suggesting (edits become suggestions), or viewing (no edits, by choice). */
+export type EditMode = 'editing' | 'suggesting' | 'viewing';
 
 const UNDO_LIMIT = 300;
 /** Typing within this long of the last keystroke joins its undo step. */
@@ -99,6 +119,8 @@ export interface ControllerOptions {
   onOp?: (op: Op) => void;
   /** Document title, for `title` fields and printing. */
   title?: string;
+  /** Who comments and suggests (default: an unnamed local person). */
+  reviewer?: Reviewer;
   locale?: string;
   /** Text measurement (tests pass the built-in metrics); default: a canvas. */
   measurer?: TextMeasurer;
@@ -133,7 +155,21 @@ export class DocController {
   affinity: Affinity = 'forward';
   /** Formatting toggled with a caret (Ctrl+B with nothing selected): applies to what is typed next. */
   pending: TextStyle | null = null;
-  readOnly = false;
+  /** No edits allowed (the person's access); see `readOnly`. */
+  private locked = false;
+  editMode: EditMode = 'editing';
+  /** May add comments even while unable to edit (a commenter). */
+  canComment = true;
+  showComments = true;
+  /** The version history panel is open (it replaces the comments beside the pages). */
+  showVersions = false;
+  /** The document has a version history (a workspace document, not the preview). */
+  versionsAvailable = false;
+  /** The discussion picked in the side panel. */
+  activeThread: string | null = null;
+  /** A new comment being written, on this range. */
+  draft: DocSelection | null = null;
+  private threadCache: { version: number; threads: Thread[] } | null = null;
   zoom = 1;
   showRuler = true;
   showOutline = false;
@@ -194,10 +230,32 @@ export class DocController {
     return this.doc.toSnapshot();
   }
 
+  /** No edits: the person's access (`setReadOnly`), or viewing mode chosen in the editor. */
+  get readOnly(): boolean {
+    return this.locked || this.editMode === 'viewing';
+  }
+
   setReadOnly(readOnly: boolean): void {
-    if (this.readOnly === readOnly) return;
-    this.readOnly = readOnly;
+    if (this.locked === readOnly) return;
+    this.locked = readOnly;
     this.emit();
+  }
+
+  /** May edit at all, viewing mode aside (the mode menu shows editing and suggesting then). */
+  get mayEdit(): boolean {
+    return !this.locked;
+  }
+
+  setEditMode(mode: EditMode): void {
+    if (this.editMode === mode) return;
+    this.editMode = mode;
+    this.pending = null;
+    this.emit();
+  }
+
+  /** Edits become suggestions. */
+  get suggesting(): boolean {
+    return this.editMode === 'suggesting' && !this.readOnly;
   }
 
   /** Web fonts finished loading: measure everything again. */
@@ -209,8 +267,9 @@ export class DocController {
   // ---------------------------------------------------------------- applying
 
   /** Applies an edit (or op) made here, recording it for undo. */
-  apply(edit: Edit | Op, options: { typing?: boolean; keepPending?: boolean } = {}): void {
-    if (this.readOnly) return;
+  apply(edit: Edit | Op, options: { typing?: boolean; keepPending?: boolean; review?: boolean } = {}): void {
+    // Comments go in for someone who may comment but not edit.
+    if (this.readOnly && !(options.review && this.canComment)) return;
     const op = normalize('op' in edit ? edit.op : edit);
     const before = this.selection;
     const after = 'op' in edit ? edit.selection : this.selection;
@@ -519,27 +578,41 @@ export class DocController {
 
   type(text: string): void {
     this.lastTyped = Date.now();
-    this.apply(insertText(this.doc, this.selection, text, this.pending), { typing: true });
+    if (this.suggesting) this.apply(suggestText(this.doc, this.selection, text, this.reviewer, this.pending), { typing: true });
+    else this.apply(insertText(this.doc, this.selection, text, this.pending), { typing: true });
   }
 
   backspace(word = false): void {
-    const edit = deleteBackward(this.doc, this.selection, word ? 'word' : 'char');
+    const unit = word ? 'word' : 'char';
+    const edit = this.suggesting ? suggestDeleteChar(this.doc, this.selection, this.reviewer, -1) : deleteBackward(this.doc, this.selection, unit);
     if (isNoop(edit.op)) this.setSelection(edit.selection);
     else this.apply(edit, { typing: isCollapsed(this.selection) });
   }
 
   deleteForward(word = false): void {
-    const edit = deleteForward(this.doc, this.selection, word ? 'word' : 'char');
+    const unit = word ? 'word' : 'char';
+    const edit = this.suggesting ? suggestDeleteChar(this.doc, this.selection, this.reviewer, 1) : deleteForward(this.doc, this.selection, unit);
     if (isNoop(edit.op)) this.setSelection(edit.selection);
     else this.apply(edit);
   }
 
   enter(): void {
-    this.apply(splitParagraph(this.doc, this.selection), { keepPending: true });
+    if (!this.suggesting) {
+      this.apply(splitParagraph(this.doc, this.selection), { keepPending: true });
+      return;
+    }
+    this.markSelectionDeleted();
+    this.apply(suggestSplit(this.doc, this.selection, this.reviewer), { keepPending: true });
   }
 
   lineBreak(): void {
-    this.apply(insertLineBreak(this.doc, this.selection));
+    if (this.suggesting) this.apply(suggestText(this.doc, this.selection, LINE_BREAK, this.reviewer, this.pending));
+    else this.apply(insertLineBreak(this.doc, this.selection));
+  }
+
+  /** In suggesting mode, a selection being replaced is marked deleted first; the caret goes after it. */
+  private markSelectionDeleted(): void {
+    if (!isCollapsed(this.selection)) this.apply(suggestDelete(this.doc, this.selection, this.reviewer, 1));
   }
 
   /** Tab: to the next cell in a table; list items change level; elsewhere a tab character is typed (a selection over paragraphs indents them). */
@@ -774,14 +847,110 @@ export class DocController {
 
   cut(): ClipboardPayload | null {
     const payload = this.copy();
-    if (payload && !this.readOnly) this.apply(deleteSelection(this.doc, this.selection));
+    if (payload && !this.readOnly) this.apply(this.suggesting ? suggestDelete(this.doc, this.selection, this.reviewer, -1) : deleteSelection(this.doc, this.selection));
     return payload;
   }
 
   paste(data: { html?: string; text?: string; json?: string }, plain = false): void {
     const fragment: Fragment | null = readClipboard(data, plain);
     if (!fragment) return;
-    this.apply(insertFragment(this.doc, this.selection, fragment));
+    if (!this.suggesting) {
+      this.apply(insertFragment(this.doc, this.selection, fragment));
+      return;
+    }
+    this.markSelectionDeleted();
+    const from = selectionRange(this.selection).from;
+    const edit = insertFragment(this.doc, this.selection, fragment);
+    this.apply({ op: batch([edit.op, markInserted(this.doc, this.selection.story, from, edit.selection.head, this.reviewer)]), selection: edit.selection });
+  }
+
+  // ---------------------------------------------------------------- comments and suggestions
+
+  /** Who comments and suggests here. */
+  get reviewer(): Reviewer {
+    return this.options.reviewer ?? { id: 'me', name: '' };
+  }
+
+  /** Every discussion in text order (worked out once per change). */
+  threads(): Thread[] {
+    if (this.threadCache?.version !== this.contentVersion) this.threadCache = { version: this.contentVersion, threads: threadsOf(this.doc) };
+    return this.threadCache.threads;
+  }
+
+  /** Opens a new comment on the selection (or the word at the caret) in the side panel. */
+  startComment(): void {
+    if (!this.canComment && this.readOnly) return;
+    this.draft = this.selection;
+    this.activeThread = null;
+    this.showComments = true;
+    this.showVersions = false;
+    this.emit();
+  }
+
+  cancelComment(): void {
+    this.draft = null;
+    this.emit();
+  }
+
+  /** Posts the comment being written; the id of its discussion. */
+  addComment(input: CommentInput): string | null {
+    if (!this.draft || !input.body.trim()) return null;
+    const { op, thread } = addComment(this.doc, this.draft, this.reviewer, input);
+    this.draft = null;
+    this.apply({ op, selection: this.selection }, { review: true, keepPending: true });
+    this.activeThread = thread;
+    this.emit();
+    return thread;
+  }
+
+  reply(thread: string, input: CommentInput): void {
+    if (input.body.trim()) this.apply({ op: replyToThread(thread, this.reviewer, input), selection: this.selection }, { review: true, keepPending: true });
+  }
+
+  editComment(id: string, input: CommentInput): void {
+    if (input.body.trim()) this.apply({ op: editComment(this.doc, id, input), selection: this.selection }, { review: true, keepPending: true });
+  }
+
+  setResolved(thread: string, resolved: boolean): void {
+    this.apply({ op: setResolved(this.doc, thread, resolved), selection: this.selection }, { review: true, keepPending: true });
+    if (resolved && this.activeThread === thread) this.activeThread = null;
+  }
+
+  deleteComment(id: string): void {
+    this.apply({ op: deleteComment(this.doc, id), selection: this.selection }, { review: true, keepPending: true });
+  }
+
+  /** Accepts or rejects a suggestion (editors only). */
+  resolveSuggestion(id: string, accept: boolean): void {
+    this.apply(resolveSuggestion(this.doc, id, accept));
+  }
+
+  get hasSuggestions(): boolean {
+    return this.threads().some((t) => t.root.suggestion);
+  }
+
+  /** Accepts or rejects every suggestion, one undo step each. */
+  resolveAllSuggestions(accept: boolean): void {
+    for (const id of suggestionIds(this.doc)) this.resolveSuggestion(id, accept);
+  }
+
+  /** Picks a discussion: highlighted in the panel, and its text selected. */
+  selectThread(id: string | null): void {
+    this.activeThread = id;
+    const at = id ? this.threads().find((t) => t.root.id === id)?.at : null;
+    if (at) this.setSelection({ story: at.story, anchor: at.from, head: at.to });
+    else this.emit();
+  }
+
+  setShowComments(show: boolean): void {
+    this.showComments = show;
+    if (show) this.showVersions = false;
+    this.emit();
+  }
+
+  setShowVersions(show: boolean): void {
+    this.showVersions = show && this.versionsAvailable;
+    this.emit();
   }
 
   // ---------------------------------------------------------------- find and replace
