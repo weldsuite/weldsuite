@@ -4,10 +4,15 @@
 
 import type { ClientApi, DataResponse } from '../types';
 import { buildQueryString } from '../types';
-import type { MarkThreadReadInput } from '../schemas/mail-threads';
+import type { MarkFolderReadInput, MarkThreadReadInput } from '../schemas/mail-threads';
 
 export function createMailThreadsApi(api: ClientApi) {
   return {
+    /** Mark every thread in a folder read. */
+    markAllRead(data: MarkFolderReadInput): Promise<DataResponse<{ updatedCount: number }>> {
+      return api.post<DataResponse<{ updatedCount: number }>>('/mail-threads/read-all', data);
+    },
+
     markRead(
       threadId: string,
       accountId: string,
