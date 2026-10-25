@@ -1,4 +1,4 @@
-import { pgTable, varchar, timestamp, jsonb, integer, index } from 'drizzle-orm/pg-core';
+import { pgTable, varchar, timestamp, integer, index } from 'drizzle-orm/pg-core';
 import { files } from './files';
 
 /**
@@ -34,9 +34,6 @@ export const sheets = pgTable(
 
     /** Revision the checkpoint at `snapshotKey` is at. */
     snapshotRevision: integer('snapshot_revision').notNull().default(0),
-
-    /** Unused: the snapshot of the earlier Univer-based prototype. To be dropped. */
-    snapshot: jsonb('snapshot').$type<Record<string, unknown>>(),
 
     /** User who last edited the sheet. */
     updatedById: varchar('updated_by_id', { length: 255 }),

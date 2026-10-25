@@ -835,6 +835,8 @@ export const manifest: Record<string, SecretEntry[]> = {
     "DATABASE_ENCRYPTION_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
+    // In-app notifications (comment @mentions) go live over the realtime worker.
+    "REALTIME_INTERNAL_SECRET",
   ],
 
   // sign-api: WeldSign's API worker. Base secrets for Clerk auth and tenant

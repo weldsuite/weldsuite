@@ -11,7 +11,12 @@
 #
 # Secrets (scripts/secrets/manifest.ts → "sheets-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
-#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, REALTIME_INTERNAL_SECRET (live in-app
+#   notifications of comment @mentions)
+#
+# Entrypoints: the default fetch (REST + room sockets) and SheetsInternal,
+# bound as SHEETS_INTERNAL by agent-api, chat-api and app-api for the WeldAgent
+# spreadsheet tools.
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-sheets-api-dev"

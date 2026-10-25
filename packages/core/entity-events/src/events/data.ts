@@ -502,6 +502,25 @@ export interface SheetEventData {
   updatedById?: string | null;
 }
 
+export interface SheetVersionEventData {
+  id: string;
+  /** The spreadsheet (sheets.id) this is a version of. */
+  sheetId: string;
+  /** Null for an automatic version (saved before a restore). */
+  name: string | null;
+  revision: number;
+  createdById: string | null;
+}
+
+/** What a connected table lists; never the records themselves. */
+export interface SheetDataSourceEventData {
+  id: string;
+  sheetId: string;
+  objectType: string;
+  refresh: string;
+  createdById: string;
+}
+
 /**
  * A WeldSign envelope (signing request). Ids, title and status only: field
  * values, signature images and access codes stay off the bus (EVT-005).
@@ -677,6 +696,8 @@ export interface EntityEventData {
 
   // WeldSheets
   sheet: SheetEventData;
+  sheet_version: SheetVersionEventData;
+  sheet_data_source: SheetDataSourceEventData;
 
   // WeldSign
   sign_envelope: SignEnvelopeEventData;

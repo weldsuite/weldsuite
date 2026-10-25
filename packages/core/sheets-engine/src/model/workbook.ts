@@ -18,6 +18,7 @@ import {
   type DataValidation,
   type SheetFilter,
 } from './rules';
+import { cloneComment, cloneDataTable, type DataTable, type SheetComment } from './anchors';
 import { cloneChart, type Chart } from './charts';
 
 export const DEFAULT_ROW_HEIGHT = 21;
@@ -49,6 +50,10 @@ export class Sheet {
   validations: DataValidation[] = [];
   /** In drawing order: a later chart is drawn over an earlier one. */
   charts: Chart[] = [];
+  /** Comment threads: first comments (holding the cell) and replies. */
+  comments: SheetComment[] = [];
+  /** The blocks connected tables of WeldSuite data last filled. */
+  dataTables: DataTable[] = [];
 
   constructor(
     readonly id: string,
@@ -134,6 +139,8 @@ export function sheetToJSON(s: Sheet): SheetSnapshot {
   if (s.conditionalFormats.length) snap.conditionalFormats = sortFormats(s.conditionalFormats).map(cloneFormat);
   if (s.validations.length) snap.validations = s.validations.map(cloneValidation);
   if (s.charts.length) snap.charts = s.charts.map(cloneChart);
+  if (s.comments.length) snap.comments = [...s.comments].sort((a, b) => a.id.localeCompare(b.id)).map(cloneComment);
+  if (s.dataTables.length) snap.dataTables = [...s.dataTables].sort((a, b) => a.id.localeCompare(b.id)).map(cloneDataTable);
   return snap;
 }
 
@@ -151,6 +158,8 @@ export function sheetFromJSON(s: SheetSnapshot): Sheet {
   sheet.conditionalFormats = (s.conditionalFormats ?? []).map(cloneFormat);
   sheet.validations = (s.validations ?? []).map(cloneValidation);
   sheet.charts = (s.charts ?? []).map(cloneChart);
+  sheet.comments = (s.comments ?? []).map(cloneComment);
+  sheet.dataTables = (s.dataTables ?? []).map(cloneDataTable);
   return sheet;
 }
 
@@ -170,6 +179,8 @@ export interface SheetSnapshot {
   conditionalFormats?: ConditionalFormat[];
   validations?: DataValidation[];
   charts?: Chart[];
+  comments?: SheetComment[];
+  dataTables?: DataTable[];
 }
 
 export interface WorkbookSnapshot {

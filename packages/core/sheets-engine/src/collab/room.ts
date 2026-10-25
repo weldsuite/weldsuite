@@ -15,7 +15,7 @@ import type { CommittedOp } from './protocol';
 /** A message for one client, or (to: null) for every client except `except`. */
 export type Outgoing = collab.Outgoing<Op, WorkbookSnapshot, Presence>;
 
-export interface RoomOptions extends collab.RoomOptions<Op> {
+export interface RoomOptions extends collab.RoomOptions<Op, Engine, Presence> {
   engine?: EngineOptions;
 }
 
@@ -29,7 +29,7 @@ const GenericRoom: new (
   adapter: collab.OtAdapter<Engine, Op, WorkbookSnapshot, Presence>,
   snapshot: WorkbookSnapshot,
   revision: number,
-  options?: collab.RoomOptions<Op>,
+  options?: collab.RoomOptions<Op, Engine, Presence>,
 ) => GenericRoom = collab.RoomCore;
 
 export class RoomCore extends GenericRoom {

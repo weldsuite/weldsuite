@@ -74,6 +74,7 @@
     "./schemas/weldpass-passwords": "./src/schemas/weldpass-passwords.ts",
     "./schemas/reach": "./src/schemas/reach.ts",
     "./schemas/sheets": "./src/schemas/sheets.ts",
+    "./schemas/sheet-data": "./src/schemas/sheet-data.ts",
     "./schemas/docs": "./src/schemas/docs.ts",
     "./schemas/weldsign": "./src/schemas/weldsign.ts",
     "./schemas/bank-connection-billing": "./src/schemas/bank-connection-billing.ts",

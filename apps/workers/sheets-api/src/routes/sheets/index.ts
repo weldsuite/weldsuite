@@ -13,14 +13,17 @@
  *   DELETE /api/sheets/:id          → move to the trash
  *   POST   /api/sheets/:id/session  → ticket for the sheet's room socket
  *   POST   /api/sheets/import       → a new spreadsheet from an .xlsx/.csv/.tsv (upload or WeldDrive file)
+ *   POST   /api/sheets/convert      → an old WeldFlow project sheet made a spreadsheet, in place
  *   GET    /api/sheets/:id/export   → the spreadsheet as .xlsx or .csv
+ *   /api/sheets/:id/versions/*       → version history (./versions.ts)
+ *   /api/sheets/:id/data-sources/*   → connected tables of WeldSuite data (./data-sources.ts)
  *
  * The workbook is otherwise edited over the room socket
  * (`/api/sheets/connect`, see ../../room/connect.ts); an export is written
  * by the room, so it includes edits not checkpointed yet.
  */
 
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import {
   EN_LOCALE,
@@ -32,22 +35,18 @@ import {
   type ImportResult,
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
+import { and, eq, isNull } from 'drizzle-orm';
+import { schema } from '@weldsuite/worker-kit/db';
 import { getStoredObject, isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import type { DataFor } from '@weldsuite/entity-events/events';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import {
-  canEdit,
-  containerRole,
-  fileRole,
-  loadDriveAccessForUser,
-  visibleFilesCondition,
-  type DriveRole,
-} from '@weldsuite/core-domain/drive-access';
+import { canEdit, containerRole, fileRole, loadDriveAccessForUser, visibleFilesCondition } from '@weldsuite/core-domain/drive-access';
 import {
   SHEET_IMPORT_MAX_BYTES,
+  convertProjectSheetSchema,
   createSheetSchema,
   exportSheetQuerySchema,
   importDriveFileSchema,
@@ -59,71 +58,36 @@ import {
   type SheetImportFailure,
   type SheetImportResult,
   type SheetSession,
-  type SheetSummary,
 } from '@weldsuite/app-api-client/schemas/sheets';
 import type { Env, Variables } from '../../types';
-import {
-  createSheet,
-  getDriveFile,
-  getSheet,
-  listSheets,
-  memberProfile,
-  renameSheet,
-  snapshotKeyFor,
-  trashSheet,
-  type SheetRecord,
-} from '../../services/sheets';
+import { adoptFileAsSheet, createSheet, getDriveFile, getSheet, listSheets, memberProfile, renameSheet, snapshotKeyFor, trashSheet, type SheetRecord } from '../../services/sheets';
+import { convertLegacyModel, readLegacyModel } from '../../services/legacy-project-sheet';
 import { writeSnapshot } from '../../room/snapshot';
 import { colorFor, newTabId } from '../../room/people';
-
-type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
+import { VIEW_ONLY, eventData, findSheet, mayUpdate, projectRole, roomFor, roomMeta, sessionMode, toSummary, type Ctx } from './access';
+import { CONTENT_TYPES, attachment } from './download';
+import versionRoutes from './versions';
+import dataSourceRoutes from './data-sources';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const VIEW_ONLY = 'You can view this spreadsheet but not change it';
 const DEFAULT_LIMIT = 50;
 
-/** The sheet with the caller's role on it, or the response to send instead. */
-async function findSheet(c: Ctx, id: string): Promise<{ sheet: SheetRecord; role: DriveRole } | Response> {
-  const db = c.get('tenantDb');
-  const sheet = await getSheet(db, id);
-  const role = sheet ? fileRole(await loadDriveAccessForUser(db, c.get('userId') ?? null), sheet.file) : null;
-  if (!sheet || !role) return error.notFound(c, 'Spreadsheet', id);
-  return { sheet, role };
-}
-
-/** Write access needs the drive role, `sheets:update`, and a workspace that is not read-only. */
-async function mayUpdate(c: Ctx): Promise<boolean> {
-  return !c.get('readOnly') && (await hasContextPermission(c, 'sheets:update'));
-}
-
-function toSummary(sheet: SheetRecord, role: DriveRole, mayEdit: boolean): SheetSummary {
-  return {
-    id: sheet.id,
-    fileId: sheet.fileId,
-    name: sheet.name,
-    folderId: sheet.folderId,
-    createdAt: sheet.createdAt.toISOString(),
-    updatedAt: sheet.updatedAt.toISOString(),
-    createdById: sheet.createdById,
-    updatedById: sheet.updatedById,
-    role,
-    canEdit: mayEdit && canEdit(role),
-  };
-}
-
-function eventData(sheet: SheetRecord): DataFor<'sheet'> {
-  return { id: sheet.id, fileId: sheet.fileId, name: sheet.name, updatedById: sheet.updatedById };
-}
+app.route('/:id/versions', versionRoutes);
+app.route('/:id/data-sources', dataSourceRoutes);
 
 app.get('/', requirePermission('sheets:read'), zValidator('query', listSheetsQuerySchema), async (c) => {
-  const { search, limit = DEFAULT_LIMIT, cursor } = c.req.valid('query');
+  const { search, limit = DEFAULT_LIMIT, cursor, projectId } = c.req.valid('query');
   const db = c.get('tenantDb');
   const access = await loadDriveAccessForUser(db, c.get('userId') ?? null);
   const offset = cursor ? Number(cursor) : 0;
-  const { rows, total } = await listSheets(db, { visible: visibleFilesCondition(access), search, limit, offset });
+  // A project's sheets are its members': the project decides, not the drive.
+  const projectAs = projectId ? await projectRole(c, projectId, 'editor') : null;
+  if (projectId && !projectAs) return error.notFound(c, 'Project', projectId);
+  const visible = projectId ? undefined : visibleFilesCondition(access);
+  const { rows, total } = await listSheets(db, { visible, search, limit, offset, projectId });
   const mayEdit = await mayUpdate(c);
-  const data = rows.map((sheet) => toSummary(sheet, fileRole(access, sheet.file) ?? 'viewer', mayEdit));
+  const data = rows.map((sheet) => toSummary(sheet, projectAs ?? fileRole(access, sheet.file) ?? 'viewer', mayEdit));
   const next = offset + rows.length;
   return list(c, data, cursorPagination(total, next < total, next < total ? String(next) : null));
 });
@@ -138,9 +102,17 @@ async function editableFolder(c: Ctx, folderId: string | null): Promise<string |
 }
 
 /** Stores a new spreadsheet holding `workbook`, with its drive file, and reports both. */
-async function saveNewSheet(
+export async function saveNewSheet(
   c: Ctx,
-  params: { workspaceId: string; userId: string; name: string; folderId: string | null; workbook: WorkbookSnapshot },
+  params: {
+    workspaceId: string;
+    userId: string;
+    name: string;
+    folderId: string | null;
+    workbook: WorkbookSnapshot;
+    /** A WeldFlow project the sheet belongs to (its file is the project's, like the project's other files). */
+    projectId?: string | null;
+  },
 ): Promise<SheetRecord> {
   const { workbook, ...record } = params;
   // The first checkpoint goes in before the rows, so a room never opens a sheet without one.
@@ -158,18 +130,53 @@ async function saveNewSheet(
   return sheet;
 }
 
+/** A live project the caller may add work to, or the response to send instead. */
+async function writableProject(c: Ctx, projectId: string): Promise<string | Response> {
+  const scopeAll = await hasContextPermission(c, 'projects:scope:all');
+  const access = await resolveProjectAccess(c.get('tenantDb'), c.get('userId') ?? undefined, { scopeAll }, projectId);
+  const [project] = await c
+    .get('tenantDb')
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.id, projectId), isNull(schema.projects.deletedAt)))
+    .limit(1);
+  if (!project || access.deleted || !(access.scopeAll || access.isManager || access.isMember)) return error.notFound(c, 'Project', projectId);
+  if (!access.canWrite) return error.forbidden(c, 'You can view this project but not add to it');
+  return projectId;
+}
+
+/** The workbook a copy starts from: another sheet as its room holds it now, without its connected tables. */
+async function copyOf(c: Ctx, workspaceId: string, sourceId: string): Promise<WorkbookSnapshot | Response> {
+  const found = await findSheet(c, sourceId);
+  if (found instanceof Response) return found;
+  const live = await roomFor(c, workspaceId, found.sheet).snapshot(roomMeta(found.sheet, workspaceId));
+  const workbook = JSON.parse(live.json) as WorkbookSnapshot;
+  // Connected tables belong to the sheet they were connected to.
+  return { ...workbook, sheets: workbook.sheets.map(({ dataTables: _tables, ...tab }) => tab) };
+}
+
 app.post('/', requirePermission('sheets:create'), zValidator('json', createSheetSchema), async (c) => {
   const userId = c.get('userId');
   const workspaceId = c.get('workspaceId');
   if (!userId) return error.unauthorized(c);
   if (!workspaceId) return error.orgRequired(c);
-  const { name, folderId = null, firstTabName } = c.req.valid('json');
-  const folder = await editableFolder(c, folderId);
+  const { name, folderId = null, firstTabName, projectId, copyFromSheetId } = c.req.valid('json');
+  const project = projectId ? await writableProject(c, projectId) : null;
+  if (project instanceof Response) return project;
+  const folder = project ? null : await editableFolder(c, folderId);
   if (folder instanceof Response) return folder;
 
-  const workbook = new Workbook();
-  workbook.sheets.push(new Sheet(newTabId(), firstTabName ?? 'Sheet1'));
-  const sheet = await saveNewSheet(c, { workspaceId, userId, name, folderId: folder, workbook: workbook.toJSON() });
+  let workbook: WorkbookSnapshot;
+  if (copyFromSheetId) {
+    const copied = await copyOf(c, workspaceId, copyFromSheetId);
+    if (copied instanceof Response) return copied;
+    workbook = copied;
+  } else {
+    const empty = new Workbook();
+    empty.sheets.push(new Sheet(newTabId(), firstTabName ?? 'Sheet1'));
+    workbook = empty.toJSON();
+  }
+  const sheet = await saveNewSheet(c, { workspaceId, userId, name, folderId: folder, workbook, projectId: project });
   return success(c, toSummary(sheet, 'owner', await mayUpdate(c)), 201);
 });
 
@@ -287,16 +294,71 @@ app.post('/import', requirePermission('sheets:create'), async (c) => {
   return success(c, { sheet: toSummary(sheet, 'owner', await mayUpdate(c)), warnings: result.warnings } satisfies SheetImportResult, 201);
 });
 
-const CONTENT_TYPES = {
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  csv: 'text/csv; charset=utf-8',
-} as const;
-
-/** `attachment` with an ASCII fallback name and the real one (RFC 6266). */
-function attachment(fileName: string): string {
-  const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replaceAll('"', "'");
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+/** What an old project sheet's file holds, as a workbook (an empty one when it was never saved). */
+async function legacyWorkbook(
+  c: Ctx,
+  file: NonNullable<Awaited<ReturnType<typeof getDriveFile>>>,
+  params: { workspaceId: string; userId: string; firstTabName: string },
+): Promise<WorkbookSnapshot> {
+  // A row's key came from a client: never let it reach another workspace's objects.
+  const object = file.key && isWorkspaceObjectKey(file.key, params.workspaceId) ? await getStoredObject(c.env, file.key) : null;
+  const bytes = object ? new Uint8Array(await object.arrayBuffer()) : null;
+  const model = bytes ? await readLegacyModel(file.name, bytes).catch(() => null) : null;
+  const owner = file.file.uploadedById ?? params.userId;
+  return convertLegacyModel(model ?? { sheets: [], columnsBySheet: {}, rowsBySheet: {} }, {
+    newTabId,
+    owner: { id: owner, name: (await memberProfile(c.get('tenantDb'), owner)).name ?? 'Unknown' },
+    now: Date.now(),
+    firstTabName: params.firstTabName,
+  });
 }
+
+/**
+ * An old WeldFlow project sheet (.xlsx from before WeldSheets) made a
+ * spreadsheet in place, the first time someone opens it: same file, same
+ * project, the old content converted (services/legacy-project-sheet.ts).
+ * Anyone who may open the project's sheets may trigger it; a sheet already
+ * converted (by them or someone else) is simply returned.
+ */
+app.post('/convert', requirePermission('sheets:read'), zValidator('json', convertProjectSheetSchema), async (c) => {
+  const userId = c.get('userId');
+  const workspaceId = c.get('workspaceId');
+  if (!userId) return error.unauthorized(c);
+  if (!workspaceId) return error.orgRequired(c);
+  const { fileId, firstTabName } = c.req.valid('json');
+  const db = c.get('tenantDb');
+  const file = await getDriveFile(db, fileId);
+  if (!file?.projectId || file.fileType !== 'spreadsheet') return error.notFound(c, 'Project sheet', fileId);
+  const role = await projectRole(c, file.projectId, fileRole(await loadDriveAccessForUser(db, userId), file.file) ?? 'viewer');
+  if (!role) return error.notFound(c, 'Project sheet', fileId);
+  const mayEdit = await mayUpdate(c);
+  if (file.weldsheetId) {
+    const existing = await getSheet(db, file.weldsheetId);
+    return existing ? success(c, toSummary(existing, role, mayEdit)) : error.notFound(c, 'Project sheet', fileId);
+  }
+
+  const workbook = await legacyWorkbook(c, file, { workspaceId, userId, firstTabName: firstTabName ?? 'Sheet1' });
+  const sheetId = generateId('sht');
+  const size = await writeSnapshot(c.env.PRIVATE_STORAGE, snapshotKeyFor(workspaceId, sheetId), { revision: 0, workbook });
+  const name = file.name.replace(/\.xlsx$/i, '').trim().slice(0, 255) || 'Untitled spreadsheet';
+  const sheet = await adoptFileAsSheet(db, { fileId, sheetId, workspaceId, name, snapshotSize: size, userId, oldKey: file.key });
+  if (!sheet) {
+    // Someone else converted it meanwhile: theirs it is.
+    await c.env.PRIVATE_STORAGE.delete(snapshotKeyFor(workspaceId, sheetId));
+    const winner = await getDriveFile(db, fileId);
+    const existing = winner?.weldsheetId ? await getSheet(db, winner.weldsheetId) : null;
+    return existing ? success(c, toSummary(existing, role, mayEdit)) : error.notFound(c, 'Project sheet', fileId);
+  }
+  publishEntityEvent({
+    c,
+    entityType: 'file',
+    entityId: sheet.fileId,
+    action: 'updated',
+    data: { id: sheet.fileId, name: sheet.name, folderId: sheet.folderId, fileType: 'spreadsheet', fileSize: size },
+  });
+  publishEntityEvent({ c, entityType: 'sheet', entityId: sheet.id, action: 'created', data: eventData(sheet) });
+  return success(c, toSummary(sheet, role, mayEdit), 201);
+});
 
 app.get('/:id/export', requirePermission('sheets:read'), zValidator('query', exportSheetQuerySchema), async (c) => {
   const workspaceId = c.get('workspaceId');
@@ -305,11 +367,7 @@ app.get('/:id/export', requirePermission('sheets:read'), zValidator('query', exp
   if (found instanceof Response) return found;
   const { sheet } = found;
   const { format, tab, locale } = c.req.valid('query');
-  const room = c.env.SHEET_ROOM.get(c.env.SHEET_ROOM.idFromName(`${workspaceId}:${sheet.id}`));
-  const file = await room.exportFile(
-    { workspaceId, sheetId: sheet.id, snapshotKey: sheet.snapshotKey ?? snapshotKeyFor(workspaceId, sheet.id) },
-    { format, tab, locale },
-  );
+  const file = await roomFor(c, workspaceId, sheet).exportFile(roomMeta(sheet, workspaceId), { format, tab, locale });
   if (!file) return error.notFound(c, 'Tab', tab);
   const fileName = file.tabName === null ? `${sheet.name}.${format}` : `${sheet.name} - ${file.tabName}.${format}`;
   return new Response(file.bytes, {
@@ -385,21 +443,19 @@ app.post('/:id/session', requirePermission('sheets:read'), async (c) => {
   if (found instanceof Response) return found;
   const { sheet, role } = found;
 
-  const mayEdit = canEdit(role) && (await mayUpdate(c));
+  const mode = await sessionMode(c, role);
   const profile = await memberProfile(c.get('tenantDb'), userId);
   const color = colorFor(userId);
-  const room = c.env.SHEET_ROOM.get(c.env.SHEET_ROOM.idFromName(`${workspaceId}:${sheet.id}`));
-  const ticket = await room.admit({
-    workspaceId,
-    sheetId: sheet.id,
-    snapshotKey: sheet.snapshotKey ?? snapshotKeyFor(workspaceId, sheet.id),
+  const ticket = await roomFor(c, workspaceId, sheet).admit({
+    ...roomMeta(sheet, workspaceId),
     userId,
     name: profile.name ?? 'Unknown',
     picture: profile.picture,
     color,
-    canEdit: mayEdit,
+    canEdit: mode === 'edit',
+    canComment: mode === 'comment',
   });
-  return success(c, { ticket, canEdit: mayEdit, color } satisfies SheetSession);
+  return success(c, { ticket, canEdit: mode === 'edit', mode, color } satisfies SheetSession);
 });
 
 export default app;

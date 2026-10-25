@@ -593,6 +593,8 @@ const HIGH_RISK_TOOLS = new Set([
   'create_person',
   'create_ticket',
   'create_task',
+  'create_spreadsheet',
+  'write_spreadsheet_range',
   'message_agent',
   'create_agent_group_chat',
 ]);

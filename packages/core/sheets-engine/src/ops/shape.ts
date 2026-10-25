@@ -153,6 +153,19 @@ const isChart = shape({
   height: isNum,
 });
 
+const isComment = shape({
+  id: isStr,
+  thread: isStr,
+  author: shape({ id: isStr, name: isStr }),
+  createdAt: isNum,
+  editedAt: optional(isNum),
+  body: isStr,
+  mentions: optional(arrayOf(isStr)),
+  resolved: optional(isBool),
+  cell: optional(shape({ row: isInt, col: isInt })),
+});
+const isDataTable = shape({ id: isStr, range: isRange });
+
 const isSheetSnapshot = shape({
   id: isStr,
   name: isStr,
@@ -168,6 +181,8 @@ const isSheetSnapshot = shape({
   conditionalFormats: optional(arrayOf(isFormat)),
   validations: optional(arrayOf(isValidation)),
   charts: optional(arrayOf(isChart)),
+  comments: optional(arrayOf(isComment)),
+  dataTables: optional(arrayOf(isDataTable)),
 });
 
 const sheetOp = (fields: Record<string, Check>): Check => shape({ type: isStr, sheetId: isStr, ...fields });
@@ -204,6 +219,8 @@ const CHECKS = new Map<Exclude<OpType, 'batch'>, Check>([
   ['patchConditionalFormats', sheetOp({ set: optional(arrayOf(isFormat)), remove: optional(arrayOf(isStr)) })],
   ['patchValidations', sheetOp({ set: optional(arrayOf(isValidation)), remove: optional(arrayOf(isStr)) })],
   ['patchCharts', sheetOp({ set: optional(arrayOf(isChart)), remove: optional(arrayOf(isStr)) })],
+  ['patchComments', sheetOp({ set: optional(arrayOf(isComment)), remove: optional(arrayOf(isStr)) })],
+  ['patchDataTables', sheetOp({ set: optional(arrayOf(isDataTable)), remove: optional(arrayOf(isStr)) })],
 ]);
 
 /** True when `op` has the structure of an `Op` all the way down. */

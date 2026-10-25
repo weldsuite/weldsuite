@@ -16,6 +16,7 @@ import { listPeople, createPerson, getPerson, isValidWorkspaceMember } from '@we
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 import { ASK_USER_TOOL_NAME, agentQuestionSchema } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 import { reindexAgentRoutines, routineIndexSync } from './routine-index';
+import { SHEET_TOOLS } from './sheets-tools';
 import type { Database } from '@weldsuite/worker-kit/db';
 
 export type AgentDb = Database;
@@ -708,6 +709,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       return { id, title: args.title, status: args.status ?? 'todo' };
     },
   },
+  ...SHEET_TOOLS,
   {
     id: 'chat.message_agent',
     name: 'message_agent',

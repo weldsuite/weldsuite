@@ -37,6 +37,7 @@ import { err, isMatrix, sameScalar, type CellError, type Scalar } from '../value
 import { DependencyGraph, globalKey, splitKey, type Precedent } from './graph';
 import { SccWalker } from './scc';
 import { anchorAfter, mapChartFormulas } from '../model/charts';
+import { commentAfter } from '../model/anchors';
 
 export interface EngineOptions {
   /** Clock for NOW()/TODAY(), epoch ms. */
@@ -869,6 +870,11 @@ export class Engine implements EvalHost {
       return ranges.length ? [{ ...dv, ranges }] : [];
     });
     sheet.charts = sheet.charts.map((c) => ({ ...c, anchor: anchorAfter(c.anchor, axis, mapIndex, max) }));
+    sheet.comments = sheet.comments.map((c) => commentAfter(c, axis, mapIndex, max));
+    sheet.dataTables = sheet.dataTables.flatMap((t) => {
+      const range = fit(t.range);
+      return range ? [{ ...t, range }] : [];
+    });
   }
 
   insertDims(sheetId: string, axis: Axis, at: number, count: number): RewrittenFormula[] {
