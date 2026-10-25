@@ -7,7 +7,7 @@ import type { Op } from '../ops/types';
 import { validateOp } from '../ops/validate';
 import { pageDisplay } from '../layout/display';
 import { DocLayout } from '../layout/document-layout';
-import { tableColumnEdges } from '../layout/geometry';
+import { caretRect, tableColumnEdges } from '../layout/geometry';
 import { MetricsMeasurer } from '../layout/measure';
 import { counterIds, snapshotKey } from '../test-support';
 import { caretAt, insertText } from './commands';
@@ -137,5 +137,21 @@ describe('table column edges', () => {
     expect(edges.map((e) => e.col)).toEqual([0, 1, 2]);
     expect(edges[0]!.x).toBeLessThan(edges[1]!.x);
     expect(edges[2]!.height).toBeGreaterThan(0);
+  });
+});
+
+describe('nested tables', () => {
+  it('lays out a table inside a cell, with a caret in its cells', () => {
+    const d = DocModel.create();
+    const outer = insertTable(d, caretAt(BODY, 0), 1, 2, counterIds('o'));
+    run(d, outer.op);
+    const inner = insertTable(d, outer.selection, 2, 2, counterIds('i'));
+    run(d, inner.op);
+    const dl = layoutOf(d);
+    const rect = caretRect(dl, inner.selection.story, 0);
+    expect(rect).not.toBeNull();
+    const lines = pageDisplay(dl, dl.pages[0]!).filter((i) => i.kind === 'line');
+    // Four borders for each of the outer table's two cells and the inner table's four.
+    expect(lines.length).toBeGreaterThanOrEqual(4 * 6);
   });
 });

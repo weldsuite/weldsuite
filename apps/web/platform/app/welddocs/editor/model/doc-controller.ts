@@ -11,6 +11,7 @@ import {
   applyOp,
   caretAt,
   caretRect,
+  cellOf,
   clearFormatting,
   commonParagraphStyle,
   deleteBackward,
@@ -27,7 +28,9 @@ import {
   insertFragment,
   insertLineBreak,
   insertObject,
+  insertSectionBreak,
   insertText,
+  insertToc,
   isCollapsed,
   isNoop,
   lineBounds,
@@ -36,6 +39,7 @@ import {
   nextGrapheme,
   nextWord,
   normalize,
+  pageDisplay,
   paragraphAt,
   removeLink,
   replaceAll,
@@ -44,13 +48,17 @@ import {
   resolvedParagraphAt,
   resolvedStyleAt,
   selectionRange,
+  sectionAt,
   selectionRects,
   setLink,
+  setSectionAt,
   splitParagraph,
   textStats,
+  tocIds,
   toggleChecked,
   toggleList,
   transform,
+  updateToc,
   wordAt,
   type Affinity,
   type DocPeer,
@@ -69,12 +77,14 @@ import {
   type ParaPatch,
   type ParaProps,
   type SectionProps,
+  type SectionStart,
   type Story,
   type TextStyle,
   type TextMeasurer,
   type TextStylePatch,
 } from '@weldsuite/docs-engine';
 import { copyFragment, readClipboard, type ClipboardPayload } from './clipboard';
+import { leaveCell, moveToCell } from './table-actions';
 
 const UNDO_LIMIT = 300;
 /** Typing within this long of the last keystroke joins its undo step. */
@@ -132,7 +142,9 @@ export class DocController {
   /** Bumped when the content changed (not just the selection). */
   contentVersion = 0;
   find: { query: string; options: FindOptions; matches: Match[]; index: number } | null = null;
-  dialog: 'pageSetup' | 'wordCount' | 'link' | 'shortcuts' | null = null;
+  dialog: 'pageSetup' | 'wordCount' | 'link' | 'shortcuts' | 'image' | null = null;
+  /** The right-click menu, at a point of the window. */
+  contextMenu: { x: number; y: number } | null = null;
   printing = false;
   /** Other people in a co-edited document, with where they are (drawn on the pages). */
   peers: DocPeer[] = [];
@@ -361,7 +373,15 @@ export class DocController {
       const { from, to } = selectionRange(sel);
       target = { head: dir < 0 ? from : to, affinity: 'forward' };
     } else {
-      target = this.moveTarget(dir, unit);
+      target = this.moveTarget(dir, unit, extend);
+    }
+    if (target.done) return;
+    if (target.story && target.story !== sel.story) {
+      // Into or out of a table cell.
+      const goal = this.goalX;
+      this.setSelection(caretAt(target.story, target.head), target.affinity);
+      this.goalX = goal;
+      return;
     }
     const head = Math.max(0, Math.min(target.head, max));
     const goal = this.goalX;
@@ -370,7 +390,7 @@ export class DocController {
   }
 
   /** Where the caret goes moving by `unit` from the head (not yet clamped). */
-  private moveTarget(dir: 1 | -1, unit: Movement): MoveTarget {
+  private moveTarget(dir: 1 | -1, unit: Movement, extend: boolean): MoveTarget {
     const sel = this.selection;
     const story = this.doc.stories.get(sel.story)!;
     switch (unit) {
@@ -382,8 +402,10 @@ export class DocController {
         return this.lineEdgeTarget(story, dir);
       case 'line':
       case 'page': {
-        const next = this.vertical(dir, unit === 'page');
-        return { head: next?.pos ?? sel.head, affinity: next?.affinity ?? 'forward', keepGoal: true };
+        const next = this.vertical(dir, unit === 'page', extend);
+        // Off the top or bottom of a cell with nothing there to land on: to the cell above or below, or out of the table.
+        if (!next && unit === 'line' && !extend && leaveCell(this, dir)) return { head: sel.head, affinity: 'forward', done: true };
+        return { story: next?.story, head: next?.pos ?? sel.head, affinity: next?.affinity ?? 'forward', keepGoal: true };
       }
       case 'paragraph':
         return { head: paragraphTarget(story, sel.head, dir), affinity: 'forward' };
@@ -402,8 +424,12 @@ export class DocController {
     return { head: dir < 0 ? bounds.start : bounds.end, affinity: softEnd ? 'backward' : 'forward' };
   }
 
-  /** The position a line (or a page) above or below the caret, at the same x. */
-  private vertical(dir: 1 | -1, byPage: boolean): { pos: number; affinity: Affinity } | null {
+  /**
+   * The position a line (or a page) above or below the caret, at the same x.
+   * Without Shift it may be in another story of the page's flow (between the
+   * body and its table cells); a selection stays in its story.
+   */
+  private vertical(dir: 1 | -1, byPage: boolean, extend: boolean): { story: string; pos: number; affinity: Affinity } | null {
     const sel = this.selection;
     const rect = caretRect(this.layout, sel.story, sel.head, { affinity: this.affinity });
     if (!rect) return null;
@@ -415,7 +441,8 @@ export class DocController {
     let y = dir > 0 ? rect.y + rect.height + 1 + step : rect.y - 1 - step;
     for (let tries = 0; tries < 3; tries++) {
       const hit = hitTest(this.layout, pageIndex, x, y);
-      if (hit && hit.story === sel.story && hit.pos !== sel.head) return { pos: hit.pos, affinity: hit.affinity };
+      const reachable = hit && (hit.story === sel.story || (!extend && inFlow(hit.story) && inFlow(sel.story)));
+      if (hit && reachable && (hit.story !== sel.story || hit.pos !== sel.head)) return { story: hit.story, pos: hit.pos, affinity: hit.affinity };
       // Past this page's content: continue on the next (or previous) page.
       pageIndex += dir;
       const next = this.pages[pageIndex];
@@ -515,8 +542,9 @@ export class DocController {
     this.apply(insertLineBreak(this.doc, this.selection));
   }
 
-  /** Tab: list items change level; elsewhere a tab character is typed (a selection over paragraphs indents them). */
+  /** Tab: to the next cell in a table; list items change level; elsewhere a tab character is typed (a selection over paragraphs indents them). */
   tab(shift: boolean): void {
+    if (cellOf(this.doc, this.selection.story) && moveToCell(this, shift ? -1 : 1)) return;
     const props = this.paragraph();
     const multi = !isCollapsed(this.selection) && this.doc.stories.get(this.selection.story)!.text(selectionRange(this.selection).from, selectionRange(this.selection).to).includes(PARA);
     const atStart = isCollapsed(this.selection) && paragraphAt(this.doc.stories.get(this.selection.story)!, this.selection.head).start === this.selection.head;
@@ -628,6 +656,59 @@ export class DocController {
     this.apply(insertObject(this.doc, this.selection, { kind: 'hr' }, true));
   }
 
+  insertColumnBreak(): void {
+    this.apply(insertObject(this.doc, this.selection, { kind: 'columnBreak' }));
+  }
+
+  /** Ends the section at the caret; the next one starts on a new page or on this one. */
+  insertSectionBreak(start: SectionStart): void {
+    this.apply(insertSectionBreak(this.doc, this.selection, start));
+  }
+
+  /** Inserts a table of contents above the caret's paragraph (in the body). */
+  insertToc(emptyText: string): void {
+    this.apply(insertToc(this.doc, this.selection, emptyText));
+  }
+
+  get hasToc(): boolean {
+    return tocIds(this.doc).length > 0;
+  }
+
+  /** Rebuilds every table of contents from the headings as they are now. */
+  updateTocs(emptyText: string): void {
+    // One at a time: each rebuild reads the document as the ones before left it.
+    for (const id of tocIds(this.doc)) this.apply({ op: updateToc(this.doc, id, emptyText), selection: this.clampSelection(this.selection) });
+  }
+
+  /** Moves the caret to a bookmark (an internal link's target). */
+  goToAnchor(id: string): boolean {
+    const a = this.doc.anchors.get(id);
+    if (!a || !this.doc.stories.has(a.story)) return false;
+    this.setSelection(caretAt(a.story, a.from));
+    return true;
+  }
+
+  /**
+   * The image under a point of a page (the topmost). Images behind the text
+   * are left to the text over them; they are selected from the keyboard.
+   */
+  imageAt(page: number, x: number, y: number): { story: string; pos: number } | null {
+    const p = this.pages[page];
+    if (!p) return null;
+    const items = pageDisplay(this.layout, p);
+    for (let i = items.length - 1; i >= 0; i--) {
+      const it = items[i]!;
+      if (it.kind !== 'image' || it.image.wrap === 'behind') continue;
+      if (x >= it.x && x <= it.x + it.width && y >= it.y && y <= it.y + it.height) return { story: it.story, pos: it.pos };
+    }
+    return null;
+  }
+
+  openContextMenu(at: { x: number; y: number } | null): void {
+    this.contextMenu = at;
+    this.emit();
+  }
+
   insertPageNumber(field: 'page' | 'pages' = 'page'): void {
     this.apply(insertObject(this.doc, this.selection, { kind: 'field', field }));
   }
@@ -650,12 +731,13 @@ export class DocController {
 
   // ---------------------------------------------------------------- page setup
 
+  /** The page layout of the section the caret is in. */
   get section(): SectionProps {
-    return this.doc.props.section;
+    return sectionAt(this.doc, this.selection.story, this.selection.head).props;
   }
 
   setSection(patch: Partial<SectionProps>): void {
-    this.apply({ type: 'setDocProps', patch: { section: { ...this.doc.props.section, ...patch } } }, { keepPending: true });
+    this.apply(setSectionAt(this.doc, this.selection.story, this.selection.head, patch), { keepPending: true });
   }
 
   setPageless(pageless: boolean): void {
@@ -815,6 +897,10 @@ interface MoveTarget {
   head: number;
   affinity: Affinity;
   keepGoal?: boolean;
+  /** Another story to move to (a table cell, or out of one). */
+  story?: string;
+  /** The caret was already moved. */
+  done?: boolean;
 }
 
 /** Ctrl+Up / Ctrl+Down: to the start of this (or the previous) paragraph, or the start of the next. */
@@ -828,6 +914,11 @@ function paragraphTarget(story: Story, head: number, dir: 1 | -1): number {
 function toModel(source: DocSnapshot | DocModel | null): DocModel {
   if (source instanceof DocModel) return source;
   return source ? DocModel.fromSnapshot(source) : DocModel.create();
+}
+
+/** The body and its table cells: one flow of text the caret moves through with the arrow keys. */
+function inFlow(story: string): boolean {
+  return story === BODY || story.startsWith('cell:');
 }
 
 function sameStory(a: DocSelection, b: DocSelection): boolean {

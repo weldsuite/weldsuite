@@ -2,10 +2,14 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { toast } from 'sonner';
 import { caretRect, isSafeLink, pageDisplay, selectionRects, type PageLayout } from '@weldsuite/docs-engine';
 import { useI18n } from '@/lib/i18n/provider';
+import { DocContextMenu } from '../context-menu';
+import { ImageOverlay } from '../image-overlay';
 import type { DocController } from '../model/doc-controller';
 import { FRAGMENT_TYPE } from '../model/clipboard';
+import { selectedImage } from '../model/image-actions';
 import { handleKey } from '../model/keyboard';
 import { PageContent } from './page-content';
+import { ColumnHandles } from './table-handles';
 
 /** Screen pixels per point at 100 %. */
 export const PX_PER_PT = 96 / 72;
@@ -94,6 +98,20 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
     inputRef.current?.focus({ preventScroll: true });
   }, []);
 
+  // A command from a menu or a dialog leaves focus nowhere once that closes: take it back, so typing goes on.
+  useEffect(() => {
+    let frame = 0;
+    let tries = 0;
+    const check = () => {
+      const active = document.activeElement;
+      if (!active || active === document.body) inputRef.current?.focus({ preventScroll: true });
+      // A menu fades out with focus still in it: wait for it to go.
+      else if (active.closest('[role="menu"]') && tries++ < 60) frame = requestAnimationFrame(check);
+    };
+    frame = requestAnimationFrame(check);
+    return () => cancelAnimationFrame(frame);
+  }, [controller.version]);
+
   // Web fonts load late: lay out again with their real widths.
   useEffect(() => {
     const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
@@ -130,12 +148,22 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
     // Double click in an empty top or bottom margin opens the header or footer.
     if (e.detail === 2 && openHeaderOrFooter(controller, pages[pageIndex]!, pageIndex, at.y)) return;
     if ((e.metaKey || e.ctrlKey) && e.detail === 1 && openLink(controller, at)) return;
+    if (e.detail === 1 && !e.shiftKey && selectImage(controller, at)) return;
     controller.clickAt(at.page, at.x, at.y, { extend: e.shiftKey, detail: e.detail });
     if (e.detail > 1) return;
     dragging.current = true;
     followDrag(controller, e, pageAt, () => scrollRef.current, () => {
       dragging.current = false;
     });
+  };
+
+  // Right click: the caret moves there (unless it is inside the selection), then the menu opens.
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    inputRef.current?.focus({ preventScroll: true });
+    const at = pageAt(e.clientX, e.clientY);
+    if (at && !selectImage(controller, at) && !insideSelection(controller, at)) controller.clickAt(at.page, at.x, at.y);
+    controller.openContextMenu({ x: e.clientX, y: e.clientY });
   };
 
   // Text input: beforeinput carries what was typed (after IME and dead keys).
@@ -219,9 +247,10 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
               else pageRefs.current.delete(index);
             }}
             onMouseDown={(e) => onMouseDown(e, index)}
+            onContextMenu={onContextMenu}
             selection={rects.filter((r) => r.page === index)}
             matches={findMatches}
-            labels={{ header: te.header, footer: te.footer }}
+            labels={{ header: te.header, footer: te.footer, resizeColumn: t.welddocs.table.resizeColumn }}
           />
         );
       })}
@@ -253,6 +282,7 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
         onPaste={onPaste}
       />
       <style>{'@keyframes welddocs-caret { 0%, 100% { opacity: 1 } 50% { opacity: 0 } }'}</style>
+      {controller.contextMenu && <DocContextMenu controller={controller} at={controller.contextMenu} onClose={() => controller.openContextMenu(null)} />}
     </div>
   );
 }
@@ -282,12 +312,26 @@ function openHeaderOrFooter(controller: DocController, page: PageLayout, pageInd
   return false;
 }
 
-/** Ctrl+click: opens the link under the pointer (not the caret's), and only to a safe place. */
+/** Ctrl+click: follows the link under the pointer (not the caret's): to a bookmark in the document, or a safe web address. */
 function openLink(controller: DocController, at: PagePoint): boolean {
   const url = controller.linkAt(at.page, at.x, at.y);
-  if (!url || !isSafeLink(url) || url.startsWith('#')) return false;
+  if (!url || !isSafeLink(url)) return false;
+  if (url.startsWith('#')) return controller.goToAnchor(url.slice(1));
   window.open(url, '_blank', 'noopener,noreferrer');
   return true;
+}
+
+/** A click on an image selects it (its object character). */
+function selectImage(controller: DocController, at: PagePoint): boolean {
+  const img = controller.imageAt(at.page, at.x, at.y);
+  if (!img) return false;
+  controller.setSelection({ story: img.story, anchor: img.pos, head: img.pos + 1 });
+  return true;
+}
+
+/** Whether a point of a page is on the selected text. */
+function insideSelection(controller: DocController, at: PagePoint): boolean {
+  return controller.selectionRects().some((r) => r.page === at.page && at.x >= r.x && at.x <= r.x + r.width && at.y >= r.y && at.y <= r.y + r.height);
 }
 
 /** Scroll step while dragging near the top or bottom edge of the scroller. */
@@ -370,6 +414,7 @@ function PageBox({
   language,
   refCallback,
   onMouseDown,
+  onContextMenu,
   selection,
   matches,
   labels,
@@ -383,9 +428,10 @@ function PageBox({
   language: string;
   refCallback: (el: HTMLDivElement | null) => void;
   onMouseDown: (e: React.MouseEvent) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
   selection: { x: number; y: number; width: number; height: number }[];
   matches: { story: string; from: number; to: number }[];
-  labels: { header: string; footer: string };
+  labels: { header: string; footer: string; resizeColumn: string };
 }) {
   const items = useMemo(
     () => pageDisplay(controller.layout, page, { title: controller.options.title, locale: language }),
@@ -406,12 +452,16 @@ function PageBox({
 
   const editingHeader = controller.inHeaderOrFooter;
   const bg = page.section.background ?? '#ffffff';
+  // The selected image, if it is drawn on this page.
+  const target = selectedImage(controller);
+  const imageItem = target ? items.find((i) => i.kind === 'image' && i.story === target.story && i.pos === target.pos) : undefined;
   return (
     <div
       ref={refCallback}
       className="absolute cursor-text select-none shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_3px_rgba(60,64,67,0.15)]"
       style={{ left, top, width: page.width * scale, height: page.height * scale, background: bg }}
       onMouseDown={onMouseDown}
+      onContextMenu={onContextMenu}
       data-page={index}
     >
       <div className="absolute left-0 top-0 origin-top-left" style={{ width: `${page.width}pt`, height: `${page.height}pt`, transform: `scale(${scale / PX_PER_PT})` }}>
@@ -424,9 +474,12 @@ function PageBox({
         {editingHeader && page.header && <AreaRule y={page.header.y + page.header.height + 2} label={labels.header} />}
         {editingHeader && page.footer && <AreaRule y={page.footer.y - 4} label={labels.footer} />}
         <PeerMarks controller={controller} pageIndex={index} />
-        {selection.map((r, i) => (
-          <div key={`s${i}`} className="pointer-events-none absolute" style={{ left: `${r.x}pt`, top: `${r.y}pt`, width: `${r.width}pt`, height: `${r.height}pt`, background: 'rgba(66,133,244,0.3)' }} />
-        ))}
+        {!imageItem &&
+          selection.map((r, i) => (
+            <div key={`s${i}`} className="pointer-events-none absolute" style={{ left: `${r.x}pt`, top: `${r.y}pt`, width: `${r.width}pt`, height: `${r.height}pt`, background: 'rgba(66,133,244,0.3)' }} />
+          ))}
+        <ColumnHandles controller={controller} pageIndex={index} ptPerPx={1 / scale} label={labels.resizeColumn} />
+        {imageItem?.kind === 'image' && target && <ImageOverlay controller={controller} item={imageItem} target={target} ptPerPx={1 / scale} />}
       </div>
     </div>
   );

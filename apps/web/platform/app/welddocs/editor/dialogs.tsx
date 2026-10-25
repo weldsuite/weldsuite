@@ -3,6 +3,7 @@ import { A4, LETTER, isCollapsed } from '@weldsuite/docs-engine';
 import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { useI18n } from '@/lib/i18n/provider';
+import { ImageDialog } from './image-dialog';
 import type { DocController } from './model/doc-controller';
 import { MOD_LABEL } from './model/keyboard';
 import { PALETTE } from './ui';
@@ -20,6 +21,8 @@ export function DocDialogs({ controller }: { controller: DocController }) {
       return <LinkDialog controller={controller} onClose={close} />;
     case 'shortcuts':
       return <ShortcutsDialog onClose={close} />;
+    case 'image':
+      return <ImageDialog controller={controller} onClose={close} />;
     default:
       return null;
   }

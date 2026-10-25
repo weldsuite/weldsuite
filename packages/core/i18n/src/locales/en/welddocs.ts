@@ -105,6 +105,7 @@ export const welddocs = {
     clearFormatting: 'Clear formatting',
     wordCount: 'Word count',
     shortcuts: 'Keyboard shortcuts',
+    image: 'Image',
   },
 
   toolbar: {
@@ -148,6 +149,8 @@ export const welddocs = {
     editing: 'Editing',
     viewing: 'Viewing',
     mode: 'Mode',
+    image: 'Insert image',
+    table: 'Insert table',
   },
 
   styles: {
@@ -314,6 +317,8 @@ export const welddocs = {
     resetSize: 'Original size',
     delete: 'Delete image',
     wrap: 'Text wrapping',
+    move: 'Drag to move the image',
+    resize: 'Drag to resize the image',
   },
 
   table: {
@@ -343,6 +348,7 @@ export const welddocs = {
     right: 'Right',
     borders: 'Table borders',
     noBorders: 'No borders',
+    resizeColumn: 'Drag to change the column width',
   },
 
   breaks: {
@@ -356,5 +362,6 @@ export const welddocs = {
   toc: {
     insert: 'Table of contents',
     empty: 'Add headings (Format › Paragraph styles) and they will appear here.',
+    update: 'Update table of contents',
   },
 };

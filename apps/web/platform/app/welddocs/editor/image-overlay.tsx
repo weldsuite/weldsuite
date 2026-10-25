@@ -17,11 +17,35 @@ export function ImageOverlay({ controller, item, target, ptPerPx }: { controller
   const { t } = useI18n();
   const ti = t.welddocs.image;
   const [drag, setDrag] = useState<number | null>(null);
+  const [moved, setMoved] = useState<{ dx: number; dy: number } | null>(null);
   const [alt, setAlt] = useState(target.image.alt ?? '');
   useEffect(() => setAlt(target.image.alt ?? ''), [target.image.alt, target.image.id]);
   const width = drag ?? item.width;
   const height = width * (item.height / item.width);
+  const x = item.x + (moved?.dx ?? 0);
+  const y = item.y + (moved?.dy ?? 0);
   const ro = controller.readOnly;
+  const floating = !!target.image.wrap && target.image.wrap !== 'inline';
+
+  // A floating image moves with the pointer; it lands at its new offset in the paragraph.
+  const startMove = (e: React.PointerEvent) => {
+    if (ro || !floating) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const start = { x: e.clientX, y: e.clientY };
+    const delta = (ev: PointerEvent) => ({ dx: (ev.clientX - start.x) * ptPerPx, dy: (ev.clientY - start.y) * ptPerPx });
+    const move = (ev: PointerEvent) => setMoved(delta(ev));
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setMoved(null);
+      const d = delta(ev);
+      if (Math.abs(d.dx) + Math.abs(d.dy) < 1) return;
+      patchImage(controller, target, { offsetX: Math.max(0, Math.round((target.image.offsetX ?? 0) + d.dx)), offsetY: Math.max(0, Math.round((target.image.offsetY ?? 0) + d.dy)) });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
 
   const startResize = (e: React.PointerEvent) => {
     if (ro) return;
@@ -51,16 +75,19 @@ export function ImageOverlay({ controller, item, target, ptPerPx }: { controller
   return (
     <>
       <div
-        className="pointer-events-none absolute border-2 border-blue-600"
-        style={{ left: `${item.x}pt`, top: `${item.y}pt`, width: `${width}pt`, height: `${height}pt` }}
+        aria-label={floating && !ro ? ti.move : undefined}
+        className={`absolute border-2 border-blue-600 ${floating && !ro ? 'cursor-move' : 'pointer-events-none'}`}
+        style={{ left: `${x}pt`, top: `${y}pt`, width: `${width}pt`, height: `${height}pt` }}
+        onPointerDown={startMove}
+        onMouseDown={(e) => e.stopPropagation()}
       />
       {!ro && (
         <div
           role="slider"
-          aria-label={ti.resetSize}
+          aria-label={ti.resize}
           aria-valuenow={Math.round(width)}
           className="absolute size-2.5 cursor-nwse-resize border border-white bg-blue-600"
-          style={{ left: `calc(${item.x + width}pt - 5px)`, top: `calc(${item.y + height}pt - 5px)` }}
+          style={{ left: `calc(${x + width}pt - 5px)`, top: `calc(${y + height}pt - 5px)` }}
           onPointerDown={startResize}
           onMouseDown={(e) => e.stopPropagation()}
         />
@@ -68,7 +95,7 @@ export function ImageOverlay({ controller, item, target, ptPerPx }: { controller
       {!ro && (
         <div
           className="absolute z-10 flex origin-top-left items-center gap-1 rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-md"
-          style={{ left: `${item.x}pt`, top: `calc(${item.y + height}pt + 6px)`, transform: `scale(${ptPerPx * (96 / 72)})` }}
+          style={{ left: `${x}pt`, top: `calc(${y + height}pt + 6px)`, transform: `scale(${ptPerPx * (96 / 72)})` }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <select

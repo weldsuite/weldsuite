@@ -105,6 +105,7 @@ export const welddocs = {
     clearFormatting: 'Opmaak wissen',
     wordCount: 'Aantal woorden',
     shortcuts: 'Sneltoetsen',
+    image: 'Afbeelding',
   },
 
   toolbar: {
@@ -148,6 +149,8 @@ export const welddocs = {
     editing: 'Bewerken',
     viewing: 'Bekijken',
     mode: 'Modus',
+    image: 'Afbeelding invoegen',
+    table: 'Tabel invoegen',
   },
 
   styles: {
@@ -314,6 +317,8 @@ export const welddocs = {
     resetSize: 'Oorspronkelijke grootte',
     delete: 'Afbeelding verwijderen',
     wrap: 'Tekstterugloop',
+    move: 'Sleep om de afbeelding te verplaatsen',
+    resize: 'Sleep om de afbeelding groter of kleiner te maken',
   },
 
   table: {
@@ -343,6 +348,7 @@ export const welddocs = {
     right: 'Rechts',
     borders: 'Tabelranden',
     noBorders: 'Geen randen',
+    resizeColumn: 'Sleep om de kolom breder of smaller te maken',
   },
 
   breaks: {
@@ -356,5 +362,6 @@ export const welddocs = {
   toc: {
     insert: 'Inhoudsopgave',
     empty: 'Voeg koppen toe (Opmaak › Alineastijlen), dan verschijnen ze hier.',
+    update: 'Inhoudsopgave bijwerken',
   },
 };

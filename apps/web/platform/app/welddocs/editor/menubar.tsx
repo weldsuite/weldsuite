@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type ReactNode } from 'react';
+import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import {
@@ -16,7 +16,10 @@ import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
 import { MOD_LABEL } from './model/keyboard';
+import { insertTableAtCaret, tableContext } from './model/table-actions';
 import { downloadDocument } from './download';
+import { TableMenuItems } from './table-menu';
+import { CloseMenuContext, TablePicker } from './table-picker';
 import { PARAGRAPH_STYLES, ZOOMS } from './toolbar';
 
 /** File, Edit, View, Insert, Format, Tools and Help, as in Google Docs. */
@@ -31,6 +34,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
   const navigate = useNavigate();
   const preview = usePreviewMode();
   const ro = controller.readOnly;
+  const inBody = controller.selection.story === 'body';
   const home = preview ? '/preview/welddocs' : '/welddocs';
 
   const clipboard = async (kind: 'cut' | 'copy' | 'paste' | 'pastePlain') => {
@@ -130,16 +134,42 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
 
       {!ro && (
         <TopMenu label={tm.insert}>
+          <Item onSelect={() => controller.openDialog('image')}>{tm.image}</Item>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>{t.welddocs.table.insert}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <TablePicker onPick={(rows, cols) => insertTableAtCaret(controller, rows, cols)} />
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <Item shortcut={`${MOD_LABEL}+K`} onSelect={() => controller.openDialog('link')}>
             {tm.link}
           </Item>
           <Item onSelect={() => controller.insertHorizontalRule()}>{tm.horizontalLine}</Item>
-          <Item shortcut={`${MOD_LABEL}+Enter`} onSelect={() => controller.insertPageBreak()}>
-            {tm.pageBreak}
-          </Item>
-          <Item disabled={controller.selection.story !== 'body'} onSelect={() => controller.insertFootnote()}>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>{t.welddocs.breaks.title}</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
+              <Item shortcut={`${MOD_LABEL}+Enter`} onSelect={() => controller.insertPageBreak()}>
+                {t.welddocs.breaks.page}
+              </Item>
+              <Item disabled={(controller.section.columns ?? 1) < 2} onSelect={() => controller.insertColumnBreak()}>
+                {t.welddocs.breaks.column}
+              </Item>
+              <DropdownMenuSeparator />
+              <Item disabled={!inBody} onSelect={() => controller.insertSectionBreak('nextPage')}>
+                {t.welddocs.breaks.sectionNext}
+              </Item>
+              <Item disabled={!inBody} onSelect={() => controller.insertSectionBreak('continuous')}>
+                {t.welddocs.breaks.sectionContinuous}
+              </Item>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <Item disabled={!inBody} onSelect={() => controller.insertFootnote()}>
             {tm.footnote}
           </Item>
+          <Item disabled={!inBody} onSelect={() => controller.insertToc(t.welddocs.toc.empty)}>
+            {t.welddocs.toc.insert}
+          </Item>
+          {controller.hasToc && <Item onSelect={() => controller.updateTocs(t.welddocs.toc.empty)}>{t.welddocs.toc.update}</Item>}
           <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>{tm.headersFooters}</DropdownMenuSubTrigger>
@@ -223,6 +253,14 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
               <Item onSelect={() => controller.toggleList('check')}>{tt.checklist}</Item>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+          {tableContext(controller) && (
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>{t.welddocs.table.insert}</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <TableMenuItems controller={controller} />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          )}
           <DropdownMenuSeparator />
           <Item shortcut={`${MOD_LABEL}+\\`} onSelect={() => controller.clearFormatting()}>
             {tm.clearFormatting}
@@ -253,15 +291,16 @@ function styleShortcut(id: string): string | undefined {
 }
 
 function TopMenu({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
-    <DropdownMenu modal={false}>
+    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
         <button type="button" className="rounded px-1.5 py-0.5 hover:bg-accent data-[state=open]:bg-accent" onMouseDown={(e) => e.preventDefault()}>
           {label}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-60" onCloseAutoFocus={(e) => e.preventDefault()}>
-        {children}
+        <CloseMenuContext.Provider value={() => setOpen(false)}>{children}</CloseMenuContext.Provider>
       </DropdownMenuContent>
     </DropdownMenu>
   );
