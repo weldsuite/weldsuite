@@ -26,7 +26,7 @@ import { createActivity } from '@weldsuite/crm-domain/activities';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { SignEnvelope } from '@weldsuite/db/schema';
 import type { SignFilingDto } from '@weldsuite/app-api-client/schemas/weldsign';
-import type { Env } from '../types';
+import type { SignEnv as Env } from './env';
 import { recordSignEvent } from './events';
 import { sourceName } from './sources';
 

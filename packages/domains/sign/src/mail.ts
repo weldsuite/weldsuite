@@ -28,7 +28,7 @@ import {
 } from '@weldsuite/mail-domain/outbound';
 import { getMasterDb, masterSchema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { SignEnvelope, SignRecipient } from '@weldsuite/db/schema';
-import type { Env } from '../types';
+import type { SignEnv as Env } from './env';
 import { loadSignBrand } from './settings';
 
 const SYSTEM_SENDER = 'notifications@mail.weldsuite.org';

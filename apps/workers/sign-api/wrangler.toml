@@ -8,18 +8,20 @@
 #
 # Secrets (scripts/secrets/manifest.ts → "sign-api"):
 #   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
-#   CLERK_SECRET_KEY, CLERK_JWT_KEY
+#   CLERK_SECRET_KEY, CLERK_JWT_KEY, SIGN_SESSION_SECRET
 #
 # Bindings beyond the kit: PRIVATE_STORAGE (WeldSign files), SEND_EMAIL and the
 # outbound guard (signing emails), FINALIZE_ENVELOPE (the Workflow that builds
 # the signed PDF), SCHEDULE_INDEX (the lifecycle sweep's due index), and the
 # vars SIGN_PORTAL_URL (signing links) and EMAIL_TRANSPORT.
-#   SIGN_SESSION_SECRET signs signer sessions and keys the stored hash of
-#   access and email codes (HMAC); any long random string. Rotating it signs
-#   every signer out and voids the access codes of requests still open.
-#   SIGN_PORTAL_SECRET is shared with apps/web/sign-portal (its env var of the
-#   same name); only requests carrying it may report the signer's IP for the
-#   evidence trail. Without it every signer is recorded by the caller's IP.
+#   SIGN_SESSION_SECRET keys the stored hash of access and email codes and
+#   signs signer sessions (HMAC); any long random string. apps/web/sign-portal
+#   checks those codes and issues the sessions, so it holds the same value.
+#   Rotating it signs every signer out and voids the access codes of requests
+#   still open.
+#
+# apps/web/sign-portal (a Worker of its own, ADR FE-016) binds this worker's
+# FinalizeEnvelopeWorkflow by script_name: keep the workflow names stable.
 #
 # Signing emails carry the sender's title and message to any address, so every
 # batch goes through the outbound mail guard (source `sign`), like calendar

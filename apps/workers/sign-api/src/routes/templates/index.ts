@@ -29,9 +29,9 @@ import {
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { SignEnvelope } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../../types';
-import { memberProfile, updateEnvelope } from '../../services/envelopes';
-import { loadSignSettings } from '../../services/settings';
-import { createTemplate, deleteTemplate, getTemplateDetail, listTemplates, loadTemplate, useTemplate } from '../../services/templates';
+import { memberProfile, updateEnvelope } from '@weldsuite/sign-domain/envelopes';
+import { loadSignSettings } from '@weldsuite/sign-domain/settings';
+import { createTemplate, deleteTemplate, getTemplateDetail, listTemplates, loadTemplate, useTemplate } from '@weldsuite/sign-domain/templates';
 import type { DraftScope } from '../draft-scope';
 import { createDocumentsRoutes } from '../envelopes/documents';
 import { createFieldsRoutes } from '../envelopes/fields';

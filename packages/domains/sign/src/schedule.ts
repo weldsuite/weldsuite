@@ -18,7 +18,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import type { SignEnvelope, SignRecipient } from '@weldsuite/db/schema';
-import type { Env } from '../types';
+import type { SignEnv as Env } from './env';
 
 const { signEnvelopes, signRecipients } = schema;
 

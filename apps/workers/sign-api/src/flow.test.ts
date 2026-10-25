@@ -4,12 +4,13 @@
  * recipient is sent, both sign through the portal routes, and the request is
  * finalized into one PDF with a certificate whose hash is recorded.
  *
- * Also: codes, consent, required fields, decline, expiry, the signer IP the
- * portal may report, and finishing again when finalizing could not start.
+ * The portal half runs @weldsuite/sign-domain/portal directly, as
+ * apps/web/sign-portal does. Also: codes, consent, required fields, decline,
+ * expiry, the signer's IP and browser on the evidence trail, and finishing
+ * again when finalizing could not start.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -26,12 +27,12 @@ import type {
   SignPortalEnvelope,
   SignRecipientDto,
 } from '@weldsuite/app-api-client/schemas/weldsign';
-import envelopesRoutes from '../envelopes';
-import { createSignPortalRoutes } from './index';
-import { sendEnvelope } from '../../services/sending';
-import { buildFinalPdf, notifyCompleted } from '../../services/finalize';
-import { sha256Hex } from '../../services/hash';
-import type { Env } from '../../types';
+import envelopesRoutes from './routes/envelopes';
+import { createSignPortal, type PortalContext, type SignerMeta } from '@weldsuite/sign-domain/portal';
+import { sendEnvelope } from '@weldsuite/sign-domain/sending';
+import { buildFinalPdf, notifyCompleted } from '@weldsuite/sign-domain/finalize';
+import { sha256Hex } from '@weldsuite/sign-domain/hash';
+import type { Env } from './types';
 
 const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
 vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
@@ -62,9 +63,7 @@ vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
 const ORG = 'org_flow';
 const WS = 'ws_flow';
 const SECRET = 'flow-test-secret';
-const PORTAL_KEY = 'flow-test-portal-key';
 const BASE = '/api/sign/envelopes';
-const PORTAL = '/public/sign-portal';
 
 let db: Database;
 let master: MasterDatabase;
@@ -99,7 +98,6 @@ function env(): Env {
     PRIVATE_STORAGE: storage.bucket,
     WORKSPACE_CACHE: kv,
     SIGN_SESSION_SECRET: SECRET,
-    SIGN_PORTAL_SECRET: PORTAL_KEY,
     SIGN_PORTAL_URL: 'https://sign.test',
     ENVIRONMENT: 'test',
   } as unknown as Env;
@@ -155,37 +153,39 @@ function flakyWorkflow() {
   return { calls, instances, binding };
 }
 
-function portal(extraEnv: Partial<Env> = {}) {
-  const routes = createSignPortalRoutes({
+/**
+ * The signer portal as apps/web/sign-portal runs it: each path of its
+ * `/api/*` routes maps to one operation of the domain portal, with the
+ * signer's IP and browser it reads from the request.
+ */
+function portal(extraEnv: Partial<Env> = {}, meta: SignerMeta = { ip: '203.0.113.9', userAgent: 'FlowTest/1.0' }) {
+  const ops = createSignPortal({
     master: () => master,
     workspace: async () => ({ id: WS, db, suspended: false }),
     finalize: async (_env, params) => {
       finalizeCalls.push(params);
     },
   });
-  const app = new Hono<{ Bindings: Env }>();
-  app.route(PORTAL, routes as never);
   const pending: Promise<unknown>[] = [];
-  const executionCtx = { waitUntil: (p: Promise<unknown>) => pending.push(p.catch(() => undefined)), passThroughOnException: () => {}, props: {} };
   return {
     pending,
-    request: (path: string, init: RequestInit = {}, session?: string) =>
-      app.request(
-        `${PORTAL}${path}`,
-        {
-          ...init,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Signer-Ip': '203.0.113.9',
-            'X-Sign-Portal-Key': PORTAL_KEY,
-            'User-Agent': 'FlowTest/1.0',
-            ...(session ? { Authorization: `Bearer ${session}` } : {}),
-            ...(init.headers ?? {}),
-          },
-        },
-        { ...env(), ...extraEnv } as never,
-        executionCtx as never,
-      ),
+    request: async (path: string, init: RequestInit = {}, session?: string): Promise<Response> => {
+      const ctx: PortalContext = { env: { ...env(), ...extraEnv }, meta, waitUntil: (p) => pending.push(p.catch(() => undefined)) };
+      const input: unknown = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+      const document = /^\/documents\/(.+)$/.exec(path);
+      if (document) return ops.document(ctx, session, document[1]!);
+      switch (path) {
+        case '/session': return ops.openSession(ctx, input);
+        case '/verify': return ops.verify(ctx, input);
+        case '/resend-code': return ops.resendCode(ctx, input);
+        case '/envelope': return ops.envelope(ctx, session);
+        case '/consent': return ops.consent(ctx, session, input);
+        case '/complete': return ops.complete(ctx, session, input);
+        case '/decline': return ops.decline(ctx, session, input);
+        case '/download': return ops.download(ctx, session);
+        default: throw new Error(`no portal operation for ${path}`);
+      }
+    },
   };
 }
 
@@ -378,16 +378,15 @@ describe('signing flow', () => {
     expect(res).toEqual({ state: 'closed', reason: 'expired' });
   });
 
-  it('records the IP the portal reports only next to the portal key', async () => {
+  it('records the signer IP and browser the portal reads from the request', async () => {
     const { ann } = await draftWithTwoSigners();
     const token = linksByRecipient().get('ann@example.com')!;
-    // A caller without the key cannot pick the address on the evidence trail.
-    await portal().request('/session', { ...json({ token }), headers: { 'X-Sign-Portal-Key': 'not-the-key', 'CF-Connecting-IP': '198.51.100.7' } });
+    await portal({}, { ip: '198.51.100.7', userAgent: 'Other/2.0' }).request('/session', json({ token }));
     const [opened] = await db
       .select()
       .from(schema.signEvents)
       .where(and(eq(schema.signEvents.recipientId, ann.id), eq(schema.signEvents.type, 'opened')));
-    expect(opened!.ip).toBe('198.51.100.7');
+    expect(opened).toMatchObject({ ip: '198.51.100.7', userAgent: 'Other/2.0' });
   });
 
   it('lets the last signer finish again when finalizing could not start', async () => {

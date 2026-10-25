@@ -52,8 +52,8 @@ vi.mock('@weldsuite/entity-events', async (importOriginal) => {
 });
 // Lets a test make the reminders fail half way through a tick.
 const reminders = vi.hoisted(() => ({ fail: false }));
-vi.mock('../services/lifecycle', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../services/lifecycle')>();
+vi.mock('@weldsuite/sign-domain/lifecycle', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/sign-domain/lifecycle')>();
   return {
     ...actual,
     sendDueReminders: async (...args: Parameters<typeof actual.sendDueReminders>) => {

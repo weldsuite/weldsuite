@@ -16,7 +16,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { SIGN_DISCLOSURE_VERSION } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { SignEnvelope } from '@weldsuite/db/schema';
-import type { Env } from '../types';
+import type { SignEnv as Env } from './env';
 import { recordSignEvent } from './events';
 import { sha256Hex } from './hash';
 import { createLink, limitLinksToDownload, signingLink, DOWNLOAD_WINDOW_DAYS } from './links';

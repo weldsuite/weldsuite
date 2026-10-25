@@ -10,7 +10,7 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { SignEnvelope, SignRecipient } from '@weldsuite/db/schema';
-import type { Env } from '../types';
+import type { SignEnv as Env } from './env';
 import { invalid, notADraft } from './errors';
 import { recordSignEvent } from './events';
 import { createLink, revokeTokens, signingLink } from './links';
