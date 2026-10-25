@@ -12,6 +12,11 @@
  * Array results spill into the cells below/right of the formula as an
  * overlay; those cells are not stored. A spill that would cover content
  * evaluates to #SPILL! and re-spills once the way is clear.
+ *
+ * Inserting, deleting or moving rows and columns moves cells and rewrites
+ * references so every formula still reads the cells it read. The graph then
+ * follows only the formulas that moved or were rewritten, and only those whose
+ * result can differ are evaluated (see `followDims`).
  */
 
 import { MAX_COLS, MAX_ROWS, rangesIntersect as rangesOverlap, type Range } from '../address';
@@ -33,10 +38,11 @@ import type { Cell } from '../model/cell-store';
 import { cloneFilter, mapFilterFormulas, mapFormatFormulas, mapValidationFormulas, type SheetFilter } from '../model/rules';
 import { Sheet, Workbook, type WorkbookSnapshot } from '../model/workbook';
 import { filteredRows } from '../rules/evaluate';
-import { err, isMatrix, sameScalar, type CellError, type Scalar } from '../values';
-import { DependencyGraph, globalKey, splitKey, type Precedent } from './graph';
+import { err, isError, isMatrix, sameScalar, type CellError, type Scalar } from '../values';
+import { DependencyGraph, SHEET_STRIDE, globalKey, splitKey, type Precedent } from './graph';
 import { SccWalker } from './scc';
 import { anchorAfter, mapChartFormulas } from '../model/charts';
+import { commentAfter } from '../model/anchors';
 
 export interface EngineOptions {
   /** Clock for NOW()/TODAY(), epoch ms. */
@@ -76,6 +82,12 @@ const MAX_PULL_DEPTH = 256;
 const MAX_PASSES = 16;
 /** Rule formulas kept parsed (conditional formats, validation, filters). */
 const MAX_RULE_ASTS = 500;
+/**
+ * Cell formulas kept parsed. A parsed formula takes a few hundred bytes and
+ * parsing one takes about a microsecond, so a big sheet keeps the most recent
+ * ones and parses the rest again when they are next evaluated.
+ */
+const MAX_ASTS = 100_000;
 
 /**
  * The Web Crypto global, present in browsers, Workers and Node 20+. Declared
@@ -115,6 +127,8 @@ export class Engine implements EvalHost {
   private passNow = 0;
   /** Formulas that read row visibility (SUBTOTAL, AGGREGATE): re-run when rows are hidden, shown or filtered. */
   private readonly visibilityReaders = new Set<number>();
+  /** Formulas whose result is a position (ROW, COLUMN): re-run when rows or columns are inserted, deleted or moved. */
+  private readonly positionReaders = new Set<number>();
   /** Formulas being evaluated, innermost last (for visibilityReaders). */
   private readonly evaluating: number[] = [];
   /** Sheets whose filter has to be re-applied: their values or their filter changed. */
@@ -122,23 +136,77 @@ export class Engine implements EvalHost {
   /** Parsed rule formulas (filters, conditional formats, validation), by text. */
   private readonly ruleAsts = new Map<string, AstNode | FormulaSyntaxError>();
 
+  /**
+   * `calculated`: the snapshot the workbook was read from, when its values are
+   * current (`WorkbookSnapshot.calculated`): its spills are put back and only
+   * volatile formulas are evaluated. Otherwise every formula is.
+   */
   constructor(
     workbook: Workbook = new Workbook(),
     private readonly options: EngineOptions = {},
+    calculated?: WorkbookSnapshot,
   ) {
     this.workbook = workbook;
     for (const s of workbook.sheets) this.sheetNum(s.id);
-    // Spilled arrays are not stored, so every formula is evaluated once on load.
-    this.rebuild();
+    if (calculated?.calculated) {
+      this.rebuild(false);
+      this.restoreSpills(calculated);
+    } else {
+      this.rebuild();
+    }
     this.recalc();
   }
 
   static fromSnapshot(snapshot: WorkbookSnapshot, options?: EngineOptions): Engine {
-    return new Engine(Workbook.fromJSON(snapshot), options);
+    return new Engine(Workbook.fromJSON(snapshot), options, snapshot);
   }
 
+  /** The workbook, with its spilled arrays and marked `calculated` when nothing is waiting to be recalculated. */
   toSnapshot(): WorkbookSnapshot {
-    return this.workbook.toJSON();
+    const snapshot = this.workbook.toJSON();
+    if (this.pendingCells.length > 0 || this.pendingFormulas.size > 0) return snapshot;
+    snapshot.sheets.forEach((sheet, i) => {
+      const records = this.spillsBySheet.get(this.sheetNum(this.workbook.sheets[i]!.id));
+      if (!records?.size) return;
+      sheet.spills = [...records]
+        .map((rec): [number, number, Scalar[][]] => [rec.area.r1, rec.area.c1, rec.data.map((row) => [...row])])
+        .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    });
+    snapshot.calculated = true;
+    return snapshot;
+  }
+
+  /**
+   * Spills a calculated snapshot stored, put back as they were: each on a
+   * formula cell, inside the sheet. One that is not (the snapshot was edited
+   * by hand) has its formula evaluated instead.
+   */
+  private restoreSpills(snapshot: WorkbookSnapshot): void {
+    for (const s of snapshot.sheets) {
+      const sheet = this.workbook.getSheet(s.id);
+      if (!sheet) continue;
+      const sheetNum = this.sheetNum(s.id);
+      for (const [row, col, data] of s.spills ?? []) {
+        const key = globalKey(sheetNum, row, col);
+        const area: Range = { r1: row, c1: col, r2: row + data.length - 1, c2: col + (data[0]?.length ?? 1) - 1 };
+        if (sheet.cells.get(row, col)?.f === undefined || data.length === 0 || area.r2 >= MAX_ROWS || area.c2 >= MAX_COLS) {
+          this.pendingFormulas.add(key);
+          continue;
+        }
+        const rec: SpillRecord = { anchor: key, sheet: sheetNum, area, data };
+        this.spills.set(key, rec);
+        let set = this.spillsBySheet.get(sheetNum);
+        if (!set) {
+          set = new Set();
+          this.spillsBySheet.set(sheetNum, set);
+        }
+        set.add(rec);
+      }
+      // A spill that was blocked has to be told when its way clears: its formula runs again.
+      sheet.cells.forEach((row, col, cell) => {
+        if (cell.f !== undefined && isError(cell.v) && cell.v.code === '#SPILL!') this.pendingFormulas.add(globalKey(sheetNum, row, col));
+      });
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -415,6 +483,8 @@ export class Engine implements EvalHost {
       for (const key of order) {
         if (cyclic.has(key)) {
           this.dirty.delete(key);
+          // Its last array is no longer its result: the cells it spilled into go blank.
+          this.clearSpill(key);
           this.storeValue(key, CIRCULAR);
         } else if (this.dirty.has(key)) {
           this.evaluateCell(key);
@@ -692,6 +762,7 @@ export class Engine implements EvalHost {
       } catch (e) {
         ast = e instanceof FormulaSyntaxError ? e : new FormulaSyntaxError(String(e), 0);
       }
+      if (this.asts.size >= MAX_ASTS) this.asts.clear();
       this.asts.set(key, ast);
     }
     return ast;
@@ -704,13 +775,19 @@ export class Engine implements EvalHost {
       return;
     }
     const precedents: Precedent[] = [];
-    const state = { volatile: false };
+    const state: FormulaTraits = { volatile: false, visibility: false, position: false };
     this.analyze(ast, sheetNum, precedents, state, 0);
     this.graph.setFormula(key, precedents, state.volatile);
+    // Known before it is evaluated, so a load that evaluates nothing still knows.
+    if (state.visibility) this.visibilityReaders.add(key);
+    else this.visibilityReaders.delete(key);
+    if (state.position) this.positionReaders.add(key);
+    else this.positionReaders.delete(key);
   }
 
   private unregisterFormula(key: number): void {
     this.visibilityReaders.delete(key);
+    this.positionReaders.delete(key);
     this.graph.removeFormula(key);
     this.asts.delete(key);
     this.clearSpill(key);
@@ -720,7 +797,7 @@ export class Engine implements EvalHost {
     node: AstNode,
     sheetNum: number,
     out: Precedent[],
-    state: { volatile: boolean },
+    state: FormulaTraits,
     depth: number,
   ): void {
     switch (node.type) {
@@ -749,7 +826,7 @@ export class Engine implements EvalHost {
         return;
       }
       case 'call':
-        if (getFunction(node.name)?.volatile) state.volatile = true;
+        noteFunction(node.name, state);
         for (const a of node.args) this.analyze(a, sheetNum, out, state, depth);
         return;
       case 'unary':
@@ -792,6 +869,7 @@ export class Engine implements EvalHost {
     this.blocked.clear();
     this.used.clear();
     this.visibilityReaders.clear();
+    this.positionReaders.clear();
     for (const sheet of this.workbook.sheets) {
       this.filterStale.add(sheet.id);
       const sheetNum = this.sheetNum(sheet.id);
@@ -869,11 +947,17 @@ export class Engine implements EvalHost {
       return ranges.length ? [{ ...dv, ranges }] : [];
     });
     sheet.charts = sheet.charts.map((c) => ({ ...c, anchor: anchorAfter(c.anchor, axis, mapIndex, max) }));
+    sheet.comments = sheet.comments.map((c) => commentAfter(c, axis, mapIndex, max));
+    sheet.dataTables = sheet.dataTables.flatMap((t) => {
+      const range = fit(t.range);
+      return range ? [{ ...t, range }] : [];
+    });
   }
 
   insertDims(sheetId: string, axis: Axis, at: number, count: number): RewrittenFormula[] {
     const sheet = this.workbook.requireSheet(sheetId);
     const change = { sheet: sheet.name, axis, at, count };
+    const names = namesKey(this.workbook);
     // Rewrite first, at the old positions, then move the cells.
     const rewritten = this.rewriteAllFormulas((f, host) => adjustForInsert(f, host, change));
     const shift = (i: number) => (i >= at ? i + count : i);
@@ -895,14 +979,25 @@ export class Engine implements EvalHost {
       sheet.colCount = Math.min(MAX_COLS, sheet.colCount + count);
     }
     for (const r of rewritten) if (r.sheetId === sheetId) [r.row, r.col] = shiftPos(r.row, r.col, axis, shift);
-    this.rebuild();
-    this.recalc();
+    const moved = (i: number) => (shift(i) < max ? shift(i) : -1);
+    this.followDims(
+      {
+        sheetId,
+        axis,
+        map: moved,
+        // A range across the insertion grows; one reaching the cells pushed off the sheet loses them.
+        cuts: (lo, hi) => (lo < at && at <= hi) || moved(hi) < 0,
+      },
+      rewritten,
+      names,
+    );
     return rewritten;
   }
 
   deleteDims(sheetId: string, axis: Axis, at: number, count: number): RewrittenFormula[] {
     const sheet = this.workbook.requireSheet(sheetId);
     const change = { sheet: sheet.name, axis, at, count };
+    const names = namesKey(this.workbook);
     const rewritten = this.rewriteAllFormulas((f, host) => adjustForDelete(f, host, change));
     const shift = (i: number) => indexAfterDelete(i, at, count, -1);
     sheet.cells.remap((r, c) => {
@@ -933,8 +1028,8 @@ export class Engine implements EvalHost {
       else r.col = i;
       kept.push(r);
     }
-    this.rebuild();
-    this.recalc();
+    // A range that lost cells shrinks (or turns into #REF!).
+    this.followDims({ sheetId, axis, map: shift, cuts: (lo, hi) => lo < at + count && hi >= at }, kept, names);
     return kept;
   }
 
@@ -942,6 +1037,7 @@ export class Engine implements EvalHost {
   moveDims(sheetId: string, axis: Axis, from: number, count: number, to: number): RewrittenFormula[] {
     const sheet = this.workbook.requireSheet(sheetId);
     const move = { sheet: sheet.name, axis, from, count, to };
+    const names = namesKey(this.workbook);
     const rewritten = this.rewriteAllFormulas((f, host) => adjustForMove(f, host, move));
     const map = moveIndexMapper(from, count, to);
     sheet.cells.remap((r, c) => (axis === 'row' ? [map(r), c] : [r, map(c)]));
@@ -964,9 +1060,118 @@ export class Engine implements EvalHost {
       map,
     );
     for (const r of rewritten) if (r.sheetId === sheetId) [r.row, r.col] = shiftPos(r.row, r.col, axis, map);
-    this.rebuild();
-    this.recalc();
+    // Inside the stretch whose order changed, a range may hold other cells or the same ones in another order.
+    const lo = Math.min(from, to);
+    const hi = Math.max(from + count, to) - 1;
+    this.followDims({ sheetId, axis, map, cuts: (a, b) => a <= hi && b >= lo }, rewritten, names);
     return rewritten;
+  }
+
+  /**
+   * Brings the graph, the spills and the values up to date after rows or
+   * columns of one sheet were inserted, deleted or moved: its cells have moved
+   * and formula text is rewritten, so every formula still reads the cells it
+   * read, and its result is unchanged unless
+   *
+   * - a range it reads was cut through (it grew, shrank or now holds its
+   *   cells in another order), or a cell it reads was deleted;
+   * - it reads a position (ROW, COLUMN);
+   * - it spills on that sheet, or reads cells a formula spilled there (spills
+   *   are an overlay that does not move with the cells);
+   * - a defined name was rewritten (then every formula is re-read and
+   *   evaluated, as before this was incremental).
+   *
+   * Those are evaluated, with whatever reads them. The graph re-reads only the
+   * formulas that moved or were rewritten; the rest keep their entries.
+   */
+  private followDims(change: DimsChange, rewritten: RewrittenFormula[], namesBefore: string): void {
+    if (namesKey(this.workbook) !== namesBefore) {
+      this.rebuild();
+      this.recalc();
+      return;
+    }
+    const sheetNum = this.sheetNum(change.sheetId);
+    const base = globalKey(sheetNum, 0, 0);
+    const { axis, map } = change;
+    /** A formula's key once its cell has moved (-1: the cell was deleted). Arithmetic only: it runs for every formula. */
+    const moved = (key: number): number => {
+      if (key < base || key >= base + SHEET_STRIDE) return key;
+      const row = Math.floor((key - base) / MAX_COLS);
+      const col = key - base - row * MAX_COLS;
+      const i = map(axis === 'row' ? row : col);
+      if (i < 0) return -1;
+      return axis === 'row' ? base + i * MAX_COLS + col : base + row * MAX_COLS + i;
+    };
+
+    // Worked out on the graph as it was (old keys), before it follows the cells.
+    const formulas = [...this.graph.formulaKeys()];
+    const evaluate = this.affectedByDims(formulas, sheetNum, change);
+    this.rereadMoved(formulas, moved, rewritten);
+    for (const key of evaluate) {
+      const next = moved(key);
+      if (next >= 0) this.pendingFormulas.add(next);
+    }
+    this.staleFilter(sheetNum);
+    this.recalc();
+  }
+
+  /**
+   * Formulas (old keys) whose result a row/column change can alter. The
+   * sheet's spills are dropped on the way: their formulas spill again.
+   */
+  private affectedByDims(formulas: number[], sheetNum: number, change: DimsChange): number[] {
+    const evaluate: number[] = [...this.positionReaders];
+    for (const key of formulas) if (this.readsAcross(key, sheetNum, change)) evaluate.push(key);
+    for (const rec of this.spillsBySheet.get(sheetNum) ?? []) {
+      evaluate.push(rec.anchor);
+      this.graph.dependentsOfRange(sheetNum, rec.area, (d) => evaluate.push(d));
+      this.spills.delete(rec.anchor);
+    }
+    this.spillsBySheet.delete(sheetNum);
+    for (const [anchor, b] of this.blocked) {
+      if (b.sheet !== sheetNum) continue;
+      evaluate.push(anchor);
+      this.blocked.delete(anchor);
+    }
+    this.used.delete(sheetNum);
+    return evaluate;
+  }
+
+  /** Formulas that moved leave their old place in the graph; those and the rewritten ones are read again. */
+  private rereadMoved(formulas: number[], moved: (key: number) => number, rewritten: RewrittenFormula[]): void {
+    const reread = new Set<number>();
+    for (const key of formulas) {
+      const next = moved(key);
+      if (next === key) continue;
+      this.graph.removeFormula(key);
+      this.asts.delete(key);
+      this.visibilityReaders.delete(key);
+      this.positionReaders.delete(key);
+      if (next >= 0) reread.add(next);
+    }
+    for (const r of rewritten) reread.add(globalKey(this.sheetNum(r.sheetId), r.row, r.col));
+    for (const key of reread) {
+      this.asts.delete(key);
+      const { sheet, row, col } = splitKey(key);
+      const formula = this.workbook.getSheet(this.sheetIdsByNum.get(sheet) ?? '')?.cells.get(row, col)?.f;
+      if (formula === undefined) this.unregisterFormula(key);
+      else this.registerFormula(key, formula, sheet);
+    }
+  }
+
+  /** Whether formula `key` reads a range `change` cuts through, or a cell it deletes. */
+  private readsAcross(key: number, sheetNum: number, change: DimsChange): boolean {
+    const base = globalKey(sheetNum, 0, 0);
+    for (const pk of this.graph.pointsOf(key)) {
+      if (pk < base || pk >= base + SHEET_STRIDE) continue;
+      const row = Math.floor((pk - base) / MAX_COLS);
+      if (change.map(change.axis === 'row' ? row : pk - base - row * MAX_COLS) < 0) return true;
+    }
+    for (const r of this.graph.rangesOf(key)) {
+      if (r.sheet !== sheetNum) continue;
+      if (change.axis === 'row' ? change.cuts(r.r1, r.r2) : change.cuts(r.c1, r.c2)) return true;
+    }
+    return false;
   }
 
   addSheet(sheetId: string, name: string, index: number, sheet?: Sheet): Sheet {
@@ -1026,7 +1231,37 @@ export class Engine implements EvalHost {
   }
 }
 
-/** `key` is already on the DFS stack: it and everything above it form a cycle. */
+/** What a formula's functions say about when it must run again. */
+interface FormulaTraits {
+  volatile: boolean;
+  /** Reads hidden and filtered rows (SUBTOTAL, AGGREGATE). */
+  visibility: boolean;
+  /** Its result is a position (ROW, COLUMN). */
+  position: boolean;
+}
+
+function noteFunction(name: string, traits: FormulaTraits): void {
+  const spec = getFunction(name);
+  if (spec?.volatile) traits.volatile = true;
+  if (spec?.readsRowVisibility) traits.visibility = true;
+  if (spec?.readsPosition) traits.position = true;
+}
+
+/** A row/column change on one sheet, as `followDims` needs it. */
+interface DimsChange {
+  sheetId: string;
+  axis: Axis;
+  /** Where an index along `axis` went (-1: deleted). */
+  map: (i: number) => number;
+  /** Whether a span [lo, hi] along `axis` no longer covers the same cells in the same order. */
+  cuts: (lo: number, hi: number) => boolean;
+}
+
+/** The defined names as text, to tell whether a change rewrote any. */
+function namesKey(workbook: Workbook): string {
+  return workbook.names.map((n) => `${n.sheetId ?? ''}\u0000${n.name}\u0000${n.formula}`).join('\u0001');
+}
+
 /** The non-blank values a spill shows inside `range`, its anchor (a stored cell) excluded. */
 function forEachSpilled(rec: SpillRecord, range: Range, fn: (row: number, col: number, value: Scalar) => void): void {
   const a = rec.area;

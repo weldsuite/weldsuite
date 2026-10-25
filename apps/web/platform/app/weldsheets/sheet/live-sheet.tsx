@@ -1,9 +1,14 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useUser } from '@clerk/clerk-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { isApiError } from '@weldsuite/api-client';
-import { SHEET_CONNECT_PATH } from '@weldsuite/app-api-client/schemas/sheets';
+import { SHEET_CONNECT_PATH, type SheetSessionMode, type SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
+import { Database, History, MessageSquare, Users } from 'lucide-react';
+import { Button } from '@weldsuite/ui/components/button';
+import { ShareDialog, type DriveShareTarget } from '@/app/welddrive/components/share-dialog';
+import { useWorkspaceMemberDirectory } from '@/hooks/queries/use-settings-queries';
 import type { Peer, Presence } from '@weldsuite/sheets-engine';
 import { PageLoader } from '@/components/page-loader';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
@@ -15,9 +20,11 @@ import { SheetController } from '../editor/model/sheet-controller';
 import { sheetLocale } from '../editor/number-formats';
 import { SheetConnection } from '../collab/sheet-connection';
 import { sheetsQueryKey, useSheetMutations } from '../store/use-sheet-store';
-import { MissingSheet, SheetHeader, type SheetStatus } from './sheet-chrome';
+import { MissingSheet, PanelToggle, SheetHeader, type SheetStatus } from './sheet-chrome';
 import { DownloadMenu } from './download-menu';
 import { PeerAvatars } from './peer-avatars';
+import { DataPanel } from './data-panel';
+import { VersionsPanel, versionsQueryKey } from './versions-panel';
 
 /** How often, at most, this person's cursor goes out to the others. */
 const PRESENCE_MS = 120;
@@ -34,6 +41,19 @@ function presenceOf(controller: SheetController): Presence {
   };
 }
 
+/**
+ * What Share opens: the sheet's sharing, or for a WeldFlow project sheet
+ * (whose access follows the project) a note saying so and its link.
+ */
+function shareTargetOf(sheet: SheetSummary, name: string): DriveShareTarget {
+  const origin = window.location.origin;
+  if (sheet.projectId) {
+    const link = `${origin}/weldflow/project/${encodeURIComponent(sheet.projectId)}/table/${encodeURIComponent(sheet.fileId)}`;
+    return { kind: 'item', fileId: sheet.fileId, name, link, recordFile: true };
+  }
+  return { kind: 'item', fileId: sheet.fileId, name, link: `${origin}/weldsheets/${encodeURIComponent(sheet.id)}` };
+}
+
 /** The room socket for a session ticket, on whichever host serves sheets-api. */
 function roomUrl(ticket: string): string {
   const origin = getApiOriginForPath(SHEET_CONNECT_PATH).replace(/^http/, 'ws');
@@ -45,7 +65,7 @@ function roomUrl(ticket: string): string {
  * goes to the sheet's room over a socket (SheetConnection); the name and the
  * other record fields come from sheets-api.
  */
-export function LiveSheet({ sheetId }: { sheetId: string }) {
+export function LiveSheet({ sheetId, embedded = false, onBack }: { sheetId: string; embedded?: boolean; onBack?: () => void }) {
   const appApi = useAppApi();
   const sheetsApi = useRef(appApi.sheets);
   sheetsApi.current = appApi.sheets;
@@ -58,6 +78,13 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
   const [gone, setGone] = useState(false);
   const [roomCanEdit, setRoomCanEdit] = useState(false);
   const [peers, setPeers] = useState<Peer[]>([]);
+  const [mode, setMode] = useState<SheetSessionMode>('view');
+  const [shareTarget, setShareTarget] = useState<DriveShareTarget | null>(null);
+  const { user } = useUser();
+  const author = useRef({ id: '', name: '' });
+  author.current = { id: user?.id ?? '', name: user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || '' };
+  const members = useWorkspaceMemberDirectory();
+  const people = useMemo(() => (members.data?.data ?? []).map((m) => ({ id: m.userId, name: m.name || m.email || m.userId })), [members.data]);
   const [, statusChanged] = useReducer((n: number) => n + 1, 0);
   const connection = useRef<SheetConnection | null>(null);
   const strings = useRef(tw);
@@ -79,7 +106,11 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
     // Locale is read once: a language switch applies when the sheet is reopened.
     const locale = sheetLocale(languageRef.current);
     const conn = new SheetConnection({
-      openSession: async () => roomUrl((await sheetsApi.current.session(sheetId)).data.ticket),
+      openSession: async () => {
+        const { data } = await sheetsApi.current.session(sheetId);
+        setMode(data.mode);
+        return roomUrl(data.ticket);
+      },
       events: {
         onReset: (engine, { canEdit, lostEdits }) => {
           setRoomCanEdit(canEdit);
@@ -93,8 +124,12 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
             formulaLocale: locale.formula,
             applyOp: (op) => conn.apply(op),
             onInputRefused: (rule) => toast.error(rule.help ?? strings.current.validation.refused),
+            author: author.current,
           });
           current.setPeers(latestPeers);
+          // A link to a comment (a mention notification) opens it.
+          const thread = new URLSearchParams(window.location.search).get('comment');
+          if (thread) current.openThread(thread);
           setController(current);
         },
         onRemoteOp: (op) => current?.remoteOp(op),
@@ -105,6 +140,10 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
         },
         onStatus: statusChanged,
         onGone: () => setGone(true),
+        onRestored: () => {
+          toast.info(strings.current.versions.restored);
+          void queryClient.invalidateQueries({ queryKey: versionsQueryKey(sheetId) });
+        },
       },
     });
     connection.current = conn;
@@ -113,7 +152,7 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
       conn.stop();
       connection.current = null;
     };
-  }, [sheetId]);
+  }, [sheetId, queryClient]);
 
   // Where this person is, for everyone else: sent when it changes, at most every PRESENCE_MS.
   useEffect(() => {
@@ -140,8 +179,10 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
 
   const canEdit = canUpdate && roomCanEdit;
   useEffect(() => {
-    controller?.setReadOnly(!canEdit);
-  }, [controller, canEdit]);
+    if (!controller) return;
+    controller.setReadOnly(!canEdit);
+    controller.setCanComment(mode === 'comment');
+  }, [controller, canEdit, mode]);
 
   // Edits the room has not confirmed yet would be lost with the page.
   useEffect(() => {
@@ -154,7 +195,7 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
 
   const name = record.data?.name ?? '';
   useBreadcrumbs([{ label: tw.breadcrumb.home, href: '/weldsheets' }, { label: name || tw.home.untitled }], {
-    enabled: !!controller,
+    enabled: !!controller && !embedded,
   });
 
   const missing = gone || (isApiError(record.error) && (record.error.status === 404 || record.error.status === 403));
@@ -164,7 +205,7 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
   const conn = connection.current;
   const offline = conn?.status === 'reconnecting';
   let status: SheetStatus = 'saved';
-  if (!canEdit) status = 'view-only';
+  if (!canEdit) status = mode === 'comment' ? 'comment-only' : 'view-only';
   else if (offline) status = conn?.pending ? 'offline-pending' : 'reconnecting';
   else if (conn?.pending) status = 'saving';
 
@@ -183,17 +224,53 @@ export function LiveSheet({ sheetId }: { sheetId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <SheetHeader name={name} canRename={canEdit && !!record.data?.canEdit} onRename={onRename} status={status}>
-        <DownloadMenu controller={controller} name={name || tw.home.untitled} />
+      <SheetHeader name={name} canRename={canEdit && !!record.data?.canEdit} onRename={onRename} status={status} onBack={onBack}>
         <PeerAvatars
           peers={peers}
           onSelect={(peer) => {
             if (peer.presence) controller.goTo(peer.presence.sheetId, peer.presence.active.row, peer.presence.active.col);
           }}
         />
+        <PanelToggle controller={controller} panel="comments" label={tw.comments.title}>
+          <MessageSquare className="size-4" />
+        </PanelToggle>
+        <PanelToggle controller={controller} panel="versions" label={tw.versions.title}>
+          <History className="size-4" />
+        </PanelToggle>
+        <PanelToggle controller={controller} panel="data" label={tw.dataSources.title}>
+          <Database className="size-4" />
+        </PanelToggle>
+        <DownloadMenu controller={controller} name={name || tw.home.untitled} />
+        {record.data && (
+          <Button
+            size="sm"
+            className="h-7 gap-1.5"
+            onClick={() => setShareTarget(shareTargetOf(record.data, name || tw.home.untitled))}
+          >
+            <Users className="size-4" />
+            {tw.editor.share}
+          </Button>
+        )}
+        <ShareDialog target={shareTarget} onOpenChange={(open) => !open && setShareTarget(null)} />
       </SheetHeader>
       <div className="min-h-0 flex-1">
-        <SheetEditor controller={controller} />
+        <SheetEditor
+          controller={controller}
+          people={people}
+          panels={{
+            versions: (
+              <VersionsPanel
+                sheetId={sheetId}
+                name={name || tw.home.untitled}
+                canEdit={canEdit}
+                people={people}
+                locale={controller.options.locale}
+                onClose={() => controller.openPanel(null)}
+              />
+            ),
+            data: <DataPanel sheetId={sheetId} controller={controller} canEdit={canEdit} people={people} onClose={() => controller.openPanel(null)} />,
+          }}
+        />
       </div>
     </div>
   );

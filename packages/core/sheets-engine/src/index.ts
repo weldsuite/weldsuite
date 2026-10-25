@@ -95,6 +95,10 @@ export type { ZipErrorCode, ZipFile, ZipLimits, ZipReader } from '@weldsuite/zip
 
 export { CHART_PALETTE, CHART_TYPES, MAX_CHART_SERIES, MAX_CHART_SIZE, MIN_CHART_SIZE, anchorAfter, cloneChart, mapChartFormulas } from './model/charts';
 export type { Chart, ChartAnchor, ChartSeries, ChartType } from './model/charts';
+export { MAX_COMMENT_LENGTH, MAX_MENTIONS, cloneComment, cloneDataTable, commentAfter, isThreadStart } from './model/anchors';
+export type { DataTable, SheetComment } from './model/anchors';
+export { dataTableOp, findDataTable, readValues, valuesOp } from './ops/tables';
+export type { CellInput, DataTableWrite, ReadValues } from './ops/tables';
 export { chartData, chartSourceOf, guessChartSource, refText, resolveRef, seriesFromRange } from './charts/data';
 export type { ChartData, ChartSource, RangeAt, SeriesData } from './charts/data';
 export { PIVOT_FUNCTIONS, computePivot, isPivotFormula, parsePivotFormula, pivotFormula, valueLabel } from './pivot/pivot';

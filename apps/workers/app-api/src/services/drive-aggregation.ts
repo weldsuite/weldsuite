@@ -90,9 +90,9 @@ function buildNavigateUrl(
     case 'crm_contact': return buildResultUrl('contact', entityId);
     case 'crm_customer': return buildResultUrl('customer', entityId);
     case 'project':
-      // WeldFlow project sheets are stored as xlsx files. Clicking one in
-      // WeldDrive should land back in the spreadsheet editor, not the
-      // generic project files page.
+      // A WeldFlow project sheet opens in its project (where an .xlsx one
+      // saved by the old project grid becomes a WeldSheets spreadsheet on
+      // first open), not on the generic project files page.
       if (fileType === 'spreadsheet' && fileId) {
         return `/weldflow/project/${entityId}/table/${fileId}`;
       }

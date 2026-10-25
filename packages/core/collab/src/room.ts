@@ -140,6 +140,38 @@ export class RoomCore<State, Op, Snapshot, Presence> {
     }
   }
 
+  /**
+   * Commits an op the server made itself (a data refresh, an agent's write),
+   * made against the current revision: checked, applied and logged like a
+   * client's batch, under `clientId`, and sent to every client as someone
+   * else's op. `refused` says why it was not committed (the document is then
+   * unchanged, unless `needsReload` is set).
+   */
+  commitServer(
+    submitted: Op,
+    clientId = 'server',
+  ): { out: Outgoing<Op, Snapshot, Presence>[]; committed: CommittedOp<Op> | null; refused?: string } {
+    if (this.needsReload) return { out: [], committed: null, refused: 'the room is being rebuilt' };
+    if (!this.adapter.isWellFormedOp(submitted)) return { out: [], committed: null, refused: 'malformed op' };
+    let op: Op;
+    try {
+      op = this.adapter.normalize(submitted);
+    } catch {
+      return { out: [], committed: null, refused: 'malformed op' };
+    }
+    const invalid = this.adapter.validate(this.state, op);
+    if (invalid !== null) return { out: [], committed: null, refused: invalid };
+    if (!this.applyAtomically(op)) {
+      this.needsReload = true;
+      return { out: [], committed: null, refused: 'the op failed to apply' };
+    }
+    this.revision++;
+    const committed: CommittedOp<Op> = { revision: this.revision, op, clientId, batchId: `${clientId}:${this.revision}` };
+    this.remember(committed);
+    this.options.onCommit?.(committed);
+    return { out: [{ to: null, msg: { type: 'op', ...committed } }], committed };
+  }
+
   /** Rejects a batch whose message could not even be read (see `refusedBatchId`), with a resync. */
   refuse(clientId: string, batchId: string): Outgoing<Op, Snapshot, Presence>[] {
     return this.members.has(clientId) ? this.reject(clientId, batchId, 'invalid') : [];

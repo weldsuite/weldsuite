@@ -26,6 +26,12 @@ export function GridContextMenu({ controller, onCreatePivot, children }: { contr
   const cols = range.c2 - range.c1 + 1;
   const wholeCols = isWholeColumns(primaryRange(controller.selection));
   const wholeRows = isWholeRows(primaryRange(controller.selection));
+  const commentItem = (
+    <ContextMenuItem onSelect={() => controller.startComment()}>
+      {t.weldsheets.comments.comment}
+      <ContextMenuShortcut>{MOD}Alt+M</ContextMenuShortcut>
+    </ContextMenuItem>
+  );
   /** A picked chart gets its own menu. */
   const chartMenu = !!controller.chart && !controller.readOnly;
 
@@ -72,6 +78,7 @@ export function GridContextMenu({ controller, onCreatePivot, children }: { contr
             {tm.copy}
             <ContextMenuShortcut>{MOD}C</ContextMenuShortcut>
           </ContextMenuItem>
+          {controller.mayComment && commentItem}
         </ContextMenuContent>
       )}
       {!chartMenu && !controller.readOnly && (
@@ -144,6 +151,7 @@ export function GridContextMenu({ controller, onCreatePivot, children }: { contr
             <ContextMenuShortcut>Del</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
+          {commentItem}
           <ContextMenuItem onSelect={() => controller.openPanel('formats')}>{t.weldsheets.data.conditionalFormatting}</ContextMenuItem>
           <ContextMenuItem onSelect={() => controller.openPanel('validation')}>{t.weldsheets.data.dataValidation}</ContextMenuItem>
           <ContextMenuSeparator />

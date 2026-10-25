@@ -510,6 +510,14 @@ service = "weldsuite-pass-api-test"
 binding = "SHEETS_API"
 service = "weldsuite-sheets-api-test"
 
+# sheets-api's SheetsInternal entrypoint: the WeldAgent spreadsheet tools
+# (@weldsuite/agent-domain sheets-tools) read and write sheets through it.
+# Reachable only over a service binding, so no secret.
+[[env.test.services]]
+binding = "SHEETS_INTERNAL"
+service = "weldsuite-sheets-api-test"
+entrypoint = "SheetsInternal"
+
 [[env.test.services]]
 binding = "DOCS_API"
 service = "weldsuite-docs-api-test"
@@ -747,6 +755,14 @@ service = "weldsuite-pass-api"
 [[env.production.services]]
 binding = "SHEETS_API"
 service = "weldsuite-sheets-api"
+
+# sheets-api's SheetsInternal entrypoint: the WeldAgent spreadsheet tools
+# (@weldsuite/agent-domain sheets-tools) read and write sheets through it.
+# Reachable only over a service binding, so no secret.
+[[env.production.services]]
+binding = "SHEETS_INTERNAL"
+service = "weldsuite-sheets-api"
+entrypoint = "SheetsInternal"
 
 [[env.production.services]]
 binding = "DOCS_API"

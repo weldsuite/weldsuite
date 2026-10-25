@@ -9,7 +9,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, ne, sql, type AnyColumn, typ
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 
-const { files, folders, sheets, docs, documentVersions, docVersions } = schema;
+const { files, folders, sheets, sheetVersions, docs, documentVersions, docVersions } = schema;
 
 // ============================================================================
 // Name conflict helpers
@@ -367,9 +367,11 @@ export async function restoreFile(db: Database, id: string) {
 
 /**
  * The R2 keys behind the spreadsheets and WeldDocs documents backed by these
- * files: each one's latest checkpoint plus every saved document version. Purging
- * a file removes the `sheets` / `docs` rows (and `doc_versions` by cascade), so
- * list the keys first and delete the objects with `deleteStoredObjects`.
+ * files: each one's latest checkpoint, every saved version, and the .xlsx an
+ * old WeldFlow project sheet was converted from (`metadata.convertedFrom`).
+ * Purging a file removes the `sheets` / `docs` rows (and their versions by
+ * cascade), so list the keys first and delete the objects with
+ * `deleteStoredObjects`.
  * `fileIds` is a list of ids or a sub-select of them (a purge of a whole
  * folder can be large, so callers pass the sub-select). Files that are neither
  * a sheet nor a doc give nothing.
@@ -377,7 +379,8 @@ export async function restoreFile(db: Database, id: string) {
 export async function listDocumentSnapshotKeys(db: Database, fileIds: string[] | SQLWrapper): Promise<string[]> {
   if (Array.isArray(fileIds) && fileIds.length === 0) return [];
   const among = (column: AnyColumn) => inArray(column, fileIds);
-  const [sheetRows, docRows, versionRows] = await Promise.all([
+  const convertedFrom = sql<string | null>`${files.metadata}->'convertedFrom'->>'key'`;
+  const [sheetRows, docRows, versionRows, sheetVersionRows, convertedRows] = await Promise.all([
     db.select({ key: sheets.snapshotKey }).from(sheets).where(among(sheets.fileId)),
     db.select({ key: docs.snapshotKey }).from(docs).where(among(docs.fileId)),
     db
@@ -385,8 +388,17 @@ export async function listDocumentSnapshotKeys(db: Database, fileIds: string[] |
       .from(docVersions)
       .innerJoin(docs, eq(docs.id, docVersions.docId))
       .where(among(docs.fileId)),
+    db
+      .select({ key: sheetVersions.snapshotKey })
+      .from(sheetVersions)
+      .innerJoin(sheets, eq(sheets.id, sheetVersions.sheetId))
+      .where(among(sheets.fileId)),
+    db
+      .select({ key: convertedFrom })
+      .from(files)
+      .where(and(among(files.id), isNotNull(convertedFrom))),
   ]);
-  const keys = [...sheetRows, ...docRows, ...versionRows].map((r) => r.key);
+  const keys = [...sheetRows, ...docRows, ...versionRows, ...sheetVersionRows, ...convertedRows].map((r) => r.key);
   return [...new Set(keys.filter((k): k is string => !!k))];
 }
 

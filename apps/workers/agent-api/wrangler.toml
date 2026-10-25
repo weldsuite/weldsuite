@@ -169,6 +169,14 @@ binding = "AGENT_RUNTIME"
 service = "weldsuite-agent-runtime-test"
 entrypoint = "AgentRuntimeInternal"
 
+# sheets-api's SheetsInternal entrypoint: the WeldAgent spreadsheet tools
+# (@weldsuite/agent-domain sheets-tools) read and write sheets through it.
+# Reachable only over a service binding, so no secret.
+[[env.test.services]]
+binding = "SHEETS_INTERNAL"
+service = "weldsuite-sheets-api-test"
+entrypoint = "SheetsInternal"
+
 # WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
 #   wrangler queues create entity-agents-test
 #   wrangler queues create entity-agents-dlq-test
@@ -246,6 +254,14 @@ service = "weldsuite-realtime-production"
 binding = "AGENT_RUNTIME"
 service = "weldsuite-agent-runtime"
 entrypoint = "AgentRuntimeInternal"
+
+# sheets-api's SheetsInternal entrypoint: the WeldAgent spreadsheet tools
+# (@weldsuite/agent-domain sheets-tools) read and write sheets through it.
+# Reachable only over a service binding, so no secret.
+[[env.production.services]]
+binding = "SHEETS_INTERNAL"
+service = "weldsuite-sheets-api"
+entrypoint = "SheetsInternal"
 
 # WeldAgent eventSubscriptions (hub SUB_WELDAGENT)
 #   wrangler queues create entity-agents

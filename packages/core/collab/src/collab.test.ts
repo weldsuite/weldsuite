@@ -164,6 +164,13 @@ class Network {
     throw new Error('network did not settle');
   }
 
+  /** An op the server makes, sent to everyone like the room would. */
+  commitServer(op: ListOp): ReturnType<RoomCore<ListState, ListOp, string[], Cursor>['commitServer']> {
+    const result = this.room.commitServer(op);
+    this.dispatch(result.out);
+    return result;
+  }
+
   private dispatch(out: Outgoing<ListOp, string[], Cursor>[]): void {
     for (const o of out) {
       this.connection.forEach((id, i) => {
@@ -281,6 +288,21 @@ describe('co-editing a toy document', () => {
     expect(client.hasPending).toBe(false);
     expect(resets).toEqual([false, true]);
     expect(restored).toEqual([{ versionId: 'v1', userId: 'u2', revision: 5 }]);
+  });
+
+  it('commits an op the server makes, and clients with edits in flight still converge', () => {
+    const committed: number[] = [];
+    const net = new Network(2, [], (c) => committed.push(c.revision));
+    net.drain();
+    // Client 0 edits; the server writes before the room has seen it.
+    net.clients[0]!.apply({ type: 'ins', at: 1, item: 'x' });
+    const result = net.commitServer({ type: 'ins', at: 0, item: 'srv' });
+    expect(result.committed).toMatchObject({ revision: 1, clientId: 'server' });
+    expect(net.commitServer({ type: 'del', at: 99 })).toMatchObject({ committed: null, refused: 'out of range' });
+    net.drain();
+    expect(net.room.state.items).toEqual(['srv', 'a', 'x', 'b', 'c']);
+    for (const c of net.clients) expect(c.state!.items).toEqual(net.room.state.items);
+    expect(committed).toEqual([1, 2]);
   });
 
   it('undoes a batch that fails halfway and asks to be rebuilt', () => {

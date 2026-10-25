@@ -11,7 +11,8 @@
     "type-check": "tsc --noEmit",
     "lint": "echo 'no lint configured'",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bench": "node --expose-gc --max-old-space-size=8192 --import tsx bench/scale.ts"
   },
   "dependencies": {
     "@weldsuite/collab": "workspace:*",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@weldsuite/typescript-config": "workspace:*",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.2",
     "vitest": "^4.1.12"
   }

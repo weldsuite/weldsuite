@@ -4,7 +4,7 @@
  */
 
 import { FrameAssembler, decodeServer, type ServerMessage } from '@weldsuite/sheets-engine';
-import type { Admission, ExportRequest, ExportedFile, RoomMeta } from '../room/sheet-room';
+import { SheetRoom as RoomClass, type Admission, type ExportRequest, type ExportedFile, type RoomMeta } from '../room/sheet-room';
 
 export class FakeBucket {
   readonly objects = new Map<string, Uint8Array>();
@@ -100,17 +100,45 @@ export class FakeSocket {
   }
 }
 
-/** A Durable Object's `ctx`: storage plus the hibernatable sockets it holds. */
+/** A Durable Object's `ctx`: storage, the hibernatable sockets it holds, and the work it keeps alive. */
 export function fakeObjectState(id = 'a'.repeat(64)) {
   const storage = new FakeStorage();
   const sockets: FakeSocket[] = [];
+  const pending: Promise<unknown>[] = [];
   const ctx = {
     id: { toString: () => id },
     storage,
     acceptWebSocket: (ws: FakeSocket) => sockets.push(ws),
     getWebSockets: () => [...sockets],
+    waitUntil: (p: Promise<unknown>) => pending.push(p),
   } as unknown as DurableObjectState;
-  return { ctx, storage, sockets };
+  /** Waits for what `waitUntil` was given. */
+  const settle = async () => {
+    while (pending.length) await pending.shift();
+  };
+  return { ctx, storage, sockets, settle };
+}
+
+/**
+ * SHEET_ROOM made of real rooms on fake storage (one per name), for route
+ * tests that go through the room: versions, connected tables, agent tools.
+ */
+export function liveRoomNamespace(env: () => import('../types').Env) {
+  const rooms = new Map<string, { room: import('../room/sheet-room').SheetRoom; state: ReturnType<typeof fakeObjectState> }>();
+  const roomFor = (name: string) => {
+    let entry = rooms.get(name);
+    if (!entry) {
+      const state = fakeObjectState(String(rooms.size + 1).padStart(64, '0'));
+      entry = { room: new RoomClass(state.ctx, env()), state };
+      rooms.set(name, entry);
+    }
+    return entry;
+  };
+  const binding = {
+    idFromName: (name: string) => ({ name }),
+    get: (id: { name: string }) => roomFor(id.name).room,
+  };
+  return { rooms, roomFor, binding: binding as unknown as DurableObjectNamespace<import('../room/sheet-room').SheetRoom> };
 }
 
 /**

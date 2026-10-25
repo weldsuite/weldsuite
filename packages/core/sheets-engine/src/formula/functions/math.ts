@@ -710,6 +710,7 @@ export const mathFunctions: FunctionSpec[] = [
     name: 'SUBTOTAL',
     minArgs: 2,
     maxArgs: 255,
+    readsRowVisibility: true,
     impl(args, ctx) {
       const code = int(args[0]!, ctx);
       if (isError(code)) return code;
@@ -726,6 +727,7 @@ export const mathFunctions: FunctionSpec[] = [
     name: 'AGGREGATE',
     minArgs: 3,
     maxArgs: 255,
+    readsRowVisibility: true,
     impl(args, ctx) {
       const code = int(args[0]!, ctx);
       if (isError(code)) return code;

@@ -373,10 +373,9 @@ describe('project viewer · writes are rejected', () => {
     expect((await send('DELETE', `/project-labels/${fixtures.labelId}`)).status).toBe(403);
   });
 
-  it('project document and sheet create', async () => {
+  it('project document create', async () => {
     const send = as(VIEWER);
     expect((await send('POST', `/project-documents/${PROJECT}`, { name: 'Doc' })).status).toBe(403);
-    expect((await send('POST', `/project-sheets/${PROJECT}`, { name: 'Sheet' })).status).toBe(403);
   });
 });
 
@@ -466,10 +465,9 @@ describe('project writers · writes succeed', () => {
     expect(res.status).not.toBe(403);
   });
 
-  it('project documents and sheets can be created by a member', async () => {
+  it('project documents can be created by a member', async () => {
     const send = as(MEMBER);
     expect((await send('POST', `/project-documents/${PROJECT}`, { name: 'Doc' })).status).toBe(201);
-    expect((await send('POST', `/project-sheets/${PROJECT}`, { name: 'Sheet' })).status).toBe(201);
   });
 });
 

@@ -44,6 +44,8 @@ export * from './files';
 export * from './folders';
 export * from './drive-shares';
 export * from './sheets';
+export * from './sheet-versions';
+export * from './sheet-data-sources';
 export * from './docs';
 export * from './doc-versions';
 export * from './document-versions';
