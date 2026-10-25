@@ -8459,12 +8459,21 @@ importers:
       '@weldsuite/cloudflare-realtime':
         specifier: workspace:*
         version: link:../../core/cloudflare-realtime
+      '@weldsuite/core-api-client':
+        specifier: workspace:*
+        version: link:../../clients/core-api-client
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
+      '@weldsuite/flow-domain':
+        specifier: workspace:*
+        version: link:../flow
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../core/notifications
+      '@weldsuite/permissions':
+        specifier: workspace:*
+        version: link:../../core/permissions
       '@weldsuite/realtime':
         specifier: workspace:*
         version: link:../../core/realtime

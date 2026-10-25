@@ -15,7 +15,7 @@ import type {
   RecordChatTypeSummary,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import type { EntityChannelProvider, PermissionCheck } from './registry';
+import type { EntityChannelProvider, PermissionCheck } from '@weldsuite/chat-domain/entity-channels';
 
 const t = schema.chatChannels;
 const m = schema.chatChannelMembers;
