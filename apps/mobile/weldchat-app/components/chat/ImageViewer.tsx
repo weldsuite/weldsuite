@@ -25,6 +25,7 @@ import Animated, {
   type SharedValue,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useI18n } from '@/lib/i18n';
 
 interface ImageItem {
   url: string;
@@ -48,17 +49,21 @@ interface ImageViewerProps {
 
 const THUMB = 52;
 
-function formatHeaderDate(iso?: string): string {
+function formatHeaderDate(
+  iso: string | undefined,
+  locale: string,
+  labels: { today: string; yesterday: string },
+): string {
   if (!iso) return '';
   const d = new Date(iso);
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
-  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (sameDay) return `Today, ${time}`;
+  const time = d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return `${labels.today}, ${time}`;
   const y = new Date(now);
   y.setDate(y.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return `Yesterday, ${time}`;
-  return `${d.toLocaleDateString([], { day: '2-digit', month: 'short' })}, ${time}`;
+  if (d.toDateString() === y.toDateString()) return `${labels.yesterday}, ${time}`;
+  return `${d.toLocaleDateString(locale, { day: '2-digit', month: 'short' })}, ${time}`;
 }
 
 /** A single zoomable / pannable / swipe-to-dismiss page in the pager. */
@@ -238,6 +243,7 @@ function ZoomablePage({
 }
 
 export function ImageViewer({ images, initialUrl, origin, onClose }: Readonly<ImageViewerProps>) {
+  const { t, intlLocale } = useI18n();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const pagerRef = useRef<FlatList<ImageItem>>(null);
@@ -379,7 +385,7 @@ export function ImageViewer({ images, initialUrl, origin, onClose }: Readonly<Im
               {current?.authorName || ''}
             </Text>
             <Text style={styles.headerDate} numberOfLines={1}>
-              {formatHeaderDate(current?.createdAt)}
+              {formatHeaderDate(current?.createdAt, intlLocale, t.channel)}
             </Text>
           </View>
         </Animated.View>

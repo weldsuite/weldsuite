@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TouchableHighlight, RefreshControl, Image, ScrollView, Platform } from 'react-native';
-import { Plus, Archive, Trash2, BellOff, Bell, Pin, PinOff } from 'lucide-react-native';
+import { Archive, Trash2, BellOff, Bell, Pin, PinOff, SquarePen, Users } from 'lucide-react-native';
 import Svg, { Defs, Pattern, Path, Rect } from 'react-native-svg';
 import { FlatList } from 'react-native-gesture-handler';
 import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture-handler/ReanimatedSwipeable';
@@ -16,86 +16,23 @@ import type { ThemeColors } from '@/lib/theme-colors';
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { useChatCache } from '@/hooks/useChatCache';
+import { formatMessageTime, mapDm, type DmChannel } from '@/lib/chat/dm';
 import { SearchField } from '@/components/chat/SearchField';
 import { Spinner } from '@/components/ui/Spinner';
+import { ComposeMenu } from '@/components/home/ComposeMenu';
+import { ConversationMenu, dmMenuTarget, type ConversationPatch } from '@/components/home/ConversationMenu';
+import { floatingTabBarBottomInset } from '@/components/floating-tab-bar';
+
+/** Space between the compose button and the top of the tab bar's slot. */
+const COMPOSE_BUTTON_GAP = 6;
+
+function withoutArchived({ archived: _archived, ...rest }: ConversationPatch): Partial<DmChannel> {
+  return rest;
+}
 
 function DmListSeparator() {
   const { colors } = useTheme();
   return <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: colors.border }} />;
-}
-
-interface DmMember {
-  userId: string;
-  name?: string | null;
-  email?: string | null;
-  picture?: string | null;
-}
-
-interface DmChannel {
-  id: string;
-  name: string;
-  picture?: string | null;
-  type: string;
-  isGroup?: boolean;
-  otherMembers?: DmMember[];
-  isMuted?: boolean;
-  isPinned?: boolean;
-  hasUnread?: boolean;
-  unreadCount?: number;
-  lastMessagePreview?: string | null;
-  lastMessageAt?: string;
-}
-
-/**
- * Map a raw app-api `/chat-dm` row into the shape this screen renders.
- * Mirrors the platform sidebar derivation (use-weldchat-sidebar-items.tsx):
- * display name + avatar come from `otherMembers`, unread from
- * lastMessageAt vs the current user's lastReadAt, pin from metadata.pinnedBy.
- */
-function mapDm(dm: any, currentUserId: string | undefined): DmChannel {
-  const otherMembers: DmMember[] = (dm.otherMembers ?? []).filter((m: any) => m?.userId);
-  const isGroup = otherMembers.length > 1;
-  const first = otherMembers[0];
-  const displayName = isGroup
-    ? otherMembers.map((m) => m.name || m.email || 'Unknown').join(', ') || dm.name || 'Group'
-    : first?.name || first?.email || dm.name || 'Direct Message';
-  const hasUnread =
-    !!dm.lastMessageAt && (!dm.lastReadAt || new Date(dm.lastMessageAt) > new Date(dm.lastReadAt));
-  const pinnedBy: string[] = Array.isArray(dm.metadata?.pinnedBy) ? dm.metadata.pinnedBy : [];
-  return {
-    id: dm.id,
-    type: dm.type,
-    name: displayName,
-    isGroup,
-    otherMembers,
-    picture: isGroup ? null : first?.picture ?? null,
-    isMuted: !!dm.isMuted,
-    isPinned: currentUserId ? pinnedBy.includes(currentUserId) : false,
-    hasUnread,
-    unreadCount: dm.unreadMentionCount || 0,
-    lastMessagePreview: dm.lastMessagePreview ?? null,
-    lastMessageAt: dm.lastMessageAt ?? undefined,
-  };
-}
-
-function formatMessageTime(dateStr?: string): string {
-  if (!dateStr) return '';
-  const date = new Date(dateStr);
-  const now = new Date();
-
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfDate = new Date(date);
-  startOfDate.setHours(0, 0, 0, 0);
-
-  const dayDiff = Math.round((startOfToday.getTime() - startOfDate.getTime()) / 86400000);
-
-  if (dayDiff <= 0) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-  if (dayDiff === 1) return 'Yesterday';
-  if (dayDiff < 7) return date.toLocaleDateString([], { weekday: 'long' });
-  return date.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 export default function DmsTab() {
@@ -105,6 +42,7 @@ export default function DmsTab() {
   const [scrolled, setScrolled] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread' | 'favourites' | 'muted'>('all');
   const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
+  const [composeOpen, setComposeOpen] = useState(false);
   const router = useRouter();
   const { user } = useUser();
   const { colors } = useTheme();
@@ -208,6 +146,32 @@ export default function DmsTab() {
     }
   }, []);
 
+  // A change made from a row's long-press menu, shown right away.
+  const patchDm = useCallback((id: string, patch: ConversationPatch) => {
+    if (patch.archived === false) {
+      void loadDms();
+      return;
+    }
+    setDms((prev) =>
+      patch.archived
+        ? prev.filter((d) => d.id !== id)
+        : prev.map((d) => (d.id === id ? { ...d, ...withoutArchived(patch) } : d)),
+    );
+  }, [loadDms]);
+
+  // A screen opened from the compose card waits for its Modal to be gone: on
+  // iOS a modal pushed while a <Modal> is up is dismissed together with it.
+  const pendingHrefRef = useRef<string | null>(null);
+  const goFromCompose = (href: string) => {
+    pendingHrefRef.current = href;
+    setComposeOpen(false);
+  };
+  const flushPendingHref = useCallback(() => {
+    const href = pendingHrefRef.current;
+    pendingHrefRef.current = null;
+    if (href) router.push(href as any);
+  }, [router]);
+
   const handleArchive = useCallback(async (item: DmChannel) => {
     setDms((prev) => prev.filter((d) => d.id !== item.id));
     try {
@@ -233,17 +197,6 @@ export default function DmsTab() {
           <Text style={styles.headerTitle}>{t.tabs.directMessages}</Text>
         </View>
 
-        <View style={styles.headerRightGroup}>
-          <TouchableOpacity
-            style={styles.headerSquareBtn}
-            activeOpacity={0.7}
-            onPress={() => router.push('/new-dm')}
-            accessibilityRole="button"
-            accessibilityLabel={t.dms.newDm}
-          >
-            <Plus size={20} color={colors.text} />
-          </TouchableOpacity>
-        </View>
         {scrolled && <View style={styles.headerDivider} pointerEvents="none" />}
       </View>
 
@@ -377,80 +330,76 @@ export default function DmsTab() {
               leftThreshold={30}
               rightThreshold={30}
             >
-              <TouchableHighlight
-                style={[styles.dmItem, hasUnread && styles.dmItemUnread]}
-                underlayColor={colors.secondary}
-                onPress={() =>
-                  router.push({
-                    pathname: '/dm/[channelId]',
-                    params: { channelId: item.id, name: item.name, type: 'dm' },
-                  } as any)
-                }
-              >
-                <View style={styles.dmItemInner}>
-                  <View style={styles.avatarOuter}>
-                    {item.isGroup ? (
-                      <View style={styles.groupAvatarWrap}>
-                        {(item.otherMembers ?? []).slice(0, 2).map((m, i) => (
-                          <View
-                            key={m.userId || i}
-                            style={[styles.groupAvatar, i === 0 ? styles.groupAvatarA : styles.groupAvatarB]}
-                          >
-                            {m.picture ? (
-                              <Image source={{ uri: m.picture }} style={styles.groupAvatarImage} />
-                            ) : (
-                              <Text style={styles.groupAvatarText}>
-                                {(m.name || m.email || '?')[0].toUpperCase()}
-                              </Text>
-                            )}
-                          </View>
-                        ))}
-                      </View>
-                    ) : (
-                      <View style={styles.avatar}>
-                        {item.picture ? (
-                          <Image source={{ uri: item.picture }} style={styles.avatarImage} />
-                        ) : (
-                          <Text style={styles.avatarText}>
-                            {(item.name || '?')[0].toUpperCase()}
-                          </Text>
-                        )}
-                      </View>
-                    )}
-                    {item.isPinned && (
-                      <View style={styles.pinBadge}>
-                        <Pin size={8} color="#fff" />
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.dmInfo}>
-                    <View style={styles.dmTopRow}>
-                      <Text style={styles.dmName} numberOfLines={1}>
-                        {item.name || 'Direct Message'}
-                      </Text>
-                      {timeStr !== '' && (
-                        <Text style={[styles.dmTime, hasUnread && styles.dmTimeUnread]}>
-                          {timeStr}
-                        </Text>
+              <ConversationMenu conversation={dmMenuTarget(item)} onChange={patchDm}>
+                <TouchableHighlight
+                  style={[styles.dmItem, hasUnread && styles.dmItemUnread]}
+                  underlayColor={colors.secondary}
+                >
+                  <View style={styles.dmItemInner}>
+                    <View style={styles.avatarOuter}>
+                      {item.isGroup ? (
+                        <View style={styles.groupAvatarWrap}>
+                          {(item.otherMembers ?? []).slice(0, 2).map((m, i) => (
+                            <View
+                              key={m.userId || i}
+                              style={[styles.groupAvatar, i === 0 ? styles.groupAvatarA : styles.groupAvatarB]}
+                            >
+                              {m.picture ? (
+                                <Image source={{ uri: m.picture }} style={styles.groupAvatarImage} />
+                              ) : (
+                                <Text style={styles.groupAvatarText}>
+                                  {(m.name || m.email || '?')[0].toUpperCase()}
+                                </Text>
+                              )}
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <View style={styles.avatar}>
+                          {item.picture ? (
+                            <Image source={{ uri: item.picture }} style={styles.avatarImage} />
+                          ) : (
+                            <Text style={styles.avatarText}>
+                              {(item.name || '?')[0].toUpperCase()}
+                            </Text>
+                          )}
+                        </View>
                       )}
-                    </View>
-                    <View style={styles.dmBottomRow}>
-                      <Text
-                        style={[styles.dmLastMessage, hasUnread && styles.dmLastMessageUnread]}
-                        numberOfLines={2}
-                      >
-                        {item.lastMessagePreview || t.dms.noMessagesPreview}
-                      </Text>
-                      {item.isMuted && <BellOff size={12} color={colors.muted} style={styles.mutedIcon} />}
-                      {hasUnread && (item.unreadCount ?? 0) > 0 && (
-                        <View style={styles.unreadBadge}>
-                          <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
+                      {item.isPinned && (
+                        <View style={styles.pinBadge}>
+                          <Pin size={8} color="#fff" />
                         </View>
                       )}
                     </View>
+                    <View style={styles.dmInfo}>
+                      <View style={styles.dmTopRow}>
+                        <Text style={styles.dmName} numberOfLines={1}>
+                          {item.name || 'Direct Message'}
+                        </Text>
+                        {timeStr !== '' && (
+                          <Text style={[styles.dmTime, hasUnread && styles.dmTimeUnread]}>
+                            {timeStr}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={styles.dmBottomRow}>
+                        <Text
+                          style={[styles.dmLastMessage, hasUnread && styles.dmLastMessageUnread]}
+                          numberOfLines={2}
+                        >
+                          {item.lastMessagePreview || t.dms.noMessagesPreview}
+                        </Text>
+                        {item.isMuted && <BellOff size={12} color={colors.muted} style={styles.mutedIcon} />}
+                        {hasUnread && (item.unreadCount ?? 0) > 0 && (
+                          <View style={styles.unreadBadge}>
+                            <Text style={styles.unreadBadgeText}>{item.unreadCount}</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
                   </View>
-                </View>
-              </TouchableHighlight>
+                </TouchableHighlight>
+              </ConversationMenu>
             </ReanimatedSwipeable>
           );
         }}
@@ -488,6 +437,31 @@ export default function DmsTab() {
           </View>
         }
       />
+
+      {/* New: a conversation with one person, or a group. Same button as Home. */}
+      <ComposeMenu
+        open={composeOpen}
+        onOpen={() => setComposeOpen(true)}
+        bottom={floatingTabBarBottomInset(insets.bottom) + COMPOSE_BUTTON_GAP}
+        buttonBottom={COMPOSE_BUTTON_GAP}
+        buttonLabel={t.dms.newDm}
+        items={[
+          {
+            key: 'group',
+            icon: <Users size={20} color={colors.text} strokeWidth={1.9} />,
+            title: t.dms.composeGroup,
+            hint: t.dms.composeGroupHint,
+            onPress: () => goFromCompose('/new-dm?group=1'),
+          },
+        ]}
+        primary={{
+          icon: <SquarePen size={20} color={colors.background} strokeWidth={2.1} />,
+          label: t.home.composeMessage,
+          onPress: () => goFromCompose('/new-message'),
+        }}
+        onRequestClose={() => setComposeOpen(false)}
+        onClosed={flushPendingHref}
+      />
     </View>
   );
 }
@@ -506,6 +480,8 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'flex-end',
+      // The height the old "+" button gave it, so the page doesn't shift up.
+      minHeight: topInset + 6 + 40 + 8,
       paddingTop: topInset + 6,
       paddingHorizontal: 16,
       paddingBottom: 8,
@@ -519,21 +495,6 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       height: StyleSheet.hairlineWidth,
       backgroundColor: c.border,
     },
-    headerSquareBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 13,
-      backgroundColor: c.background,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
-      justifyContent: 'center',
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 2,
-      elevation: 1,
-    },
     headerTitleWrap: {
       position: 'absolute',
       left: 0,
@@ -544,11 +505,6 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       alignItems: 'center',
     },
     headerTitle: { fontSize: 19, fontWeight: '700', color: c.text },
-    headerRightGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
     // Only outer spacing — the pill look lives in <SearchField>.
     searchContainer: {
       marginHorizontal: 16,

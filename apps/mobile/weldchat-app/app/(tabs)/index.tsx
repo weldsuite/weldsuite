@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   Modal,
@@ -11,22 +10,48 @@ import {
   ActivityIndicator,
   Animated,
   PanResponder,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useObserve } from 'expo-observe';
 import { Image } from 'expo-image';
-import { Hash, Lock, ChevronRight, Search, Check, Bookmark, SquarePen, Plus, MessageSquarePlus } from 'lucide-react-native';
-import { useOrganization, useOrganizationList, useUser } from '@clerk/expo';
+import Svg, { Defs, Pattern, Path, Rect } from 'react-native-svg';
+import {
+  Hash,
+  Lock,
+  ChevronDown,
+  ChevronRight,
+  Bookmark,
+  SendHorizontal,
+  Plus,
+  MessageSquarePlus,
+  SquarePen,
+  FolderPlus,
+} from 'lucide-react-native';
+import { useAuth, useOrganization, useOrganizationList, useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
 import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
-import { appApi } from '@/services/app-api';
+import { appApi, appApiClient } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { useChatCache } from '@/hooks/useChatCache';
+import { mapDm, type DmChannel } from '@/lib/chat/dm';
+import { SearchField } from '@/components/chat/SearchField';
+import { ComposeMenu } from '@/components/home/ComposeMenu';
+import {
+  ConversationMenu,
+  dmMenuTarget,
+  type ConversationPatch,
+  type MenuConversation,
+} from '@/components/home/ConversationMenu';
+import { PhoneLogIcon } from '@/components/icons/PhoneLogIcon';
+import { floatingTabBarBottomInset } from '@/components/floating-tab-bar';
 import { hideAppSplash } from '@/utils/splash';
 
 interface Channel {
@@ -35,6 +60,12 @@ interface Channel {
   type: string;
   sectionId?: string | null;
   unreadCount?: number;
+  isMuted?: boolean;
+  lastMessageAt?: string | null;
+  /** When you last read it; null = never. Absent from an older API: then nothing reads as unread. */
+  lastReadAt?: string | null;
+  /** Mentions of you since you last read it. */
+  unreadMentionCount?: number;
 }
 
 interface Section {
@@ -43,17 +74,39 @@ interface Section {
   position: number;
 }
 
+/** How many recent conversations Home shows before "See all". */
+const RECENT_DM_COUNT = 5;
+/** The bookmark list is fetched with this cap; at the cap the count reads "50+". */
+const SAVED_CAP = 50;
+/** Space between the compose button and the top of the tab bar's slot. */
+const COMPOSE_BUTTON_GAP = 6;
+/** Workspace menu actions are this prefix plus the organization id. */
+const WORKSPACE_ACTION = 'workspace:';
+
+type Styles = ReturnType<typeof makeStyles>;
+
+/** A section's actions, shown in a bottom sheet on long-press. */
+type HomeSheet = { id: string; name: string };
+
+/**
+ * Home, the screen the app opens on: the workspace at the top (tap to switch),
+ * search, Saved and Drafts, what is unread, the channel sections and the most
+ * recent direct messages.
+ */
 export default function HomeTab() {
   const { markInteractive } = useObserve();
   const { t, plural } = useI18n();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
+  const [dms, setDms] = useState<DmChannel[]>([]);
+  const [savedCount, setSavedCount] = useState<number | null>(null);
+  const [draftCount, setDraftCount] = useState<number | null>(null);
+  const [liveCallCount, setLiveCallCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
-  const [showSwitcher, setShowSwitcher] = useState(false);
   const [switching, setSwitching] = useState(false);
-  const [sectionMenu, setSectionMenu] = useState<{ id: string; name: string } | null>(null);
+  const [sheet, setSheet] = useState<HomeSheet | null>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
   const sheetTranslateY = useRef(new Animated.Value(800)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
 
@@ -70,22 +123,22 @@ export default function HomeTab() {
         useNativeDriver: true,
       }),
     ]).start(({ finished }) => {
-      if (finished) setSectionMenu(null);
+      if (finished) setSheet(null);
     });
   }, [sheetTranslateY, backdropOpacity]);
 
-  const openSectionMenu = useCallback((s: { id: string; name: string }) => {
+  const openSheet = useCallback((next: HomeSheet) => {
     sheetTranslateY.setValue(800);
     backdropOpacity.setValue(0);
-    setSectionMenu(s);
+    setSheet(next);
   }, [sheetTranslateY, backdropOpacity]);
 
-  const closeSectionMenu = useCallback(() => {
+  const closeSheet = useCallback(() => {
     animateSheetOut();
   }, [animateSheetOut]);
 
   useEffect(() => {
-    if (sectionMenu) {
+    if (sheet) {
       Animated.parallel([
         Animated.spring(sheetTranslateY, {
           toValue: 0,
@@ -100,7 +153,7 @@ export default function HomeTab() {
         }),
       ]).start();
     }
-  }, [sectionMenu, sheetTranslateY, backdropOpacity]);
+  }, [sheet, sheetTranslateY, backdropOpacity]);
 
   const sheetPan = useRef(
     PanResponder.create({
@@ -125,8 +178,10 @@ export default function HomeTab() {
   const router = useRouter();
   const { organization } = useOrganization();
   const { user } = useUser();
+  const { userId: authUserId } = useAuth();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const styles = useMemo(() => makeStyles(colors, insets.top), [colors, insets.top]);
   const cache = useChatCache();
   // Set when a network fetch lands so a late cache read can't overwrite it.
@@ -136,14 +191,10 @@ export default function HomeTab() {
   });
 
   const handleSwitchWorkspace = useCallback(async (orgId: string) => {
-    if (!setActive || orgId === organization?.id) {
-      setShowSwitcher(false);
-      return;
-    }
+    if (!setActive || orgId === organization?.id) return;
     setSwitching(true);
     try {
       await setActive({ organization: orgId });
-      setShowSwitcher(false);
     } catch (err) {
       console.error('Failed to switch workspace:', err);
     } finally {
@@ -158,13 +209,15 @@ export default function HomeTab() {
     let cancelled = false;
     networkLoadedRef.current = false;
     void (async () => {
-      const [cachedChannels, cachedSections] = await Promise.all([
+      const [cachedChannels, cachedSections, cachedDms] = await Promise.all([
         cache.getChannels(),
         cache.getSections(),
+        cache.getDms(),
       ]);
       if (cancelled || networkLoadedRef.current) return;
       setChannels((cachedChannels as Channel[] | null) ?? []);
       setSections((cachedSections as Section[] | null) ?? []);
+      setDms((cachedDms as DmChannel[] | null) ?? []);
       if (cachedChannels?.length) setLoading(false);
     })();
     return () => {
@@ -174,30 +227,53 @@ export default function HomeTab() {
 
   const loadData = useCallback(async () => {
     try {
-      const [chRes, secRes] = await Promise.all([
+      const [chRes, secRes, dmRes] = await Promise.all([
         // limit 100 (the endpoint cap) so channels aren't paginated out
         // by the default page size of 25.
         appApi.channels.list({ limit: 100 }),
         appApi.chatSections.list(),
+        appApi.chatDm.list(),
       ]);
-      // Match platform WeldChat: DMs have their own tab, and entity/object
-      // channels stay on their object panels — Home lists people channels only.
+      // Match platform WeldChat: DMs have their own list, and entity/object
+      // channels stay on their object panels — sections list people channels only.
       const nextChannels = (chRes.data || []).filter(
         (c: any) => c.type !== 'dm' && c.type !== 'entity',
       ) as Channel[];
       const nextSections = (secRes.data || []) as Section[];
+      const nextDms = ((dmRes.data ?? []) as unknown[]).map((d) => mapDm(d, user?.id));
       networkLoadedRef.current = true;
       setChannels(nextChannels);
       setSections(nextSections);
+      setDms(nextDms);
       void cache.setChannels(nextChannels);
       void cache.setSections(nextSections);
+      void cache.setDms(nextDms);
     } catch (err) {
       // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load data:', err);
     } finally {
       setLoading(false);
     }
-  }, [cache]);
+  }, [cache, user?.id]);
+
+  // The counts on the Calls, Saved and Drafts cards. Best effort: a failure
+  // just leaves the card without a count. Waits for the signed-in user, like
+  // the Saved screen: at app start Home is focused before the session is ready.
+  const loadCounts = useCallback(() => {
+    if (!authUserId) return;
+    appApi.chatCalls
+      .active()
+      .then((res) => setLiveCallCount((res.data ?? []).length))
+      .catch(() => {});
+    appApiClient
+      .get<{ data: unknown[] }>(`/chat-bookmarks?limit=${SAVED_CAP}`)
+      .then((res) => setSavedCount((res.data ?? []).length))
+      .catch(() => {});
+    appApiClient
+      .get<{ data: unknown[] }>('/chat-drafts')
+      .then((res) => setDraftCount((res.data ?? []).length))
+      .catch(() => {});
+  }, [authUserId]);
 
   useEffect(() => {
     if (!loading) {
@@ -209,7 +285,8 @@ export default function HomeTab() {
   useFocusEffect(
     useCallback(() => {
       void loadData();
-    }, [loadData])
+      loadCounts();
+    }, [loadData, loadCounts])
   );
 
   useChatUserEvents(loadData);
@@ -221,19 +298,14 @@ export default function HomeTab() {
   // Group regular channels by section. Entity-linked object conversations
   // are intentionally omitted — same rule as platform WeldChat's sidebar.
   const groupedSections = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const matches = (ch: Channel) =>
-      !query || (ch.name || '').toLowerCase().includes(query);
-
-    const regular = channels.filter((ch) => matches(ch));
     const groups: { id: string; name: string; channels: Channel[] }[] = sections.map((s) => ({
       id: s.id,
       name: s.name,
-      channels: regular.filter((ch) => ch.sectionId === s.id),
+      channels: channels.filter((ch) => ch.sectionId === s.id),
     }));
 
     // Unsectioned regular channels go under a default "Channels" group.
-    const unsectioned = regular.filter((ch) => !ch.sectionId);
+    const unsectioned = channels.filter((ch) => !ch.sectionId);
     if (unsectioned.length > 0) {
       const hasDefaultSection = sections.some((s) => s.name === 'Channels');
       if (!hasDefaultSection) {
@@ -242,85 +314,180 @@ export default function HomeTab() {
     }
 
     return groups;
-  }, [channels, sections, search, t]);
+  }, [channels, sections, t]);
 
-  // Nothing to list at all (not just nothing matching the search): point at the
-  // two ways to get started instead of an empty page.
-  const showEmptyState = !loading && channels.length === 0 && search.trim() === '';
+  const recentDms = useMemo(() => recentDmsSorted(dms).slice(0, RECENT_DM_COUNT), [dms]);
+
+  // Unread at a glance: conversations first (newest on top), then channels.
+  const unreadDms = useMemo(
+    () => recentDmsSorted(dms).filter((d) => d.hasUnread && !d.isMuted),
+    [dms],
+  );
+  const unreadChannels = useMemo(() => channels.filter(isChannelUnread), [channels]);
+  const unreadTotal = unreadDms.length + unreadChannels.length;
+
+  // Nothing at all yet: point at the two ways to get started.
+  const showEmptyState = !loading && channels.length === 0 && dms.length === 0;
+
+  // A change made from a row's long-press menu, shown right away.
+  const patchChannel = useCallback((id: string, patch: ConversationPatch) => {
+    setChannels((prev) =>
+      prev.map((ch) => {
+        if (ch.id !== id) return ch;
+        const next = { ...ch };
+        if (patch.isMuted !== undefined) next.isMuted = patch.isMuted;
+        if (patch.hasUnread === false) {
+          next.unreadCount = 0;
+          next.unreadMentionCount = 0;
+          next.lastReadAt = new Date().toISOString();
+        }
+        return next;
+      }),
+    );
+    if (patch.hasUnread === true) void loadData();
+  }, [loadData]);
+  const patchDm = useCallback((id: string, patch: ConversationPatch) => {
+    if (patch.archived === false) {
+      void loadData();
+      return;
+    }
+    setDms((prev) =>
+      patch.archived
+        ? prev.filter((dm) => dm.id !== id)
+        : prev.map((dm) => (dm.id === id ? { ...dm, ...withoutArchived(patch) } : dm)),
+    );
+  }, [loadData]);
+
+  // Opens a screen from the sheet or the compose card once it is gone. On iOS
+  // a modal screen pushed while a <Modal> is still up is dismissed together
+  // with it, so the push waits for the Modal's onDismiss.
+  const pendingHrefRef = useRef<string | null>(null);
+  const goFromSheet = (href: string) => {
+    pendingHrefRef.current = href;
+    closeSheet();
+  };
+  const goFromCompose = (href: string) => {
+    pendingHrefRef.current = href;
+    setComposeOpen(false);
+  };
+  const flushPendingHref = useCallback(() => {
+    const href = pendingHrefRef.current;
+    pendingHrefRef.current = null;
+    if (href) router.push(href as any);
+  }, [router]);
+  // Android has no Modal onDismiss; the sheet is gone once `sheet` is null.
+  useEffect(() => {
+    if (!sheet && Platform.OS !== 'ios') flushPendingHref();
+  }, [sheet, flushPendingHref]);
+
+  const workspaceName = organization?.name || t.home.workspaceFallback;
+  const profileEmail = user?.primaryEmailAddress?.emailAddress ?? '';
+  const profileName = user?.fullName || user?.firstName || profileEmail || '?';
+
+  // The workspace menu: you (profile and settings), then the workspaces with
+  // a check on the current one.
+  const workspaceMenu: MenuAction[] = [
+    {
+      id: 'account',
+      title: profileEmail || profileName,
+      displayInline: true,
+      subactions: [{ id: 'settings', title: t.home.profileAndSettings, image: 'gearshape' }],
+    },
+    {
+      id: 'workspaces',
+      title: t.home.switchWorkspace,
+      displayInline: true,
+      subactions: (userMemberships?.data ?? []).map(({ organization: org }) => ({
+        id: `${WORKSPACE_ACTION}${org.id}`,
+        title: org.name,
+        state: org.id === organization?.id ? 'on' : 'off',
+      })),
+    },
+  ];
+  const handleWorkspaceMenu = (action: string) => {
+    if (action === 'settings') router.push('/settings' as any);
+    else if (action.startsWith(WORKSPACE_ACTION)) void handleSwitchWorkspace(action.slice(WORKSPACE_ACTION.length));
+  };
+  const countLabel = (count: number | null, forms: { one: string; other: string }, cap?: number) => {
+    if (count === null) return null;
+    if (cap && count >= cap) return plural(count, forms).replace(String(count), `${cap}+`);
+    return plural(count, forms);
+  };
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header: the workspace; tap for the menu with your profile and the workspaces. */}
       <View style={styles.headerRow}>
-        <View style={styles.headerTitleWrap} pointerEvents="none">
-          <Text style={styles.headerTitle}>{t.tabs.home}</Text>
+        <MenuView
+          actions={workspaceMenu}
+          onPressAction={({ nativeEvent }) => handleWorkspaceMenu(nativeEvent.event)}
+          style={styles.workspaceMenu}
+        >
+          <View
+            style={[styles.workspaceBtn, { maxWidth: screenWidth - 32 }]}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={`${workspaceName}, ${t.home.switchWorkspace}`}
+          >
+            {organization?.imageUrl ? (
+              <Image source={{ uri: organization.imageUrl }} style={styles.workspaceLogo} />
+            ) : (
+              <View style={[styles.workspaceLogo, styles.workspaceLogoFallback]}>
+                <Text style={[styles.workspaceLogoText, styles.workspaceLogoTextSmall]}>
+                  {workspaceName[0]?.toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <Text style={styles.workspaceName} numberOfLines={1}>{workspaceName}</Text>
+            {switching ? (
+              <ActivityIndicator size="small" color={colors.mutedForeground} accessibilityLabel={t.home.switching} />
+            ) : (
+              <ChevronDown size={18} color={colors.mutedForeground} strokeWidth={2.2} />
+            )}
+          </View>
+        </MenuView>
+
+      </View>
+
+      <ScrollView
+        style={styles.scrollArea}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <SearchField
+          placeholder={t.common.search}
+          onPress={() => router.push('/search' as any)}
+          style={styles.search}
+        />
+
+        {/* Calls, Saved and Drafts, with how many there are. */}
+        <View style={styles.quickActions}>
+          <QuickTile
+            icon={<PhoneLogIcon size={16} color={colors.text} strokeWidth={2} />}
+            title={t.tabs.calls}
+            subtitle={countLabel(liveCallCount, t.home.liveCount)}
+            onPress={() => router.navigate('/calls' as any)}
+            styles={styles}
+          />
+          <QuickTile
+            icon={<Bookmark size={16} color={colors.text} strokeWidth={2} />}
+            title={t.home.saved}
+            subtitle={countLabel(savedCount, t.home.itemCount, SAVED_CAP)}
+            onPress={() => router.push('/later' as any)}
+            styles={styles}
+          />
+          <QuickTile
+            icon={<SendHorizontal size={16} color={colors.text} strokeWidth={2} />}
+            title={t.home.drafts}
+            subtitle={countLabel(draftCount, t.home.itemCount)}
+            onPress={() => router.push('/drafts' as any)}
+            styles={styles}
+          />
         </View>
 
-        <TouchableOpacity
-          style={styles.headerAvatarBtn}
-          activeOpacity={0.7}
-          onPress={() => router.push('/settings' as any)}
-        >
-          {user?.imageUrl ? (
-            <Image source={{ uri: user.imageUrl }} style={styles.headerAvatarImage} />
-          ) : (
-            <View style={[styles.headerAvatarImage, styles.profileAvatarFallback]}>
-              <Text style={styles.profileAvatarText}>
-                {(user?.firstName ?? '?')[0].toUpperCase()}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.headerSquareBtn}
-          activeOpacity={0.7}
-          onPress={() => router.push('/new-channel' as any)}
-          accessibilityRole="button"
-          accessibilityLabel={t.home.createChannel}
-        >
-          <Plus size={20} color={colors.text} />
-        </TouchableOpacity>
-      </View>
-
-      {/* Search */}
-      <View style={styles.searchContainer}>
-        <Search size={20} color={colors.mutedForeground} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder={t.common.search}
-          placeholderTextColor={colors.mutedForeground}
-          value={search}
-          onChangeText={setSearch}
-        />
-      </View>
-
-      {/* Quick actions */}
-      <View style={styles.quickActions}>
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          activeOpacity={0.7}
-          onPress={() => router.push('/later' as any)}
-        >
-          <Bookmark size={20} color={colors.text} strokeWidth={1.75} />
-          <Text style={styles.quickActionTitle}>{t.home.saved}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          activeOpacity={0.7}
-          onPress={() => router.push('/drafts' as any)}
-        >
-          <SquarePen size={20} color={colors.text} strokeWidth={1.75} />
-          <Text style={styles.quickActionTitle}>{t.home.drafts}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false}>
         {showEmptyState && (
           <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Hash size={30} color={colors.mutedForeground} strokeWidth={1.8} />
-            </View>
+            <EmptyIllustration colors={colors} styles={styles} />
             <Text style={styles.emptyTitle}>{t.home.emptyTitle}</Text>
             <Text style={styles.emptyText}>{t.home.emptyHint}</Text>
             <TouchableOpacity
@@ -343,165 +510,366 @@ export default function HomeTab() {
             </TouchableOpacity>
           </View>
         )}
+
+        {!showEmptyState && unreadTotal > 0 && (
+          <View style={styles.block}>
+            <SectionHeader title={t.home.unreads} count={unreadTotal} styles={styles} colors={colors} />
+            {unreadDms.map((dm) => (
+              <ConversationMenu key={`u-${dm.id}`} conversation={dmMenuTarget(dm)} onChange={patchDm}>
+                <DmRow dm={dm} styles={styles} />
+              </ConversationMenu>
+            ))}
+            {unreadChannels.map((ch) => (
+              <ConversationMenu key={`u-${ch.id}`} conversation={channelMenuTarget(ch)} onChange={patchChannel}>
+                <ChannelRow channel={ch} styles={styles} colors={colors} />
+              </ConversationMenu>
+            ))}
+          </View>
+        )}
+
         {!showEmptyState && groupedSections.map((section) => {
           const isCollapsed = collapsedSections[section.id] ?? false;
           return (
-            <View key={section.id}>
-              <TouchableOpacity
-                style={styles.sectionHeader}
+            <View key={section.id} style={styles.block}>
+              <SectionHeader
+                title={section.name}
+                collapsed={isCollapsed}
                 onPress={() => toggleSection(section.id)}
-                onLongPress={() => openSectionMenu({ id: section.id, name: section.name })}
-                delayLongPress={300}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.sectionTitle}>{section.name}</Text>
-                <View style={[styles.sectionTitleChevron, !isCollapsed && styles.sectionTitleChevronOpen]}>
-                  <ChevronRight size={15} color={colors.text} strokeWidth={2.5} />
-                </View>
-              </TouchableOpacity>
-
-              {!isCollapsed && section.channels.length === 0 && (
-                <Pressable
-                  style={({ pressed }) => [styles.addChannelRow, pressed && styles.channelItemPressed]}
-                  onPress={() =>
-                    router.push(
-                      (section.id === '__unsectioned__'
-                        ? '/new-channel'
-                        : `/new-channel?sectionId=${encodeURIComponent(section.id)}`) as any,
-                    )
-                  }
-                >
-                  <Plus size={18} color={colors.muted} strokeWidth={2} />
-                  <Text style={styles.addChannelText}>{t.home.addChannel}</Text>
-                </Pressable>
-              )}
-
+                onLongPress={() => openSheet({ id: section.id, name: section.name })}
+                styles={styles}
+                colors={colors}
+              />
               {!isCollapsed &&
                 section.channels.map((ch) => (
-                  <Pressable
-                    key={ch.id}
-                    style={({ pressed }) => [styles.channelItem, pressed && styles.channelItemPressed]}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/channel/[channelId]',
-                        params: { channelId: ch.id, name: ch.name, type: ch.type },
-                      } as any)
-                    }
-                  >
-                    {(() => {
-                      const iconColor = (ch.unreadCount ?? 0) > 0 ? colors.text : colors.mutedForeground;
-                      if (ch.type === 'private') {
-                        return <Lock size={20} color={iconColor} strokeWidth={2} style={styles.channelIcon} />;
-                      }
-                      return <Hash size={20} color={iconColor} strokeWidth={2} style={styles.channelIcon} />;
-                    })()}
-                    <Text
-                      style={[
-                        styles.channelName,
-                        (ch.unreadCount ?? 0) > 0 && styles.channelNameUnread,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {ch.name}
-                    </Text>
-                    {(ch.unreadCount ?? 0) > 0 && (
-                      <View style={styles.badge}>
-                        <Text style={styles.badgeText}>{ch.unreadCount}</Text>
-                      </View>
-                    )}
-                  </Pressable>
+                  <ConversationMenu key={ch.id} conversation={channelMenuTarget(ch)} onChange={patchChannel}>
+                    <ChannelRow channel={ch} styles={styles} colors={colors} />
+                  </ConversationMenu>
                 ))}
             </View>
           );
         })}
+
+        {!showEmptyState && recentDms.length > 0 && (
+          <View style={styles.block}>
+            <SectionHeader
+              title={t.tabs.directMessages}
+              action={{ label: t.home.seeAll, onPress: () => router.navigate('/dms' as any) }}
+              styles={styles}
+              colors={colors}
+            />
+            {recentDms.map((dm) => (
+              <ConversationMenu key={dm.id} conversation={dmMenuTarget(dm)} onChange={patchDm}>
+                <DmRow dm={dm} styles={styles} />
+              </ConversationMenu>
+            ))}
+          </View>
+        )}
       </ScrollView>
 
-      {/* Workspace Switcher Modal */}
-      <Modal
-        visible={showSwitcher}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSwitcher(false)}
-      >
-        <Pressable style={styles.modalOverlay} onPress={() => setShowSwitcher(false)}>
-          <Pressable style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Switch Workspace</Text>
-            <ScrollView style={styles.modalList}>
-              {(userMemberships?.data ?? []).map((membership) => {
-                const org = membership.organization;
-                const isActive = org.id === organization?.id;
-                return (
-                  <TouchableOpacity
-                    key={org.id}
-                    style={[styles.modalItem, isActive && styles.modalItemActive]}
-                    onPress={() => handleSwitchWorkspace(org.id)}
-                    disabled={switching}
-                  >
-                    {org.imageUrl ? (
-                      <Image source={{ uri: org.imageUrl }} style={styles.modalOrgLogo} />
-                    ) : (
-                      <View style={[styles.modalOrgLogo, styles.workspaceLogoFallback]}>
-                        <Text style={styles.workspaceLogoText}>
-                          {org.name[0].toUpperCase()}
-                        </Text>
-                      </View>
-                    )}
-                    <Text style={styles.modalOrgName} numberOfLines={1}>
-                      {org.name}
-                    </Text>
-                    {isActive && <Check size={18} color={BRAND} />}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            {switching && (
-              <View style={styles.modalLoading}>
-                <ActivityIndicator size="small" color={BRAND} />
-                <Text style={styles.modalLoadingText}>Switching...</Text>
-              </View>
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {/* Compose, like Slack's: the button and the card it opens. */}
+      <ComposeMenu
+        open={composeOpen}
+        onOpen={() => setComposeOpen(true)}
+        bottom={floatingTabBarBottomInset(insets.bottom) + COMPOSE_BUTTON_GAP}
+        buttonBottom={COMPOSE_BUTTON_GAP}
+        buttonLabel={t.home.newItem}
+        items={[
+          {
+            key: 'channel',
+            icon: <Hash size={20} color={colors.text} strokeWidth={1.9} />,
+            title: t.home.composeChannel,
+            hint: t.home.composeChannelHint,
+            onPress: () => goFromCompose('/new-channel'),
+          },
+          {
+            key: 'category',
+            icon: <FolderPlus size={20} color={colors.text} strokeWidth={1.9} />,
+            title: t.home.composeCategory,
+            hint: t.home.composeCategoryHint,
+            onPress: () => goFromCompose('/new-category'),
+          },
+        ]}
+        primary={{
+          icon: <SquarePen size={20} color={colors.background} strokeWidth={2.1} />,
+          label: t.home.composeMessage,
+          onPress: () => goFromCompose('/new-message'),
+        }}
+        onRequestClose={() => setComposeOpen(false)}
+        onClosed={flushPendingHref}
+      />
 
-      {/* Section Action Sheet */}
+      {/* A section's actions (long-press its header). */}
       <Modal
-        visible={sectionMenu !== null}
+        visible={sheet !== null}
         transparent
         animationType="none"
-        onRequestClose={closeSectionMenu}
+        onRequestClose={closeSheet}
+        onDismiss={flushPendingHref}
       >
         <Animated.View style={[styles.sheetBackdrop, { opacity: backdropOpacity }]} />
-        <Pressable style={styles.sheetOverlay} onPress={closeSectionMenu}>
+        <Pressable style={styles.sheetOverlay} onPress={closeSheet}>
           <Animated.View
             style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}
             {...sheetPan.panHandlers}
           >
            <Pressable>
             <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetHeaderTitle} numberOfLines={1}>{sectionMenu?.name}</Text>
-              <Text style={styles.sheetHeaderSubtitle}>
-                {plural(groupedSections.find((s) => s.id === sectionMenu?.id)?.channels.length ?? 0, t.home.channelCount)}
-              </Text>
-            </View>
-
-            <TouchableOpacity
-              style={styles.sheetRow}
-              onPress={() => {
-                closeSectionMenu();
-                router.push('/new-channel' as any);
-              }}
-              activeOpacity={0.6}
-            >
-              <Plus size={20} color={colors.mutedForeground} strokeWidth={2} />
-              <Text style={styles.sheetRowText}>{t.home.createChannel}</Text>
-            </TouchableOpacity>
-
+            {sheet && (
+              <>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetHeaderTitle} numberOfLines={1}>{sheet.name}</Text>
+                  <Text style={styles.sheetHeaderSubtitle}>
+                    {plural(groupedSections.find((s) => s.id === sheet.id)?.channels.length ?? 0, t.home.channelCount)}
+                  </Text>
+                </View>
+                <SheetOption
+                  icon={<Plus size={20} color={colors.text} strokeWidth={2} />}
+                  title={t.home.createChannel}
+                  hint={t.home.createChannelHint}
+                  onPress={() =>
+                    goFromSheet(
+                      sheet.id === '__unsectioned__'
+                        ? '/new-channel'
+                        : `/new-channel?sectionId=${encodeURIComponent(sheet.id)}`,
+                    )
+                  }
+                  styles={styles}
+                />
+              </>
+            )}
            </Pressable>
           </Animated.View>
         </Pressable>
       </Modal>
+    </View>
+  );
+}
+
+function mentionCount(ch: Channel): number {
+  return ch.unreadMentionCount || ch.unreadCount || 0;
+}
+
+/** A message since you last read it, like the web sidebar and the DM list. */
+function isChannelUnread(ch: Channel): boolean {
+  if (mentionCount(ch) > 0) return true;
+  if (ch.lastReadAt === undefined || !ch.lastMessageAt) return false;
+  return ch.lastReadAt === null || new Date(ch.lastMessageAt) > new Date(ch.lastReadAt);
+}
+
+function channelMenuTarget(ch: Channel): MenuConversation {
+  return { kind: 'channel', id: ch.id, name: ch.name, type: ch.type, isMuted: ch.isMuted, hasUnread: isChannelUnread(ch) };
+}
+
+function withoutArchived({ archived: _archived, ...rest }: ConversationPatch): Partial<DmChannel> {
+  return rest;
+}
+
+function recentDmsSorted(dms: DmChannel[]): DmChannel[] {
+  return [...dms].sort((a, b) => (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? ''));
+}
+
+/** A row in a Home bottom sheet: an icon tile, a title and a one-line hint. */
+function SheetOption({
+  icon,
+  title,
+  hint,
+  onPress,
+  styles,
+}: Readonly<{ icon: React.ReactNode; title: string; hint: string; onPress: () => void; styles: Styles }>) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.sheetOption, pressed && styles.sheetOptionPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityHint={hint}
+    >
+      <View style={styles.sheetOptionIcon}>{icon}</View>
+      <View style={styles.sheetOptionText}>
+        <Text style={styles.sheetOptionTitle}>{title}</Text>
+        <Text style={styles.sheetOptionHint} numberOfLines={1}>{hint}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function QuickTile({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  styles,
+}: Readonly<{ icon: React.ReactNode; title: string; subtitle: string | null; onPress: () => void; styles: Styles }>) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.quickTile, pressed && styles.quickTilePressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+    >
+      <View style={styles.quickTileHead}>
+        <View style={styles.quickTileIcon}>{icon}</View>
+        {/* Shrinks a little on a narrow phone rather than cutting the word off. */}
+        <Text style={styles.quickTileTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+          {title}
+        </Text>
+      </View>
+      {/* A blank line while the count loads, so the card keeps its height. */}
+      <Text style={styles.quickTileSubtitle} numberOfLines={1}>{subtitle ?? ' '}</Text>
+    </Pressable>
+  );
+}
+
+/** A list heading: collapsible (chevron), with a count, or with a link on the right. */
+function SectionHeader({
+  title,
+  count,
+  collapsed,
+  onPress,
+  onLongPress,
+  action,
+  styles,
+  colors,
+}: Readonly<{
+  title: string;
+  count?: number;
+  collapsed?: boolean;
+  onPress?: () => void;
+  onLongPress?: () => void;
+  action?: { label: string; onPress: () => void };
+  styles: Styles;
+  colors: ThemeColors;
+}>) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Pressable
+        style={styles.sectionTitleBtn}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={300}
+        disabled={!onPress && !onLongPress}
+        accessibilityRole={onPress ? 'button' : 'header'}
+        accessibilityState={onPress ? { expanded: !collapsed } : undefined}
+      >
+        <Text style={styles.sectionTitle} numberOfLines={1}>{title}</Text>
+        {count !== undefined && (
+          <View style={styles.countChip}>
+            <Text style={styles.countChipText}>{count}</Text>
+          </View>
+        )}
+        {onPress && (
+          <View style={collapsed && styles.sectionChevronCollapsed}>
+            <ChevronDown size={15} color={colors.mutedForeground} strokeWidth={2.4} />
+          </View>
+        )}
+      </Pressable>
+      {action && (
+        <Pressable onPress={action.onPress} hitSlop={8} style={styles.sectionAction} accessibilityRole="link">
+          <Text style={styles.sectionActionText}>{action.label}</Text>
+          <ChevronRight size={14} color={colors.mutedForeground} strokeWidth={2.2} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function ChannelRow({
+  channel,
+  onPress,
+  onPressIn,
+  styles,
+  colors,
+}: Readonly<{ channel: Channel; onPress?: () => void; onPressIn?: () => void; styles: Styles; colors: ThemeColors }>) {
+  const unread = isChannelUnread(channel);
+  const Icon = channel.type === 'private' ? Lock : Hash;
+  return (
+    <Pressable style={({ pressed }) => [styles.row, pressed && styles.rowPressed]} onPress={onPress} onPressIn={onPressIn}>
+      {unread && <View style={styles.unreadPill} />}
+      <View style={styles.rowIcon}>
+        <Icon size={18} color={unread ? colors.text : colors.mutedForeground} strokeWidth={2} />
+      </View>
+      <Text style={[styles.rowName, unread && styles.rowNameUnread]} numberOfLines={1}>
+        {channel.name}
+      </Text>
+      {mentionCount(channel) > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{mentionCount(channel)}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+function DmRow({
+  dm,
+  onPress,
+  onPressIn,
+  styles,
+}: Readonly<{ dm: DmChannel; onPress?: () => void; onPressIn?: () => void; styles: Styles }>) {
+  const unread = !!dm.hasUnread && !dm.isMuted;
+  const members = dm.otherMembers ?? [];
+  let avatar: React.ReactNode;
+  if (dm.isGroup && members.length > 1) {
+    avatar = (
+      <View style={styles.rowTilePlain}>
+        {members.slice(0, 2).map((m, i) => (
+          <View key={m.userId} style={[styles.groupAvatar, i === 0 ? styles.groupAvatarA : styles.groupAvatarB]}>
+            {m.picture ? (
+              <Image source={{ uri: m.picture }} style={StyleSheet.absoluteFill} />
+            ) : (
+              <Text style={styles.groupAvatarText}>{(m.name || m.email || '?')[0]?.toUpperCase()}</Text>
+            )}
+          </View>
+        ))}
+      </View>
+    );
+  } else if (dm.picture) {
+    avatar = <Image source={{ uri: dm.picture }} style={styles.rowAvatar} />;
+  } else {
+    avatar = (
+      <View style={[styles.rowAvatar, styles.rowAvatarFallback]}>
+        <Text style={styles.rowAvatarText}>{(dm.name || '?')[0]?.toUpperCase()}</Text>
+      </View>
+    );
+  }
+  return (
+    <Pressable style={({ pressed }) => [styles.row, pressed && styles.rowPressed]} onPress={onPress} onPressIn={onPressIn}>
+      {avatar}
+      <Text style={[styles.rowName, unread && styles.rowNameUnread]} numberOfLines={1}>
+        {dm.name}
+      </Text>
+      {unread && <View style={styles.unreadDot} />}
+    </Pressable>
+  );
+}
+
+/** The dashed-grid speech bubble the other empty lists use. */
+function EmptyIllustration({ colors, styles }: Readonly<{ colors: ThemeColors; styles: Styles }>) {
+  return (
+    <View style={styles.illustration}>
+      <Svg width={240} height={170} style={StyleSheet.absoluteFill}>
+        <Defs>
+          <Pattern id="grid" width={28} height={28} patternUnits="userSpaceOnUse">
+            <Path
+              d="M 28 0 L 0 0 0 28"
+              fill="none"
+              stroke={colors.secondary}
+              strokeWidth={0.5}
+              strokeDasharray="3 3"
+            />
+          </Pattern>
+        </Defs>
+        <Rect width="100%" height="100%" fill="url(#grid)" />
+      </Svg>
+      <Svg width={120} height={120} viewBox="0 0 120 120" fill="none">
+        <Path
+          d="M20 32a10 10 0 0 1 10-10h60a10 10 0 0 1 10 10v40a10 10 0 0 1-10 10H52l-16 14V82H30a10 10 0 0 1-10-10V32z"
+          fill={colors.cardBackground}
+          stroke={colors.secondary}
+          strokeWidth={1}
+        />
+        <Rect x="38" y="46" width="44" height="4" rx="2" fill={colors.secondary} />
+        <Rect x="38" y="56" width="30" height="4" rx="2" fill={colors.secondary} />
+        <Rect x="38" y="66" width="36" height="4" rx="2" fill={colors.secondary} />
+      </Svg>
     </View>
   );
 }
@@ -513,162 +881,141 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      gap: 12,
+      // The height the old "+" button gave it, so the page doesn't shift up.
+      minHeight: topInset + 6 + 40 + 8,
       paddingTop: topInset + 6,
       paddingHorizontal: 16,
       paddingBottom: 8,
       backgroundColor: c.background,
     },
-    headerSquareBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 13,
-      backgroundColor: c.background,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: c.border,
-      justifyContent: 'center',
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 2,
-      elevation: 1,
-    },
-    headerTitleWrap: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      top: topInset + 6,
-      height: 40,
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    headerTitle: { fontSize: 19, fontWeight: '700', color: c.text },
-    headerRightGroup: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-    },
+    // The menu's trigger sizes to its content; the name truncates at maxWidth.
+    workspaceMenu: { flexShrink: 1 },
+    workspaceBtn: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+    workspaceLogo: { width: 26, height: 26, borderRadius: 9 },
     workspaceLogoFallback: { backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center' },
-    workspaceLogoText: { fontSize: 14, fontWeight: '700', color: '#fff' },
-    headerAvatarBtn: {
-      width: 40,
-      height: 40,
-      borderRadius: 13,
+    workspaceLogoText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+    workspaceLogoTextSmall: { fontSize: 12 },
+    workspaceName: { flexShrink: 1, fontSize: 18, fontWeight: '700', letterSpacing: -0.3, color: c.text },
+
+    scrollArea: { flex: 1 },
+    // Room at the bottom for the floating tab bar.
+    scrollContent: { paddingHorizontal: 16, paddingBottom: 120 },
+    search: { marginTop: 8 },
+
+    // Three equal cards spanning the same width as the search bar.
+    quickActions: { flexDirection: 'row', gap: 6, paddingTop: 14, paddingBottom: 6 },
+    quickTile: {
+      flex: 1,
+      minWidth: 0,
+      paddingVertical: 11,
+      paddingHorizontal: 8,
+      borderRadius: 12,
+      borderCurve: 'continuous',
+      borderWidth: 1,
+      borderColor: c.border,
       backgroundColor: c.background,
+    },
+    quickTilePressed: { backgroundColor: c.secondary },
+    // The icon sits before the title; the count starts under the icon. Sized so
+    // "Gesprekken" fits at 15pt on a 402pt-wide phone.
+    quickTileHead: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+    quickTileIcon: { width: 16, height: 20, alignItems: 'center', justifyContent: 'center', opacity: 0.74 },
+    quickTileTitle: { flexShrink: 1, fontSize: 15, lineHeight: 20, color: c.text, opacity: 0.77 },
+    quickTileSubtitle: { marginTop: 2, fontSize: 15, lineHeight: 20, color: c.text, opacity: 0.69 },
+
+    block: { paddingTop: 14 },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
+    sectionTitleBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1 },
+    sectionTitle: {
+      fontSize: 12,
+      fontWeight: '600',
+      letterSpacing: 0.6,
+      textTransform: 'uppercase',
+      color: c.mutedForeground,
+    },
+    sectionChevronCollapsed: { transform: [{ rotate: '-90deg' }] },
+    countChip: {
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      borderRadius: 5,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: c.border,
-      padding: 3,
+      backgroundColor: c.secondary,
+      alignItems: 'center',
       justifyContent: 'center',
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.04,
-      shadowRadius: 2,
-      elevation: 1,
     },
-    headerAvatarImage: { width: 32, height: 32, borderRadius: 10 },
-    profileAvatarFallback: { backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center' },
-    profileAvatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-    searchContainer: {
+    countChipText: { fontSize: 10, fontWeight: '600', color: c.mutedForeground, fontVariant: ['tabular-nums'] },
+    sectionAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    sectionActionText: { fontSize: 13, fontWeight: '500', color: c.mutedForeground },
+
+    row: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginHorizontal: 16,
-      marginTop: 8,
-      marginBottom: 8,
-      paddingHorizontal: 16,
-      height: 40,
-      backgroundColor: c.inputBackground,
-      borderRadius: 14,
-      gap: 10,
-    },
-    searchInput: { flex: 1, fontSize: 16, color: c.text, padding: 0, fontWeight: '500' },
-    quickActions: {
-      flexDirection: 'row',
-      paddingHorizontal: 16,
-      paddingTop: 8,
-      paddingBottom: 10,
-      gap: 8,
-    },
-    quickActionCard: {
-      flex: 1,
-      borderWidth: 1,
-      borderColor: c.secondary,
-      borderRadius: 12,
-      paddingVertical: 12,
-      paddingHorizontal: 12,
-      gap: 6,
-      backgroundColor: c.background,
-    },
-    quickActionTitle: {
-      fontSize: 14,
-      fontWeight: '600',
-      color: c.text,
-      marginTop: 2,
-    },
-    quickActionSubtitle: {
-      fontSize: 12,
-      color: c.muted,
-    },
-    scrollArea: { flex: 1, paddingHorizontal: 16 },
-    sectionHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 12,
-    },
-    sectionTitle: { fontSize: 15, fontWeight: '700', color: c.text },
-    sectionTitleChevron: { marginLeft: 5 },
-    // Rotate the chevron down when the section is expanded.
-    sectionTitleChevronOpen: { transform: [{ rotate: '90deg' }] },
-    channelItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 11,
+      gap: 12,
+      minHeight: 46,
+      paddingVertical: 7,
       // Inset padding (offset by a negative margin) so the pressed highlight
       // reads as a rounded gray area without shifting the row's layout.
       paddingHorizontal: 10,
       marginHorizontal: -10,
-      borderRadius: 10,
-    },
-    channelItemPressed: {
-      backgroundColor: c.secondary,
-    },
-    channelIcon: { marginRight: 14, width: 20 },
-    // Empty-category placeholder: dashed outline with a + Add channel affordance.
-    addChannelRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 4,
-      paddingVertical: 11,
-      paddingHorizontal: 12,
-      marginVertical: 4,
-      borderWidth: 1,
-      borderStyle: 'dashed',
-      borderColor: c.border,
       borderRadius: 12,
     },
-    addChannelText: { fontSize: 15, color: c.muted, fontWeight: '500' },
-    emptyState: {
-      alignItems: 'center',
-      paddingHorizontal: 24,
-      paddingTop: 48,
-      paddingBottom: 24,
-    },
-    emptyIcon: {
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      backgroundColor: c.cardBackground,
+    rowPressed: { backgroundColor: c.secondary },
+    rowIcon: { width: 20, alignItems: 'center', justifyContent: 'center' },
+    rowTilePlain: { width: 26, height: 26 },
+    rowAvatar: { width: 26, height: 26, borderRadius: 9 },
+    rowAvatarFallback: { backgroundColor: BRAND, alignItems: 'center', justifyContent: 'center' },
+    rowAvatarText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+    groupAvatar: {
+      position: 'absolute',
+      width: 18,
+      height: 18,
+      borderRadius: 6,
+      backgroundColor: BRAND,
       alignItems: 'center',
       justifyContent: 'center',
-      marginBottom: 16,
+      borderWidth: 2,
+      borderColor: c.background,
+      overflow: 'hidden',
     },
-    emptyTitle: { fontSize: 17, fontWeight: '600', color: c.text, marginBottom: 6 },
+    groupAvatarA: { top: 0, left: 0, zIndex: 2 },
+    groupAvatarB: { bottom: 0, right: 0 },
+    groupAvatarText: { fontSize: 9, fontWeight: '600', color: '#fff' },
+    // Like Discord: read is gray, unread is bold in the text color.
+    rowName: { flex: 1, fontSize: 16, fontWeight: '500', color: c.mutedForeground },
+    rowNameUnread: { fontWeight: '700', color: c.text },
+    // Discord's unread pill, half off the screen's left edge.
+    unreadPill: {
+      position: 'absolute',
+      left: -10,
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: c.text,
+    },
+    badge: {
+      minWidth: 22,
+      height: 22,
+      borderRadius: 11,
+      paddingHorizontal: 7,
+      backgroundColor: BRAND,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    badgeText: { fontSize: 12, fontWeight: '700', color: '#fff' },
+    unreadDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: BRAND },
+
+    emptyState: { alignItems: 'center', paddingHorizontal: 8, paddingTop: 24, paddingBottom: 24 },
+    illustration: { width: 240, height: 170, marginBottom: 12, justifyContent: 'center', alignItems: 'center' },
+    emptyTitle: { fontSize: 16, fontWeight: '600', color: c.text, marginBottom: 6 },
     emptyText: {
       fontSize: 14,
       color: c.muted,
       textAlign: 'center',
       lineHeight: 20,
+      maxWidth: 280,
       marginBottom: 24,
     },
     emptyPrimaryBtn: {
@@ -695,41 +1042,7 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       borderColor: c.secondary,
     },
     emptySecondaryText: { fontSize: 15, fontWeight: '600', color: c.text },
-    channelName: { flex: 1, fontSize: 15, color: c.text, opacity: 0.7, fontWeight: '500' },
-    channelNameUnread: { color: c.text, opacity: 1, fontWeight: '700' },
-    badge: {
-      backgroundColor: c.destructive,
-      borderRadius: 8,
-      minWidth: 18,
-      height: 18,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingHorizontal: 5,
-    },
-    badgeText: { color: c.primaryForeground, fontSize: 11, fontWeight: '700' },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.6)',
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 32,
-    },
-    modalContent: { width: '100%', maxHeight: '60%', backgroundColor: c.cardBackground, borderRadius: 12, padding: 16 },
-    modalTitle: { fontSize: 16, fontWeight: '700', color: c.text, marginBottom: 12 },
-    modalList: { flexGrow: 0 },
-    modalItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingVertical: 10,
-      paddingHorizontal: 8,
-      borderRadius: 8,
-      gap: 10,
-    },
-    modalItemActive: { backgroundColor: c.secondary },
-    modalOrgLogo: { width: 32, height: 32, borderRadius: 8 },
-    modalOrgName: { flex: 1, fontSize: 15, fontWeight: '600', color: c.text },
-    modalLoading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 12 },
-    modalLoadingText: { fontSize: 13, color: c.muted },
+
     sheetBackdrop: {
       ...StyleSheet.absoluteFill,
       backgroundColor: 'rgba(0,0,0,0.4)',
@@ -769,17 +1082,26 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       color: c.muted,
       marginTop: 2,
     },
-    sheetRow: {
+    sheetOption: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 14,
       paddingHorizontal: 8,
-      paddingVertical: 12,
+      paddingVertical: 9,
+      borderRadius: 16,
+      borderCurve: 'continuous',
     },
-    sheetRowText: {
-      flex: 1,
-      fontSize: 16,
-      color: c.text,
-      fontWeight: '500',
+    sheetOptionPressed: { backgroundColor: c.secondary },
+    sheetOptionIcon: {
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      borderCurve: 'continuous',
+      backgroundColor: c.secondary,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
+    sheetOptionText: { flex: 1, minWidth: 0 },
+    sheetOptionTitle: { fontSize: 16, fontWeight: '600', color: c.text },
+    sheetOptionHint: { fontSize: 13, color: c.mutedForeground, marginTop: 2 },
   });

@@ -115,6 +115,11 @@ export function createChannelsApi(api: ClientApi) {
       return api.get<DataResponse<ChannelMember[]>>(`/channels/${channelId}/members`);
     },
 
+    /** Add people to a channel (`channels:update`, and you must be able to see the channel). */
+    addMembers(channelId: string, userIds: string[]): Promise<DataResponse<unknown>> {
+      return api.post<DataResponse<unknown>>(`/channels/${channelId}/members`, { userIds });
+    },
+
     markRead(channelId: string): Promise<DataResponse<MarkChannelReadResponse>> {
       return api.post<DataResponse<MarkChannelReadResponse>>(`/channels/${channelId}/read`, {});
     },

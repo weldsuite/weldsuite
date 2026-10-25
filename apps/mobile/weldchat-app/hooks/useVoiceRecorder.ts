@@ -14,6 +14,9 @@ export interface RecordingResult {
   name: string;
 }
 
+/** `denied`: no microphone permission; `failed`: the recorder would not start. */
+export type StartRecordingResult = 'started' | 'denied' | 'failed';
+
 export function useVoiceRecorder() {
   const recorder = useAudioRecorder({
     ...RecordingPresets.HIGH_QUALITY,
@@ -21,10 +24,10 @@ export function useVoiceRecorder() {
   });
   const recorderState = useAudioRecorderState(recorder, 80);
 
-  const startRecording = useCallback(async (): Promise<boolean> => {
+  const startRecording = useCallback(async (): Promise<StartRecordingResult> => {
     try {
       const { granted } = await requestRecordingPermissionsAsync();
-      if (!granted) return false;
+      if (!granted) return 'denied';
 
       await setAudioModeAsync({
         allowsRecording: true,
@@ -33,9 +36,9 @@ export function useVoiceRecorder() {
 
       await recorder.prepareToRecordAsync();
       recorder.record();
-      return true;
+      return 'started';
     } catch {
-      return false;
+      return 'failed';
     }
   }, [recorder]);
 
