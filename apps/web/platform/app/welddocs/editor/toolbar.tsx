@@ -3,6 +3,7 @@ import {
   Baseline,
   Bold,
   Highlighter,
+  ImagePlus,
   IndentDecrease,
   IndentIncrease,
   Italic,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from './model/doc-controller';
+import { TableButton } from './table-picker';
 import { ColorButton, Divider, IconButton, Menu, Toggle } from './ui';
 
 export const FONTS = ['Arial', 'Calibri', 'Cambria', 'Comic Sans MS', 'Courier New', 'Georgia', 'Garamond', 'Helvetica', 'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana'];
@@ -112,6 +114,10 @@ export function Toolbar({ controller }: { controller: DocController }) {
       <IconButton label={tt.link} onClick={() => controller.openDialog('link')} disabled={ro}>
         <Link2 />
       </IconButton>
+      <IconButton label={tt.image} onClick={() => controller.openDialog('image')} disabled={ro}>
+        <ImagePlus />
+      </IconButton>
+      <TableButton controller={controller} label={tt.table} disabled={ro} />
       <Divider />
       <Menu
         label={tt.align}

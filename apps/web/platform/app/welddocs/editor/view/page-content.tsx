@@ -99,9 +99,23 @@ function ImageItem({ item }: { item: Extract<DisplayItem, { kind: 'image' }> }) 
     objectFit: 'fill',
     border: img.border ? `${img.border.width}pt solid ${img.border.color}` : undefined,
   };
-  // Drive images (file:<id>) are resolved when images arrive (phase 5); others load as they are.
+  // Drive images (file:<id>, from .docx imports) are resolved with the file import; others load as they are.
   if (img.src.startsWith('file:')) return <div aria-label={img.alt} style={{ ...style, background: '#f1f3f4' }} />;
-  return <img src={img.src} alt={img.alt ?? ''} draggable={false} style={style} />;
+  const c = img.crop;
+  if (!c) return <img src={img.src} alt={img.alt ?? ''} draggable={false} style={style} />;
+  // Cropped: the whole picture, scaled so the kept part fills the box, shown through it.
+  const fullWidth = item.width / Math.max(0.01, 1 - c.left - c.right);
+  const fullHeight = item.height / Math.max(0.01, 1 - c.top - c.bottom);
+  return (
+    <div style={{ ...style, overflow: 'hidden' }}>
+      <img
+        src={img.src}
+        alt={img.alt ?? ''}
+        draggable={false}
+        style={{ position: 'absolute', left: `${-c.left * fullWidth}pt`, top: `${-c.top * fullHeight}pt`, width: `${fullWidth}pt`, height: `${fullHeight}pt`, maxWidth: 'none' }}
+      />
+    </div>
+  );
 }
 
 function lineStyle(item: Extract<DisplayItem, { kind: 'line' }>): CSSProperties {

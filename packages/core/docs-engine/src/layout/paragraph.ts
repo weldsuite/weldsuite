@@ -11,14 +11,15 @@
 
 import { LINE_BREAK, OBJECT, PARA, TAB } from '../model/chars';
 import type { DocModel } from '../model/document';
-import type { BreakObject, FieldObject, ObjectData, SectionBreakObject } from '../model/objects';
+import type { BreakObject, FieldObject, ImageObject, ObjectData, SectionBreakObject } from '../model/objects';
 import { resolveParagraph } from '../model/resolve';
 import type { Story } from '../model/story';
 import type { ListLevel, ParaProps, TabStop } from '../model/styles';
 import { canBreakBefore, isSpaceChar } from './breaks';
+import { FloatBands, isFloating, placeFloats, type LineBand } from './floats';
 import type { TextMeasurer } from './measure';
 import { displayText, type RunStyles } from './run-style';
-import type { BlockLayout, LineLayout, ParagraphLayout, RunLayout, RunStyle, TableLayout } from './types';
+import type { BlockLayout, FloatLayout, LineLayout, ParagraphLayout, RunLayout, RunStyle, TableLayout } from './types';
 
 export interface ParagraphContext {
   doc: DocModel;
@@ -66,15 +67,27 @@ export function layoutParagraph(ctx: ParagraphContext, story: Story, start: numb
   const rawProps = (story.attrAt(end) as ParaProps | undefined) ?? {};
   const props = resolveParagraph(ctx.doc, rawProps);
   const items = buildItems(ctx, story, start, end, props);
-  const blocks = new LineBreaker(ctx, props, width, marker, markStyleId).run(items);
-  return {
+  const floats = placeFloats(floatingImages(items), width);
+  const breaker = new LineBreaker(ctx, props, width, marker, markStyleId, floats);
+  const blocks = breaker.run(items);
+  const height = blocksHeight(blocks);
+  const layout: ParagraphLayout = {
     props,
     blocks,
     spaceBefore: props.spaceBefore ?? 0,
-    spaceAfter: props.spaceAfter ?? 0,
+    // A paragraph shorter than its floats leaves room for them.
+    spaceAfter: (props.spaceAfter ?? 0) + Math.max(0, breaker.floatBottom - height),
     width,
-    height: blocksHeight(blocks),
+    height,
   };
+  if (floats.length) layout.floats = floats;
+  return layout;
+}
+
+function floatingImages(items: Item[]): { offset: number; image: ImageObject }[] {
+  const out: { offset: number; image: ImageObject }[] = [];
+  for (const it of items) if (it.kind === 'object' && isFloating(it.object)) out.push({ offset: it.start, image: it.object as ImageObject });
+  return out;
 }
 
 function blocksHeight(blocks: BlockLayout[]): number {
@@ -110,6 +123,11 @@ class LineBreaker {
   /** Left edge of the first line (first-line indent, or past the list marker). */
   private readonly firstX: number;
   private readonly marker: LineLayout['marker'];
+  private readonly bands: FloatBands | null;
+  /** Top of the line being filled, from the first line's top. */
+  private lineTop = 0;
+  /** Where the line being filled goes, around the floats. */
+  private band: LineBand;
 
   constructor(
     private readonly ctx: ParagraphContext,
@@ -117,7 +135,10 @@ class LineBreaker {
     private readonly width: number,
     marker: Marker | null,
     markStyleId: number,
+    floats: FloatLayout[],
   ) {
+    this.bands = floats.length ? new FloatBands(floats, width) : null;
+    this.band = this.bandAt(0);
     const listLevel = marker?.level;
     this.left = listLevel ? listLevel.indent : (props.indentLeft ?? 0);
     this.right = props.indentRight ?? 0;
@@ -147,20 +168,39 @@ class LineBreaker {
     return this.blocks;
   }
 
+  /** Bottom of the floats text keeps clear of, from the first line's top. */
+  get floatBottom(): number {
+    return this.bands?.bottom ?? 0;
+  }
+
+  private bandAt(top: number): LineBand {
+    return this.bands ? this.bands.at(top) : { pad: 0, left: 0, right: this.width };
+  }
+
   private lineLeft(): number {
-    return this.firstLine ? this.firstX : this.left;
+    return Math.max(this.firstLine ? this.firstX : this.left, this.band.left);
   }
 
   /** Width available to the line being filled. */
   private avail(): number {
-    return Math.max(MIN_SIZE, this.width - this.right - this.lineLeft());
+    return Math.max(MIN_SIZE, Math.min(this.width - this.right, this.band.right) - this.lineLeft());
   }
 
   private flush(reason: LineEnd, extra: Partial<LineLayout> = {}): void {
-    this.lines.push(buildLine(this.ctx, this.lineItems, reason, this.props, this.lineLeft(), this.avail(), this.firstLine ? this.marker : undefined, extra));
+    const line = buildLine(this.ctx, this.lineItems, reason, this.props, this.lineLeft(), this.avail(), this.firstLine ? this.marker : undefined, extra);
+    // Moved down past a float: the space above is part of the line.
+    line.height += this.band.pad;
+    line.ascent += this.band.pad;
+    this.lines.push(line);
     this.lineItems = [];
     this.x = 0;
     this.firstLine = false;
+    this.advance(line.height);
+  }
+
+  private advance(height: number): void {
+    this.lineTop += height;
+    if (this.bands) this.band = this.bandAt(this.lineTop);
   }
 
   private closeBlock(): void {
@@ -215,6 +255,7 @@ class LineBreaker {
     if (table) {
       table.x += this.left;
       this.blocks.push({ kind: 'table', table, offset });
+      this.advance(table.rows.reduce((n, r) => n + r.height, 0));
     }
   }
 
@@ -390,7 +431,8 @@ function objectItem(ctx: ParagraphContext, obj: ObjectData, p: number, style: Ru
   const base = { kind: 'object' as const, start: p, end: p + 1, style, object: obj, glue: isInlineGlued(obj) };
   switch (obj.kind) {
     case 'image':
-      return { ...base, width: obj.width, ascent: obj.height, descent: 0 };
+      // A floating image is placed apart; its anchor takes no room in the line.
+      return isFloating(obj) ? { ...base, width: 0, ascent: 0, descent: 0 } : { ...base, width: obj.width, ascent: obj.height, descent: 0 };
     case 'footnote': {
       const text = String(ctx.footnoteNumber(obj.id));
       const font = { ...style.font, size: style.font.size * 0.65 };

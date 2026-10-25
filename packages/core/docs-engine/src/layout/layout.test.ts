@@ -8,6 +8,7 @@ import { applyOp } from '../ops/apply';
 import { randomOp } from '../ops/random-ops';
 import type { Op } from '../ops/types';
 import { counterIds, rng } from '../test-support';
+import { pageDisplay } from './display';
 import { DocLayout } from './document-layout';
 import { caretRect, hitTest, lineBounds, selectionRects } from './geometry';
 import { MetricsMeasurer } from './measure';
@@ -333,5 +334,77 @@ describe('review fixes', () => {
       const rect = caretRect(dl, BODY, pos)!;
       expect(hitTest(dl, rect.page, rect.x + 0.3, rect.y + rect.height / 2)?.pos).toBe(pos);
     }
+  });
+});
+
+describe('floating images', () => {
+  function floatDoc(wrap: 'square' | 'topBottom' | 'behind' | 'front', offsetX = 0, text = `${LOREM} ${LOREM}`): DocModel {
+    const b = new ContentBuilder();
+    b.addObject({ kind: 'image', id: 'img', src: 'https://example.com/a.png', width: 120, height: 90, wrap, offsetX });
+    b.addText(text).endParagraph();
+    b.addText('Next').endParagraph();
+    return docOf(b.build());
+  }
+
+  function lineTops(dl: DocLayout): { top: number; line: LineLayout }[] {
+    let top = 0;
+    return bodyLines(dl)
+      .filter((l) => l.start === 0)
+      .map(({ line }) => {
+        const out = { top, line };
+        top += line.height;
+        return out;
+      });
+  }
+
+  it('wraps text beside a square image and below it past its bottom', () => {
+    const dl = layoutOf(floatDoc('square', 0, `${LOREM} ${LOREM} ${LOREM} ${LOREM}`));
+    const lines = lineTops(dl);
+    for (const { top, line } of lines) {
+      if (top < 90) expect(line.x).toBeGreaterThanOrEqual(120 + 9 - 0.01);
+      else if (top >= 90 + 9) expect(line.x).toBe(0);
+    }
+    expect(lines.some((l) => l.top >= 99)).toBe(true);
+  });
+
+  it('wraps text on the left of an image at the right', () => {
+    const dl = layoutOf(floatDoc('square', 400));
+    const width = dl.flow(BODY)!.entries[0]!.layout!.width;
+    const [first] = lineTops(dl);
+    expect(first!.line.x).toBe(0);
+    expect(first!.line.width).toBeLessThanOrEqual(width - 120 - 9 + 0.01);
+  });
+
+  it('puts text below a break-text image', () => {
+    const dl = layoutOf(floatDoc('topBottom'));
+    const first = lineTops(dl)[0]!.line;
+    expect(first.ascent).toBeGreaterThan(90);
+    expect(first.x).toBe(0);
+  });
+
+  it('leaves text where it is for images behind or in front of it', () => {
+    const plain = lineTops(layoutOf(docOf(new ContentBuilder().addText(`${LOREM} ${LOREM}`).endParagraph().addText('Next').endParagraph().build())));
+    for (const wrap of ['behind', 'front'] as const) {
+      const lines = lineTops(layoutOf(floatDoc(wrap)));
+      expect(lines).toHaveLength(plain.length);
+      for (const l of lines) expect(l.line.x).toBe(0);
+    }
+  });
+
+  it('keeps the next paragraph below a float taller than its own', () => {
+    const dl = layoutOf(floatDoc('square', 0, 'Short'));
+    const layout = dl.flow(BODY)!.entries[0]!.layout!;
+    expect(layout.height + layout.spaceAfter).toBeGreaterThanOrEqual(90);
+  });
+
+  it('draws a floating image once, at its place, with its position', () => {
+    const dl = layoutOf(floatDoc('square', 30));
+    const images = pageDisplay(dl, dl.pages[0]!).filter((i) => i.kind === 'image');
+    expect(images).toHaveLength(1);
+    const img = images[0]!;
+    if (img.kind !== 'image') return;
+    expect(img.pos).toBe(0);
+    expect(img.story).toBe(BODY);
+    expect(img.x).toBeCloseTo(dl.pages[0]!.columns[0]!.x + 30);
   });
 });

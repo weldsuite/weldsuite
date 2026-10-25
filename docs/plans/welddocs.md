@@ -339,10 +339,43 @@ and `apps/web/platform/app/welddocs`.
   sent as the new document's first snapshot. Only the signed-out preview
   still keeps documents in IndexedDB.
 
+**Phase 5 (tables, images and layout objects): done.**
+
+- Tables: Insert › Table and the toolbar's grid pick a size; the caret goes
+  into the first cell. Tab and Shift+Tab move between cells (selecting the
+  next cell's text) and Tab in the last cell adds a row; Up and Down move
+  between the body and the cells. Format › Table and the right-click menu
+  add and delete rows and columns, merge right or down and unmerge,
+  distribute columns, repeat the first row on every page, and set cell
+  background, vertical alignment, table alignment and borders. Column
+  borders on the page drag to resize (the next column gives or takes the
+  space). Tables nest: a table inserted in a cell lays out inside it.
+- Images: Insert › Image uploads to WeldDrive storage (in the signed-out
+  preview, the image is kept inside the document) or takes an https
+  address; inserted images fit the column. A click selects an image: a
+  corner handle resizes it keeping its proportions, and a small bar sets
+  text wrapping, alt text, the original size or deletes it. Wrapped images
+  float in their paragraph: text wraps beside them (`square`), moves below
+  them (`topBottom`) or ignores them (`behind`, `front`), and they move
+  by dragging. Floats are local to their paragraph (a paragraph shorter
+  than its floats gets the difference as space after it). Cropping is drawn
+  (from .docx imports); there is no crop tool yet.
+- Breaks: Insert › Break adds page, column (with more than one column) and
+  section breaks (next page or continuous). A section break carries a copy
+  of the section it splits, and page setup now changes the caret's section.
+- Table of contents: Insert › Table of contents lists headings 1–3, each
+  linked to a bookmark on the heading (Ctrl+click follows it) with a dotted
+  tab and a `pageRef` field showing the page it is on, worked out at layout.
+  The table is covered by a `toc:` bookmark; Insert › Update table of
+  contents rebuilds it after headings change.
+- A table row taller than a page now pushes what follows below it (it still
+  overflows the page; rows do not split).
+- Equations stay for later.
+
 Known gaps, to pick up in later phases:
 
-- Floating (wrapped) images lay out inline until phase 5. Table rows never
-  split across pages, so a row taller than a page overflows it.
+- Table rows never split across pages, so a row taller than a page
+  overflows it. Floating images stay with their paragraph's first page.
 - Right-to-left and bidirectional text lay out left to right (phase 9).
 - An undo that re-creates a deleted table, footnote or section re-uses its
   ids (exact undo needs them); a concurrent edit aimed at the old one can

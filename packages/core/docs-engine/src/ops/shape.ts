@@ -207,7 +207,7 @@ const OBJECT_FIELDS: Record<string, Record<string, Check>> = {
   sectionBreak: { id: str(), start: oneOf('nextPage', 'continuous', 'evenPage', 'oddPage'), section: SECTION },
   footnote: { id: str() },
   hr: {},
-  field: { field: oneOf('page', 'pages', 'date', 'title'), format: str(100) },
+  field: { field: oneOf('page', 'pages', 'date', 'title', 'pageRef'), format: str(100), ref: str() },
   chip: { type: str(100), ref: str(), label: str(1000, 0) },
   equation: { latex: str(20_000) },
 };
