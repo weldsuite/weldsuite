@@ -6,6 +6,8 @@
  * fits the document (positions in range, ids free) is `validateOp`'s job.
  */
 
+import { isSafeLink } from '../model/styles';
+
 type Check = (v: unknown) => boolean;
 
 const MAX_ID = 200;
@@ -93,7 +95,7 @@ const TEXT_STYLE_FIELDS: Record<string, Check> = {
   smallCaps: bool,
   allCaps: bool,
   spacing: num(-100, 100),
-  link: str(4096),
+  link: (v) => str(4096)(v) && isSafeLink(v as string),
   suggestion: obj({ id: str(), kind: oneOf('insert', 'delete', 'format') }, ['id', 'kind']),
 };
 export const isTextStyle = obj(TEXT_STYLE_FIELDS);

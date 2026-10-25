@@ -86,8 +86,21 @@ export function LocalDoc({ docId }: { docId: string }) {
     saveTimer.current = window.setTimeout(() => void flushRef.current(), SAVE_DELAY_MS);
   };
 
-  // Save unsaved changes on leaving the page; a document only looked at is not written.
-  useEffect(() => () => void flushRef.current(), []);
+  // Save unsaved changes on leaving the page, and when the tab is hidden or
+  // closed (no unmount happens then); a document only looked at is not written.
+  useEffect(() => {
+    const onHide = () => void flushRef.current();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') onHide();
+    };
+    window.addEventListener('pagehide', onHide);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+      void flushRef.current();
+    };
+  }, []);
 
   useBreadcrumbs([{ label: tw.breadcrumb.home, href: preview ? '/preview/welddocs' : '/welddocs' }, { label: name || tw.home.untitled }], {
     enabled: !!loaded,

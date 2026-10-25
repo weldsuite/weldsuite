@@ -41,6 +41,7 @@ vi.mock('@weldsuite/db/lib/desk', () => ({
 }));
 
 vi.mock('../lib/desk-live', () => ({
+  autoAssignConversation: vi.fn((_env: unknown, _db: unknown, _org: unknown, c: unknown) => Promise.resolve(c)),
   isPublicMessage: () => true,
   notifyTeamOfVisitorMessage: vi.fn(() => Promise.resolve()),
   publishConversationUpdated: vi.fn(() => Promise.resolve()),

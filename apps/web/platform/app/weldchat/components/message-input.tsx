@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { Plus, Smile, AtSign, X, CornerDownRight, MessageSquare, FileText, Baseline, Bold, Italic, Underline, Strikethrough, Code, List, ListOrdered, Video, Mic, Square, Loader2, Pencil } from 'lucide-react';
 import {
   Popover,
@@ -23,15 +23,21 @@ import { TypingIndicator } from './typing-indicator';
 import { useClipRecorder } from '@/hooks/weldchat/use-clip-recorder';
 import { useDraftAutosave } from '@/hooks/weldchat/use-draft-autosave';
 import type { ChatAttachment, ChatClipAttachment } from '@weldsuite/db/schema';
-import { renderChatTokens, encodeEntityToken } from '../lib/render-tokens';
+import { renderChatTokens, encodeEntityToken, dropFileTokens, fileTokenIds } from '../lib/render-tokens';
 import {
+  completeInlineImage,
   contentToFragment,
+  createInlineImage,
+  discardInlineImage,
+  editorHasContent,
   editorToContent,
   extractMentions,
   getMentionQueryAtCaret,
+  insertNodesAtCaret,
   loadContentIntoEditor,
   placeCaretAtEnd,
   replaceMentionQuery,
+  type InlineFileView,
 } from '../lib/composer-content';
 import { fitAttachments, isChatUploadTooLarge, MAX_CHAT_UPLOAD_BYTES, MAX_MESSAGE_ATTACHMENTS, uploadChatFile } from '../lib/chat-upload';
 import { useI18n } from '@/lib/i18n/provider';
@@ -145,10 +151,18 @@ export function MessageInput({
   const [content, setContent] = useState('');
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
+  // Attachments shown in the strip above the text. Images pasted into the
+  // text live in the editor as `<@file:id>` nodes instead (see knownFilesRef).
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
+  // Every file this composer uploaded or restored, by id. The editor nodes only
+  // carry the id, so a pasted node can't smuggle in a file it didn't upload,
+  // and an image deleted then brought back with undo still resolves.
+  const knownFilesRef = useRef(new Map<string, MessageAttachment>());
   // Files still going through presign → PUT → confirm. Sending is blocked
   // while > 0 so a pasted screenshot can't be dropped by an early Enter.
   const [uploadingCount, setUploadingCount] = useState(0);
+  // The part of uploadingCount that shows as a placeholder in the text rather than in the strip.
+  const [inlineUploadingCount, setInlineUploadingCount] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
   const [showClipRecorder, setShowClipRecorder] = useState(false);
@@ -173,19 +187,31 @@ export function MessageInput({
   const { onKeystroke, onSend: onTypingSend } = useTypingPublisher(client ?? null);
   const { data: membersData } = useWorkspaceMembers();
 
+  // Images placed in the text, in the order they appear there.
+  const inlineAttachments = useMemo(
+    () => fileTokenIds(content).flatMap((id) => knownFilesRef.current.get(id) ?? []),
+    [content],
+  );
+  // What the message carries: the strip's files plus the ones placed in the text.
+  const allAttachments = useMemo(() => [...attachments, ...inlineAttachments], [attachments, inlineAttachments]);
+
   // Draft autosave — persists content while the user types and restores on mount.
   const { deleteDraft: deleteSavedDraft } = useDraftAutosave({
     channelId,
     threadParentMessageId: parentId,
     content,
-    attachments,
+    attachments: allAttachments,
     onRestore: (restoredContent, restoredAttachments) => {
       // Only restore if the editor is still empty (race guard).
-      if (!editorRef.current || editorRef.current.innerText.trim().length > 0) return;
+      if (!editorRef.current || editorHasContent(editorRef.current)) return;
+      for (const att of restoredAttachments) knownFilesRef.current.set(att.id, att);
+      // Files the text places go back into the text; the rest into the strip.
+      const placed = new Set(fileTokenIds(restoredContent));
+      const strip = restoredAttachments.filter((att) => !placed.has(att.id));
       setContent(restoredContent);
-      if (restoredAttachments.length > 0) setAttachments(restoredAttachments);
-      // Render the content into the contentEditable editor (mentions as chips).
-      loadContentIntoEditor(editorRef.current, restoredContent, membersMap.current);
+      if (strip.length > 0) setAttachments(strip);
+      // Render the content into the contentEditable editor (mentions as chips, files as images).
+      loadContentIntoEditor(editorRef.current, restoredContent, membersMap.current, knownFilesRef.current);
     },
   });
 
@@ -207,7 +233,7 @@ export function MessageInput({
   useEffect(() => {
     if (!parentId) return;
     const draft = takeThreadDraft(parentId);
-    if (!draft || !editorRef.current || editorRef.current.innerText.trim().length > 0) return;
+    if (!draft || !editorRef.current || editorHasContent(editorRef.current)) return;
     loadContentIntoEditor(editorRef.current, draft, membersMap.current);
     setContent(draft);
     editorRef.current.focus();
@@ -232,6 +258,7 @@ export function MessageInput({
   const clearInput = useCallback(() => {
     setContent('');
     setAttachments([]);
+    knownFilesRef.current = new Map();
     setReplyTo(null);
     setEditingMessage(null);
     setSlashQuery(null);
@@ -257,7 +284,12 @@ export function MessageInput({
     if (!editingMessage) return;
     setReplyTo(null);
     if (editorRef.current) {
-      loadContentIntoEditor(editorRef.current, editingMessage.content, membersMap.current);
+      // Show the images the message places in its text; the tokens stay as they are.
+      const files = new Map<string, InlineFileView>();
+      for (const att of editingMessage.attachments ?? []) {
+        if (att.url) files.set(att.id, { url: att.url, fileName: att.fileName ?? '' });
+      }
+      loadContentIntoEditor(editorRef.current, editingMessage.content, membersMap.current, files);
       setContent(editingMessage.content);
       editorRef.current.focus();
       placeCaretAtEnd(editorRef.current);
@@ -325,9 +357,14 @@ export function MessageInput({
 
   const handleSend = useCallback(() => {
     const raw = editorRef.current ? editorToContent(editorRef.current) : content;
-    const trimmed = raw.trim();
     if (uploadingCount > 0) return;
-    if (!trimmed && attachments.length === 0) return;
+    // An edit keeps the message's own file tokens; a new message only places
+    // files this composer uploaded or restored.
+    const known = knownFilesRef.current;
+    const trimmed = (editingMessage ? raw : dropFileTokens(raw, (id) => known.has(id))).trim();
+    const inline = fileTokenIds(trimmed).flatMap((id) => known.get(id) ?? []);
+    const outgoing = [...attachments, ...inline];
+    if (!trimmed && outgoing.length === 0) return;
 
     // Intercept slash commands that should never be posted as a message.
     if (trimmed.startsWith('/createtask')) {
@@ -352,7 +389,7 @@ export function MessageInput({
 
     if (onSubmitOverride) {
       void Promise.resolve(
-        onSubmitOverride({ content: trimmed, mentions: extractMentions(trimmed), attachments }),
+        onSubmitOverride({ content: trimmed, mentions: extractMentions(trimmed), attachments: outgoing }),
       );
       clearInput();
       return;
@@ -367,7 +404,7 @@ export function MessageInput({
       parentId,
       ...replyFields(replyTo),
       mentions: mentions.length > 0 ? mentions : undefined,
-      attachments: attachments.length > 0 ? attachments : undefined,
+      attachments: outgoing.length > 0 ? outgoing : undefined,
       _optimisticId: `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`,
     });
     clearInput();
@@ -519,8 +556,7 @@ export function MessageInput({
   const handleInput = useCallback(() => {
     if (!editorRef.current) return;
     // Clear leftover empty elements so :empty placeholder shows
-    const innerText = editorRef.current.innerText.trim();
-    if (!innerText || innerText === '\n') {
+    if (!editorHasContent(editorRef.current)) {
       editorRef.current.innerHTML = '';
     }
     const raw = editorToContent(editorRef.current);
@@ -698,10 +734,14 @@ export function MessageInput({
   }, [updateActiveFormats, handleInput]);
 
   // Upload one or more File objects (paperclip, paste and the drag-and-drop
-  // overlay all land here), then push them onto the composer's attachment
-  // list. Files over the size limit, or past the per-message count, are
-  // refused before anything is uploaded.
-  const uploadFiles = useCallback(async (files: FileList | File[]) => {
+  // overlay all land here). By default they join the strip above the text;
+  // files `inline` picks are placed at the caret as images in the text, shown
+  // from a local preview while they upload. Files over the size limit, or past
+  // the per-message count, are refused before anything is uploaded.
+  const uploadFiles = useCallback(async (
+    files: FileList | File[],
+    options: { inline?: (file: File) => boolean } = {},
+  ) => {
     const picked = Array.from(files);
     if (picked.length === 0 || !attachmentsEnabled) return;
     const maxMb = MAX_CHAT_UPLOAD_BYTES / (1024 * 1024);
@@ -712,12 +752,36 @@ export function MessageInput({
     }
     const { accepted: list, rejected } = fitAttachments(
       picked.filter((file) => !isChatUploadTooLarge(file)),
-      attachments.length + uploadingCount,
+      attachments.length + inlineAttachments.length + uploadingCount,
     );
     if (rejected.length > 0) {
       toast.error(t.weldchat.messageInput.tooManyAttachments.replace('{count}', String(MAX_MESSAGE_ATTACHMENTS)));
     }
     if (list.length === 0) return;
+
+    const editor = editorRef.current;
+    const isInline = options.inline;
+    // One slot per file in `list`: its node in the text, or null for the strip.
+    const placeholders = list.map((file) =>
+      editor && isInline?.(file)
+        ? createInlineImage(null, { url: URL.createObjectURL(file), fileName: file.name })
+        : null,
+    );
+    const inlineNodes = placeholders.filter((node): node is HTMLSpanElement => node !== null);
+    if (editor && inlineNodes.length > 0) {
+      insertNodesAtCaret(editor, inlineNodes);
+      setInlineUploadingCount((n) => n + inlineNodes.length);
+    }
+    // An inline file is done once its node is filled in (or removed); a strip
+    // file once the whole batch lands in `attachments`.
+    const settleInline = () => {
+      setUploadingCount((n) => n - 1);
+      setInlineUploadingCount((n) => n - 1);
+    };
+    const syncEditor = () => {
+      if (editor) setContent(editorToContent(editor));
+    };
+
     setUploadingCount((n) => n + list.length);
     try {
       const client = await getClient();
@@ -725,36 +789,56 @@ export function MessageInput({
       // append the results in the order the files were picked. A successful file
       // stays counted in `uploadingCount` until the batch lands in `attachments`,
       // so a second selection can't push past the cap in between.
-      const uploadedAttachments = await Promise.all(list.map(async (file) => {
+      const uploadedAttachments = await Promise.all(list.map(async (file, i) => {
+        const placeholder = placeholders[i];
         try {
           const uploaded = await uploadChatFile(client, file, channelId);
-          return {
+          const attachment: MessageAttachment = {
             id: uploaded.id,
             fileName: file.name,
             fileSize: file.size,
             mimeType: uploaded.mimeType,
             url: uploaded.url,
           };
+          if (!placeholder) return attachment;
+          knownFilesRef.current.set(attachment.id, attachment);
+          // Also when the node was deleted while uploading: undo can bring it back.
+          completeInlineImage(placeholder, attachment.id, attachment.url);
+          settleInline();
+          syncEditor();
+          return null;
         } catch (err) {
           console.error('File upload failed:', err);
           toast.error(t.weldchat.messageInput.uploadFailed.replace('{fileName}', file.name));
-          setUploadingCount((n) => n - 1);
+          if (placeholder) {
+            discardInlineImage(placeholder);
+            settleInline();
+            syncEditor();
+          } else {
+            setUploadingCount((n) => n - 1);
+          }
           return null;
         }
       }));
       const added = uploadedAttachments.filter((a): a is NonNullable<typeof a> => a !== null);
-      setAttachments((prev) => [...prev, ...added]);
+      if (added.length > 0) setAttachments((prev) => [...prev, ...added]);
       setUploadingCount((n) => n - added.length);
     } catch (err) {
       // getClient() failed before any file started — release them all.
       console.error('File upload failed:', err);
       setUploadingCount((n) => n - list.length);
+      if (inlineNodes.length > 0) {
+        for (const node of inlineNodes) discardInlineImage(node);
+        setInlineUploadingCount((n) => n - inlineNodes.length);
+        syncEditor();
+      }
     }
-  }, [getClient, t, attachmentsEnabled, attachments.length, uploadingCount, channelId]);
+  }, [getClient, t, attachmentsEnabled, attachments.length, inlineAttachments.length, uploadingCount, channelId]);
 
   // Pasting a screenshot (or an image copied from another app) into the
   // contentEditable would otherwise inline an <img> that htmlToContent
-  // drops on send. Route clipboard files through the attachment upload.
+  // drops on send. Route clipboard files through the upload instead: images
+  // are placed where the caret is, other files join the strip.
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLDivElement>) => {
     const files = Array.from(e.clipboardData.items)
       .filter((item) => item.kind === 'file')
@@ -773,7 +857,7 @@ export function MessageInput({
       const suffix = files.length > 1 ? `-${i + 1}` : '';
       return new File([file], `pasted-image-${stamp}${suffix}.${ext}`, { type: file.type });
     });
-    void uploadFiles(named);
+    void uploadFiles(named, { inline: (file) => file.type.startsWith('image/') });
   }, [editingMessage, attachmentsEnabled, uploadFiles]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -827,10 +911,12 @@ export function MessageInput({
 
   const hasContent = content.trim() || attachments.length > 0;
   const isUploading = uploadingCount > 0;
+  // Inline uploads show as placeholders in the text, not in the strip.
+  const isStripUploading = uploadingCount > inlineUploadingCount;
   const canSend = hasContent && !isPending && !isUploading;
 
   let containerTopPadding = 'pt-[10px]';
-  if (replyTo || attachments.length > 0 || isUploading) containerTopPadding = 'pt-[20px]';
+  if (replyTo || attachments.length > 0 || isStripUploading) containerTopPadding = 'pt-[20px]';
 
   return (
     <div className="px-2 pb-2 md:px-4 md:pb-4 flex-shrink-0 relative">
@@ -871,6 +957,33 @@ export function MessageInput({
         .dark .entity-mention-badge {
           background: rgb(46 16 101);
           color: rgb(196 181 253);
+        }
+        .inline-image {
+          display: inline-block;
+          vertical-align: bottom;
+          margin: 2px 2px;
+          min-width: 40px;
+          min-height: 40px;
+          border-radius: 8px;
+          border: 1px solid rgb(229 231 235);
+          background: rgb(249 250 251);
+          overflow: hidden;
+          cursor: default;
+          user-select: none;
+        }
+        .dark .inline-image {
+          border-color: rgb(255 255 255 / 0.1);
+          background: rgb(255 255 255 / 0.05);
+        }
+        .inline-image img {
+          display: block;
+          max-height: 120px;
+          max-width: min(240px, 100%);
+          object-fit: contain;
+        }
+        .inline-image[data-pending] {
+          opacity: 0.55;
+          animation: pulse 1.5s ease-in-out infinite;
         }
         [contenteditable]:empty:before {
           content: attr(data-placeholder);
@@ -982,7 +1095,7 @@ export function MessageInput({
             )}
 
             {/* Attachment previews */}
-            {(attachments.length > 0 || isUploading) && (
+            {(attachments.length > 0 || isStripUploading) && (
               <div className="flex flex-wrap gap-2 mb-3 px-[10px]">
                 {attachments.map((att, i) => (
                   <div key={att.id} className="relative group">
@@ -1019,7 +1132,7 @@ export function MessageInput({
                     )}
                   </div>
                 ))}
-                {isUploading && (
+                {isStripUploading && (
                   <output className="flex items-center gap-2 bg-gray-100 dark:bg-secondary rounded-lg px-3 py-2 text-sm text-gray-500 dark:text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
                     {t.weldchat.messageInput.uploading}

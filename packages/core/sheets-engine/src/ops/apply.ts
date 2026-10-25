@@ -20,6 +20,7 @@ import {
   type SheetFilter,
 } from '../model/rules';
 import { sheetFromJSON, sheetToJSON, type DefinedName, type Sheet, type SheetProps } from '../model/workbook';
+import { cloneChart, type Chart } from '../model/charts';
 import { nameKey, normalize, type AxisEntry, type CellPatch, type NameKey, type Op } from './types';
 
 /** Applies `op`, recalculates, and returns its inverse. */
@@ -148,11 +149,12 @@ function applyInner(engine: Engine, op: Op): Op {
     case 'setFilter':
     case 'patchConditionalFormats':
     case 'patchValidations':
+    case 'patchCharts':
       return applyRuleOp(engine, op);
   }
 }
 
-function applyRuleOp(engine: Engine, op: OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations'>): Op {
+function applyRuleOp(engine: Engine, op: OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>): Op {
   if (op.type === 'setFilter') {
     const previous = engine.setFilter(op.sheetId, op.filter);
     return { type: 'setFilter', sheetId: op.sheetId, filter: previous ? cloneFilter(previous) : null };
@@ -162,6 +164,11 @@ function applyRuleOp(engine: Engine, op: OpOf<'setFilter' | 'patchConditionalFor
     const { list, back } = patchById(sheet.conditionalFormats, op.set, op.remove, cloneFormat);
     sheet.conditionalFormats = sortFormats(list);
     return { type: 'patchConditionalFormats', sheetId: op.sheetId, ...back };
+  }
+  if (op.type === 'patchCharts') {
+    const { list, back } = patchById(sheet.charts, op.set, op.remove, cloneChart);
+    sheet.charts = list;
+    return { type: 'patchCharts', sheetId: op.sheetId, ...back };
   }
   const { list, back } = patchById(sheet.validations, op.set, op.remove, cloneValidation);
   sheet.validations = list;
@@ -208,6 +215,7 @@ interface SheetRules {
   filter: SheetFilter | null;
   formats: ConditionalFormat[];
   validations: DataValidation[];
+  charts: Chart[];
 }
 
 function captureRules(engine: Engine): SheetRules[] {
@@ -216,6 +224,7 @@ function captureRules(engine: Engine): SheetRules[] {
     filter: sheet.filter ? cloneFilter(sheet.filter) : null,
     formats: sheet.conditionalFormats.map(cloneFormat),
     validations: sheet.validations.map(cloneValidation),
+    charts: sheet.charts.map(cloneChart),
   }));
 }
 
@@ -230,6 +239,8 @@ function rulesBack(engine: Engine, before: SheetRules[]): Op[] {
     if (formats) ops.push({ type: 'patchConditionalFormats', sheetId: b.sheetId, ...formats });
     const validations = patchBack(b.validations, sheet.validations);
     if (validations) ops.push({ type: 'patchValidations', sheetId: b.sheetId, ...validations });
+    const charts = patchBack(b.charts, sheet.charts);
+    if (charts) ops.push({ type: 'patchCharts', sheetId: b.sheetId, ...charts });
   }
   return ops;
 }

@@ -30,7 +30,9 @@ export type DueIndexKind =
   | 'reach_send'
   | 'reach_warmup'
   // WeldFlow (flow-api): soft-deleted project files / attachments reaching the end of retention.
-  | 'file_purge';
+  | 'file_purge'
+  // WeldSign (sign-api): signing reminders coming due, and requests reaching their expiry.
+  | 'sign_lifecycle';
 
 /** A due row as listed by the sweep; `version` is the compare-and-set token. */
 export interface DueIndexRow {

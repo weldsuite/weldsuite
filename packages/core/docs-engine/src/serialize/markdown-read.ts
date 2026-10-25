@@ -7,7 +7,7 @@ import { cleanStoryText, LINE_BREAK, TAB } from '../model/chars';
 import { ContentBuilder, type Fragment, type TableCellInput } from '../model/builder';
 import { bulletList, checkList, numberedList } from '../model/defaults';
 import { newId } from '../model/ids';
-import type { ListDef, ParaProps, TextStyle } from '../model/styles';
+import { isSafeLink, type ListDef, type ParaProps, type TextStyle } from '../model/styles';
 
 export interface MarkdownReadOptions {
   makeId?: () => string;
@@ -387,7 +387,7 @@ export function parseInline(src: string): InlineNode[] {
       const link = readLink(src, i);
       if (link) {
         pushText();
-        tokens.push({ type: 'style', style: /^(https?:|mailto:|tel:|#)/i.test(link.url) ? { link: link.url } : {}, children: parseInline(link.label) });
+        tokens.push({ type: 'style', style: isSafeLink(link.url) ? { link: link.url } : {}, children: parseInline(link.label) });
         i = link.end;
         continue;
       }

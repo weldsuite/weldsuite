@@ -40,6 +40,7 @@ import {
   removeLink,
   replaceAll,
   replaceRange,
+  replacementFor,
   resolvedParagraphAt,
   resolvedStyleAt,
   selectionRange,
@@ -595,6 +596,13 @@ export class DocController {
     this.apply(clearFormatting(this.doc, this.selection));
   }
 
+  /** The link under a point of a page, if there is one. */
+  linkAt(page: number, x: number, y: number): string | null {
+    const hit = hitTest(this.layout, page, x, y);
+    if (!hit) return null;
+    return linkAt(this.doc, hit.story, hit.pos)?.url ?? null;
+  }
+
   link(): { url: string; text: string } | null {
     const l = linkAt(this.doc, this.selection.story, this.selection.head);
     if (l) return { url: l.url, text: this.doc.stories.get(this.selection.story)!.text(l.from, l.to) };
@@ -740,9 +748,10 @@ export class DocController {
 
   replaceCurrent(replacement: string): void {
     const m = this.find?.matches[this.find.index];
-    if (!m) return;
-    const op = replaceRange(this.doc, m.story, m.from, m.to, replacement);
-    this.apply({ op, selection: caretAt(m.story, m.from + replacement.length) });
+    if (!m || !this.find) return;
+    const text = replacementFor(this.doc, this.find.query, this.find.options, m, replacement);
+    const op = replaceRange(this.doc, m.story, m.from, m.to, text);
+    this.apply({ op, selection: caretAt(m.story, m.from + text.length) });
     this.findStep(1);
   }
 

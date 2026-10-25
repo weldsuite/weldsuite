@@ -13,7 +13,7 @@
  *    without touching the rest of the editor.
  */
 
-import { parseChatTokens, encodeEntityToken } from './render-tokens';
+import { parseChatTokens, encodeEntityToken, encodeFileToken } from './render-tokens';
 import type { EntitySheetType } from '@/components/entity-sheet/types';
 
 const TEXT_NODE = 3;
@@ -54,16 +54,78 @@ export function createEntityBadge(type: string, id: string, label: string): HTML
   return el;
 }
 
+/** What the editor shows for an inline attachment. */
+export interface InlineFileView {
+  url: string;
+  fileName: string;
+}
+
+/**
+ * Inline image (`<@file:id>`). With an `id` it serialises to the token; without
+ * one it is still uploading and serialises to nothing. `view` is null when the
+ * file isn't known here (an edit of a message whose attachments weren't loaded):
+ * the token is kept and shown as an empty frame.
+ */
+export function createInlineImage(id: string | null, view: InlineFileView | null): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.className = 'inline-image';
+  el.setAttribute('contenteditable', 'false');
+  if (id) el.dataset.fileId = id;
+  else el.dataset.pending = '';
+  if (view) {
+    const img = document.createElement('img');
+    img.src = view.url;
+    img.alt = view.fileName;
+    img.draggable = false;
+    el.appendChild(img);
+  }
+  return el;
+}
+
+/** An inline image finished uploading: give it its attachment id and the stored file. */
+export function completeInlineImage(el: HTMLElement, id: string, url: string): void {
+  el.dataset.fileId = id;
+  delete el.dataset.pending;
+  const img = el.querySelector('img');
+  if (!img) return;
+  const previous = img.src;
+  // Swap once the stored copy has loaded, so the local preview doesn't blink out.
+  const loader = new Image();
+  const swap = () => {
+    img.src = url;
+    if (previous.startsWith('blob:')) URL.revokeObjectURL(previous);
+  };
+  loader.onload = swap;
+  loader.onerror = swap;
+  loader.src = url;
+}
+
+/** An inline image failed to upload: take it out of the text and free its local preview. */
+export function discardInlineImage(el: HTMLElement): void {
+  const src = el.querySelector('img')?.src;
+  if (src?.startsWith('blob:')) URL.revokeObjectURL(src);
+  el.remove();
+}
+
 // ---------------------------------------------------------------------------
 // Content → DOM
 // ---------------------------------------------------------------------------
 
-/** Build editor nodes for raw content: text as text nodes, `<@…>` tokens as chips. */
-export function contentToFragment(text: string, membersMap: Map<string, string>): DocumentFragment {
+/**
+ * Build editor nodes for raw content: text as text nodes, `<@…>` tokens as
+ * chips, `<@file:id>` as inline images looked up in `files`.
+ */
+export function contentToFragment(
+  text: string,
+  membersMap: Map<string, string>,
+  files?: ReadonlyMap<string, InlineFileView>,
+): DocumentFragment {
   const fragment = document.createDocumentFragment();
   for (const seg of parseChatTokens(text)) {
     if (seg.kind === 'text') {
       fragment.appendChild(document.createTextNode(seg.text));
+    } else if (seg.kind === 'file') {
+      fragment.appendChild(createInlineImage(seg.attachmentId, files?.get(seg.attachmentId) ?? null));
     } else if (seg.kind === 'entity') {
       fragment.appendChild(createEntityBadge(seg.entityType, seg.entityId, seg.label ?? ''));
     } else if (seg.userId === 'everyone' && !seg.displayName) {
@@ -79,15 +141,55 @@ export function contentToFragment(text: string, membersMap: Map<string, string>)
 }
 
 /** Raw content as editor HTML. Text is escaped by the DOM serialiser, never interpolated. */
-export function contentToHtml(text: string, membersMap: Map<string, string>): string {
+export function contentToHtml(
+  text: string,
+  membersMap: Map<string, string>,
+  files?: ReadonlyMap<string, InlineFileView>,
+): string {
   const holder = document.createElement('div');
-  holder.appendChild(contentToFragment(text, membersMap));
+  holder.appendChild(contentToFragment(text, membersMap, files));
   return holder.innerHTML;
 }
 
-/** Replace the editor's content with `text`, rendering mention tokens as chips. */
-export function loadContentIntoEditor(editor: HTMLElement, text: string, membersMap: Map<string, string>): void {
-  editor.replaceChildren(contentToFragment(text, membersMap));
+/** Replace the editor's content with `text`, rendering mention tokens as chips and file tokens as images. */
+export function loadContentIntoEditor(
+  editor: HTMLElement,
+  text: string,
+  membersMap: Map<string, string>,
+  files?: ReadonlyMap<string, InlineFileView>,
+): void {
+  editor.replaceChildren(contentToFragment(text, membersMap, files));
+}
+
+/** Whether the editor holds anything to send or keep: text, or an inline image. */
+export function editorHasContent(editor: HTMLElement): boolean {
+  return (editor.textContent ?? '').trim().length > 0 || editor.querySelector('.inline-image') !== null;
+}
+
+/**
+ * Insert `nodes` at the caret (replacing any selection), or at the end when
+ * the caret isn't in the editor. The caret ends up after the last node.
+ */
+export function insertNodesAtCaret(editor: HTMLElement, nodes: Node[]): void {
+  if (nodes.length === 0) return;
+  const sel = window.getSelection();
+  let range: Range;
+  if (sel && sel.rangeCount > 0 && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+    range = sel.getRangeAt(0);
+    range.deleteContents();
+  } else {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  const fragment = document.createDocumentFragment();
+  for (const node of nodes) fragment.appendChild(node);
+  range.insertNode(fragment);
+  const caret = document.createRange();
+  caret.setStartAfter(nodes[nodes.length - 1]);
+  caret.collapse(true);
+  sel?.removeAllRanges();
+  sel?.addRange(caret);
 }
 
 /** Put the caret at the end of the editor. */
@@ -188,6 +290,10 @@ function serializeNode(node: Node): string {
       return encodeEntityToken(entity.slice(0, colonIdx) as EntitySheetType, entity.slice(colonIdx + 1), label);
     }
     return el.textContent ?? '';
+  }
+  if (el.classList.contains('inline-image')) {
+    // Still uploading (no id yet) → nothing; sending waits for uploads anyway.
+    return el.dataset.fileId ? encodeFileToken(el.dataset.fileId) : '';
   }
   if (el.classList.contains('mention-badge')) {
     const userId = el.dataset.userid;

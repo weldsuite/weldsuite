@@ -38,6 +38,12 @@ bucket_name = "weldsuite-storage"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a new email conversation (ADR DESK-005). Without it the pick runs locally.
+[[services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-dev"
+
 # Entity-events hub — inbound workspace mail also publishes email:created
 # (personal mail:new toast path stays on REALTIME).
 [[queues.producers]]
@@ -70,6 +76,10 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 [[env.test.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+
+[[env.test.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
 
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
@@ -105,6 +115,10 @@ id = "99689831a815455ba7f836175e5e17c9"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker"
 
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"

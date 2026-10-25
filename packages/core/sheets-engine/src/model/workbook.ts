@@ -18,6 +18,7 @@ import {
   type DataValidation,
   type SheetFilter,
 } from './rules';
+import { cloneChart, type Chart } from './charts';
 
 export const DEFAULT_ROW_HEIGHT = 21;
 export const DEFAULT_COL_WIDTH = 100;
@@ -46,6 +47,8 @@ export class Sheet {
   filter: SheetFilter | null = null;
   conditionalFormats: ConditionalFormat[] = [];
   validations: DataValidation[] = [];
+  /** In drawing order: a later chart is drawn over an earlier one. */
+  charts: Chart[] = [];
 
   constructor(
     readonly id: string,
@@ -130,6 +133,7 @@ export function sheetToJSON(s: Sheet): SheetSnapshot {
   if (s.filter) snap.filter = cloneFilter(s.filter);
   if (s.conditionalFormats.length) snap.conditionalFormats = sortFormats(s.conditionalFormats).map(cloneFormat);
   if (s.validations.length) snap.validations = s.validations.map(cloneValidation);
+  if (s.charts.length) snap.charts = s.charts.map(cloneChart);
   return snap;
 }
 
@@ -146,6 +150,7 @@ export function sheetFromJSON(s: SheetSnapshot): Sheet {
   sheet.filter = s.filter ? cloneFilter(s.filter) : null;
   sheet.conditionalFormats = (s.conditionalFormats ?? []).map(cloneFormat);
   sheet.validations = (s.validations ?? []).map(cloneValidation);
+  sheet.charts = (s.charts ?? []).map(cloneChart);
   return sheet;
 }
 
@@ -164,6 +169,7 @@ export interface SheetSnapshot {
   filter?: SheetFilter;
   conditionalFormats?: ConditionalFormat[];
   validations?: DataValidation[];
+  charts?: Chart[];
 }
 
 export interface WorkbookSnapshot {

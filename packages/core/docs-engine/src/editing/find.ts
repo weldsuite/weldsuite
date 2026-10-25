@@ -82,23 +82,46 @@ export function findAll(doc: DocModel, query: string, options: FindOptions = {},
 }
 
 /**
+ * The text a match is replaced with. For a regular expression, `$1`, `$&`,
+ * `$<name>` and friends come from the match found in its full story text,
+ * so lookarounds and anchors see the same context they matched in.
+ */
+export function replacementFor(doc: DocModel, query: string, options: FindOptions, match: Match, replacement: string): string {
+  if (!options.regex) return replacement;
+  const pattern = queryPattern(query, options);
+  const story = doc.stories.get(match.story);
+  if (!pattern || !story) return replacement;
+  const sticky = new RegExp(pattern.source, `${pattern.flags.replace('g', '')}y`);
+  const text = story.text();
+  sticky.lastIndex = match.from;
+  const m = sticky.exec(text);
+  return m ? expandReplacement(replacement, m, text) : replacement;
+}
+
+/** `String.prototype.replace`'s `$` patterns, for one match. */
+function expandReplacement(replacement: string, m: RegExpExecArray, input: string): string {
+  return replacement.replace(/\$(\$|&|`|'|\d{1,2}|<[^>]*>)/g, (whole, token: string) => {
+    if (token === '$') return '$';
+    if (token === '&') return m[0];
+    if (token === '`') return input.slice(0, m.index);
+    if (token === "'") return input.slice(m.index + m[0].length);
+    if (token.startsWith('<')) return m.groups?.[token.slice(1, -1)] ?? '';
+    const n = Number(token);
+    return n > 0 && n < m.length ? (m[n] ?? '') : whole;
+  });
+}
+
+/**
  * One op replacing every match with `replacement` (for a regular
  * expression, `$1` and friends refer to its groups). Matches are replaced
  * last to first within each story, so earlier positions stay valid.
  */
 export function replaceAll(doc: DocModel, query: string, replacement: string, options: FindOptions = {}): { op: Op; count: number } {
   const matches = findAll(doc, query, options);
-  const pattern = options.regex ? queryPattern(query, options) : null;
   const ops: Op[] = [];
   for (let i = matches.length - 1; i >= 0; i--) {
     const m = matches[i]!;
-    let text = replacement;
-    if (pattern) {
-      const source = doc.stories.get(m.story)!.text(m.from, m.to);
-      pattern.lastIndex = 0;
-      text = source.replace(pattern, replacement);
-    }
-    ops.push(replaceRange(doc, m.story, m.from, m.to, text));
+    ops.push(replaceRange(doc, m.story, m.from, m.to, replacementFor(doc, query, options, m, replacement)));
   }
   return { op: batch(ops), count: matches.length };
 }

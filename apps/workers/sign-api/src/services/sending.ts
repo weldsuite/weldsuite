@@ -13,11 +13,16 @@ import type { SignEnvelope, SignRecipient } from '@weldsuite/db/schema';
 import type { Env } from '../types';
 import { invalid, notADraft } from './errors';
 import { recordSignEvent } from './events';
-import { createLink, revokeEnvelopeLinks, signingLink } from './links';
+import { createLink, revokeTokens, signingLink } from './links';
 import { sendRequests, type MailContext } from './mail';
+import { scheduleLifecycle } from './schedule';
 import { loadSignSettings } from './settings';
 
 const { signEnvelopes, signRecipients, signDocuments, signFields } = schema;
+
+/** Why a request, reminder or new link did not go out. */
+export const EMAIL_LIMIT_MESSAGE =
+  "The workspace's email limits do not allow sending this right now. Try again later or contact WeldSuite support.";
 
 export interface WorkspaceRef {
   /** Clerk org id (tenant DB, events). */
@@ -63,27 +68,56 @@ export function nextGroup(envelope: Pick<SignEnvelope, 'signingOrderEnabled'>, r
   return pending.filter((r) => r.routingOrder === first);
 }
 
+export interface MailedLinks {
+  /** Addresses the mail went out to. */
+  sent: string[];
+  /** The new link token per recipient id. */
+  tokens: Map<string, string>;
+}
+
+/**
+ * Create a fresh link for each recipient and email it: a signing request, or
+ * a reminder. `'refused'` when the outbound guard said no; the new links are
+ * taken back then, so nothing changed.
+ */
+export async function mailNewLinks(
+  ctx: SendContext,
+  envelope: SignEnvelope,
+  recipients: Pick<SignRecipient, 'id' | 'name' | 'email' | 'locale'>[],
+  opts: { reminder?: boolean } = {},
+): Promise<'refused' | MailedLinks> {
+  const tokens = new Map<string, string>();
+  for (const recipient of recipients) {
+    tokens.set(
+      recipient.id,
+      await createLink(ctx.master, {
+        workspaceId: ctx.workspaceId,
+        clerkOrgId: ctx.clerkOrgId,
+        envelopeId: envelope.id,
+        recipientId: recipient.id,
+        expiresAt: envelope.expiresAt,
+      }),
+    );
+  }
+  const mail: MailContext = { env: ctx.env, db: ctx.db, clerkOrgId: ctx.clerkOrgId, envelope, master: ctx.master };
+  const result = await sendRequests(
+    mail,
+    recipients.map((recipient) => ({ recipient, url: signingLink(ctx.env.SIGN_PORTAL_URL, tokens.get(recipient.id)!) })),
+    opts,
+  );
+  if (result === 'refused') {
+    await revokeTokens(ctx.master, [...tokens.values()]);
+    return 'refused';
+  }
+  return { sent: result, tokens };
+}
+
 /** Create links for `group`, email them, and mark them sent. `'refused'` when the outbound guard said no. */
 async function emailGroup(ctx: SendContext, envelope: SignEnvelope, group: SignRecipient[], actor: Actor | null): Promise<'refused' | 'ok'> {
   if (group.length === 0) return 'ok';
-  const links = await Promise.all(
-    group.map(async (recipient) => ({
-      recipient,
-      url: signingLink(
-        ctx.env.SIGN_PORTAL_URL,
-        await createLink(ctx.master, {
-          workspaceId: ctx.workspaceId,
-          clerkOrgId: ctx.clerkOrgId,
-          envelopeId: envelope.id,
-          recipientId: recipient.id,
-          expiresAt: envelope.expiresAt,
-        }),
-      ),
-    })),
-  );
-  const mail: MailContext = { env: ctx.env, db: ctx.db, clerkOrgId: ctx.clerkOrgId, envelope, master: ctx.master };
-  const result = await sendRequests(mail, links);
-  if (result === 'refused') return 'refused';
+  const mailed = await mailNewLinks(ctx, envelope, group);
+  if (mailed === 'refused') return 'refused';
+  const result = mailed.sent;
 
   const now = new Date();
   await ctx.db
@@ -129,10 +163,7 @@ export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor:
     .orderBy(asc(signRecipients.routingOrder), asc(signRecipients.createdAt));
   const envelope: SignEnvelope = { ...draft, expiresAt: expiry };
   const outcome = await emailGroup(ctx, envelope, nextGroup(envelope, recipients), actor);
-  if (outcome === 'refused') {
-    await revokeEnvelopeLinks(ctx.master, ctx.workspaceId, draft.id);
-    throw invalid("The workspace's email limits do not allow sending this request right now. Try again later or contact WeldSuite support.");
-  }
+  if (outcome === 'refused') throw invalid(EMAIL_LIMIT_MESSAGE);
 
   const now = new Date();
   const [sent] = await ctx.db
@@ -148,6 +179,7 @@ export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor:
     actorEmail: actor.email,
     details: { expiresAt: expiry?.toISOString() ?? null, signingOrder: draft.signingOrderEnabled },
   });
+  await scheduleLifecycle(ctx.env, ctx.db, ctx.clerkOrgId);
   return sent!;
 }
 
@@ -172,6 +204,8 @@ export async function advanceAfterSigning(ctx: SendContext, envelope: SignEnvelo
     console.warn(`[sign-api] next signing group of ${envelope.id} refused by the outbound guard`);
     return 'waiting';
   }
+  // The new group's reminders join the schedule.
+  await scheduleLifecycle(ctx.env, ctx.db, ctx.clerkOrgId);
   return 'next_group';
 }
 

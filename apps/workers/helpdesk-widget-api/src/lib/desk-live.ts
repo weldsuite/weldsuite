@@ -26,6 +26,8 @@ import {
   type DeskConversation,
   type DeskMessage,
 } from '@weldsuite/db/lib/desk';
+import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
+import { generateId } from './id';
 
 export type { PublicDeskMessage, PublicDeskConversation } from '@weldsuite/db/lib/desk';
 export {
@@ -149,6 +151,35 @@ export async function publishVisitorEvent(
     if (result.status === 'rejected') {
       console.error('[widget-api] realtime publish failed:', result.reason);
     }
+  }
+}
+
+/**
+ * Auto-assignment: hand an open, unowned conversation to a teammate (when the
+ * workspace has it on) and push the `assigned` event live, so the widget shows
+ * who joined and the inbox moves the thread. Returns the conversation as it
+ * now stands; on any failure the conversation simply stays unassigned.
+ */
+export async function autoAssignConversation(
+  env: Env,
+  db: Database,
+  orgId: string,
+  conversation: DeskConversation,
+): Promise<DeskConversation> {
+  if (conversation.assigneeId || conversation.state !== 'open') return conversation;
+  try {
+    const result = await autoAssignDeskConversation(db, {
+      generateId,
+      conversationId: conversation.id,
+      pick: deskAssignmentRouterPicker(env.WORKFLOW_WORKER, orgId),
+    });
+    if (!result) return conversation;
+    const authors = await resolveAuthors(db, [result.conversation.assigneeId]);
+    await publishVisitorEvent(env, orgId, result.conversation, result.message, authors);
+    return result.conversation;
+  } catch (err) {
+    console.error('[widget-api] auto-assignment failed:', err);
+    return conversation;
   }
 }
 

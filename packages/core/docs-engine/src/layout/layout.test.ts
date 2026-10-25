@@ -297,3 +297,28 @@ describe('performance', () => {
     expect(median).toBeLessThan(50);
   });
 });
+
+describe('review fixes', () => {
+  it('keeps a pageless document on one page through page breaks', () => {
+    const b = new ContentBuilder();
+    b.addText('First').endParagraph();
+    b.addObject({ kind: 'pageBreak' }).endParagraph();
+    b.addText('Second').endParagraph({ pageBreakBefore: true });
+    const doc = docOf(b.build());
+    applyOp(doc, { type: 'setDocProps', patch: { pageless: true } });
+    const dl = layoutOf(doc);
+    expect(dl.pages).toHaveLength(1);
+    expect(Number.isFinite(dl.pages[0]!.height)).toBe(true);
+  });
+
+  it('keeps carets in step in all caps when a capital is longer (ß)', () => {
+    const doc = docOf({ text: `Straße Weg${PARA}`, runs: [[10, { allCaps: true }]] });
+    const dl = layoutOf(doc);
+    const run = bodyLines(dl)[0]!.line.runs[0]!;
+    expect(run.text).toBe('STRAßE WEG');
+    for (let pos = 0; pos <= 10; pos++) {
+      const rect = caretRect(dl, BODY, pos)!;
+      expect(hitTest(dl, rect.page, rect.x + 0.3, rect.y + rect.height / 2)?.pos).toBe(pos);
+    }
+  });
+});

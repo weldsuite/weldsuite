@@ -33,12 +33,37 @@ export type SignFieldType = (typeof SIGN_FIELD_TYPES)[number];
 export const SIGN_LOCALES = ['en', 'nl'] as const;
 export type SignLocale = (typeof SIGN_LOCALES)[number];
 
-/** List folders on the WeldSign home. */
-export const SIGN_ENVELOPE_FOLDERS = ['all', 'drafts', 'in_progress', 'completed', 'closed'] as const;
+export const SIGN_EVENT_TYPES = [
+  'created',
+  'sent',
+  'delivered',
+  'opened',
+  'code_sent',
+  'code_verified',
+  'code_failed',
+  'consented',
+  'signed',
+  'declined',
+  'reminded',
+  'resent',
+  'recipient_corrected',
+  'voided',
+  'expired',
+  'completed',
+  'downloaded',
+] as const;
+export type SignEventType = (typeof SIGN_EVENT_TYPES)[number];
+
+/**
+ * List folders on the WeldSign home. `action_required`: open requests where
+ * the signed-in member (by email) is a signer whose turn it is.
+ */
+export const SIGN_ENVELOPE_FOLDERS = ['all', 'action_required', 'drafts', 'in_progress', 'completed', 'closed'] as const;
 export type SignEnvelopeFolder = (typeof SIGN_ENVELOPE_FOLDERS)[number];
 
 /** Which statuses each folder shows; `all` shows every status. */
 export const SIGN_FOLDER_STATUSES: Record<Exclude<SignEnvelopeFolder, 'all'>, readonly SignEnvelopeStatus[]> = {
+  action_required: ['sent', 'in_progress'],
   drafts: ['draft'],
   in_progress: ['sent', 'in_progress'],
   completed: ['completed'],
@@ -202,6 +227,11 @@ export interface SignRecipientDto {
   openedAt: string | null;
   signedAt: string | null;
   declinedAt: string | null;
+  declineReason: string | null;
+  /** Last reminder, automatic or sent by hand. */
+  lastRemindedAt: string | null;
+  /** Automatic reminders sent so far. */
+  remindersSent: number;
 }
 
 export interface SignFieldDto {
@@ -252,8 +282,37 @@ export interface SignEnvelopeDetail extends SignEnvelopeSummary {
   recipients: SignRecipientCounts;
   recipientList: SignRecipientDto[];
   fields: SignFieldDto[];
+  voidedReason: string | null;
+  voidedAt: string | null;
   /** The caller may change this envelope: it is a draft, they own it (or manage WeldSign) and hold `sign_envelopes:update`. */
   canEdit: boolean;
+  /**
+   * The caller sent this request or manages WeldSign. Only owners see its
+   * activity; someone who is only a recipient sees the request itself.
+   */
+  isOwner: boolean;
+  /** An owner with `sign_envelopes:void`, and the request is still open. */
+  canVoid: boolean;
+  /** An owner with `sign_envelopes:send`, and the request is still open: remind, resend, correct an email. */
+  canRemind: boolean;
+  /** The caller's own recipient id when it is their turn to sign; they open it with "Sign now". */
+  mySignerId: string | null;
+}
+
+/** One entry of a request's activity (the evidence trail), oldest first. */
+export interface SignEventDto {
+  id: string;
+  type: SignEventType;
+  recipientId: string | null;
+  /** Name (or email) of the recipient the event is about. */
+  recipientName: string | null;
+  /** Who acted: a member for sent / reminded / voided, else the signer or nobody (the system). */
+  actorName: string | null;
+  actorEmail: string | null;
+  ip: string | null;
+  createdAt: string;
+  /** Event detail as recorded: a decline or void reason, an old and new email, a hash, … */
+  details: Record<string, unknown> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +340,33 @@ export const sendEnvelopeSchema = z.object({
   expiresAt: z.string().datetime({ offset: true }).nullish(),
 });
 export type SendSignEnvelopeInput = z.infer<typeof sendEnvelopeSchema>;
+
+// ---------------------------------------------------------------------------
+// A sent request (members)
+// ---------------------------------------------------------------------------
+
+/** Stop a sent request. Signers who already got it are told, with the reason. */
+export const voidEnvelopeSchema = z.object({
+  reason: z.string().trim().min(1).max(1000),
+});
+export type VoidSignEnvelopeInput = z.infer<typeof voidEnvelopeSchema>;
+
+/** Fix a recipient's name or email on a sent request; a signer whose turn it is gets a new link. */
+export const correctRecipientSchema = z.object({
+  name: z.string().trim().min(1).max(255).optional(),
+  email: z.string().trim().toLowerCase().email().max(320),
+});
+export type CorrectSignRecipientInput = z.infer<typeof correctRecipientSchema>;
+
+/** Signers reminded by hand; someone reminded less than an hour ago is skipped. */
+export interface SignRemindResult {
+  reminded: number;
+}
+
+/** A fresh signing link for the caller's own turn ("Sign now"). */
+export interface SignSigningLink {
+  url: string;
+}
 
 // ---------------------------------------------------------------------------
 // Signer portal (/public/sign-portal/*, called by apps/web/sign-portal)

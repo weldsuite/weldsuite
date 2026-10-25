@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
-import { caretRect, pageDisplay, selectionRects, type PageLayout } from '@weldsuite/docs-engine';
+import { caretRect, isSafeLink, pageDisplay, selectionRects, type PageLayout } from '@weldsuite/docs-engine';
 import { useI18n } from '@/lib/i18n/provider';
 import type { DocController } from '../model/doc-controller';
 import { FRAGMENT_TYPE } from '../model/clipboard';
@@ -142,11 +142,12 @@ export function PageView({ controller, scrollRef }: { controller: DocController;
       }
     }
     if ((e.metaKey || e.ctrlKey) && e.detail === 1) {
-      const link = controller.link();
-      controller.clickAt(at.page, at.x, at.y);
-      const target = controller.link();
-      if (target && target.url !== link?.url) window.open(target.url, '_blank', 'noopener,noreferrer');
-      return;
+      // The link under the pointer (not the caret's), and only to a safe place.
+      const url = controller.linkAt(at.page, at.x, at.y);
+      if (url && isSafeLink(url) && !url.startsWith('#')) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        return;
+      }
     }
     controller.clickAt(at.page, at.x, at.y, { extend: e.shiftKey, detail: e.detail });
     if (e.detail > 1) return;

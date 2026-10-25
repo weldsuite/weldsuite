@@ -218,6 +218,7 @@ export const navigation = {
         helpCenter: 'Helpcentrum',
         articles: 'Artikelen',
         savedReplies: 'Opgeslagen antwoorden',
+        assignment: 'Toewijzing',
       },
       weldmeet: {
         newMeeting: 'Nieuwe vergadering',
