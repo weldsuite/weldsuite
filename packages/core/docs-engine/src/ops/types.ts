@@ -11,7 +11,7 @@
 
 import type { Content, StoryContent } from '../model/content';
 import type {
-  Anchor,
+  Anchor, DocComment,
   CellProps,
   ColPatch,
   DimData,
@@ -66,6 +66,8 @@ export type Op =
   | { type: 'patchLists'; set?: Record<string, ListDef>; remove?: string[] }
   /** Adds or moves (`set`) and removes anchors, by id. */
   | { type: 'patchAnchors'; set?: Anchor[]; remove?: string[] }
+  /** Adds or replaces (`set`) and removes comments and replies, by id. */
+  | { type: 'patchComments'; set?: DocComment[]; remove?: string[] }
   /** Applied in order, atomically. */
   | { type: 'batch'; ops: Op[] };
 
@@ -122,6 +124,7 @@ function isEmptySimple(op: SimpleOp): boolean {
     case 'patchLists':
       return Object.keys(op.set ?? {}).length === 0 && (op.remove ?? []).length === 0;
     case 'patchAnchors':
+    case 'patchComments':
       return (op.set ?? []).length === 0 && (op.remove ?? []).length === 0;
     default:
       return false;

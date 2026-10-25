@@ -14,7 +14,7 @@ import {
   IMMUTABLE_OBJECT_KEYS,
   cellKey,
   cellStoryId,
-  type Anchor,
+  type Anchor, type DocComment,
   type CellProps,
   type DimData,
   type ObjectData,
@@ -74,6 +74,8 @@ function applySimple(doc: DocModel, op: SimpleOp): Op {
       return patchMap(doc.lists, op.set, op.remove, (set, remove) => ({ type: 'patchLists', set, remove }));
     case 'patchAnchors':
       return applyPatchAnchors(doc, op);
+    case 'patchComments':
+      return applyPatchComments(doc, op);
   }
 }
 
@@ -117,6 +119,24 @@ function applyPatchAnchors(doc: DocModel, op: OpOf<'patchAnchors'>): Op {
     doc.anchors.delete(id);
   }
   return { type: 'patchAnchors', set: restore, remove: drop };
+}
+
+function applyPatchComments(doc: DocModel, op: OpOf<'patchComments'>): Op {
+  const restore: DocComment[] = [];
+  const drop: string[] = [];
+  for (const c of op.set ?? []) {
+    const old = doc.comments.get(c.id);
+    if (old) restore.push(old);
+    else drop.push(c.id);
+    doc.comments.set(c.id, structuredClone(c));
+  }
+  for (const id of op.remove ?? []) {
+    const old = doc.comments.get(id);
+    if (!old) continue;
+    restore.push(old);
+    doc.comments.delete(id);
+  }
+  return { type: 'patchComments', set: restore, remove: drop };
 }
 
 // ---------------------------------------------------------------- text

@@ -15,6 +15,7 @@ import {
   footnoteStoryId,
   headerStoryId,
   type Anchor,
+  type DocComment,
   type DocProps,
   type ObjectData,
   type TableData,
@@ -33,6 +34,8 @@ export interface DocSnapshot {
   stories: Record<string, StoryContent>;
   tables: Record<string, TableData>;
   anchors: Anchor[];
+  /** Comments and replies, by id order (absent when there are none). */
+  comments?: DocComment[];
 }
 
 export class DocModel {
@@ -42,6 +45,7 @@ export class DocModel {
   readonly stories = new Map<string, Story>();
   readonly tables = new Map<string, TableData>();
   readonly anchors = new Map<string, Anchor>();
+  readonly comments = new Map<string, DocComment>();
   readonly textStyles = new TextStyleTable();
 
   private constructor(props: DocProps) {
@@ -67,6 +71,7 @@ export class DocModel {
     for (const [id, t] of Object.entries(snapshot.tables)) doc.tables.set(id, structuredClone(t));
     for (const [id, c] of Object.entries(snapshot.stories)) doc.stories.set(id, Story.from(id, contentToPiece(c, doc.textStyles)));
     for (const a of snapshot.anchors) doc.anchors.set(a.id, { ...a });
+    for (const c of snapshot.comments ?? []) doc.comments.set(c.id, structuredClone(c));
     if (!doc.stories.has(BODY)) doc.stories.set(BODY, emptyStory(BODY, doc.textStyles));
     return doc;
   }
@@ -82,6 +87,7 @@ export class DocModel {
       ),
       tables: Object.fromEntries([...this.tables.keys()].sort().map((id) => [id, tidyTable(this.tables.get(id)!)])),
       anchors: [...this.anchors.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map((a) => ({ ...a })),
+      ...(this.comments.size ? { comments: [...this.comments.values()].sort((a, b) => (a.id < b.id ? -1 : 1)).map((c) => structuredClone(c)) } : {}),
     };
   }
 

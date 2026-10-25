@@ -7,7 +7,7 @@ import { OBJECT, PARA } from '../model/chars';
 import type { Content } from '../model/content';
 import type { DocModel } from '../model/document';
 import type { Story } from '../model/story';
-import { BODY, cellStoryId, footnoteStoryId, headerStoryId, FINAL_SECTION, type ObjectData } from '../model/objects';
+import { BODY, cellStoryId, footnoteStoryId, headerStoryId, FINAL_SECTION, type DocComment, type ObjectData } from '../model/objects';
 import type { Op } from './types';
 import { validateOp } from './validate';
 
@@ -203,13 +203,25 @@ function docOp(g: Gen, r: number): Op {
   return { type: 'patchLists', set: { [makeId()]: { levels: [{ format: 'decimal', text: '%1)', indent: 36, hanging: 18 }] } } };
 }
 
-/** Removes a comment, or sets one (a new one, or an existing one moved). */
+/** Removes a comment, or sets one (a new one, or an existing one moved); or changes a discussion. */
 function anchorOp(g: Gen): Op {
   const { doc, random, makeId, storyId, len } = g;
+  if (random() < 0.3) return commentOp(g);
   const anchors = [...doc.anchors.values()];
   if (anchors.length && random() < 0.3) return { type: 'patchAnchors', remove: [pick(random, anchors).id] };
   const from = g.pos();
   const to = from + Math.floor(random() * (len - from));
   const id = anchors.length && random() < 0.5 ? pick(random, anchors).id : makeId();
   return { type: 'patchAnchors', set: [{ id, kind: 'comment', story: storyId, from, to }] };
+}
+
+/** Starts, edits, resolves or removes a discussion (first comments only: replies need their thread to exist). */
+function commentOp(g: Gen): Op {
+  const { doc, random, makeId } = g;
+  const threads = [...doc.comments.values()].filter((c) => c.thread === c.id);
+  if (threads.length && random() < 0.3) return { type: 'patchComments', remove: [pick(random, threads).id] };
+  const id = threads.length && random() < 0.5 ? pick(random, threads).id : makeId();
+  const comment: DocComment = { id, thread: id, author: { id: 'u1', name: 'Ann' }, createdAt: 1, body: `note ${Math.floor(random() * 100)}` };
+  if (random() < 0.3) comment.resolved = true;
+  return { type: 'patchComments', set: [comment] };
 }
