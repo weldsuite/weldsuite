@@ -28,7 +28,23 @@ export type Inline =
   | { type: 'text'; text: string; style: TextStyle }
   | { type: 'break'; style: TextStyle }
   | { type: 'tab'; style: TextStyle }
-  | { type: 'object'; data: ObjectData; style: TextStyle };
+  | { type: 'object'; data: ObjectData; style: TextStyle }
+  /** Where a bookmark starts or ends (only when asked for: see `BlockOptions.bookmarks`). */
+  | { type: 'bookmark'; id: string; edge: 'start' | 'end'; style: TextStyle };
+
+/** A bookmark's range in a story. */
+export interface BookmarkRange {
+  id: string;
+  from: number;
+  to: number;
+}
+
+export interface BlockOptions {
+  /** The id of the story walked (`body` for a document). */
+  story?: string;
+  /** The bookmarks to mark in a story, by its id; without it, none are. */
+  bookmarks?: (story: string) => readonly BookmarkRange[];
+}
 
 export interface ParagraphBlock {
   type: 'paragraph';
@@ -58,14 +74,47 @@ export interface BlockTree {
   footnotes: { id: string; number: number; blocks: Block[] }[];
 }
 
-export function toBlocks(content: Content): BlockTree {
+export function toBlocks(content: Content, options: BlockOptions = {}): BlockTree {
   const footnotes: BlockTree['footnotes'] = [];
-  const blocks = storyBlocks(content, content, footnotes);
+  const blocks = storyBlocks(content, { all: content, footnotes, bookmarks: options.bookmarks }, options.story ?? '');
   return { blocks, footnotes };
 }
 
-function storyBlocks(story: StoryContent, all: Content, footnotes: BlockTree['footnotes']): Block[] {
-  return new StoryWalker(story, all, footnotes).walk();
+interface WalkContext {
+  all: Content;
+  footnotes: BlockTree['footnotes'];
+  bookmarks?: BlockOptions['bookmarks'];
+}
+
+function storyBlocks(story: StoryContent, ctx: WalkContext, storyId: string): Block[] {
+  return new StoryWalker(story, ctx, storyId).walk();
+}
+
+/** Bookmark edges at one offset, in the order they are written: ends, starts, then empty ranges (start and end). */
+interface MarksAt {
+  ends: string[];
+  starts: string[];
+  empty: string[];
+}
+
+function bookmarkMarks(ranges: readonly BookmarkRange[], length: number): Map<number, MarksAt> {
+  const out = new Map<number, MarksAt>();
+  const at = (pos: number) => {
+    let m = out.get(pos);
+    if (!m) out.set(pos, (m = { ends: [], starts: [], empty: [] }));
+    return m;
+  };
+  const last = Math.max(0, length - 1);
+  for (const r of ranges) {
+    const from = Math.max(0, Math.min(r.from, last));
+    const to = Math.max(from, Math.min(r.to, last));
+    if (from === to) at(from).empty.push(r.id);
+    else {
+      at(from).starts.push(r.id);
+      at(to).ends.push(r.id);
+    }
+  }
+  return out;
 }
 
 /** Walks one story's text once, collecting its paragraphs and tables. */
@@ -74,6 +123,7 @@ class StoryWalker {
   private readonly styleAt: (offset: number) => TextStyle;
   private readonly paras: Map<number, ParaProps>;
   private readonly objects: Map<number, ObjectData>;
+  private readonly marks: Map<number, MarksAt>;
   private readonly blocks: Block[] = [];
   private inlines: Inline[] = [];
   /** Plain text not yet turned into an inline, all in `bufStyle`. */
@@ -82,13 +132,14 @@ class StoryWalker {
 
   constructor(
     story: StoryContent,
-    private readonly all: Content,
-    private readonly footnotes: BlockTree['footnotes'],
+    private readonly ctx: WalkContext,
+    storyId: string,
   ) {
     this.text = story.text;
     this.styleAt = runLookup(story.runs ?? []);
     this.paras = new Map(story.paras ?? []);
     this.objects = new Map(story.objects ?? []);
+    this.marks = ctx.bookmarks ? bookmarkMarks(ctx.bookmarks(storyId), story.text.length) : new Map();
   }
 
   walk(): Block[] {
@@ -96,6 +147,7 @@ class StoryWalker {
     for (let i = 0; i < text.length; i++) {
       const ch = text[i]!;
       const style = this.styleAt(i);
+      if (this.marks.size) this.bookmarks(i, style);
       if (ch === PARA) this.paragraphMark(i);
       else if (ch === OBJECT) this.object(i, style);
       else if (ch === LINE_BREAK || ch === TAB) {
@@ -110,6 +162,15 @@ class StoryWalker {
     this.flushText();
     if (this.inlines.length) this.pushParagraph({});
     return this.blocks;
+  }
+
+  private bookmarks(i: number, style: TextStyle): void {
+    const m = this.marks.get(i);
+    if (!m) return;
+    this.flushText();
+    for (const id of m.ends) this.inlines.push({ type: 'bookmark', id, edge: 'end', style });
+    for (const id of m.starts) this.inlines.push({ type: 'bookmark', id, edge: 'start', style });
+    for (const id of m.empty) this.inlines.push({ type: 'bookmark', id, edge: 'start', style }, { type: 'bookmark', id, edge: 'end', style });
   }
 
   private paragraphMark(i: number): void {
@@ -128,11 +189,11 @@ class StoryWalker {
       return;
     }
     if (data.kind === 'footnote') {
-      const fn = this.all.stories?.[footnoteStoryId(data.id)];
-      this.footnotes.push({
+      const fn = this.ctx.all.stories?.[footnoteStoryId(data.id)];
+      this.ctx.footnotes.push({
         id: data.id,
-        number: this.footnotes.length + 1,
-        blocks: fn ? storyBlocks(fn, this.all, this.footnotes) : [],
+        number: this.ctx.footnotes.length + 1,
+        blocks: fn ? storyBlocks(fn, this.ctx, footnoteStoryId(data.id)) : [],
       });
     }
     this.flushText();
@@ -141,11 +202,11 @@ class StoryWalker {
 
   /** A table becomes its own block; text before it in the paragraph becomes a paragraph first. */
   private table(i: number, id: string): void {
-    const table = this.all.tables?.[id];
+    const table = this.ctx.all.tables?.[id];
     if (!table) return;
     this.flushText();
     if (this.inlines.length) this.pushParagraph(this.paras.get(this.text.indexOf(PARA, i)) ?? {});
-    this.blocks.push(tableBlock(id, table, this.all, this.footnotes));
+    this.blocks.push(tableBlock(id, table, this.ctx));
   }
 
   private flushText(): void {
@@ -161,7 +222,7 @@ class StoryWalker {
   }
 }
 
-function tableBlock(id: string, data: TableData, all: Content, footnotes: BlockTree['footnotes']): TableBlock {
+function tableBlock(id: string, data: TableData, ctx: WalkContext): TableBlock {
   const covered = new Set<string>();
   data.rows.forEach((r, ri) =>
     data.cols.forEach((c, ci) => {
@@ -184,10 +245,11 @@ function tableBlock(id: string, data: TableData, all: Content, footnotes: BlockT
     data,
     rows: data.rows.map((r) =>
       data.cols.map((c) => {
-        const story = all.stories?.[cellStoryId(id, r.id, c.id)];
+        const storyId = cellStoryId(id, r.id, c.id);
+        const story = ctx.all.stories?.[storyId];
         return {
           props: data.cells?.[cellKey(r.id, c.id)] ?? {},
-          blocks: story ? storyBlocks(story, all, footnotes) : [{ type: 'paragraph', props: {}, inlines: [] }],
+          blocks: story ? storyBlocks(story, ctx, storyId) : [{ type: 'paragraph', props: {}, inlines: [] }],
           covered: covered.has(cellKey(r.id, c.id)),
         };
       }),
@@ -216,7 +278,7 @@ export function inlineText(inlines: Inline[]): string {
     if (i.type === 'text') out += i.text;
     else if (i.type === 'tab') out += '\t';
     else if (i.type === 'break') out += '\n';
-    else if (i.data.kind === 'chip') out += i.data.label;
+    else if (i.type === 'object' && i.data.kind === 'chip') out += i.data.label;
   }
   return out;
 }

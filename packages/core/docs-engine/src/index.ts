@@ -148,3 +148,6 @@ export type { TocHeading } from './editing/toc';
 export { insertSectionBreak, sectionAt, setSectionAt } from './editing/sections';
 export type { SectionAt } from './editing/sections';
 export { isWellFormedSnapshot } from './ops/snapshot-shape';
+
+export * from './files/docx';
+export * from './files/pdf';
