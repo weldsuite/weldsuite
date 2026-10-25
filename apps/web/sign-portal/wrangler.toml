@@ -1,0 +1,225 @@
+# WeldSign signer portal: TanStack Start on Workers (ADR FE-016).
+#
+# The portal runs the signer side of WeldSign itself, on the same domain code
+# as sign-api (@weldsuite/sign-domain/portal): it opens the master and tenant
+# DBs, reads and writes WeldSign files in R2, emails codes, publishes entity
+# events, and starts sign-api's FinalizeEnvelopeWorkflow by script_name. Keep
+# these bindings in step with apps/workers/sign-api/wrangler.toml.
+#
+# Built with @cloudflare/vite-plugin. The environment is picked at BUILD time
+# (`CLOUDFLARE_ENV=test pnpm build`), and the plugin writes the resolved config
+# next to the output, so the deploy is a plain `wrangler deploy` (no `--env`).
+#
+# Secrets (scripts/secrets/manifest.ts → "sign-portal"):
+#   DATABASE_URL_MASTER, NEON_API_KEY, DATABASE_ENCRYPTION_KEY,
+#   SIGN_SESSION_SECRET (the same value as sign-api's: sign-api hashes access
+#   codes with it and the portal checks them).
+
+# Local `vite dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-sign-portal-dev"
+main = "@tanstack/react-start/server-entry"
+compatibility_date = "2026-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+# Links in the emails the portal sends (the next signer's turn) point here.
+SIGN_PORTAL_URL = "http://localhost:3023"
+EMAIL_TRANSPORT = "cloudflare"
+
+# Local dev shares `pnpm dev:api`'s simulated KV and R2 (vite.config.ts
+# persistState), so links, codes and files sign-api creates there open here.
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-dev"
+
+# No REALTIME locally: live fan-out is optional, and a remote binding would make
+# `vite dev` need a Cloudflare login.
+
+[[r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[send_email]]
+name = "SEND_EMAIL"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-dev"
+
+[[ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "1101"
+  [ratelimits.simple]
+  limit = 30
+  period = 60
+
+# No FINALIZE_ENVELOPE in local dev: without it the portal builds the signed
+# PDF itself in waitUntil (finalizeEnvelope), so no sign-api Workflow is needed.
+
+[[d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-sign-portal-test"
+workers_dev = false
+# A zone route, not a custom domain: the hostname already has a proxied record.
+routes = [
+  { pattern = "sign-test.weldsuite.org/*", zone_name = "weldsuite.org" }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+SIGN_PORTAL_URL = "https://sign-test.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events-test"
+
+[[env.test.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-test"
+
+[[env.test.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private-test"
+
+[[env.test.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage-test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "2101"
+  [env.test.ratelimits.simple]
+  limit = 30
+  period = 60
+
+# sign-api's Workflow: the portal only starts instances; sign-api runs them.
+[[env.test.workflows]]
+name = "sign-finalize-test"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
+script_name = "weldsuite-sign-api-test"
+
+[[env.test.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-test"
+database_id = "2dd2eb7f-77cf-4865-ba25-8c4061f3ccdb"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-sign-portal"
+workers_dev = false
+routes = [
+  { pattern = "sign.weldsuite.org/*", zone_name = "weldsuite.org" }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+SIGN_PORTAL_URL = "https://sign.weldsuite.org"
+EMAIL_TRANSPORT = "cloudflare"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.queues.producers]]
+binding = "ENTITY_EVENTS"
+queue = "entity-events"
+
+[[env.production.services]]
+binding = "REALTIME"
+service = "weldsuite-realtime-production"
+
+[[env.production.r2_buckets]]
+binding = "PRIVATE_STORAGE"
+bucket_name = "weldsuite-private"
+
+[[env.production.r2_buckets]]
+binding = "STORAGE"
+bucket_name = "weldsuite-storage"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_LEDGER"
+class_name = "OutboundLedger"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "OUTBOUND_PLATFORM"
+class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+[[env.production.ratelimits]]
+name = "OUTBOUND_BACKSTOP"
+namespace_id = "3101"
+  [env.production.ratelimits.simple]
+  limit = 30
+  period = 60
+
+[[env.production.workflows]]
+name = "sign-finalize"
+binding = "FINALIZE_ENVELOPE"
+class_name = "FinalizeEnvelopeWorkflow"
+script_name = "weldsuite-sign-api"
+
+[[env.production.d1_databases]]
+binding = "SCHEDULE_INDEX"
+database_name = "weldsuite-schedule-index-production"
+database_id = "d44f8243-eff7-4039-ab37-3ed51094ef39"
+
+[env.production.observability]
+enabled = true
+head_sampling_rate = 1

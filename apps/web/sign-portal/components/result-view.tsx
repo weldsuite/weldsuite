@@ -1,5 +1,3 @@
-'use client';
-
 import { useState } from 'react';
 import { Ban, CheckCircle2, Clock, Download, FileX, Hourglass, Loader2 } from 'lucide-react';
 import type { SignPortalClosedReason, SignPortalEnvelope } from '@weldsuite/app-api-client/schemas/weldsign';

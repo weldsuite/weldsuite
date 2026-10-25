@@ -20,7 +20,7 @@ export interface SignerSession {
 
 const encoder = new TextEncoder();
 
-function fromB64url(text: string): Uint8Array {
+function fromB64url(text: string): Uint8Array<ArrayBuffer> {
   const b64 = text.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - (text.length % 4)) % 4);
   return Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
 }

@@ -1,5 +1,3 @@
-'use client';
-
 import { useCallback, useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
@@ -71,7 +69,8 @@ function DocumentPages({ doc, envelope, state, withSession, autoText, highlighte
         const bytes = await withSession(() => portalBytes(`/api/portal/documents/${encodeURIComponent(doc.id)}`));
         const document = await openPdf(bytes);
         if (cancelled) {
-          void document.destroy();
+          // PDFDocumentProxy has no destroy() of its own; its loading task tears it down.
+          void document.loadingTask.destroy();
           return;
         }
         opened = document;
@@ -82,7 +81,7 @@ function DocumentPages({ doc, envelope, state, withSession, autoText, highlighte
     })();
     return () => {
       cancelled = true;
-      if (opened) void opened.destroy();
+      if (opened) void opened.loadingTask.destroy();
     };
     // `withSession` is stable per flow; a retry bumps `attempt`.
     // eslint-disable-next-line react-hooks/exhaustive-deps

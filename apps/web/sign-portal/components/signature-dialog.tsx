@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImageUp, X } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -137,7 +135,6 @@ export function SignatureDialog({ open, variant, suggestedText, onAdopt, onClose
             </div>
             <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-input bg-white p-2" aria-label={t.adopt.typePreview}>
               {typedPreview && 'image' in typedPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img src={typedPreview.image} alt="" className="max-h-full max-w-full object-contain" />
               ) : null}
             </div>
@@ -159,7 +156,6 @@ export function SignatureDialog({ open, variant, suggestedText, onAdopt, onClose
             />
             <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-input bg-white p-2">
               {uploadPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img src={uploadPreview} alt="" className="max-h-full max-w-full object-contain" />
               ) : null}
             </div>
