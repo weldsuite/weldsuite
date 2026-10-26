@@ -86,3 +86,19 @@ describe('MentionAutocomplete keyboard', () => {
     other.remove();
   });
 });
+
+describe('MentionAutocomplete pointer', () => {
+  it('ignores a click on a row that just appeared or moved, then accepts one once the list settles', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    const { getByText, onSelect } = setup();
+
+    // Same instant the list (re)rendered: the row may have slid under the pointer.
+    fireEvent.mouseDown(getByText('Gerda'));
+    expect(onSelect).not.toHaveBeenCalled();
+
+    now.mockReturnValue(1_500);
+    fireEvent.mouseDown(getByText('Gerda'));
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'user', userId: 'user_2', name: 'Gerda' });
+    now.mockRestore();
+  });
+});

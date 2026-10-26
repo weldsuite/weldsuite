@@ -1,7 +1,8 @@
 /**
  * Who sees which half of the app. Mirrors the platform's
- * `apps/web/platform/app/weldhr/access.ts`: My HR needs `employees:self`,
- * the Team tab opens for anyone who can act on other people's records.
+ * `apps/web/platform/app/weldhr/access.ts`: My HR needs `employees:self`;
+ * the team views (everyone's shifts, hours and absences, approvals, the
+ * directory) each need the permission behind their endpoint.
  *
  * This is UX only; hr-api checks every request again.
  */
@@ -20,11 +21,15 @@ export interface HrAccess {
   approveExpenses: boolean;
   /** Who is clocked in or on leave today. */
   teamToday: boolean;
+  /** Everyone's shifts and hours (Schedule → Team, Timesheet → Timesheets / Clocked in). */
+  attendance: boolean;
+  /** Everyone's approved leave (Absence → Absences). */
+  leave: boolean;
   /** Who is reported sick (everyone's sick reports). */
   sickToday: boolean;
   /** The employee directory. */
   directory: boolean;
-  /** Any of the team permissions: the Team tab is shown. */
+  /** Any of the team permissions. */
   team: boolean;
 }
 
@@ -33,6 +38,8 @@ export const NO_ACCESS: HrAccess = {
   approveLeave: false,
   approveExpenses: false,
   teamToday: false,
+  attendance: false,
+  leave: false,
   sickToday: false,
   directory: false,
   team: false,
@@ -56,6 +63,8 @@ export function resolveAccess(subject: PermissionSubject, appEnforced: boolean):
     approveLeave,
     approveExpenses,
     teamToday,
+    attendance: can('attendance:read'),
+    leave: can('leave:read'),
     sickToday,
     directory,
     team: approveLeave || approveExpenses || teamToday || sickToday || directory,

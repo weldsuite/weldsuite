@@ -1514,6 +1514,49 @@ export function useUnfollowRecordChat() {
   return useRecordChatFollowMutation(false);
 }
 
+export interface MuteRecordChatsByTypeVariables {
+  entityType: RecordChatType;
+  isMuted: boolean;
+}
+
+/**
+ * Mute / unmute every record chat of one type the caller follows, in a single
+ * request (`PATCH /chat-entity-channels/:entityType/mute`) — the sidebar's
+ * "Mute all" / "Unmute all" group actions.
+ *
+ * Not a loop of per-chat `useMuteChannel` calls: the sidebar only ever holds a
+ * capped slice of a followed group (`useRecordChatGroups` stops at 4 pages of
+ * 25), so muting row-by-row from the loaded rows silently left the rest of a
+ * long followed list still notifying. Flips every cached row of this type
+ * right away; the server mutes every membership row it actually owns, loaded
+ * in the sidebar or not.
+ */
+export function useMuteRecordChatsByType() {
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ entityType, isMuted }: MuteRecordChatsByTypeVariables) => {
+      const client = await getClient();
+      return client.patch<{ data: { updated: number } }>(
+        `/chat-entity-channels/${encodeURIComponent(entityType)}/mute`,
+        { isMuted },
+      );
+    },
+    onMutate: async ({ entityType, isMuted }) => {
+      await queryClient.cancelQueries({ queryKey: weldchatKeys.recordChats() });
+      const snapshot = snapshotRecordChats(queryClient);
+      queryClient.setQueriesData<RecordChatListCache>({ queryKey: weldchatKeys.recordChatLists() }, (old) =>
+        mapRecordChatRows(old, (rows) => rows.map((row) => (row.entityType === entityType ? { ...row, isMuted } : row))),
+      );
+      return snapshot;
+    },
+    onError: (_err, _variables, snapshot) => restoreRecordChats(queryClient, snapshot),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChats() });
+    },
+  });
+}
+
 // ============================================================================
 // DM Queries
 // ============================================================================

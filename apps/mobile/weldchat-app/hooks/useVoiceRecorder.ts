@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { Platform } from 'react-native';
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -14,6 +13,9 @@ export interface RecordingResult {
   name: string;
 }
 
+/** `denied`: no microphone permission; `failed`: the recorder would not start. */
+export type StartRecordingResult = 'started' | 'denied' | 'failed';
+
 export function useVoiceRecorder() {
   const recorder = useAudioRecorder({
     ...RecordingPresets.HIGH_QUALITY,
@@ -21,10 +23,10 @@ export function useVoiceRecorder() {
   });
   const recorderState = useAudioRecorderState(recorder, 80);
 
-  const startRecording = useCallback(async (): Promise<boolean> => {
+  const startRecording = useCallback(async (): Promise<StartRecordingResult> => {
     try {
       const { granted } = await requestRecordingPermissionsAsync();
-      if (!granted) return false;
+      if (!granted) return 'denied';
 
       await setAudioModeAsync({
         allowsRecording: true,
@@ -33,9 +35,9 @@ export function useVoiceRecorder() {
 
       await recorder.prepareToRecordAsync();
       recorder.record();
-      return true;
+      return 'started';
     } catch {
-      return false;
+      return 'failed';
     }
   }, [recorder]);
 
@@ -46,10 +48,9 @@ export function useVoiceRecorder() {
       const uri = recorder.uri;
       if (!uri) return null;
 
-      const isIOS = Platform.OS === 'ios';
-      const mimeType = isIOS ? 'audio/m4a' : 'audio/3gpp';
-      const ext = isIOS ? 'm4a' : '3gp';
-      return { uri, mimeType, name: `voice_${Date.now()}.${ext}` };
+      // HIGH_QUALITY records AAC in an MPEG-4 container (.m4a) on both
+      // platforms; labelling it 3GPP left browsers unable to play it.
+      return { uri, mimeType: 'audio/mp4', name: `voice_${Date.now()}.m4a` };
     } catch {
       return null;
     }

@@ -51,6 +51,9 @@ export async function declineRingingCall(
     status: 'declined',
     endedAt: now,
     updatedAt: now,
+    // Call history tells the decliner's "Declined" apart from the rest of a
+    // group DM, for whom the call just stopped ringing (services/chat/call-history.ts).
+    metadata: { ...(call.metadata ?? {}), declinedBy: declinerId },
   }).where(eq(chatCalls.id, callId));
 
   // Kick the caller out of the room, end the RTK meeting, drop the KV mapping

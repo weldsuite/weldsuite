@@ -62,17 +62,23 @@ function AuthGuard({ children }: Readonly<{ children: React.ReactNode }>) {
   }, [user, organizationId, isOrgListLoaded, setActive, userMemberships?.data]);
 
   // The cache holds payslips, balances and permissions, and its keys are not
-  // per user. Drop it whenever the signed-in user changes, sign-out and an
-  // expired session included, so the next person on a shared phone starts
-  // empty. Sign-out passes through "no user" (the sign-in screen), so the
-  // clear lands before anyone else's screens mount.
+  // per user or per workspace. Drop it whenever the signed-in user changes,
+  // sign-out and an expired session included, so the next person on a shared
+  // phone starts empty. Sign-out passes through "no user" (the sign-in
+  // screen), so the clear lands before anyone else's screens mount. Switching
+  // workspace (Home's workspace menu) resets it instead: the open screens
+  // load again from the new workspace, and the last one's data never shows.
   const queryClient = useQueryClient();
   const lastUserId = useRef<string | null | undefined>(undefined);
+  const lastOrgId = useRef<string | null>(null);
   useEffect(() => {
     const userId = user?.id ?? null;
+    const orgId = organizationId ?? null;
     if (lastUserId.current !== undefined && lastUserId.current !== userId) queryClient.clear();
+    else if (lastOrgId.current && orgId && lastOrgId.current !== orgId) void queryClient.resetQueries();
     lastUserId.current = userId;
-  }, [user?.id, queryClient]);
+    lastOrgId.current = orgId;
+  }, [user?.id, organizationId, queryClient]);
 
   // Wire the app-api token getter SYNCHRONOUSLY during render so it is set
   // BEFORE the child screens mount and fire their first data load. Effects
@@ -199,7 +205,13 @@ function AppStack() {
                         <Stack.Screen name="leave/new" options={{ presentation: 'modal' }} />
                         <Stack.Screen name="expense/new" options={{ presentation: 'modal' }} />
                         <Stack.Screen name="sick" options={{ presentation: 'modal' }} />
-                        <Stack.Screen name="schedule" />
+                        <Stack.Screen name="shift/new" options={{ presentation: 'modal' }} />
+                        <Stack.Screen name="profile" />
+                        <Stack.Screen name="shift/[id]" />
+                        <Stack.Screen name="leave/[id]" />
+                        <Stack.Screen name="sick/[id]" />
+                        <Stack.Screen name="shift-request/[id]" />
+                        <Stack.Screen name="pay" />
                         <Stack.Screen name="tasks" />
                         <Stack.Screen name="reviews" />
                         <Stack.Screen name="directory" />

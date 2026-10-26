@@ -9,10 +9,11 @@
  *    placeholder row (e.g. the DMs list bar that opens the search page).
  *
  * Outer spacing differs per surface, so pass margins/`flex` via `style`; the
- * inner look (height, radius, fill, icon, typography) is owned here.
+ * inner look (height, radius, fill, icon, typography) is owned here. It is a
+ * light gray field with softly rounded corners.
  */
 import React from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import { Search, X } from 'lucide-react-native';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
@@ -46,32 +47,43 @@ export function SearchField({
   const { colors } = useTheme();
   const styles = makeStyles(colors);
   const isButton = onChangeText === undefined && !!onPress;
+  const icon = <Search size={18} color={colors.muted} strokeWidth={2.2} />;
 
   if (isButton) {
     return (
-      <TouchableOpacity style={[styles.container, style]} activeOpacity={0.6} onPress={onPress}>
-        <Search size={20} color={colors.mutedForeground} />
+      <Pressable
+        style={({ pressed }) => [styles.container, pressed && styles.containerPressed, style]}
+        onPress={onPress}
+        accessibilityRole="search"
+        accessibilityLabel={placeholder}
+      >
+        {icon}
         <Text style={styles.placeholder} numberOfLines={1}>{placeholder}</Text>
-      </TouchableOpacity>
+      </Pressable>
     );
   }
 
   return (
     <View style={[styles.container, style]}>
-      <Search size={20} color={colors.mutedForeground} />
+      {icon}
       <TextInput
         ref={inputRef}
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={colors.mutedForeground}
+        placeholderTextColor={colors.muted}
         autoFocus={autoFocus}
         returnKeyType="search"
       />
       {!!value?.length && onClear && (
-        <TouchableOpacity onPress={onClear} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <X size={18} color={colors.mutedForeground} />
+        <TouchableOpacity
+          style={styles.clear}
+          onPress={onClear}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          accessibilityRole="button"
+        >
+          <X size={11} color={colors.background} strokeWidth={3} />
         </TouchableOpacity>
       )}
     </View>
@@ -83,12 +95,24 @@ const makeStyles = (c: ThemeColors) =>
     container: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 16,
-      height: 40,
-      backgroundColor: c.inputBackground,
+      gap: 9,
+      height: 42,
+      paddingLeft: 14,
+      paddingRight: 13,
       borderRadius: 14,
-      gap: 10,
+      borderCurve: 'continuous',
+      backgroundColor: c.inputBackground,
     },
-    input: { flex: 1, fontSize: 16, color: c.text, padding: 0, fontWeight: '500' },
-    placeholder: { flex: 1, fontSize: 16, color: c.mutedForeground, fontWeight: '500' },
+    containerPressed: { backgroundColor: c.skeleton },
+    input: { flex: 1, fontSize: 16, color: c.text, padding: 0 },
+    placeholder: { flex: 1, fontSize: 16, color: c.muted },
+    // A filled round ✕, like the iOS search field.
+    clear: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: c.muted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
   });

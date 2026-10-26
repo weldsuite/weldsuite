@@ -33,6 +33,7 @@ import { sealCachedDatabaseUrl } from '@weldsuite/db/lib/workspace-url-cache';
 import {
   forgetWorkspaceContext,
   getWorkspaceContextForOrg,
+  getWorkspaceForOrg,
   legacyWorkspaceCacheKey,
   workspaceCacheKey,
 } from './db';
@@ -73,6 +74,7 @@ function makeEnv(initial: Record<string, unknown> = {}, keys: { v1?: string; v2?
 
 const baseRow = {
   id: 'ws_1',
+  clerkOrgId: 'org_1',
   neonProjectId: 'p',
   neonBranchId: 'b',
   neonRoleName: 'r',
@@ -220,7 +222,47 @@ describe('getWorkspaceContextForOrg · database move', () => {
   });
 });
 
+describe('getWorkspaceContextForOrg · either identifier', () => {
+  it('resolves by workspaces.id, caches under that id, and returns both ids', async () => {
+    const { env, store } = makeEnv();
+    const ctx = await getWorkspaceContextForOrg(env, 'ws_1');
+    expect(ctx).toMatchObject({ id: 'ws_1', clerkOrgId: 'org_1' });
+    expect([...store.keys()]).toEqual(['wsx:ws_1']);
+    expect(JSON.parse(store.get('wsx:ws_1')!)).toMatchObject({ id: 'ws_1', clerkOrgId: 'org_1' });
+
+    rows.current = [];
+    expect(await getWorkspaceForOrg(env, 'ws_1')).toEqual({ id: 'ws_1', clerkOrgId: 'org_1' });
+  });
+
+  it('returns both ids when resolved by the Clerk org id', async () => {
+    expect(await getWorkspaceForOrg(makeEnv().env, 'org_1')).toEqual({ id: 'ws_1', clerkOrgId: 'org_1' });
+  });
+
+  it('keeps a workspace without a Clerk org as such', async () => {
+    rows.current = [{ ...baseRow, clerkOrgId: null }];
+    expect(await getWorkspaceForOrg(makeEnv().env, 'ws_1')).toEqual({ id: 'ws_1', clerkOrgId: null });
+  });
+
+  it('reads the org id of an entry cached before it was stored from the key it sits under', async () => {
+    rows.current = [];
+    const { env } = makeEnv({
+      'wsx:org_1': await stored({ id: 'ws_1', databaseUrl: 'postgres://cached/t', suspended: false, licensedApps: null }),
+    });
+    expect(await getWorkspaceForOrg(env, 'org_1')).toEqual({ id: 'ws_1', clerkOrgId: 'org_1' });
+  });
+});
+
 describe('forgetWorkspaceContext', () => {
+  it('deletes the entries under every id it is given, and skips missing ones', async () => {
+    const { env, store } = makeEnv({
+      'wsx:org_1': await stored({ id: 'ws_1', databaseUrl: 'postgres://cached/t', licensedApps: null }),
+      'wsx:ws_1': await stored({ id: 'ws_1', databaseUrl: 'postgres://cached/t', licensedApps: null }),
+    });
+    await forgetWorkspaceContext(env, 'org_1', undefined, 'ws_1', null);
+    expect(store.has('wsx:org_1')).toBe(false);
+    expect(store.has('wsx:ws_1')).toBe(false);
+  });
+
   it('deletes the sealed wsx:<org> entry and the old plaintext ws:<org> one, and only those', async () => {
     const { env, kv, store } = makeEnv({
       'wsx:org_1': await stored({ id: 'ws_1', databaseUrl: 'postgres://cached/t', licensedApps: null }),

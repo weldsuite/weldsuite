@@ -10,6 +10,7 @@ export const weldhrTime = {
     tabs: {
       records: 'Records',
       schedule: 'Schedule',
+      requests: 'Requests',
       import: 'Import',
     },
     records: {
@@ -136,6 +137,34 @@ export const weldhrTime = {
         create: 'Add shift',
         cancel: 'Cancel',
         failed: 'Could not save this shift.',
+      },
+    },
+    requests: {
+      groups: {
+        pending: 'Pending',
+        reviewed: 'Recently reviewed',
+      },
+      table: {
+        employee: 'Employee',
+        day: 'Day',
+        time: 'Time',
+        length: 'Length',
+        workType: 'Type of work',
+        note: 'Note',
+        requested: 'Requested',
+        status: 'Status',
+        reviewer: 'Reviewed by',
+      },
+      approve: 'Approve',
+      decline: 'Decline',
+      approvedToast: 'Shift approved and added to the schedule.',
+      reviewFailed: 'This shift request could not be reviewed.',
+      declineTitle: 'Decline shift request',
+      declineNoteLabel: 'Note (optional)',
+      declineNotePlaceholder: 'Visible to the employee',
+      empty: {
+        title: 'No shift requests',
+        description: 'Requests from the WeldHR app show up here',
       },
     },
     import: {

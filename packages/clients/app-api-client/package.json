@@ -141,6 +141,7 @@
     "./domains/chat-calls": "./src/domains/chat-calls.ts",
     "./domains/chat-members": "./src/domains/chat-members.ts",
     "./domains/chat-agent": "./src/domains/chat-agent.ts",
+    "./domains/chat-entity-channels": "./src/domains/chat-entity-channels.ts",
     "./domains/notifications": "./src/domains/notifications.ts",
     "./domains/dashboard": "./src/domains/dashboard.ts",
     "./domains/products": "./src/domains/products.ts",

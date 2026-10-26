@@ -216,6 +216,12 @@ export const createHrShiftSchema = z.object({
 });
 export const updateHrShiftSchema = createHrShiftSchema.omit({ employeeId: true }).partial();
 
+/** A manager's answer to a shift request; approving puts the shift on the rooster. */
+export const reviewHrShiftRequestSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  note: z.string().max(2000).nullable().optional(),
+});
+
 export const createHrAttendanceSchema = z.object({
   employeeId: id,
   companyId: id.nullable().optional(),
@@ -494,7 +500,13 @@ export const updateHrSettingsSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export const hrSelfClockSchema = z.object({
-  action: z.enum(['in', 'out']),
+  /** `switch` clocks out of the open record and straight in on `shiftId`. */
+  action: z.enum(['in', 'out', 'switch']),
+  /**
+   * The shift to clock in on, or to switch to. Clocking in without one picks
+   * the first of today's shifts that has not ended.
+   */
+  shiftId: id.optional(),
 });
 
 export const hrSelfLeaveRequestSchema = z.object({
@@ -502,6 +514,14 @@ export const hrSelfLeaveRequestSchema = z.object({
   startDate: isoDate,
   endDate: isoDate,
   reason: z.string().max(2000).nullable().optional(),
+});
+
+/** An employee asking to work a shift (My HR); a manager approves or rejects it. */
+export const hrSelfShiftRequestSchema = z.object({
+  startsAt: isoDateTime,
+  endsAt: isoDateTime,
+  workType: shortText(100).nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
 });
 
 /** A declaration an employee files for themselves. */
@@ -530,6 +550,7 @@ export type HrChecklistTemplateItemInput = z.infer<typeof hrChecklistTemplateIte
 export type CreateHrChecklistTaskInput = z.infer<typeof createHrChecklistTaskSchema>;
 export type UpdateHrChecklistTaskInput = z.infer<typeof updateHrChecklistTaskSchema>;
 export type CreateHrShiftInput = z.infer<typeof createHrShiftSchema>;
+export type ReviewHrShiftRequestInput = z.infer<typeof reviewHrShiftRequestSchema>;
 export type CreateHrAttendanceInput = z.infer<typeof createHrAttendanceSchema>;
 export type UpdateHrAttendanceInput = z.infer<typeof updateHrAttendanceSchema>;
 export type ImportHrAttendanceInput = z.infer<typeof importHrAttendanceSchema>;
@@ -556,6 +577,7 @@ export type CreateHrMilestoneInput = z.infer<typeof createHrMilestoneSchema>;
 export type UpdateHrMilestoneInput = z.infer<typeof updateHrMilestoneSchema>;
 export type UpdateHrSettingsInput = z.infer<typeof updateHrSettingsSchema>;
 export type HrSelfServiceLeaveRequestInput = z.infer<typeof hrSelfLeaveRequestSchema>;
+export type HrSelfServiceShiftRequestInput = z.infer<typeof hrSelfShiftRequestSchema>;
 export type HrSelfServiceDeclarationInput = z.infer<typeof hrSelfDeclarationSchema>;
 export type HrSelfServiceAbsenceInput = z.infer<typeof hrSelfAbsenceSchema>;
 export type HrSelfServiceClockInput = z.infer<typeof hrSelfClockSchema>;

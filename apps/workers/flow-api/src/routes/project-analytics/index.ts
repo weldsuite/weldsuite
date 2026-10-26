@@ -760,7 +760,7 @@ app.post(
       const entries = await Promise.all(
         charts.map(async (config) => {
           const { chartId, projectId, limit, ...query } = config;
-          const points = await queryAnalytics(c.env, workspaceId, {
+          const points = await queryAnalytics(c.env, [workspaceId, c.get('internalWorkspaceId')], {
             ...query,
             limit: limit ?? undefined,
             projectId: projectId ?? undefined,

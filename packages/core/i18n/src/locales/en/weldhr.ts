@@ -87,6 +87,12 @@ export const weldhr = {
       rejected: 'Rejected',
       cancelled: 'Cancelled',
     },
+    shiftRequest: {
+      pending: 'Pending',
+      approved: 'Approved',
+      rejected: 'Declined',
+      cancelled: 'Withdrawn',
+    },
     declaration: {
       pending: 'Pending',
       approved: 'Approved',

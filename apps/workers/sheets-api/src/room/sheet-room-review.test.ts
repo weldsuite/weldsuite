@@ -8,7 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit';
-import { files, sheetDataSources, sheetVersions, sheets } from '@weldsuite/db/schema';
+import { files, projectMembers, projects, sheetDataSources, sheetVersions, sheets } from '@weldsuite/db/schema';
 import { Engine, Sheet, Workbook, encode, type ClientMessage, type Op, type ServerMessage, type SheetComment } from '@weldsuite/sheets-engine';
 import type { Env } from '../types';
 import { FakeBucket, FakeSocket, fakeObjectState } from '../test-support/fakes';
@@ -81,6 +81,8 @@ beforeEach(async () => {
   await db.delete(sheetVersions);
   await db.delete(sheets);
   await db.delete(files);
+  await db.delete(projectMembers);
+  await db.delete(projects);
   notified.length = 0;
   refreshes.rows = [['Acme', 10]];
   refreshes.error = null;
@@ -109,12 +111,59 @@ describe('commenters and mentions', () => {
     const alice = await join(room, 'alice');
     await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: comments([comment()]) });
     await state.settle();
-    expect(notified).toEqual([{ userId: 'bob', title: 'Alice mentioned you in Budget', actionUrl: `/weldsheets/${sheetId}?comment=c1` }]);
+    // The title names the committer's server-known name (the peer's, "alice"
+    // from `admission`), never the client-supplied "Alice" on the comment.
+    expect(notified).toEqual([{ userId: 'bob', title: 'alice mentioned you in Budget', actionUrl: `/weldsheets/${sheetId}?comment=c1` }]);
     // An edit that mentions nobody new notifies nobody; a comment in someone else's name notifies nobody.
     await send(room, alice, { type: 'submit', batchId: 'a:2', baseRevision: 1, op: comments([comment({ body: 'Look again @[Bob](bob)' })]) });
     await send(room, alice, { type: 'submit', batchId: 'a:3', baseRevision: 2, op: comments([comment({ id: 'c2', thread: 'c2', author: { id: 'dave', name: 'Dave' } })]) });
     await state.settle();
     expect(notified).toHaveLength(1);
+  });
+
+  it('cannot pick a display name for its own mention notification: the committer\'s own server-known peer name wins', async () => {
+    const room = new SheetRoom(state.ctx, env);
+    const alice = await join(room, 'alice');
+    // Alice may only ever author her own comments (comment-access.ts), but
+    // nothing stops her client from sending whatever `author.name` it likes.
+    await send(room, alice, { type: 'submit', batchId: 'a:1', baseRevision: 0, op: comments([comment({ author: { id: 'alice', name: 'CEO' } })]) });
+    await state.settle();
+    expect(notified).toEqual([{ userId: 'bob', title: 'alice mentioned you in Budget', actionUrl: `/weldsheets/${sheetId}?comment=c1` }]);
+  });
+
+  it('does not notify a WeldFlow project sheet mention for a workspace member outside the project', async () => {
+    const now = new Date();
+    const projectId = 'prj_budget';
+    const projectSheetId = 'sht_project';
+    const projectMeta = { workspaceId: WORKSPACE, sheetId: projectSheetId, snapshotKey: snapshotKeyFor(WORKSPACE, projectSheetId) };
+    await db.insert(projects).values({ id: projectId, name: 'Budget project', createdAt: now, updatedAt: now } as typeof projects.$inferInsert);
+    // Carol is an active project member; Bob is a workspace member, but not of this project.
+    await db.insert(projectMembers).values({
+      id: 'pm_carol', projectId, userId: 'carol', role: 'member', isActive: true, createdAt: now, updatedAt: now, joinedAt: now,
+    } as typeof projectMembers.$inferInsert);
+
+    const workbook = new Workbook();
+    workbook.sheets.push(new Sheet(TAB, 'Sheet1'));
+    const size = await writeSnapshot(bucket.asBinding(), projectMeta.snapshotKey, { revision: 0, workbook: workbook.toJSON() });
+    await createSheet(db, { workspaceId: WORKSPACE, sheetId: projectSheetId, name: 'Project sheet', folderId: null, userId: 'alice', snapshotSize: size, projectId });
+
+    const projectState = fakeObjectState();
+    const room = new SheetRoom(projectState.ctx, env);
+    const ticket = await room.admit({ ...projectMeta, userId: 'alice', name: 'alice', picture: null, color: '#2563eb', canEdit: true, canComment: false });
+    const socket = new FakeSocket();
+    expect(await room.accept(socket.asSocket(), ticket.split('.')[1]!)).toBe('ok');
+    await send(room, socket, { type: 'hello', revision: null });
+    await send(room, socket, {
+      type: 'submit',
+      batchId: 'p:1',
+      baseRevision: 0,
+      op: comments([comment({ body: 'Look @[Bob](bob) @[Carol](carol)', mentions: ['bob', 'carol'] })]),
+    });
+    await projectState.settle();
+    // Bob can open the file's generic drive role (fileRole treats every
+    // project file as "editor" for anyone), but is not in the project, so he
+    // is left out; Carol is an active member and gets notified.
+    expect(notified).toEqual([{ userId: 'carol', title: 'alice mentioned you in Project sheet', actionUrl: `/weldsheets/${projectSheetId}?comment=c1` }]);
   });
 });
 

@@ -34,11 +34,13 @@ import type {
   HrSelfServiceAbsenceInput,
   HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
+  HrSelfServiceShiftRequestInput,
   ImportHrAttendanceInput,
   ImportHrKpiValuesInput,
   RecoverHrAbsenceInput,
   ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
+  ReviewHrShiftRequestInput,
   UpdateHrAssignmentInput,
   UpdateHrAbsenceInput,
   UpdateHrAttendanceInput,
@@ -60,6 +62,7 @@ export type HrEmployeeStatus = 'onboarding' | 'active' | 'on_leave' | 'offboardi
 export type HrAssigneeRole = 'hr' | 'manager' | 'it' | 'employee' | 'other';
 export type HrAttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'remote' | 'half_day';
 export type HrLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+export type HrShiftRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 export type HrAbsenceStatus = 'ongoing' | 'completed';
 export type HrAbsenceFirstDay = 'full' | 'half';
 export type HrDeclarationCategory = 'travel' | 'meals' | 'accommodation' | 'equipment' | 'training' | 'other';
@@ -267,6 +270,27 @@ export interface HrShift {
   breakStartsAt: string | null;
   breakEndsAt: string | null;
   notes: string | null;
+}
+
+/** A shift an employee asked to work, as a manager sees it. */
+export interface HrShiftRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  startsAt: string;
+  endsAt: string;
+  /** What they offer to do ("Cashier"). */
+  workType: string | null;
+  /** Their note to the manager. */
+  note: string | null;
+  status: HrShiftRequestStatus;
+  /** The shift approving it created. */
+  shiftId: string | null;
+  reviewedBy: string | null;
+  reviewedByName: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  createdAt: string;
 }
 
 export interface HrAttendanceRecord {
@@ -629,7 +653,8 @@ export interface HrSelf {
 
 export interface HrSelfOverview {
   profile: HrSelfProfile;
-  clock: { clockedIn: boolean; since: string | null };
+  /** `shiftId`: the shift the open record is on, if any. */
+  clock: { clockedIn: boolean; since: string | null; shiftId: string | null };
   upcomingShifts: Array<{ id: string; startsAt: string; endsAt: string; companyName: string | null }>;
   leaveBalances: HrLeaveBalance[];
   openTasks: number;
@@ -651,8 +676,47 @@ export interface HrSelfAttendance {
     source: string;
     approved: boolean;
     companyName: string | null;
+    /** The shift it was clocked on; absent from an API that predates it. */
+    shiftId?: string | null;
+    notes?: string | null;
+    /** What an hour paid on this day, from payroll; null when no pay is set up (or the portal asked). */
+    hourlyRate?: number | null;
+    currency?: string | null;
   }>;
-  shifts: Array<{ id: string; startsAt: string; endsAt: string; companyName: string | null; notes: string | null }>;
+  shifts: Array<{
+    id: string;
+    startsAt: string;
+    endsAt: string;
+    companyName: string | null;
+    notes: string | null;
+    /** What the shift is for ("Cashier"); the fields below are absent from an API that predates them. */
+    workType?: string | null;
+    /** The shift's unpaid break; both set or both null. */
+    breakStartsAt?: string | null;
+    breakEndsAt?: string | null;
+    /** The hourly rate in force on the shift's day, as on the records. */
+    hourlyRate?: number | null;
+    currency?: string | null;
+  }>;
+  /**
+   * Shifts I asked to work in the range, still waiting or turned down (an
+   * approved one is in `shifts`). Absent from an API that predates them.
+   */
+  requests?: HrSelfShiftRequest[];
+}
+
+/** A shift I asked to work. */
+export interface HrSelfShiftRequest {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  workType: string | null;
+  note: string | null;
+  status: HrShiftRequestStatus;
+  reviewedAt: string | null;
+  reviewedByName: string | null;
+  reviewNote: string | null;
+  createdAt: string;
 }
 
 export interface HrSelfClockResult {
@@ -677,6 +741,9 @@ export interface HrSelfLeaveRequest {
   status: HrLeaveStatus;
   reviewNote: string | null;
   reviewedAt: string | null;
+  /** Who reviewed it and when it was asked for; absent from an API that predates them. */
+  reviewedByName?: string | null;
+  createdAt?: string;
 }
 
 export interface HrSelfLeave {
@@ -1034,6 +1101,14 @@ export function createWeldHrApi(api: ClientApi) {
       return api.delete(`${base}/leave-requests/${id}`);
     },
 
+    // Shift requests (employees asking to work a shift) ------------------------
+    listShiftRequests(params: { employeeId?: string; status?: string; from?: string; to?: string } = {}): Promise<DataResponse<HrShiftRequest[]>> {
+      return api.get(`${base}/shift-requests${qs(params)}`);
+    },
+    reviewShiftRequest(id: string, body: ReviewHrShiftRequestInput): Promise<DataResponse<HrShiftRequest>> {
+      return api.post(`${base}/shift-requests/${id}/review`, body);
+    },
+
     // Declarations -----------------------------------------------------------
     listDeclarations(params: { employeeId?: string; status?: string; category?: string; from?: string; to?: string } = {}): Promise<DataResponse<HrDeclarationListItem[]>> {
       return api.get(`${base}/declarations${qs(params)}`);
@@ -1188,6 +1263,12 @@ export function createWeldHrApi(api: ClientApi) {
     },
     meCancelLeave(id: string): Promise<DataResponse<HrLeaveRequest>> {
       return api.post(`${base}/me/leave/${id}/cancel`, {});
+    },
+    meRequestShift(body: HrSelfServiceShiftRequestInput): Promise<DataResponse<HrSelfShiftRequest>> {
+      return api.post(`${base}/me/shift-requests`, body);
+    },
+    meCancelShiftRequest(id: string): Promise<DataResponse<HrSelfShiftRequest>> {
+      return api.post(`${base}/me/shift-requests/${id}/cancel`, {});
     },
     meDeclarations(): Promise<DataResponse<HrSelfDeclarations>> {
       return api.get(`${base}/me/declarations`);

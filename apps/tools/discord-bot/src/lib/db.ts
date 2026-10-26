@@ -8,7 +8,6 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
@@ -16,6 +15,7 @@ import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { workspaces } from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 import { getEnv } from './env.js';
 
 // ============ Master DB ============
@@ -69,7 +69,7 @@ async function getWorkspaceUrl(clerkOrgId: string): Promise<CachedWorkspace> {
       databaseUrl: workspaces.databaseUrl,
     })
     .from(workspaces)
-    .where(eq(workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(clerkOrgId))
     .limit(1);
 
   if (!workspace?.neonProjectId || !workspace?.neonBranchId || !workspace?.neonRoleName) {

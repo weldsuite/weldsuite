@@ -1,107 +1,104 @@
 /**
- * One app for everyone: the My HR tabs for every employee, plus Team for
- * people who can act on other people's records (approve leave or expenses,
- * see who is out, look up colleagues). Pay shows once the workspace runs
- * payroll in WeldHR. The floating tab bar is the same chrome as the other
- * WeldSuite apps.
+ * Four tabs: Home, Schedule (planned and worked hours per week), Absence and
+ * Expenses. Each opens on the member's own view and adds the team's views for
+ * people with the permission (see lib/access.ts). Payslips, tasks, reviews, the directory and settings
+ * live on the profile page, opened from the workspace menu at the top of Home.
+ * The floating tab bar is the same chrome as the other WeldSuite apps; the
+ * round "+" above it (AddButton) is on every tab.
  */
 
 import type { ComponentProps } from 'react';
 import { Tabs } from 'expo-router';
-import type { ColorValue } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { CalendarDays, House, Receipt, UserRound, UsersRound, Wallet } from 'lucide-react-native';
+import { StyleSheet, View, type ColorValue } from 'react-native';
+import { CalendarDays, CalendarHeart, House, Receipt } from 'lucide-react-native';
 import {
   FloatingTabBar,
-  floatingTabBarBottomInset,
   floatingTabBarScreenOptions,
   type FloatingTabBarProps,
 } from '@weldsuite/mobile-ui/components/FloatingTabBar';
 
+import { AddButton } from '@/components/AddButton';
 import { BRAND } from '@/constants/brand';
-import { useHrAccess, usePayslips, usePendingExpenses, usePendingLeave } from '@/hooks/use-weldhr-queries';
+import { usePalette } from '@/hooks/use-palette';
+import { useHrAccess, usePendingExpenses, usePendingLeave } from '@/hooks/use-weldhr-queries';
 import { useI18n } from '@/lib/i18n';
 
 type TabIconProps = { color: ColorValue; size: number };
 type TabBarRenderProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
-function renderTabBar(props: TabBarRenderProps) {
-  return <FloatingTabBar {...(props as unknown as FloatingTabBarProps)} badgeColor={BRAND} />;
+/** Solid, so the content scrolling underneath does not show through the floating island. */
+function WeldHrTabBar(props: Readonly<FloatingTabBarProps>) {
+  const palette = usePalette();
+  return <FloatingTabBar {...props} badgeColor={BRAND} shellColor={palette.surface} />;
 }
 
-const HomeTabIcon = ({ color, size }: TabIconProps) => <House size={size} color={color} strokeWidth={2.2} />;
-const TimeOffTabIcon = ({ color, size }: TabIconProps) => <CalendarDays size={size} color={color} strokeWidth={2.2} />;
-const ExpensesTabIcon = ({ color, size }: TabIconProps) => <Receipt size={size} color={color} strokeWidth={2.2} />;
-const PayTabIcon = ({ color, size }: TabIconProps) => <Wallet size={size} color={color} strokeWidth={2.2} />;
-const TeamTabIcon = ({ color, size }: TabIconProps) => <UsersRound size={size} color={color} strokeWidth={2.2} />;
-const MeTabIcon = ({ color, size }: TabIconProps) => <UserRound size={size} color={color} strokeWidth={2.2} />;
+function renderTabBar(props: TabBarRenderProps) {
+  return <WeldHrTabBar {...(props as unknown as FloatingTabBarProps)} />;
+}
+
+const HomeIcon = ({ color, size }: TabIconProps) => <House size={size} color={color} strokeWidth={2.2} />;
+const ScheduleIcon = ({ color, size }: TabIconProps) => <CalendarDays size={size} color={color} strokeWidth={2.2} />;
+const AbsenceIcon = ({ color, size }: TabIconProps) => <CalendarHeart size={size} color={color} strokeWidth={2.2} />;
+const ExpensesIcon = ({ color, size }: TabIconProps) => <Receipt size={size} color={color} strokeWidth={2.2} />;
 
 export default function TabLayout() {
   const { t } = useI18n();
-  const insets = useSafeAreaInsets();
   const { access, isLoading } = useHrAccess();
   // Keep the My HR tabs up while permissions load, so they do not flicker away and back.
   const self = access.self || isLoading;
-  const payslips = usePayslips(access.self);
   const pendingLeave = usePendingLeave(access.approveLeave);
   const pendingExpenses = usePendingExpenses(access.approveExpenses);
 
-  // `null` means hr-api answered 404: payroll is off for this workspace.
-  const showPay = access.self && payslips.data != null;
-  const waiting = (pendingLeave.data?.length ?? 0) + (pendingExpenses.data?.length ?? 0);
+  const leaveWaiting = pendingLeave.data?.length ?? 0;
+  const expensesWaiting = pendingExpenses.data?.length ?? 0;
+  const hidden = (show: boolean) => (show ? undefined : null);
 
   return (
-    <Tabs
-      tabBar={renderTabBar}
-      screenOptions={{
-        ...floatingTabBarScreenOptions,
-        headerShown: false,
-        tabBarShowLabel: false,
-        sceneStyle: { paddingBottom: floatingTabBarBottomInset(insets.bottom) },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{ title: t.tabs.home, tabBarIcon: HomeTabIcon, tabBarButtonTestID: 'tab-home' }}
-      />
-      <Tabs.Screen
-        name="time-off"
-        options={{
-          title: t.tabs.timeOff,
-          tabBarIcon: TimeOffTabIcon,
-          href: self ? undefined : null,
-          tabBarButtonTestID: 'tab-time-off',
+    <View style={styles.flex}>
+      <Tabs
+        tabBar={renderTabBar}
+        screenOptions={{
+          ...floatingTabBarScreenOptions,
+          headerShown: false,
+          tabBarShowLabel: false,
         }}
-      />
-      <Tabs.Screen
-        name="expenses"
-        options={{
-          title: t.tabs.expenses,
-          tabBarIcon: ExpensesTabIcon,
-          href: self ? undefined : null,
-          tabBarButtonTestID: 'tab-expenses',
-        }}
-      />
-      <Tabs.Screen
-        name="pay"
-        options={{
-          title: t.tabs.pay,
-          tabBarIcon: PayTabIcon,
-          href: showPay ? undefined : null,
-          tabBarButtonTestID: 'tab-pay',
-        }}
-      />
-      <Tabs.Screen
-        name="team"
-        options={{
-          title: t.tabs.team,
-          tabBarIcon: TeamTabIcon,
-          href: access.team ? undefined : null,
-          tabBarBadge: waiting > 0 ? waiting : undefined,
-          tabBarButtonTestID: 'tab-team',
-        }}
-      />
-      <Tabs.Screen name="me" options={{ title: t.tabs.me, tabBarIcon: MeTabIcon, tabBarButtonTestID: 'tab-me' }} />
-    </Tabs>
+      >
+        <Tabs.Screen name="index" options={{ title: t.tabs.home, tabBarIcon: HomeIcon, tabBarButtonTestID: 'tab-home' }} />
+        <Tabs.Screen
+          name="schedule"
+          options={{
+            title: t.tabs.schedule,
+            tabBarIcon: ScheduleIcon,
+            href: hidden(self || access.attendance),
+            tabBarButtonTestID: 'tab-schedule',
+          }}
+        />
+        <Tabs.Screen
+          name="absence"
+          options={{
+            title: t.tabs.absence,
+            tabBarIcon: AbsenceIcon,
+            href: hidden(self || access.leave || access.sickToday || access.approveLeave),
+            tabBarBadge: leaveWaiting > 0 ? leaveWaiting : undefined,
+            tabBarButtonTestID: 'tab-absence',
+          }}
+        />
+        <Tabs.Screen
+          name="expenses"
+          options={{
+            title: t.tabs.expenses,
+            tabBarIcon: ExpensesIcon,
+            href: hidden(self || access.approveExpenses),
+            tabBarBadge: expensesWaiting > 0 ? expensesWaiting : undefined,
+            tabBarButtonTestID: 'tab-expenses',
+          }}
+        />
+      </Tabs>
+      <AddButton />
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+});

@@ -26,6 +26,7 @@ import {
   SHARED_WELDMAIL_APEXES,
   isSharedWeldMailDomain,
 } from '@weldsuite/app-api-client/schemas/outbound-mail';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { mailAccounts, mailDomains, mailLabels, hostDomains, workspaceMembers } = schema;
 
@@ -263,7 +264,7 @@ async function assertWeldmailDomainAllowed(env: Env, orgId: string, emailDomain:
   const [ws] = await masterDb
     .select({ slug: masterSchema.workspaces.slug })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
+    .where(matchWorkspaceRef(orgId))
     .limit(1);
   const allowedDomain = ws ? weldMailDomainFor(env, ws.slug) : null;
   if (!allowedDomain || emailDomain !== allowedDomain) {
@@ -491,7 +492,7 @@ async function registerInMasterRegistry(
   const [workspace] = await masterDb
     .select({ id: masterSchema.workspaces.id })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
+    .where(matchWorkspaceRef(orgId))
     .limit(1);
   if (!workspace) {
     console.warn(`[mail-accounts] no workspace for orgId ${orgId}; skipping registry`);

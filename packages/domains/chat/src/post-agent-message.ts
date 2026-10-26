@@ -12,6 +12,7 @@ import { RealtimePublisher } from '@weldsuite/realtime/server';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { buildMessagePreview } from './message-preview';
 
 /** The binding the realtime fan-out reads. Any worker Env with it fits. */
 export interface PostAgentMessageEnv {
@@ -144,7 +145,7 @@ export async function postAgentChatMessage(
     updatedAt: now,
   });
 
-  const preview = input.content.length > 100 ? `${input.content.slice(0, 100)}...` : input.content;
+  const preview = await buildMessagePreview(db, input.content);
   await db
     .update(chatChannels)
     .set({

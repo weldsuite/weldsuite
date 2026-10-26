@@ -70,6 +70,8 @@ const ROW_CLASS =
   'flex items-center justify-start gap-2 w-full h-auto px-3 py-2 rounded-none text-sm font-normal text-left';
 const ENTITY_QUERY_MIN = 2;
 const ENTITY_PER_GROUP_LIMIT = 4;
+/** How long after the list changes a click is ignored (see `pickWithPointer`). */
+const LIST_SETTLE_MS = 300;
 
 export function MentionAutocomplete({
   query,
@@ -178,6 +180,19 @@ export function MentionAutocomplete({
     setActiveIndex(0);
   }, [trimmed, flatItems.length]);
 
+  // Record results land a moment after the people rows, and the popup grows
+  // upward from the composer, so a different row slides under a still
+  // pointer. A click in that instant picked a record instead of the person
+  // aimed at; clicks right after the list changes are ignored.
+  const listChangedAtRef = useRef(0);
+  useEffect(() => {
+    listChangedAtRef.current = performance.now();
+  }, [flatItems]);
+  const pickWithPointer = (selection: MentionSelection) => {
+    if (performance.now() - listChangedAtRef.current < LIST_SETTLE_MS) return;
+    onSelect(selection);
+  };
+
   // -- Keyboard --------------------------------------------------------------
   // Listens in the CAPTURE phase on `document`, ahead of the composer's own
   // (React) key handler. Enter / Tab / arrows are consumed here with
@@ -272,7 +287,7 @@ export function MentionAutocomplete({
               onMouseEnter={() => setActiveIndex(everyoneIndex)}
               onMouseDown={(e) => {
                 e.preventDefault();
-                onSelect({ kind: 'everyone' });
+                pickWithPointer({ kind: 'everyone' });
               }}
             >
               <div className="h-5 w-5 rounded-[7px] bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 flex items-center justify-center">
@@ -308,7 +323,7 @@ export function MentionAutocomplete({
                 onMouseEnter={() => setActiveIndex(idx)}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onSelect({ kind: 'user', userId: s.userId, name: s.name });
+                  pickWithPointer({ kind: 'user', userId: s.userId, name: s.name });
                 }}
               >
                 {s.isAgent ? (
@@ -358,7 +373,7 @@ export function MentionAutocomplete({
                       onMouseEnter={() => setActiveIndex(idx)}
                       onMouseDown={(e) => {
                         e.preventDefault();
-                        onSelect({
+                        pickWithPointer({
                           kind: 'entity',
                           type: item.type,
                           id: item.id,

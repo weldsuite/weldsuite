@@ -79,7 +79,10 @@ jobs:
       release_weldcalendar_web: ${{ steps.changes.outputs.weldcalendar-web }}
       release_developer_web: ${{ steps.changes.outputs.developer-web }}
       release_helpcenter: ${{ steps.changes.outputs.helpcenter }}
-      release_sign_portal: ${{ steps.changes.outputs.sign-portal }}
+      # The portal runs sign-api's domain code, so it also ships whenever
+      # sign-api does: module-workers.mjs picks sign-api from its transitive
+      # workspace deps and the lockfile, which the path filter cannot follow.
+      release_sign_portal: ${{ steps.changes.outputs.sign-portal == 'true' || contains(fromJSON(steps.modules.outputs.module_workers || '[]'), 'sign-api') }}
       release_weldchat: ${{ steps.changes.outputs.weldchat }}
       release_weldbooks: ${{ steps.changes.outputs.weldbooks }}
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
@@ -195,7 +198,8 @@ jobs:
             helpcenter:
               - 'apps/web/helpcenter/**'
               - 'packages/core/i18n/**'
-            # The signer portal runs WeldSign's domain code, so it ships with it.
+            # The portal's own folder and the packages only it uses. Everything
+            # it shares with sign-api is covered by release_sign_portal above.
             sign-portal:
               - 'apps/web/sign-portal/**'
               - 'packages/domains/sign/**'

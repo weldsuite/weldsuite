@@ -8,7 +8,7 @@
  * chat shows up in their sidebar without a refresh.
  */
 
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { publishChatUserChannelNew, type WeldChatPublisherEnv } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
@@ -72,6 +72,47 @@ export async function addFollowers(
 
   if (inserted.length > 0) await syncMemberCount(db, channelId);
   return inserted.map((r) => r.userId);
+}
+
+/**
+ * Mute / unmute every record chat of one type the caller follows. Backs the
+ * sidebar's "Mute all" / "Unmute all" group actions: the sidebar only ever
+ * holds a capped slice of a followed group (up to 4 pages of 25 — see the
+ * platform's `use-record-chat-groups.ts`), so muting row-by-row from the
+ * loaded rows silently left the rest of a long followed list still
+ * notifying. One UPDATE reaches every membership row the caller owns for the
+ * type, loaded in the sidebar or not. Returns the ids of the channels whose
+ * mute state actually changed, so the route can publish one entity event per
+ * channel (mirroring the single-channel mute route).
+ */
+export async function setFollowedChannelsMuted(
+  db: Database,
+  userId: string,
+  entityType: string,
+  isMuted: boolean,
+): Promise<string[]> {
+  const followed = await db
+    .select({ channelId: chatChannelMembers.channelId })
+    .from(chatChannelMembers)
+    .innerJoin(chatChannels, eq(chatChannels.id, chatChannelMembers.channelId))
+    .where(
+      and(
+        eq(chatChannelMembers.userId, userId),
+        eq(chatChannelMembers.isMuted, !isMuted),
+        eq(chatChannels.type, 'entity'),
+        eq(chatChannels.entityType, entityType),
+        isNull(chatChannels.deletedAt),
+      ),
+    );
+  const channelIds = followed.map((r) => r.channelId);
+  if (channelIds.length === 0) return [];
+
+  await db
+    .update(chatChannelMembers)
+    .set({ isMuted })
+    .where(and(eq(chatChannelMembers.userId, userId), inArray(chatChannelMembers.channelId, channelIds)));
+
+  return channelIds;
 }
 
 /** Stop following. Returns false when the user did not follow the channel. */

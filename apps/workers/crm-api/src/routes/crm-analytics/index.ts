@@ -541,7 +541,7 @@ app.post('/chart-data', requirePermission('contacts:read'), async (c) => {
     const workspaceId = c.get('workspaceId') as string;
     const entries = await Promise.all(
       chartConfigs.map(async (config) => {
-        const data = await queryAnalytics(c.env, workspaceId, config);
+        const data = await queryAnalytics(c.env, [workspaceId, c.get('internalWorkspaceId')], config);
         return [config.chartId, data] as const;
       }),
     );

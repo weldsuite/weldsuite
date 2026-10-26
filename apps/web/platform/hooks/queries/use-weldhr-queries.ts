@@ -39,6 +39,7 @@ import type {
   RecoverHrAbsenceInput,
   ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
+  ReviewHrShiftRequestInput,
   UpdateHrAbsenceInput,
   UpdateHrAttendanceInput,
   UpdateHrDeclarationInput,
@@ -59,6 +60,7 @@ export const weldhrKeys = {
   leaveTypes: (includeInactive: boolean) => [...weldhrKeys.all, 'leave-types', includeInactive] as const,
   leaveBalances: (employeeId: string, year: number) => [...weldhrKeys.all, 'leave-balances', employeeId, year] as const,
   leaveRequests: (params: object) => [...weldhrKeys.all, 'leave-requests', params] as const,
+  shiftRequests: (params: object) => [...weldhrKeys.all, 'shift-requests', params] as const,
   absences: (params: object) => [...weldhrKeys.all, 'absences', params] as const,
   declarations: (params: object) => [...weldhrKeys.all, 'declarations', params] as const,
   settings: () => [...weldhrKeys.all, 'settings'] as const,
@@ -216,6 +218,18 @@ export function useUpdateHrShift() {
 export function useDeleteHrShift() {
   const { weldhr } = useAppApi();
   return useHrMutation((id: string) => weldhr.deleteShift(id));
+}
+
+/** Shift requests from employees, newest start first. `status` takes a comma list ("approved,rejected"). */
+export function useHrShiftRequests(params: { employeeId?: string; status?: string; from?: string; to?: string }) {
+  const { weldhr } = useAppApi();
+  return useQuery({ queryKey: weldhrKeys.shiftRequests(params), queryFn: () => weldhr.listShiftRequests(params), select: (r) => r.data });
+}
+
+/** Approving puts the shift on the rooster, so the whole WeldHR cache (shifts included) is refreshed. */
+export function useReviewHrShiftRequest() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: ReviewHrShiftRequestInput & { id: string }) => weldhr.reviewShiftRequest(id, input));
 }
 
 export function useHrAttendance(params: HrAttendanceListParams) {

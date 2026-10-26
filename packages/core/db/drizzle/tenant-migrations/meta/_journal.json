@@ -1601,15 +1601,22 @@
     {
       "idx": 228,
       "version": "7",
-      "when": 1792954290211,
-      "tag": "0228_weldhr_settings",
+      "when": 1793040383470,
+      "tag": "0228_hr_shift_requests",
       "breakpoints": true
     },
     {
       "idx": 229,
       "version": "7",
-      "when": 1792954337112,
-      "tag": "0229_weldhr_drop_workforce_portal",
+      "when": 1793044782941,
+      "tag": "0229_weldhr_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1793044798031,
+      "tag": "0230_weldhr_drop_workforce_portal",
       "breakpoints": true
     }
   ]

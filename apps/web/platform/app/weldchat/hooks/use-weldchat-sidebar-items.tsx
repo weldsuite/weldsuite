@@ -49,7 +49,7 @@ function createGroupDmAvatarIcon(
   };
 }
 import type { MenuGroupProps, MenuItemProps } from '@/components/app-sidebar-layout';
-import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useUnarchiveChannel, useCreateSection as useCreateSectionMutation, useRecordChatSummary, useUnfollowRecordChat } from '@/hooks/queries/use-weldchat-queries';
+import { useChannels, useDmChannels, useDeleteChannel, useMuteChannel, useArchiveChannel, useUnarchiveChannel, useCreateSection as useCreateSectionMutation, useRecordChatSummary, useUnfollowRecordChat, useMuteRecordChatsByType } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember, RecordChatListItem } from '@/hooks/queries/use-weldchat-queries';
 import { useChatActivityUnread, useChatDrafts } from '@/hooks/queries/use-weldchat-extras-queries';
 import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
@@ -621,6 +621,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const recordSummary = recordSummaryData?.data;
   const recordChats = useRecordChatGroups(recordSummary, isActive && chatEnabled);
   const { mutate: unfollowRecordChat } = useUnfollowRecordChat();
+  const { mutate: muteRecordChatsByType } = useMuteRecordChatsByType();
   const { open: openObjectPanel } = useObjectPanel();
   // "Hide this group" and its Undo; the record chats page shows the group again.
   const { setGroupHidden } = useGroupHidden();
@@ -962,12 +963,6 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   // One group per record type the user follows chats of, in the fixed order
   // company, person, task, project, domain. Top 5 by latest activity, quiet
   // chats left out, unread chats and mentions still peek when collapsed.
-  const muteEach = (chats: RecordChatListItem[], mute: boolean) => {
-    for (const chat of chats) {
-      if (!!chat.isMuted !== mute) muteChannel({ channelId: chat.id, mute });
-    }
-  };
-
   const buildRecordGroup = (type: RecordChatType): MenuGroupProps | null => {
     const info = getRecordChatTypeInfo(type);
     if (!info) return null;
@@ -1021,12 +1016,20 @@ export function useWeldchatSidebarItems(isActive: boolean): {
         {
           label: st('sweep.weldchat.sidebar.muteAll'),
           icon: BellOff,
-          onClick: () => muteEach(chats, true),
+          onClick: () =>
+            muteRecordChatsByType(
+              { entityType: type, isMuted: true },
+              { onError: () => toast.error(st('sweep.weldchat.recordChats.muteAllFailed')) },
+            ),
         },
         {
           label: st('sweep.weldchat.sidebar.unmuteAll'),
           icon: Bell,
-          onClick: () => muteEach(chats, false),
+          onClick: () =>
+            muteRecordChatsByType(
+              { entityType: type, isMuted: false },
+              { onError: () => toast.error(st('sweep.weldchat.recordChats.muteAllFailed')) },
+            ),
         },
         makeSettingsAction(key, label, recordChatsForSettings(chats)),
         {

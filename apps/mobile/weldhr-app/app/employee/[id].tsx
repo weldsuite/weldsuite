@@ -4,18 +4,17 @@
  * stay behind the audited endpoint on the web.
  */
 
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { Mail, Phone } from 'lucide-react-native';
+import { Mail, Phone, type LucideIcon } from 'lucide-react-native';
 import type { HrEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr';
-import { Avatar } from '@weldsuite/mobile-ui/components/Avatar';
-import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
-import { Pill } from '@/components/Pill';
+import { PersonAvatar } from '@/components/PersonAvatar';
 import { QueryBody } from '@/components/QueryBody';
-import { Panel, Screen, Section } from '@/components/Screen';
+import { Card, DetailRow, List, Row } from '@/components/Row';
+import { Screen, Section } from '@/components/Screen';
+import { usePalette } from '@/hooks/use-palette';
 import { weldhrKeys } from '@/lib/query-client';
 import { formatDate } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
@@ -30,114 +29,94 @@ export default function EmployeeScreen() {
   });
 
   return (
-    <Screen
-      title={employee.data?.displayName ?? ''}
-      variant="push"
-      refreshing={employee.isRefetching}
-      onRefresh={() => void employee.refetch()}
-    >
+    <Screen title={employee.data?.displayName ?? ''} variant="push" refreshing={employee.isRefetching} onRefresh={() => void employee.refetch()}>
       <QueryBody query={employee}>{(data) => <EmployeeCard data={data} />}</QueryBody>
     </Screen>
   );
 }
 
-function photo(url: string | null) {
-  return url ? { uri: url } : undefined;
-}
-
 function EmployeeCard({ data }: Readonly<{ data: HrEmployeeDetail }>) {
-  const { colors } = useTheme();
+  const palette = usePalette();
   const { t, intlLocale } = useI18n();
   const phone = data.phone;
+  const details = [
+    { label: t.directory.department, value: data.departmentName },
+    { label: t.directory.manager, value: data.managerName },
+    { label: t.directory.location, value: data.location },
+    { label: t.directory.startDate, value: data.startDate ? formatDate(data.startDate, intlLocale) : null },
+    { label: t.directory.emailAddress, value: data.email },
+  ].filter((detail): detail is { label: string; value: string } => Boolean(detail.value));
 
   return (
     <>
       <View style={styles.header}>
-        <Avatar name={data.displayName} source={photo(data.avatarUrl)} size={72} />
-        <View style={styles.headerText}>
-          {data.jobTitle ? <Text style={[styles.job, { color: colors.text }]}>{data.jobTitle}</Text> : null}
-          {data.pronouns ? <Text style={[styles.sub, { color: colors.mutedForeground }]}>{data.pronouns}</Text> : null}
-          <Pill label={labelFor(t.employeeStatus, data.status)} tone={data.status === 'active' ? 'brand' : 'neutral'} />
-        </View>
+        <PersonAvatar name={data.displayName} url={data.avatarUrl} size={84} />
+        {data.jobTitle ? <Text style={[styles.job, { color: palette.text }]}>{data.jobTitle}</Text> : null}
+        <Text style={[styles.meta, { color: palette.muted }]}>
+          {[labelFor(t.employeeStatus, data.status), data.pronouns].filter(Boolean).join(' • ')}
+        </Text>
       </View>
 
       <View style={styles.actions}>
         {phone ? (
-          <Button
-            title={t.directory.call}
-            variant="outline"
-            leftIcon={<Phone size={16} color={colors.text} />}
+          <ContactButton
+            icon={Phone}
+            label={t.directory.call}
             onPress={() => void Linking.openURL(`tel:${phone.replace(/[^\d+]/g, '')}`)}
-            style={styles.flex}
           />
         ) : null}
-        <Button
-          title={t.directory.email}
-          variant="outline"
-          leftIcon={<Mail size={16} color={colors.text} />}
-          onPress={() => void Linking.openURL(`mailto:${data.email}`)}
-          style={styles.flex}
-        />
+        <ContactButton icon={Mail} label={t.directory.email} onPress={() => void Linking.openURL(`mailto:${data.email}`)} />
       </View>
 
-      <Panel>
-        <Detail label={t.directory.department} value={data.departmentName} first />
-        <Detail label={t.directory.manager} value={data.managerName} />
-        <Detail label={t.directory.location} value={data.location} />
-        <Detail label={t.directory.startDate} value={data.startDate ? formatDate(data.startDate, intlLocale) : null} />
-        <Detail label={t.directory.email} value={data.email} />
-      </Panel>
+      {details.length > 0 ? (
+        <Section>
+          <Card>
+            {details.map((detail) => (
+              <DetailRow key={detail.label} label={detail.label} value={detail.value} />
+            ))}
+          </Card>
+        </Section>
+      ) : null}
 
       {data.directReports.length > 0 ? (
         <Section title={t.directory.reports}>
-          <Panel>
-            {data.directReports.map((report, index) => (
-              <View
+          <List>
+            {data.directReports.map((report) => (
+              <Row
                 key={report.id}
-                style={[
-                  styles.report,
-                  index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-                ]}
-              >
-                <Avatar name={report.displayName} source={photo(report.avatarUrl)} size={32} />
-                <View style={styles.flex}>
-                  <Text style={[styles.reportName, { color: colors.text }]}>{report.displayName}</Text>
-                  {report.jobTitle ? (
-                    <Text style={[styles.sub, { color: colors.mutedForeground }]}>{report.jobTitle}</Text>
-                  ) : null}
-                </View>
-              </View>
+                leading={<PersonAvatar name={report.displayName} url={report.avatarUrl} />}
+                title={report.displayName}
+                subtitle={report.jobTitle}
+              />
             ))}
-          </Panel>
+          </List>
         </Section>
       ) : null}
     </>
   );
 }
 
-function Detail({ label, value, first }: Readonly<{ label: string; value: string | null; first?: boolean }>) {
-  const { colors } = useTheme();
-  if (!value) return null;
+/** Call / email, as grey tiles under the name like a phone's contact card. */
+function ContactButton({ icon: Icon, label, onPress }: Readonly<{ icon: LucideIcon; label: string; onPress: () => void }>) {
+  const palette = usePalette();
   return (
-    <View style={[styles.detail, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}>
-      <Text style={[styles.detailLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <Text style={[styles.detailValue, { color: colors.text }]} selectable>
-        {value}
-      </Text>
-    </View>
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.contact, { backgroundColor: palette.control, opacity: pressed ? 0.75 : 1 }]}
+    >
+      <Icon size={20} color={palette.text} strokeWidth={2} />
+      <Text style={[styles.contactLabel, { color: palette.text }]}>{label}</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  headerText: { flex: 1, gap: 6 },
-  job: { fontSize: 17, fontWeight: '600' },
-  sub: { fontSize: 13 },
-  actions: { flexDirection: 'row', gap: 10 },
-  detail: { paddingHorizontal: 14, paddingVertical: 12, gap: 2 },
-  detailLabel: { fontSize: 12 },
-  detailValue: { fontSize: 15 },
-  report: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 10 },
-  reportName: { fontSize: 15, fontWeight: '500' },
+  header: { alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, gap: 4 },
+  job: { fontSize: 17, fontWeight: '600', textAlign: 'center', marginTop: 10 },
+  meta: { fontSize: 15, textAlign: 'center' },
+  actions: { flexDirection: 'row', justifyContent: 'center', gap: 10, paddingHorizontal: 16, marginTop: 20 },
+  contact: { flex: 1, maxWidth: 160, alignItems: 'center', gap: 4, borderRadius: 14, paddingVertical: 12 },
+  contactLabel: { fontSize: 14, fontWeight: '600' },
 });

@@ -1,5 +1,5 @@
 {
-  "id": "4d38bb3b-1835-4417-92ff-1ba6d89be95c",
+  "id": "5ea78f44-5cba-43cf-8fef-5a6920180cd4",
   "prevId": "b1d3a955-4f62-47f1-9603-e6e64dd9c92e",
   "version": "7",
   "dialect": "postgresql",
@@ -65738,8 +65738,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.hr_settings": {
-      "name": "hr_settings",
+    "public.hr_shift_requests": {
+      "name": "hr_shift_requests",
       "schema": "",
       "columns": {
         "id": {
@@ -65748,26 +65748,72 @@
           "primaryKey": true,
           "notNull": true
         },
-        "employee_self_clock_in": {
-          "name": "employee_self_clock_in",
-          "type": "boolean",
+        "employee_id": {
+          "name": "employee_id",
+          "type": "varchar(30)",
           "primaryKey": false,
-          "notNull": true,
-          "default": true
+          "notNull": true
         },
-        "employee_leave_requests": {
-          "name": "employee_leave_requests",
-          "type": "boolean",
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": true,
-          "default": true
+          "notNull": true
         },
-        "employee_declarations": {
-          "name": "employee_declarations",
-          "type": "boolean",
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "work_type": {
+          "name": "work_type",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
           "primaryKey": false,
           "notNull": true,
-          "default": true
+          "default": "'pending'"
+        },
+        "shift_id": {
+          "name": "shift_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reviewed_by": {
+          "name": "reviewed_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reviewed_at": {
+          "name": "reviewed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "review_note": {
+          "name": "review_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -65784,7 +65830,44 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "hr_shift_requests_employee_start_idx": {
+          "name": "hr_shift_requests_employee_start_idx",
+          "columns": [
+            {
+              "expression": "employee_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "hr_shift_requests_status_idx": {
+          "name": "hr_shift_requests_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
