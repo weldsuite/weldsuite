@@ -69,7 +69,8 @@ import { buildRefresh } from '../services/data-sources/refresh';
 import { dataSourceEventData, dueDataSources, nextDueAt, recordRefresh, type DataSourceRecord } from '../services/data-sources/sources';
 import { readSnapshot, writeSnapshot } from './snapshot';
 import { isCommentersOp } from './comment-access';
-import { MentionTracker, plainBody, type NewMention } from './mentions';
+import { MentionTracker, plainBody, stampCommentAuthors, type NewMention } from './mentions';
+import { mayOpenProjectSheet } from '../routes/sheets/access';
 
 /** What the session route tells the room: which sheet it is, and who is coming in. */
 export interface Admission {
@@ -404,6 +405,9 @@ export class SheetRoom extends DurableObject<Env> {
       if (batchId) this.dispatch(room, room.refuse(state.peer.clientId, batchId));
       return;
     }
+    // A comment's author name is whatever the client wrote; trust only the
+    // server-set peer name for comments the sender is committing as themselves.
+    if (msg.type === 'submit') stampCommentAuthors(msg.op, state.peer);
 
     const before = room.revision;
     let out: Outgoing[];
@@ -575,8 +579,13 @@ export class SheetRoom extends DurableObject<Env> {
       if (!sheet) return;
       for (const m of mentions) {
         for (const userId of m.userIds) {
-          // Only people who can open the sheet: a mention is not a share.
+          // Only people who can open the sheet: a mention is not a share. For a
+          // WeldFlow project's sheet, `fileRole` alone says `editor` for anyone
+          // (drive-access.ts leaves project files to their module), so the
+          // project's own membership rule decides, same as `findSheet` applies
+          // for the person opening it.
           if (!fileRole(await loadDriveAccessForUser(db, userId), sheet.file)) continue;
+          if (sheet.projectId && !(await mayOpenProjectSheet(db, userId, sheet.projectId))) continue;
           await createAndDeliverNotification({
             db,
             env: this.env,

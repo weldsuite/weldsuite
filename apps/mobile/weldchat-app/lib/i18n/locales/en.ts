@@ -167,6 +167,7 @@ export const en = {
     sendFailed: 'Message failed to send.',
     savedForLater: 'Message saved',
     alreadySaved: 'Already saved',
+    saveMessageFailed: 'Could not save the message.',
     aiUnavailable: 'AI is currently unavailable.',
     callFailedTitle: 'Call failed',
     callFailedBody: 'Could not connect to the call. Please try again.',
@@ -209,6 +210,10 @@ export const en = {
     videoCall: 'Video call',
     openChat: 'Open chat',
     startCallFailed: 'Failed to start call',
+    notFoundTitle: 'No longer in this workspace',
+    notFoundDescription: 'This person has left, or been removed from, the workspace.',
+    profileLoadFailedTitle: "Couldn't load this profile",
+    profileLoadFailedDescription: "Something went wrong while loading this member's profile.",
     tabs: { overview: 'Overview', common: 'Common', activity: 'Activity' },
     fields: {
       title: 'Title',
@@ -240,6 +245,7 @@ export const en = {
     privateNotes: 'Your private notes',
     notePlaceholder: 'Add a note…',
     noteSaveFailed: 'Failed to save note',
+    noteLoadFailed: 'Could not load your note.',
     common: {
       thatsYouTitle: "That's you",
       thatsYouDescription: "You can't share anything with yourself — pick another team member.",

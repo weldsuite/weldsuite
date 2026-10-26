@@ -20,9 +20,19 @@ import sheetRoutes from './index';
 import agentRoutes from '../internal/agent';
 
 let db: Database;
+/** Flips what the agent routes' middleware sees as the workspace's read-only state. */
+let agentReadOnly = false;
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
   getTenantDbForWorkspace: async () => db,
+  getWorkspaceContextForOrg: async (_env: unknown, workspaceId: string) => ({
+    id: workspaceId,
+    db,
+    suspended: false,
+    licensedApps: null,
+    readOnly: agentReadOnly,
+    readOnlyReason: agentReadOnly ? ('licence_inactive' as const) : null,
+  }),
 }));
 vi.mock('@weldsuite/notifications', () => ({ createAndDeliverNotification: async () => undefined }));
 
@@ -82,6 +92,7 @@ beforeEach(async () => {
   bucket = new FakeBucket();
   publicBucket = new FakeBucket();
   rooms = liveRoomNamespace(env);
+  agentReadOnly = false;
 });
 
 describe('sessions', () => {
@@ -296,5 +307,25 @@ describe('agent tool routes', () => {
     await db.update(schema.files).set({ generalAccess: 'restricted' });
     expect((await agent(BOB).request(`/sheets/${made.id}/read`)).status).toBe(404);
     expect((await agent().request('/sheets/find', {})).status).toBe(200);
+  });
+
+  it('checks the same sheets:read / sheets:create permissions the public routes do', async () => {
+    await member(ALICE, 'OWNER');
+    const made = await call<{ id: string; name: string }>(agent().request('/sheets/create', { name: 'Gate check' }), 201);
+    // An employee member holds only My HR's and WeldChat's permissions, sheets not among them.
+    await member(BOB, 'MEMBER', { memberType: 'EMPLOYEE' });
+    expect((await agent(BOB).request('/sheets/find', { query: 'gate' })).status).toBe(403);
+    expect((await agent(BOB).request(`/sheets/${made.id}/tabs`)).status).toBe(403);
+    expect((await agent(BOB).request(`/sheets/${made.id}/read`, {})).status).toBe(403);
+    expect((await agent(BOB).request('/sheets/create', { name: 'Not allowed' })).status).toBe(403);
+  });
+
+  it('refuses to create or write in a read-only workspace, but still lets it read', async () => {
+    await member(ALICE, 'OWNER');
+    const made = await call<{ id: string; name: string }>(agent().request('/sheets/create', { name: 'Before the lapse' }), 201);
+    agentReadOnly = true;
+    expect((await agent().request('/sheets/create', { name: 'After the lapse' })).status).toBe(403);
+    expect((await agent().request(`/sheets/${made.id}/write`, { values: [[1]] })).status).toBe(403);
+    expect((await agent().request(`/sheets/${made.id}/read`, {})).status).toBe(200);
   });
 });

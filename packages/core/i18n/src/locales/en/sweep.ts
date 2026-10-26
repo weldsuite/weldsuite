@@ -520,6 +520,7 @@ export const sweep = {
         "task": "Tasks"
       },
       "hideGroup": "Hide this group",
+      "muteAllFailed": "Couldn't update these chats",
       "open": {
         "company": "Open company",
         "domain": "Open domain",

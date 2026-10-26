@@ -7,6 +7,7 @@
  *
  *   GET    /                                    — record chats, cursor paginated (?type=&filter=&search=)
  *   GET    /summary                             — per type: followed / unread / mention counts
+ *   PATCH  /:entityType/mute                    — mute/unmute every chat of this type the caller follows
  *   GET    /:entityType/:entityId/channel       — linked channel or null (no create)
  *   POST   /:entityType/:entityId/messages      — get-or-create channel + post a message
  *   POST   /:entityType/:entityId/follow        — follow (get-or-create channel)
@@ -21,10 +22,11 @@
  * live. Messages stream over WeldChat's own ChatRoom DO / realtime path; the
  * roster changes publish the same `chat_channel` entity events as
  * `/api/channels`: `created` when a record chat is created, `joined` on
- * follow and `left` on unfollow.
+ * follow and `left` on unfollow, `updated` on a bulk mute/unmute.
  *
- * Permissions: channels:read (read, follow) | messages:create (post), plus the
- * record type's own permission (provider `requiredPermission`, e.g.
+ * Permissions: channels:read (read, follow) | messages:create (post) |
+ * channels:update (bulk mute — same as the single-channel mute route), plus
+ * the record type's own permission (provider `requiredPermission`, e.g.
  * `companies:read`) and the provider's record check.
  */
 
@@ -33,6 +35,7 @@ import { zValidator } from '@hono/zod-validator';
 import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
 import {
   listEntityChannelsQuerySchema,
+  muteRecordChatsSchema,
   sendEntityMessageSchema,
 } from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 import { publishChatMemberLeft } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
@@ -48,6 +51,7 @@ import {
   getOrCreateEntityChannel,
   listRecordChatProviders,
   removeFollower,
+  setFollowedChannelsMuted,
   type EntityChannelProvider,
   type PermissionCheck,
 } from '../../services/chat/entity-channels';
@@ -64,6 +68,8 @@ const app = new Hono<AppEnv>();
 // reuse — the runtime behaviour is identical.
 const readPerm = requirePermission('channels:read') as unknown as MiddlewareHandler<AppEnv>;
 const writePerm = requirePermission('messages:create') as unknown as MiddlewareHandler<AppEnv>;
+// Same permission the single-channel `PATCH /api/channels/:id/me` mute route requires.
+const mutePerm = requirePermission('channels:update') as unknown as MiddlewareHandler<AppEnv>;
 
 /** The caller's permission check, app- and deny-aware like requirePermission. */
 function callerCan(c: AppContext): PermissionCheck {
@@ -169,6 +175,44 @@ app.get('/summary', readPerm, async (c) => {
   } catch (err) {
     console.error('[chat-api/chat-entity-channels] summary failed:', err);
     return error.internal(c, 'Failed to summarise entity channels');
+  }
+});
+
+/**
+ * PATCH /:entityType/mute — mute or unmute every record chat of this type the
+ * caller follows (the sidebar's "Mute all" / "Unmute all" group actions).
+ * Mounted before `/:entityType/:entityId/...` so `mute` is never read as an
+ * entityId.
+ */
+app.patch('/:entityType/mute', mutePerm, zValidator('json', muteRecordChatsSchema), async (c) => {
+  const entityType = c.req.param('entityType');
+  const provider = getEntityProvider(entityType);
+  if (!provider || provider.legacy) return error.badRequest(c, `Unknown entity type: ${entityType}`);
+  if (!(await callerCan(c)(provider.requiredPermission))) {
+    return error.forbidden(c, 'You do not have access to this record type');
+  }
+
+  const { isMuted } = c.req.valid('json');
+  const userId = c.get('userId');
+  try {
+    const channelIds = await setFollowedChannelsMuted(c.get('tenantDb'), userId, provider.type, isMuted);
+    for (const channelId of channelIds) {
+      try {
+        publishEntityEvent({
+          c,
+          entityType: 'chat_channel',
+          action: 'updated',
+          entityId: channelId,
+          data: { id: channelId },
+        });
+      } catch (e) {
+        console.error('[chat-api/chat-entity-channels] entity event publish failed:', e);
+      }
+    }
+    return success(c, { updated: channelIds.length });
+  } catch (err) {
+    console.error('[chat-api/chat-entity-channels] bulk mute failed:', err);
+    return error.internal(c, 'Failed to update record chats');
   }
 });
 

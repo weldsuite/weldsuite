@@ -35,7 +35,7 @@ export function SheetEditor({
   const barInputRef = useRef<HTMLTextAreaElement>(null);
   const [sorting, setSorting] = useState(false);
   const [creatingPivot, setCreatingPivot] = useState(false);
-  const readOnlyPanel = controller.panel === 'comments' || controller.panel === 'versions';
+  const readOnlyPanel = controller.panel === 'comments' || controller.panel === 'versions' || controller.panel === 'data';
   const panel = controller.readOnly && !readOnlyPanel ? null : controller.panel;
   const author = controller.options.author ?? { id: 'local', name: '' };
   return (

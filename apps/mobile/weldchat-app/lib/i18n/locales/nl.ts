@@ -162,6 +162,7 @@ export const nl: Translations = {
     sendFailed: 'Het bericht kon niet worden verstuurd.',
     savedForLater: 'Bericht bewaard',
     alreadySaved: 'Al bewaard',
+    saveMessageFailed: 'Het bericht kon niet worden bewaard.',
     aiUnavailable: 'AI is momenteel niet beschikbaar.',
     callFailedTitle: 'Gesprek mislukt',
     callFailedBody: 'Kon geen verbinding maken met het gesprek. Probeer het opnieuw.',
@@ -201,6 +202,10 @@ export const nl: Translations = {
     videoCall: 'Video-oproep',
     openChat: 'Chat openen',
     startCallFailed: 'Kan gesprek niet starten',
+    notFoundTitle: 'Niet meer in deze werkruimte',
+    notFoundDescription: 'Deze persoon heeft de werkruimte verlaten of is eruit verwijderd.',
+    profileLoadFailedTitle: 'Kon dit profiel niet laden',
+    profileLoadFailedDescription: 'Er ging iets mis bij het laden van het profiel van dit teamlid.',
     tabs: { overview: 'Overzicht', common: 'Gemeenschappelijk', activity: 'Activiteit' },
     fields: {
       title: 'Titel',
@@ -232,6 +237,7 @@ export const nl: Translations = {
     privateNotes: 'Uw privénotities',
     notePlaceholder: 'Voeg een notitie toe…',
     noteSaveFailed: 'Notitie opslaan mislukt',
+    noteLoadFailed: 'Uw notitie kon niet worden geladen.',
     common: {
       thatsYouTitle: 'Dat bent u',
       thatsYouDescription: 'U kunt niets met uzelf delen — kies een ander teamlid.',
