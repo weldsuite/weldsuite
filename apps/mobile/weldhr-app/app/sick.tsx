@@ -16,8 +16,9 @@ import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { DateField } from '@/components/DateField';
+import { Card, DetailRow } from '@/components/Row';
 import { QueryBody } from '@/components/QueryBody';
-import { ErrorNote, Panel, Screen, Section } from '@/components/Screen';
+import { ErrorNote, Screen } from '@/components/Screen';
 import { useAbsences, useReportRecovered, useReportSick } from '@/hooks/use-weldhr-queries';
 import { addDays, todayIso } from '@/lib/dates';
 import { formatDateRange, formatDay } from '@/lib/format';
@@ -157,27 +158,18 @@ function History() {
   const absences = useAbsences();
   const history = absences.data?.history ?? [];
   return (
-    <Section title={t.sick.history}>
-      <Panel>
-        {history.slice(0, 10).map((absence, index) => (
-          <View
+    <View style={styles.history}>
+      <Text style={[styles.historyTitle, { color: colors.text }]}>{t.sick.history}</Text>
+      <Card style={styles.historyGroup}>
+        {history.slice(0, 10).map((absence) => (
+          <DetailRow
             key={absence.id}
-            style={[
-              styles.row,
-              index > 0 && {
-                borderTopWidth: StyleSheet.hairlineWidth,
-                borderTopColor: colors.border,
-              },
-            ]}
-          >
-            <Text style={[styles.rowTitle, { color: colors.text }]}>
-              {formatDateRange(absence.startDate, absence.endDate ?? absence.startDate, intlLocale)}
-            </Text>
-            <Text style={[styles.rowSub, { color: colors.mutedForeground }]}>{plural(absence.days, t.sick.days)}</Text>
-          </View>
+            label={formatDateRange(absence.startDate, absence.endDate ?? absence.startDate, intlLocale)}
+            value={plural(absence.days, t.sick.days)}
+          />
         ))}
-      </Panel>
-    </Section>
+      </Card>
+    </View>
   );
 }
 
@@ -186,12 +178,7 @@ const styles = StyleSheet.create({
   field: { gap: 6 },
   label: { fontSize: 14, fontWeight: '500' },
   text: { fontSize: 15, lineHeight: 21 },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 14,
-  },
-  rowTitle: { fontSize: 15, fontWeight: '500' },
-  rowSub: { fontSize: 14 },
+  history: { marginTop: 8, gap: 10 },
+  historyTitle: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  historyGroup: { marginHorizontal: 0 },
 });

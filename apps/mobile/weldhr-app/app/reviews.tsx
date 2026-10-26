@@ -6,20 +6,17 @@
 
 import { useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { CheckCircle2, Circle, MessageSquareText } from 'lucide-react-native';
+import { CheckCircle2, Circle } from 'lucide-react-native';
 import type { HrSelfCoachingLog, HrSelfEvaluation } from '@weldsuite/app-api-client/domains/weldhr';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
-import { SegmentedControl } from '@weldsuite/mobile-ui/components/SegmentedControl';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
-import { Pill } from '@/components/Pill';
+import { EmptyState } from '@/components/EmptyState';
 import { QueryBody } from '@/components/QueryBody';
-import { Screen } from '@/components/Screen';
-import { BRAND } from '@/constants/brand';
+import { Inset, Screen, Segments } from '@/components/Screen';
+import { usePalette } from '@/hooks/use-palette';
 import { useAcknowledge, useCoaching, useEvaluations } from '@/hooks/use-weldhr-queries';
 import { formatDate, formatDateRange, withCount } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
@@ -28,7 +25,6 @@ type Tab = 'coaching' | 'evaluations';
 type Target = { kind: 'coaching' | 'evaluation'; id: string };
 
 export default function ReviewsScreen() {
-  const { colors } = useTheme();
   const { t } = useI18n();
   const coaching = useCoaching();
   const evaluations = useEvaluations();
@@ -37,7 +33,6 @@ export default function ReviewsScreen() {
 
   const openCoaching = (coaching.data ?? []).filter((log) => !log.acknowledgedAt).length;
   const openEvaluations = (evaluations.data ?? []).filter((e) => !e.acknowledgedAt).length;
-  const emptyIcon = <MessageSquareText size={36} color={colors.mutedForeground} />;
 
   return (
     <Screen
@@ -48,28 +43,32 @@ export default function ReviewsScreen() {
         void coaching.refetch();
         void evaluations.refetch();
       }}
+      segments={
+        <Segments
+          value={tab}
+          onChange={setTab}
+          options={[
+            { label: withCount(t.reviews.coaching, openCoaching), value: 'coaching' },
+            { label: withCount(t.reviews.evaluations, openEvaluations), value: 'evaluations' },
+          ]}
+        />
+      }
     >
-      <SegmentedControl
-        value={tab}
-        onValueChange={(value) => setTab(value as Tab)}
-        options={[
-          { label: withCount(t.reviews.coaching, openCoaching), value: 'coaching' },
-          { label: withCount(t.reviews.evaluations, openEvaluations), value: 'evaluations' },
-        ]}
-      />
       {tab === 'coaching' ? (
         <QueryBody query={coaching}>
           {(logs) =>
             logs.length === 0 ? (
-              <EmptyState icon={emptyIcon} title={t.reviews.noCoaching} />
+              <EmptyState illustration="chat" title={t.reviews.noCoaching} />
             ) : (
-              logs.map((log) => (
-                <CoachingCard
-                  key={log.id}
-                  log={log}
-                  onAcknowledge={() => setTarget({ kind: 'coaching', id: log.id })}
-                />
-              ))
+              <Inset style={styles.cards}>
+                {logs.map((log) => (
+                  <CoachingCard
+                    key={log.id}
+                    log={log}
+                    onAcknowledge={() => setTarget({ kind: 'coaching', id: log.id })}
+                  />
+                ))}
+              </Inset>
             )
           }
         </QueryBody>
@@ -77,15 +76,17 @@ export default function ReviewsScreen() {
         <QueryBody query={evaluations}>
           {(rows) =>
             rows.length === 0 ? (
-              <EmptyState icon={emptyIcon} title={t.reviews.noEvaluations} />
+              <EmptyState illustration="chat" title={t.reviews.noEvaluations} />
             ) : (
-              rows.map((evaluation) => (
-                <EvaluationCard
-                  key={evaluation.id}
-                  evaluation={evaluation}
-                  onAcknowledge={() => setTarget({ kind: 'evaluation', id: evaluation.id })}
-                />
-              ))
+              <Inset style={styles.cards}>
+                {rows.map((evaluation) => (
+                  <EvaluationCard
+                    key={evaluation.id}
+                    evaluation={evaluation}
+                    onAcknowledge={() => setTarget({ kind: 'evaluation', id: evaluation.id })}
+                  />
+                ))}
+              </Inset>
             )
           }
         </QueryBody>
@@ -96,8 +97,8 @@ export default function ReviewsScreen() {
 }
 
 function Card({ children }: Readonly<{ children: ReactNode }>) {
-  const { colors } = useTheme();
-  return <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>{children}</View>;
+  const palette = usePalette();
+  return <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>{children}</View>;
 }
 
 function Acknowledged({
@@ -105,22 +106,22 @@ function Acknowledged({
   comment,
   onAcknowledge,
 }: Readonly<{ acknowledgedAt: string | null; comment: string | null; onAcknowledge: () => void }>) {
-  const { colors } = useTheme();
+  const palette = usePalette();
   const { t, format, intlLocale } = useI18n();
   if (!acknowledgedAt) {
-    return <Button title={t.reviews.acknowledge} variant="outline" onPress={onAcknowledge} fullWidth />;
+    return <Button title={t.reviews.acknowledge} variant="secondary" onPress={onAcknowledge} fullWidth />;
   }
   return (
     <View style={styles.ack}>
       {comment ? (
-        <Text style={[styles.body, { color: colors.text }]}>
+        <Text style={[styles.body, { color: palette.text }]}>
           <Text style={styles.bold}>{t.reviews.yourComment}: </Text>
           {comment}
         </Text>
       ) : null}
       <View style={styles.ackRow}>
-        <CheckCircle2 size={14} color={BRAND} />
-        <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+        <CheckCircle2 size={14} color={palette.success} />
+        <Text style={[styles.meta, { color: palette.muted }]}>
           {format(t.reviews.acknowledged, { date: formatDate(acknowledgedAt, intlLocale) })}
         </Text>
       </View>
@@ -129,32 +130,34 @@ function Acknowledged({
 }
 
 function CoachingCard({ log, onAcknowledge }: Readonly<{ log: HrSelfCoachingLog; onAcknowledge: () => void }>) {
-  const { colors } = useTheme();
+  const palette = usePalette();
   const { t, format, intlLocale } = useI18n();
   return (
     <Card>
       <View style={styles.cardHeader}>
-        <Pill label={labelFor(t.coachingCategory, log.category)} tone={log.category === 'recognition' ? 'success' : 'brand'} />
-        <Text style={[styles.meta, { color: colors.mutedForeground }]}>{formatDate(log.sessionDate, intlLocale)}</Text>
+        <Text style={[styles.tag, { color: log.category === 'recognition' ? palette.success : palette.accent }]}>
+          {labelFor(t.coachingCategory, log.category)}
+        </Text>
+        <Text style={[styles.meta, { color: palette.muted }]}>{formatDate(log.sessionDate, intlLocale)}</Text>
       </View>
-      <Text style={[styles.title, { color: colors.text }]}>{log.topic}</Text>
+      <Text style={[styles.title, { color: palette.text }]}>{log.topic}</Text>
       {log.coachName ? (
-        <Text style={[styles.meta, { color: colors.mutedForeground }]}>{format(t.reviews.by, { name: log.coachName })}</Text>
+        <Text style={[styles.meta, { color: palette.muted }]}>{format(t.reviews.by, { name: log.coachName })}</Text>
       ) : null}
-      {log.notes ? <Text style={[styles.body, { color: colors.text }]}>{log.notes}</Text> : null}
+      {log.notes ? <Text style={[styles.body, { color: palette.text }]}>{log.notes}</Text> : null}
       {log.actionItems.length > 0 ? (
         <View style={styles.items}>
-          <Text style={[styles.label, { color: colors.mutedForeground }]}>{t.reviews.actionItems}</Text>
+          <Text style={[styles.label, { color: palette.muted }]}>{t.reviews.actionItems}</Text>
           {log.actionItems.map((item) => (
             <View key={item.id} style={styles.item}>
-              {item.done ? <CheckCircle2 size={16} color={BRAND} /> : <Circle size={16} color={colors.mutedForeground} />}
-              <Text style={[styles.body, styles.flex, { color: colors.text }]}>{item.text}</Text>
+              {item.done ? <CheckCircle2 size={16} color={palette.success} /> : <Circle size={16} color={palette.muted} />}
+              <Text style={[styles.body, styles.flex, { color: palette.text }]}>{item.text}</Text>
             </View>
           ))}
         </View>
       ) : null}
       {log.followUpDate ? (
-        <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+        <Text style={[styles.meta, { color: palette.muted }]}>
           {format(t.reviews.followUp, { date: formatDate(log.followUpDate, intlLocale) })}
         </Text>
       ) : null}
@@ -164,19 +167,19 @@ function CoachingCard({ log, onAcknowledge }: Readonly<{ log: HrSelfCoachingLog;
 }
 
 function EvaluationCard({ evaluation, onAcknowledge }: Readonly<{ evaluation: HrSelfEvaluation; onAcknowledge: () => void }>) {
-  const { colors } = useTheme();
+  const palette = usePalette();
   const { t, format, intlLocale } = useI18n();
   const scores = new Map(evaluation.scores.map((score) => [score.criterionId, score]));
 
   return (
     <Card>
       <View style={styles.cardHeader}>
-        <Text style={[styles.title, styles.flex, { color: colors.text }]}>{evaluation.formName ?? t.reviews.evaluations}</Text>
+        <Text style={[styles.title, styles.flex, { color: palette.text }]}>{evaluation.formName ?? t.reviews.evaluations}</Text>
         {evaluation.overallScore != null ? (
-          <Pill label={format(t.reviews.score, { score: evaluation.overallScore })} tone="brand" />
+          <Text style={[styles.tag, { color: palette.accent }]}>{format(t.reviews.score, { score: evaluation.overallScore })}</Text>
         ) : null}
       </View>
-      <Text style={[styles.meta, { color: colors.mutedForeground }]}>
+      <Text style={[styles.meta, { color: palette.muted }]}>
         {[
           evaluation.periodStart && evaluation.periodEnd
             ? formatDateRange(evaluation.periodStart, evaluation.periodEnd, intlLocale)
@@ -184,7 +187,7 @@ function EvaluationCard({ evaluation, onAcknowledge }: Readonly<{ evaluation: Hr
           evaluation.evaluatorName ? format(t.reviews.by, { name: evaluation.evaluatorName }) : null,
         ]
           .filter(Boolean)
-          .join(' · ')}
+          .join(' • ')}
       </Text>
       {evaluation.criteria.length > 0 ? (
         <View style={styles.items}>
@@ -192,8 +195,8 @@ function EvaluationCard({ evaluation, onAcknowledge }: Readonly<{ evaluation: Hr
             const score = scores.get(criterion.id);
             return (
               <View key={criterion.id} style={styles.criterion}>
-                <Text style={[styles.body, styles.flex, { color: colors.text }]}>{criterion.label}</Text>
-                <Text style={[styles.score, { color: colors.text }]}>
+                <Text style={[styles.body, styles.flex, { color: palette.text }]}>{criterion.label}</Text>
+                <Text style={[styles.score, { color: palette.text }]}>
                   {score?.score != null ? `${score.score}/${criterion.maxScore}` : t.common.dash}
                 </Text>
               </View>
@@ -201,7 +204,7 @@ function EvaluationCard({ evaluation, onAcknowledge }: Readonly<{ evaluation: Hr
           })}
         </View>
       ) : null}
-      {evaluation.summary ? <Text style={[styles.body, { color: colors.text }]}>{evaluation.summary}</Text> : null}
+      {evaluation.summary ? <Text style={[styles.body, { color: palette.text }]}>{evaluation.summary}</Text> : null}
       <Acknowledged
         acknowledgedAt={evaluation.acknowledgedAt}
         comment={evaluation.employeeComment}
@@ -248,13 +251,15 @@ function AcknowledgeSheet({ target, onClose }: Readonly<{ target: Target; onClos
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  card: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 14, gap: 8 },
+  cards: { gap: 12, marginTop: 8 },
+  card: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 8 },
+  tag: { fontSize: 14, fontWeight: '600' },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  title: { fontSize: 17, fontWeight: '700' },
-  meta: { fontSize: 13 },
-  body: { fontSize: 14, lineHeight: 20 },
+  title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  meta: { fontSize: 14 },
+  body: { fontSize: 15, lineHeight: 21 },
   bold: { fontWeight: '600' },
-  label: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase' },
+  label: { fontSize: 13, fontWeight: '600' },
   items: { gap: 6, marginTop: 4 },
   item: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
   criterion: { flexDirection: 'row', alignItems: 'center', gap: 8 },

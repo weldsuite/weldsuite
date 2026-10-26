@@ -5,16 +5,14 @@
  */
 
 import type { ReactNode } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { UserRoundX } from 'lucide-react-native';
 import { isApiError } from '@weldsuite/api-client/client';
 import type { HrSelf, HrSelfProfile } from '@weldsuite/app-api-client/domains/weldhr';
-import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 import { useHrAccess, useMe } from '@/hooks/use-weldhr-queries';
 import { useI18n } from '@/lib/i18n';
-import { ErrorNote } from './Screen';
+import { EmptyState } from './EmptyState';
+import { ListSkeleton } from './QueryBody';
+import { ErrorState } from './Screen';
 
 export type LinkedSelf = HrSelf & { employee: HrSelfProfile };
 
@@ -42,40 +40,23 @@ export function useSelfState(): SelfState & { refetch: () => void; isRefetching:
   return { status: 'ready', self: { ...me.data, employee }, ...base };
 }
 
-export function MyHrGate({ state, children }: Readonly<{ state: SelfState; children: ReactNode }>) {
-  const { colors } = useTheme();
+export function MyHrGate({
+  state,
+  onRetry,
+  children,
+}: Readonly<{ state: SelfState; onRetry?: () => void; children: ReactNode }>) {
   const { t } = useI18n();
 
   switch (state.status) {
     case 'loading':
-      return (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.text} />
-        </View>
-      );
+      return <ListSkeleton count={4} />;
     case 'no-access':
-      return (
-        <EmptyState
-          icon={<UserRoundX size={36} color={colors.mutedForeground} />}
-          title={t.notLinked.noAccessTitle}
-          description={t.notLinked.noAccessDescription}
-        />
-      );
+      return <EmptyState illustration="person" title={t.notLinked.noAccessTitle} description={t.notLinked.noAccessDescription} />;
     case 'not-linked':
-      return (
-        <EmptyState
-          icon={<UserRoundX size={36} color={colors.mutedForeground} />}
-          title={t.notLinked.title}
-          description={t.notLinked.description}
-        />
-      );
+      return <EmptyState illustration="person" title={t.notLinked.title} description={t.notLinked.description} />;
     case 'error':
-      return <ErrorNote message={t.common.somethingWrong} />;
+      return <ErrorState onRetry={onRetry} />;
     default:
       return <>{children}</>;
   }
 }
-
-const styles = StyleSheet.create({
-  center: { paddingVertical: 48, alignItems: 'center' },
-});

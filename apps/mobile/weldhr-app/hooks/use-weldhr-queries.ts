@@ -5,17 +5,18 @@
  * all catch up at once.
  */
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@weldsuite/api-client/client';
 import type {
   HrSelfServiceAbsenceInput,
+  HrSelfServiceClockInput,
   HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
+  HrSelfServiceShiftRequestInput,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 
 import { NO_ACCESS, resolveAccess, type HrAccess } from '@/lib/access';
-import { addDays, todayIso } from '@/lib/dates';
 import { weldhrKeys } from '@/lib/query-client';
 import { appApi } from '@/services/app-api';
 import { uploadReceipt, type LocalReceipt } from '@/utils/receipt';
@@ -68,20 +69,20 @@ export function useOverview(enabled: boolean) {
   });
 }
 
-export function useAttendance(daysBack = 30, daysAhead = 14) {
-  const today = todayIso();
-  const from = addDays(today, -daysBack);
-  const to = addDays(today, daysAhead);
+/** The member's own shifts and clocked hours between two days (inclusive). */
+export function useAttendance(from: string, to: string, enabled = true) {
   return useQuery({
     queryKey: weldhrKeys.attendance(from, to),
     queryFn: async () => (await appApi.weldhr.meAttendance({ from, to })).data,
+    enabled,
+    placeholderData: keepPreviousData,
   });
 }
 
 export function useClock() {
   const invalidate = useInvalidateWeldHr();
   return useMutation({
-    mutationFn: (action: 'in' | 'out') => appApi.weldhr.meClock({ action }),
+    mutationFn: (input: HrSelfServiceClockInput) => appApi.weldhr.meClock(input),
     onSuccess: invalidate,
   });
 }
@@ -105,6 +106,22 @@ export function useCancelLeave() {
   const invalidate = useInvalidateWeldHr();
   return useMutation({
     mutationFn: (id: string) => appApi.weldhr.meCancelLeave(id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRequestShift() {
+  const invalidate = useInvalidateWeldHr();
+  return useMutation({
+    mutationFn: (body: HrSelfServiceShiftRequestInput) => appApi.weldhr.meRequestShift(body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCancelShiftRequest() {
+  const invalidate = useInvalidateWeldHr();
+  return useMutation({
+    mutationFn: (id: string) => appApi.weldhr.meCancelShiftRequest(id),
     onSuccess: invalidate,
   });
 }
@@ -280,6 +297,45 @@ export function useSickToday(enabled: boolean) {
     queryKey: weldhrKeys.sickToday(),
     queryFn: async () => (await appApi.weldhr.listAbsences({ status: 'ongoing', limit: 50 })).data,
     enabled,
+  });
+}
+
+/** Recent sick reports, ongoing and closed, for who was out on a given day. */
+export function useSickReports(enabled: boolean) {
+  return useQuery({
+    queryKey: weldhrKeys.sickReports(),
+    queryFn: async () => (await appApi.weldhr.listAbsences({ limit: 100 })).data,
+    enabled,
+  });
+}
+
+/** Everyone's shifts between two days (at most 62 apart). */
+export function useTeamShifts(from: string, to: string, enabled: boolean) {
+  return useQuery({
+    queryKey: weldhrKeys.teamShifts(from, to),
+    queryFn: async () => (await appApi.weldhr.listShifts({ from, to })).data,
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Everyone's clocked hours between two days. */
+export function useTeamAttendance(from: string, to: string, enabled: boolean) {
+  return useQuery({
+    queryKey: weldhrKeys.teamAttendance(from, to),
+    queryFn: async () => (await appApi.weldhr.listAttendance({ from, to, limit: 200 })).data,
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Approved leave that overlaps the days between `from` and `to`. */
+export function useTeamLeave(from: string, to: string, enabled: boolean) {
+  return useQuery({
+    queryKey: weldhrKeys.teamLeave(from, to),
+    queryFn: async () => (await appApi.weldhr.listLeaveRequests({ status: 'approved', from, to })).data,
+    enabled,
+    placeholderData: keepPreviousData,
   });
 }
 

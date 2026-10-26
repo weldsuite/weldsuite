@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ChevronRight, UsersRound } from 'lucide-react-native';
-import { Avatar } from '@weldsuite/mobile-ui/components/Avatar';
-import { EmptyState } from '@weldsuite/mobile-ui/components/EmptyState';
 import { SearchBar } from '@weldsuite/mobile-ui/components/SearchBar';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
+import { EmptyState } from '@/components/EmptyState';
+import { PersonAvatar } from '@/components/PersonAvatar';
 import { QueryBody } from '@/components/QueryBody';
-import { Panel, Screen } from '@/components/Screen';
+import { List, Row } from '@/components/Row';
+import { Inset, Screen } from '@/components/Screen';
 import { useEmployees, useHrAccess } from '@/hooks/use-weldhr-queries';
 import { useI18n } from '@/lib/i18n';
 
 export default function DirectoryScreen() {
-  const { colors } = useTheme();
   const { t } = useI18n();
   const router = useRouter();
   const { access } = useHrAccess();
@@ -44,55 +42,36 @@ export default function DirectoryScreen() {
       refreshing={employees.isRefetching}
       onRefresh={() => void employees.refetch()}
     >
-      <SearchBar
-        value={search}
-        onChangeText={onSearch}
-        placeholder={t.directory.search}
-        autoCorrect={false}
-        autoCapitalize="none"
-        onClear={() => {
-          setSearch('');
-          setQuery('');
-        }}
-      />
+      <Inset style={styles.search}>
+        <SearchBar
+          value={search}
+          onChangeText={onSearch}
+          placeholder={t.directory.search}
+          autoCorrect={false}
+          autoCapitalize="none"
+          onClear={() => {
+            setSearch('');
+            setQuery('');
+          }}
+        />
+      </Inset>
       <QueryBody query={employees}>
         {() =>
           rows.length === 0 ? (
-            <EmptyState
-              icon={<UsersRound size={36} color={colors.mutedForeground} />}
-              title={t.directory.empty}
-              description={t.directory.emptyDescription}
-            />
+            <EmptyState illustration="people" title={t.directory.empty} description={t.directory.emptyDescription} />
           ) : (
-            <Panel>
-              {rows.map((employee, index) => (
-                <Pressable
+            <List>
+              {rows.map((employee) => (
+                <Row
                   key={employee.id}
+                  leading={<PersonAvatar name={employee.displayName} url={employee.avatarUrl} />}
+                  title={employee.displayName}
+                  subtitle={[employee.jobTitle, employee.departmentName].filter(Boolean).join(' • ') || employee.email}
                   onPress={() => router.push({ pathname: '/employee/[id]', params: { id: employee.id } })}
-                  accessibilityRole="button"
-                  style={({ pressed }) => [
-                    styles.row,
-                    index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
-                    pressed && { backgroundColor: colors.pressed },
-                  ]}
-                >
-                  <Avatar
-                    name={employee.displayName}
-                    source={employee.avatarUrl ? { uri: employee.avatarUrl } : undefined}
-                    size={40}
-                  />
-                  <View style={styles.text}>
-                    <Text style={[styles.name, { color: colors.text }]} numberOfLines={1}>
-                      {employee.displayName}
-                    </Text>
-                    <Text style={[styles.sub, { color: colors.mutedForeground }]} numberOfLines={1}>
-                      {[employee.jobTitle, employee.departmentName].filter(Boolean).join(' · ') || employee.email}
-                    </Text>
-                  </View>
-                  <ChevronRight size={18} color={colors.mutedForeground} />
-                </Pressable>
+                  chevron
+                />
               ))}
-            </Panel>
+            </List>
           )
         }
       </QueryBody>
@@ -101,8 +80,5 @@ export default function DirectoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingVertical: 10 },
-  text: { flex: 1, gap: 2 },
-  name: { fontSize: 15, fontWeight: '600' },
-  sub: { fontSize: 13 },
+  search: { marginTop: 6, marginBottom: 6 },
 });

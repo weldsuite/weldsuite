@@ -1,4 +1,4 @@
-import { addDays, isWeekend, monthGrid, nextWeekday, parseIsoDate, toIsoDate, todayIso, weekdaysBetween } from '../dates';
+import { addDays, isWeekend, isoWeek, monthGrid, monthWeeks, nextWeekday, parseIsoDate, startOfWeek, toIsoDate, todayIso, weekdaysBetween } from '../dates';
 
 describe('ISO dates', () => {
   it('round-trips a local date', () => {
@@ -51,5 +51,28 @@ describe('monthGrid', () => {
     expect(weeks[0]).toEqual([null, null, null, '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']);
     expect(weeks.flat().filter(Boolean)).toHaveLength(31);
     expect(weeks.every((week) => week.length === 7)).toBe(true);
+  });
+});
+
+describe('weeks', () => {
+  it('finds the Monday of a week', () => {
+    // 2026-10-25 is a Sunday, 2026-10-19 the Monday before.
+    expect(startOfWeek('2026-10-25')).toBe('2026-10-19');
+    expect(startOfWeek('2026-10-19')).toBe('2026-10-19');
+    expect(startOfWeek('2026-11-01')).toBe('2026-10-26');
+  });
+
+  it('numbers weeks the ISO way', () => {
+    expect(isoWeek('2026-10-25')).toBe(43);
+    expect(isoWeek('2026-01-01')).toBe(1);
+    expect(isoWeek('2027-01-01')).toBe(53);
+    expect(isoWeek('2024-12-30')).toBe(1);
+  });
+
+  it('pads a month to whole weeks', () => {
+    const weeks = monthWeeks('2026-10-25');
+    expect(weeks[0][0]).toBe('2026-09-28');
+    expect(weeks.at(-1)?.at(-1)).toBe('2026-11-01');
+    expect(weeks).toHaveLength(5);
   });
 });
