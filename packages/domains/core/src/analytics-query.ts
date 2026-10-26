@@ -432,8 +432,29 @@ function projectScopeClause(
   return `${column} IN (${safe.map(sqlString).join(', ')})`;
 }
 
+/**
+ * The workspace to read: one id, or every id its rows may carry. The table's
+ * `workspace_id` is whatever the entity event carried, which is the Clerk org
+ * id for most rows and `workspaces.id` for some, and for all once events move
+ * to it (docs/plans/workspace-id-standardization.md). Pass both to read both.
+ */
+export type WorkspaceRefs = string | readonly (string | null | undefined)[];
+
+function workspaceIdList(workspace: WorkspaceRefs): string[] {
+  const ids = typeof workspace === 'string' ? [workspace] : workspace;
+  return [...new Set(ids.filter((id): id is string => Boolean(id)))];
+}
+
+/** `workspace_id = …` for one id, `workspace_id IN (…)` for several. */
+function workspaceClause(ids: readonly string[]): string {
+  if (ids.length === 0) throw new Error('[Analytics] a query needs a workspace id');
+  if (ids.length === 1) return `workspace_id = ${sqlString(ids[0]!)}`;
+  return `workspace_id IN (${ids.map(sqlString).join(', ')})`;
+}
+
 interface QueryContext {
-  workspaceId: string;
+  /** Every id the workspace's rows may carry (see workspaceClause). */
+  workspaceIds: readonly string[];
   module: string;
   entityType: string;
   group: GroupByInfo;
@@ -456,7 +477,7 @@ function buildSelect(
   // R2 SQL does NOT support aliases (AS) — use raw column expressions.
   // Result columns are positional: [0]=label, [1..]=aggregates.
   const whereClauses = [
-    `workspace_id = ${sqlString(ctx.workspaceId)}`,
+    workspaceClause(ctx.workspaceIds),
     `module = ${sqlString(ctx.module)}`,
     `entity_type = ${sqlString(ctx.entityType)}`,
     `event_date >= ${sqlString(ctx.start)}`,
@@ -623,7 +644,7 @@ function resolveChartInputs(params: ChartQueryParams) {
   return { entityInfo, compound, resolvedMetricKey, baseSpec, groupByInfo };
 }
 
-export function planChartQuery(workspaceId: string, params: ChartQueryParams): ChartPlan {
+export function planChartQuery(workspace: WorkspaceRefs, params: ChartQueryParams): ChartPlan {
   const { entityInfo, compound, resolvedMetricKey, baseSpec, groupByInfo } = resolveChartInputs(params);
 
   const scopeClause = projectScopeClause(entityInfo.entityType, params);
@@ -631,7 +652,7 @@ export function planChartQuery(workspaceId: string, params: ChartQueryParams): C
 
   const { start, end } = getDateRange(params.timeRange);
   const ctx: QueryContext = {
-    workspaceId,
+    workspaceIds: workspaceIdList(workspace),
     module: entityInfo.module,
     entityType: entityInfo.entityType,
     group: groupByInfo,
@@ -782,7 +803,7 @@ async function runR2Sql(
 
 export async function queryAnalytics(
   env: AnalyticsQueryEnv,
-  workspaceId: string,
+  workspace: WorkspaceRefs,
   params: ChartQueryParams,
 ): Promise<ChartDataPoint[]> {
   const token = env.R2_SQL_API_TOKEN;
@@ -795,7 +816,7 @@ export async function queryAnalytics(
   }
 
   try {
-    const plan = planChartQuery(workspaceId, params);
+    const plan = planChartQuery(workspace, params);
     if (plan.queries.length === 0) return [];
     const endpoint = `https://api.sql.cloudflarestorage.com/api/v1/accounts/${accountId}/r2-sql/query/${bucket}`;
     const results = await Promise.all(plan.queries.map((sql) => runR2Sql(endpoint, token, sql)));

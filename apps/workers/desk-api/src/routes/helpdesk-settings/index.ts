@@ -242,7 +242,6 @@ app.put('/satisfaction', requirePermission('settings:update'), zValidator('json'
 
 app.get('/widget', requirePermission('settings:read'), async (c) => {
   const db = c.get('tenantDb');
-  const orgId = c.get('orgId');
   const { helpdeskWidgetSettings } = schema;
   try {
     const result = await db.select().from(helpdeskWidgetSettings).where(isNull(helpdeskWidgetSettings.deletedAt)).limit(1);
@@ -275,7 +274,8 @@ app.get('/widget', requirePermission('settings:read'), async (c) => {
         await masterDb.insert(masterSchema.widgetRegistry).values({
           id: generateId('wr'),
           widgetId,
-          workspaceId: orgId!,
+          // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
+          workspaceId: c.get('internalWorkspaceId')!,
           widgetName: 'Default Widget',
           isActive: true,
           createdAt: new Date(),
@@ -292,7 +292,8 @@ app.get('/widget', requirePermission('settings:read'), async (c) => {
         await masterDb.insert(masterSchema.widgetRegistry).values({
           id: generateId('wr'),
           widgetId,
-          workspaceId: orgId!,
+          // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
+          workspaceId: c.get('internalWorkspaceId')!,
           widgetName: widgetSettings.widgetName ?? 'Default Widget',
           isActive: true,
           createdAt: new Date(),
@@ -315,7 +316,6 @@ app.get('/widget', requirePermission('settings:read'), async (c) => {
 
 app.put('/widget', requirePermission('settings:update'), zValidator('json', widgetSettingsSchema), async (c) => {
   const db = c.get('tenantDb');
-  const orgId = c.get('orgId');
   const { helpdeskWidgetSettings } = schema;
   const data = c.req.valid('json');
   try {
@@ -355,7 +355,8 @@ app.put('/widget', requirePermission('settings:update'), zValidator('json', widg
         await masterDb.insert(masterSchema.widgetRegistry).values({
           id: generateId('wr'),
           widgetId,
-          workspaceId: orgId!,
+          // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
+          workspaceId: c.get('internalWorkspaceId')!,
           widgetName: data.widgetName ?? 'Default Widget',
           isActive: true,
           createdAt: new Date(),
@@ -422,7 +423,6 @@ app.get('/widgets', requirePermission('settings:read'), async (c) => {
 
 app.post('/widgets', requirePermission('settings:create'), zValidator('json', widgetSettingsSchema), async (c) => {
   const db = c.get('tenantDb');
-  const orgId = c.get('orgId');
   const { helpdeskWidgetSettings } = schema;
   const data = c.req.valid('json');
   const id = generateId('wgt');
@@ -473,7 +473,8 @@ app.post('/widgets', requirePermission('settings:create'), zValidator('json', wi
       await masterDb.insert(masterSchema.widgetRegistry).values({
         id: generateId('wr'),
         widgetId,
-        workspaceId: orgId!,
+        // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
+        workspaceId: c.get('internalWorkspaceId')!,
         widgetName: data.widgetName ?? 'New Widget',
         isActive: true,
         createdAt: now,

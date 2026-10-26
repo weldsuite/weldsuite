@@ -294,6 +294,7 @@ function AppStack() {
                         <Stack.Screen name="huddles" />
                         <Stack.Screen name="later" />
                         <Stack.Screen name="drafts" />
+                        <Stack.Screen name="records" />
                         <Stack.Screen
                           name="call-room"
                           options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }}

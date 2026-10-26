@@ -22,6 +22,7 @@ import { createChatDmApi } from '@weldsuite/app-api-client/domains/chat-dm';
 import { createChatSearchApi } from '@weldsuite/app-api-client/domains/chat-search';
 import { createChatCallsApi } from '@weldsuite/app-api-client/domains/chat-calls';
 import { createChatMembersApi } from '@weldsuite/app-api-client/domains/chat-members';
+import { createChatEntityChannelsApi } from '@weldsuite/app-api-client/domains/chat-entity-channels';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import { createPushTokensApi } from '@weldsuite/app-api-client/domains/push-tokens';
 import { createNotificationsApi } from '@weldsuite/app-api-client/domains/notifications';
@@ -72,6 +73,8 @@ export const appApi = {
   chatSearch: createChatSearchApi(client),
   chatCalls: createChatCallsApi(client),
   chatMembers: createChatMembersApi(client),
+  /** Record chats: chats on companies, people, tasks, projects and domains. */
+  chatEntityChannels: createChatEntityChannelsApi(client),
   // AI chat agent (chatAgent.ask via /ask) has been removed along with the
   // AI backend — see ChannelView.tsx's handleSend for the unavailable notice.
   workspaces: createWorkspacesApi(client),

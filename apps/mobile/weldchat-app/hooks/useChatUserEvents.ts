@@ -14,21 +14,23 @@
 import { useRef } from 'react';
 import { useUser } from '@clerk/expo';
 import { useTopic } from '@weldsuite/realtime/react';
+import type { WorkspaceEvent } from '@weldsuite/realtime';
 
-export function useChatUserEvents(onUpdate: () => void) {
+export function useChatUserEvents(onUpdate: (event: WorkspaceEvent) => void) {
   const { user } = useUser();
   const userId = user?.id;
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
 
   // Any event on the personal chat topic (channel_new, dm_new, unread, …)
-  // triggers a sidebar / activity refresh.
-  useTopic(userId ? `chat.user.${userId}` : '', () => onUpdateRef.current());
+  // triggers a sidebar / activity refresh. The event goes along so a screen
+  // can skip work an event doesn't touch.
+  useTopic(userId ? `chat.user.${userId}` : '', (event) => onUpdateRef.current(event));
 
   // In-app notification creates (from createAndDeliverNotification) — needed so
   // Activity updates when the chat.user event is missed or the user is only
   // watching the notification stream.
   useTopic(userId ? `notification.${userId}` : '', (event) => {
-    if (event.event === 'created') onUpdateRef.current();
+    if (event.event === 'created') onUpdateRef.current(event);
   });
 }

@@ -147,7 +147,14 @@ describe('invalidateWorkspaceContexts', () => {
     const workspaceCache = kv();
     const apiCache = kv();
     await invalidateWorkspaceContexts(workspaceCache, ['org_1', null, 'org_2'], { apiCache, workspaceIds: ['ws_1', 'ws_2'] });
-    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual(['ws:org_1', 'ws:org_2', 'wsx:org_1', 'wsx:org_2']);
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'ws:org_1',
+      'ws:org_2',
+      'wsx:org_1',
+      'wsx:org_2',
+      'wsx:ws_1',
+      'wsx:ws_2',
+    ]);
     expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
       'mcp:org:org_1',
       'mcp:org:org_2',
@@ -177,6 +184,7 @@ describe('invalidateWorkspaceContexts', () => {
       'wsx:bill:ws_1',
       'wsx:id:ws_1',
       'wsx:org_1',
+      'wsx:ws_1',
     ]);
     expect(apiCache.delete.mock.calls.map((c) => c[0]).sort()).toEqual([
       'mcp:org:org_1',
@@ -189,6 +197,12 @@ describe('invalidateWorkspaceContexts', () => {
   it('keeps the licence callers as they were: no database-only keys unless databaseKeys is set', async () => {
     const workspaceCache = kv();
     await invalidateWorkspaceContexts(workspaceCache, ['org_1'], { workspaceIds: ['ws_1'] });
+    expect(workspaceCache.delete.mock.calls.map((c) => c[0])).toEqual(['wsx:org_1', 'ws:org_1', 'wsx:ws_1']);
+  });
+
+  it('deletes each key once for an early workspace whose id is its org id', async () => {
+    const workspaceCache = kv();
+    await invalidateWorkspaceContexts(workspaceCache, ['org_1'], { workspaceIds: ['org_1'] });
     expect(workspaceCache.delete.mock.calls.map((c) => c[0])).toEqual(['wsx:org_1', 'ws:org_1']);
   });
 
@@ -214,6 +228,8 @@ describe('invalidateWorkspaceContexts', () => {
       'kv ws:org_1',
       'kv wsx:org_2',
       'kv ws:org_2',
+      'kv wsx:ws_1',
+      'kv wsx:ws_2',
       'kv wsx:bill:org_1',
       'kv ws:id:org_1',
       'kv wsx:bill:org_2',

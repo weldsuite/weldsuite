@@ -43,6 +43,7 @@ import {
   setCustomerDefaultPaymentMethod,
   stripeApiRequest,
 } from '../lib/stripe';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { workspaces, workspaceAppAccess } = masterSchema;
 
@@ -132,7 +133,7 @@ export function subscriptionPeriodEnd(subscription: ReachStripeSubscription): st
 // ============================================================================
 
 export async function findWorkspaceByOrg(db: ReachDb, clerkOrgId: string): Promise<WorkspaceRow | null> {
-  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.clerkOrgId, clerkOrgId)).limit(1);
+  const [workspace] = await db.select().from(workspaces).where(matchWorkspaceRef(clerkOrgId)).limit(1);
   return workspace ?? null;
 }
 

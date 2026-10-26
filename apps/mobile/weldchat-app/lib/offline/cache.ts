@@ -72,5 +72,9 @@ export const chatCache = {
   getDms: (orgId: string) => readEntry<unknown[]>(orgId, ['dms']),
   setDms: (orgId: string, dms: unknown[]) => writeEntry(orgId, ['dms'], dms),
 
+  /** Home's record chat groups: the summary plus the loaded rows per type. */
+  getRecordChats: (orgId: string) => readEntry<unknown>(orgId, ['record-chats']),
+  setRecordChats: (orgId: string, recordChats: unknown) => writeEntry(orgId, ['record-chats'], recordChats),
+
   clearOrg: clearOrgCache,
 };

@@ -36,6 +36,11 @@ export function cachedMembership(channelId: string, userId: string | null | unde
   return userId ? memberships.get(membershipKey(channelId, userId)) : undefined;
 }
 
+/** Drop the cached row after following or unfollowing a record chat, which adds or removes it. */
+export function forgetMembership(channelId: string, userId: string | null | undefined): void {
+  if (userId) memberships.delete(membershipKey(channelId, userId));
+}
+
 export async function loadMembership(channelId: string, userId: string): Promise<MyMembership | null> {
   const cached = memberships.get(membershipKey(channelId, userId));
   if (cached) return cached;

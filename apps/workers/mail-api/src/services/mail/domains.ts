@@ -22,6 +22,7 @@ import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import * as cfEmail from '@weldsuite/worker-email';
 import { isSharedWeldMailDomain } from '@weldsuite/app-api-client/schemas/outbound-mail';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { mailDomains, mailAccounts } = schema;
 
@@ -456,7 +457,7 @@ async function syncCatchAllRegistry(
   const [workspace] = await masterDb
     .select({ id: masterSchema.workspaces.id })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
+    .where(matchWorkspaceRef(orgId))
     .limit(1);
 
   if (!workspace) {

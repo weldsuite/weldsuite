@@ -30,6 +30,7 @@ import {
   type AppAccessStatus,
   type AppAccessView,
 } from '@weldsuite/app-api-client/schemas/reach';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { workspaces, workspaceAppAccess, appCatalog } = masterSchema;
 
@@ -101,7 +102,7 @@ export async function getWorkspaceAccess(
       workspaceAppAccess,
       and(eq(workspaceAppAccess.workspaceId, workspaces.id), eq(workspaceAppAccess.appCode, appCode)),
     )
-    .where(eq(workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(clerkOrgId))
     .limit(1);
   if (!row) return null;
   return { workspaceId: row.workspaceId, workspaceName: row.workspaceName, access: row.access };
@@ -126,7 +127,7 @@ export async function listAccessStatuses(
     .select({ appCode: workspaceAppAccess.appCode, status: workspaceAppAccess.status })
     .from(workspaces)
     .innerJoin(workspaceAppAccess, eq(workspaceAppAccess.workspaceId, workspaces.id))
-    .where(eq(workspaces.clerkOrgId, clerkOrgId));
+    .where(matchWorkspaceRef(clerkOrgId));
   return new Map(rows.map((r) => [r.appCode, r.status]));
 }
 

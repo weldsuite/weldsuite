@@ -28,6 +28,7 @@ import { evaluateCondition } from './execute-workflow/evaluate-condition';
 import { executeAction, isWaitingForInput, type ActionContext, type ActionEnv } from './execute-workflow/action-handlers';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import { asText } from '@weldsuite/text';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 /**
  * The bindings the workflow reads: tenant/master DB resolution plus what the
@@ -83,17 +84,18 @@ function generateUsageId(): string {
   return `wsu_${Date.now().toString(36)}_${randomBase36(7)}`;
 }
 
-async function resolveInternalWorkspaceId(env: ExecuteSequenceEnv, clerkOrgId: string): Promise<string> {
-  if (clerkOrgId.startsWith('ws_')) return clerkOrgId;
+async function resolveInternalWorkspaceId(env: ExecuteSequenceEnv, ref: string): Promise<string> {
+  if (ref.startsWith('ws_')) return ref;
 
+  // An `org_…` ref may still be a `workspaces.id` (early rows), so match both columns.
   const masterDb = getMasterDb(env);
   const [workspace] = await masterDb
     .select({ id: masterSchema.workspaces.id })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(ref))
     .limit(1);
 
-  if (!workspace) throw new Error(`Workspace not found for: ${clerkOrgId}`);
+  if (!workspace) throw new Error(`Workspace not found for: ${ref}`);
   return workspace.id;
 }
 

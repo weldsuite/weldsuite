@@ -5,6 +5,10 @@
  * the workspace licence (`licensedApps`) and read-only state (`readOnly`,
  * `readOnlyReason`, including `database_move` while the workspace's database is
  * being moved) that `licenceGate()` checks.
+ *
+ * `workspaceId` is still the Clerk org id here; `internalWorkspaceId` carries
+ * `workspaces.id` and `clerkOrgId` the org id under its own name, so code can
+ * already use the one it means (docs/plans/workspace-id-standardization.md).
  */
 
 import { createMiddleware } from 'hono/factory';
@@ -18,6 +22,8 @@ type WorkspaceDbVariables = {
   sessionId: string;
   tenantDb: Database;
   workspaceId: string;
+  internalWorkspaceId: string;
+  clerkOrgId: string;
   licensedApps: readonly string[] | null;
   readOnly: boolean;
   readOnlyReason: ReadOnlyReason | null;
@@ -42,7 +48,7 @@ export const workspaceDbMiddleware = () => {
       );
     }
 
-    const { db, suspended, licensedApps, readOnly, readOnlyReason } = await getWorkspaceContextForOrg(c.env, orgId);
+    const { id, db, suspended, licensedApps, readOnly, readOnlyReason } = await getWorkspaceContextForOrg(c.env, orgId);
 
     // A suspended workspace (isActive=false) has been scheduled for deletion by
     // an admin. Reject all tenant access until it is either restored (cancelled)
@@ -61,6 +67,8 @@ export const workspaceDbMiddleware = () => {
 
     c.set('tenantDb', db);
     c.set('workspaceId', orgId);
+    c.set('internalWorkspaceId', id);
+    c.set('clerkOrgId', orgId);
     c.set('licensedApps', licensedApps);
     c.set('readOnly', readOnly);
     c.set('readOnlyReason', readOnlyReason);
