@@ -183,24 +183,34 @@ export async function deleteShift(db: Database, id: string) {
   await db.delete(sh).where(eq(sh.id, id));
 }
 
-/** The shift that starts on `date` for this employee, if any. */
 /**
- * The shift a record on `date` belongs to: its own shift while that shift
- * still starts on `date` (a clock-in or switch picked it), else the day's
- * first shift.
+ * The shift a record on `date` belongs to: its own shift (a clock-in or switch
+ * picked it) while that shift still runs into `date`, else the day's first
+ * shift. "Runs into", not "starts on": a night shift from 22:00 to 06:00 is
+ * still the record's shift when it was clocked in at 01:00 the next day. A
+ * record HR moved to another date no longer touches its old shift and falls
+ * back.
  */
 async function shiftFor(db: Database, employeeId: string, date: string, shiftId: string | null) {
   if (shiftId) {
     const [own] = await db
       .select()
       .from(sh)
-      .where(and(eq(sh.id, shiftId), eq(sh.employeeId, employeeId)))
+      .where(
+        and(
+          eq(sh.id, shiftId),
+          eq(sh.employeeId, employeeId),
+          lte(sh.startsAt, new Date(`${date}T23:59:59Z`)),
+          gt(sh.endsAt, new Date(`${date}T00:00:00Z`)),
+        ),
+      )
       .limit(1);
-    if (own && todayIso(own.startsAt) === date) return own;
+    if (own) return own;
   }
   return shiftOn(db, employeeId, date);
 }
 
+/** The shift that starts on `date` for this employee, if any. */
 async function shiftOn(db: Database, employeeId: string, date: string) {
   const [row] = await db
     .select()

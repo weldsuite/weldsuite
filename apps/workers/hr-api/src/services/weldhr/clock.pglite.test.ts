@@ -83,3 +83,34 @@ describe('switchShift', () => {
     await expect(switchShift(db, 'emp_ann', 'sh_morning', at('11:30'))).rejects.toBeInstanceOf(HrConflictError);
   });
 });
+
+describe('a night shift running past midnight', () => {
+  // Cleo's Tuesday night shift (22:00 – 06:00) is still running at 01:00 on
+  // Wednesday, and she works another one Wednesday night.
+  beforeAll(async () => {
+    await db.insert(schema.hrEmployees).values({
+      id: 'emp_cleo',
+      firstName: 'Cleo',
+      lastName: 'Cole',
+      email: 'cleo@example.com',
+      status: 'active',
+    });
+    await db.insert(schema.hrShifts).values([
+      { id: 'sh_tue_night', employeeId: 'emp_cleo', startsAt: new Date('2026-03-17T22:00:00Z'), endsAt: at('06:00') },
+      { id: 'sh_wed_night', employeeId: 'emp_cleo', startsAt: at('22:00'), endsAt: new Date('2026-03-19T06:00:00Z') },
+    ]);
+  });
+
+  it('clocks in on the running shift, not tonight’s, and keeps it when clocking out', async () => {
+    const record = await clock(db, 'emp_cleo', 'in', at('01:00'));
+    expect(record).toMatchObject({ shiftId: 'sh_tue_night', lateMinutes: 180, status: 'late' });
+    const out = await clock(db, 'emp_cleo', 'out', at('06:00'));
+    expect(out).toMatchObject({ shiftId: 'sh_tue_night', workedMinutes: 300 });
+  });
+
+  it('keeps the shift it is given, and knows the member is already on it', async () => {
+    const record = await clock(db, 'emp_cleo', 'in', at('00:30'), 'user_cleo', 'sh_tue_night');
+    expect(record.shiftId).toBe('sh_tue_night');
+    await expect(switchShift(db, 'emp_cleo', 'sh_tue_night', at('02:00'))).rejects.toBeInstanceOf(HrConflictError);
+  });
+});
