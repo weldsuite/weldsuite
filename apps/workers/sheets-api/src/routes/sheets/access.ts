@@ -4,11 +4,14 @@
  */
 
 import type { Context } from 'hono';
-import { hasContextPermission } from '@weldsuite/permissions/server';
+import { and, eq, isNull } from 'drizzle-orm';
+import { hasAppPermission } from '@weldsuite/permissions';
+import { createDrizzlePermissionQueries, hasContextPermission, resolveEffectivePermissions } from '@weldsuite/permissions/server';
 import type { DataFor } from '@weldsuite/entity-events/events';
 import { error } from '@weldsuite/worker-kit/response';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { canEdit, fileRole, loadDriveAccessForUser, type DriveRole } from '@weldsuite/core-domain/drive-access';
-import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
+import { resolveProjectAccess, type ProjectAccess } from '@weldsuite/flow-domain/project-access';
 import type { SheetSessionMode, SheetSummary } from '@weldsuite/app-api-client/schemas/sheets';
 import type { Env, Variables } from '../../types';
 import type { RoomMeta } from '../../room/sheet-room';
@@ -35,8 +38,28 @@ export async function findSheet(c: Ctx, id: string): Promise<{ sheet: SheetRecor
 export async function projectRole(c: Ctx, projectId: string, role: DriveRole): Promise<DriveRole | null> {
   const scopeAll = await hasContextPermission(c, 'projects:scope:all');
   const access = await resolveProjectAccess(c.get('tenantDb'), c.get('userId') ?? undefined, { scopeAll }, projectId);
-  if (access.deleted || !(access.scopeAll || access.isManager || access.isMember)) return null;
+  if (!mayOpenProject(access)) return null;
   return access.canWrite ? role : 'viewer';
+}
+
+/** Whether a project's access lets its holder open what's in it at all: scope:all, its manager, or any active membership row (any role). */
+function mayOpenProject(access: Pick<ProjectAccess, 'deleted' | 'scopeAll' | 'isManager' | 'isMember'>): boolean {
+  return !access.deleted && (access.scopeAll || access.isManager || access.isMember);
+}
+
+/**
+ * The same "may open this project" rule as `projectRole`, for a caller with no
+ * Hono context to read an app header or a cached permission resolution from:
+ * the sheet room, notifying someone a comment mentioned. `userId`'s
+ * `projects:scope:all` is resolved straight from the tenant DB, counting it if
+ * ANY app grants it (the any-app fallback `hasAppPermission` already gives a
+ * caller with no app context, like an API key or a workflow).
+ */
+export async function mayOpenProjectSheet(db: Database, userId: string, projectId: string): Promise<boolean> {
+  const resolved = await resolveEffectivePermissions(createDrizzlePermissionQueries(db, schema, { eq, and, isNull }), userId);
+  const scopeAll = hasAppPermission(resolved, 'projects:scope:all', null);
+  const access = await resolveProjectAccess(db, userId, { scopeAll }, projectId);
+  return mayOpenProject(access);
 }
 
 /** Write access needs the drive role, `sheets:update`, and a workspace that is not read-only. */

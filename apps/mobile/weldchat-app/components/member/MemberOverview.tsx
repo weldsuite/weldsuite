@@ -219,7 +219,17 @@ export function MemberOverview({
   );
 }
 
-/** Your own note about this person, saved 600ms after you stop typing. */
+/**
+ * Your own note about this person, saved 600ms after you stop typing.
+ *
+ * The field only becomes editable once the GET has come back successfully —
+ * a failed load (network blip, 500) leaves it disabled with a retry instead
+ * of a blank, editable box, so a debounced save or the unmount flush can
+ * never PUT an empty draft over an existing note it failed to fetch. The API
+ * never 404s for "no note yet" (it answers `data: null`, handled as a
+ * successful empty load by `fetchMemberNote`), so there is no not-found case
+ * to special-case here — every failure is a genuine fetch error.
+ */
 function PrivateNote({
   userId,
   styles,
@@ -229,47 +239,60 @@ function PrivateNote({
   const toast = useToast();
   const [draft, setDraft] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftRef = useRef('');
+  // Mirrors `loaded` for the save callbacks below, which close over it from
+  // effects that don't re-run on every render (the unmount flush especially).
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
+    setLoadFailed(false);
+    loadedRef.current = false;
     fetchMemberNote(userId)
       .then((body) => {
         if (cancelled) return;
         setDraft(body);
         draftRef.current = body;
+        setLoaded(true);
+        loadedRef.current = true;
       })
-      .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, retryCount]);
 
   const save = useCallback(
     (body: string) => {
+      if (!loadedRef.current) return;
       saveMemberNote(userId, body).catch(() => toast.error(t.member.noteSaveFailed));
     },
     [userId, toast, t],
   );
 
-  // Flush a pending save when the screen closes, so the last words aren't lost.
+  // Flush a pending save when the screen closes, so the last words aren't
+  // lost — but only once the note actually loaded, never over a failed load.
   useEffect(
     () => () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
-        void saveMemberNote(userId, draftRef.current).catch(() => {});
+        if (loadedRef.current) {
+          void saveMemberNote(userId, draftRef.current).catch(() => {});
+        }
       }
     },
     [userId],
   );
 
   const onChange = (value: string) => {
+    if (!loadedRef.current) return;
     setDraft(value);
     draftRef.current = value;
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -282,20 +305,31 @@ function PrivateNote({
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{t.member.privateNotes}</Text>
-      <TextInput
-        value={draft}
-        onChangeText={onChange}
-        editable={loaded}
-        maxLength={NOTE_MAX}
-        multiline
-        placeholder={t.member.notePlaceholder}
-        placeholderTextColor={colors.mutedForeground}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        textAlignVertical="top"
-        style={[styles.note, focused && styles.noteFocused]}
-      />
-      {focused && <Text style={styles.noteCount}>{draft.length} / {NOTE_MAX}</Text>}
+      {loadFailed ? (
+        <View style={styles.noteError}>
+          <Text style={styles.noteErrorText}>{t.member.noteLoadFailed}</Text>
+          <Pressable onPress={() => setRetryCount((n) => n + 1)} accessibilityRole="button" hitSlop={8}>
+            <Text style={styles.noteRetryText}>{t.common.retry}</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <>
+          <TextInput
+            value={draft}
+            onChangeText={onChange}
+            editable={loaded}
+            maxLength={NOTE_MAX}
+            multiline
+            placeholder={t.member.notePlaceholder}
+            placeholderTextColor={colors.mutedForeground}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            textAlignVertical="top"
+            style={[styles.note, focused && styles.noteFocused]}
+          />
+          {focused && <Text style={styles.noteCount}>{draft.length} / {NOTE_MAX}</Text>}
+        </>
+      )}
     </View>
   );
 }
@@ -339,4 +373,18 @@ const makeStyles = (c: ThemeColors) =>
     },
     noteFocused: { borderColor: c.border },
     noteCount: { marginTop: 4, textAlign: 'right', fontSize: 12, color: c.mutedForeground },
+    noteError: {
+      minHeight: 160,
+      marginHorizontal: -8,
+      marginTop: -6,
+      paddingHorizontal: 16,
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: 9,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+    noteErrorText: { fontSize: 13, color: c.mutedForeground, textAlign: 'center' },
+    noteRetryText: { fontSize: 13, fontWeight: '600', color: c.primary },
   });

@@ -8,15 +8,25 @@ import {
   Linking,
   Alert,
   ActionSheetIOS,
+  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '@clerk/expo';
-import { ChartNoAxesGantt, ChevronLeft, EllipsisVertical, HeartHandshake, SquareActivity } from 'lucide-react-native';
+import {
+  AlertCircle,
+  ChartNoAxesGantt,
+  ChevronLeft,
+  EllipsisVertical,
+  HeartHandshake,
+  SquareActivity,
+  UserX,
+} from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { isApiError } from '@weldsuite/api-client/client';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -26,12 +36,18 @@ import { useI18n } from '@/lib/i18n';
 import { MemberOverview } from '@/components/member/MemberOverview';
 import { MemberCommon } from '@/components/member/MemberCommon';
 import { MemberActivity } from '@/components/member/MemberActivity';
+import { PanelEmptyState } from '@/components/member/PropertyRow';
 import {
   fetchMemberPresence,
   fetchMemberProfile,
   type MemberPresence,
   type MemberProfile,
 } from '@/lib/member/api';
+
+/** The profile fetch's outcome — distinct from `loading` so a gone member
+ *  (404) and a transient failure render different fallbacks instead of both
+ *  leaving the screen on its skeleton forever. */
+type ProfileState = 'loading' | 'ready' | 'notFound' | 'error';
 
 type MemberTab = 'overview' | 'common' | 'activity';
 
@@ -64,23 +80,43 @@ export default function UserDetailsScreen() {
   const [profile, setProfile] = useState<MemberProfile | null>(null);
   const [presence, setPresence] = useState<MemberPresence | null>(null);
   const [activeTab, setActiveTab] = useState<MemberTab>('overview');
+  const [profileState, setProfileState] = useState<ProfileState>('loading');
+  const [profileRetryKey, setProfileRetryKey] = useState(0);
   const isSelf = !!viewerId && viewerId === userId;
 
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
+    setProfileState('loading');
     fetchMemberProfile(userId)
-      .then((p) => !cancelled && setProfile(p))
-      .catch(() => {});
+      .then((p) => {
+        if (cancelled) return;
+        setProfile(p);
+        setProfileState('ready');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setProfile(null);
+        // The route 404s for a member row that no longer exists (left or
+        // removed from the workspace) — tell that apart from a transient
+        // failure so only the latter offers a retry.
+        setProfileState(isApiError(err) && err.status === 404 ? 'notFound' : 'error');
+      });
     fetchMemberPresence(userId)
       .then((p) => !cancelled && setPresence(p))
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, profileRetryKey]);
 
-  const name = profile ? profile.name || profile.email || t.member.fallbackName : '';
+  const name = profile
+    ? profile.name || profile.email || t.member.fallbackName
+    : profileState === 'notFound'
+      ? t.member.notFoundTitle
+      : profileState === 'error'
+        ? t.member.profileLoadFailedTitle
+        : '';
   const customStatus =
     presence?.statusText || presence?.statusEmoji
       ? `${presence.statusEmoji ?? ''} ${presence.statusText ?? ''}`.trim()
@@ -188,12 +224,20 @@ export default function UserDetailsScreen() {
                 style={[styles.statusDot, { backgroundColor: PRESENCE_COLORS[presence?.status ?? 'offline'] }]}
               />
             </View>
-          ) : (
+          ) : profileState === 'loading' ? (
             <View style={[styles.avatar, styles.skeleton]} />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback]}>
+              {profileState === 'notFound' ? (
+                <UserX size={14} color={colors.mutedForeground} strokeWidth={2} />
+              ) : (
+                <AlertCircle size={14} color={colors.destructive} strokeWidth={2} />
+              )}
+            </View>
           )}
 
           <View style={styles.titleBlock}>
-            {profile ? (
+            {profile || profileState !== 'loading' ? (
               <>
                 <Text style={styles.title} numberOfLines={1}>{name}</Text>
                 {customStatus ? <Text style={styles.customStatus} numberOfLines={1}>{customStatus}</Text> : null}
@@ -216,42 +260,73 @@ export default function UserDetailsScreen() {
           )}
         </View>
 
-        <View style={styles.tabs} accessibilityRole="tablist">
-          {tabs.map((tab, index) => {
-            const active = tab.id === activeTab;
-            const Icon = tab.icon;
-            return (
-              <TouchableOpacity
-                key={tab.id}
-                style={styles.tab}
-                onPress={() => setActiveTab(tab.id)}
-                activeOpacity={0.6}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: active }}
-              >
-                <View style={[styles.tabInner, index === 0 && styles.tabFirst]}>
-                  <Icon size={16} color={active ? colors.text : colors.mutedForeground} strokeWidth={2} />
-                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
-                </View>
-                {active && <View style={[styles.tabUnderline, index === 0 && styles.tabUnderlineFirst]} />}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {profile ? (
+          <>
+            <View style={styles.tabs} accessibilityRole="tablist">
+              {tabs.map((tab, index) => {
+                const active = tab.id === activeTab;
+                const Icon = tab.icon;
+                return (
+                  <TouchableOpacity
+                    key={tab.id}
+                    style={styles.tab}
+                    onPress={() => setActiveTab(tab.id)}
+                    activeOpacity={0.6}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <View style={[styles.tabInner, index === 0 && styles.tabFirst]}>
+                      <Icon size={16} color={active ? colors.text : colors.mutedForeground} strokeWidth={2} />
+                      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{tab.label}</Text>
+                    </View>
+                    {active && <View style={[styles.tabUnderline, index === 0 && styles.tabUnderlineFirst]} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-        <ScrollView
-          style={styles.body}
-          contentContainerStyle={styles.bodyContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          automaticallyAdjustKeyboardInsets
-        >
-          {profile && activeTab === 'overview' && <MemberOverview profile={profile} onProfileChange={setProfile} />}
-          {profile && activeTab === 'common' && !isSelf && <MemberCommon userId={profile.userId} isSelf={isSelf} />}
-          {profile && activeTab === 'activity' && (
-            <MemberActivity userId={profile.userId} memberName={profile.name || undefined} />
-          )}
-        </ScrollView>
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={styles.bodyContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="interactive"
+              automaticallyAdjustKeyboardInsets
+            >
+              {activeTab === 'overview' && <MemberOverview profile={profile} onProfileChange={setProfile} />}
+              {activeTab === 'common' && !isSelf && <MemberCommon userId={profile.userId} isSelf={isSelf} />}
+              {activeTab === 'activity' && (
+                <MemberActivity userId={profile.userId} memberName={profile.name || undefined} />
+              )}
+            </ScrollView>
+          </>
+        ) : profileState === 'loading' ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={colors.mutedForeground} />
+          </View>
+        ) : profileState === 'notFound' ? (
+          <View style={styles.center}>
+            <PanelEmptyState
+              icon={<UserX size={20} color={colors.mutedForeground} />}
+              title={t.member.notFoundTitle}
+              description={t.member.notFoundDescription}
+            />
+          </View>
+        ) : (
+          <View style={styles.center}>
+            <PanelEmptyState
+              icon={<AlertCircle size={20} color={colors.destructive} />}
+              title={t.member.profileLoadFailedTitle}
+              description={t.member.profileLoadFailedDescription}
+            />
+            <TouchableOpacity
+              style={[styles.retryBtn, { borderColor: colors.border }]}
+              onPress={() => setProfileRetryKey((n) => n + 1)}
+              accessibilityRole="button"
+            >
+              <Text style={[styles.retryText, { color: colors.text }]}>{t.common.retry}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </>
   );
@@ -304,4 +379,10 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
 
     body: { flex: 1 },
     bodyContent: { paddingBottom: 24 + bottomInset },
+
+    // Fills the tab/body region in place of the skeleton for a not-found or
+    // failed profile fetch, as channel-info's load-failed state does.
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 16 },
+    retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
+    retryText: { fontSize: 15, fontWeight: '600' },
   });
