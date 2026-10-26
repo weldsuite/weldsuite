@@ -80,7 +80,13 @@ export function FindBar({ controller }: { controller: SheetController }) {
     }
   };
 
-  const status = !query ? '' : matches.length === 0 ? tf.noResults : index < 0 ? format(tf.count, { total: matches.length }) : format(tf.position, { current: index + 1, total: matches.length });
+  const statusText = () => {
+    if (!query) return '';
+    if (matches.length === 0) return tf.noResults;
+    if (index < 0) return format(tf.count, { total: matches.length });
+    return format(tf.position, { current: index + 1, total: matches.length });
+  };
+  const status = statusText();
   const setOpt = (key: keyof FindOptions, value: boolean) => setOpts((o) => ({ ...o, [key]: value }));
 
   return (

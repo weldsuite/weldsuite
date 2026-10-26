@@ -389,22 +389,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
       pickChart(onChart.chart, onChart.handle ?? null, e);
       return;
     }
-    if (hit.area === 'cell' && (onFillHandle(x, y) || onSelectionEdge(x, y))) {
-      const source = clampToGrid(primaryRange(controller.selection), sheet.rowCount, sheet.colCount);
-      const mod = e.ctrlKey || e.metaKey;
-      if (onFillHandle(x, y)) {
-        dragRef.current = { kind: 'fill', source, target: source, toggle: mod };
-      } else {
-        const grab = { row: clamp(hit.row, source.r1, source.r2) - source.r1, col: clamp(hit.col, source.c1, source.c2) - source.c1 };
-        dragRef.current = { kind: 'move', source, grab, at: null, copy: mod, down: { row: hit.row, col: hit.col } };
-        e.currentTarget.style.cursor = 'grabbing';
-      }
-      pointerRef.current = { clientX: e.clientX, clientY: e.clientY, mod };
-      e.currentTarget.setPointerCapture(e.pointerId);
-      e.preventDefault();
-      editorRef.current?.focus({ preventScroll: true });
-      return;
-    }
+    if (hit.area === 'cell' && grabSelection(hit, x, y, e)) return;
     if (!editing && clickedControl(hit, x, y)) {
       e.preventDefault();
       return;
@@ -424,6 +409,26 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
     (pointing ? input : editorRef.current)?.focus({ preventScroll: true });
+  };
+
+  /** A press on the fill handle starts a fill, on the selection's outline a move. False when it is on neither. */
+  const grabSelection = (hit: Hit, x: number, y: number, e: React.PointerEvent<HTMLDivElement>): boolean => {
+    const onHandle = onFillHandle(x, y);
+    if (!onHandle && !onSelectionEdge(x, y)) return false;
+    const source = clampToGrid(primaryRange(controller.selection), sheet.rowCount, sheet.colCount);
+    const mod = e.ctrlKey || e.metaKey;
+    if (onHandle) {
+      dragRef.current = { kind: 'fill', source, target: source, toggle: mod };
+    } else {
+      const grab = { row: clamp(hit.row, source.r1, source.r2) - source.r1, col: clamp(hit.col, source.c1, source.c2) - source.c1 };
+      dragRef.current = { kind: 'move', source, grab, at: null, copy: mod, down: { row: hit.row, col: hit.col } };
+      e.currentTarget.style.cursor = 'grabbing';
+    }
+    pointerRef.current = { clientX: e.clientX, clientY: e.clientY, mod };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+    editorRef.current?.focus({ preventScroll: true });
+    return true;
   };
 
   /** A press on a chart picks it, and starts moving it (or resizing it, on a handle). */
@@ -453,29 +458,29 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     placeCaret(caretPos + ref.length);
   };
 
+  const startResize = ({ axis, index }: NonNullable<Hit['resize']>, e: React.PointerEvent) => {
+    const startSize = axis === 'col' ? sheet.cols.sizeOf(index) : sheet.rows.sizeOf(index);
+    dragRef.current = { kind: 'resize', axis, index, startPos: axis === 'col' ? e.clientX : e.clientY, startSize, size: startSize };
+    setResizeGhost(startSize);
+  };
+
+  /** A press on a header of selected whole columns or rows picks them up to move them. False when it is not on one. */
+  const pickUpHeaders = (hit: Hit): boolean => {
+    const axis = onSelectedHeader(hit);
+    if (!axis) return false;
+    const p = primaryRange(controller.selection);
+    const [from, last] = axis === 'col' ? [p.c1, p.c2] : [p.r1, p.r2];
+    dragRef.current = { kind: 'moveDims', axis, from, count: last - from + 1, to: null, down: axis === 'col' ? hit.col : hit.row, moved: false };
+    return true;
+  };
+
   const startSelection = (hit: Hit, e: React.PointerEvent) => {
     const sel = controller.selection;
     if (hit.resize) {
-      const axis = hit.resize.axis;
-      const startSize = axis === 'col' ? sheet.cols.sizeOf(hit.resize.index) : sheet.rows.sizeOf(hit.resize.index);
-      dragRef.current = {
-        kind: 'resize',
-        axis,
-        index: hit.resize.index,
-        startPos: axis === 'col' ? e.clientX : e.clientY,
-        startSize,
-        size: startSize,
-      };
-      setResizeGhost(startSize);
+      startResize(hit.resize, e);
       return;
     }
-    const pickedUp = e.shiftKey ? null : onSelectedHeader(hit);
-    if (pickedUp) {
-      const p = primaryRange(sel);
-      const [from, last] = pickedUp === 'col' ? [p.c1, p.c2] : [p.r1, p.r2];
-      dragRef.current = { kind: 'moveDims', axis: pickedUp, from, count: last - from + 1, to: null, down: pickedUp === 'col' ? hit.col : hit.row, moved: false };
-      return;
-    }
+    if (!e.shiftKey && pickUpHeaders(hit)) return;
     switch (hit.area) {
       case 'corner':
         controller.select({ ranges: [{ r1: 0, c1: 0, r2: MAX_ROWS - 1, c2: MAX_COLS - 1 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
@@ -550,34 +555,12 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
 
   const dragTo = (drag: Exclude<Drag, { kind: 'resize' | 'chart' }>, { hit, x, y }: { hit: Hit; x: number; y: number }) => {
     const sel = controller.selection;
-    const mod = pointerRef.current?.mod ?? false;
     switch (drag.kind) {
-      case 'fill': {
-        drag.target = fillTarget(drag.source, hit.row, hit.col);
-        drag.toggle = mod;
-        setDragPreview({ range: drag.target, hint: controller.fillHint(drag.target, drag.toggle), dim: null });
+      case 'fill':
+      case 'move':
+      case 'moveDims':
+        dragBlock(drag, { hit, x, y });
         return;
-      }
-      case 'move': {
-        const s = drag.source;
-        const top = clamp(hit.row - drag.grab.row, 0, sheet.rowCount - 1 - (s.r2 - s.r1));
-        const left = clamp(hit.col - drag.grab.col, 0, sheet.colCount - 1 - (s.c2 - s.c1));
-        drag.copy = mod;
-        if (!drag.at && top === s.r1 && left === s.c1) return;
-        drag.at = { row: top, col: left };
-        setDragPreview({ range: { r1: top, c1: left, r2: top + s.r2 - s.r1, c2: left + s.c2 - s.c1 }, hint: null, dim: null });
-        return;
-      }
-      case 'moveDims': {
-        const index = drag.axis === 'col' ? hit.col : hit.row;
-        const seg = (drag.axis === 'col' ? dragLayout().cols : dragLayout().rows).find((s) => s.index === index);
-        const pos = drag.axis === 'col' ? x : y;
-        const at = seg && pos > seg.start + seg.size / 2 ? index + 1 : index;
-        if (index !== drag.down) drag.moved = true;
-        drag.to = at >= drag.from && at <= drag.from + drag.count ? null : at;
-        setDragPreview(drag.to === null ? null : { range: null, hint: null, dim: { axis: drag.axis, at: drag.to } });
-        return;
-      }
       case 'select': {
         const range = expandForMerges(rangeFrom(drag.anchor, hit));
         const ranges = drag.additive ? [...sel.ranges.slice(0, -1), range] : [range];
@@ -599,6 +582,35 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
         placeCaret(drag.end);
       }
     }
+  };
+
+  /** A fill, a moved block or moved headers following the pointer: where they would land, previewed. */
+  const dragBlock = (drag: Extract<Drag, { kind: 'fill' | 'move' | 'moveDims' }>, { hit, x, y }: { hit: Hit; x: number; y: number }) => {
+    const mod = pointerRef.current?.mod ?? false;
+    if (drag.kind === 'fill') {
+      drag.target = fillTarget(drag.source, hit.row, hit.col);
+      drag.toggle = mod;
+      setDragPreview({ range: drag.target, hint: controller.fillHint(drag.target, drag.toggle), dim: null });
+      return;
+    }
+    if (drag.kind === 'move') {
+      const s = drag.source;
+      const top = clamp(hit.row - drag.grab.row, 0, sheet.rowCount - 1 - (s.r2 - s.r1));
+      const left = clamp(hit.col - drag.grab.col, 0, sheet.colCount - 1 - (s.c2 - s.c1));
+      drag.copy = mod;
+      if (!drag.at && top === s.r1 && left === s.c1) return;
+      drag.at = { row: top, col: left };
+      setDragPreview({ range: { r1: top, c1: left, r2: top + s.r2 - s.r1, c2: left + s.c2 - s.c1 }, hint: null, dim: null });
+      return;
+    }
+    const index = drag.axis === 'col' ? hit.col : hit.row;
+    const live = dragLayout();
+    const seg = (drag.axis === 'col' ? live.cols : live.rows).find((s) => s.index === index);
+    const pos = drag.axis === 'col' ? x : y;
+    const at = seg && pos > seg.start + seg.size / 2 ? index + 1 : index;
+    if (index !== drag.down) drag.moved = true;
+    drag.to = at >= drag.from && at <= drag.from + drag.count ? null : at;
+    setDragPreview(drag.to === null ? null : { range: null, hint: null, dim: { axis: drag.axis, at: drag.to } });
   };
 
   const expandForMerges = (r: ReturnType<typeof rangeFrom>) => {

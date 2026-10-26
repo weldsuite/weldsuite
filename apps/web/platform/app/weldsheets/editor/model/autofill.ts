@@ -49,16 +49,40 @@ export function fillDirection(source: Range, target: Range): FillDirection | nul
  * (the cells left out are cleared).
  */
 export function fillTarget(source: Range, row: number, col: number): Range {
-  const dRow = row > source.r2 ? row - source.r2 : row < source.r1 ? row - source.r1 : 0;
-  const dCol = col > source.c2 ? col - source.c2 : col < source.c1 ? col - source.c1 : 0;
-  if (dRow === 0 && dCol === 0) {
-    const rowsBack = source.r2 - row;
-    const colsBack = source.c2 - col;
-    if (rowsBack === 0 && colsBack === 0) return source;
-    return rowsBack >= colsBack ? { ...source, r2: row } : { ...source, c2: col };
-  }
+  const dRow = beyond(row, source.r1, source.r2);
+  const dCol = beyond(col, source.c1, source.c2);
+  if (dRow === 0 && dCol === 0) return shrunk(source, row, col);
   if (Math.abs(dRow) >= Math.abs(dCol)) return dRow > 0 ? { ...source, r2: row } : { ...source, r1: row };
   return dCol > 0 ? { ...source, c2: col } : { ...source, c1: col };
+}
+
+/** How far `p` lies past [lo, hi]: negative before it, 0 inside. */
+function beyond(p: number, lo: number, hi: number): number {
+  if (p > hi) return p - hi;
+  if (p < lo) return p - lo;
+  return 0;
+}
+
+/** The source pulled back to (row, col) inside it, along the axis pulled back further. */
+function shrunk(source: Range, row: number, col: number): Range {
+  const rowsBack = source.r2 - row;
+  const colsBack = source.c2 - col;
+  if (rowsBack === 0 && colsBack === 0) return source;
+  return rowsBack >= colsBack ? { ...source, r2: row } : { ...source, c2: col };
+}
+
+/** How many cells a fill adds to each line. */
+function fillCount(source: Range, target: Range, dir: FillDirection): number {
+  switch (dir) {
+    case 'down':
+      return target.r2 - source.r2;
+    case 'up':
+      return source.r1 - target.r1;
+    case 'right':
+      return target.c2 - source.c2;
+    default:
+      return source.c1 - target.c1;
+  }
 }
 
 type CellAt = (row: number, col: number) => FillCell;
@@ -70,7 +94,7 @@ function plan(source: Range, target: Range) {
   const vertical = dir === 'down' || dir === 'up';
   const forward = dir === 'down' || dir === 'right';
   const [srcLo, srcHi] = vertical ? [source.r1, source.r2] : [source.c1, source.c2];
-  const count = vertical ? (forward ? target.r2 - source.r2 : source.r1 - target.r1) : forward ? target.c2 - source.c2 : source.c1 - target.c1;
+  const count = fillCount(source, target, dir);
   // Source positions in fill order: nearest to the new cells last.
   const positions: number[] = [];
   if (forward) for (let p = srcLo; p <= srcHi; p++) positions.push(p);
@@ -148,41 +172,51 @@ export function lineSeries(cells: FillCell[], opts: FillOptions, step: 1 | -1 = 
   if (opts.copy) return copy;
   const contents = cells.map((c) => c.content);
 
-  // Numbers (and dates) as a series.
   if (contents.every((c) => typeof c?.v === 'number')) {
-    const values = contents.map((c) => c!.v as number);
-    const dates = cells.every((c) => isDateFormat(c.numFmt));
-    const series = n === 1 ? !dates === opts.toggle : !opts.toggle;
-    if (!series) return copy;
-    // One value counts on by one (a date by a day).
-    const next = n === 1 ? (x: number) => values[0]! + step * x : dates ? (monthlySeries(values) ?? linearSeries(values)) : linearSeries(values);
-    return (k) => ({ content: { v: next(n - 1 + k) }, from: repeat(k) });
+    const next = numberSeries(cells, opts.toggle, step);
+    return next ? (k) => ({ content: { v: next(n - 1 + k) }, from: repeat(k) }) : copy;
   }
-
   if (opts.toggle) return copy;
+  const text = numberedSeries(contents, step) ?? namedSeries(contents, opts.locale, step);
+  if (text) return (k) => ({ content: { v: text(n - 1 + k) }, from: repeat(k) });
+  return patternSeries(cells, opts.locale, step);
+}
 
-  // "Item 1", "Item 2": one prefix and suffix around a counting number.
+/**
+ * Numbers (and dates) as a series, or null when they copy. One number
+ * copies (Ctrl counts it on by one); one date counts on by a day (Ctrl
+ * copies it); more go on as a line, dates by months when they can.
+ */
+function numberSeries(cells: FillCell[], toggle: boolean, step: 1 | -1): ((x: number) => number) | null {
+  const values = cells.map((c) => c.content!.v as number);
+  const dates = cells.every((c) => isDateFormat(c.numFmt));
+  if (values.length === 1) return dates === toggle ? null : (x) => values[0]! + step * x;
+  if (toggle) return null;
+  return (dates ? monthlySeries(values) : null) ?? linearSeries(values);
+}
+
+/** "Item 1", "Item 2": one prefix and suffix around a counting number. */
+function numberedSeries(contents: (CellContent | null)[], step: 1 | -1): ((x: number) => string) | null {
   const parts = contents.map((c) => (typeof c?.v === 'string' ? numberedText(c.v) : null));
-  if (parts.every((p) => p !== null) && parts.every((p) => p!.prefix === parts[0]!.prefix && p!.suffix === parts[0]!.suffix)) {
-    const values = parts.map((p) => p!.n);
-    const next = n === 1 ? (x: number) => values[0]! + step * x : linearSeries(values);
-    const last = parts[n - 1]!;
-    return (k) => ({ content: { v: last.prefix + pad(Math.abs(Math.round(next(n - 1 + k))), last.width) + last.suffix }, from: repeat(k) });
-  }
+  const first = parts[0];
+  if (!first || parts.some((p) => !p || p.prefix !== first.prefix || p.suffix !== first.suffix)) return null;
+  const values = parts.map((p) => p!.n);
+  const next = values.length === 1 ? (x: number) => values[0]! + step * x : linearSeries(values);
+  const last = parts[parts.length - 1]!;
+  return (x) => last.prefix + pad(Math.abs(Math.round(next(x))), last.width) + last.suffix;
+}
 
-  // Weekday and month names.
-  const listed = namedSeries(contents, opts.locale, step);
-  if (listed) return (k) => ({ content: { v: listed(n - 1 + k) }, from: repeat(k) });
-
-  // Anything else repeats; within the pattern, numbered text and names still count on per round.
+/** Anything else repeats; within the pattern, numbered text and names still count on per round. */
+function patternSeries(cells: FillCell[], locale: FormatLocale, step: 1 | -1): LineSeries {
+  const n = cells.length;
   return (k) => {
-    const from = repeat(k);
+    const from = (n - 1 + k) % n;
     const round = Math.floor((n - 1 + k) / n);
     const content = cells[from]!.content;
     if (typeof content?.v !== 'string' || round === 0) return { content, from };
     const numbered = numberedText(content.v);
     if (numbered) return { content: { v: numbered.prefix + pad(Math.abs(numbered.n + step * round), numbered.width) + numbered.suffix }, from };
-    const named = namedSeries([content], opts.locale, 1);
+    const named = namedSeries([content], locale, 1);
     return { content: named ? { v: named(step * round) } : content, from };
   };
 }
@@ -227,9 +261,14 @@ function tidy(n: number): number {
 
 /** "Item 007" → prefix "Item ", 7, width 3. The number is the last run of digits. */
 function numberedText(text: string): { prefix: string; n: number; width: number; suffix: string } | null {
-  const m = /^([\s\S]*?)(\d+)(\D*)$/.exec(text);
-  if (!m || m[2]!.length > 15) return null;
-  return { prefix: m[1]!, n: Number(m[2]), width: m[2]!.length, suffix: m[3]! };
+  const isDigit = (i: number) => text[i]! >= '0' && text[i]! <= '9';
+  let end = text.length;
+  while (end > 0 && !isDigit(end - 1)) end--;
+  let start = end;
+  while (start > 0 && isDigit(start - 1)) start--;
+  const digits = text.slice(start, end);
+  if (digits.length === 0 || digits.length > 15) return null;
+  return { prefix: text.slice(0, start), n: Number(digits), width: digits.length, suffix: text.slice(end) };
 }
 
 function pad(n: number, width: number): string {

@@ -799,8 +799,7 @@ export class SheetController {
   /** A cell as a fill reads it: content, own style and number format. */
   fillCell = (row: number, col: number): FillCell => {
     const cell = this.sheet.cells.get(row, col);
-    const content: CellContent | null = !cell ? null : cell.f !== undefined ? { f: cell.f } : cell.v === null ? null : ({ v: cell.v } as CellContent);
-    return { content, style: cell?.s ?? null, numFmt: this.engine.workbook.style(this.sheet, row, col)?.numFmt };
+    return { content: contentOf(cell), style: cell?.s ?? null, numFmt: this.engine.workbook.style(this.sheet, row, col)?.numFmt };
   };
 
   /** The selection a fill starts from: its one range, within the grid; null for several ranges. */
@@ -883,14 +882,8 @@ export class SheetController {
     const used = this.engine.usedRange(this.activeSheetId);
     if (axis === 'row' && isWholeColumns(primary)) r = { ...r, r2: Math.max(r.r1, Math.min(r.r2, used?.r2 ?? 0)) };
     if (axis === 'col' && isWholeRows(primary)) r = { ...r, c2: Math.max(r.c1, Math.min(r.c2, used?.c2 ?? 0)) };
-    let source: Range;
-    if (axis === 'row') {
-      if (r.r1 === r.r2 && r.r1 === 0) return;
-      source = r.r1 === r.r2 ? { ...r, r1: r.r1 - 1, r2: r.r1 - 1 } : { ...r, r2: r.r1 };
-    } else {
-      if (r.c1 === r.c2 && r.c1 === 0) return;
-      source = r.c1 === r.c2 ? { ...r, c1: r.c1 - 1, c2: r.c1 - 1 } : { ...r, c2: r.c1 };
-    }
+    const source = copiedAlong(r, axis);
+    if (!source) return;
     const target = axis === 'row' ? { ...r, r1: source.r1 } : { ...r, c1: source.c1 };
     this.applyFill(source, capFill(source, target), { toggle: false, copy: true, locale: this.options.locale });
   }
@@ -1227,6 +1220,26 @@ export class SheetController {
   snapshot(): WorkbookSnapshot {
     return this.engine.toSnapshot();
   }
+}
+
+/** What a cell holds, as a cell write would set it. */
+function contentOf(cell: { v: Scalar; f?: string } | undefined): CellContent | null {
+  if (!cell) return null;
+  if (cell.f !== undefined) return { f: cell.f };
+  return cell.v === null ? null : ({ v: cell.v } as CellContent);
+}
+
+/**
+ * What Ctrl+D (Ctrl+R) copies over `r`: its first row (column), or for a
+ * single row the one above it (column: left of it). Null at the sheet's edge.
+ */
+function copiedAlong(r: Range, axis: 'row' | 'col'): Range | null {
+  if (axis === 'row') {
+    if (r.r1 !== r.r2) return { ...r, r2: r.r1 };
+    return r.r1 === 0 ? null : { ...r, r1: r.r1 - 1, r2: r.r1 - 1 };
+  }
+  if (r.c1 !== r.c2) return { ...r, c2: r.c1 };
+  return r.c1 === 0 ? null : { ...r, c1: r.c1 - 1, c2: r.c1 - 1 };
 }
 
 /** Most cells one fill writes; a fill further than that stops short. */

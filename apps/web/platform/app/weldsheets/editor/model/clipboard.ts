@@ -153,13 +153,9 @@ function internalPaste(ctl: SheetController, clip: InternalClip, top: number, le
   for (let row = top; row <= Math.min(r2, ctl.sheet.rowCount - 1); row++) {
     for (let col = left; col <= Math.min(c2, ctl.sheet.colCount - 1); col++) {
       const src = clip.cells[(row - top) % height]![(col - left) % width]!;
-      const srcRow = clip.range.r1 + ((row - top) % height);
-      const srcCol = clip.range.c1 + ((col - left) % width);
-      let content = src.content;
-      if (valuesOnly) content = src.value === null ? null : { v: src.value };
-      else if (content?.f !== undefined && move) content = { f: followMove(content.f, ctl.sheet.name, ctl.sheet.name, move) };
-      else if (content?.f !== undefined && !clip.cut) content = { f: translateFormula(content.f, row - srcRow, col - srcCol) };
-      contents.push([row, col, content]);
+      const dRow = row - (clip.range.r1 + ((row - top) % height));
+      const dCol = col - (clip.range.c1 + ((col - left) % width));
+      contents.push([row, col, valuesOnly ? valueOf(src) : pastedContent(src.content, clip.cut, move, ctl.sheet.name, dRow, dCol)]);
       styles.push([row, col, src.style]);
     }
   }
@@ -169,6 +165,22 @@ function internalPaste(ctl: SheetController, clip: InternalClip, top: number, le
   ops.push({ type: 'setCells', sheetId, cells: contents }, { type: 'setStyles', sheetId, cells: styles });
   if (move) ops.push(...readersFollow(ctl, move, { r1: top, c1: left, r2, c2 }));
   return { type: 'batch', ops };
+}
+
+/** What a copied cell showed, as a plain value (paste values only). */
+function valueOf(src: InternalClip['cells'][number][number]): CellContent | null {
+  return src.value === null ? null : { v: src.value };
+}
+
+/**
+ * A copied cell's content where it is pasted, `dRow`/`dCol` from where it
+ * was: a copied formula moves relatively, a moved one keeps its references
+ * except to cells that moved with it, a cut to another sheet stays as it was.
+ */
+function pastedContent(content: CellContent | null, cut: boolean, move: Move | null, sheetName: string, dRow: number, dCol: number): CellContent | null {
+  if (content?.f === undefined) return content;
+  if (move) return { f: followMove(content.f, sheetName, sheetName, move) };
+  return cut ? content : { f: translateFormula(content.f, dRow, dCol) };
 }
 
 interface Move {
