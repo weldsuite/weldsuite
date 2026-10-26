@@ -926,6 +926,7 @@ function ChannelHeader({
   onStartCall: (callType: 'voice' | 'video') => void;
 }>) {
   const { t } = useI18n();
+  const [identitySize, setIdentitySize] = useState<{ width: number; height: number } | null>(null);
   const identityContent = (
     <>
       <HeaderAvatar
@@ -960,16 +961,33 @@ function ChannelHeader({
   // its name opens a menu with the record's app and mute, when there is one.
   let identity: React.ReactNode;
   if (record && record.menu.length > 0) {
+    // The menu's native host lays its trigger out at the content's own width,
+    // so a long name inside it would not truncate. The name is laid out here
+    // as usual and the menu's trigger is an invisible overlay of the same size.
     identity = (
-      <MenuView
-        actions={record.menu}
-        onPressAction={({ nativeEvent }) => record.onMenuAction(nativeEvent.event)}
-        style={styles.headerIdentityMenu}
+      <View
+        style={styles.headerIdentity}
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          setIdentitySize({ width: Math.floor(width), height: Math.floor(height) });
+        }}
       >
-        <View style={styles.headerIdentity} accessible accessibilityRole="button" accessibilityLabel={channelName}>
-          {identityContent}
-        </View>
-      </MenuView>
+        {identityContent}
+        {identitySize && (
+          <MenuView
+            actions={record.menu}
+            onPressAction={({ nativeEvent }) => record.onMenuAction(nativeEvent.event)}
+            style={styles.headerIdentityMenu}
+          >
+            <View
+              style={identitySize}
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel={record.typeLabel ? `${channelName}, ${record.typeLabel}` : channelName}
+            />
+          </MenuView>
+        )}
+      </View>
     );
   } else if (record) {
     identity = <View style={styles.headerIdentity}>{identityContent}</View>;
@@ -2999,8 +3017,8 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       flex: 1,
       justifyContent: 'center',
     },
-    // The menu trigger takes the identity's place in the row.
-    headerIdentityMenu: { flex: 1 },
+    // The record chat menu's trigger, laid over the name.
+    headerIdentityMenu: { position: 'absolute', top: 0, left: 0 },
     // A record chat's follow toggle: filled to follow, outlined while following.
     headerFollow: {
       height: 30,
