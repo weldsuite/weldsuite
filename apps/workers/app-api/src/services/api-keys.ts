@@ -18,6 +18,7 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 /** Key material returned by {@link generateApiKey}. */
 export interface GeneratedApiKey {
@@ -67,7 +68,7 @@ export async function resolveWorkspaceId(
   const [ws] = await masterDb
     .select({ id: masterSchema.workspaces.id })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(clerkOrgId))
     .limit(1);
   return ws?.id ?? null;
 }

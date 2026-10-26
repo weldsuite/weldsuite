@@ -37,10 +37,10 @@ import {
   loadOwnEnvelope,
   memberProfile,
   updateEnvelope,
-} from '../../services/envelopes';
-import { loadSignSettings } from '../../services/settings';
-import { invalid } from '../../services/errors';
-import { canFileInto, checkSource } from '../../services/sources';
+} from '@weldsuite/sign-domain/envelopes';
+import { loadSignSettings } from '@weldsuite/sign-domain/settings';
+import { invalid } from '@weldsuite/sign-domain/errors';
+import { canFileInto, checkSource } from '@weldsuite/sign-domain/sources';
 import type { DraftScope } from '../draft-scope';
 import { detailFor, envelopeEventData, handle, mayDo, publishEnvelopeUpdated, viewerOf, type Ctx } from './shared';
 import { createDocumentsRoutes } from './documents';

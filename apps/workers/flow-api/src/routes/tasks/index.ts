@@ -77,6 +77,7 @@ import { dayBoundsInTimezone, workspaceDayBounds, type DayBounds } from '@weldsu
 import { containsPattern, queryBoolean } from '../../lib/query-params';
 import { markFilePurgeDue } from '../../lib/file-purge';
 import { taskInLiveProject } from '../../lib/task-scope';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 // ============================================================================
 // Filter helpers (ported from api-worker tasks.ts)
@@ -434,7 +435,7 @@ function dispatchAssignmentNotifications(
           const [row] = await masterDb
             .select({ name: masterSchema.workspaces.name })
             .from(masterSchema.workspaces)
-            .where(eq(masterSchema.workspaces.clerkOrgId, workspaceId))
+            .where(matchWorkspaceRef(workspaceId))
             .limit(1);
           return row?.name ?? null;
         } catch {

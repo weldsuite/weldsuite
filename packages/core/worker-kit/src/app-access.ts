@@ -21,6 +21,7 @@ import { and, eq } from 'drizzle-orm';
 import { createMiddleware } from 'hono/factory';
 import { getMasterDb, masterSchema, type AnyMasterDatabase } from './db';
 import type { DbEnv } from './env';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 export type AppAccessStatus = 'none' | 'requested' | 'approved' | 'rejected' | 'suspended' | 'revoked';
 
@@ -63,7 +64,7 @@ export async function readAppAccessFrom(
         eq(masterSchema.workspaceAppAccess.appCode, appCode),
       ),
     )
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(clerkOrgId))
     .limit(1);
 
   return {

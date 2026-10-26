@@ -15,9 +15,9 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { noContent, success } from '@weldsuite/worker-kit/response';
 import { createTemplateRoleSchema, updateTemplateRoleSchema } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
-import { toRecipientDto, touchEnvelope } from '../../services/envelopes';
-import { removeRecipient } from '../../services/recipients';
-import { addRole, loadTemplate, updateRole } from '../../services/templates';
+import { toRecipientDto, touchEnvelope } from '@weldsuite/sign-domain/envelopes';
+import { removeRecipient } from '@weldsuite/sign-domain/recipients';
+import { addRole, loadTemplate, updateRole } from '@weldsuite/sign-domain/templates';
 import { handle } from '../envelopes/shared';
 import { publishTemplateUpdated } from './shared';
 

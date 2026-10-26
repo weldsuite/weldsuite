@@ -4,50 +4,60 @@ Where people outside a workspace open and sign documents sent with WeldSign
 (`sign.weldsuite.org`, `sign-test.weldsuite.org`). Signers have no account:
 they open a personal link, `/r/<token>`, from the request email.
 
-Mirrors `apps/web/hr-portal`: Next 15 App Router, server-side `app/api/*`
-route handlers that proxy to `app-api` and keep the signer session in an
-httpOnly `signportal_session` cookie, Tailwind v4, `@weldsuite/ui`. Unlike
-hr-portal there is no workspace slug in the URL: sign-api finds the workspace
-from the link token through the master `sign_link_registry`.
+TanStack Start on a Cloudflare Worker, Tailwind v4, `@weldsuite/ui`. There is
+no API in between (ADR FE-016): the portal runs the signer side of WeldSign
+itself, on the same domain code as sign-api, `@weldsuite/sign-domain/portal`.
+Its own server routes call it with the Worker's bindings:
 
-The backend contract is the `/public/sign-portal/*` mount on sign-api
-(`apps/workers/sign-api`), reached through the app-api forwarder. See
-`docs/plans/weldsign.md`.
+| Route | Operation |
+| --- | --- |
+| `POST /api/session`, `/api/verify` | open a link (and check its code); on `ready` the signer session goes into an httpOnly cookie per link |
+| `POST /api/resend-code` | email a fresh code |
+| `GET /api/portal/envelope`, `/documents/<id>`, `/download` | what the signer sees, the PDFs |
+| `POST /api/portal/consent`, `/complete`, `/decline` | the signer's steps |
 
-**Status: phase 2.** `/r/<token>` runs the signer flow: code screen,
-e-signature consent, pdf.js document view with the signer's fields, adopt a
-signature, finish, decline and download. It is not in the deploy pipeline yet: add it to `.github/scripts/vercel-apps.mjs` and
-`deploy.yml`'s `on.push.paths` once its Vercel project and the
-`sign(-test).weldsuite.org` DNS exist.
+The domain code finds the workspace from the link token (master
+`sign_link_registry`), opens its tenant DB, reads and writes WeldSign files in
+R2, emails codes, publishes `sign_envelope` events, and starts sign-api's
+`FinalizeEnvelopeWorkflow` (bound by `script_name`) after the last signature.
+The signer's IP on the evidence trail is `CF-Connecting-IP`, read at the edge.
+See `docs/plans/weldsign.md`.
+
+Layout: pages and server routes in `src/routes/`, the signer UI in
+`components/` (all client-side, as before), server-only code in
+`lib/server/`.
 
 ## Running locally
 
 ```bash
-# terminal 1 — backend (app-api + sign-api and the other module workers)
+# terminal 1 — the API workers (sign-api creates links, sends, finalizes)
 pnpm dev:api                         # app-api on http://localhost:8789
 
 # terminal 2 — this app
 pnpm --filter sign-portal dev        # http://localhost:3023
 ```
 
-## Environment variables
+The portal's local KV, R2 and D1 are `pnpm dev:api`'s
+(`vite.config.ts` → `persistState`), so a link sent from a local sign-api opens
+here. Local dev has no `FINALIZE_ENVELOPE` binding: the portal builds the
+signed PDF itself in `waitUntil`.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `APP_API_URL` | `http://localhost:8789` | Origin of the `app-api` worker. Server-side only (used by `app/api/*` route handlers); never sent to the browser. |
-| `SIGN_PORTAL_SECRET` | none | Same value as sign-api's `SIGN_PORTAL_SECRET`. Sent as `X-Sign-Portal-Key` so sign-api accepts the signer IP this server reports. Without it, the evidence trail records this server's IP instead of the signer's. Server-side only. |
+Secrets go in `.dev.vars` (`pnpm secrets:dev sign-portal` writes it from
+Doppler): `DATABASE_URL_MASTER`, `NEON_API_KEY`, `DATABASE_ENCRYPTION_KEY` and
+`SIGN_SESSION_SECRET`, the same value as sign-api's (sign-api hashes access
+codes with it; the portal checks them and signs the sessions).
 
 ## Deploy
 
-Vercel project `weldsuite-sign-portal` (team weldsuite, Root Directory
-`apps/web/sign-portal`). Like the other portals it is released only by
-`deploy.yml` (`.github/scripts/vercel-apps.mjs`): a push to `develop` that
-touches this app or a package it uses deploys it to test
-(`sign-test.weldsuite.org`, bound to the `develop` branch), a push to `main` to
-production (`sign.weldsuite.org`). Vercel's own Git builds are off for both
-branches (`vercel.json`).
+Workers `weldsuite-sign-portal-test` (route `sign-test.weldsuite.org/*`) and
+`weldsuite-sign-portal` (route `sign.weldsuite.org/*`), released only by
+`deploy.yml` (`frontend-sign-portal`): a push to `develop` that touches this
+app or a package it runs deploys test, a push to `main` production. The build
+picks the wrangler environment (`CLOUDFLARE_ENV=test pnpm build`); the deploy
+is a plain `wrangler deploy`. It runs after the workers job, because it binds
+sign-api's Workflow.
 
-On the Vercel project, Preview and Production each have `APP_API_URL`
-(`https://app-api-test.weldsuite.org` / `https://app-api.weldsuite.org`) and
-`SIGN_PORTAL_SECRET` (Sensitive; the Doppler `test` / `prd` value, the same as
-sign-api's). sign-api's `SIGN_PORTAL_URL` points signing links at these hosts.
+Secrets: `pnpm secrets:sync <test|production> sign-portal` (manifest entry
+`sign-portal`). sign-api's `SIGN_PORTAL_URL` points signing links at these
+hosts. `vercel.json` only switches off the old Vercel project's Git builds;
+remove it when that project is archived.

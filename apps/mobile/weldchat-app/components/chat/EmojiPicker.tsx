@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { View, Text, TouchableOpacity, Modal, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
+import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -21,6 +22,7 @@ interface EmojiPickerProps {
 
 export function EmojiPicker({ visible, onClose, onSelect }: Readonly<EmojiPickerProps>) {
   const { colors } = useTheme();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.bottom), [colors, insets.bottom]);
 
@@ -30,7 +32,7 @@ export function EmojiPicker({ visible, onClose, onSelect }: Readonly<EmojiPicker
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <View style={styles.container}>
-          <Text style={styles.title}>React with emoji</Text>
+          <Text style={styles.title}>{t.messageActions.reactWithEmoji}</Text>
           <ScrollView>
             <View style={styles.grid}>
               {EMOJI_LIST.map((emoji) => (

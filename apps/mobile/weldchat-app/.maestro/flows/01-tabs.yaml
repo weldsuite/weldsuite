@@ -10,6 +10,11 @@ tags: [smoke]
 - tapOn: "Activity"
 - assertVisible: "Activity"
 - tapOn: "Calls"
-- assertVisible: "No active calls"
+# The calls list renders whether the account has calls or not (rows are
+# calls-row-<id>, ongoing calls calls-ongoing-<id>, the empty state calls-empty).
+- extendedWaitUntil:
+    visible:
+      id: calls-list
+    timeout: 15000
 - tapOn: "Home"
 - assertVisible: "Saved"

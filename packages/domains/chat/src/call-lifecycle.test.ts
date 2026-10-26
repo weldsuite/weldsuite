@@ -348,8 +348,14 @@ describe('scheduleRingTimeout', () => {
   const realScheduler = (globalThis as { scheduler?: unknown }).scheduler;
 
   beforeEach(() => {
-    // Skip the 25 s ring window.
-    (globalThis as { scheduler?: unknown }).scheduler = { wait: async () => undefined };
+    // Skip the 25 s ring window. Like the Workers runtime, `wait` throws
+    // "Illegal invocation" unless it is called on `scheduler` itself.
+    const scheduler = {
+      async wait(this: unknown) {
+        if (this !== scheduler) throw new TypeError('Illegal invocation');
+      },
+    };
+    (globalThis as { scheduler?: unknown }).scheduler = scheduler;
   });
   afterEach(() => {
     (globalThis as { scheduler?: unknown }).scheduler = realScheduler;

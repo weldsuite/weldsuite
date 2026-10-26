@@ -55,6 +55,23 @@ export class MentionTracker {
   }
 }
 
+/**
+ * Overwrites a submitted op's self-authored comments with the committer's
+ * server-known name, in place, before the room applies it: `author.name`
+ * otherwise travels from the browser as written, so whoever is allowed to
+ * comment (their own `author.id`) could pick any display name for the
+ * mention notification, and for the comment bubble itself, to show. Mutates
+ * `op`'s comments directly, so callers must run this before handing `op` to
+ * the room.
+ */
+export function stampCommentAuthors(op: Op, peer: { userId: string; name: string }): void {
+  const ops = op.type === 'batch' ? op.ops : [op];
+  for (const o of ops) {
+    if (o.type === 'batch') stampCommentAuthors(o, peer);
+    else if (o.type === 'patchComments') for (const c of o.set ?? []) if (c.author.id === peer.userId) c.author.name = peer.name;
+  }
+}
+
 const key = (tabId: string, commentId: string) => `${tabId}:${commentId}`;
 
 /** A comment's text for a notification: mentions as plain names, cut short. */

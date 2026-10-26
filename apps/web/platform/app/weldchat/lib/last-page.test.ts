@@ -34,7 +34,7 @@ describe('parseLastWeldChatPage', () => {
     });
   });
 
-  it.each(['dm', 'activity', 'drafts', 'directories', 'bookmarks', 'search'])(
+  it.each(['dm', 'activity', 'drafts', 'directories', 'bookmarks', 'records', 'search'])(
     'remembers the module page /weldchat/%s without a lookup',
     (segment) => {
       expect(parseLastWeldChatPage(`/weldchat/${segment}`)).toEqual({ kind: 'page', path: `/weldchat/${segment}` });

@@ -1,5 +1,3 @@
-'use client';
-
 import { Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { BrandButton } from './brand-button';

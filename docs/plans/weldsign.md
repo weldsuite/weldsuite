@@ -9,7 +9,7 @@ without an account, and get back a signed PDF with a full audit trail.
 | Question | Decision |
 |---|---|
 | Placement | Its own platform module (`/weldsign`, own sidebar entry) with its own worker, `sign-api` (`sign-api(-test).weldsuite.org`), one per module (API-001). |
-| Signer page | New Next.js portal `apps/web/sign-portal` (`sign.weldsuite.org` / `sign-test.weldsuite.org`) reading through a `/public/sign-portal/*` mount on sign-api (FE-007, FE-008). |
+| Signer page | `apps/web/sign-portal` (`sign.weldsuite.org` / `sign-test.weldsuite.org`): TanStack Start on a Cloudflare Worker that runs the signer side itself, on WeldSign's domain code (`@weldsuite/sign-domain/portal`) against the tenant DB, with no API in between (FE-016, amending FE-007 and FE-008). Until 2026-10-25 it was a Next.js app on Vercel reading through a `/public/sign-portal/*` mount on sign-api. |
 | Signature level | Simple electronic signature (eIDAS SES / US ESIGN + UETA): drawn, typed or uploaded signature, audit trail, SHA-256 fingerprints and a certificate-of-completion page. No cryptographic PDF seal in v1. |
 | Signer identity | The personal email link is enough by default. Per recipient the sender can require a 6-digit code emailed when the link is opened, or an access code the sender shares themselves. |
 | File types | PDF only. |
@@ -80,8 +80,9 @@ Staff routes (Clerk, `apiAuth()`), organised by object:
 | `/api/sign/settings` | defaults: expiry days, reminder cadence, sender name, brand colour/logo |
 | `/api/sign/usage` | sent this month vs plan quota |
 
-Public signer routes (`/public/sign-portal/*`, above the Clerk guard, no
-workspace slug):
+Signer operations (`createSignPortal()` in `packages/domains/sign/src/portal.ts`,
+run by sign-portal's own `/api/*` server routes; no Clerk, no workspace slug).
+They were sign-api's `/public/sign-portal/*` mount until FE-016:
 
 | Route | Purpose |
 |---|---|
@@ -163,9 +164,12 @@ session. Nothing is put in the public bucket.
 
 ### Signing experience (sign-portal)
 
-`apps/web/sign-portal`: Next.js 15, port 3023, Vercel, mirrors
-`apps/web/hr-portal` (server-side proxy `app/api/portal/[...path]`, token only
-in the httpOnly cookie, `APP_API_URL` server-only).
+`apps/web/sign-portal`: TanStack Start, port 3023, a Cloudflare Worker
+(`weldsuite-sign-portal(-test)`, ADR FE-016). Its `/api/session`, `/api/verify`,
+`/api/resend-code` and `/api/portal/*` server routes call the domain portal
+directly with the Worker's own bindings (master + tenant DB, R2, KV, queue,
+email, sign-api's Workflow by `script_name`); the signer session stays in an
+httpOnly cookie per link.
 
 1. Open link → workspace branding (logo, colour), sender, envelope title and
    message.
@@ -335,8 +339,9 @@ sign-portal scaffold, docs (SIGN-001..004).
   link per recipient of the first signing group and emails them. The batch is
   checked by the outbound guard first (new source `sign`); a refusal changes
   nothing and tells the sender.
-- Signer portal mount `/public/sign-portal` (session, verify, resend-code,
-  envelope, documents, consent, complete, decline, download), signer sessions
+- Signer portal operations (session, verify, resend-code, envelope,
+  documents, consent, complete, decline, download; since FE-016 in
+  `@weldsuite/sign-domain/portal`, run by sign-portal itself), signer sessions
   as HMAC tokens (`SIGN_SESSION_SECRET`, 2 hours), emailed 6-digit codes and
   access codes with 5 tries per 15 minutes, all in KV. The sign-portal app
   keeps one httpOnly session cookie per link, so two links in two tabs stay
@@ -344,10 +349,10 @@ sign-portal scaffold, docs (SIGN-001..004).
 - Signing stores the signature and initials PNGs, fills name, email and date
   server-side, records IP and browser, and rebuilds a working copy of each
   touched document so later signers see earlier values. The next signing
-  group is emailed when the current one is done. The IP is the one
-  sign-portal reports (`X-Signer-Ip`), trusted only next to the shared
-  `SIGN_PORTAL_SECRET` (`X-Sign-Portal-Key`); any other caller is recorded
-  by its own address.
+  group is emailed when the current one is done. The IP is the browser's
+  `CF-Connecting-IP`, which sign-portal reads at Cloudflare's edge (until
+  FE-016 sign-portal reported it to sign-api next to a shared
+  `SIGN_PORTAL_SECRET`, now retired).
 - The last signature starts the `FinalizeEnvelope` Workflow: one PDF (all
   documents with values drawn in, rotation-aware, then the certificate of
   completion), its SHA-256 stored and on the trail, then the "everyone
@@ -509,5 +514,7 @@ ADRs under a new `SIGN` area, written in phase 0 (skill `weldsuite-docs`):
   completion, and what happens on workspace deletion (proposal: kept until the
   workspace deletes them; deleting a completed envelope keeps its `sign_events`
   and hashes).
-- Done: Vercel project `weldsuite-sign-portal` with `sign.weldsuite.org` /
-  `sign-test.weldsuite.org`, deployed by `deploy.yml` (weldsuite/weldsuite#1315).
+- Done: `sign.weldsuite.org` / `sign-test.weldsuite.org`, first on the Vercel
+  project `weldsuite-sign-portal` (weldsuite/weldsuite#1315), since FE-016 on
+  the Workers `weldsuite-sign-portal(-test)` via zone routes, deployed by
+  `deploy.yml` (`frontend-sign-portal`). The Vercel project can be archived.

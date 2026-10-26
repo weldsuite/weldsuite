@@ -841,11 +841,9 @@ export const manifest: Record<string, SecretEntry[]> = {
 
   // sign-api: WeldSign's API worker. Base secrets for Clerk auth and tenant
   // DB resolution, plus SIGN_SESSION_SECRET, the HMAC key of signer sessions
-  // in the signer portal and of the stored access/email code hashes (any long
-  // random string; rotating it signs every signer out and voids the access
-  // codes of requests still open), and SIGN_PORTAL_SECRET, shared with the
-  // sign-portal (a Next.js app; sync does not push to it, set the same value
-  // there by hand) so sign-api trusts the signer IP the portal reports.
+  // and of the stored access/email code hashes (any long random string;
+  // rotating it signs every signer out and voids the access codes of requests
+  // still open). sign-portal must hold the same value.
   "sign-api": [
     "DATABASE_URL_MASTER",
     "NEON_API_KEY",
@@ -853,7 +851,18 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
     "SIGN_SESSION_SECRET",
-    "SIGN_PORTAL_SECRET",
+  ],
+
+  // sign-portal (apps/web/sign-portal): WeldSign's signer portal, a TanStack
+  // Start app deployed as a Worker that reads and writes the tenant DB itself
+  // (ADR FE-016). Tenant DB resolution, plus sign-api's SIGN_SESSION_SECRET
+  // (same value: sign-api hashes access codes with it, the portal checks them).
+  // No Clerk: signers have no account.
+  "sign-portal": [
+    "DATABASE_URL_MASTER",
+    "NEON_API_KEY",
+    "DATABASE_ENCRYPTION_KEY",
+    "SIGN_SESSION_SECRET",
   ],
 };
 

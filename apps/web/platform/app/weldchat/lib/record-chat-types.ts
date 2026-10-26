@@ -95,9 +95,12 @@ export function recordChatHref(channelId: string): string {
   return `/weldchat/${channelId}`;
 }
 
+/** Route of the record chats page (`src/routes/weldchat/records/`). */
+export const RECORD_CHATS_PAGE_PATH = '/weldchat/records';
+
 /** The record chats page, filtered to one type. */
 export function recordChatsPageHref(type: RecordChatType): string {
-  return `/weldchat/records?type=${type}`;
+  return `${RECORD_CHATS_PAGE_PATH}?type=${type}`;
 }
 
 /** Opens the record's object panel (`useObjectPanel().open`). */

@@ -22,7 +22,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { SignDocumentDto, SignEnvelopeDetail, SignRecipientSuggestion } from '@weldsuite/app-api-client/schemas/weldsign';
 import envelopesRoutes from './index';
-import { fileSignedPdf } from '../../services/filing';
+import { fileSignedPdf } from '@weldsuite/sign-domain/filing';
 import type { Env } from '../../types';
 
 // Lets a test make the CRM note fail once, half way through filing.

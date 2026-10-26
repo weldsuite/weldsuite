@@ -7,7 +7,6 @@
  * so the shared pglite helper is type-compatible.
  */
 
-import { eq } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import * as schema from '@weldsuite/db/schema';
@@ -18,6 +17,7 @@ import {
   sealCachedDatabaseUrl,
   sealedWorkspaceCacheKey,
 } from '@weldsuite/db/lib/workspace-url-cache';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 export { schema, masterSchema };
 
@@ -53,9 +53,10 @@ interface CachedWorkspace {
 /** What lands in KV: the connection string sealed, never in the clear. */
 type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl'> & { databaseUrlSealed?: string };
 
-async function getCachedWorkspaceUrl(env: TenantDbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
-  // Sealed entries live under `wsx:`; the old plaintext `ws:<org>` key is never read.
-  const cacheKey = sealedWorkspaceCacheKey(clerkOrgId);
+async function getCachedWorkspaceUrl(env: TenantDbEnv, ref: string): Promise<CachedWorkspace> {
+  // `ref` is the workspace id or its Clerk org id (matchWorkspaceRef). Sealed
+  // entries live under `wsx:<ref>`; the old plaintext `ws:<ref>` key is never read.
+  const cacheKey = sealedWorkspaceCacheKey(ref);
   const keyring = { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
   const cached = (await env.WORKSPACE_CACHE?.get(cacheKey, 'json')) as StoredWorkspace | null;
   const cachedUrl = cached ? await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring) : null;
@@ -72,10 +73,10 @@ async function getCachedWorkspaceUrl(env: TenantDbEnv, clerkOrgId: string): Prom
       databaseUrl: masterSchema.workspaces.databaseUrl,
     })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(ref))
     .limit(1);
 
-  if (!workspace) throw new Error(`Workspace not found for org: ${clerkOrgId}`);
+  if (!workspace) throw new Error(`Workspace not found: ${ref}`);
   if (!workspace.neonProjectId || !workspace.neonBranchId || !workspace.neonRoleName) {
     throw new Error(`No database configured for workspace: ${workspace.id}`);
   }
@@ -96,7 +97,7 @@ async function getCachedWorkspaceUrl(env: TenantDbEnv, clerkOrgId: string): Prom
   return entry;
 }
 
-export async function getTenantDbForWorkspace(env: TenantDbEnv, clerkOrgId: string): Promise<Database> {
-  const workspace = await getCachedWorkspaceUrl(env, clerkOrgId);
+export async function getTenantDbForWorkspace(env: TenantDbEnv, ref: string): Promise<Database> {
+  const workspace = await getCachedWorkspaceUrl(env, ref);
   return createNeonTenantDb(workspace.databaseUrl);
 }
