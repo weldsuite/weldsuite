@@ -36,9 +36,11 @@ import {
   useSickReports,
   useTeamLeave,
 } from '@/hooks/use-weldhr-queries';
+import type { HrAccess } from '@/lib/access';
 import { addDays, todayIso } from '@/lib/dates';
 import { formatDays, formatLongDay, formatShortDate, formatSpan, withCount } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
+import type { Translations } from '@/lib/i18n/locales/en';
 
 type AbsenceView = 'mine' | 'absences' | 'requests';
 
@@ -53,16 +55,7 @@ export default function AbsenceScreen() {
   const [day, setDay] = useState(today);
 
   const pending = usePendingLeave(access.approveLeave);
-  const options: SegmentOption<AbsenceView>[] = [];
-  if (access.self) options.push({ value: 'mine', label: t.absence.mine, testID: 'absence-mine' });
-  if (access.leave || access.sickToday) options.push({ value: 'absences', label: t.absence.absences, testID: 'absence-team' });
-  if (access.approveLeave) {
-    options.push({
-      value: 'requests',
-      label: withCount(t.absence.requests, pending.data?.length ?? 0),
-      testID: 'absence-requests',
-    });
-  }
+  const options = absenceViews(access, t, pending.data?.length ?? 0);
   const view = options.some((o) => o.value === chosen) ? chosen : (options[0]?.value ?? 'mine');
 
   const leave = useLeave();
@@ -86,31 +79,7 @@ export default function AbsenceScreen() {
     }
   };
 
-  let period: ReactNode = null;
-  let behind: ((close: () => void) => ReactNode) | undefined;
-  if (view === 'mine') {
-    period = (
-      <PeriodNav
-        label={String(year)}
-        onPrevious={() => setYear(year - 1)}
-        onNext={year <= thisYear ? () => setYear(year + 1) : undefined}
-      />
-    );
-  } else if (view === 'absences') {
-    period = (
-      <PeriodNav label={formatLongDay(day, intlLocale)} onPrevious={() => setDay(addDays(day, -1))} onNext={() => setDay(addDays(day, 1))} />
-    );
-    behind = (close) => (
-      <MonthCalendar
-        value={day}
-        mode="day"
-        onPick={(iso) => {
-          setDay(iso);
-          close();
-        }}
-      />
-    );
-  }
+  const { period, behind } = absencePeriod(view, { year, thisYear, setYear, day, setDay, locale: intlLocale });
 
   let body: ReactNode;
   if (view === 'mine') {
@@ -129,17 +98,7 @@ export default function AbsenceScreen() {
       />
     );
   } else {
-    body = (
-      <QueryBody query={pending}>
-        {(requests) =>
-          requests.length === 0 ? (
-            <EmptyState illustration="check" title={t.team.nothingToApprove} description={t.team.nothingToApproveDescription} />
-          ) : (
-            <LeaveApprovals requests={requests} />
-          )
-        }
-      </QueryBody>
-    );
+    body = <LeaveToApprove pending={pending} />;
   }
 
   return (
@@ -153,6 +112,78 @@ export default function AbsenceScreen() {
     >
       {body}
     </Screen>
+  );
+}
+
+/** The member's views: their own absence, who is off, and leave to approve (with how many wait). */
+function absenceViews(access: HrAccess, t: Translations, waiting: number): SegmentOption<AbsenceView>[] {
+  const options: SegmentOption<AbsenceView>[] = [];
+  if (access.self) options.push({ value: 'mine', label: t.absence.mine, testID: 'absence-mine' });
+  if (access.leave || access.sickToday) options.push({ value: 'absences', label: t.absence.absences, testID: 'absence-team' });
+  if (access.approveLeave) {
+    options.push({ value: 'requests', label: withCount(t.absence.requests, waiting), testID: 'absence-requests' });
+  }
+  return options;
+}
+
+/**
+ * Under the segments: the year on My absence (not past this one), the day on
+ * Absences with the month calendar behind the sheet to jump to another.
+ */
+function absencePeriod(
+  view: AbsenceView,
+  nav: {
+    year: number;
+    thisYear: number;
+    setYear: (year: number) => void;
+    day: string;
+    setDay: (day: string) => void;
+    locale: string;
+  },
+): { period: ReactNode; behind?: (close: () => void) => ReactNode } {
+  const { year, thisYear, setYear, day, setDay, locale } = nav;
+  if (view === 'mine') {
+    return {
+      period: (
+        <PeriodNav
+          label={String(year)}
+          onPrevious={() => setYear(year - 1)}
+          onNext={year <= thisYear ? () => setYear(year + 1) : undefined}
+        />
+      ),
+    };
+  }
+  if (view !== 'absences') return { period: null };
+  return {
+    period: (
+      <PeriodNav label={formatLongDay(day, locale)} onPrevious={() => setDay(addDays(day, -1))} onNext={() => setDay(addDays(day, 1))} />
+    ),
+    behind: (close) => (
+      <MonthCalendar
+        value={day}
+        mode="day"
+        onPick={(iso) => {
+          setDay(iso);
+          close();
+        }}
+      />
+    ),
+  };
+}
+
+/** Leave requests waiting for the member's approval. */
+function LeaveToApprove({ pending }: Readonly<{ pending: ReturnType<typeof usePendingLeave> }>) {
+  const { t } = useI18n();
+  return (
+    <QueryBody query={pending}>
+      {(requests) =>
+        requests.length === 0 ? (
+          <EmptyState illustration="check" title={t.team.nothingToApprove} description={t.team.nothingToApproveDescription} />
+        ) : (
+          <LeaveApprovals requests={requests} />
+        )
+      }
+    </QueryBody>
   );
 }
 
@@ -272,7 +303,9 @@ function BalanceRow({ balance, onPress }: Readonly<{ balance: HrLeaveBalance; on
   const palette = usePalette();
   const { t, format, plural } = useI18n();
   const limited = balance.allowance != null && balance.remaining != null;
-  const fraction = limited && balance.allowance! > 0 ? balance.remaining! / balance.allowance! : limited ? 0 : null;
+  // How full the ring is; none for a type without a limit.
+  let fraction: number | null = null;
+  if (limited) fraction = balance.allowance! > 0 ? balance.remaining! / balance.allowance! : 0;
   const remaining = limited ? format(t.absence.remaining, { amount: plural(balance.remaining!, t.balance.days) }) : t.balance.unlimited;
   return (
     <Row

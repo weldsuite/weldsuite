@@ -61,11 +61,13 @@ function LeaveDetail({ data, id }: Readonly<{ data: HrSelfLeave; id: string }>) 
   const balance = balanceForStart(data.balances, request.leaveTypeId, request.startDate, today);
   const days = (value: number | null) => (value == null ? t.balance.unlimited : formatDays(value, intlLocale));
   const reviewed = request.reviewedAt ? formatDate(request.reviewedAt, intlLocale) : null;
+  let kind: string | null = null;
+  if (paid != null) kind = paid ? t.leaveDetail.paid : t.leaveDetail.unpaid;
 
   const facts = [
     { label: t.leaveDetail.period, value: formatDateRange(request.startDate, request.endDate, intlLocale) },
     { label: t.leaveDetail.length, value: plural(request.days, t.balance.days) },
-    { label: t.leaveDetail.kind, value: paid == null ? null : paid ? t.leaveDetail.paid : t.leaveDetail.unpaid },
+    { label: t.leaveDetail.kind, value: kind },
     { label: t.leaveDetail.requested, value: request.createdAt ? formatDate(request.createdAt, intlLocale) : null },
     { label: t.leaveDetail.reason, value: request.reason },
     {

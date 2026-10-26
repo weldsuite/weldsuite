@@ -32,6 +32,7 @@ import { useAbsences, useClock, useLeave, useOverview } from '@/hooks/use-weldhr
 import { addDays, dayOf, todayIso } from '@/lib/dates';
 import { formatDay, formatLongDay, formatTime, formatTimer } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
+import type { Translations } from '@/lib/i18n/locales/en';
 import { hideAppSplash } from '@/utils/splash';
 
 /** The current time, ticking every `intervalMs`. */
@@ -79,12 +80,10 @@ export default function HomeScreen() {
 }
 
 function HomeBody({ self }: Readonly<{ self: LinkedSelf }>) {
-  const { t, format, plural } = useI18n();
+  const { t } = useI18n();
   const router = useRouter();
   const { currentWorkspace } = useWorkspace();
   const overview = useOverview(true);
-  const leave = useLeave();
-  const absences = useAbsences();
   const data = overview.data;
   const workspace = currentWorkspace?.name;
 
@@ -100,14 +99,6 @@ function HomeBody({ self }: Readonly<{ self: LinkedSelf }>) {
   const switchable = shifts.filter((s) => s.id !== data.clock.shiftId && dayOf(s.startsAt) <= todayIso());
   const showHero = self.features.selfClockIn || nextShift != null || data.clock.clockedIn;
 
-  const today = todayIso();
-  const year = today.slice(0, 4);
-  const current = absences.data?.current ?? null;
-  const upcoming = (leave.data?.requests ?? [])
-    .filter((r) => (r.status === 'approved' || r.status === 'pending') && r.endDate >= today && r.startDate.startsWith(year))
-    .sort((a, b) => a.startDate.localeCompare(b.startDate))
-    .slice(0, 3);
-  const toAcknowledge = data.toAcknowledge.coaching + data.toAcknowledge.evaluations;
 
   return (
     <>
@@ -142,55 +133,82 @@ function HomeBody({ self }: Readonly<{ self: LinkedSelf }>) {
         </Card>
       </Section>
 
-      <Section title={format(t.home.myAbsences, { year })} large>
-        <Card style={styles.open}>
-          {current ? (
-            <SickRow absence={current} onPress={() => router.push({ pathname: '/sick/[id]', params: { id: current.id } })} />
-          ) : null}
-          {upcoming.map((request) => (
-            <LeaveRow
-              key={request.id}
-              request={request}
-              onPress={() => router.push({ pathname: '/leave/[id]', params: { id: request.id } })}
-            />
-          ))}
-          {!current && upcoming.length === 0 ? (
-            <EmptyRow
-              icon={CalendarHeart}
-              title={t.home.noAbsences}
-              link={self.features.leaveRequests ? t.home.addAbsence : undefined}
-              onPress={self.features.leaveRequests ? () => router.push('/leave/new') : undefined}
-              testID="home-add-absence"
-            />
-          ) : null}
-        </Card>
-      </Section>
+      <MyAbsences canRequest={self.features.leaveRequests} />
 
-      {data.openTasks > 0 || toAcknowledge > 0 ? (
-        <Section title={t.home.toDo} large>
-          <Card style={styles.open}>
-            {data.openTasks > 0 ? (
-              <Row
-                leading={<IconTile icon={ClipboardCheck} />}
-                title={t.me.tasks}
-                subtitle={plural(data.openTasks, t.home.openTasks)}
-                onPress={() => router.push('/tasks')}
-                chevron
-              />
-            ) : null}
-            {toAcknowledge > 0 ? (
-              <Row
-                leading={<IconTile icon={MessageSquareText} />}
-                title={t.me.reviews}
-                subtitle={plural(toAcknowledge, t.home.toAcknowledge)}
-                onPress={() => router.push('/reviews')}
-                chevron
-              />
-            ) : null}
-          </Card>
-        </Section>
-      ) : null}
+      <ToDo openTasks={data.openTasks} toAcknowledge={data.toAcknowledge.coaching + data.toAcknowledge.evaluations} />
     </>
+  );
+}
+
+/** This year's sick report (while it runs) and the next leave, or an empty row to add some. */
+function MyAbsences({ canRequest }: Readonly<{ canRequest: boolean }>) {
+  const { t, format } = useI18n();
+  const router = useRouter();
+  const leave = useLeave();
+  const absences = useAbsences();
+  const today = todayIso();
+  const year = today.slice(0, 4);
+  const current = absences.data?.current ?? null;
+  const upcoming = (leave.data?.requests ?? [])
+    .filter((r) => (r.status === 'approved' || r.status === 'pending') && r.endDate >= today && r.startDate.startsWith(year))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))
+    .slice(0, 3);
+
+  return (
+    <Section title={format(t.home.myAbsences, { year })} large>
+      <Card style={styles.open}>
+        {current ? (
+          <SickRow absence={current} onPress={() => router.push({ pathname: '/sick/[id]', params: { id: current.id } })} />
+        ) : null}
+        {upcoming.map((request) => (
+          <LeaveRow
+            key={request.id}
+            request={request}
+            onPress={() => router.push({ pathname: '/leave/[id]', params: { id: request.id } })}
+          />
+        ))}
+        {!current && upcoming.length === 0 ? (
+          <EmptyRow
+            icon={CalendarHeart}
+            title={t.home.noAbsences}
+            link={canRequest ? t.home.addAbsence : undefined}
+            onPress={canRequest ? () => router.push('/leave/new') : undefined}
+            testID="home-add-absence"
+          />
+        ) : null}
+      </Card>
+    </Section>
+  );
+}
+
+/** Open tasks and reviews to read, when there are any. */
+function ToDo({ openTasks, toAcknowledge }: Readonly<{ openTasks: number; toAcknowledge: number }>) {
+  const { t, plural } = useI18n();
+  const router = useRouter();
+  if (openTasks === 0 && toAcknowledge === 0) return null;
+  return (
+    <Section title={t.home.toDo} large>
+      <Card style={styles.open}>
+        {openTasks > 0 ? (
+          <Row
+            leading={<IconTile icon={ClipboardCheck} />}
+            title={t.me.tasks}
+            subtitle={plural(openTasks, t.home.openTasks)}
+            onPress={() => router.push('/tasks')}
+            chevron
+          />
+        ) : null}
+        {toAcknowledge > 0 ? (
+          <Row
+            leading={<IconTile icon={MessageSquareText} />}
+            title={t.me.reviews}
+            subtitle={plural(toAcknowledge, t.home.toAcknowledge)}
+            onPress={() => router.push('/reviews')}
+            chevron
+          />
+        ) : null}
+      </Card>
+    </Section>
   );
 }
 
@@ -236,25 +254,17 @@ function ShiftHero({
   const now = useNow(clockedIn ? 1000 : 30_000);
   const [switching, setSwitching] = useState(false);
 
-  const today = todayIso(now);
   const sinceMs = since ? new Date(since).getTime() : Number.NaN;
   const running = clockedIn && !Number.isNaN(sinceMs);
-  let title = t.home.noShiftToday;
-  let lines = [formatLongDay(today, intlLocale)];
-  if (running) {
-    title = formatTimer(now.getTime() - sinceMs);
-    lines = onShift ? shiftLines(onShift, workspace, intlLocale) : [t.home.noShiftToday];
-  } else if (shift) {
-    // The hours lead, like the timer does while clocked in; a shift on a later
-    // day says which day in the line under them.
-    const [hours, place] = shiftLines(shift, workspace, intlLocale);
-    const day = dayOf(shift.startsAt);
-    let when: string | null = null;
-    if (day === addDays(today, 1)) when = t.common.tomorrow;
-    else if (day !== today) when = formatDay(day, intlLocale);
-    title = hours;
-    lines = [[when, place].filter(Boolean).join(' · ')].filter(Boolean);
-  }
+  const { title, lines } = heroText({
+    elapsed: running ? now.getTime() - sinceMs : null,
+    shift,
+    onShift,
+    workspace,
+    today: todayIso(now),
+    t,
+    locale: intlLocale,
+  });
   // A time (the running timer or the shift's hours) rather than words.
   const figure = running || shift != null;
   const shown = running ? onShift : shift;
@@ -316,39 +326,14 @@ function ShiftHero({
         </View>
 
         {canClock || clockedIn ? (
-          <View style={styles.heroButtons}>
-            <Pressable
-              onPress={onPress}
-              disabled={clock.isPending}
-              accessibilityRole="button"
-              testID="home-clock"
-              style={({ pressed }) => [
-                styles.clockButton,
-                { backgroundColor: palette.ink, opacity: pressed || clock.isPending ? 0.85 : 1 },
-              ]}
-            >
-              {clock.isPending && !switching ? (
-                <ActivityIndicator color={palette.inkText} />
-              ) : (
-                <Text style={[styles.clockText, { color: palette.inkText }]}>{clockedIn ? t.home.clockOut : t.home.clockIn}</Text>
-              )}
-            </Pressable>
-            {clockedIn && canClock ? (
-              <Pressable
-                onPress={() => setSwitching(true)}
-                disabled={clock.isPending}
-                accessibilityRole="button"
-                testID="home-switch-shift"
-                style={({ pressed }) => [
-                  styles.clockButton,
-                  styles.switchButton,
-                  { backgroundColor: palette.surface, opacity: pressed ? 0.75 : 1 },
-                ]}
-              >
-                <Text style={[styles.switchText, { color: palette.text }]}>{t.home.switchShift}</Text>
-              </Pressable>
-            ) : null}
-          </View>
+          <ClockButtons
+            clockedIn={clockedIn}
+            canSwitch={clockedIn && canClock}
+            pending={clock.isPending}
+            busy={clock.isPending && !switching}
+            onClock={onPress}
+            onSwitch={() => setSwitching(true)}
+          />
         ) : null}
       </View>
       {switching ? (
@@ -359,6 +344,96 @@ function ShiftHero({
           onPick={switchTo}
           onClose={() => setSwitching(false)}
         />
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The card's title and the lines under it. Clocked in: how long, and the shift
+ * it is on. Otherwise the next shift's hours lead, with which day (when not
+ * today) and where under them; with no shift, that there is none and today.
+ */
+function heroText({
+  elapsed,
+  shift,
+  onShift,
+  workspace,
+  today,
+  t,
+  locale,
+}: Readonly<{
+  elapsed: number | null;
+  shift: HeroShift | null;
+  onShift: HeroShift | null;
+  workspace?: string;
+  today: string;
+  t: Translations;
+  locale: string;
+}>): { title: string; lines: string[] } {
+  if (elapsed != null) {
+    return { title: formatTimer(elapsed), lines: onShift ? shiftLines(onShift, workspace, locale) : [t.home.noShiftToday] };
+  }
+  if (!shift) return { title: t.home.noShiftToday, lines: [formatLongDay(today, locale)] };
+  const [hours = '', place] = shiftLines(shift, workspace, locale);
+  const day = dayOf(shift.startsAt);
+  let when: string | null = null;
+  if (day === addDays(today, 1)) when = t.common.tomorrow;
+  else if (day !== today) when = formatDay(day, locale);
+  return { title: hours, lines: [[when, place].filter(Boolean).join(' · ')].filter(Boolean) };
+}
+
+/** Clock in or out in black, and while clocked in Switch shift next to it. */
+function ClockButtons({
+  clockedIn,
+  canSwitch,
+  pending,
+  busy,
+  onClock,
+  onSwitch,
+}: Readonly<{
+  clockedIn: boolean;
+  canSwitch: boolean;
+  pending: boolean;
+  /** The clock itself is working (not a switch). */
+  busy: boolean;
+  onClock: () => void;
+  onSwitch: () => void;
+}>) {
+  const palette = usePalette();
+  const { t } = useI18n();
+  return (
+    <View style={styles.heroButtons}>
+      <Pressable
+        onPress={onClock}
+        disabled={pending}
+        accessibilityRole="button"
+        testID="home-clock"
+        style={({ pressed }) => [
+          styles.clockButton,
+          { backgroundColor: palette.ink, opacity: pressed || pending ? 0.85 : 1 },
+        ]}
+      >
+        {busy ? (
+          <ActivityIndicator color={palette.inkText} />
+        ) : (
+          <Text style={[styles.clockText, { color: palette.inkText }]}>{clockedIn ? t.home.clockOut : t.home.clockIn}</Text>
+        )}
+      </Pressable>
+      {canSwitch ? (
+        <Pressable
+          onPress={onSwitch}
+          disabled={pending}
+          accessibilityRole="button"
+          testID="home-switch-shift"
+          style={({ pressed }) => [
+            styles.clockButton,
+            styles.switchButton,
+            { backgroundColor: palette.surface, opacity: pressed ? 0.75 : 1 },
+          ]}
+        >
+          <Text style={[styles.switchText, { color: palette.text }]}>{t.home.switchShift}</Text>
+        </Pressable>
       ) : null}
     </View>
   );

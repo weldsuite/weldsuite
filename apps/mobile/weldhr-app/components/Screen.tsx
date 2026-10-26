@@ -93,19 +93,7 @@ export function Screen({
 }: Readonly<ScreenProps>) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { t } = useI18n();
   const sheet = withSheet && !plain;
-
-  // Show the spinner only for a pull, not for every background refetch, and
-  // long enough to register even when the data comes back at once.
-  const [pulled, setPulled] = useState(false);
-  useEffect(() => {
-    if (!pulled || refreshing) return undefined;
-    const id = setTimeout(() => setPulled(false), 400);
-    return () => clearTimeout(id);
-  }, [pulled, refreshing]);
-
   const isModal = variant === 'modal';
   // A modal is a page sheet on iOS: it starts below the status bar already.
   const top = isModal ? 14 : insets.top + 6;
@@ -117,63 +105,16 @@ export function Screen({
     variant === 'tab'
       ? floatingTabBarBottomInset(insets.bottom) + FLOATING_SIZE + FLOATING_GAP + 16
       : insets.bottom + 24;
-
-  const leftButton =
-    variant === 'tab' ? (
-      left
-    ) : (
-      <SquareButton
-        icon={isModal ? X : ChevronLeft}
-        label={isModal ? t.common.close : t.common.back}
-        testID={isModal ? 'screen-close' : 'screen-back'}
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
-      />
-    );
-
-  // The scroll offset and the pinned slot for sticky section headers (Sticky.tsx).
-  const scrollY = useSharedValue(0);
-  const onScroll = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
-  });
-  const [pinned, setPinned] = useState<ReactNode>(null);
-  const sticky = useMemo(() => ({ scrollY, setPinned }), [scrollY]);
+  const leftButton = variant === 'tab' ? left : <BackButton modal={isModal} />;
 
   const scroll = (
-    <View style={[styles.flex, styles.clip]}>
-      <Animated.ScrollView
-        style={styles.flex}
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: bottom },
-          plain && styles.plainContent,
-          isModal && styles.form,
-          contentStyle,
-        ]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl
-              refreshing={pulled}
-              onRefresh={() => {
-                setPulled(true);
-                onRefresh();
-              }}
-              tintColor={palette.muted}
-            />
-          ) : undefined
-        }
-      >
-        <StickyScrollContext.Provider value={sticky}>{children}</StickyScrollContext.Provider>
-      </Animated.ScrollView>
-      {pinned ? (
-        <View style={styles.pinned} pointerEvents="box-none">
-          {pinned}
-        </View>
-      ) : null}
-    </View>
+    <ScreenScroll
+      contentStyle={[{ paddingBottom: bottom }, plain && styles.plainContent, isModal && styles.form, contentStyle]}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+    >
+      {children}
+    </ScreenScroll>
   );
 
   return (
@@ -208,6 +149,87 @@ export function Screen({
   );
 }
 
+
+/** The back arrow on a pushed screen, the close cross on a form; to the tabs when there is nothing to go back to. */
+function BackButton({ modal }: Readonly<{ modal: boolean }>) {
+  const router = useRouter();
+  const { t } = useI18n();
+  return (
+    <SquareButton
+      icon={modal ? X : ChevronLeft}
+      label={modal ? t.common.close : t.common.back}
+      testID={modal ? 'screen-close' : 'screen-back'}
+      onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+    />
+  );
+}
+
+/**
+ * The scrolling content: pull to refresh, and the slot sticky section headers
+ * pin into (Sticky.tsx).
+ */
+function ScreenScroll({
+  contentStyle,
+  refreshing,
+  onRefresh,
+  children,
+}: Readonly<{
+  contentStyle: StyleProp<ViewStyle>;
+  refreshing: boolean;
+  onRefresh?: () => void;
+  children: ReactNode;
+}>) {
+  const palette = usePalette();
+
+  // Show the spinner only for a pull, not for every background refetch, and
+  // long enough to register even when the data comes back at once.
+  const [pulled, setPulled] = useState(false);
+  useEffect(() => {
+    if (!pulled || refreshing) return undefined;
+    const id = setTimeout(() => setPulled(false), 400);
+    return () => clearTimeout(id);
+  }, [pulled, refreshing]);
+
+  // The scroll offset and the pinned slot for sticky section headers.
+  const scrollY = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+  const [pinned, setPinned] = useState<ReactNode>(null);
+  const sticky = useMemo(() => ({ scrollY, setPinned }), [scrollY]);
+
+  return (
+    <View style={[styles.flex, styles.clip]}>
+      <Animated.ScrollView
+        style={styles.flex}
+        contentContainerStyle={[styles.content, contentStyle]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={pulled}
+              onRefresh={() => {
+                setPulled(true);
+                onRefresh();
+              }}
+              tintColor={palette.muted}
+            />
+          ) : undefined
+        }
+      >
+        <StickyScrollContext.Provider value={sticky}>{children}</StickyScrollContext.Provider>
+      </Animated.ScrollView>
+      {pinned ? (
+        <View style={styles.pinned} pointerEvents="box-none">
+          {pinned}
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 const SPRING = { damping: 22, stiffness: 220, mass: 0.8 };
 
@@ -306,13 +328,19 @@ export function SquareButton({
         styles.square,
         {
           backgroundColor: plain ? palette.chromePlain : palette.chrome,
-          opacity: disabled ? 0.45 : pressed ? 0.7 : 1,
+          opacity: pressedOpacity(pressed, disabled),
         },
       ]}
     >
       <Icon size={20} color={palette.text} strokeWidth={2} />
     </Pressable>
   );
+}
+
+/** A square button's opacity: faded while disabled, dimmed while pressed. */
+function pressedOpacity(pressed: boolean, disabled: boolean): number {
+  if (disabled) return 0.45;
+  return pressed ? 0.7 : 1;
 }
 
 /** How far above the bottom edge the round button floats: the tab bar sits max(inset, 8) up (FloatingTabBar). */

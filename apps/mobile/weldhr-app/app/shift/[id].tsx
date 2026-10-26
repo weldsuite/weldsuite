@@ -21,12 +21,13 @@ import { MyHrGate, useSelfState } from '@/components/MyHrGate';
 import { QueryBody } from '@/components/QueryBody';
 import { Card, DetailRow, EmptyRow, IconTile, Row } from '@/components/Row';
 import { Inset, Screen, Section } from '@/components/Screen';
-import { swatchFor } from '@/constants/brand';
+import { swatchFor, type Palette } from '@/constants/brand';
 import { usePalette } from '@/hooks/use-palette';
 import { useAttendance } from '@/hooks/use-weldhr-queries';
 import { addDays, startOfWeek, todayIso } from '@/lib/dates';
 import { formatHoursMinutes, formatLongDay, formatMoney, formatTimer } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
+import type { Translations } from '@/lib/i18n/locales/en';
 import {
   byClockIn,
   clockedOutGaps,
@@ -106,20 +107,7 @@ function ShiftDetail({ data, id }: Readonly<{ data: HrSelfAttendance; id: string
   // A break in minutes ("30 min"), from an hour on in hours and minutes.
   const minutes = (value: number) => (value >= 60 ? hours(value) : format(t.shift.minutes, { minutes: Math.round(value) }));
 
-  // The status in the corner of the summary: clocked in, worked, missed or still to come.
-  let status = t.shift.planned;
-  let statusTint: string = palette.muted;
-  if (open) {
-    status = t.timesheet.clockedIn;
-    statusTint = palette.success;
-  } else if (worked.length > 0) {
-    const approved = worked.every((r) => r.approved);
-    status = approved ? t.timesheet.approved : t.timesheet.pendingApproval;
-    statusTint = approved ? palette.success : palette.warning;
-  } else if (started) {
-    status = t.schedule.notClockedIn;
-    statusTint = palette.warning;
-  }
+  const { status, tint: statusTint } = shiftStatus({ open: Boolean(open), worked, started, t, palette });
 
   return (
     <>
@@ -144,40 +132,73 @@ function ShiftDetail({ data, id }: Readonly<{ data: HrSelfAttendance; id: string
 
       <Breaks shift={shift} worked={worked} minutes={minutes} />
 
-      {worked.length > 0 || started ? (
-        <Section title={t.shift.worked}>
-          <Card>
-            {worked.length === 0 ? <EmptyRow icon={Clock} title={t.schedule.notClockedIn} /> : null}
-            {worked.map((record) => {
-              const since = isOpen(record) ? record.clockIn : null;
-              return (
-                <Row
-                  key={record.id}
-                  leading={<IconTile icon={Clock} />}
-                  title={record.clockIn ? timeRange(record.clockIn, record.clockOut, intlLocale) : labelFor(t.attendanceStatus, record.status)}
-                  subtitle={[
-                    labelFor(t.shift.source, record.source),
-                    record.lateMinutes ? format(t.timesheet.late, { minutes: record.lateMinutes }) : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                  value={since ? formatTimer(now - new Date(since).getTime()) : hours(minutesOf(record, now))}
-                  detail={since ? t.timesheet.clockedIn : labelFor(t.attendanceStatus, record.status)}
-                  detailColor={since ? palette.success : statusColor(record.status, palette)}
-                />
-              );
-            })}
-            {worked
-              .filter((record) => record.notes)
-              .map((record) => (
-                <DetailRow key={`${record.id}-note`} label={t.shift.notes} value={record.notes!} />
-              ))}
-          </Card>
-        </Section>
-      ) : null}
+      {worked.length > 0 || started ? <Worked worked={worked} now={now} hours={hours} /> : null}
 
       <Pay shift={shift} worked={worked} workedMinutes={workedMinutes} now={now} hours={hours} />
     </>
+  );
+}
+
+/** The status in the corner of the summary: clocked in, worked (approved or not), missed or still to come. */
+function shiftStatus({
+  open,
+  worked,
+  started,
+  t,
+  palette,
+}: Readonly<{ open: boolean; worked: MyRecord[]; started: boolean; t: Translations; palette: Palette }>): {
+  status: string;
+  tint: string;
+} {
+  if (open) return { status: t.timesheet.clockedIn, tint: palette.success };
+  if (worked.length > 0) {
+    const approved = worked.every((r) => r.approved);
+    return approved
+      ? { status: t.timesheet.approved, tint: palette.success }
+      : { status: t.timesheet.pendingApproval, tint: palette.warning };
+  }
+  if (started) return { status: t.schedule.notClockedIn, tint: palette.warning };
+  return { status: t.shift.planned, tint: palette.muted };
+}
+
+/** What was clocked on the shift: each stretch with how it was recorded, how late and its status, then the notes. */
+function Worked({
+  worked,
+  now,
+  hours,
+}: Readonly<{ worked: MyRecord[]; now: number; hours: (value: number) => string }>) {
+  const palette = usePalette();
+  const { t, format, intlLocale } = useI18n();
+  return (
+    <Section title={t.shift.worked}>
+      <Card>
+        {worked.length === 0 ? <EmptyRow icon={Clock} title={t.schedule.notClockedIn} /> : null}
+        {worked.map((record) => {
+          const since = isOpen(record) ? record.clockIn : null;
+          return (
+            <Row
+              key={record.id}
+              leading={<IconTile icon={Clock} />}
+              title={record.clockIn ? timeRange(record.clockIn, record.clockOut, intlLocale) : labelFor(t.attendanceStatus, record.status)}
+              subtitle={[
+                labelFor(t.shift.source, record.source),
+                record.lateMinutes ? format(t.timesheet.late, { minutes: record.lateMinutes }) : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              value={since ? formatTimer(now - new Date(since).getTime()) : hours(minutesOf(record, now))}
+              detail={since ? t.timesheet.clockedIn : labelFor(t.attendanceStatus, record.status)}
+              detailColor={since ? palette.success : statusColor(record.status, palette)}
+            />
+          );
+        })}
+        {worked
+          .filter((record) => record.notes)
+          .map((record) => (
+            <DetailRow key={`${record.id}-note`} label={t.shift.notes} value={record.notes!} />
+          ))}
+      </Card>
+    </Section>
   );
 }
 

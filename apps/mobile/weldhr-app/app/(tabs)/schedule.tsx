@@ -204,6 +204,13 @@ function MyWeek({ data, from, to }: Readonly<{ data: HrSelfAttendance; from: str
   const withPay = (list: MyRecord[]) =>
     `${formatDuration(list.reduce((sum, r) => sum + minutes(r), 0))} | ${earnings(list, now, currency, intlLocale)}`;
 
+  // A day's figure: what was worked and earned, or for days to come what is
+  // planned (nothing when only leave is).
+  const dayTotal = (day: string, planned: number, dayRecords: MyRecord[]) => {
+    if (day <= today) return withPay(dayRecords);
+    return planned > 0 ? format(t.schedule.planned, { hours: formatDuration(planned) }) : '';
+  };
+
   const groups = Array.from({ length: 7 }, (_, i) => addDays(from, i))
     .map((day) => {
       const dayShifts = shifts.filter((s) => dayOf(s.startsAt) === day);
@@ -219,8 +226,7 @@ function MyWeek({ data, from, to }: Readonly<{ data: HrSelfAttendance; from: str
           (r) => r.startDate <= day && r.endDate >= day && (r.startDate === r.endDate || !isWeekend(day)),
         ),
         ill: sick.filter((a) => a.startDate <= day && (a.endDate ?? today) >= day && day <= today),
-        // Days to come show what is planned, nothing when only leave is.
-        total: day > today ? (planned > 0 ? format(t.schedule.planned, { hours: formatDuration(planned) }) : '') : withPay(dayRecords),
+        total: dayTotal(day, planned, dayRecords),
       };
     })
     .filter((group) => group.shifts.length + group.loose.length + group.asked.length + group.away.length + group.ill.length > 0);

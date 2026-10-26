@@ -237,24 +237,23 @@ function DeclarationSheet({ declaration, onClose }: Readonly<{ declaration: HrSe
           <Text style={[styles.sheetSub, { color: palette.muted }]}>{t.expenses.noReceipt}</Text>
         )}
 
-        {declaration.status === 'pending' ? (
-          confirming ? (
-            <View style={styles.confirm}>
-              <Text style={[styles.confirmText, { color: palette.text }]}>{t.expenses.cancelTitle}</Text>
-              <View style={styles.confirmButtons}>
-                <Button title={t.expenses.keep} variant="secondary" onPress={() => setConfirming(false)} style={styles.flex} />
-                <Button
-                  title={t.expenses.cancelConfirm}
-                  variant="destructive"
-                  onPress={withdraw}
-                  loading={cancel.isPending}
-                  style={styles.flex}
-                />
-              </View>
+        {declaration.status === 'pending' && confirming ? (
+          <View style={styles.confirm}>
+            <Text style={[styles.confirmText, { color: palette.text }]}>{t.expenses.cancelTitle}</Text>
+            <View style={styles.confirmButtons}>
+              <Button title={t.expenses.keep} variant="secondary" onPress={() => setConfirming(false)} style={styles.flex} />
+              <Button
+                title={t.expenses.cancelConfirm}
+                variant="destructive"
+                onPress={withdraw}
+                loading={cancel.isPending}
+                style={styles.flex}
+              />
             </View>
-          ) : (
-            <Button title={t.expenses.cancelConfirm} variant="ghost" onPress={() => setConfirming(true)} fullWidth />
-          )
+          </View>
+        ) : null}
+        {declaration.status === 'pending' && !confirming ? (
+          <Button title={t.expenses.cancelConfirm} variant="ghost" onPress={() => setConfirming(true)} fullWidth />
         ) : null}
       </View>
     </Sheet>
