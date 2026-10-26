@@ -3,7 +3,7 @@ import { CHART_HANDLES, chartClip, chartRect, handleCenter, HANDLE_RADIUS } from
 import { drawChart, type ChartPaint } from '../charts/draw-chart';
 import type { SheetController } from '../model/sheet-controller';
 import { primaryRange, type Selection } from '../model/selection';
-import { panes, rangeRect, type GridLayout, type Rect, type Segment } from './geometry';
+import { colLeft, panes, rangeRect, rowTop, type GridLayout, type Rect, type Segment } from './geometry';
 import type { GridTheme } from './theme';
 
 const DEFAULT_FONT_FAMILY = 'Arial';
@@ -46,6 +46,12 @@ export interface RenderState {
   chartPreview?: Chart | null;
   /** Shown in a chart with nothing to plot. */
   emptyChartLabel?: string;
+  /** Where a dragged fill handle or a moved block of cells would land: a dashed outline. */
+  dropRange?: Range | null;
+  /** What the last cell of a fill being dragged gets, shown next to it. */
+  fillHint?: string | null;
+  /** The row or column boundary dragged headers would be moved to. */
+  dimDrop?: { axis: 'row' | 'col'; at: number } | null;
 }
 
 export function fontFor(style: CellStyle | undefined): string {
@@ -54,6 +60,17 @@ export function fontFor(style: CellStyle | undefined): string {
   const weight = style?.bold ? 'bold ' : '';
   const italic = style?.italic ? 'italic ' : '';
   return `${italic}${weight}${px}px ${style?.fontFamily ?? DEFAULT_FONT_FAMILY}`;
+}
+
+let measureCanvas: HTMLCanvasElement | null = null;
+
+/** Width in CSS pixels of one line of `text` in a cell's font. */
+export function measureText(text: string, style: CellStyle | undefined): number {
+  measureCanvas ??= document.createElement('canvas');
+  const ctx = measureCanvas.getContext('2d');
+  if (!ctx) return 0;
+  ctx.font = fontFor(style);
+  return ctx.measureText(text).width;
 }
 
 /** Draws the whole visible grid. The canvas is already scaled for devicePixelRatio. */
@@ -77,11 +94,14 @@ export function renderGrid(ctx: CanvasRenderingContext2D, state: RenderState): v
       drawRemote(ctx, state, clip);
       drawHighlights(ctx, state);
       drawSelection(ctx, state);
+      drawDropRange(ctx, state);
     });
   }
   drawCharts(ctx, state);
   drawFreezeLines(ctx, state);
   drawHeaders(ctx, state);
+  drawDimDrop(ctx, state);
+  drawFillHint(ctx, state);
 }
 
 function splitFrozen(segments: Segment[], frozen: number): Segment[][] {
@@ -570,10 +590,57 @@ function drawSelection(ctx: CanvasRenderingContext2D, state: RenderState): void 
   }
   ctx.lineWidth = 2;
   ctx.strokeRect(activeRect.x, activeRect.y, activeRect.w - 1, activeRect.h - 1);
-  // Fill handle on the primary range.
+  // Fill handle on a single range, while it can be dragged.
+  if (state.controller.readOnly || state.editing || selection.ranges.length !== 1) return;
   const primary = rangeRect(layout, sheet, primaryRange(selection));
+  const [hx, hy] = fillHandleCenter(primary);
+  ctx.fillStyle = theme.cellBackground;
+  ctx.fillRect(hx - 4, hy - 4, 8, 8);
   ctx.fillStyle = theme.selectionBorder;
-  ctx.fillRect(primary.x + primary.w - 4, primary.y + primary.h - 4, 6, 6);
+  ctx.fillRect(hx - 3, hy - 3, 6, 6);
+}
+
+/** The middle of the fill handle on a range's rectangle (its bottom-right corner). */
+export function fillHandleCenter(rect: Rect): [number, number] {
+  return [rect.x + rect.w - 1, rect.y + rect.h - 1];
+}
+
+function drawDropRange(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  if (!state.dropRange) return;
+  const rect = rangeRect(state.layout, state.controller.sheet, state.dropRange);
+  ctx.strokeStyle = state.theme.headerText;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.strokeRect(rect.x - 0.5, rect.y - 0.5, rect.w, rect.h);
+  ctx.setLineDash([]);
+}
+
+/** A small label under the bottom-right of a fill being dragged. */
+function drawFillHint(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  if (!state.fillHint || !state.dropRange) return;
+  const rect = rangeRect(state.layout, state.controller.sheet, state.dropRange);
+  ctx.font = `11px ${DEFAULT_FONT_FAMILY}`;
+  const text = state.fillHint.length > 40 ? `${state.fillHint.slice(0, 39)}…` : state.fillHint;
+  const w = ctx.measureText(text).width + 10;
+  const x = Math.min(rect.x + rect.w + 4, state.layout.width - w - 2);
+  const y = Math.min(rect.y + rect.h + 4, state.layout.height - 20);
+  ctx.fillStyle = state.theme.text;
+  ctx.fillRect(x, y, w, 18);
+  ctx.fillStyle = state.theme.cellBackground;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + 5, y + 9);
+  ctx.textBaseline = 'alphabetic';
+}
+
+/** A thick line where dragged rows or columns would be put. */
+function drawDimDrop(ctx: CanvasRenderingContext2D, state: RenderState): void {
+  const drop = state.dimDrop;
+  if (!drop) return;
+  const { layout } = state;
+  const sheet = state.controller.sheet;
+  ctx.fillStyle = state.theme.selectionBorder;
+  if (drop.axis === 'col') ctx.fillRect(colLeft(layout, sheet, drop.at) - 2, 0, 4, layout.height);
+  else ctx.fillRect(0, rowTop(layout, sheet, drop.at) - 2, layout.width, 4);
 }
 
 /** Other people: a tint over their selection, their active cell outlined, their name above it. */

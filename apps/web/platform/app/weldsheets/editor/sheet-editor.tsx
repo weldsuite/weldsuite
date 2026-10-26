@@ -2,6 +2,7 @@ import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
 import { ChartPanel } from './charts/chart-panel';
 import { CommentsPanel, type Person } from './comments/comments-panel';
+import { FindBar } from './find-bar';
 import { FormulaBar } from './formula-bar';
 import { SheetGrid } from './grid/sheet-grid';
 import type { SheetController } from './model/sheet-controller';
@@ -44,8 +45,9 @@ export function SheetEditor({
         {!controller.readOnly && <Toolbar controller={controller} onSortRange={() => setSorting(true)} onCreatePivot={() => setCreatingPivot(true)} />}
         <FormulaBar controller={controller} inputRef={barInputRef} />
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative flex min-w-0 flex-1 flex-col">
             <SheetGrid controller={controller} barInputRef={barInputRef} onCreatePivot={() => setCreatingPivot(true)} />
+            {controller.find && <FindBar controller={controller} />}
           </div>
           {panel === 'formats' && <FormatsPanel controller={controller} />}
           {panel === 'validation' && <ValidationPanel controller={controller} />}

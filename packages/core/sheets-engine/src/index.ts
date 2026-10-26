@@ -27,7 +27,7 @@ export type { FormulaLocale } from './formula/locale';
 export type { AstNode } from './formula/parser';
 export { tokenize } from './formula/lexer';
 export type { RefToken, Token } from './formula/lexer';
-export { collectRefs, printRef, translateFormula } from './formula/references';
+export { collectRefs, printRef, rewriteRefs, translateFormula } from './formula/references';
 export type { Axis } from './formula/references';
 export { functionNames, getFunction, registerFunctions } from './formula/functions';
 export type { EvalContext, EvalHost, FunctionSpec } from './formula/types';
