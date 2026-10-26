@@ -497,6 +497,10 @@ export const platformSyncMap: EntitySyncMap = {
   // WeldSheets spreadsheets (create/rename/trash also publish `file`). An
   // open sheet is live over its own room socket; this only refreshes lists.
   sheet: inv(['weldsheets'], ['drive']),
+  // A version named, renamed or saved by a restore: the version history panel.
+  sheet_version: inv(['weldsheets', 'versions']),
+  // A connected table added, changed or removed: the data sources panel.
+  sheet_data_source: inv(['weldsheets', 'data-sources']),
 
   // WeldSign — weldsignKeys.all in use-weldsign-queries.ts. The payload has
   // ids and status only, so any change refetches the mounted WeldSign queries.

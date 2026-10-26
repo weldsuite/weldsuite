@@ -1,6 +1,7 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { TooltipProvider } from '@weldsuite/ui/components/tooltip';
 import { ChartPanel } from './charts/chart-panel';
+import { CommentsPanel, type Person } from './comments/comments-panel';
 import { FormulaBar } from './formula-bar';
 import { SheetGrid } from './grid/sheet-grid';
 import type { SheetController } from './model/sheet-controller';
@@ -14,15 +15,29 @@ import { Toolbar } from './toolbar';
 
 /**
  * Toolbar, formula bar, grid with its side panel (conditional formatting,
- * data validation, chart and pivot table editors), and sheet tabs around one
- * controller. Read-only sheets have no toolbar and no panels.
+ * data validation, chart and pivot table editors, comments, and the panels
+ * the page adds: version history, connected tables), and sheet tabs around
+ * one controller. Read-only sheets have no toolbar, and of the panels only
+ * comments and version history.
  */
-export function SheetEditor({ controller }: { controller: SheetController }) {
+export function SheetEditor({
+  controller,
+  people = [],
+  panels = {},
+}: {
+  controller: SheetController;
+  /** Who comments can mention. */
+  people?: Person[];
+  /** Panels the page provides (they need the sheet's record). */
+  panels?: Partial<Record<'versions' | 'data', ReactNode>>;
+}) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const barInputRef = useRef<HTMLTextAreaElement>(null);
   const [sorting, setSorting] = useState(false);
   const [creatingPivot, setCreatingPivot] = useState(false);
-  const panel = controller.readOnly ? null : controller.panel;
+  const readOnlyPanel = controller.panel === 'comments' || controller.panel === 'versions' || controller.panel === 'data';
+  const panel = controller.readOnly && !readOnlyPanel ? null : controller.panel;
+  const author = controller.options.author ?? { id: 'local', name: '' };
   return (
     <TooltipProvider delayDuration={400}>
       <div className="flex h-full min-h-0 flex-col bg-background">
@@ -36,6 +51,9 @@ export function SheetEditor({ controller }: { controller: SheetController }) {
           {panel === 'validation' && <ValidationPanel controller={controller} />}
           {panel === 'chart' && <ChartPanel controller={controller} />}
           {panel === 'pivot' && <PivotPanel controller={controller} />}
+          {panel === 'comments' && <CommentsPanel controller={controller} people={people} author={author} />}
+          {panel === 'versions' && panels.versions}
+          {panel === 'data' && panels.data}
         </div>
         <SheetTabs controller={controller} />
       </div>

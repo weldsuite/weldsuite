@@ -1,5 +1,3 @@
-'use client';
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, Loader2, MoreVertical, Send, XCircle } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';

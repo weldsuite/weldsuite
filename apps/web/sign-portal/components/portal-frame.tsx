@@ -1,5 +1,3 @@
-'use client';
-
 import type { ReactNode } from 'react';
 import { Signature } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
@@ -29,7 +27,6 @@ export function PortalFrame({ brand, onLocaleChange, actions, hasBottomBar, chil
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-3 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             {logo ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img src={logo} alt="" className="max-h-8 max-w-[7rem] shrink-0 object-contain" />
             ) : (
               <Signature className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />

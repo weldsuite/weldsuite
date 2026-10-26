@@ -11,6 +11,7 @@ import { useEffect, useReducer, useRef, useState, useCallback } from 'react';
 import { Loader2, Mic, MicOff, Video, VideoOff, PhoneOff } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
+import { currentPeers } from '../lib/call-peers';
 
 const increment = (n: number) => n + 1;
 
@@ -258,7 +259,7 @@ export default function CallRoomPage() {
     );
   }
 
-  const remoteParticipants = meeting.participants.joined.toArray();
+  const remoteParticipants = currentPeers(meeting.participants.joined.toArray(), meeting.self);
   const total = remoteParticipants.length + 1;
   const gridCols = total <= 1 ? 'grid-cols-1' : 'grid-cols-2';
 

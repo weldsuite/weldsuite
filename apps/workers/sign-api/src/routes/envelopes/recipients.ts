@@ -25,10 +25,10 @@ import {
   type SignSourceType,
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
-import { loadDraft, loadOwnEnvelope, toRecipientDto, touchEnvelope } from '../../services/envelopes';
-import { addRecipient, removeRecipient, updateRecipient } from '../../services/recipients';
-import { correctRecipient, resendLink } from '../../services/lifecycle';
-import { SOURCE_READ_PERMISSION, recipientSuggestions } from '../../services/sources';
+import { loadDraft, loadOwnEnvelope, toRecipientDto, touchEnvelope } from '@weldsuite/sign-domain/envelopes';
+import { addRecipient, removeRecipient, updateRecipient } from '@weldsuite/sign-domain/recipients';
+import { correctRecipient, resendLink } from '@weldsuite/sign-domain/lifecycle';
+import { SOURCE_READ_PERMISSION, recipientSuggestions } from '@weldsuite/sign-domain/sources';
 import { actorOf, handle, mayDo, publishEnvelopeUpdated, sendContextOf, viewerOf } from './shared';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

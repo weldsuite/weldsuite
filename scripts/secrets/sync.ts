@@ -12,10 +12,11 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { manifest, resolveEntry, type SecretEntry } from "./manifest";
+import { workerPath } from "./paths";
 
 const DOPPLER_PROJECT = process.env.DOPPLER_PROJECT || "weldsuite";
 const VALID_ENVS = ["test", "preview", "production"] as const;
@@ -89,7 +90,7 @@ function syncWorker(
 
   try {
     execSync(`npx wrangler secret bulk "${tmpFile}" --env ${env}`, {
-      cwd: join(process.cwd(), "apps", "workers", workerDir),
+      cwd: workerPath(workerDir)!,
       stdio: "inherit",
     });
   } finally {
@@ -145,8 +146,8 @@ function syncWorkerEntry(
   allSecrets: Record<string, string>,
 ): boolean {
   // Check worker directory exists
-  if (!existsSync(join(process.cwd(), "apps", "workers", workerDir))) {
-    console.warn(`  ⚠ ${workerDir}: Directory apps/workers/${workerDir} not found, skipping`);
+  if (!workerPath(workerDir)) {
+    console.warn(`  ⚠ ${workerDir}: No Worker directory (apps/workers/${workerDir} or apps/web/${workerDir}), skipping`);
     return false;
   }
 

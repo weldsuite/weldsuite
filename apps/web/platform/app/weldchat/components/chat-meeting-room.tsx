@@ -35,15 +35,11 @@ import {
   type MeetingRoomViewProps,
 } from '@weldsuite/weldmeet-ui';
 import { useI18n } from '@/lib/i18n/provider';
+import { currentPeers, peerKey } from '../lib/call-peers';
 import { createPeerChimes } from '../lib/peer-chimes';
 import { ChannelChatPanel } from './channel-chat-panel';
 
 type RtkPerson = RTKParticipant | RTKSelf;
-
-/** Identifies a person across RTK sessions (the peer `id` changes on a rejoin). */
-function peerKey(p: RTKParticipant | undefined): string | undefined {
-  return p?.customParticipantId || p?.userId || p?.id;
-}
 
 interface CallMember {
   userId?: string;
@@ -187,9 +183,13 @@ function ChatMeetingRoomAdapter() {
   useEffect(() => {
     if (!meeting) return;
 
+    // One entry per person: a rejoin's old session lingers in `joined` until
+    // the server drops it (see currentPeers).
+    const shownPeers = () =>
+      currentPeers((meeting.participants?.joined?.toArray?.() ?? []) as RTKParticipant[], meeting.self);
+
     const updateParticipants = () => {
-      const joined = (meeting.participants?.joined?.toArray?.() ?? []) as RTKParticipant[];
-      setParticipants([meeting.self, ...joined]);
+      setParticipants([meeting.self, ...shownPeers()]);
     };
 
     const sharingPeers = () =>
@@ -199,10 +199,12 @@ function ChatMeetingRoomAdapter() {
           .map((p) => p.id),
       );
 
-    const joinedKeys = () =>
-      ((meeting.participants?.joined?.toArray?.() ?? []) as RTKParticipant[])
-        .map(peerKey)
-        .filter((key): key is string => !!key);
+    const joinedKeys = () => shownPeers().map(peerKey).filter((key): key is string => !!key);
+
+    // Our own earlier session, still in the room after we rejoined: nobody
+    // joining or leaving.
+    const selfKey = peerKey(meeting.self);
+    const isOwnSession = (key: string | undefined) => !!key && key === selfKey;
 
     const onSelfScreenShareUpdate = (payload: {
       screenShareEnabled: boolean;
@@ -227,12 +229,18 @@ function ChatMeetingRoomAdapter() {
     });
 
     const onParticipantJoined = (p?: RTKParticipant) => {
-      chimes.joined(peerKey(p));
+      const key = peerKey(p);
+      if (!isOwnSession(key)) chimes.joined(key);
       updateParticipants();
     };
 
+    // RTK takes the peer out of `joined` before this fires. When the person is
+    // still listed, this was the old session of a rejoin timing out: they
+    // never left.
     const onParticipantLeft = (p?: RTKParticipant) => {
-      chimes.left(peerKey(p));
+      const key = peerKey(p);
+      const stillInCall = !!key && joinedKeys().includes(key);
+      if (!isOwnSession(key) && !stillInCall) chimes.left(key);
       updateParticipants();
     };
 

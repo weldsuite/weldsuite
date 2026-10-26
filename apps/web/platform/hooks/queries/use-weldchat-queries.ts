@@ -13,11 +13,17 @@
  */
 
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient, type InfiniteData } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData, type QueryClient, type QueryKey, type InfiniteData } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, CreateDmRequest } from '@/lib/api/domains/weldchat';
+import type {
+  RecordChatCallerState,
+  RecordChatFilter,
+  RecordChatType,
+  RecordChatTypeSummary,
+} from '@weldsuite/app-api-client/schemas/chat-entity-channels';
 
 /** app-api list envelope — `{ data, pagination }` with an opaque cursor. */
 interface ListEnvelope<T> {
@@ -119,7 +125,8 @@ export interface ChatChannel {
   createdAt?: string;
   sectionId?: string | null;
   entityType?: string;
-  entityDisplayName?: string;
+  entityId?: string | null;
+  entityDisplayName?: string | null;
   lastMessageAt?: string | null;
   lastReadAt?: string | null;
   unreadMentionCount?: number;
@@ -196,6 +203,11 @@ export const weldchatKeys = {
   activeCall: (channelId: string) => [...weldchatKeys.all, 'active-call', channelId] as const,
   callDetail: (callId: string) => [...weldchatKeys.all, 'call', callId] as const,
   clipTranscript: (channelId: string, messageId: string) => [...weldchatKeys.all, 'clip-transcript', channelId, messageId] as const,
+  recordChats: () => [...weldchatKeys.all, 'record-chats'] as const,
+  recordChatLists: () => [...weldchatKeys.recordChats(), 'list'] as const,
+  recordChatList: (type: RecordChatType | undefined, filter: RecordChatFilter, search: string) =>
+    [...weldchatKeys.recordChatLists(), type ?? 'all', filter, search] as const,
+  recordChatSummary: () => [...weldchatKeys.recordChats(), 'summary'] as const,
 };
 
 // ============================================================================
@@ -577,11 +589,20 @@ export function useMarkChannelAsRead() {
       const client = await getClient();
       return client.post<{ data: MarkChannelReadResult }>(`/channels/${channelId}/read`);
     },
-    onSuccess: (_data, channelId) => {
+    onSuccess: (res, channelId) => {
       // DMs live in their own list; both feed the sidebar's bold/unread state.
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.readReceipts(channelId) });
+      // Record chats have their own lists: clear the row's unread state now, and
+      // let the group header counts catch up.
+      if (isCachedRecordChat(queryClient, channelId)) {
+        patchRecordChatLists(queryClient, channelId, {
+          lastReadAt: res?.data?.lastReadAt ?? new Date().toISOString(),
+          unreadMentionCount: 0,
+        });
+        queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChatSummary() });
+      }
     },
   });
 }
@@ -782,6 +803,11 @@ export function useSendMessage() {
     },
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
+      // The author gets no unread push for their own message; move the record
+      // chat to the top of its group here.
+      if (isCachedRecordChat(queryClient, variables.channelId)) {
+        queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChats() });
+      }
       if (variables.parentId) {
         queryClient.invalidateQueries({ queryKey: weldchatKeys.threadMessages(variables.channelId, variables.parentId) });
         queryClient.invalidateQueries({ queryKey: weldchatKeys.message(variables.parentId) });
@@ -1114,17 +1140,18 @@ interface ChannelCacheSnapshot {
   channels: ChannelListCache | undefined;
   dms: ChannelListCache | undefined;
   detail: { data: ChatChannel } | undefined;
+  recordChats: RecordChatCacheSnapshot;
 }
 
 /**
  * Optimistically patch one channel in every cache that shows it (sidebar
- * channel list, DM list, channel detail) and return the previous values so a
- * failed mutation can restore them.
+ * channel list, DM list, record chat lists, channel detail) and return the
+ * previous values so a failed mutation can restore them.
  */
 async function patchChannelInCaches(
   queryClient: QueryClient,
   channelId: string,
-  patch: Partial<ChatChannel>,
+  patch: Pick<ChatChannel, 'isMuted' | 'isArchived'>,
 ): Promise<ChannelCacheSnapshot> {
   const channelsKey = weldchatKeys.channels();
   const dmsKey = weldchatKeys.dms();
@@ -1133,12 +1160,15 @@ async function patchChannelInCaches(
     queryClient.cancelQueries({ queryKey: channelsKey, exact: true }),
     queryClient.cancelQueries({ queryKey: dmsKey, exact: true }),
     queryClient.cancelQueries({ queryKey: detailKey, exact: true }),
+    queryClient.cancelQueries({ queryKey: weldchatKeys.recordChats() }),
   ]);
   const snapshot: ChannelCacheSnapshot = {
     channels: queryClient.getQueryData<ChannelListCache>(channelsKey),
     dms: queryClient.getQueryData<ChannelListCache>(dmsKey),
     detail: queryClient.getQueryData<{ data: ChatChannel }>(detailKey),
+    recordChats: snapshotRecordChats(queryClient),
   };
+  patchRecordChatLists(queryClient, channelId, patch);
   const patchList = (old: ChannelListCache | undefined) =>
     old?.data
       ? { ...old, data: old.data.map((ch) => (ch.id === channelId ? { ...ch, ...patch } : ch)) }
@@ -1160,6 +1190,7 @@ function restoreChannelCaches(
   queryClient.setQueryData(weldchatKeys.channels(), snapshot.channels);
   queryClient.setQueryData(weldchatKeys.dms(), snapshot.dms);
   queryClient.setQueryData(weldchatKeys.channelDetail(channelId), snapshot.detail);
+  restoreRecordChats(queryClient, snapshot.recordChats);
 }
 
 /**
@@ -1185,6 +1216,10 @@ export function useMuteChannel() {
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channels() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
       queryClient.invalidateQueries({ queryKey: weldchatKeys.channelDetail(variables.channelId) });
+      // A muted record chat no longer counts as unread in its group header.
+      if (isCachedRecordChat(queryClient, variables.channelId)) {
+        queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChatSummary() });
+      }
     },
   });
 }
@@ -1214,6 +1249,312 @@ export function useArchiveChannel() {
 
 export function useUnarchiveChannel() {
   return useSetChannelArchived(false);
+}
+
+// ============================================================================
+// Record chats (companies, people, tasks, projects, domains)
+// ============================================================================
+
+/**
+ * One record chat as `/chat-entity-channels` lists it: the channel row plus the
+ * caller's own state on it. Following = having a membership row.
+ */
+export type RecordChatListItem = ChatChannel &
+  RecordChatCallerState & {
+    entityType: string;
+    entityId: string;
+    lastMessagePreview?: string | null;
+  };
+
+type RecordChatPage = ListEnvelope<RecordChatListItem>;
+type RecordChatListCache = InfiniteData<RecordChatPage, string | undefined>;
+type RecordChatSummaryCache = { data: RecordChatTypeSummary[] };
+type RecordChatCacheSnapshot = Array<[QueryKey, unknown]>;
+
+/** Rows per request. The sidebar shows a handful per type; the rest is for the record chats page. */
+const RECORD_CHAT_PAGE = 25;
+
+export interface RecordChatsOptions {
+  filter?: RecordChatFilter;
+  search?: string;
+  enabled?: boolean;
+  /**
+   * Keep showing the previous rows while another type, filter or search
+   * loads (`isPlaceholderData`), so the records page keeps its toolbar and
+   * search box instead of dropping back to a spinner on every keystroke.
+   */
+  keepPrevious?: boolean;
+}
+
+/**
+ * Record chats of one type (all types when `type` is undefined), latest
+ * activity first, paged by cursor. The sidebar groups use `following`.
+ */
+export function useRecordChats(
+  type: RecordChatType | undefined,
+  { filter = 'following', search = '', enabled = true, keepPrevious = false }: RecordChatsOptions = {},
+) {
+  const { getClient } = useAppApiClient();
+  return useInfiniteQuery({
+    queryKey: weldchatKeys.recordChatList(type, filter, search),
+    queryFn: async ({ pageParam }) => {
+      const client = await getClient();
+      const qs = new URLSearchParams({ filter, limit: String(RECORD_CHAT_PAGE) });
+      if (type) qs.set('type', type);
+      if (search) qs.set('search', search);
+      if (pageParam) qs.set('cursor', pageParam);
+      return client.get<RecordChatPage>(`/chat-entity-channels?${qs.toString()}`);
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage: RecordChatPage) =>
+      lastPage?.pagination?.hasMore ? (lastPage.pagination.cursor ?? undefined) : undefined,
+    placeholderData: keepPrevious ? keepPreviousData : undefined,
+    enabled,
+  });
+}
+
+/** Per record type: followed chats, unread chats and unread mentions (the sidebar group headers). */
+export function useRecordChatSummary(enabled = true) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: weldchatKeys.recordChatSummary(),
+    queryFn: async () => {
+      const client = await getClient();
+      return client.get<RecordChatSummaryCache>('/chat-entity-channels/summary');
+    },
+    enabled,
+  });
+}
+
+/** Every loaded row of every cached record chat list, with the list's filter. */
+function cachedRecordChatRows(queryClient: QueryClient): Array<{ filter: unknown; row: RecordChatListItem }> {
+  const out: Array<{ filter: unknown; row: RecordChatListItem }> = [];
+  for (const [key, data] of queryClient.getQueriesData<RecordChatListCache>({
+    queryKey: weldchatKeys.recordChatLists(),
+  })) {
+    const filter = key[4];
+    for (const page of data?.pages ?? []) {
+      for (const row of page?.data ?? []) out.push({ filter, row });
+    }
+  }
+  return out;
+}
+
+/** True when the channel is a record chat this client has seen (in a list or as the open chat). */
+export function isCachedRecordChat(queryClient: QueryClient, channelId: string): boolean {
+  const detail = queryClient.getQueryData<{ data: ChatChannel }>(weldchatKeys.channelDetail(channelId));
+  if (detail?.data?.type === 'entity') return true;
+  return cachedRecordChatRows(queryClient).some(({ row }) => row.id === channelId);
+}
+
+/** True when the channel is in neither the channel list nor the DM list. */
+function isUnlistedChannel(queryClient: QueryClient, channelId: string): boolean {
+  const inList = (key: QueryKey) =>
+    !!queryClient.getQueryData<ChannelListCache>(key)?.data?.some((ch) => ch.id === channelId);
+  return !inList(weldchatKeys.channels()) && !inList(weldchatKeys.dms());
+}
+
+/**
+ * Whether a user-topic event about this channel (new message, read, mention)
+ * can change the record chat lists: it is a record chat we hold, or a channel
+ * we don't list anywhere, which may be a record chat beyond the loaded rows.
+ */
+export function affectsRecordChats(queryClient: QueryClient, channelId: string | undefined): boolean {
+  if (!channelId) return true;
+  return isCachedRecordChat(queryClient, channelId) || isUnlistedChannel(queryClient, channelId);
+}
+
+function mapRecordChatRows(
+  old: RecordChatListCache | undefined,
+  fn: (rows: RecordChatListItem[]) => RecordChatListItem[],
+): RecordChatListCache | undefined {
+  if (!old?.pages) return old;
+  return { ...old, pages: old.pages.map((page) => (page?.data ? { ...page, data: fn(page.data) } : page)) };
+}
+
+/** Patch one record chat in every cached record chat list. */
+function patchRecordChatLists(queryClient: QueryClient, channelId: string, patch: Partial<RecordChatListItem>) {
+  queryClient.setQueriesData<RecordChatListCache>({ queryKey: weldchatKeys.recordChatLists() }, (old) =>
+    mapRecordChatRows(old, (rows) => rows.map((row) => (row.id === channelId ? { ...row, ...patch } : row))),
+  );
+}
+
+function snapshotRecordChats(queryClient: QueryClient): RecordChatCacheSnapshot {
+  return queryClient.getQueriesData({ queryKey: weldchatKeys.recordChats() });
+}
+
+function restoreRecordChats(queryClient: QueryClient, snapshot: RecordChatCacheSnapshot | undefined) {
+  for (const [key, data] of snapshot ?? []) queryClient.setQueryData(key, data);
+}
+
+function adjustRecordChatSummary(
+  queryClient: QueryClient,
+  type: RecordChatType,
+  delta: Pick<RecordChatTypeSummary, 'followed' | 'unread' | 'mentions'>,
+) {
+  queryClient.setQueryData<RecordChatSummaryCache>(weldchatKeys.recordChatSummary(), (old) =>
+    old?.data
+      ? {
+          ...old,
+          data: old.data.map((s) =>
+            s.type === type
+              ? {
+                  ...s,
+                  followed: Math.max(0, s.followed + delta.followed),
+                  unread: Math.max(0, s.unread + delta.unread),
+                  mentions: Math.max(0, s.mentions + delta.mentions),
+                }
+              : s,
+          ),
+        }
+      : old,
+  );
+}
+
+/** Add or drop the caller in the open chat's member list, which says whether they follow it. */
+function setFollowingInChannelDetail(
+  queryClient: QueryClient,
+  channelId: string,
+  userId: string,
+  following: boolean,
+) {
+  queryClient.setQueryData<{ data: ChatChannel }>(weldchatKeys.channelDetail(channelId), (old) => {
+    if (!old?.data) return old;
+    const members = (old.data.members as ChatChannelMember[] | undefined) ?? [];
+    const others = members.filter((m) => m.userId !== userId);
+    return {
+      ...old,
+      data: { ...old.data, members: following ? [...others, { id: `pending_${userId}`, userId }] : others },
+    };
+  });
+}
+
+export interface RecordChatFollowVariables {
+  entityType: RecordChatType;
+  entityId: string;
+  /** The chat's channel, when it exists: lets the cached rows flip right away. */
+  channelId?: string | null;
+}
+
+function recordChatUnread(row: RecordChatListItem): boolean {
+  return (
+    !row.isMuted &&
+    !!row.lastMessageAt &&
+    (!row.lastReadAt || new Date(row.lastMessageAt).getTime() > new Date(row.lastReadAt).getTime())
+  );
+}
+
+function useRecordChatFollowMutation(following: boolean) {
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  const { userId } = useAuth();
+  return useMutation({
+    mutationFn: async ({ entityType, entityId }: RecordChatFollowVariables) => {
+      const client = await getClient();
+      const path = `/chat-entity-channels/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}/follow`;
+      if (following) return client.post<unknown>(path);
+      return client.delete<unknown>(path);
+    },
+    onMutate: async ({ entityType, channelId }) => {
+      await queryClient.cancelQueries({ queryKey: weldchatKeys.recordChats() });
+      const snapshot = {
+        recordChats: snapshotRecordChats(queryClient),
+        detail: channelId ? queryClient.getQueryData(weldchatKeys.channelDetail(channelId)) : undefined,
+      };
+      if (!channelId) return snapshot;
+      if (userId) setFollowingInChannelDetail(queryClient, channelId, userId, following);
+
+      const known = cachedRecordChatRows(queryClient).find(({ row }) => row.id === channelId)?.row;
+      if (following) {
+        patchRecordChatLists(queryClient, channelId, { isFollowing: true });
+        if (known && !known.isFollowing) adjustRecordChatSummary(queryClient, entityType, { followed: 1, unread: 0, mentions: 0 });
+        return snapshot;
+      }
+      // Unfollowing drops the chat from the followed lists (the sidebar) and
+      // keeps it, unfollowed, in the "all I can see" lists.
+      for (const [key] of queryClient.getQueriesData<RecordChatListCache>({ queryKey: weldchatKeys.recordChatLists() })) {
+        queryClient.setQueryData<RecordChatListCache>(key, (old) =>
+          mapRecordChatRows(old, (rows) =>
+            key[4] === 'all'
+              ? rows.map((row) => (row.id === channelId ? { ...row, isFollowing: false } : row))
+              : rows.filter((row) => row.id !== channelId),
+          ),
+        );
+      }
+      if (known?.isFollowing) {
+        adjustRecordChatSummary(queryClient, entityType, {
+          followed: -1,
+          unread: recordChatUnread(known) ? -1 : 0,
+          mentions: -(known.unreadMentionCount ?? 0),
+        });
+      }
+      return snapshot;
+    },
+    onError: (_err, { channelId }, snapshot) => {
+      restoreRecordChats(queryClient, snapshot?.recordChats);
+      if (channelId) queryClient.setQueryData(weldchatKeys.channelDetail(channelId), snapshot?.detail);
+    },
+    onSettled: (_data, _err, { channelId }) => {
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChats() });
+      if (channelId) {
+        queryClient.invalidateQueries({ queryKey: weldchatKeys.channelDetail(channelId) });
+        queryClient.invalidateQueries({ queryKey: weldchatKeys.members(channelId) });
+      }
+    },
+  });
+}
+
+/** Follow a record chat (`POST …/:type/:id/follow`); creates the chat when the record has none yet. */
+export function useFollowRecordChat() {
+  return useRecordChatFollowMutation(true);
+}
+
+/** Unfollow a record chat: it leaves the sidebar but stays readable on the record. */
+export function useUnfollowRecordChat() {
+  return useRecordChatFollowMutation(false);
+}
+
+export interface MuteRecordChatsByTypeVariables {
+  entityType: RecordChatType;
+  isMuted: boolean;
+}
+
+/**
+ * Mute / unmute every record chat of one type the caller follows, in a single
+ * request (`PATCH /chat-entity-channels/:entityType/mute`) — the sidebar's
+ * "Mute all" / "Unmute all" group actions.
+ *
+ * Not a loop of per-chat `useMuteChannel` calls: the sidebar only ever holds a
+ * capped slice of a followed group (`useRecordChatGroups` stops at 4 pages of
+ * 25), so muting row-by-row from the loaded rows silently left the rest of a
+ * long followed list still notifying. Flips every cached row of this type
+ * right away; the server mutes every membership row it actually owns, loaded
+ * in the sidebar or not.
+ */
+export function useMuteRecordChatsByType() {
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ entityType, isMuted }: MuteRecordChatsByTypeVariables) => {
+      const client = await getClient();
+      return client.patch<{ data: { updated: number } }>(
+        `/chat-entity-channels/${encodeURIComponent(entityType)}/mute`,
+        { isMuted },
+      );
+    },
+    onMutate: async ({ entityType, isMuted }) => {
+      await queryClient.cancelQueries({ queryKey: weldchatKeys.recordChats() });
+      const snapshot = snapshotRecordChats(queryClient);
+      queryClient.setQueriesData<RecordChatListCache>({ queryKey: weldchatKeys.recordChatLists() }, (old) =>
+        mapRecordChatRows(old, (rows) => rows.map((row) => (row.entityType === entityType ? { ...row, isMuted } : row))),
+      );
+      return snapshot;
+    },
+    onError: (_err, _variables, snapshot) => restoreRecordChats(queryClient, snapshot),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChats() });
+    },
+  });
 }
 
 // ============================================================================

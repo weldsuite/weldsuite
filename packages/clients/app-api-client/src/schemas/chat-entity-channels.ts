@@ -49,6 +49,13 @@ export const listEntityChannelsQuerySchema = z.object({
 
 export type ListEntityChannelsQuery = z.input<typeof listEntityChannelsQuerySchema>;
 
+/** PATCH /api/chat-entity-channels/:entityType/mute */
+export const muteRecordChatsSchema = z.object({
+  isMuted: z.boolean(),
+});
+
+export type MuteRecordChatsInput = z.infer<typeof muteRecordChatsSchema>;
+
 /** The caller's own state on one record chat (absent membership = not following). */
 export interface RecordChatCallerState {
   isFollowing: boolean;

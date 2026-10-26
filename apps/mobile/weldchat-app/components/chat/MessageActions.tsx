@@ -176,10 +176,13 @@ export function MessageActions({
           <Text style={styles.actionText}>{t.messageActions.replyInThread}</Text>
         </Pressable>
 
-        <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onCopy(); dismiss(); }}>
-          <Copy size={20} color={colors.text} />
-          <Text style={styles.actionText}>{t.messageActions.copyText}</Text>
-        </Pressable>
+        {/* Nothing to copy on a message that is only a file or a voice note. */}
+        {message?.content?.trim() ? (
+          <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onCopy(); dismiss(); }}>
+            <Copy size={20} color={colors.text} />
+            <Text style={styles.actionText}>{t.messageActions.copyText}</Text>
+          </Pressable>
+        ) : null}
 
         <Pressable style={({ pressed }) => [styles.action, pressed && styles.actionPressed]} onPress={() => { onPin(); dismiss(); }}>
           {isPinned ? <PinOff size={20} color={colors.text} /> : <Pin size={20} color={colors.text} />}

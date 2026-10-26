@@ -2,8 +2,9 @@
  * SheetRoom — one Durable Object per spreadsheet (named `${workspaceId}:${sheetId}`),
  * the single place a sheet's edits are ordered (ADR SHEETS-003).
  *
- * The co-editing logic is `RoomCore` from @weldsuite/sheets-engine; this
- * class gives it sockets and persistence:
+ * The co-editing logic is `RoomCore` from @weldsuite/collab, run on the sheets
+ * engine (@weldsuite/sheets-engine); this class gives it sockets and
+ * persistence:
  *
  *   - Admission: the session route checks access, then calls `admit()` (RPC)
  *     for a single-use ticket; the browser opens the socket with it.
@@ -17,6 +18,14 @@
  *     the last KEEP_LOG for clients catching up. The tenant DB row then
  *     records the new revision and an entity event reports the change.
  *   - Messages longer than a frame go as parts (`toFrames`/`FrameAssembler`).
+ *   - Commenters (`canComment`) may only commit comment ops (comment-access.ts);
+ *     someone a new comment mentions gets a notification (mentions.ts).
+ *   - Versions: `saveVersion()` writes the live workbook to R2 for the
+ *     versions route; `restoreVersion()` replaces the workbook with a saved
+ *     one (see there) and tells every client with a `restored` message.
+ *   - Server writes: connected tables' refreshes and agent tools commit ops
+ *     through `commitServer`, like anyone's edit. Scheduled refreshes run on
+ *     this object's alarm, which it shares with checkpoints.
  */
 
 import { DurableObject } from 'cloudflare:workers';
@@ -27,23 +36,41 @@ import {
   RoomCore,
   Sheet,
   Workbook,
+  dataTableOp,
   decodeClient,
-  refusedBatchId,
   encode,
+  readValues,
+  refusedBatchId,
+  resolveRef,
   toFrames,
+  valuesOp,
   writeCsv,
   writeXlsx,
+  type CellInput,
   type CommittedOp,
+  type DataTableWrite,
+  type Engine,
   type Op,
   type Outgoing,
   type Peer,
+  type Range,
+  type ReadValues,
+  type RoomOptions,
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
-import { getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
+import { createAndDeliverNotification } from '@weldsuite/notifications';
+import { fileRole, loadDriveAccessForUser, type DriveFileRef } from '@weldsuite/core-domain/drive-access';
+import { getTenantDbForWorkspace, type Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
-import { recordCheckpoint } from '../services/sheets';
+import { getSheet, recordCheckpoint } from '../services/sheets';
+import { insertVersion, versionKeyFor } from '../services/versions';
+import { buildRefresh } from '../services/data-sources/refresh';
+import { dataSourceEventData, dueDataSources, nextDueAt, recordRefresh, type DataSourceRecord } from '../services/data-sources/sources';
 import { readSnapshot, writeSnapshot } from './snapshot';
+import { isCommentersOp } from './comment-access';
+import { MentionTracker, plainBody, stampCommentAuthors, type NewMention } from './mentions';
+import { mayOpenProjectSheet } from '../routes/sheets/access';
 
 /** What the session route tells the room: which sheet it is, and who is coming in. */
 export interface Admission {
@@ -56,6 +83,8 @@ export interface Admission {
   picture: string | null;
   color: string;
   canEdit: boolean;
+  /** May add comments without editing (ignored when `canEdit`). */
+  canComment: boolean;
 }
 
 /** Which sheet a room holds, and where its checkpoint is. */
@@ -77,6 +106,44 @@ export interface ExportedFile {
   /** The tab a CSV holds, for its file name. */
   tabName: string | null;
 }
+
+/** A version the room wrote: the revision it is at and its size in R2. */
+export interface SavedVersion {
+  revision: number;
+  size: number;
+}
+
+/** What the restore route asks the room. */
+export interface RestoreRequest {
+  sheet: RoomMeta;
+  /** The version to restore, and its snapshot in R2. */
+  versionId: string;
+  versionKey: string;
+  /** Id for the automatic version the sheet as it is now is saved as. */
+  autoVersionId: string;
+  userId: string;
+}
+
+export type RestoreOutcome = { ok: true; revision: number } | { ok: false; reason: 'missing_version' };
+
+/** A tab of the workbook, and the cells it uses. */
+export interface TabInfo {
+  id: string;
+  name: string;
+  hidden: boolean;
+  /** The used block in A1 notation, or null for an empty tab. */
+  used: Range | null;
+}
+
+/** A range to read or write: a tab (id or name; default the first) and A1 text (default its used block). */
+export interface RangeRequest {
+  tab?: string;
+  range?: string;
+}
+
+export type ReadResult = ({ ok: true; tabId: string; tabName: string } & ReadValues) | { ok: false; error: string };
+
+export type WriteResult = { ok: true; revision: number; range: Range; tabId: string } | { ok: false; error: string };
 
 interface Ticket {
   peer: Omit<Peer, 'clientId'>;
@@ -107,13 +174,25 @@ const KEEP_LOG = 500;
 const OP_PART = 1_000_000;
 const OP_PREFIX = 'op:';
 const TICKET_PREFIX = 'ticket:';
+/**
+ * Storage key: logged ops below this revision belong to a workbook a restore
+ * replaced, and are never replayed or sent to a client catching up.
+ */
+const LOG_FLOOR = 'logFloor';
+/** Storage key: when the next scheduled refresh of a connected table is due (epoch ms). */
+const REFRESH_AT = 'refreshAt';
 /** Sheet id of the workbook a room starts from when its sheet has no checkpoint at all. */
 const FALLBACK_SHEET_ID = 'sheet1';
+/** Client id server writes commit under (refreshes, agent tools). */
+const SERVER_CLIENT = 'server';
+/** Cells an agent reads in one go at most. */
+const MAX_READ_CELLS = 10_000;
 
 export class SheetRoom extends DurableObject<Env> {
   private room: RoomCore | null = null;
   private loading: Promise<RoomCore> | null = null;
   private meta: RoomMeta | null = null;
+  private mentions: MentionTracker | null = null;
   private readonly sockets = new Map<string, WebSocket>();
   private readonly assemblers = new Map<string, FrameAssembler>();
   /** Revision of the latest checkpoint in R2. */
@@ -121,6 +200,8 @@ export class SheetRoom extends DurableObject<Env> {
   private checkpointing: Promise<void> | null = null;
   private alarmPending = false;
   private frameCounter = 0;
+  /** A restore in progress: messages, versions and alarms wait for it. */
+  private restoring: Promise<unknown> | null = null;
 
   /** Registers a ticket for one connection (RPC from the session route). */
   async admit(admission: Admission): Promise<string> {
@@ -145,18 +226,128 @@ export class SheetRoom extends DurableObject<Env> {
    * tab does not exist.
    */
   async exportFile(sheet: RoomMeta, request: ExportRequest): Promise<ExportedFile | null> {
-    if (!this.meta) {
-      this.meta = sheet;
-      await this.ctx.storage.put('meta', sheet);
-    }
+    await this.adopt(sheet);
+    await this.settled();
     const { engine } = this.room ?? (await this.load());
-    const locale = request.locale === 'nl' ? NL_LOCALE : EN_LOCALE;
-    if (request.format === 'xlsx') return { bytes: await writeXlsx(engine, { locale }), tabName: null };
-    const sheets = engine.workbook.sheets;
-    const tab = request.tab ? engine.workbook.getSheet(request.tab) : (sheets.find((s) => !s.props.hidden) ?? sheets[0]);
-    if (!tab) return null;
-    // A byte-order mark, so Excel reads the CSV as UTF-8.
-    return { bytes: new TextEncoder().encode(`\uFEFF${writeCsv(engine, tab.id, { locale })}`), tabName: tab.name };
+    return exportEngine(engine, request);
+  }
+
+  /**
+   * The workbook as the room holds it now, edits not yet checkpointed
+   * included (RPC for copies). As JSON text: a Durable Object RPC result is
+   * typed through `Rpc.Serializable`, which does not keep the snapshot's tuples.
+   */
+  async snapshot(sheet: RoomMeta): Promise<{ revision: number; json: string }> {
+    await this.adopt(sheet);
+    await this.settled();
+    const room = this.room ?? (await this.load());
+    return { revision: room.revision, json: JSON.stringify(room.engine.toSnapshot()) };
+  }
+
+  /**
+   * Writes the workbook as the room holds it now to `key` (RPC from the
+   * versions route, which records the version row).
+   */
+  async saveVersion(sheet: RoomMeta, key: string): Promise<SavedVersion> {
+    await this.adopt(sheet);
+    await this.settled();
+    const room = this.room ?? (await this.load());
+    // Taken in one go, so the workbook and its revision agree.
+    const snapshot = { revision: room.revision, workbook: room.engine.toSnapshot() };
+    return { revision: snapshot.revision, size: await writeSnapshot(this.env.PRIVATE_STORAGE, key, snapshot) };
+  }
+
+  /**
+   * Replaces the workbook with a saved version (RPC from the restore route):
+   *
+   *   1. The workbook as it is now is checkpointed, then saved as an
+   *      automatic version (a `sheet_versions` row with no name), so the
+   *      restore can be undone.
+   *   2. The version becomes the workbook at the next revision: written as
+   *      the checkpoint, with the op log of the replaced workbook dropped.
+   *   3. Everyone connected gets a `restored` message with the new workbook.
+   *
+   * Edits that arrive meanwhile wait for it, then apply to the restored
+   * workbook (a batch made on the old one is refused as stale and its sender
+   * resyncs).
+   */
+  async restoreVersion(req: RestoreRequest): Promise<RestoreOutcome> {
+    await this.adopt(req.sheet);
+    await this.settled();
+    const run = this.replaceWithVersion(req);
+    this.restoring = run.catch(() => undefined);
+    try {
+      return await run;
+    } finally {
+      this.restoring = null;
+    }
+  }
+
+  /** The workbook's tabs and the cells each uses (RPC for agent tools). */
+  async tabs(sheet: RoomMeta): Promise<TabInfo[]> {
+    await this.adopt(sheet);
+    await this.settled();
+    const { engine } = this.room ?? (await this.load());
+    return engine.workbook.sheets.map((s) => ({ id: s.id, name: s.name, hidden: !!s.props.hidden, used: engine.usedRange(s.id) }));
+  }
+
+  /** Values and formulas of a range, edits not checkpointed included (RPC for agent tools). */
+  async readRange(sheet: RoomMeta, request: RangeRequest): Promise<ReadResult> {
+    await this.adopt(sheet);
+    await this.settled();
+    const { engine } = this.room ?? (await this.load());
+    const at = target(engine, request);
+    if (typeof at === 'string') return { ok: false, error: at };
+    const range = at.range ?? engine.usedRange(at.tabId) ?? { r1: 0, c1: 0, r2: 0, c2: 0 };
+    return { ok: true, tabId: at.tabId, tabName: at.tabName, ...readValues(engine, at.tabId, range, MAX_READ_CELLS) };
+  }
+
+  /**
+   * Writes values from a range's top-left cell (RPC for agent tools), as an
+   * edit by `userId` that everyone in the sheet sees at once.
+   */
+  async writeRange(sheet: RoomMeta, request: RangeRequest & { values: CellInput[][]; userId: string }): Promise<WriteResult> {
+    await this.adopt(sheet);
+    await this.settled();
+    const room = this.room ?? (await this.load());
+    const at = target(room.engine, request);
+    if (typeof at === 'string') return { ok: false, error: at };
+    const start = at.range ? { row: at.range.r1, col: at.range.c1 } : { row: 0, col: 0 };
+    const width = Math.max(0, ...request.values.map((r) => r.length));
+    const range = { r1: start.row, c1: start.col, r2: start.row + request.values.length - 1, c2: start.col + width - 1 };
+    const result = this.commit(room, valuesOp(at.tabId, start, request.values), request.userId);
+    return result.ok ? { ok: true, revision: result.revision, range, tabId: at.tabId } : result;
+  }
+
+  /**
+   * Refreshes one connected table now (RPC from the data source routes): its
+   * records listed by the route, written where the table is (or at `write.at`
+   * for a new one).
+   */
+  async writeDataTable(sheet: RoomMeta, write: DataTableWrite, userId: string): Promise<{ ok: true; revision: number } | { ok: false; error: string }> {
+    await this.adopt(sheet);
+    await this.settled();
+    const room = this.room ?? (await this.load());
+    const op = dataTableOp(room.engine, write);
+    if (typeof op === 'string') return { ok: false, error: op };
+    return this.commit(room, op, userId);
+  }
+
+  /** Takes a connected table's block out of the workbook, leaving its values (RPC when a data source is removed). */
+  async dropDataTable(sheet: RoomMeta, id: string, userId: string): Promise<void> {
+    await this.adopt(sheet);
+    await this.settled();
+    const room = this.room ?? (await this.load());
+    const tab = room.engine.workbook.sheets.find((s) => s.dataTables.some((t) => t.id === id));
+    if (tab) this.commit(room, { type: 'patchDataTables', sheetId: tab.id, remove: [id] }, userId);
+  }
+
+  /** When the sheet's next scheduled refresh is due (epoch ms; null: none). The routes call it after changing data sources. */
+  async scheduleRefresh(sheet: RoomMeta, at: number | null): Promise<void> {
+    await this.adopt(sheet);
+    if (at === null) await this.ctx.storage.delete(REFRESH_AT);
+    else await this.ctx.storage.put(REFRESH_AT, at);
+    await this.armRefresh();
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -195,6 +386,8 @@ export class SheetRoom extends DurableObject<Env> {
     if (typeof message !== 'string') return;
     const state = socketState(ws);
     if (!state) return;
+    // Only when needed: an await here would let the next message overtake this one.
+    if (this.restoring) await this.settled();
     let room: RoomCore;
     try {
       room = this.room ?? (await this.load());
@@ -212,6 +405,9 @@ export class SheetRoom extends DurableObject<Env> {
       if (batchId) this.dispatch(room, room.refuse(state.peer.clientId, batchId));
       return;
     }
+    // A comment's author name is whatever the client wrote; trust only the
+    // server-set peer name for comments the sender is committing as themselves.
+    if (msg.type === 'submit') stampCommentAuthors(msg.op, state.peer);
 
     const before = room.revision;
     let out: Outgoing[];
@@ -254,14 +450,38 @@ export class SheetRoom extends DurableObject<Env> {
     await this.webSocketClose(ws, 1011, 'error');
   }
 
+  /** Checkpoints after edits, and runs connected tables' scheduled refreshes when due. */
   async alarm(): Promise<void> {
     this.alarmPending = false;
+    await this.settled();
     if (!this.room) await this.load();
     // A failure throws, and the runtime retries the alarm.
     await this.checkpoint();
+    const due = await this.ctx.storage.get<number>(REFRESH_AT);
+    if (due !== undefined && due <= Date.now()) await this.refreshDue();
+    await this.armRefresh();
   }
 
   // ---- Loading ----
+
+  /** Remembers which sheet this room holds (the first RPC to reach it tells it). */
+  private async adopt(sheet: RoomMeta): Promise<void> {
+    if (this.meta) return;
+    this.meta = sheet;
+    await this.ctx.storage.put('meta', sheet);
+  }
+
+  /** Waits until no restore is running. */
+  private async settled(): Promise<void> {
+    while (this.restoring) await this.restoring;
+  }
+
+  private roomOptions(): RoomOptions {
+    return {
+      onCommit: (c: CommittedOp) => this.persist(c),
+      mayComment: (op, peer, engine) => isCommentersOp(op, peer.userId, engine),
+    };
+  }
 
   /**
    * Drops the in-memory room, whose workbook may be half-changed, and closes
@@ -296,8 +516,9 @@ export class SheetRoom extends DurableObject<Env> {
     this.meta = meta;
     const stored = await readSnapshot(this.env.PRIVATE_STORAGE, meta.snapshotKey);
     const base = stored ?? { revision: 0, workbook: fallbackWorkbook() };
-    const room = RoomCore.restore(base.workbook, base.revision, await this.readLog(), { onCommit: (c) => this.persist(c) });
+    const room = RoomCore.restore(base.workbook, base.revision, await this.readLog(), this.roomOptions());
     this.checkpointed = base.revision;
+    this.mentions = new MentionTracker(room.engine);
     this.sockets.clear();
     for (const ws of this.ctx.getWebSockets()) {
       const state = socketState(ws);
@@ -311,9 +532,11 @@ export class SheetRoom extends DurableObject<Env> {
 
   private async readLog(): Promise<CommittedOp[]> {
     const entries = await this.ctx.storage.list<StoredOp | string>({ prefix: OP_PREFIX });
+    const floor = (await this.ctx.storage.get<number>(LOG_FLOOR)) ?? 0;
     const ops: CommittedOp[] = [];
     for (const [key, value] of entries) {
       if (typeof value === 'string') continue; // a part, read with its head
+      if (value.revision < floor) continue; // an op on a workbook a restore replaced
       const op = value.op ?? (JSON.parse(partKeys(key, value.parts ?? 0).map((k) => entries.get(k) as string).join('')) as Op);
       ops.push({ revision: value.revision, batchId: value.batchId, clientId: value.clientId, op });
     }
@@ -336,6 +559,67 @@ export class SheetRoom extends DurableObject<Env> {
     }
     // Not awaited: the output gate keeps the ack from leaving before this is durable.
     this.ctx.storage.put(entries).catch((err) => console.error('[sheets-api/room] logging an op failed:', err));
+    this.noteMentions(c);
+  }
+
+  /** People a committed comment newly mentions get a notification, when its author is who committed it. */
+  private noteMentions(c: CommittedOp): void {
+    const found = this.mentions?.take(c.op) ?? [];
+    if (found.length === 0 || !this.meta) return;
+    const committer = this.sockets.get(c.clientId);
+    const userId = committer ? socketState(committer)?.peer.userId : undefined;
+    const own = found.filter((m) => m.comment.author.id === userId);
+    if (own.length) this.ctx.waitUntil(this.notify(this.meta, own));
+  }
+
+  private async notify(meta: RoomMeta, mentions: NewMention[]): Promise<void> {
+    try {
+      const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+      const sheet = await getSheet(db, meta.sheetId);
+      if (!sheet) return;
+      for (const m of mentions) {
+        for (const userId of m.userIds) {
+          // Only people who can open the sheet: a mention is not a share. For a
+          // WeldFlow project's sheet, `fileRole` alone says `editor` for anyone
+          // (drive-access.ts leaves project files to their module), so the
+          // project's own membership rule decides, same as `findSheet` applies
+          // for the person opening it.
+          if (!fileRole(await loadDriveAccessForUser(db, userId), sheet.file)) continue;
+          if (sheet.projectId && !(await mayOpenProjectSheet(db, userId, sheet.projectId))) continue;
+          await createAndDeliverNotification({
+            db,
+            env: this.env,
+            workspaceId: meta.workspaceId,
+            userId,
+            title: `${m.comment.author.name} mentioned you in ${sheet.name}`,
+            body: plainBody(m.comment.body),
+            category: 'weldsheets',
+            notificationType: 'mention',
+            entityType: 'sheet',
+            entityId: sheet.id,
+            actionUrl: `/weldsheets/${sheet.id}?comment=${encodeURIComponent(m.comment.thread)}`,
+            severity: 'info',
+            actorType: 'user',
+            actorId: m.comment.author.id,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[sheets-api/room] mention notification failed:', err);
+    }
+  }
+
+  /** Commits an op the server made as an edit by `userId`, sending it to everyone in the sheet. */
+  private commit(room: RoomCore, op: Op, userId: string): { ok: true; revision: number } | { ok: false; error: string } {
+    const result = room.commitServer(op, SERVER_CLIENT);
+    this.dispatch(room, result.out);
+    if (room.needsReload) {
+      console.error('[sheets-api/room] a server op failed to apply; rebuilding the room from its checkpoint');
+      this.reload();
+    }
+    if (!result.committed) return { ok: false, error: result.refused ?? 'refused' };
+    this.edited(room, userId);
+    return { ok: true, revision: result.committed.revision };
   }
 
   private edited(room: RoomCore, userId: string): void {
@@ -374,12 +658,137 @@ export class SheetRoom extends DurableObject<Env> {
     return assembler;
   }
 
+  // ---- Versions ----
+
+  private async replaceWithVersion(req: RestoreRequest): Promise<RestoreOutcome> {
+    const room = this.room ?? (await this.load());
+    const meta = this.meta;
+    if (!meta) throw new Error('This room has not been given a sheet');
+    const bucket = this.env.PRIVATE_STORAGE;
+    const version = await readSnapshot(bucket, req.versionKey);
+    if (!version) return { ok: false, reason: 'missing_version' };
+
+    // 1. Everything so far is in the checkpoint, so stopping halfway loses nothing.
+    // (A checkpoint already running may have started before the last edits.)
+    while (room.revision > this.checkpointed) await this.checkpoint();
+    const current = { revision: room.revision, workbook: room.engine.toSnapshot() };
+    const autoKey = versionKeyFor(meta.snapshotKey, req.autoVersionId);
+    const autoSize = await writeSnapshot(bucket, autoKey, current);
+    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    await insertVersion(db, {
+      id: req.autoVersionId,
+      sheetId: meta.sheetId,
+      revision: current.revision,
+      name: null,
+      snapshotKey: autoKey,
+      size: autoSize,
+      createdById: req.userId,
+    });
+
+    // 2. The floor goes first: if the object stops before the new checkpoint
+    // is written, it comes back as the sheet was, without the old log.
+    const revision = current.revision + 1;
+    const floor = (await this.ctx.storage.get<number>(LOG_FLOOR)) ?? 0;
+    await this.ctx.storage.put(LOG_FLOOR, revision);
+    let size: number;
+    try {
+      size = await writeSnapshot(bucket, meta.snapshotKey, { revision, workbook: version.workbook });
+    } catch (err) {
+      await this.ctx.storage.put(LOG_FLOOR, floor);
+      throw err;
+    }
+
+    // 3. The new room takes over everyone connected, and tells them.
+    const next = RoomCore.restore(version.workbook, revision, [], this.roomOptions());
+    for (const ws of this.sockets.values()) {
+      const state = socketState(ws);
+      if (state) next.join(state.peer, state.ready);
+    }
+    this.room = next;
+    this.loading = Promise.resolve(next);
+    this.mentions = new MentionTracker(next.engine);
+    this.checkpointed = revision;
+    const restored = next.engine.toSnapshot();
+    this.dispatch(next, [
+      { to: null, msg: { type: 'restored', revision, snapshot: restored, versionId: req.versionId, userId: req.userId } },
+    ]);
+
+    await this.ctx.storage.put('lastEditor', req.userId);
+    await this.trimLog(revision - 1);
+    try {
+      await recordCheckpoint(db, meta.sheetId, { revision, snapshotKey: meta.snapshotKey, size, userId: req.userId });
+    } catch (err) {
+      // The checkpoint itself is safe in R2; the row catches up at the next one.
+      console.error('[sheets-api/room] recording the restore failed:', err);
+    }
+    return { ok: true, revision };
+  }
+
+  // ---- Connected tables ----
+
+  /** Refreshes every connected table whose scheduled refresh is due. */
+  private async refreshDue(): Promise<void> {
+    const meta = this.meta;
+    if (!meta) return;
+    const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
+    const sheet = await getSheet(db, meta.sheetId);
+    if (!sheet) {
+      await this.ctx.storage.delete(REFRESH_AT);
+      return;
+    }
+    for (const source of await dueDataSources(db, meta.sheetId, new Date())) {
+      try {
+        await this.refreshOne(db, meta, source, sheet.file);
+      } catch (err) {
+        console.error('[sheets-api/room] scheduled refresh failed:', err);
+        await recordRefresh(db, source, { at: new Date(), error: 'failed' }).catch(() => null);
+      }
+    }
+    const next = await nextDueAt(db, meta.sheetId);
+    if (next) await this.ctx.storage.put(REFRESH_AT, next.getTime());
+    else await this.ctx.storage.delete(REFRESH_AT);
+  }
+
+/** Lists one connected table's records and writes them, recording how it went. */
+  private async refreshOne(db: Database, meta: RoomMeta, source: DataSourceRecord, file: DriveFileRef): Promise<void> {
+    const plan = await buildRefresh(db, source, file);
+    let error = plan.ok ? null : plan.error;
+    if (plan.ok) {
+      const room = this.room ?? (await this.load());
+      const op = dataTableOp(room.engine, plan.write);
+      error = typeof op === 'string' || !this.commit(room, op, source.createdById).ok ? 'unplaced' : null;
+    }
+    const row = await recordRefresh(db, source, { at: new Date(), rowCount: plan.ok ? plan.rowCount : 0, error });
+    if (!row) return;
+    await publishEntityEventRaw({
+      env: this.env,
+      workspaceId: meta.workspaceId,
+      userId: source.createdById,
+      entityType: 'sheet_data_source',
+      action: 'updated',
+      entityId: row.id,
+      data: dataSourceEventData(row) as unknown as Record<string, unknown>,
+      source: 'system',
+    });
+  }
+
+  /** Sets the alarm for the next scheduled refresh, unless an earlier one (a checkpoint) is set. */
+  private async armRefresh(): Promise<void> {
+    const at = await this.ctx.storage.get<number>(REFRESH_AT);
+    if (at === undefined) return;
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at) await this.ctx.storage.setAlarm(Math.max(at, Date.now()));
+  }
+
   // ---- Checkpoints ----
 
   private async scheduleCheckpoint(): Promise<void> {
     if (this.alarmPending) return;
     this.alarmPending = true;
-    if ((await this.ctx.storage.getAlarm()) === null) await this.ctx.storage.setAlarm(Date.now() + CHECKPOINT_DELAY_MS);
+    const at = Date.now() + CHECKPOINT_DELAY_MS;
+    // A scheduled refresh may hold the alarm for later: the checkpoint comes first.
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at);
   }
 
   private checkpoint(): Promise<void> {
@@ -433,6 +842,31 @@ export class SheetRoom extends DurableObject<Env> {
       console.error('[sheets-api/room] recording the checkpoint failed:', err);
     }
   }
+}
+
+/** The workbook as an .xlsx, or one tab as a CSV (null when that tab does not exist). */
+export async function exportEngine(engine: Engine, request: ExportRequest): Promise<ExportedFile | null> {
+  const locale = request.locale === 'nl' ? NL_LOCALE : EN_LOCALE;
+  if (request.format === 'xlsx') return { bytes: await writeXlsx(engine, { locale }), tabName: null };
+  const sheets = engine.workbook.sheets;
+  const tab = request.tab ? engine.workbook.getSheet(request.tab) : (sheets.find((s) => !s.props.hidden) ?? sheets[0]);
+  if (!tab) return null;
+  // A byte-order mark, so Excel reads the CSV as UTF-8.
+  return { bytes: new TextEncoder().encode(`﻿${writeCsv(engine, tab.id, { locale })}`), tabName: tab.name };
+}
+
+/** The tab and range a request names, or why it names none. */
+function target(engine: Engine, request: RangeRequest): { tabId: string; tabName: string; range: Range | null } | string {
+  const sheets = engine.workbook.sheets;
+  const tab = request.tab
+    ? (engine.workbook.getSheet(request.tab) ?? engine.workbook.getSheetByName(request.tab))
+    : (sheets.find((s) => !s.props.hidden) ?? sheets[0]);
+  if (!tab) return `There is no tab "${request.tab}"`;
+  if (!request.range) return { tabId: tab.id, tabName: tab.name, range: null };
+  const at = resolveRef(engine, request.range, tab.id);
+  if (!at) return `"${request.range}" is not a range like A1:C10`;
+  const sheet = engine.workbook.getSheet(at.sheetId)!;
+  return { tabId: sheet.id, tabName: sheet.name, range: at.range };
 }
 
 /**

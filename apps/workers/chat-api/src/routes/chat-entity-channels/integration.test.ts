@@ -639,3 +639,75 @@ describe('GET / and GET /summary · record chat lists', () => {
     expect(data[1]).toMatchObject({ type: 'person', followed: 1, unread: 1, mentions: 1 });
   });
 });
+
+describe('PATCH /:entityType/mute — sidebar "Mute all" / "Unmute all"', () => {
+  const ME = 'u_mute_me';
+  const MUTE_PERMS = [...CRM, 'channels:update'];
+
+  it('mutes every followed company chat, leaves other types, other users and already-muted rows alone', async () => {
+    const chatA = await seedChat('company', await seedCompany('Mute A', { ownerId: ME }), {
+      lastMessageAt: new Date('2026-10-01T00:00:00Z'),
+      followers: [{ userId: ME }],
+    });
+    // Already muted: the bulk UPDATE should not touch (or re-publish for) it.
+    const chatB = await seedChat('company', await seedCompany('Mute B', { ownerId: ME }), {
+      lastMessageAt: new Date('2026-10-02T00:00:00Z'),
+      followers: [{ userId: ME, isMuted: true }],
+    });
+    // Another type: a `company` mute-all must leave it alone.
+    const personChat = await seedChat('person', await seedPerson('Mute Other', { ownerId: ME }), {
+      lastMessageAt: new Date('2026-10-03T00:00:00Z'),
+      followers: [{ userId: ME }],
+    });
+    // Another user's membership on the same channel: must stay unmuted.
+    await db.insert(schema.chatChannelMembers).values({
+      id: generateId('cmb'),
+      channelId: chatA,
+      userId: 'u_mute_colleague',
+      isMuted: false,
+    });
+
+    const events = vi.mocked(publishEntityEvent);
+    events.mockClear();
+
+    const res = await api(ME, MUTE_PERMS).json('/company/mute', 'PATCH', { isMuted: true });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: { updated: number } }).data.updated).toBe(1);
+
+    const isMutedOf = async (channelId: string, userId: string) => {
+      const [row] = await db
+        .select({ isMuted: schema.chatChannelMembers.isMuted })
+        .from(schema.chatChannelMembers)
+        .where(and(eq(schema.chatChannelMembers.channelId, channelId), eq(schema.chatChannelMembers.userId, userId)));
+      return row?.isMuted;
+    };
+    expect(await isMutedOf(chatA, ME)).toBe(true);
+    expect(await isMutedOf(chatA, 'u_mute_colleague')).toBe(false);
+    expect(await isMutedOf(personChat, ME)).toBe(false);
+
+    const updatedEvents = events.mock.calls
+      .map(([e]) => e as { entityType: string; action: string; entityId: string })
+      .filter((e) => e.entityType === 'chat_channel' && e.action === 'updated');
+    expect(updatedEvents.map((e) => e.entityId)).toEqual([chatA]);
+
+    // Unmuting flips both (A from the mute above, B from the original seed);
+    // a second identical call has nothing left to change.
+    const unmuted = await api(ME, MUTE_PERMS).json('/company/mute', 'PATCH', { isMuted: false });
+    expect(((await unmuted.json()) as { data: { updated: number } }).data.updated).toBe(2);
+    expect(await isMutedOf(chatA, ME)).toBe(false);
+    expect(await isMutedOf(chatB, ME)).toBe(false);
+    const again = await api(ME, MUTE_PERMS).json('/company/mute', 'PATCH', { isMuted: false });
+    expect(((await again.json()) as { data: { updated: number } }).data.updated).toBe(0);
+  });
+
+  it('refuses without channels:update, without the record type permission, and an unknown or legacy type', async () => {
+    const noUpdate = ['channels:read', 'messages:create', 'companies:read'];
+    expect((await api('u_mute_a', noUpdate).json('/company/mute', 'PATCH', { isMuted: true })).status).toBe(403);
+
+    const noCompanyPerm = ['channels:read', 'channels:update', 'messages:create'];
+    expect((await api('u_mute_b', noCompanyPerm).json('/company/mute', 'PATCH', { isMuted: true })).status).toBe(403);
+
+    expect((await api('u_mute_c', MUTE_PERMS).json('/customer/mute', 'PATCH', { isMuted: true })).status).toBe(400);
+    expect((await api('u_mute_c', MUTE_PERMS).json('/contact/mute', 'PATCH', { isMuted: true })).status).toBe(400);
+  });
+});

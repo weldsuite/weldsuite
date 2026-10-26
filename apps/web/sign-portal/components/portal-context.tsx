@@ -1,5 +1,3 @@
-'use client';
-
 import { createContext, useContext } from 'react';
 import { dictionaries, type Dictionary, type Locale } from '@/lib/i18n';
 

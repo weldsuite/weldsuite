@@ -36,6 +36,8 @@ export interface GroupFilterSettings {
   hideDms?: boolean;
   activityThreshold?: ActivityThreshold;
   hideWhenEmpty?: boolean;
+  /** Leave the whole group out of the sidebar ("Hide this group"). */
+  hidden?: boolean;
 
   channelMode?: ChannelMode;
   channelIds?: string[];
@@ -146,7 +148,52 @@ export const DEFAULT_GROUP_FILTER: GroupFilterSettings = {
   showPreview: true,
 };
 
+/** Sidebar groups of record chats (company, person, …) have keys `record:<type>`. */
+export const RECORD_GROUP_PREFIX = 'record:';
+
+/**
+ * Defaults of a record chat group. A user can follow hundreds of records, so
+ * the group shows the 5 most recent chats, drops the ones quiet for 30 days and
+ * still surfaces unread chats and mentions when collapsed.
+ */
+export const RECORD_GROUP_FILTER: GroupFilterSettings = {
+  ...DEFAULT_GROUP_FILTER,
+  sortBy: 'recent',
+  boostMentions: true,
+  boostUnread: true,
+  topN: 5,
+  activityThreshold: '30d',
+  peekActiveWhenCollapsed: true,
+  peekUnread: true,
+  peekMentions: true,
+  hideWhenEmpty: true,
+};
+
+/** The settings a group starts from before the user's own overrides. */
+export function getGroupDefaults(groupKey: string): GroupFilterSettings {
+  return groupKey.startsWith(RECORD_GROUP_PREFIX) ? RECORD_GROUP_FILTER : DEFAULT_GROUP_FILTER;
+}
+
 export type WeldchatGroupFilters = Record<string, GroupFilterSettings>;
+
+/**
+ * The group settings with one group hidden from the sidebar, or shown again.
+ * Showing clears the setting rather than storing `hidden: false`, and drops
+ * the group's entry when nothing else is set on it.
+ */
+export function withGroupHidden(
+  filters: WeldchatGroupFilters,
+  groupKey: string,
+  hidden: boolean,
+): WeldchatGroupFilters {
+  if (hidden) return { ...filters, [groupKey]: { ...filters[groupKey], hidden: true } };
+  const next = { ...filters };
+  const rest = { ...next[groupKey] };
+  delete rest.hidden;
+  if (Object.keys(rest).length > 0) next[groupKey] = rest;
+  else delete next[groupKey];
+  return next;
+}
 
 const THRESHOLD_MS: Record<Exclude<ActivityThreshold, 'any' | 'older1y'>, number> = {
   '24h': 24 * 60 * 60 * 1000,
@@ -212,12 +259,21 @@ function passesChannelMode(
   return true;
 }
 
+/**
+ * A conversation that still asks for attention: unread mentions, or unread
+ * messages that are not muted. The activity window never hides one.
+ */
+function needsAttention(ch: FilterChannel): boolean {
+  return (ch.unreadMentionCount ?? 0) > 0 || (!ch.isMuted && hasUnread(ch));
+}
+
 function passesActivityThreshold(
   ch: FilterChannel,
   threshold: ActivityThreshold,
   now: number,
 ): boolean {
   if (threshold === 'any') return true;
+  if (threshold !== 'older1y' && needsAttention(ch)) return true;
   const last = ch.lastMessageAt ? new Date(ch.lastMessageAt).getTime() : 0;
   const age = last ? now - last : Infinity;
   if (threshold === 'older1y') return age >= ONE_YEAR_MS;
@@ -326,4 +382,78 @@ export function sortChannels<T extends FilterChannel>(
 export function applyTopN<T>(items: T[], topN: number | null | undefined): T[] {
   if (!topN || topN <= 0) return items;
   return items.slice(0, topN);
+}
+
+/** A sidebar row as the group helpers see it: matched to its conversation by id. */
+interface GroupRow {
+  id?: string;
+}
+
+function rowsInChannelOrder<R extends GroupRow>(rows: R[], channels: FilterChannel[]): R[] {
+  const rowsById = new Map<string, R>();
+  for (const row of rows) if (row.id) rowsById.set(row.id, row);
+  return channels.map((ch) => rowsById.get(ch.id)).filter((row): row is R => Boolean(row));
+}
+
+/**
+ * The rows a sidebar group shows: its conversations filtered and sorted by the
+ * group's settings, then the user's drag-and-drop order, then the top-N cut.
+ */
+export function selectGroupRows<R extends GroupRow>(
+  rows: R[],
+  sourceChannels: FilterChannel[],
+  settings: GroupFilterSettings,
+  manualOrder: string[] | undefined,
+  activeCallChannelIds: Set<string>,
+): R[] {
+  const enriched = sourceChannels.map((ch) => ({
+    ...ch,
+    hasActiveCall: activeCallChannelIds.has(ch.id),
+  }));
+  const filtered = filterChannels(enriched, settings, activeCallChannelIds);
+  let ordered = rowsInChannelOrder(rows, sortChannels(filtered, settings));
+
+  if (manualOrder && manualOrder.length > 0) {
+    const present = new Map(ordered.map((row) => [row.id as string, row]));
+    const head: R[] = [];
+    for (const id of manualOrder) {
+      const row = present.get(id);
+      if (row) {
+        head.push(row);
+        present.delete(id);
+      }
+    }
+    // New / unordered conversations keep their sort position at the end.
+    ordered = [...head, ...present.values()];
+  }
+  return applyTopN(ordered, settings.topN);
+}
+
+/**
+ * The rows that still show under a collapsed group: those matching one of the
+ * group's peek triggers (mentions, unread, a live call, …).
+ */
+export function selectPeekRows<R extends GroupRow>(
+  rows: R[],
+  sourceChannels: FilterChannel[],
+  settings: GroupFilterSettings,
+  activeCallChannelIds: Set<string>,
+  now: number = Date.now(),
+): R[] {
+  if (!settings.peekActiveWhenCollapsed) return [];
+  const recentMs = (settings.peekRecentMinutes ?? 60) * 60 * 1000;
+  const peekIds = new Set<string>();
+  for (const ch of sourceChannels) {
+    const recently = !!ch.lastMessageAt && now - new Date(ch.lastMessageAt).getTime() < recentMs;
+    const matched =
+      (settings.peekMentions && (ch.unreadMentionCount ?? 0) > 0) ||
+      (settings.peekUnread && hasUnread(ch)) ||
+      (settings.peekActiveCalls && activeCallChannelIds.has(ch.id)) ||
+      (settings.peekPinned && ch.isPinned) ||
+      (settings.peekFavorited && ch.isFavorite) ||
+      (settings.peekRecentlyActive && recently);
+    if (matched) peekIds.add(ch.id);
+  }
+  const subset = rows.filter((row) => row.id && peekIds.has(row.id));
+  return applyTopN(subset, settings.peekMaxItems ?? null);
 }

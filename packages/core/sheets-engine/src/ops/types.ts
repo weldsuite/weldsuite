@@ -15,6 +15,7 @@ import type { StylePatch } from '../model/styles';
 import type { DefinedName, SheetProps, SheetSnapshot } from '../model/workbook';
 import type { ConditionalFormat, DataValidation, SheetFilter } from '../model/rules';
 import type { Chart } from '../model/charts';
+import type { DataTable, SheetComment } from '../model/anchors';
 
 /** [row, col, content]; `null` content clears the cell's value/formula (style stays). */
 export type CellPatch = [number, number, CellContent | null];
@@ -64,6 +65,10 @@ export type Op =
   | { type: 'patchValidations'; sheetId: string; set?: DataValidation[]; remove?: string[] }
   /** Adds or replaces (`set`) and removes charts, by id; `set` charts not yet there go on top. */
   | { type: 'patchCharts'; sheetId: string; set?: Chart[]; remove?: string[] }
+  /** Adds or replaces (`set`) and removes comments (first comments and replies), by id. */
+  | { type: 'patchComments'; sheetId: string; set?: SheetComment[]; remove?: string[] }
+  /** Places (`set`) and removes connected tables' blocks, by data source id. */
+  | { type: 'patchDataTables'; sheetId: string; set?: DataTable[]; remove?: string[] }
   /** Applied in order, atomically. */
   | { type: 'batch'; ops: Op[] };
 
@@ -119,6 +124,8 @@ function isEmpty(op: Op): boolean {
     case 'patchConditionalFormats':
     case 'patchValidations':
     case 'patchCharts':
+    case 'patchComments':
+    case 'patchDataTables':
       return !op.set?.length && !op.remove?.length;
     default:
       return false;

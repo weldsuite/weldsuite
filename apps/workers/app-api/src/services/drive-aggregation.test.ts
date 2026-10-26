@@ -148,7 +148,11 @@ describe('purging a WeldDocs document', () => {
   });
 });
 
-/** A trashed document and spreadsheet, each with a checkpoint snapshot, the document also with two saved versions. */
+/**
+ * A trashed document and spreadsheet, each with a checkpoint snapshot and
+ * saved versions (two and one); the spreadsheet was an old project sheet, so
+ * it keeps the .xlsx it was converted from.
+ */
 async function seedTrashedSnapshots(tag: string, folderId: string | null = null) {
   const docFile = generateId('fil');
   const sheetFile = generateId('fil');
@@ -173,7 +177,13 @@ async function seedTrashedSnapshots(tag: string, folderId: string | null = null)
     { id: generateId('docv'), docId, revision: 1, snapshotKey: `${tag}/doc/versions/a.json.gz` },
     { id: generateId('docv'), docId, revision: 2, snapshotKey: `${tag}/doc/versions/b.json.gz` },
   ]);
-  await db.insert(schema.sheets).values({ id: generateId('sht'), fileId: sheetFile, snapshotKey: `${tag}/sheet/workbook.json.gz` });
+  const sheetId = generateId('sht');
+  await db.insert(schema.sheets).values({ id: sheetId, fileId: sheetFile, snapshotKey: `${tag}/sheet/workbook.json.gz` });
+  await db.insert(schema.sheetVersions).values({ id: generateId('shv'), sheetId, revision: 3, snapshotKey: `${tag}/sheet/versions/a.json.gz` });
+  await db
+    .update(schema.files)
+    .set({ metadata: { weldsheetId: sheetId, convertedFrom: { key: `${tag}/old-grid.xlsx`, at: '2026-10-25T00:00:00.000Z' } } })
+    .where(eq(schema.files.id, sheetFile));
   return { docFile, sheetFile };
 }
 
@@ -189,6 +199,8 @@ describe('purging a document or spreadsheet removes its R2 snapshots too', () =>
         'trash-list/doc/versions/a.json.gz',
         'trash-list/doc/versions/b.json.gz',
         'trash-list/sheet/workbook.json.gz',
+        'trash-list/sheet/versions/a.json.gz',
+        'trash-list/old-grid.xlsx',
       ].sort(),
     );
   });
@@ -207,15 +219,29 @@ describe('purging a document or spreadsheet removes its R2 snapshots too', () =>
     await db.insert(schema.folders).values({ id: folderId, name: 'Old', deletedAt: new Date() });
     await seedTrashedSnapshots('trash-folder', folderId);
     const keys = await listPurgedFileKeys(db, { fileIds: [], folderIds: [folderId] });
-    expect(keys).toEqual(expect.arrayContaining(['trash-folder/doc/document.json.gz', 'trash-folder/doc/versions/b.json.gz', 'trash-folder/sheet/workbook.json.gz']));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'trash-folder/doc/document.json.gz',
+        'trash-folder/doc/versions/b.json.gz',
+        'trash-folder/sheet/workbook.json.gz',
+        'trash-folder/sheet/versions/a.json.gz',
+        'trash-folder/old-grid.xlsx',
+      ]),
+    );
   });
 
   it('lists them for one file by id, and nothing for a plain file or no ids', async () => {
-    const { docFile } = await seedTrashedSnapshots('trash-one');
+    const { docFile, sheetFile } = await seedTrashedSnapshots('trash-one');
     expect((await listDocumentSnapshotKeys(db, [docFile])).sort()).toEqual([
       'trash-one/doc/document.json.gz',
       'trash-one/doc/versions/a.json.gz',
       'trash-one/doc/versions/b.json.gz',
+    ]);
+    // A spreadsheet's saved versions, and the .xlsx an old project sheet was converted from.
+    expect((await listDocumentSnapshotKeys(db, [sheetFile])).sort()).toEqual([
+      'trash-one/old-grid.xlsx',
+      'trash-one/sheet/versions/a.json.gz',
+      'trash-one/sheet/workbook.json.gz',
     ]);
     expect(await listDocumentSnapshotKeys(db, [])).toEqual([]);
     expect(await listDocumentSnapshotKeys(db, ['fil_unknown'])).toEqual([]);

@@ -21,6 +21,7 @@ import {
 } from '../model/rules';
 import { sheetFromJSON, sheetToJSON, type DefinedName, type Sheet, type SheetProps } from '../model/workbook';
 import { cloneChart, type Chart } from '../model/charts';
+import { cloneComment, cloneDataTable, type DataTable, type SheetComment } from '../model/anchors';
 import { nameKey, normalize, type AxisEntry, type CellPatch, type NameKey, type Op } from './types';
 
 /** Applies `op`, recalculates, and returns its inverse. */
@@ -150,11 +151,15 @@ function applyInner(engine: Engine, op: Op): Op {
     case 'patchConditionalFormats':
     case 'patchValidations':
     case 'patchCharts':
+    case 'patchComments':
+    case 'patchDataTables':
       return applyRuleOp(engine, op);
   }
 }
 
-function applyRuleOp(engine: Engine, op: OpOf<'setFilter' | 'patchConditionalFormats' | 'patchValidations' | 'patchCharts'>): Op {
+type RuleOpType = 'setFilter' | 'patchConditionalFormats' | 'patchValidations' | 'patchCharts' | 'patchComments' | 'patchDataTables';
+
+function applyRuleOp(engine: Engine, op: OpOf<RuleOpType>): Op {
   if (op.type === 'setFilter') {
     const previous = engine.setFilter(op.sheetId, op.filter);
     return { type: 'setFilter', sheetId: op.sheetId, filter: previous ? cloneFilter(previous) : null };
@@ -169,6 +174,16 @@ function applyRuleOp(engine: Engine, op: OpOf<'setFilter' | 'patchConditionalFor
     const { list, back } = patchById(sheet.charts, op.set, op.remove, cloneChart);
     sheet.charts = list;
     return { type: 'patchCharts', sheetId: op.sheetId, ...back };
+  }
+  if (op.type === 'patchComments') {
+    const { list, back } = patchById(sheet.comments, op.set, op.remove, cloneComment);
+    sheet.comments = list;
+    return { type: 'patchComments', sheetId: op.sheetId, ...back };
+  }
+  if (op.type === 'patchDataTables') {
+    const { list, back } = patchById(sheet.dataTables, op.set, op.remove, cloneDataTable);
+    sheet.dataTables = list;
+    return { type: 'patchDataTables', sheetId: op.sheetId, ...back };
   }
   const { list, back } = patchById(sheet.validations, op.set, op.remove, cloneValidation);
   sheet.validations = list;
@@ -216,6 +231,8 @@ interface SheetRules {
   formats: ConditionalFormat[];
   validations: DataValidation[];
   charts: Chart[];
+  comments: SheetComment[];
+  dataTables: DataTable[];
 }
 
 function captureRules(engine: Engine): SheetRules[] {
@@ -225,6 +242,8 @@ function captureRules(engine: Engine): SheetRules[] {
     formats: sheet.conditionalFormats.map(cloneFormat),
     validations: sheet.validations.map(cloneValidation),
     charts: sheet.charts.map(cloneChart),
+    comments: sheet.comments.map(cloneComment),
+    dataTables: sheet.dataTables.map(cloneDataTable),
   }));
 }
 
@@ -241,6 +260,10 @@ function rulesBack(engine: Engine, before: SheetRules[]): Op[] {
     if (validations) ops.push({ type: 'patchValidations', sheetId: b.sheetId, ...validations });
     const charts = patchBack(b.charts, sheet.charts);
     if (charts) ops.push({ type: 'patchCharts', sheetId: b.sheetId, ...charts });
+    const comments = patchBack(b.comments, sheet.comments);
+    if (comments) ops.push({ type: 'patchComments', sheetId: b.sheetId, ...comments });
+    const dataTables = patchBack(b.dataTables, sheet.dataTables);
+    if (dataTables) ops.push({ type: 'patchDataTables', sheetId: b.sheetId, ...dataTables });
   }
   return ops;
 }

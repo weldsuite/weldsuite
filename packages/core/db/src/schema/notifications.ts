@@ -20,6 +20,7 @@ export type NotificationCategory =
   | 'weldchat'
   | 'weldagent'
   | 'weldbooks'
+  | 'weldsheets'
   | 'system'
   | 'security';
 

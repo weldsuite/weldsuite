@@ -1,5 +1,3 @@
-'use client';
-
 import { Check } from 'lucide-react';
 import { cn } from '@weldsuite/ui/lib/utils';
 import type { SignPortalField } from '@weldsuite/app-api-client/schemas/weldsign';
@@ -91,7 +89,6 @@ function AdoptBox({ parts, adopted, onAdopt }: Readonly<{ parts: BoxParts; adopt
       onClick={() => onAdopt(isSignature ? 'signature' : 'initials')}
     >
       {adopted ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img src={adopted.image} alt="" draggable={false} className="max-h-full max-w-full object-contain" />
       ) : (
         <span className="truncate px-1 font-medium text-amber-900" style={{ fontSize: Math.max(11, Math.min(parts.heightPx * 0.4, 16)) }}>

@@ -29,6 +29,8 @@ import type { ThemeColors } from '@/lib/theme-colors';
 
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
+import { useMemberNames } from '@/hooks/useMemberNames';
+import { mentionsToPlainText } from '@/lib/chat/mentions';
 
 interface ActivityNotification {
   id: string;
@@ -111,6 +113,8 @@ export default function ActivityTab() {
   const { t } = useI18n();
   const [notifications, setNotifications] = useState<ActivityNotification[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  // Older mention notifications still carry raw `<@userId>` tokens.
+  const memberNames = useMemberNames();
   const router = useRouter();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
@@ -235,7 +239,7 @@ export default function ActivityTab() {
                   style={[styles.dmLastMessage, hasUnread && styles.dmLastMessageUnread]}
                   numberOfLines={2}
                 >
-                  {item.body || ''}
+                  {item.body ? mentionsToPlainText(item.body, memberNames) : ''}
                 </Text>
                 {hasUnread && <View style={styles.unreadDot} />}
               </View>
@@ -244,7 +248,7 @@ export default function ActivityTab() {
         </Pressable>
       );
     },
-    [styles, colors.secondary, handleTap],
+    [styles, colors.secondary, handleTap, memberNames],
   );
 
   return (

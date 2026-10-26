@@ -24,8 +24,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { workerPath } from "./paths";
 
 const DOPPLER_PROJECT = process.env.DOPPLER_PROJECT || "weldsuite";
 const VALID_ENVS = ["test", "preview", "production"] as const;
@@ -69,9 +68,9 @@ async function main() {
     process.exit(1);
   }
 
-  const workerDir = join(process.cwd(), "apps", "workers", worker);
-  if (!existsSync(workerDir)) {
-    console.error(`\nWorker directory not found: apps/workers/${worker}\n`);
+  const workerDir = workerPath(worker);
+  if (!workerDir) {
+    console.error(`\nWorker directory not found: apps/workers/${worker} or apps/web/${worker}\n`);
     process.exit(1);
   }
 

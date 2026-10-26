@@ -1,5 +1,3 @@
-'use client';
-
 import type { ComponentProps } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@weldsuite/ui/lib/utils';

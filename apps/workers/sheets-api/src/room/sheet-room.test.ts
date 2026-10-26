@@ -35,6 +35,7 @@ function admission(userId: string, canEdit = true): Admission {
     picture: null,
     color: '#2563eb',
     canEdit,
+    canComment: false,
   };
 }
 

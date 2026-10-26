@@ -82,8 +82,10 @@ Every committed op is written to the room's storage before its ack leaves.
 The room checkpoints the workbook (with its revision) to one R2 object per
 sheet every 200 ops, 30 s after an edit and when the last client leaves, then
 trims its log to the last 500 ops and records the checkpoint on the `sheets`
-row. Row-chunked snapshots, so a 1M-row sheet loads the visible part first,
-come with phase 9.
+row. A checkpoint carries every formula's last result and the arrays formulas
+spill (`calculated`), so loading one evaluates only volatile formulas.
+Row-chunked snapshots that load the visible part of a sheet first are not
+built (see phase 9).
 
 Browsers cannot send a bearer token on a WebSocket: `POST
 /api/sheets/:id/session` (normal auth and access checks) asks the room for a
@@ -98,12 +100,19 @@ Hono on `@weldsuite/worker-kit`, owns `/api/sheets*`:
   drive `files` row is created alongside; delete moves it to the trash) — built
 - `POST /api/sheets/:id/session` + `GET /api/sheets/connect?ticket=…` →
   WebSocket into `SheetRoom` — built
-- `/api/sheets/:id/versions` (list, name, restore), `/comments`
+- `/api/sheets/:id/versions` (list, name, rename, snapshot, .xlsx export,
+  restore) — built
 - `GET /api/sheets/:id/export?format=xlsx|csv`, `POST /api/sheets/import`
   (an upload, or a WeldDrive file by id) — built
-- `/api/sheets/:id/data-sources` (live WeldSuite data, below)
-- Entity events: `sheet` created / updated (throttled) / deleted / shared,
-  `sheet_comment` created.
+- `/api/sheets/:id/data-sources` (live WeldSuite data, below) — built
+- `POST /api/sheets/convert`: an old WeldFlow project sheet made a spreadsheet
+  in place — built
+- `SheetsInternal` (a WorkerEntrypoint, bound as `SHEETS_INTERNAL` in
+  agent-api, chat-api and app-api): the WeldAgent tools — built
+- Entity events: `sheet` created / updated (throttled) / deleted,
+  `sheet_version` created / updated, `sheet_data_source` created / updated /
+  deleted. Comments are part of the workbook and have no events; a mention
+  sends a notification.
 
 ### Platform UI (`apps/web/platform/app/weldsheets/`)
 
@@ -112,25 +121,36 @@ Hono on `@weldsuite/worker-kit`, owns `/api/sheets*`:
   cursors, DPR-aware, virtualised, frozen panes as four quadrants), DOM cell
   editor, formula bar with autocomplete, toolbar, sheet tabs, side panels
   (comments, version history, conditional formatting, data sources, AI).
-- The UI talks to an `EngineClient` interface, so the engine can move into a
-  Web Worker for large sheets without UI changes.
+- The editor (`SheetController`) calls the engine directly on the main
+  thread; it does not run in a Web Worker (see phase 9).
 
 ### Access
 
 Workspace permissions open the door (`sheets:read|create|update|delete|share|manage`).
 Per sheet, access is the WeldDrive role on its file (owner, editor, viewer:
 ownership, shares, folders and general access), resolved in the sheets-api
-routes; a sheet the caller cannot see is a 404. A commenter role (phase 7)
-does not exist in WeldDrive yet.
+routes; a sheet the caller cannot see is a 404. A commenter is a Drive viewer
+who holds `sheets:comment` (MEMBER and up by default): the room lets them add,
+edit and delete their own comments and resolve any thread, and refuses every
+other op from them (`room/comment-access.ts`), as WeldDocs does. A WeldFlow
+project sheet follows the project's membership instead of Drive roles.
 
 ### WeldSuite data and AI
 
-- **Connected ranges**: insert a live table from a WeldSuite object (CRM
-  customers, Books invoices, Commerce orders, …) with filters and columns;
-  refreshed on open, on demand or on a schedule by `sheets-api` through the
-  domain packages, written into the sheet as ops so collaborators see it live.
-- **WeldAgent tools**: `sheets.read_range`, `sheets.write_range`,
-  `sheets.create`, `sheets.find`, run server-side on the engine.
+- **Connected tables**: a block of a sheet filled with records of one
+  WeldSuite object (companies, people, leads, opportunities, quotes, tickets,
+  projects, tasks, products, orders, invoices): chosen fields as columns under
+  their own titles, filters, an order and a limit (up to 10,000 records).
+  Refreshed by hand or every hour or day (the sheet room's alarm), written
+  into the sheet as ops so collaborators see it live. Records are listed with
+  the access of the person who connected the table; whoever changes what it
+  lists becomes that person, and a scheduled refresh stops (with a reason on
+  the table) when they lose the object's permission or edit access to the
+  sheet.
+- **WeldAgent tools**: `find_spreadsheets`, `create_spreadsheet`,
+  `list_spreadsheet_tabs`, `read_spreadsheet_range`,
+  `write_spreadsheet_range`, run in sheets-api on the engine (writes through
+  the sheet's room) for the user the agent acts for.
 
 ## Schema
 
@@ -139,12 +159,13 @@ Applied in phase 3 (migration `0221_weldsheets_room`, approved 2026-10-24):
 its unused jsonb `snapshot` became nullable (to be dropped). Owner and general
 access are the drive file's, so `sheets` has no copy of them.
 
-Still proposed (each needs approval before a migration):
-
-- `sheet_versions` (sheet, revision, name, snapshot_key, created_by)
-- `sheet_comments` (sheet, thread, anchor sheet id + cell, body, mentions,
-  resolved)
-- `sheet_data_sources` (sheet, target range, object type, query, refresh policy)
+Applied in phases 7 and 8 (migration `0227_weldsheets_versions_data_sources`,
+approved 2026-10-25): `sheet_versions` (sheet, revision, name, snapshot key,
+size, created by; a named version, or the automatic one kept before a
+restore), `sheet_data_sources` (sheet, object type, definition, refresh
+policy, next and last refresh, last error, row count, created by), and
+`sheets.snapshot` dropped. Comments are entries in the workbook (a
+`patchComments` op), so there is no comments table.
 
 ## Status
 
@@ -315,21 +336,91 @@ Freeze and merge came with phase 2.
   the editor works out each pivot table's layout again after every change to
   style it (phase 9 moves calculation into a worker).
 
+**Phase 7 (version history, comments, sharing): done.**
+
+- Version history as in WeldDocs: name the current version, rename one,
+  download one as .xlsx, or restore one. A restore keeps the sheet as it was
+  as an automatic version first, so it can be undone by restoring that; the
+  room sends everyone the restored workbook.
+- Comments are threads on cells, entries in the workbook set by a
+  `patchComments` op, so they co-edit, follow rows and columns as they move,
+  and survive a deleted cell (detached, the thread stays). @mentions notify
+  the person mentioned when they can open the sheet, and only for the
+  author's own comment. A comments panel (open, resolved, all), a composer on
+  the active cell (Ctrl+Alt+M, right-click), resolve and reopen, edit and
+  delete your own; a corner mark on commented cells. Comments are not part of
+  undo.
+- Commenters (above) see comments and version history on a read-only sheet.
+- Share opens the WeldDrive sharing dialog for the sheet's file; a project
+  sheet says its access follows the project and offers its link.
+
+**Phase 8 (WeldSuite data, WeldAgent tools, WeldFlow project sheets): done.**
+
+- Connected tables and the agent tools (above). A WeldSuite data panel
+  connects, edits, refreshes and disconnects tables (disconnecting leaves the
+  values); a table is outlined on the grid.
+- WeldFlow project sheets are WeldSheets spreadsheets that live with the
+  project: created, renamed, duplicated and deleted from the project's Sheets
+  page, opened in the WeldSheets editor inside the project. An .xlsx saved by
+  the old grid becomes a spreadsheet in place the first time anyone opens it
+  (same file and link; formats, widths, dropdown columns, links and notes
+  carried over, notes as comments); one too big to open is refused. The old
+  grid, its strings, `xlsx-js-style` and flow-api's create-sheet route are
+  gone.
+
+**Phase 9 (scale): partly done.** Measured with
+`pnpm --filter @weldsuite/sheets-engine bench` (Node 22, one machine: two
+number columns, a formula reading them, a running total and three
+whole-column aggregates; 4 cells a row, half formulas):
+
+| 1,000,000 rows | before | after |
+|---|---|---|
+| Heap | 2,550 MB (669 B/cell) | 1,013 MB (265 B/cell) |
+| Load a checkpoint (parse excluded) | 31.6 s | 7.6 s |
+| Load and calculate a new workbook | 24.8 s | 17.2 s |
+| Edit one value (+ a whole-column SUM) | 0.7 s | 0.4 s |
+| Edit the start of a 1M-long chain | 6.9 s | 5.6 s |
+| Insert / delete a row near the top | 36 s | 21–23 s |
+| Insert a column after the data | 34 s | 4.9 s |
+
+At 100,000 rows: a checkpoint loads in 0.35 s (was 1.26 s) and a row insert
+takes 1.1 s (was 2.4 s).
+
+- Dependency graph: a cell read by one formula holds that formula's key
+  rather than a set, and single-cell precedents are kept as numbers. Parsed
+  formulas are cached up to 100,000 and parsed again past that.
+- Checkpoints carry results and spills (above). A spilling formula caught in
+  a cycle now drops its last array (replicas could show different stale
+  values).
+- Inserting, deleting or moving rows and columns no longer rebuilds the graph
+  and re-evaluates every formula: only formulas that moved or were rewritten
+  are read again, and only those whose result can change are evaluated (a
+  range cut through, a deleted cell read, ROW and COLUMN, spills on that
+  sheet). A rewritten defined name still rebuilds everything. A fuzz test
+  checks the result against evaluating every formula again.
+- Not done: columnar cell storage (a cell still costs about 110 bytes), the
+  engine in a Web Worker (a long recalculation blocks the editor), row-chunked
+  snapshots with progressive load, and raised import limits. A sheet's room
+  holds the whole workbook in a Durable Object with 128 MB, so imports stay at
+  250,000 cells; a co-edited sheet of a million rows needs a room that does not
+  hold every cell in memory. A row insert at the top of a million formulas is
+  bound by rewriting their text (A1 references); shared relative formulas would
+  remove that.
+
 Known gaps, to pick up in later phases:
 
 - Autofill (dragging the fill handle) and auto-fit on double-clicking a
   column border are not built yet; a double-click resets the size.
-- Comments, sharing UI and version history arrive in phase 7.
+- Comments have no reactions or attachments; a mention
+  of someone who cannot open the sheet is not offered sharing.
+- Connected tables cannot join objects or group rows, and custom fields and
+  custom objects are not offered.
 - A sheet trashed from WeldSheets gets no automatic 30-day purge (the
   `TrashCleanupWorkflow` is app-api's); emptying the WeldDrive trash removes
   it. A purged sheet's room storage stays behind.
 - No state checksums between replicas yet; rebasing keeps them in step, and a
   rejected batch reloads the client from the room.
 
-- Row/column insert, delete and move rebuild the whole dependency graph
-  (phase 9: incremental).
-- Spilled arrays are not persisted, so every formula is evaluated on load
-  (phase 9: store spills in the snapshot).
 - Files: no .xls (binary), .ods or Numbers; imports always make a new
   spreadsheet (no "insert as new tabs" or "replace"); a whole-number or date
   validation rule comes in as a number rule; a list rule over 255 characters
@@ -358,4 +449,6 @@ Known gaps, to pick up in later phases:
    WeldSheets (existing .xlsx files convert on first open) and the old grid is
    deleted.
 9. **Excel scale**: engine in a Web Worker, columnar cell storage, chunked
-   snapshots and progressive load, benchmarks at 1M rows.
+   snapshots and progressive load, benchmarks at 1M rows. (Benchmarks, graph
+   memory, stored results and incremental row/column changes are done; the
+   rest is open, see Status.)
