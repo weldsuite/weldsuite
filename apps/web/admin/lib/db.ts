@@ -1,11 +1,11 @@
 import 'server-only';
 
-import { eq } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 import { getCachedWorkspace, setCachedWorkspace } from './workspace-cache';
 
 function masterUrl(): string {
@@ -39,10 +39,10 @@ async function lookupWorkspace(clerkOrgId: string): Promise<{ id: string; databa
       databaseUrl: masterSchema.workspaces.databaseUrl,
     })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(clerkOrgId))
     .limit(1);
 
-  if (!workspace) throw new Error(`Workspace not found for org: ${clerkOrgId}`);
+  if (!workspace) throw new Error(`Workspace not found: ${clerkOrgId}`);
   if (!workspace.neonProjectId || !workspace.neonBranchId || !workspace.neonRoleName) {
     throw new Error(`No database configured for workspace: ${workspace.id}`);
   }

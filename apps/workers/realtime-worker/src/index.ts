@@ -16,7 +16,7 @@ import {
   getConversationPermissions,
   getChatPermissions,
 } from './lib/permissions';
-import { getTenantDbForWorkspace } from './lib/db';
+import { getTenantDbForWorkspace, workspaceHubKey } from './lib/db';
 import { requireInternalSecret } from './lib/internal-auth';
 import { and, eq, isNull } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
@@ -335,7 +335,8 @@ app.post('/publish/workspace', async (c) => {
     userId: string;
   }>();
 
-  const id = c.env.WORKSPACE_HUB.idFromName(body.workspaceId);
+  // A publisher may send `workspaces.id`; the hub is named by the Clerk org id.
+  const id = c.env.WORKSPACE_HUB.idFromName(await workspaceHubKey(c.env, body.workspaceId));
   const stub = c.env.WORKSPACE_HUB.get(id);
 
   return stub.fetch('https://internal/publish', {

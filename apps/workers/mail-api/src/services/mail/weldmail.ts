@@ -20,6 +20,7 @@ import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import { weldMailDomainFor as sharedWeldMailDomainFor } from '@weldsuite/app-api-client/schemas/outbound-mail';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const DEFAULT_MAX_WELDMAIL_ADDRESSES = 2;
 const DEFAULT_WELDMAIL_ENABLED = true;
@@ -66,7 +67,7 @@ async function getWorkspace(env: Env, orgId: string) {
   const [workspace] = await masterDb
     .select({ id: masterSchema.workspaces.id, slug: masterSchema.workspaces.slug })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
+    .where(matchWorkspaceRef(orgId))
     .limit(1);
   return workspace ?? null;
 }
@@ -83,7 +84,7 @@ async function getLimits(env: Env, orgId: string): Promise<WeldMailLimits> {
       })
       .from(masterSchema.workspaces)
       .leftJoin(masterSchema.plans, eq(masterSchema.workspaces.planId, masterSchema.plans.id))
-      .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
+      .where(matchWorkspaceRef(orgId))
       .limit(1);
 
     if (!row?.planId || !row.planFeatures) {

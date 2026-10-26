@@ -131,7 +131,7 @@ export function createModuleApi<
       // A rotated password means the URL in the cached entry is dead. Drop the
       // entry so the next request resolves the workspace from master again
       // instead of failing the same way until the TTL runs out.
-      if (moved === 'password_rotated' && orgId) await forgetWorkspaceContext(c.env, orgId);
+      if (moved === 'password_rotated') await forgetWorkspaceContext(c.env, orgId, c.get('internalWorkspaceId'));
       return workspaceMovingResponse(c);
     }
 

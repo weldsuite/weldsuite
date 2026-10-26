@@ -7,7 +7,6 @@
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
@@ -20,6 +19,7 @@ import {
   sealCachedDatabaseUrl,
   sealedWorkspaceCacheKey,
 } from '@weldsuite/db/lib/workspace-url-cache';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 import type { Env } from '../index';
 
 // ============ Master DB (Hyperdrive + postgres-js) ============
@@ -69,11 +69,12 @@ type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl'> & { databaseUrlSeale
 
 async function getCachedWorkspaceUrl(
   env: Env,
-  clerkOrgId: string
+  ref: string
 ): Promise<CachedWorkspace> {
   // 1. Check KV cache
-  // Sealed entries live under `wsx:`; the old plaintext `ws:<org>` key is never read.
-  const cacheKey = sealedWorkspaceCacheKey(clerkOrgId);
+  // `ref` is the workspace id or its Clerk org id (matchWorkspaceRef). Sealed
+  // entries live under `wsx:<ref>`; the old plaintext `ws:<ref>` key is never read.
+  const cacheKey = sealedWorkspaceCacheKey(ref);
   const keyring = { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
   const cached = await env.WORKSPACE_CACHE.get(cacheKey, 'json') as StoredWorkspace | null;
   const cachedUrl = cached ? await openCachedDatabaseUrl(cached.databaseUrlSealed, keyring) : null;
@@ -91,11 +92,11 @@ async function getCachedWorkspaceUrl(
       databaseUrl: workspaces.databaseUrl,
     })
     .from(workspaces)
-    .where(eq(workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(ref))
     .limit(1);
 
   if (!workspace?.neonProjectId || !workspace?.neonBranchId || !workspace?.neonRoleName) {
-    throw new Error(`Workspace ${clerkOrgId} does not have a database configured`);
+    throw new Error(`Workspace ${ref} does not have a database configured`);
   }
 
   // 3. Resolve connection URI — decrypt-first, fallback to Neon API
@@ -122,22 +123,22 @@ async function getCachedWorkspaceUrl(
  */
 export async function getTenantDbForWorkspace(
   env: Env,
-  clerkOrgId: string
+  ref: string
 ): Promise<NeonHttpDatabase<typeof schema>> {
-  const workspace = await getCachedWorkspaceUrl(env, clerkOrgId);
+  const workspace = await getCachedWorkspaceUrl(env, ref);
   return createNeonTenantDb(workspace.databaseUrl);
 }
 
 /**
- * Resolve the internal workspace ID for a Clerk org ID. Shares the same KV
- * cache backing `getTenantDbForWorkspace`, so this is essentially free once
- * the tenant DB has been touched in the isolate.
+ * Resolve the internal workspace ID from either id (workspace or Clerk org).
+ * Shares the same KV cache backing `getTenantDbForWorkspace`, so this is
+ * essentially free once the tenant DB has been touched in the isolate.
  */
 export async function getWorkspaceForOrg(
   env: Env,
-  clerkOrgId: string,
+  ref: string,
 ): Promise<{ id: string }> {
-  const { id } = await getCachedWorkspaceUrl(env, clerkOrgId);
+  const { id } = await getCachedWorkspaceUrl(env, ref);
   return { id };
 }
 

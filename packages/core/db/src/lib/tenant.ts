@@ -8,6 +8,7 @@ import { drizzle, type NeonDatabase } from 'drizzle-orm/neon-serverless';
 import ws from 'ws';
 import { masterDb } from './master';
 import { workspaces, plans, type Workspace, type TenantTier } from '../schema/master';
+import { matchWorkspaceRef } from './workspace-ref';
 import { resolveDatabaseUrl } from './neon-resolve';
 import * as tenantSchema from '../schema';
 
@@ -253,7 +254,9 @@ async function provisionWorkspace(clerkOrgId: string): Promise<Workspace> {
   const [newWorkspace] = await masterDb
     .insert(workspaces)
     .values({
-      id: clerkOrgId, // Use Clerk org ID as workspace ID for simplicity
+      // Our own id, never the Clerk org id: rows created with `id = clerkOrgId`
+      // are why a workspace lookup must match both columns (./workspace-ref.ts).
+      id: `ws_${Date.now().toString(36)}${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`,
       clerkOrgId,
       name: orgName,
       slug: `${orgSlug}-${Date.now()}`, // Ensure uniqueness
@@ -283,7 +286,7 @@ function fetchWorkspaceInfo(clerkOrgId: string) {
     })
     .from(workspaces)
     .leftJoin(plans, eq(workspaces.planId, plans.id))
-    .where(eq(workspaces.clerkOrgId, clerkOrgId));
+    .where(matchWorkspaceRef(clerkOrgId));
 }
 
 function fetchWorkspaceInfoById(workspaceId: string) {
@@ -294,7 +297,7 @@ function fetchWorkspaceInfoById(workspaceId: string) {
     })
     .from(workspaces)
     .leftJoin(plans, eq(workspaces.planId, plans.id))
-    .where(eq(workspaces.id, workspaceId));
+    .where(matchWorkspaceRef(workspaceId));
 }
 
 // Get tenant info from master database (with auto-provisioning)

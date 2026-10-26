@@ -38,6 +38,10 @@ export interface TestContext {
   userId: string;
   orgId: string | null;
   workspaceId: string;
+  /** `workspaces.id` of the workspace; defaults to `ws_test_default`. */
+  internalWorkspaceId?: string;
+  /** Clerk org id of the workspace; defaults to `orgId`. */
+  clerkOrgId?: string | null;
   sessionId: string;
   /** Clerk's `fva` claim; defaults to both factors just verified, so `requireSecondFactor` passes. */
   factorVerificationAge?: readonly [number, number] | null;
@@ -83,6 +87,7 @@ const defaultContext = (): TestContext => ({
   userId: 'user_test_default',
   orgId: 'org_test_default',
   workspaceId: 'org_test_default',
+  internalWorkspaceId: 'ws_test_default',
   sessionId: 'sess_test_default',
   factorVerificationAge: [0, 0],
   tenantDb: createMockDb(),
@@ -119,6 +124,8 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     set('factorVerificationAge', ctx.factorVerificationAge);
     set('tenantDb', ctx.tenantDb);
     set('workspaceId', ctx.workspaceId);
+    set('internalWorkspaceId', ctx.internalWorkspaceId);
+    set('clerkOrgId', ctx.clerkOrgId === undefined ? ctx.orgId : ctx.clerkOrgId);
     // Cache the pre-resolved permissions so `requirePermission` bypasses its
     // DB query entirely.
     if (ctx.permissions) set('userPermissions', ctx.permissions);
