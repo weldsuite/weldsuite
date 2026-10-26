@@ -154,6 +154,28 @@ export const weldsheets = {
     resizeColumns: 'Kolombreedte herstellen',
     clearContents: 'Inhoud wissen',
     pasteBlocked: 'Gebruik Ctrl+V (of ⌘V) om te plakken: de browser blokkeerde toegang tot het klembord.',
+    pasteValues: 'Alleen waarden plakken',
+    fitRows: 'Rijhoogte aanpassen aan inhoud',
+    fitColumns: 'Kolombreedte aanpassen aan inhoud',
+  },
+
+  find: {
+    placeholder: 'Zoeken in blad',
+    replacePlaceholder: 'Vervangen door',
+    count: '{total} gevonden',
+    position: '{current} van {total}',
+    noResults: 'Geen resultaten',
+    previous: 'Vorige',
+    next: 'Volgende',
+    options: 'Zoekopties',
+    matchCase: 'Hoofdlettergevoelig',
+    wholeCell: 'Volledige celinhoud',
+    formulas: 'Ook in formules zoeken',
+    allSheets: 'In alle bladen zoeken',
+    replace: 'Vervangen',
+    replaceAll: 'Alles vervangen',
+    replaced: '{count} cellen vervangen',
+    close: 'Sluiten',
   },
 
   tabs: {

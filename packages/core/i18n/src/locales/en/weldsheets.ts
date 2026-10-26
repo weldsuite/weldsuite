@@ -154,6 +154,28 @@ export const weldsheets = {
     resizeColumns: 'Reset column width',
     clearContents: 'Clear contents',
     pasteBlocked: 'Use Ctrl+V (or ⌘V) to paste: the browser blocked access to the clipboard.',
+    pasteValues: 'Paste values only',
+    fitRows: 'Fit row height to data',
+    fitColumns: 'Fit column width to data',
+  },
+
+  find: {
+    placeholder: 'Find in sheet',
+    replacePlaceholder: 'Replace with',
+    count: '{total} found',
+    position: '{current} of {total}',
+    noResults: 'No results',
+    previous: 'Previous match',
+    next: 'Next match',
+    options: 'Search options',
+    matchCase: 'Match case',
+    wholeCell: 'Match entire cell contents',
+    formulas: 'Also search within formulas',
+    allSheets: 'Search all sheets',
+    replace: 'Replace',
+    replaceAll: 'Replace all',
+    replaced: '{count} cells replaced',
+    close: 'Close',
   },
 
   tabs: {

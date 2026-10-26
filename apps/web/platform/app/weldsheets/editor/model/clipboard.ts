@@ -1,11 +1,13 @@
 import {
   delocalizeFormula,
   parseInput,
+  rewriteRefs,
   translateFormula,
   type CellContent,
   type CellPatch,
   type Op,
   type Range,
+  type Scalar,
   type Workbook,
 } from '@weldsuite/sheets-engine';
 import { clampToGrid, primaryRange } from './selection';
@@ -18,7 +20,7 @@ interface InternalClip {
   workbook: Workbook;
   sheetId: string;
   range: Range;
-  cells: { content: CellContent | null; style: string | null }[][];
+  cells: { content: CellContent | null; style: string | null; value: Scalar }[][];
   cut: boolean;
 }
 
@@ -35,7 +37,14 @@ export function copySelection(ctl: SheetController, cut = false): ClipboardPaylo
   const used = ctl.engine.usedRange(sheet.id);
   let range = clampToGrid(primaryRange(ctl.selection), sheet.rowCount, sheet.colCount);
   if (used) range = { ...range, r2: Math.min(range.r2, Math.max(used.r2, range.r1)), c2: Math.min(range.c2, Math.max(used.c2, range.c1)) };
+  const clip = readClip(ctl, range, cut);
+  lastCopy = clip;
+  return { text: clip.text, html: clip.html };
+}
 
+/** A range of the active sheet as a copy holds it: displayed text and HTML, contents, styles and values. */
+function readClip(ctl: SheetController, range: Range, cut: boolean): InternalClip & { html: string } {
+  const sheet = ctl.sheet;
   const lines: string[] = [];
   const htmlRows: string[] = [];
   const cells: InternalClip['cells'] = [];
@@ -48,15 +57,28 @@ export function copySelection(ctl: SheetController, cut = false): ClipboardPaylo
       texts.push(tsvField(display));
       tds.push(`<td>${escapeHtml(display)}</td>`);
       const cell = sheet.cells.get(row, col);
-      clipRow.push({ content: contentOf(cell), style: cell?.s ?? null });
+      clipRow.push({ content: contentOf(cell), style: cell?.s ?? null, value: ctl.engine.getValue(sheet.id, row, col) });
     }
     lines.push(texts.join('\t'));
     htmlRows.push(`<tr>${tds.join('')}</tr>`);
     cells.push(clipRow);
   }
   const text = lines.join('\n');
-  lastCopy = { text, workbook: ctl.engine.workbook, sheetId: sheet.id, range, cells, cut };
-  return { text, html: `<table>${htmlRows.join('')}</table>` };
+  return { text, html: `<table>${htmlRows.join('')}</table>`, workbook: ctl.engine.workbook, sheetId: sheet.id, range, cells, cut };
+}
+
+/**
+ * Drops a block of cells dragged by its border at (top, left): moved (its
+ * place emptied, formulas unchanged) or, with `copy`, copied (formulas move
+ * relatively), contents and formatting both. The block is selected where it lands.
+ */
+export function moveCells(ctl: SheetController, source: Range, top: number, left: number, copy: boolean): void {
+  if (top === source.r1 && left === source.c1) return;
+  const clip = readClip(ctl, source, !copy);
+  const target = { r1: top, c1: left, r2: top + source.r2 - source.r1, c2: left + source.c2 - source.c1 };
+  ctl.apply(internalPaste(ctl, clip, top, left, target, false));
+  const active = { row: top + ctl.selection.active.row - source.r1, col: left + ctl.selection.active.col - source.c1 };
+  ctl.select({ ranges: [target], active, anchor: { row: top, col: left } });
 }
 
 function contentOf(cell: { v: unknown; f?: string } | undefined): CellContent | null {
@@ -73,15 +95,18 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Pastes clipboard contents at the selection. */
-export function pasteInto(ctl: SheetController, text: string, html: string | null): void {
+/**
+ * Pastes clipboard contents at the selection. `valuesOnly` (Ctrl+Shift+V)
+ * pastes what cells show, without formulas or formatting.
+ */
+export function pasteInto(ctl: SheetController, text: string, html: string | null, valuesOnly = false): void {
   const target = primaryRange(ctl.selection);
   const origin = ctl.selection.active;
   const top = Math.min(target.r1, origin.row);
   const left = Math.min(target.c1, origin.col);
   const internal = matchingClip(ctl, text);
   const grid = (html ? parseHtmlTable(html) : null) ?? parseTsv(text);
-  const op = internal ? internalPaste(ctl, internal, top, left, target) : externalPaste(ctl, grid, top, left);
+  const op = internal ? internalPaste(ctl, internal, top, left, target, valuesOnly) : externalPaste(ctl, grid, top, left);
   if (!op) return;
   ctl.apply(op);
   const rows = internal ? internal.cells.length : 1;
@@ -91,7 +116,7 @@ export function pasteInto(ctl: SheetController, text: string, html: string | nul
     active: { row: top, col: left },
     anchor: { row: top, col: left },
   });
-  if (internal?.cut) lastCopy = null;
+  if (internal?.cut && !valuesOnly) lastCopy = null;
 }
 
 /**
@@ -109,8 +134,12 @@ function normalizeNewlines(s: string): string {
   return s.replace(/\r\n?/g, '\n').replace(/\n$/, '');
 }
 
-/** Formulas move relatively; a single copied cell fills the whole target selection. */
-function internalPaste(ctl: SheetController, clip: InternalClip, top: number, left: number, target: Range): Op {
+/**
+ * Formulas move relatively; a single copied cell fills the whole target
+ * selection. Values only: what the cells showed, no formulas or styles, and
+ * a cut leaves its source.
+ */
+function internalPaste(ctl: SheetController, clip: InternalClip, top: number, left: number, target: Range, valuesOnly: boolean): Op {
   const sheetId = ctl.activeSheetId;
   const height = clip.cells.length;
   const width = clip.cells[0]?.length ?? 0;
@@ -119,21 +148,66 @@ function internalPaste(ctl: SheetController, clip: InternalClip, top: number, le
   const c2 = fill ? target.c2 : left + width - 1;
   const contents: CellPatch[] = [];
   const styles: [number, number, string | null][] = [];
+  // A cut within one sheet moves cells: references to them follow.
+  const move = clip.cut && !valuesOnly && clip.sheetId === sheetId ? { range: clip.range, dRow: top - clip.range.r1, dCol: left - clip.range.c1 } : null;
   for (let row = top; row <= Math.min(r2, ctl.sheet.rowCount - 1); row++) {
     for (let col = left; col <= Math.min(c2, ctl.sheet.colCount - 1); col++) {
       const src = clip.cells[(row - top) % height]![(col - left) % width]!;
       const srcRow = clip.range.r1 + ((row - top) % height);
       const srcCol = clip.range.c1 + ((col - left) % width);
       let content = src.content;
-      if (content?.f !== undefined && !clip.cut) content = { f: translateFormula(content.f, row - srcRow, col - srcCol) };
+      if (valuesOnly) content = src.value === null ? null : { v: src.value };
+      else if (content?.f !== undefined && move) content = { f: followMove(content.f, ctl.sheet.name, ctl.sheet.name, move) };
+      else if (content?.f !== undefined && !clip.cut) content = { f: translateFormula(content.f, row - srcRow, col - srcCol) };
       contents.push([row, col, content]);
       styles.push([row, col, src.style]);
     }
   }
+  if (valuesOnly) return { type: 'setCells', sheetId, cells: contents };
   const ops: Op[] = [];
   if (clip.cut) ops.push(clearSource(ctl, clip));
   ops.push({ type: 'setCells', sheetId, cells: contents }, { type: 'setStyles', sheetId, cells: styles });
+  if (move) ops.push(...readersFollow(ctl, move, { r1: top, c1: left, r2, c2 }));
   return { type: 'batch', ops };
+}
+
+interface Move {
+  range: Range;
+  dRow: number;
+  dCol: number;
+}
+
+/**
+ * A formula with its references to cells inside a moved block (on the
+ * active sheet) moved with them, as Excel does when cells are cut and pasted
+ * or dragged. References only partly inside, or to whole rows or columns, stay.
+ */
+function followMove(formula: string, hostSheet: string, movedSheet: string, move: Move): string {
+  const { range: r, dRow, dCol } = move;
+  return rewriteRefs(formula, (ref) => {
+    if ((ref.sheet ?? hostSheet).toLowerCase() !== movedSheet.toLowerCase()) return undefined;
+    if (ref.kind !== 'cell' && ref.kind !== 'range') return undefined;
+    if (ref.r1 < r.r1 || ref.r2 > r.r2 || ref.c1 < r.c1 || ref.c2 > r.c2) return undefined;
+    return { ...ref, r1: ref.r1 + dRow, r2: ref.r2 + dRow, c1: ref.c1 + dCol, c2: ref.c2 + dCol };
+  });
+}
+
+/** The other formulas of the workbook that read moved cells, rewritten to read them where they went. */
+function readersFollow(ctl: SheetController, move: Move, target: Range): Op[] {
+  const movedSheet = ctl.sheet.name;
+  const inside = (r: Range, row: number, col: number) => row >= r.r1 && row <= r.r2 && col >= r.c1 && col <= r.c2;
+  const ops: Op[] = [];
+  for (const sheet of ctl.engine.workbook.sheets) {
+    const own = sheet.id === ctl.activeSheetId;
+    const cells: CellPatch[] = [];
+    sheet.cells.forEachInRange({ r1: 0, c1: 0, r2: sheet.rowCount - 1, c2: sheet.colCount - 1 }, (row, col, cell) => {
+      if (cell.f === undefined || (own && (inside(move.range, row, col) || inside(target, row, col)))) return;
+      const f = followMove(cell.f, sheet.name, movedSheet, move);
+      if (f !== cell.f) cells.push([row, col, { f }]);
+    });
+    if (cells.length) ops.push({ type: 'setCells', sheetId: sheet.id, cells });
+  }
+  return ops;
 }
 
 /** A cut empties its source first (the paste then fills the target). */

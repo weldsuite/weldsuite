@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
-import { copySelection, pasteInto } from '../model/clipboard';
+import { fillTarget } from '../model/autofill';
+import { copySelection, moveCells, pasteInto } from '../model/clipboard';
 import { acceptsReference, functionPrefixAt, isFormulaText, referenceText, refsInEdit, suggestFunctions } from '../model/formula-edit';
 import { handleEditKey, handleGridKey } from '../model/keyboard';
-import { MAX_COLS, MAX_ROWS, type Chart } from '@weldsuite/sheets-engine';
+import { MAX_COLS, MAX_ROWS, type Chart, type Range } from '@weldsuite/sheets-engine';
 import { useI18n } from '@/lib/i18n/provider';
 import { chartAt, draggedChart, HANDLE_CURSOR, samePlace, type ChartHandle } from '../charts/chart-geometry';
 import { removeChart, saveChart } from '../model/charts';
 import {
   cellSelection,
+  clampToGrid,
   extendTo,
   isWholeColumns,
   isWholeRows,
+  primaryRange,
   rangeFrom,
   selectionContains,
   wholeColumns,
@@ -18,6 +21,7 @@ import {
   type CellPos,
 } from '../model/selection';
 import type { SheetController } from '../model/sheet-controller';
+import { fitToData } from './autofit';
 import { GridContextMenu } from './grid-context-menu';
 import {
   computeLayout,
@@ -34,7 +38,17 @@ import {
   type Hit,
   type Rect,
 } from './geometry';
-import { checkboxRect, dropdownRect, filterButtonRect, fontFor, renderGrid, type RefHighlight, type RemoteCursor } from './renderer';
+import {
+  checkboxRect,
+  dropdownRect,
+  fillHandleCenter,
+  filterButtonRect,
+  fontFor,
+  measureText,
+  renderGrid,
+  type RefHighlight,
+  type RemoteCursor,
+} from './renderer';
 import { FilterMenu, ListMenu } from '../rules/cell-menus';
 import { readGridTheme, REFERENCE_COLORS, type GridTheme } from './theme';
 
@@ -47,7 +61,24 @@ type Drag =
   | { kind: 'rows'; from: number }
   | { kind: 'resize'; axis: 'row' | 'col'; index: number; startPos: number; startSize: number; size: number }
   | { kind: 'point'; anchor: CellPos; start: number; end: number }
-  | { kind: 'chart'; chart: Chart; handle: ChartHandle | null; startX: number; startY: number; preview: Chart | null };
+  | { kind: 'chart'; chart: Chart; handle: ChartHandle | null; startX: number; startY: number; preview: Chart | null }
+  /** The fill handle: `target` is where it would fill, `toggle` whether Ctrl is held (copy instead of a series). */
+  | { kind: 'fill'; source: Range; target: Range; toggle: boolean }
+  /** A block dragged by its outline, held at `grab` (its offset in the block); `at` is where it would land. */
+  | { kind: 'move'; source: Range; grab: CellPos; at: CellPos | null; copy: boolean; down: CellPos }
+  /** Selected whole rows or columns dragged by their headers, to go before `to`. */
+  | { kind: 'moveDims'; axis: 'row' | 'col'; from: number; count: number; to: number | null; down: number; moved: boolean };
+
+/** What a drag shows on the grid while it lasts. */
+interface DragPreview {
+  range: Range | null;
+  hint: string | null;
+  dim: { axis: 'row' | 'col'; at: number } | null;
+}
+
+/** Pixels around the fill handle and a selection's outline that grab them. */
+const HANDLE_GRIP = 5;
+const EDGE_GRIP = 3;
 
 interface Props {
   controller: SheetController;
@@ -74,6 +105,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   const [resizeGhost, setResizeGhost] = useState<number | null>(null);
   /** A chart being moved or resized, where it would land. */
   const [chartPreview, setChartPreview] = useState<Chart | null>(null);
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [caret, setCaret] = useState(0);
   /** The cell under the pointer, tracked only while someone else is on this sheet. */
   const [hoverCell, setHoverCell] = useState<CellPos | null>(null);
@@ -84,6 +116,13 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   const themeRef = useRef<GridTheme | null>(null);
   const layoutRef = useRef<GridLayout | null>(null);
   const dragRef = useRef<Drag | null>(null);
+  /** Where the pointer is during a drag, and whether Ctrl (⌘) is held. */
+  const pointerRef = useRef<{ clientX: number; clientY: number; mod: boolean } | null>(null);
+  /** The animation frame that scrolls the grid while a drag is held past its edge. */
+  const scrollFrame = useRef<number | null>(null);
+  const autoScrollRef = useRef<() => void>(() => {});
+  /** Ctrl+Shift+V was pressed: the paste that follows pastes values only. */
+  const pasteValues = useRef(false);
   const lastActive = useRef<string>('');
 
   const sheet = controller.sheet;
@@ -175,6 +214,9 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
       remote,
       chartPreview,
       emptyChartLabel: t.weldsheets.charts.noData,
+      dropRange: dragPreview?.range,
+      fillHint: dragPreview?.hint,
+      dimDrop: dragPreview?.dim,
     });
     if (resizeGhost !== null) drawResizeGhost(ctx, layout, resizeGhost, dragRef.current, theme);
   });
@@ -205,10 +247,10 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   });
 
   // The editor follows the active cell and keeps focus unless the formula bar has it,
-  // or a field in a side panel or dialog does (a chart panel saves as it is typed in).
+  // or a field in a side panel, dialog or the find bar does (a chart panel saves as it is typed in).
   useEffect(() => {
     if (editing?.origin === 'bar') return;
-    if (document.activeElement?.closest('aside, [role="dialog"]')) return;
+    if (document.activeElement?.closest('aside, [role="dialog"], [role="search"]')) return;
     editorRef.current?.focus({ preventScroll: true });
   }, [version, editing?.origin]);
 
@@ -226,6 +268,85 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     return { hit: hitTest(layoutRef.current!, sheet, x, y), x, y };
+  };
+
+  /**
+   * Where a drag is over: the pointer held inside the cells (past an edge it
+   * means the cell at that edge), against the scroll position as it is now,
+   * which may be ahead of the last render while the grid scrolls itself.
+   */
+  const dragPointAt = (e: { clientX: number; clientY: number }): { hit: Hit; x: number; y: number } => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    const x = clamp(e.clientX - rect.left, headerW, Math.max(headerW, size.width - 1));
+    const y = clamp(e.clientY - rect.top, COL_HEADER_HEIGHT, Math.max(COL_HEADER_HEIGHT, size.height - 1));
+    return { hit: hitTest(dragLayout(), sheet, x, y), x, y };
+  };
+
+  /** The layout for the scroll position the scroller has now. */
+  const dragLayout = (): GridLayout => {
+    const el = scrollerRef.current;
+    if (!el) return layout;
+    return computeLayout(sheet, size.width, size.height, toLogicalScroll(el.scrollLeft, content.width, viewW), toLogicalScroll(el.scrollTop, content.height, viewH));
+  };
+
+  /** The fill handle of the selection, while it can be dragged. */
+  const onFillHandle = (x: number, y: number): boolean => {
+    const source = controller.readOnly || editing ? null : controller.fillSource();
+    if (!source) return false;
+    const [hx, hy] = fillHandleCenter(rangeRect(layout, sheet, source));
+    return Math.abs(x - hx) <= HANDLE_GRIP && Math.abs(y - hy) <= HANDLE_GRIP;
+  };
+
+  /** On the outline of the selected block (whole rows and columns excepted): grabs it to move it. */
+  const onSelectionEdge = (x: number, y: number): boolean => {
+    if (controller.readOnly || editing || controller.selection.ranges.length !== 1) return false;
+    const primary = primaryRange(controller.selection);
+    if (isWholeColumns(primary) || isWholeRows(primary)) return false;
+    const r = rangeRect(layout, sheet, primary);
+    const near = (a: number, b: number) => Math.abs(a - b) <= EDGE_GRIP;
+    const alongX = x >= r.x - EDGE_GRIP && x <= r.x + r.w + EDGE_GRIP;
+    const alongY = y >= r.y - EDGE_GRIP && y <= r.y + r.h + EDGE_GRIP;
+    return (alongY && (near(x, r.x) || near(x, r.x + r.w))) || (alongX && (near(y, r.y) || near(y, r.y + r.h)));
+  };
+
+  /** A press on a header of selected whole rows or columns: picks them up to move them. */
+  const onSelectedHeader = (hit: Hit): 'row' | 'col' | null => {
+    if (controller.readOnly || hit.resize || controller.selection.ranges.length !== 1) return null;
+    const p = primaryRange(controller.selection);
+    if (hit.area === 'colHeader' && isWholeColumns(p) && !isWholeRows(p) && hit.col >= p.c1 && hit.col <= p.c2) return 'col';
+    if (hit.area === 'rowHeader' && isWholeRows(p) && !isWholeColumns(p) && hit.row >= p.r1 && hit.row <= p.r2) return 'row';
+    return null;
+  };
+
+  /**
+   * Keeps a drag going past the edge of the grid: scrolls towards the
+   * pointer each frame (faster the further out it is) and extends the drag
+   * over what scrolls in. Stops when the pointer comes back or the grid
+   * cannot scroll further.
+   */
+  autoScrollRef.current = () => {
+    scrollFrame.current = null;
+    const drag = dragRef.current;
+    const p = pointerRef.current;
+    const scroller = scrollerRef.current;
+    const container = containerRef.current;
+    if (!drag || !p || !scroller || !container || drag.kind === 'resize' || drag.kind === 'chart') return;
+    const rect = container.getBoundingClientRect();
+    const across = drag.kind !== 'rows' && !(drag.kind === 'moveDims' && drag.axis === 'row');
+    const down = drag.kind !== 'columns' && !(drag.kind === 'moveDims' && drag.axis === 'col');
+    const dx = across ? edgeSpeed(p.clientX - rect.left, headerW + frozenW, size.width) : 0;
+    const dy = down ? edgeSpeed(p.clientY - rect.top, COL_HEADER_HEIGHT + frozenH, size.height) : 0;
+    const before = [scroller.scrollLeft, scroller.scrollTop];
+    scroller.scrollLeft += dx;
+    scroller.scrollTop += dy;
+    if (scroller.scrollLeft === before[0] && scroller.scrollTop === before[1]) return;
+    dragTo(drag, dragPointAt(p));
+    scrollFrame.current = requestAnimationFrame(() => autoScrollRef.current());
+  };
+
+  const stopAutoScroll = () => {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = null;
   };
 
   // -------------------------------------------------------------------------
@@ -268,6 +389,22 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
       pickChart(onChart.chart, onChart.handle ?? null, e);
       return;
     }
+    if (hit.area === 'cell' && (onFillHandle(x, y) || onSelectionEdge(x, y))) {
+      const source = clampToGrid(primaryRange(controller.selection), sheet.rowCount, sheet.colCount);
+      const mod = e.ctrlKey || e.metaKey;
+      if (onFillHandle(x, y)) {
+        dragRef.current = { kind: 'fill', source, target: source, toggle: mod };
+      } else {
+        const grab = { row: clamp(hit.row, source.r1, source.r2) - source.r1, col: clamp(hit.col, source.c1, source.c2) - source.c1 };
+        dragRef.current = { kind: 'move', source, grab, at: null, copy: mod, down: { row: hit.row, col: hit.col } };
+        e.currentTarget.style.cursor = 'grabbing';
+      }
+      pointerRef.current = { clientX: e.clientX, clientY: e.clientY, mod };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      editorRef.current?.focus({ preventScroll: true });
+      return;
+    }
     if (!editing && clickedControl(hit, x, y)) {
       e.preventDefault();
       return;
@@ -283,6 +420,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     }
     if (pointing) startPointMode(hit, caretPos);
     else startSelection(hit, e);
+    pointerRef.current = { clientX: e.clientX, clientY: e.clientY, mod: e.ctrlKey || e.metaKey };
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
     (pointing ? input : editorRef.current)?.focus({ preventScroll: true });
@@ -329,6 +467,13 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
         size: startSize,
       };
       setResizeGhost(startSize);
+      return;
+    }
+    const pickedUp = e.shiftKey ? null : onSelectedHeader(hit);
+    if (pickedUp) {
+      const p = primaryRange(sel);
+      const [from, last] = pickedUp === 'col' ? [p.c1, p.c2] : [p.r1, p.r2];
+      dragRef.current = { kind: 'moveDims', axis: pickedUp, from, count: last - from + 1, to: null, down: pickedUp === 'col' ? hit.col : hit.row, moved: false };
       return;
     }
     switch (hit.area) {
@@ -398,13 +543,41 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
       setResizeGhost(drag.size);
       return;
     }
-    const { hit } = pointAt(e);
-    dragTo(drag, hit);
+    pointerRef.current = { clientX: e.clientX, clientY: e.clientY, mod: e.ctrlKey || e.metaKey };
+    dragTo(drag, dragPointAt(e));
+    if (scrollFrame.current === null) scrollFrame.current = requestAnimationFrame(() => autoScrollRef.current());
   };
 
-  const dragTo = (drag: Exclude<Drag, { kind: 'resize' | 'chart' }>, hit: Hit) => {
+  const dragTo = (drag: Exclude<Drag, { kind: 'resize' | 'chart' }>, { hit, x, y }: { hit: Hit; x: number; y: number }) => {
     const sel = controller.selection;
+    const mod = pointerRef.current?.mod ?? false;
     switch (drag.kind) {
+      case 'fill': {
+        drag.target = fillTarget(drag.source, hit.row, hit.col);
+        drag.toggle = mod;
+        setDragPreview({ range: drag.target, hint: controller.fillHint(drag.target, drag.toggle), dim: null });
+        return;
+      }
+      case 'move': {
+        const s = drag.source;
+        const top = clamp(hit.row - drag.grab.row, 0, sheet.rowCount - 1 - (s.r2 - s.r1));
+        const left = clamp(hit.col - drag.grab.col, 0, sheet.colCount - 1 - (s.c2 - s.c1));
+        drag.copy = mod;
+        if (!drag.at && top === s.r1 && left === s.c1) return;
+        drag.at = { row: top, col: left };
+        setDragPreview({ range: { r1: top, c1: left, r2: top + s.r2 - s.r1, c2: left + s.c2 - s.c1 }, hint: null, dim: null });
+        return;
+      }
+      case 'moveDims': {
+        const index = drag.axis === 'col' ? hit.col : hit.row;
+        const seg = (drag.axis === 'col' ? dragLayout().cols : dragLayout().rows).find((s) => s.index === index);
+        const pos = drag.axis === 'col' ? x : y;
+        const at = seg && pos > seg.start + seg.size / 2 ? index + 1 : index;
+        if (index !== drag.down) drag.moved = true;
+        drag.to = at >= drag.from && at <= drag.from + drag.count ? null : at;
+        setDragPreview(drag.to === null ? null : { range: null, hint: null, dim: { axis: drag.axis, at: drag.to } });
+        return;
+      }
       case 'select': {
         const range = expandForMerges(rangeFrom(drag.anchor, hit));
         const ranges = drag.additive ? [...sel.ranges.slice(0, -1), range] : [range];
@@ -441,6 +614,13 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   const onPointerUp = () => {
     const drag = dragRef.current;
     dragRef.current = null;
+    pointerRef.current = null;
+    stopAutoScroll();
+    if (drag?.kind === 'fill' || drag?.kind === 'move' || drag?.kind === 'moveDims') {
+      setDragPreview(null);
+      dropDrag(drag);
+      return;
+    }
     if (drag?.kind === 'chart') {
       setChartPreview(null);
       // The chart as it is now (a co-editor may have changed it meanwhile), in its new place.
@@ -459,6 +639,31 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     }
   };
 
+  /** Lets go of a fill, a moved block or moved headers. A press that never moved selects what it was on. */
+  const dropDrag = (drag: Extract<Drag, { kind: 'fill' | 'move' | 'moveDims' }>) => {
+    switch (drag.kind) {
+      case 'fill':
+        controller.fill(drag.target, drag.toggle);
+        return;
+      case 'move': {
+        if (drag.at) {
+          moveCells(controller, drag.source, drag.at.row, drag.at.col, drag.copy);
+          return;
+        }
+        const merge = sheet.mergeAt(drag.down.row, drag.down.col);
+        controller.select(cellSelection(merge?.r1 ?? drag.down.row, merge?.c1 ?? drag.down.col));
+        return;
+      }
+      case 'moveDims':
+        if (drag.to !== null) controller.moveDimsTo(drag.axis, drag.from, drag.count, drag.to);
+        else if (!drag.moved) {
+          const at = drag.down;
+          const pos = drag.axis === 'col' ? { row: 0, col: at } : { row: at, col: 0 };
+          controller.select({ ranges: [drag.axis === 'col' ? wholeColumns(at, at) : wholeRows(at, at)], active: pos, anchor: pos });
+        }
+    }
+  };
+
   const isWholeAxisSelected = (axis: 'row' | 'col') =>
     controller.selection.ranges.every((r) => (axis === 'col' ? isWholeColumns(r) : isWholeRows(r)));
 
@@ -468,6 +673,9 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     let cursor = 'cell';
     if (onChart) cursor = chartCursor(onChart.handle, controller.readOnly);
     else if (hit.resize) cursor = hit.resize.axis === 'col' ? 'col-resize' : 'row-resize';
+    else if (hit.area === 'cell' && onFillHandle(x, y)) cursor = 'crosshair';
+    else if (hit.area === 'cell' && onSelectionEdge(x, y)) cursor = 'grab';
+    else if (onSelectedHeader(hit)) cursor = 'grab';
     else if (hit.area !== 'cell') cursor = 'default';
     e.currentTarget.style.cursor = cursor;
   };
@@ -479,8 +687,15 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
       if (!controller.readOnly) controller.openPanel('chart');
       return;
     }
+    if (hit.area === 'cell' && onFillHandle(x, y)) {
+      controller.fillToAdjacent();
+      return;
+    }
     if (hit.resize) {
-      controller.resize(hit.resize.axis, [hit.resize.index], null);
+      // Fits the column or row to its contents; every selected one when it is part of the selection.
+      const { axis, index } = hit.resize;
+      const selected = controller.selectedIndices(axis);
+      fitToData(controller, axis, isWholeAxisSelected(axis) && selected.includes(index) ? selected : [index], measureText);
       return;
     }
     if (hit.area === 'cell') controller.beginEdit();
@@ -525,6 +740,8 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
+    // The browser pastes on its own (the paste event below); remember it was Ctrl+Shift+V.
+    pasteValues.current = (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'v';
     if (controller.selectedChart && !controller.editing && handleChartKey(e)) {
       e.preventDefault();
       return;
@@ -586,7 +803,9 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (controller.editing) return;
-    pasteInto(controller, e.clipboardData.getData('text/plain'), e.clipboardData.getData('text/html') || null);
+    const valuesOnly = pasteValues.current;
+    pasteValues.current = false;
+    pasteInto(controller, e.clipboardData.getData('text/plain'), e.clipboardData.getData('text/html') || null, valuesOnly);
     e.preventDefault();
   };
 
@@ -701,14 +920,19 @@ function currentSuggestions(text: string, caret: number): string[] {
   return list.length === 1 && list[0] === at.prefix.toUpperCase() ? [] : list;
 }
 
-let measureCanvas: HTMLCanvasElement | null = null;
-
 function measureEditor(text: string, style: Parameters<typeof fontFor>[0]): number {
-  measureCanvas ??= document.createElement('canvas');
-  const ctx = measureCanvas.getContext('2d');
-  if (!ctx) return 0;
-  ctx.font = fontFor(style);
-  return Math.max(...text.split('\n').map((line) => ctx.measureText(line).width));
+  return Math.max(...text.split('\n').map((line) => measureText(line, style)));
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+/** Pixels a frame to scroll a drag held at `p`, before `lo` (back) or within a few pixels of `hi` (on): faster further out. */
+function edgeSpeed(p: number, lo: number, hi: number): number {
+  if (p < lo) return -Math.min(60, Math.ceil((lo - p) / 3) + 2);
+  if (p > hi - 4) return Math.min(60, Math.ceil((p - hi + 4) / 3) + 2);
+  return 0;
 }
 
 function chartCursor(handle: ChartHandle | undefined, readOnly: boolean): string {
