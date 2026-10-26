@@ -5,6 +5,7 @@
  */
 
 import { and, desc, eq, ilike, isNull, sql, type SQL } from 'drizzle-orm';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import * as filesService from '@weldsuite/core-domain/files';
@@ -235,6 +236,11 @@ export async function createSheet(
  * project and its place; its content is now the checkpoint at the sheet's key
  * (the old .xlsx stays where it was, named in `metadata.convertedFrom`). Null
  * when someone else converted it first.
+ *
+ * Both writes commit as one unit (`atomically`: a single Neon batch), so a
+ * failed insert can never leave the file pointing at a sheet that was never
+ * written. The insert only adds the row when the update just made the file
+ * point at this sheet: a convert that lost the race inserts nothing.
  */
 export async function adoptFileAsSheet(
   db: Database,
@@ -243,32 +249,39 @@ export async function adoptFileAsSheet(
   const key = snapshotKeyFor(params.workspaceId, params.sheetId);
   const now = new Date();
   const converted = { weldsheetId: params.sheetId, convertedFrom: { key: params.oldKey, at: now.toISOString() } };
-  const [adopted] = await db
-    .update(files)
-    .set({
-      fileName: params.name,
-      mimeType: WELDSHEET_MIME_TYPE,
-      fileSize: params.snapshotSize,
-      storagePath: key,
-      fileKey: key,
-      bucket: 'private',
-      url: null,
-      metadata: sql`coalesce(${files.metadata}, '{}'::jsonb) || ${JSON.stringify(converted)}::jsonb`,
-      updatedAt: now,
-    })
-    .where(and(eq(files.id, params.fileId), sql`${files.metadata}->>'weldsheetId' is null`))
-    .returning({ id: files.id });
-  if (!adopted) return null;
-  await db.insert(sheets).values({
-    id: params.sheetId,
-    fileId: params.fileId,
-    snapshotKey: key,
-    revision: 0,
-    snapshotRevision: 0,
-    updatedById: params.userId,
-    createdAt: now,
-    updatedAt: now,
-  });
+  const at = sql<Date>`${now.toISOString()}::timestamp`;
+  await atomically(db, (h) => [
+    h
+      .update(files)
+      .set({
+        fileName: params.name,
+        mimeType: WELDSHEET_MIME_TYPE,
+        fileSize: params.snapshotSize,
+        storagePath: key,
+        fileKey: key,
+        bucket: 'private',
+        url: null,
+        metadata: sql`coalesce(${files.metadata}, '{}'::jsonb) || ${JSON.stringify(converted)}::jsonb`,
+        updatedAt: now,
+      })
+      .where(and(eq(files.id, params.fileId), sql`${files.metadata}->>'weldsheetId' is null`)),
+    // Insert-select keys must follow the table's column order.
+    h.insert(sheets).select((qb) =>
+      qb
+        .select({
+          id: sql<string>`${params.sheetId}::varchar`.as('id'),
+          createdAt: at.as('created_at'),
+          updatedAt: at.as('updated_at'),
+          fileId: files.id,
+          revision: sql<number>`0`.as('revision'),
+          snapshotKey: sql<string>`${key}::varchar`.as('snapshot_key'),
+          snapshotRevision: sql<number>`0`.as('snapshot_revision'),
+          updatedById: sql<string>`${params.userId}::varchar`.as('updated_by_id'),
+        })
+        .from(files)
+        .where(and(eq(files.id, params.fileId), sql`${files.metadata}->>'weldsheetId' = ${params.sheetId}`)),
+    ),
+  ]);
   return getSheet(db, params.sheetId);
 }
 

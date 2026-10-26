@@ -2108,15 +2108,16 @@ export function ChannelView({
     const msg = selectedMessage;
     if (!msg || !userId) return;
     try {
-      await appApiClient.post('/chat-bookmarks', {
-        messageId: msg.id,
-        channelId,
-        userId,
-      });
-      toast.success(t.channel.savedForLater);
+      // The route is a no-op success (`alreadyExists: true`) for a message
+      // already saved — it never throws for that case, so pick the toast
+      // from the response instead of assuming every catch means "duplicate".
+      const res = await appApiClient.post<{ data: { id: string; alreadyExists?: boolean } }>(
+        '/chat-bookmarks',
+        { messageId: msg.id, channelId, userId },
+      );
+      toast.success(res.data.alreadyExists ? t.channel.alreadySaved : t.channel.savedForLater);
     } catch {
-      // Duplicate (already saved) — treat as success
-      toast.success(t.channel.alreadySaved);
+      toast.error(t.channel.saveMessageFailed);
     }
   }, [selectedMessage, channelId, userId, toast, t]);
 
