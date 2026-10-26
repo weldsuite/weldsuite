@@ -52,6 +52,17 @@ describe('find and replace', () => {
     ctl.undo();
     expect(value(ctl, 0, 0)).toBe('red car');
 
+    // Replacing matches what it can rewrite: the typed value, no formula results.
+    ctl.setInput(4, 1, '1234.5');
+    ctl.select(cellSelection(4, 1));
+    ctl.format({ numFmt: '#,##0.00' });
+    ctl.setInput(5, 1, "'001");
+    expect(findMatches(ctl, '1,234', opts())).toHaveLength(1);
+    expect(findMatches(ctl, '1,234', opts(), true)).toEqual([]);
+    expect(findMatches(ctl, '1234', opts(), true).map((m) => m.row)).toEqual([4]);
+    expect(findMatches(ctl, 'red', opts(), true).map((m) => m.row)).toEqual([0, 1]);
+    expect(findMatches(ctl, '001', opts({ wholeCell: true }), true)).toEqual([]);
+
     ctl.setInput(3, 0, '5');
     expect(replaceMatches(ctl, findMatches(ctl, '5', opts({ wholeCell: true })), '5', '7', opts({ wholeCell: true }))).toBe(1);
     expect(value(ctl, 3, 0)).toBe(7);

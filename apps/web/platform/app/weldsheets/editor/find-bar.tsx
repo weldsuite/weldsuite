@@ -30,11 +30,14 @@ export function FindBar({ controller }: { controller: SheetController }) {
   const activeSheet = controller.activeSheetId;
 
   const matches = useMemo(
-    () => findMatches(controller, query, opts),
+    // Replacing counts only what a replace can change, on the text it rewrites.
+    () => findMatches(controller, query, opts, replacing),
     // Searched again when the cells change, or the sheet does (the active sheet is searched first).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [controller, query, opts, revision, opts.allSheets ? null : activeSheet],
+    [controller, query, opts, replacing, revision, opts.allSheets ? null : activeSheet],
   );
+  /** A replace just changed the list: go to the next match once it is searched again. */
+  const advanceAfterReplace = useRef(false);
 
   // Ctrl+F again while open: back to the search box, its text selected.
   useEffect(() => {
@@ -43,7 +46,16 @@ export function FindBar({ controller }: { controller: SheetController }) {
   }, [controller.find]);
 
   // A new search starts from the active cell.
-  useEffect(() => setIndex(-1), [query, opts]);
+  useEffect(() => setIndex(-1), [query, opts, replacing]);
+
+  // After a replace, the next match is the first after the replaced cell in the new list
+  // (the old index points one past it, the replaced cell having left the list).
+  useEffect(() => {
+    if (!advanceAfterReplace.current) return;
+    advanceAfterReplace.current = false;
+    go(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per replace, on the list it produced.
+  }, [matches]);
 
   const go = (step: 1 | -1) => {
     if (matches.length === 0) return;
@@ -58,8 +70,13 @@ export function FindBar({ controller }: { controller: SheetController }) {
   const replaceOne = () => {
     const { row, col } = controller.selection.active;
     const current = matches.find((m) => m.sheetId === controller.activeSheetId && m.row === row && m.col === col);
-    if (current) replaceMatches(controller, [current], query, replacement, opts);
-    go(1);
+    const changed = current ? replaceMatches(controller, [current], query, replacement, opts) : 0;
+    if (changed === 0) {
+      go(1);
+      return;
+    }
+    setIndex(-1);
+    advanceAfterReplace.current = true;
   };
 
   const replaceAll = () => {

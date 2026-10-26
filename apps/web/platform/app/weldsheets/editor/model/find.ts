@@ -25,19 +25,29 @@ function pattern(query: string, opts: FindOptions): RegExp {
   return new RegExp(opts.wholeCell ? `^${escaped}$` : escaped, opts.matchCase ? 'g' : 'gi');
 }
 
-/** The text a search looks at in a cell: its formula when searching formulas, else what it shows. */
-function searchedText(ctl: SheetController, sheetId: string, row: number, col: number, opts: FindOptions): string | null {
+/**
+ * The text a search looks at in a cell: its formula when searching formulas,
+ * else what it shows. `forReplace`: the text a replace would rewrite instead
+ * (a value as typed, "1234.5" for "1,234.50"; no formula unless searching
+ * formulas), so every match counted can be replaced.
+ */
+function searchedText(ctl: SheetController, sheetId: string, row: number, col: number, opts: FindOptions, forReplace: boolean): string | null {
   const cell = ctl.engine.getCell(sheetId, row, col);
   if (!cell) return null;
   if (cell.f !== undefined && opts.formulas) return `=${localizeFormula(cell.f, ctl.options.formulaLocale)}`;
+  if (forReplace) return cell.f === undefined ? ctl.inputText(row, col, sheetId) || null : null;
   const value = ctl.engine.getValue(sheetId, row, col);
   if (value === null) return null;
   const sheet = ctl.engine.workbook.getSheet(sheetId)!;
   return formatValue(value, ctl.engine.workbook.style(sheet, row, col)?.numFmt, ctl.options.locale).text;
 }
 
-/** The cells whose text contains (or is) `query`, sheet by sheet (the active one first), row by row. */
-export function findMatches(ctl: SheetController, query: string, opts: FindOptions): FindMatch[] {
+/**
+ * The cells whose text contains (or is) `query`, sheet by sheet (the active
+ * one first), row by row. `forReplace` (the bar is replacing): only cells a
+ * replace can change, matched on the text it rewrites.
+ */
+export function findMatches(ctl: SheetController, query: string, opts: FindOptions, forReplace = false): FindMatch[] {
   if (!query) return [];
   const re = pattern(query, opts);
   const sheets = ctl.engine.workbook.sheets;
@@ -49,7 +59,7 @@ export function findMatches(ctl: SheetController, query: string, opts: FindOptio
     const found: FindMatch[] = [];
     sheet.cells.forEachInRange({ r1: 0, c1: 0, r2: sheet.rowCount - 1, c2: sheet.colCount - 1 }, (row, col) => {
       if (++seen > SCAN_LIMIT) return;
-      const text = searchedText(ctl, sheet.id, row, col, opts);
+      const text = searchedText(ctl, sheet.id, row, col, opts, forReplace);
       re.lastIndex = 0;
       if (text !== null && re.test(text)) found.push({ sheetId: sheet.id, row, col });
     });
