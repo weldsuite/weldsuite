@@ -10,8 +10,8 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { success } from '@weldsuite/worker-kit/response';
 import { replaceFieldsSchema } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
-import { toFieldDto, touchEnvelope } from '../../services/envelopes';
-import { replaceFields } from '../../services/fields';
+import { toFieldDto, touchEnvelope } from '@weldsuite/sign-domain/envelopes';
+import { replaceFields } from '@weldsuite/sign-domain/fields';
 import type { DraftScope } from '../draft-scope';
 import { handle } from './shared';
 

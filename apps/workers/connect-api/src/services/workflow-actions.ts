@@ -25,6 +25,7 @@ import { createTask } from '@weldsuite/flow-domain/tasks';
 import { createCalendarEventForTask } from '@weldsuite/db/lib/calendar-sync';
 import { sendTaskAssignmentNotification } from '@weldsuite/notifications';
 import type { Env } from '../types';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 type CompanyRow = typeof schema.companies.$inferSelect;
 
@@ -392,7 +393,7 @@ export async function sendTaskAssignmentNotificationsForWorkflow(
     const [row] = await masterDb
       .select({ name: masterSchema.workspaces.name })
       .from(masterSchema.workspaces)
-      .where(eq(masterSchema.workspaces.clerkOrgId, opts.workspaceId))
+      .where(matchWorkspaceRef(opts.workspaceId))
       .limit(1);
     workspaceName = row?.name ?? null;
   } catch {

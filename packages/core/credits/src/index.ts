@@ -27,6 +27,7 @@
 
 import { and, eq, gte, sql } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { workspaceCredits, creditTransactions, workspaces } = masterSchema;
 
@@ -166,15 +167,15 @@ function assertPositiveInt(amount: number, label: string): void {
   }
 }
 
-/** Resolve the internal workspace id for a Clerk org id. */
+/** Resolve the internal workspace id from either id of a workspace: its own or its Clerk org id. */
 export async function resolveInternalWorkspaceId(
   db: CreditsDb,
-  clerkOrgId: string,
+  ref: string,
 ): Promise<string | null> {
   const [ws] = await db
     .select({ id: workspaces.id })
     .from(workspaces)
-    .where(eq(workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(ref))
     .limit(1);
   return ws?.id ?? null;
 }

@@ -1,5 +1,3 @@
-'use client';
-
 import { useCallback, useEffect, useRef } from 'react';
 import { PAD_HEIGHT, PAD_WIDTH, inkColor } from '@/lib/signature';
 

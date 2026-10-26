@@ -8,6 +8,7 @@
  */
 
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
+import { workspaceHubKey } from './lib/db';
 import type { Env } from './lib/protocol';
 
 /**
@@ -29,7 +30,8 @@ export async function publishEntityEventToWorkspaceHub(
       ? { ...(event.data as object), _access: { userIds: event.accessUserIds } }
       : event.data;
 
-  const id = env.WORKSPACE_HUB.idFromName(workspaceId);
+  // Some producers stamp `workspaces.id`, but the hub is named by the Clerk org id.
+  const id = env.WORKSPACE_HUB.idFromName(await workspaceHubKey(env, workspaceId));
   const stub = env.WORKSPACE_HUB.get(id);
   const res = await stub.fetch('https://internal/publish', {
     method: 'POST',

@@ -19,7 +19,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { SignDocumentDto, SignEnvelopeDetail, SignFieldDto, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 import envelopesRoutes from './index';
-import { codeHash, sha256Hex } from '../../services/hash';
+import { codeHash, sha256Hex } from '@weldsuite/sign-domain/hash';
 
 const BASE = '/api/sign/envelopes';
 const WORKSPACE = 'org_sign_test';

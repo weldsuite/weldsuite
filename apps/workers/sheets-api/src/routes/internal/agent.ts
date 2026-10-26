@@ -16,13 +16,15 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { Engine, Sheet, Workbook, applyOp, valuesOp } from '@weldsuite/sheets-engine';
 import { and, eq, isNull } from 'drizzle-orm';
-import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
-import { createDrizzlePermissionQueries, resolveEffectivePermissions } from '@weldsuite/permissions/server';
+import { getWorkspaceContextForOrg, schema } from '@weldsuite/worker-kit/db';
+import { createDrizzlePermissionQueries, hasContextPermission, resolveEffectivePermissions } from '@weldsuite/permissions/server';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { workspaceMovingResponse, workspaceReadOnlyBody } from '@weldsuite/worker-kit';
 import { fileRole, loadDriveAccessForUser, visibleFilesCondition } from '@weldsuite/core-domain/drive-access';
 import type { Env, Variables } from '../../types';
 import { listSheets } from '../../services/sheets';
@@ -30,7 +32,21 @@ import { newTabId } from '../../room/people';
 import { findSheet, mayEditSheet, roomFor, roomMeta } from '../sheets/access';
 import { saveNewSheet } from '../sheets';
 
+type Ctx = Context<{ Bindings: Env; Variables: Variables }>;
+
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+/**
+ * The same refusal `licenceGate` answers a write with, ahead of the public
+ * routes' handlers: a database move is retryable (503), any other read-only
+ * reason is not (403). Null when the workspace may be written to.
+ */
+function readOnlyRefusal(c: Ctx): Response | null {
+  if (!c.get('readOnly')) return null;
+  const reason = c.get('readOnlyReason');
+  if (reason === 'database_move') return workspaceMovingResponse(c);
+  return c.json(workspaceReadOnlyBody(reason), 403);
+}
 
 /** Cells one write takes at most. */
 const MAX_WRITE_CELLS = 50_000;
@@ -47,8 +63,13 @@ app.use('/:workspaceId/*', async (c, next) => {
   const workspaceId = c.req.param('workspaceId');
   c.set('workspaceId', workspaceId);
   c.set('userId', userId);
-  const db = await getTenantDbForWorkspace(c.env, workspaceId);
+  // Same as workspaceDbMiddleware (the public routes' path here): the tenant
+  // DB plus the workspace's read-only state, so a lapsed workspace cannot be
+  // written to through the agent either.
+  const { db, readOnly, readOnlyReason } = await getWorkspaceContextForOrg(c.env, workspaceId);
   c.set('tenantDb', db);
+  c.set('readOnly', readOnly);
+  c.set('readOnlyReason', readOnlyReason);
   c.set('internalTrusted', true);
   // Their permissions as they are now, for the same checks the public routes make.
   c.set('userPermissions', await resolveEffectivePermissions(createDrizzlePermissionQueries(db, schema, { eq, and, isNull }), userId));
@@ -56,6 +77,7 @@ app.use('/:workspaceId/*', async (c, next) => {
 });
 
 app.post('/:workspaceId/sheets/find', zValidator('json', z.object({ query: z.string().max(255).optional(), limit: z.number().int().min(1).max(50).optional() })), async (c) => {
+  if (!(await hasContextPermission(c, 'sheets:read'))) return error.forbidden(c);
   const db = c.get('tenantDb');
   const { query, limit = 20 } = c.req.valid('json');
   const access = await loadDriveAccessForUser(db, c.get('userId') ?? null);
@@ -67,6 +89,9 @@ app.post('/:workspaceId/sheets/find', zValidator('json', z.object({ query: z.str
 });
 
 app.post('/:workspaceId/sheets/create', zValidator('json', z.object({ name: z.string().trim().min(1).max(255), values: values.optional(), tabName: z.string().trim().min(1).max(100).optional() })), async (c) => {
+  if (!(await hasContextPermission(c, 'sheets:create'))) return error.forbidden(c);
+  const refused = readOnlyRefusal(c);
+  if (refused) return refused;
   const workspaceId = c.get('workspaceId')!;
   const userId = c.get('userId')!;
   const input = c.req.valid('json');
@@ -81,6 +106,7 @@ app.post('/:workspaceId/sheets/create', zValidator('json', z.object({ name: z.st
 });
 
 app.post('/:workspaceId/sheets/:id/tabs', async (c) => {
+  if (!(await hasContextPermission(c, 'sheets:read'))) return error.forbidden(c);
   const found = await findSheet(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const tabs = await roomFor(c, c.get('workspaceId')!, found.sheet).tabs(roomMeta(found.sheet, c.get('workspaceId')!));
@@ -88,6 +114,7 @@ app.post('/:workspaceId/sheets/:id/tabs', async (c) => {
 });
 
 app.post('/:workspaceId/sheets/:id/read', zValidator('json', rangeRequest), async (c) => {
+  if (!(await hasContextPermission(c, 'sheets:read'))) return error.forbidden(c);
   const found = await findSheet(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const result = await roomFor(c, c.get('workspaceId')!, found.sheet).readRange(roomMeta(found.sheet, c.get('workspaceId')!), c.req.valid('json'));
@@ -97,6 +124,8 @@ app.post('/:workspaceId/sheets/:id/read', zValidator('json', rangeRequest), asyn
 app.post('/:workspaceId/sheets/:id/write', zValidator('json', rangeRequest.extend({ values })), async (c) => {
   const found = await findSheet(c, c.req.param('id'));
   if (found instanceof Response) return found;
+  const refused = readOnlyRefusal(c);
+  if (refused) return refused;
   if (!(await mayEditSheet(c, found.role))) return error.forbidden(c, 'You can view this spreadsheet but not change it');
   const workspaceId = c.get('workspaceId')!;
   const result = await roomFor(c, workspaceId, found.sheet).writeRange(roomMeta(found.sheet, workspaceId), {

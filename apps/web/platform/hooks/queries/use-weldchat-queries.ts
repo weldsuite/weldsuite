@@ -13,7 +13,7 @@
  */
 
 import { useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient, type QueryKey, type InfiniteData } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData, type QueryClient, type QueryKey, type InfiniteData } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
@@ -1278,6 +1278,12 @@ export interface RecordChatsOptions {
   filter?: RecordChatFilter;
   search?: string;
   enabled?: boolean;
+  /**
+   * Keep showing the previous rows while another type, filter or search
+   * loads (`isPlaceholderData`), so the records page keeps its toolbar and
+   * search box instead of dropping back to a spinner on every keystroke.
+   */
+  keepPrevious?: boolean;
 }
 
 /**
@@ -1286,7 +1292,7 @@ export interface RecordChatsOptions {
  */
 export function useRecordChats(
   type: RecordChatType | undefined,
-  { filter = 'following', search = '', enabled = true }: RecordChatsOptions = {},
+  { filter = 'following', search = '', enabled = true, keepPrevious = false }: RecordChatsOptions = {},
 ) {
   const { getClient } = useAppApiClient();
   return useInfiniteQuery({
@@ -1302,6 +1308,7 @@ export function useRecordChats(
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: RecordChatPage) =>
       lastPage?.pagination?.hasMore ? (lastPage.pagination.cursor ?? undefined) : undefined,
+    placeholderData: keepPrevious ? keepPreviousData : undefined,
     enabled,
   });
 }
@@ -1505,6 +1512,49 @@ export function useFollowRecordChat() {
 /** Unfollow a record chat: it leaves the sidebar but stays readable on the record. */
 export function useUnfollowRecordChat() {
   return useRecordChatFollowMutation(false);
+}
+
+export interface MuteRecordChatsByTypeVariables {
+  entityType: RecordChatType;
+  isMuted: boolean;
+}
+
+/**
+ * Mute / unmute every record chat of one type the caller follows, in a single
+ * request (`PATCH /chat-entity-channels/:entityType/mute`) — the sidebar's
+ * "Mute all" / "Unmute all" group actions.
+ *
+ * Not a loop of per-chat `useMuteChannel` calls: the sidebar only ever holds a
+ * capped slice of a followed group (`useRecordChatGroups` stops at 4 pages of
+ * 25), so muting row-by-row from the loaded rows silently left the rest of a
+ * long followed list still notifying. Flips every cached row of this type
+ * right away; the server mutes every membership row it actually owns, loaded
+ * in the sidebar or not.
+ */
+export function useMuteRecordChatsByType() {
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ entityType, isMuted }: MuteRecordChatsByTypeVariables) => {
+      const client = await getClient();
+      return client.patch<{ data: { updated: number } }>(
+        `/chat-entity-channels/${encodeURIComponent(entityType)}/mute`,
+        { isMuted },
+      );
+    },
+    onMutate: async ({ entityType, isMuted }) => {
+      await queryClient.cancelQueries({ queryKey: weldchatKeys.recordChats() });
+      const snapshot = snapshotRecordChats(queryClient);
+      queryClient.setQueriesData<RecordChatListCache>({ queryKey: weldchatKeys.recordChatLists() }, (old) =>
+        mapRecordChatRows(old, (rows) => rows.map((row) => (row.entityType === entityType ? { ...row, isMuted } : row))),
+      );
+      return snapshot;
+    },
+    onError: (_err, _variables, snapshot) => restoreRecordChats(queryClient, snapshot),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.recordChats() });
+    },
+  });
 }
 
 // ============================================================================

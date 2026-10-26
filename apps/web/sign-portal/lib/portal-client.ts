@@ -1,5 +1,5 @@
 /**
- * Browser-side calls to this app's own `app/api/*` route handlers. The signer
+ * Browser-side calls to this app's own `/api/*` server routes. The signer
  * session lives in an httpOnly cookie, so nothing here ever sees it.
  */
 

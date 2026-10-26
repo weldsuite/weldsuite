@@ -39,6 +39,15 @@ describe('planChartQuery', () => {
     expect(sql).not.toContain("OR '1'");
   });
 
+  it('reads rows under every id the workspace may carry, once each', () => {
+    const [both] = planChartQuery(['org_1', 'ws_1', undefined], base).queries;
+    expect(both).toContain("workspace_id IN ('org_1', 'ws_1')");
+    // An early workspace whose id is its org id: one id, the plain comparison.
+    const [same] = planChartQuery(['org_1', 'org_1'], base).queries;
+    expect(same).toContain("workspace_id = 'org_1'");
+    expect(() => planChartQuery([null, undefined], base)).toThrow('needs a workspace id');
+  });
+
   it('answers nothing, without a query, when no project is visible', () => {
     expect(planChartQuery('ws_1', { ...base, projectIds: [] }).queries).toEqual([]);
     expect(planChartQuery('ws_1', { ...base, projectIds: ['proj_a'], projectId: 'proj_b' }).queries).toEqual([]);

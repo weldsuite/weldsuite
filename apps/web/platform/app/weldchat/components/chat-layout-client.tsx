@@ -33,7 +33,7 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   const pathname = usePathname();
 
   // Extract the open conversation from the URL for the right panel components.
-  // Sibling routes (`dm`, `activity`, `drafts`, `directories`, `bookmarks`,
+  // Sibling routes (`dm`, `activity`, `drafts`, `directories`, `bookmarks`, `records`,
   // `search`, `thread`) are not conversations and never count as a channel id,
   // so they trigger no channel fetches or panels.
   const { channelId: currentChannelId, isChannelPage, isDmPage } = parseWeldChatPath(pathname);

@@ -21,6 +21,7 @@ import type { Env } from '../types';
 import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import { getAccurateMemberCount } from './member-count';
 import { countPendingSeatInvitations } from './clerk-seat-cap';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 export interface SeatLimit {
   /** Maximum members, or null when the plan is unlimited. */
@@ -68,7 +69,7 @@ export async function getWorkspaceSeatLimit(
       partnerId: workspaces.partnerId,
     })
     .from(workspaces)
-    .where(eq(workspaces.clerkOrgId, orgId));
+    .where(matchWorkspaceRef(orgId));
 
   if (!workspace) return null;
 

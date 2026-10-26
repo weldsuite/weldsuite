@@ -14,6 +14,7 @@ import type {
   WorkspaceLicenceStatus,
 } from '@weldsuite/app-api-client/schemas/partners';
 import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { workspaces, workspaceLicences, partners } = masterSchema;
 
@@ -36,7 +37,7 @@ export async function getManagedContext(masterDb: MasterDatabase, clerkOrgId: st
     .select({ id: workspaces.id, billingMode: workspaces.billingMode, partner: partners })
     .from(workspaces)
     .innerJoin(partners, eq(partners.id, workspaces.partnerId))
-    .where(and(eq(workspaces.clerkOrgId, clerkOrgId), eq(workspaces.billingMode, 'partner')))
+    .where(and(matchWorkspaceRef(clerkOrgId), eq(workspaces.billingMode, 'partner')))
     .limit(1);
   if (!row) return null;
 

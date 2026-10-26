@@ -12,6 +12,7 @@ export const NON_CHANNEL_SEGMENTS: ReadonlySet<string> = new Set([
   'drafts',
   'directories',
   'bookmarks',
+  'records',
   'search',
   'thread',
 ]);

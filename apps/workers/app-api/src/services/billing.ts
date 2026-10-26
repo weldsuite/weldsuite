@@ -19,6 +19,7 @@ import { masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
 import { fetchBillingWorker } from '@weldsuite/worker-kit/billing-worker';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 export { getAccurateMemberCount, syncUserWorkspacesFromClerk } from './member-count';
 export type { ClerkMembershipListItem } from './member-count';
@@ -115,7 +116,7 @@ export async function getWorkspaceByOrgId(
   const [workspace] = await masterDb
     .select()
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(clerkOrgId))
     .limit(1);
   return workspace;
 }

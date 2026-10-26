@@ -19,6 +19,7 @@ import {
   Plus,
   Search,
   PenSquare,
+  MoreHorizontal,
 } from 'lucide-react-native';
 import { useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -30,6 +31,17 @@ import type { ThemeColors } from '@/lib/theme-colors';
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { useChatCache } from '@/hooks/useChatCache';
+import { useRecordChatGroups } from '@/hooks/useRecordChatGroups';
+import { useI18n } from '@/lib/i18n';
+import {
+  RECORD_CHAT_TYPES,
+  buildRecordGroups,
+  hasUnreadMentions,
+  isUnreadRecordChat,
+  recordChatName,
+  recordRefreshFor,
+} from '@/lib/record-chats/rules';
+import { recordChatIcon, recordGroupLabel } from '@/lib/record-chats/registry';
 import { ChannelView } from './chat/ChannelView';
 
 interface Channel {
@@ -54,15 +66,19 @@ const SIDEBAR_WIDTH = 320;
 /**
  * What the sidebar should have open after a reload. A selection that is no
  * longer in either list (the channel was deleted, or the user left it) is
- * cleared; with nothing selected, the first channel, else the first DM.
+ * cleared; with nothing selected, the first channel, else the first DM. An
+ * open record chat stays open, followed or not (unfollowing it from its header
+ * takes it out of the sidebar, but it is still readable).
  */
 function nextSelection(
   prev: string | null,
   channels: readonly Channel[],
   dms: readonly DmChannel[],
+  openRecordChatId: string | null,
 ): string | null {
   if (prev) {
-    const stillListed = channels.some((c) => c.id === prev) || dms.some((d) => d.id === prev);
+    const stillListed =
+      prev === openRecordChatId || channels.some((c) => c.id === prev) || dms.some((d) => d.id === prev);
     return stillListed ? prev : null;
   }
   return channels[0]?.id ?? dms[0]?.id ?? null;
@@ -77,6 +93,7 @@ export function IPadLayout() {
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const router = useRouter();
   const { user } = useUser();
+  const { t, format } = useI18n();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.top, insets.bottom), [colors, insets.top, insets.bottom]);
@@ -104,10 +121,31 @@ export function IPadLayout() {
     };
   }, [cache]);
 
+  // Record chats (companies, people, tasks, projects, domains) the user follows.
+  const recordChats = useRecordChatGroups();
+  const { refresh: refreshRecordChats } = recordChats;
+  const recordRows = useMemo(
+    () => RECORD_CHAT_TYPES.flatMap((type) => recordChats.rows[type] ?? []),
+    [recordChats.rows],
+  );
+  const recordChatIdsRef = useRef<ReadonlySet<string>>(new Set());
+  recordChatIdsRef.current = new Set(recordRows.map((row) => row.id));
+  // The record chat open in the right pane, if that is what is selected.
+  const openRecordChatIdRef = useRef<string | null>(null);
+  const selectConversation = useCallback((id: string, isRecordChat = false) => {
+    openRecordChatIdRef.current = isRecordChat ? id : null;
+    setSelectedChannelId(id);
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
-      const [chRes, dmRes] = await Promise.all([appApi.channels.list({ limit: 100 }), appApi.chatDm.list()]);
-      // Match platform: hide DMs (listed separately) and entity/object channels.
+      // Only public/private channels, so DMs and record chats can't use up the page.
+      const [chRes, dmRes] = await Promise.all([
+        appApi.channels.list({ limit: 100, types: ['public', 'private'] }),
+        appApi.chatDm.list(),
+      ]);
+      // Match platform: DMs and record chats have their own lists. The server
+      // already filters by type; this also covers an older API.
       const chs = ((chRes.data || []) as any[]).filter(
         (c: any) => c.type !== 'dm' && c.type !== 'entity',
       ) as Channel[];
@@ -117,7 +155,7 @@ export function IPadLayout() {
       setDms(dmList);
       void cache.setChannels(chs);
       // Auto-select the first channel if none is selected; drop a selection that is gone.
-      setSelectedChannelId((prev) => nextSelection(prev, chs, dmList));
+      setSelectedChannelId((prev) => nextSelection(prev, chs, dmList, openRecordChatIdRef.current));
     } catch (err) {
       // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load data:', err);
@@ -129,10 +167,27 @@ export function IPadLayout() {
   useFocusEffect(
     useCallback(() => {
       void loadData();
-    }, [loadData]),
+      refreshRecordChats('all', true);
+    }, [loadData, refreshRecordChats]),
   );
 
-  useChatUserEvents(loadData);
+  useChatUserEvents((event) => {
+    void loadData();
+    const kind = recordRefreshFor(event, {
+      recordChatIds: recordChatIdsRef.current,
+      channelIds: new Set([...channels.map((ch) => ch.id), ...dms.map((dm) => dm.id)]),
+    });
+    if (kind !== 'none') refreshRecordChats(kind);
+  });
+
+  const [collapsedRecordGroups, setCollapsedRecordGroups] = useState<Record<string, boolean>>({});
+  const recordGroups = useMemo(
+    () =>
+      buildRecordGroups(recordChats.summary, recordChats.rows, {
+        isCollapsed: (type) => collapsedRecordGroups[type] ?? false,
+      }),
+    [recordChats.summary, recordChats.rows, collapsedRecordGroups],
+  );
 
   const filteredChannels = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -219,7 +274,7 @@ export function IPadLayout() {
                 <Pressable
                   key={ch.id}
                   style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
-                  onPress={() => setSelectedChannelId(ch.id)}
+                  onPress={() => selectConversation(ch.id)}
                 >
                   {ch.type === 'private' ? (
                     <Lock size={16} color={colors.muted} style={styles.itemIcon} />
@@ -244,6 +299,66 @@ export function IPadLayout() {
                 </Pressable>
               );
             })}
+
+          {/* Record chats: one group per type the user follows, top 5, quiet ones left out. */}
+          {recordGroups.map((group) => (
+            <View key={group.type}>
+              <View style={styles.sectionDivider} />
+              <TouchableOpacity
+                style={styles.sectionHeader}
+                onPress={() => setCollapsedRecordGroups((prev) => ({ ...prev, [group.type]: !group.collapsed }))}
+              >
+                {group.collapsed ? (
+                  <ChevronRight size={12} color={colors.muted} />
+                ) : (
+                  <ChevronDown size={12} color={colors.muted} />
+                )}
+                <Text style={styles.sectionTitle}>{recordGroupLabel(t, group.type).toUpperCase()}</Text>
+                {group.mentions > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{group.mentions}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              {group.rows.map((chat) => {
+                const isActive = selectedChannelId === chat.id;
+                const RecordIcon = recordChatIcon(chat.entityType) ?? Hash;
+                const unread = isUnreadRecordChat(chat) || hasUnreadMentions(chat);
+                return (
+                  <Pressable
+                    key={chat.id}
+                    style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
+                    onPress={() => selectConversation(chat.id, true)}
+                  >
+                    <RecordIcon size={16} color={colors.muted} style={styles.itemIcon} />
+                    <Text
+                      style={[styles.itemName, unread && styles.itemNameUnread, isActive && styles.itemNameActive]}
+                      numberOfLines={1}
+                    >
+                      {recordChatName(chat)}
+                    </Text>
+                    {(chat.unreadMentionCount ?? 0) > 0 && (
+                      <View style={styles.badge}>
+                        <Text style={styles.badgeText}>{chat.unreadMentionCount}</Text>
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              })}
+              {group.showAll && (
+                <Pressable
+                  style={styles.sidebarItem}
+                  onPress={() => router.push(`/records?type=${group.type}` as any)}
+                  accessibilityRole="link"
+                >
+                  <MoreHorizontal size={16} color={colors.muted} style={styles.itemIcon} />
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {format(t.recordChats.showAll, { count: group.followed })}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          ))}
 
           {/* DMs Section */}
           <View style={styles.sectionDivider} />
@@ -274,7 +389,7 @@ export function IPadLayout() {
                 <Pressable
                   key={dm.id}
                   style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
-                  onPress={() => setSelectedChannelId(dm.id)}
+                  onPress={() => selectConversation(dm.id)}
                 >
                   <View style={styles.dmAvatar}>
                     {dm.picture ? (

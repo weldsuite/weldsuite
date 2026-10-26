@@ -15,10 +15,10 @@ import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { getStoredObject, isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
 import { SIGN_LIMITS, addDocumentFromDriveSchema, reorderDocumentsSchema } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
-import { toDocumentDto, touchEnvelope } from '../../services/envelopes';
-import { addDocument, getDocument, removeDocument, reorderDocuments } from '../../services/documents';
-import { invalid, notFound } from '../../services/errors';
-import { visibleDriveFile } from '../../services/sources';
+import { toDocumentDto, touchEnvelope } from '@weldsuite/sign-domain/envelopes';
+import { addDocument, getDocument, removeDocument, reorderDocuments } from '@weldsuite/sign-domain/documents';
+import { invalid, notFound } from '@weldsuite/sign-domain/errors';
+import { visibleDriveFile } from '@weldsuite/sign-domain/sources';
 import type { DraftScope } from '../draft-scope';
 import { handle } from './shared';
 

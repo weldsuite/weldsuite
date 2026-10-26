@@ -62,6 +62,18 @@ describe('publishEntityEventToWorkspaceHub', () => {
     });
   });
 
+  it('publishes an event stamped with workspaces.id to the hub of its Clerk org', async () => {
+    const { WORKSPACE_HUB, stubFetch } = mockHubEnv();
+    const WORKSPACE_CACHE = { get: vi.fn(async (key: string) => (key === 'wshub:ws_1' ? 'org_1' : null)) };
+    await publishEntityEventToWorkspaceHub(
+      { WORKSPACE_HUB, WORKSPACE_CACHE, DATABASE_URL_MASTER: 'postgres://master' } as never,
+      sampleEvent({ metadata: { ...sampleEvent().metadata, workspaceId: 'ws_1' } }),
+    );
+
+    expect(WORKSPACE_HUB.idFromName).toHaveBeenCalledWith('org_1');
+    expect(stubFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('stitches _access.userIds when accessUserIds is set (project_member filter)', async () => {
     const { WORKSPACE_HUB, stubFetch } = mockHubEnv();
     await publishEntityEventToWorkspaceHub(
