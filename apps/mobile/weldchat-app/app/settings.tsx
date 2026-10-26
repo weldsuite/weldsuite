@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Alert } from 'react-native';
+import { AppState, View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Updates from 'expo-updates';
 import * as Application from 'expo-application';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -12,12 +11,7 @@ import { LogOut, Moon, Sun, Building2, Check, Bell } from 'lucide-react-native';
 import { Screen, ScreenHeader, SectionLabel } from '@/components/screen';
 import { BRAND, BRAND_TINT, tint, ACCENTS } from '@/lib/brand';
 import { useNotifications } from '@/contexts/NotificationContext';
-
-function getUpdateStatus(): string {
-  if (!Updates.isEnabled) return 'Dev build';
-  if (Updates.isEmbeddedLaunch) return 'Embedded (no OTA yet)';
-  return Updates.updateId ? Updates.updateId.slice(0, 8) : '—';
-}
+import { useI18n } from '@/lib/i18n';
 
 function WorkspaceIndicator({
   isSwitching,
@@ -36,47 +30,40 @@ function WorkspaceIndicator({
 }
 
 export default function SettingsScreen() {
+  const { t } = useI18n();
   const { theme, colors, toggleTheme } = useTheme();
   const { user, signOut } = useClerkAuth();
   const { currentWorkspace, workspaces, switchWorkspace } = useWorkspace();
   const {
     isPermissionGranted,
-    registrationStatus,
     requestPermissions,
     openNotificationSettings,
     refreshRegistrationStatus,
-    sendTestPush,
     unregisterDevice,
     prepareWorkspaceSwitch,
   } = useNotifications();
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [notifBusy, setNotifBusy] = useState(false);
-  const [testBusy, setTestBusy] = useState(false);
   const router = useRouter();
 
+  // Read the push state when the screen opens and again when the app returns
+  // from the system settings (the row opens them), so On / Off follows what
+  // the user changed there.
   useEffect(() => {
     void refreshRegistrationStatus();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refreshRegistrationStatus();
+    });
+    return () => subscription.remove();
   }, [refreshRegistrationStatus]);
 
   const appVersion = Application.nativeApplicationVersion ?? '—';
   const buildVersion = Application.nativeBuildVersion ?? '—';
-  const updateStatus = getUpdateStatus();
-  const publishedAt = Updates.createdAt ? Updates.createdAt.toLocaleString() : '—';
   const aboutRows: { label: string; value: string }[] = [
     { label: 'Version', value: `${appVersion} (${buildVersion})` },
-    { label: 'Runtime', value: Updates.runtimeVersion ?? '—' },
-    { label: 'Channel', value: Updates.channel ?? '—' },
-    { label: 'Update', value: updateStatus },
-    { label: 'Published', value: publishedAt },
   ];
 
-  const pushStatusLabel = (() => {
-    if (!registrationStatus.permissionGranted) return 'Permission off — tap to enable';
-    if (!registrationStatus.serverRegistered) {
-      return 'Permission on, but this account has no push token on the server';
-    }
-    return `Registered (…${registrationStatus.tokenSuffixes[0] ?? 'ok'})`;
-  })();
+  const pushStatusLabel = isPermissionGranted ? t.settings.pushOn : t.settings.pushOff;
 
   const handleSwitchWorkspace = async (clerkOrgId: string) => {
     if (switchingId) return;
@@ -107,16 +94,6 @@ export default function SettingsScreen() {
       if (!ok) await openNotificationSettings();
     } finally {
       setNotifBusy(false);
-    }
-  };
-
-  const handleTestPush = async () => {
-    setTestBusy(true);
-    try {
-      const result = await sendTestPush();
-      Alert.alert(result.ok ? 'Test sent' : 'Test failed', result.message);
-    } finally {
-      setTestBusy(false);
     }
   };
 
@@ -180,7 +157,7 @@ export default function SettingsScreen() {
         <SectionLabel>Notifications</SectionLabel>
         <Card style={styles.card}>
           <TouchableOpacity
-            style={[styles.row, { borderBottomColor: colors.border }]}
+            style={[styles.row, { borderBottomWidth: 0 }]}
             onPress={handleNotifications}
             activeOpacity={0.6}
             disabled={notifBusy}
@@ -197,25 +174,6 @@ export default function SettingsScreen() {
               </View>
             </View>
             {notifBusy ? <Spinner size="small" color={BRAND} /> : null}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.row, { borderBottomWidth: 0 }]}
-            onPress={handleTestPush}
-            activeOpacity={0.6}
-            disabled={testBusy}
-          >
-            <View style={styles.rowLeft}>
-              <View style={[styles.iconTile, { backgroundColor: tint(ACCENTS.settings) }]}>
-                <Bell size={18} color={colors.muted} />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={[styles.label, { color: colors.text }]}>Send test notification</Text>
-                <Text style={[styles.value, { color: colors.mutedForeground, marginLeft: 0 }]}>
-                  Uses the same server path as DM pushes
-                </Text>
-              </View>
-            </View>
-            {testBusy ? <Spinner size="small" color={BRAND} /> : null}
           </TouchableOpacity>
         </Card>
 
