@@ -3,6 +3,7 @@
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { File as ExpoFile } from 'expo-file-system';
 
 import { appApi } from '@/services/app-api';
 
@@ -21,18 +22,30 @@ export type RNFile = { name: string; uri: string; mimeType: string };
 export const MIN_VOICE_MESSAGE_MS = 1000;
 
 /**
+ * A picked file as a multipart part. The global `fetch` is Expo's (SDK 57),
+ * which rejects React Native's `{ uri, type, name }` descriptor with
+ * "Unsupported FormDataPart implementation"; it sends any part that has
+ * `bytes()`, using its `name` and `type` as the part's filename and
+ * Content-Type. The bytes come from expo-file-system so the picker's file name
+ * survives (an `ExpoFile` alone would be named after its cache path).
+ */
+function multipartFilePart(file: RNFile) {
+  const source = new ExpoFile(file.uri);
+  return { name: file.name, type: file.mimeType, bytes: () => source.bytes() };
+}
+
+/**
  * Upload a picked RN file to app-api and map the response to a ChatAttachment.
- * The shared `upload` domain types its argument as `File`; React Native's
- * FormData accepts the `{ uri, type, name }` descriptor at runtime, so the
- * descriptor is cast through `unknown`. Returns null on failure.
+ * The shared `upload` domain types its argument as a DOM `File`, so the part
+ * is cast through `unknown`. Returns null on failure.
  */
 export async function uploadChatAttachment(
   channelId: string,
   file: RNFile,
 ): Promise<ChatAttachment | null> {
   try {
-    const rnFile = { uri: file.uri, type: file.mimeType, name: file.name };
-    const res = await appApi.chatMessages.upload(rnFile as unknown as File, channelId);
+    const part = multipartFilePart(file);
+    const res = await appApi.chatMessages.upload(part as unknown as File, channelId);
     // The server returns `{ id, fileName, fileSize, mimeType, url, fileKey }`
     // (the upload service result); the shared response type omits `id`.
     return res.data as unknown as ChatAttachment;

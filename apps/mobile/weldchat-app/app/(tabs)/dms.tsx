@@ -16,6 +16,8 @@ import type { ThemeColors } from '@/lib/theme-colors';
 import { appApi } from '@/services/app-api';
 import { useChatUserEvents } from '@/hooks/useChatUserEvents';
 import { useChatCache } from '@/hooks/useChatCache';
+import { useMemberNames } from '@/hooks/useMemberNames';
+import { mentionsToPlainText } from '@/lib/chat/mentions';
 import { formatMessageTime, mapDm, type DmChannel } from '@/lib/chat/dm';
 import { SearchField } from '@/components/chat/SearchField';
 import { Spinner } from '@/components/ui/Spinner';
@@ -41,6 +43,8 @@ export default function DmsTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [filter, setFilter] = useState<'all' | 'unread' | 'favourites' | 'muted'>('all');
+  // Previews stored before the server rendered mentions still carry `<@userId>`.
+  const memberNames = useMemberNames();
   const swipeableRefs = useRef<Map<string, SwipeableMethods>>(new Map());
   const [composeOpen, setComposeOpen] = useState(false);
   const router = useRouter();
@@ -387,7 +391,9 @@ export default function DmsTab() {
                           style={[styles.dmLastMessage, hasUnread && styles.dmLastMessageUnread]}
                           numberOfLines={2}
                         >
-                          {item.lastMessagePreview || t.dms.noMessagesPreview}
+                          {item.lastMessagePreview
+                            ? mentionsToPlainText(item.lastMessagePreview, memberNames)
+                            : t.dms.noMessagesPreview}
                         </Text>
                         {item.isMuted && <BellOff size={12} color={colors.muted} style={styles.mutedIcon} />}
                         {hasUnread && (item.unreadCount ?? 0) > 0 && (

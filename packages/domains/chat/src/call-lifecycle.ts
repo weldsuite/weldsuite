@@ -417,10 +417,12 @@ export function scheduleRingTimeout(
     (async () => {
       try {
         // Cloudflare Workers: scheduler.wait keeps the waitUntil alive across the delay.
-        const wait = (globalThis as unknown as { scheduler?: { wait: (ms: number) => Promise<void> } })
-          .scheduler?.wait;
-        if (wait) {
-          await wait(RING_TIMEOUT_MS);
+        // Called on `scheduler` itself: a detached `wait` throws "Illegal invocation",
+        // which skipped the timeout so an unanswered call was never ended as missed.
+        const scheduler = (globalThis as unknown as { scheduler?: { wait: (ms: number) => Promise<void> } })
+          .scheduler;
+        if (scheduler?.wait) {
+          await scheduler.wait(RING_TIMEOUT_MS);
         } else {
           await new Promise((r) => setTimeout(r, RING_TIMEOUT_MS));
         }

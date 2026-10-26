@@ -86,8 +86,26 @@ export const nl: Translations = {
 
   calls: {
     join: 'Deelnemen',
-    emptyTitle: 'Geen actieve gesprekken',
-    emptyHint: 'Audio- en videogesprekken in je gesprekken verschijnen hier.',
+    emptyTitle: 'Nog geen gesprekken',
+    emptyHint: 'Audio- en videogesprekken die je voert en ontvangt verschijnen hier.',
+    ongoing: 'Lopend',
+    recent: 'Recent',
+    ongoingVoiceCall: 'Lopend audiogesprek',
+    ongoingVideoCall: 'Lopend videogesprek',
+    participantCount: {
+      one: '{count} deelnemer',
+      other: '{count} deelnemers',
+    },
+    voiceCall: 'Audiogesprek',
+    videoCall: 'Videogesprek',
+    incoming: 'Inkomend',
+    outgoing: 'Uitgaand',
+    missed: 'Gemist',
+    noAnswer: 'Geen antwoord',
+    declined: 'Geweigerd',
+    yesterday: 'Gisteren',
+    callBack: 'Terugbellen',
+    unknown: 'Onbekend',
   },
 
   channel: {

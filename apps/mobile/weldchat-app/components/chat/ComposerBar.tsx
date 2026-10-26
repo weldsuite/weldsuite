@@ -36,6 +36,7 @@ import { ExpandIcon, MicIcon, SendArrowIcon } from '@/components/icons/ComposerI
 import { useI18n } from '@/lib/i18n';
 import { hasMentionTokens, mentionLabel, mentionTokenRegex } from '@/lib/chat/mentions';
 import type { RNFile } from '@/lib/chat/attachments';
+import { mentionBadgeColors } from './MessageText';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -156,7 +157,7 @@ function renderInputWithBadges(text: string, members: Map<string, string>, color
     }
     const name = mentionLabel(match[1], members);
     parts.push(
-      <Text key={`m${match.index}`} style={{ fontSize: 15, fontWeight: '700', color: '#dee0fc', backgroundColor: 'rgba(88, 101, 242, 0.3)', borderRadius: 4, paddingHorizontal: 3, overflow: 'hidden' }}>@{name}</Text>
+      <Text key={`m${match.index}`} style={{ fontSize: 15, fontWeight: '700', ...mentionBadgeColors(colors), borderRadius: 4, paddingHorizontal: 3, overflow: 'hidden' }}>@{name}</Text>
     );
     lastIndex = match.index + match[0].length;
   }
@@ -261,6 +262,7 @@ export function RecordingPill({
           hitSlop={HIT_SLOP}
           accessibilityRole="button"
           accessibilityLabel={t.composer.deleteRecording}
+          testID="composer-recording-cancel"
         >
           <View style={[styles.recordingStop, sending && styles.recordingStopDisabled]} />
         </TouchableOpacity>
@@ -274,6 +276,7 @@ export function RecordingPill({
           accessibilityRole="button"
           accessibilityLabel={t.composer.send}
           accessibilityState={{ disabled: sending, busy: sending }}
+          testID="composer-recording-send"
         >
           <SendButtonIcon uploading={sending} colors={colors} />
         </TouchableOpacity>

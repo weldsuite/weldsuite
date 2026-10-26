@@ -5,7 +5,8 @@
  * apps/workers/chat-api/src/routes/chat-calls/index.ts.
  */
 
-import type { ClientApi, DataResponse } from '../types';
+import type { ClientApi, DataResponse, ListResponse } from '../types';
+import { buildQueryString } from '../types';
 
 export type ChatCallType = 'voice' | 'video';
 export type ChatCallStatus = 'ringing' | 'active' | 'ended' | 'declined' | 'missed';
@@ -84,6 +85,58 @@ export interface ActiveCallSummary {
   channelType?: string;
 }
 
+/** From the caller's side: they started it (`outgoing`) or it rang them (`incoming`). */
+export type ChatCallDirection = 'incoming' | 'outgoing';
+
+/**
+ * How a call went for the caller of `history()`:
+ * - `ongoing`: still ringing or live;
+ * - `answered`: they were in it (their own call: somebody picked up);
+ * - `missed`: it rang them and they never joined, even if someone else in a
+ *   group did; on their own call, nobody picked up (word it "No answer");
+ * - `declined`: they declined it (their own call: it was declined).
+ */
+export type ChatCallOutcome = 'ongoing' | 'answered' | 'missed' | 'declined';
+
+export interface ChatCallPerson {
+  userId: string;
+  name: string | null;
+  avatar: string | null;
+}
+
+export interface ChatCallHistoryItem {
+  id: string;
+  channelId: string;
+  /** 'dm' (DMs and group DMs) | 'public' | 'private' | 'entity'. */
+  channelType: string | null;
+  channelName: string | null;
+  callType: ChatCallType;
+  status: ChatCallStatus;
+  direction: ChatCallDirection;
+  outcome: ChatCallOutcome;
+  initiatorId: string;
+  initiatorName: string;
+  /**
+   * DM calls: the person to show (the caller for an incoming call, the person
+   * called for an outgoing one). Null for a channel call: show the channel.
+   */
+  counterpart: ChatCallPerson | null;
+  /** DM calls: every member but the caller of `history()`; more than one in a group DM. */
+  otherMembers: ChatCallPerson[];
+  startedAt: string | null;
+  endedAt: string | null;
+  /** Seconds; set once the call ended (null for declined and ongoing calls). */
+  duration: number | null;
+  createdAt: string;
+}
+
+export interface ChatCallHistoryQuery {
+  /** Default 30, max 100. */
+  limit?: number;
+  /** `pagination.cursor` of the previous page. */
+  cursor?: string;
+}
+
 export function createChatCallsApi(api: ClientApi) {
   return {
     /** Start a call in a channel (ringing). */
@@ -119,6 +172,11 @@ export function createChatCallsApi(api: ClientApi) {
     /** All active calls across the caller's channels. */
     active(): Promise<DataResponse<ActiveCallSummary[]>> {
       return api.get<DataResponse<ActiveCallSummary[]>>('/chat-calls/active');
+    },
+
+    /** The caller's call history (DMs + calls they took part in), newest first. */
+    history(params: ChatCallHistoryQuery = {}): Promise<ListResponse<ChatCallHistoryItem>> {
+      return api.get<ListResponse<ChatCallHistoryItem>>(`/chat-calls/history${buildQueryString({ ...params })}`);
     },
 
     /** Active call for a specific channel (or null). */

@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { Platform } from 'react-native';
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -49,10 +48,9 @@ export function useVoiceRecorder() {
       const uri = recorder.uri;
       if (!uri) return null;
 
-      const isIOS = Platform.OS === 'ios';
-      const mimeType = isIOS ? 'audio/m4a' : 'audio/3gpp';
-      const ext = isIOS ? 'm4a' : '3gp';
-      return { uri, mimeType, name: `voice_${Date.now()}.${ext}` };
+      // HIGH_QUALITY records AAC in an MPEG-4 container (.m4a) on both
+      // platforms; labelling it 3GPP left browsers unable to play it.
+      return { uri, mimeType: 'audio/mp4', name: `voice_${Date.now()}.m4a` };
     } catch {
       return null;
     }
