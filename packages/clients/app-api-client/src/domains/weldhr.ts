@@ -27,7 +27,14 @@ import type {
   CreateHrLeaveRequestInput,
   CreateHrLeaveTypeInput,
   CreateHrMilestoneInput,
+  CreateHrAnnouncementInput,
+  CreateHrOpenShiftInput,
   CreateHrShiftInput,
+  CreateHrWorkLocationInput,
+  HrSelfServiceOpenShiftRequestInput,
+  UpdateHrAnnouncementInput,
+  UpdateHrOpenShiftInput,
+  UpdateHrWorkLocationInput,
   HrEmployeeSensitiveInput,
   HrSelfServiceAcknowledgeInput,
   HrSelfServiceClockInput,
@@ -105,6 +112,8 @@ export interface HrEmployee {
   location: string | null;
   timezone: string | null;
   weeklyHours: number | null;
+  /** Work locations they may clock in at; null or empty is any. */
+  workLocationIds?: string[] | null;
   customFields: Record<string, unknown> | null;
   hasSensitive: boolean;
   createdBy: string | null;
@@ -272,11 +281,122 @@ export interface HrShift {
   notes: string | null;
 }
 
+/** A shift posted for employees who want to work it, as the back office sees it. */
+export interface HrOpenShift {
+  id: string;
+  companyId: string | null;
+  companyName: string | null;
+  /** Only this department (and those under it) sees it; null is everyone. */
+  departmentId: string | null;
+  departmentName: string | null;
+  startsAt: string;
+  endsAt: string;
+  workType: string | null;
+  breakStartsAt: string | null;
+  breakEndsAt: string | null;
+  notes: string | null;
+  /** How many people it needs. */
+  spots: number;
+  /** `cancelled` once withdrawn; full is `spotsLeft === 0`. */
+  status: HrOpenShiftStatus;
+  /** People on it: approved sign-ups whose shift is still on the rooster. */
+  filled: number;
+  /** Sign-ups waiting for an answer (Attendance → Requests). */
+  pending: number;
+  spotsLeft: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type HrOpenShiftStatus = 'open' | 'cancelled';
+
+/** An open shift the employee can sign up for (or did). */
+export interface HrSelfOpenShift {
+  id: string;
+  startsAt: string;
+  endsAt: string;
+  workType: string | null;
+  breakStartsAt: string | null;
+  breakEndsAt: string | null;
+  notes: string | null;
+  companyName: string | null;
+  departmentName: string | null;
+  spots: number;
+  spotsLeft: number;
+  /** Their latest sign-up for it; null when they have not signed up. */
+  myRequest: { id: string; status: HrShiftRequestStatus; reviewNote: string | null } | null;
+}
+
+/** A place employees clock in at (WeldHR settings → Work locations). */
+export interface HrWorkLocation {
+  id: string;
+  name: string;
+  address: string | null;
+  latitude: number;
+  longitude: number;
+  /** How far from the point still counts as being there. */
+  radiusMeters: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An announcement as HR lists it. */
+export interface HrAnnouncement {
+  id: string;
+  title: string;
+  /** Plain text; keep line breaks when showing it. */
+  body: string;
+  pinned: boolean;
+  /** Empty: every employee. */
+  departmentIds: string[];
+  departmentNames: string[];
+  publishedAt: string;
+  /** When the push went out; null when none was sent. */
+  notifiedAt: string | null;
+  createdBy: string | null;
+  createdByName: string | null;
+  /** Active employees it is meant for, and how many of them have opened it. */
+  audienceCount: number;
+  readCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HrAnnouncementRead {
+  employeeId: string;
+  employeeName: string;
+  /** Null: not read yet. */
+  readAt: string | null;
+}
+
+/** An announcement meant for me. */
+export interface HrSelfAnnouncement {
+  id: string;
+  title: string;
+  body: string;
+  pinned: boolean;
+  publishedAt: string;
+  updatedAt: string;
+  createdByName: string | null;
+  /** When I first opened it; null while unread. */
+  readAt: string | null;
+}
+
+export interface HrSelfAnnouncements {
+  /** Pinned first, then newest. */
+  announcements: HrSelfAnnouncement[];
+  unread: number;
+}
+
 /** A shift an employee asked to work, as a manager sees it. */
 export interface HrShiftRequest {
   id: string;
   employeeId: string;
   employeeName: string;
+  /** Set when it is a sign-up for an open shift. */
+  openShiftId: string | null;
   startsAt: string;
   endsAt: string;
   /** What they offer to do ("Cashier"). */
@@ -312,6 +432,15 @@ export interface HrAttendanceRecord {
   approvedBy: string | null;
   approvedByName: string | null;
   approvedAt: string | null;
+  /** Where a self-service clock-in/out happened, while a location is required; absent from an API that predates it. */
+  clockInLocationId?: string | null;
+  clockInLocationName?: string | null;
+  clockInLatitude?: number | null;
+  clockInLongitude?: number | null;
+  clockOutLocationId?: string | null;
+  clockOutLocationName?: string | null;
+  clockOutLatitude?: number | null;
+  clockOutLongitude?: number | null;
   createdAt: string;
 }
 
@@ -569,6 +698,8 @@ export interface HrMilestone {
 export interface HrSettings {
   id: string;
   employeeSelfClockIn: boolean;
+  /** Clocking in or out yourself needs being at a work location. */
+  clockInRequiresLocation: boolean;
   employeeLeaveRequests: boolean;
   employeeDeclarations: boolean;
   updatedAt: string;
@@ -639,6 +770,11 @@ export interface HrSelfProfile {
 export interface HrSelfFeatures {
   /** Clock in/out from My HR (WeldHR settings → Self-service). */
   selfClockIn: boolean;
+  /**
+   * Clocking needs the device at a work location: send `location` with the
+   * clock call. Absent from an API that predates it (treat as false).
+   */
+  clockInRequiresLocation?: boolean;
   /** Request leave from My HR (WeldHR settings → Self-service). */
   leaveRequests: boolean;
   /** Submit expense declarations from My HR (WeldHR settings → Self-service). */
@@ -661,6 +797,10 @@ export interface HrSelfOverview {
   toAcknowledge: { coaching: number; evaluations: number };
   latestEvaluation: { id: string; overallScore: number | null; formName: string | null; submittedAt: string | null } | null;
   milestones: { achieved: number; open: number };
+  /** Absent from an API that predates them. */
+  unreadAnnouncements?: number;
+  /** Open shifts with a spot left that I have not signed up for. */
+  openShifts?: number;
 }
 
 export interface HrSelfAttendance {
@@ -708,6 +848,8 @@ export interface HrSelfAttendance {
 /** A shift I asked to work. */
 export interface HrSelfShiftRequest {
   id: string;
+  /** Set when it is a sign-up for an open shift; absent from an API that predates it. */
+  openShiftId?: string | null;
   startsAt: string;
   endsAt: string;
   workType: string | null;
@@ -1109,6 +1251,52 @@ export function createWeldHrApi(api: ClientApi) {
       return api.post(`${base}/shift-requests/${id}/review`, body);
     },
 
+    // Open shifts (sign-ups are shift requests with `openShiftId`) -----------
+    listOpenShifts(params: { from?: string; to?: string; status?: string } = {}): Promise<DataResponse<HrOpenShift[]>> {
+      return api.get(`${base}/open-shifts${qs(params)}`);
+    },
+    createOpenShift(body: CreateHrOpenShiftInput): Promise<DataResponse<HrOpenShift>> {
+      return api.post(`${base}/open-shifts`, body);
+    },
+    updateOpenShift(id: string, body: UpdateHrOpenShiftInput): Promise<DataResponse<HrOpenShift>> {
+      return api.patch(`${base}/open-shifts/${id}`, body);
+    },
+    /** Withdraw it: waiting sign-ups are cancelled, people already on it keep their shift. */
+    cancelOpenShift(id: string): Promise<DataResponse<HrOpenShift>> {
+      return api.post(`${base}/open-shifts/${id}/cancel`, {});
+    },
+
+    // Work locations ---------------------------------------------------------
+    listWorkLocations(params: { includeInactive?: boolean } = {}): Promise<DataResponse<HrWorkLocation[]>> {
+      return api.get(`${base}/work-locations${qs({ includeInactive: params.includeInactive ? 'true' : undefined })}`);
+    },
+    createWorkLocation(body: CreateHrWorkLocationInput): Promise<DataResponse<HrWorkLocation>> {
+      return api.post(`${base}/work-locations`, body);
+    },
+    updateWorkLocation(id: string, body: UpdateHrWorkLocationInput): Promise<DataResponse<HrWorkLocation>> {
+      return api.patch(`${base}/work-locations/${id}`, body);
+    },
+    deleteWorkLocation(id: string): Promise<void> {
+      return api.delete(`${base}/work-locations/${id}`);
+    },
+
+    // Announcements ----------------------------------------------------------
+    listAnnouncements(): Promise<DataResponse<HrAnnouncement[]>> {
+      return api.get(`${base}/announcements`);
+    },
+    createAnnouncement(body: CreateHrAnnouncementInput): Promise<DataResponse<HrAnnouncement>> {
+      return api.post(`${base}/announcements`, body);
+    },
+    updateAnnouncement(id: string, body: UpdateHrAnnouncementInput): Promise<DataResponse<HrAnnouncement>> {
+      return api.patch(`${base}/announcements/${id}`, body);
+    },
+    deleteAnnouncement(id: string): Promise<void> {
+      return api.delete(`${base}/announcements/${id}`);
+    },
+    announcementReads(id: string): Promise<DataResponse<HrAnnouncementRead[]>> {
+      return api.get(`${base}/announcements/${id}/reads`);
+    },
+
     // Declarations -----------------------------------------------------------
     listDeclarations(params: { employeeId?: string; status?: string; category?: string; from?: string; to?: string } = {}): Promise<DataResponse<HrDeclarationListItem[]>> {
       return api.get(`${base}/declarations${qs(params)}`);
@@ -1269,6 +1457,19 @@ export function createWeldHrApi(api: ClientApi) {
     },
     meCancelShiftRequest(id: string): Promise<DataResponse<HrSelfShiftRequest>> {
       return api.post(`${base}/me/shift-requests/${id}/cancel`, {});
+    },
+    meOpenShifts(): Promise<DataResponse<HrSelfOpenShift[]>> {
+      return api.get(`${base}/me/open-shifts`);
+    },
+    /** Sign up for an open shift; withdraw it with `meCancelShiftRequest`. */
+    meSignUpForOpenShift(id: string, body: HrSelfServiceOpenShiftRequestInput = {}): Promise<DataResponse<HrSelfShiftRequest>> {
+      return api.post(`${base}/me/open-shifts/${id}/sign-up`, body);
+    },
+    meAnnouncements(): Promise<DataResponse<HrSelfAnnouncements>> {
+      return api.get(`${base}/me/announcements`);
+    },
+    meMarkAnnouncementRead(id: string): Promise<DataResponse<{ id: string; readAt: string }>> {
+      return api.post(`${base}/me/announcements/${id}/read`, {});
     },
     meDeclarations(): Promise<DataResponse<HrSelfDeclarations>> {
       return api.get(`${base}/me/declarations`);

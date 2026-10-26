@@ -12,8 +12,10 @@
  * terminated one) gets `{ employee: null }` from GET /me and a 404 elsewhere.
  * Clock-in, leave requests and expense declarations honour the switches in
  * `hr_settings` (`employee_self_clock_in` / `employee_leave_requests` /
- * `employee_declarations`); reporting sick and recovered, and asking for a
- * shift, are always available.
+ * `employee_declarations`), and clocking needs the device at a work location
+ * while `clock_in_requires_location` is on; reporting sick and recovered,
+ * asking for a shift, signing up for an open shift and reading announcements
+ * are always available.
  */
 
 import { Hono } from 'hono';
@@ -25,6 +27,7 @@ import {
   hrSelfDeclarationSchema,
   hrSelfLeaveRequestSchema,
   hrSelfShiftRequestSchema,
+  hrSelfOpenShiftRequestSchema,
   recoverHrAbsenceSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -55,8 +58,16 @@ import {
 } from '../../services/weldhr/self-service';
 import { loadHrSettings } from '../../services/weldhr/settings';
 import { HrNotFoundError, addDays, todayIso } from '../../services/weldhr/shared';
-import { cancelShiftRequest, requestShift, toSelfShiftRequest } from '../../services/weldhr/shift-requests';
+import { announcementsForEmployee, markAnnouncementRead } from '../../services/weldhr/announcements';
+import { openShiftsForEmployee } from '../../services/weldhr/open-shifts';
+import {
+  cancelShiftRequest,
+  requestShift,
+  signUpForOpenShift,
+  toSelfShiftRequest,
+} from '../../services/weldhr/shift-requests';
 import { cancelLeaveRequest, clock, createLeaveRequest, switchShift } from '../../services/weldhr/time';
+import { clockPlaceFor } from '../../services/weldhr/work-locations';
 import {
   actor,
   hrJson,
@@ -97,6 +108,7 @@ async function features(c: HrContext) {
   const settings = await loadHrSettings(db(c));
   return {
     selfClockIn: settings.employeeSelfClockIn,
+    clockInRequiresLocation: settings.clockInRequiresLocation,
     leaveRequests: settings.employeeLeaveRequests,
     declarations: settings.employeeDeclarations,
   };
@@ -140,18 +152,38 @@ meRoutes.post('/shift-requests/:shiftRequestId/cancel', async (c) => {
   return success(c, toSelfShiftRequest(row));
 });
 
+// Open shifts: what the employee may sign up for. A sign-up is a shift request
+// a manager answers, so like asking for a shift it has no switch.
+meRoutes.get('/open-shifts', async (c) => success(c, await openShiftsForEmployee(db(c), await selfEmployeeId(c))));
+
+meRoutes.post('/open-shifts/:openShiftId/sign-up', hrJson(hrSelfOpenShiftRequestSchema), async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await signUpForOpenShift(db(c), employeeId, param(c, 'openShiftId'), c.req.valid('json'), actor(c));
+  emit(c, 'hr_shift_request', 'created', row.id, { employeeId, status: row.status });
+  return success(c, toSelfShiftRequest(row), 201);
+});
+
+meRoutes.get('/announcements', async (c) => success(c, await announcementsForEmployee(db(c), await selfEmployeeId(c))));
+
+meRoutes.post('/announcements/:announcementId/read', async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  return success(c, await markAnnouncementRead(db(c), param(c, 'announcementId'), employeeId));
+});
+
 meRoutes.post('/clock', hrJson(hrSelfClockSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
-  if (!(await features(c)).selfClockIn) return error.forbidden(c, 'Clocking in yourself is turned off');
-  const { action, shiftId } = c.req.valid('json');
+  const flags = await features(c);
+  if (!flags.selfClockIn) return error.forbidden(c, 'Clocking in yourself is turned off');
+  const { action, shiftId, location } = c.req.valid('json');
+  const place = await clockPlaceFor(db(c), employeeId, flags.clockInRequiresLocation, location);
   let record;
   if (action === 'switch') {
-    const { closed, opened } = await switchShift(db(c), employeeId, shiftId, new Date(), actor(c));
+    const { closed, opened } = await switchShift(db(c), employeeId, shiftId, new Date(), actor(c), place);
     emit(c, 'hr_attendance', 'updated', closed.id, { employeeId, status: closed.status });
     emit(c, 'hr_attendance', 'created', opened.id, { employeeId, status: opened.status });
     record = opened;
   } else {
-    record = await clock(db(c), employeeId, action, new Date(), actor(c), shiftId);
+    record = await clock(db(c), employeeId, action, new Date(), actor(c), shiftId, place);
     emit(c, 'hr_attendance', action === 'in' ? 'created' : 'updated', record.id, { employeeId, status: record.status });
   }
   return success(c, {

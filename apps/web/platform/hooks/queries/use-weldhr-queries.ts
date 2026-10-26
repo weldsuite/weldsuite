@@ -28,8 +28,15 @@ import type {
   CreateHrEmployeeInput,
   CreateHrLeaveRequestInput,
   CreateHrLeaveTypeInput,
+  CreateHrAnnouncementInput,
+  CreateHrOpenShiftInput,
   CreateHrShiftInput,
+  CreateHrWorkLocationInput,
   HrEmployeeSensitiveInput,
+  HrSelfServiceOpenShiftRequestInput,
+  UpdateHrAnnouncementInput,
+  UpdateHrOpenShiftInput,
+  UpdateHrWorkLocationInput,
   HrSelfServiceAbsenceInput,
   HrSelfServiceAcknowledgeInput,
   HrSelfServiceClockInput,
@@ -61,6 +68,10 @@ export const weldhrKeys = {
   leaveBalances: (employeeId: string, year: number) => [...weldhrKeys.all, 'leave-balances', employeeId, year] as const,
   leaveRequests: (params: object) => [...weldhrKeys.all, 'leave-requests', params] as const,
   shiftRequests: (params: object) => [...weldhrKeys.all, 'shift-requests', params] as const,
+  openShifts: (params: object) => [...weldhrKeys.all, 'open-shifts', params] as const,
+  workLocations: (includeInactive: boolean) => [...weldhrKeys.all, 'work-locations', includeInactive] as const,
+  announcements: () => [...weldhrKeys.all, 'announcements'] as const,
+  announcementReads: (id: string) => [...weldhrKeys.all, 'announcement-reads', id] as const,
   absences: (params: object) => [...weldhrKeys.all, 'absences', params] as const,
   declarations: (params: object) => [...weldhrKeys.all, 'declarations', params] as const,
   settings: () => [...weldhrKeys.all, 'settings'] as const,
@@ -667,4 +678,121 @@ export function useMyHrPerformance(opts: { enabled?: boolean } = {}) {
     select: (r) => r.data,
     enabled: opts.enabled ?? true,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Open shifts, work locations, announcements
+// ---------------------------------------------------------------------------
+
+export function useHrOpenShifts(params: { from?: string; to?: string; status?: string } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({ queryKey: weldhrKeys.openShifts(params), queryFn: () => weldhr.listOpenShifts(params), select: (r) => r.data });
+}
+
+export function useCreateHrOpenShift() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: CreateHrOpenShiftInput) => weldhr.createOpenShift(input));
+}
+
+export function useUpdateHrOpenShift() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: UpdateHrOpenShiftInput & { id: string }) => weldhr.updateOpenShift(id, input));
+}
+
+/** Withdraw an open shift; waiting sign-ups are cancelled. */
+export function useCancelHrOpenShift() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.cancelOpenShift(id));
+}
+
+export function useHrWorkLocations(opts: { includeInactive?: boolean; enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  const includeInactive = opts.includeInactive ?? false;
+  return useQuery({
+    queryKey: weldhrKeys.workLocations(includeInactive),
+    queryFn: () => weldhr.listWorkLocations({ includeInactive }),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useCreateHrWorkLocation() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: CreateHrWorkLocationInput) => weldhr.createWorkLocation(input));
+}
+
+export function useUpdateHrWorkLocation() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: UpdateHrWorkLocationInput & { id: string }) => weldhr.updateWorkLocation(id, input));
+}
+
+export function useDeleteHrWorkLocation() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.deleteWorkLocation(id));
+}
+
+export function useHrAnnouncements() {
+  const { weldhr } = useAppApi();
+  return useQuery({ queryKey: weldhrKeys.announcements(), queryFn: () => weldhr.listAnnouncements(), select: (r) => r.data });
+}
+
+export function useHrAnnouncementReads(id: string | null) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.announcementReads(id ?? ''),
+    queryFn: () => weldhr.announcementReads(id!),
+    select: (r) => r.data,
+    enabled: Boolean(id),
+  });
+}
+
+export function useCreateHrAnnouncement() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((input: CreateHrAnnouncementInput) => weldhr.createAnnouncement(input));
+}
+
+export function useUpdateHrAnnouncement() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: UpdateHrAnnouncementInput & { id: string }) => weldhr.updateAnnouncement(id, input));
+}
+
+export function useDeleteHrAnnouncement() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.deleteAnnouncement(id));
+}
+
+export function useMyHrOpenShifts(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('open-shifts'),
+    queryFn: () => weldhr.meOpenShifts(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrSignUpForOpenShift() {
+  const { weldhr } = useAppApi();
+  return useHrMutation(({ id, ...input }: HrSelfServiceOpenShiftRequestInput & { id: string }) => weldhr.meSignUpForOpenShift(id, input));
+}
+
+/** Withdraw my own sign-up for an open shift (a shift request) while it still waits for an answer. */
+export function useMyHrCancelShiftRequest() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.meCancelShiftRequest(id));
+}
+
+export function useMyHrAnnouncements(opts: { enabled?: boolean } = {}) {
+  const { weldhr } = useAppApi();
+  return useQuery({
+    queryKey: weldhrKeys.me('announcements'),
+    queryFn: () => weldhr.meAnnouncements(),
+    select: (r) => r.data,
+    enabled: opts.enabled ?? true,
+  });
+}
+
+export function useMyHrMarkAnnouncementRead() {
+  const { weldhr } = useAppApi();
+  return useHrMutation((id: string) => weldhr.meMarkAnnouncementRead(id));
 }

@@ -1600,6 +1600,9 @@ importers:
       expo-local-authentication:
         specifier: ~57.0.3
         version: 57.0.3(expo@57.0.20)
+      expo-location:
+        specifier: ~57.0.20
+        version: 57.0.20(expo@57.0.20)(typescript@5.9.2)
       expo-notifications:
         specifier: ~57.0.17
         version: 57.0.17(expo@57.0.20)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@5.9.2)
@@ -5822,6 +5825,9 @@ importers:
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events
+      '@weldsuite/notifications':
+        specifier: workspace:*
+        version: link:../../../packages/core/notifications
       '@weldsuite/payroll-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/payroll
@@ -19214,6 +19220,11 @@ packages:
 
   expo-local-authentication@57.0.3:
     resolution: {integrity: sha512-1oQCBKz8JOpai+Zp+Z2RkBFIi2CHHWLSJk/pjvT9VEyf8nPFslo4kt1ZlQvtJ4rupbKNCmxqKfYr8Mlo8nJEug==}
+    peerDependencies:
+      expo: '*'
+
+  expo-location@57.0.20:
+    resolution: {integrity: sha512-E9cr7A5eQS91bm3McMx3FiWy7SCorVTPLq9gLFFW+7dfuSqQp5FLNBZQ6NFJaS8tVhCyl2WyKMFh0TAo/+7K9Q==}
     peerDependencies:
       expo: '*'
 
@@ -41567,6 +41578,14 @@ snapshots:
     dependencies:
       expo: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@6.0.6))(react@19.2.3)(typescript@6.0.3)(utf-8-validate@6.0.6)
       invariant: 2.2.4
+
+  expo-location@57.0.20(expo@57.0.20)(typescript@5.9.2):
+    dependencies:
+      '@expo/image-utils': 0.11.5(typescript@5.9.2)
+      expo: 57.0.20(@babel/core@7.29.7)(@expo/dom-webview@57.0.1)(@expo/metro-runtime@57.0.15)(bufferutil@4.1.0)(expo-router@57.0.19)(react-dom@19.2.3(react@19.2.3))(react-native-web@0.21.2(encoding@0.1.13)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-native-webview@13.16.1(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.7)(bufferutil@4.1.0)(react@19.2.3)(utf-8-validate@5.0.10))(react@19.2.3)(typescript@5.9.2)(utf-8-validate@5.0.10)
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
 
   expo-manifests@57.0.1(expo@57.0.20):
     dependencies:

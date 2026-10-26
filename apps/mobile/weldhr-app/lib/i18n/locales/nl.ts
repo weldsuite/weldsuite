@@ -31,6 +31,7 @@ export const nl: Translations = {
     schedule: 'Rooster',
     absence: 'Afwezigheid',
     expenses: 'Declaraties',
+    announcements: 'Mededelingen',
   },
 
   login: {
@@ -83,6 +84,8 @@ export const nl: Translations = {
     newExpense: 'Nieuwe declaratie',
     imBetter: 'Ik ben beter',
     requestShift: 'Dienst aanvragen',
+    openShiftsToSignUp: { one: '{count} open dienst om je voor aan te melden', other: '{count} open diensten om je voor aan te melden' },
+    unreadAnnouncements: { one: '{count} ongelezen mededeling', other: '{count} ongelezen mededelingen' },
   },
 
   balance: {
@@ -374,6 +377,65 @@ export const nl: Translations = {
     withdrawConfirm: 'Intrekken',
     keep: 'Behouden',
     withdrawn: 'Aanvraag ingetrokken',
+  },
+
+  openShifts: {
+    title: 'Open diensten',
+    details: 'Open dienst',
+    hint: 'Diensten die iedereen kan oppakken. Meld je aan en je leidinggevende bepaalt wie de dienst krijgt.',
+    spotsLeft: { one: '{count} plek vrij', other: '{count} plekken vrij' },
+    spots: 'Plekken',
+    spotsOf: '{left} van {total} vrij',
+    signUp: 'Aanmelden',
+    waiting: 'Wacht op goedkeuring',
+    declined: 'Afgewezen',
+    full: 'Vol',
+    client: 'Klant',
+    department: 'Afdeling',
+    note: 'Notitie',
+    notePlaceholder: 'Optioneel, voor je leidinggevende',
+    managerNote: 'Opmerking leidinggevende',
+    signUpHint: 'Je leidinggevende bepaalt wie de dienst krijgt. Na goedkeuring staat hij in je rooster.',
+    waitingHint: 'Je hebt je aangemeld. Je leidinggevende heeft nog niet besloten.',
+    declinedHint: 'Je aanmelding is afgewezen.',
+    fullHint: 'Alle plekken zijn vergeven.',
+    submit: 'Aanmelden',
+    signedUp: 'Je bent aangemeld',
+    withdraw: 'Aanmelding intrekken',
+    withdrawTitle: 'Aanmelding intrekken?',
+    withdrawMessage: 'Je maakt dan geen kans meer op {when}.',
+    withdrawConfirm: 'Intrekken',
+    keep: 'Behouden',
+    withdrawn: 'Aanmelding ingetrokken',
+    notFound: 'Deze dienst is niet meer open',
+    reviewNote: 'Opmerking: {note}',
+    showAll: 'Toon alle {count}',
+    showLess: 'Toon minder',
+  },
+
+  announcements: {
+    title: 'Mededelingen',
+    details: 'Mededeling',
+    empty: 'Geen mededelingen',
+    emptyDescription: 'Nieuws van HR en je leidinggevenden staat hier.',
+    pinned: 'Vastgezet',
+    unread: 'Ongelezen',
+    by: 'Door {name}',
+    notFound: 'Deze mededeling bestaat niet meer',
+    justNow: 'Zojuist',
+    minutesAgo: '{count} min geleden',
+    hoursAgo: '{count} uur geleden',
+    yesterday: 'Gisteren',
+    daysAgo: '{count} dagen geleden',
+  },
+
+  location: {
+    required: 'Locatie nodig om te klokken',
+    deniedTitle: 'Toegang tot locatie staat uit',
+    deniedMessage:
+      'WeldHR controleert of je op je werk bent als je in- of uitklokt. Sta locatietoegang toe in Instellingen en probeer het opnieuw.',
+    openSettings: 'Instellingen openen',
+    unavailable: 'Je locatie kon niet worden bepaald. Controleer of locatievoorzieningen aan staan en probeer het opnieuw.',
   },
 
   leaveDetail: {

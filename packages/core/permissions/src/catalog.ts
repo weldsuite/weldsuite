@@ -607,6 +607,9 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   objectPermissions('absences', 'Sick reports'),
   objectPermissions('coaching', 'Coaching logs'),
   objectPermissions('evaluations', 'Evaluations and KPIs'),
+  // Announcements from HR to employees (My HR and the WeldHR app). Employees
+  // read the ones meant for them through employees:self.
+  objectPermissions('announcements', 'Announcements'),
   // Payroll is kept apart from employees:sensitive: running pay is not the same
   // as reading national ids, and preparing a run is not approving it (four
   // eyes). Employees see their own payslips through employees:self.
@@ -718,6 +721,7 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'absences:read', 'absences:create', 'absences:update', 'absences:delete',
   'coaching:read', 'coaching:create', 'coaching:update', 'coaching:delete',
   'evaluations:read', 'evaluations:create', 'evaluations:update', 'evaluations:delete',
+  'announcements:read', 'announcements:create', 'announcements:update', 'announcements:delete',
   // WeldHR payroll
   'payroll:read', 'payroll:prepare', 'payroll:approve', 'payroll:manage',
   // WeldKnow — admins also see and fix every teamspace (knowledge:manage)

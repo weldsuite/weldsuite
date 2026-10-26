@@ -569,6 +569,8 @@ export const platformSyncMap: EntitySyncMap = {
   hr_attendance: inv(['weldhr']),
   hr_leave_request: inv(['weldhr']),
   hr_shift_request: inv(['weldhr']),
+  hr_open_shift: inv(['weldhr']),
+  hr_announcement: inv(['weldhr']),
   hr_declaration: inv(['weldhr']),
   hr_absence: inv(['weldhr']),
   hr_coaching_log: inv(['weldhr']),

@@ -1,6 +1,7 @@
 /**
- * Four tabs: Home, Schedule (planned and worked hours per week), Absence and
- * Expenses. Each opens on the member's own view and adds the team's views for
+ * Five tabs: Home, Schedule (planned and worked hours per week, with the open
+ * shifts to sign up for), Absence, Expenses and Announcements (what HR
+ * posted, the unread count on the tab). Each opens on the member's own view and adds the team's views for
  * people with the permission (see lib/access.ts). Payslips, tasks, reviews, the directory and settings
  * live on the profile page, opened from the workspace menu at the top of Home.
  * The floating tab bar is the same chrome as the other WeldSuite apps; the
@@ -10,7 +11,7 @@
 import type { ComponentProps } from 'react';
 import { Tabs } from 'expo-router';
 import { StyleSheet, View, type ColorValue } from 'react-native';
-import { CalendarDays, CalendarHeart, House, Receipt } from 'lucide-react-native';
+import { CalendarDays, CalendarHeart, House, Megaphone, Receipt } from 'lucide-react-native';
 import {
   FloatingTabBar,
   floatingTabBarScreenOptions,
@@ -20,7 +21,7 @@ import {
 import { AddButton } from '@/components/AddButton';
 import { BRAND } from '@/constants/brand';
 import { usePalette } from '@/hooks/use-palette';
-import { useHrAccess, usePendingExpenses, usePendingLeave } from '@/hooks/use-weldhr-queries';
+import { useAnnouncements, useHrAccess, usePendingExpenses, usePendingLeave } from '@/hooks/use-weldhr-queries';
 import { useI18n } from '@/lib/i18n';
 
 type TabIconProps = { color: ColorValue; size: number };
@@ -40,6 +41,7 @@ const HomeIcon = ({ color, size }: TabIconProps) => <House size={size} color={co
 const ScheduleIcon = ({ color, size }: TabIconProps) => <CalendarDays size={size} color={color} strokeWidth={2.2} />;
 const AbsenceIcon = ({ color, size }: TabIconProps) => <CalendarHeart size={size} color={color} strokeWidth={2.2} />;
 const ExpensesIcon = ({ color, size }: TabIconProps) => <Receipt size={size} color={color} strokeWidth={2.2} />;
+const AnnouncementsIcon = ({ color, size }: TabIconProps) => <Megaphone size={size} color={color} strokeWidth={2.2} />;
 
 export default function TabLayout() {
   const { t } = useI18n();
@@ -51,6 +53,7 @@ export default function TabLayout() {
 
   const leaveWaiting = pendingLeave.data?.length ?? 0;
   const expensesWaiting = pendingExpenses.data?.length ?? 0;
+  const unreadAnnouncements = useAnnouncements(access.self).data?.unread ?? 0;
   const hidden = (show: boolean) => (show ? undefined : null);
 
   return (
@@ -91,6 +94,16 @@ export default function TabLayout() {
             href: hidden(self || access.approveExpenses),
             tabBarBadge: expensesWaiting > 0 ? expensesWaiting : undefined,
             tabBarButtonTestID: 'tab-expenses',
+          }}
+        />
+        <Tabs.Screen
+          name="announcements"
+          options={{
+            title: t.tabs.announcements,
+            tabBarIcon: AnnouncementsIcon,
+            href: hidden(self),
+            tabBarBadge: unreadAnnouncements > 0 ? unreadAnnouncements : undefined,
+            tabBarButtonTestID: 'tab-announcements',
           }}
         />
       </Tabs>

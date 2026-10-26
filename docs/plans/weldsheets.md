@@ -407,10 +407,36 @@ takes 1.1 s (was 2.4 s).
   bound by rewriting their text (A1 references); shared relative formulas would
   remove that.
 
+**Editing comforts: done.**
+
+- Autofill: dragging the fill handle continues a selection down, up, left
+  or right (`editor/model/autofill.ts`): numbers and dates as a linear series
+  (Excel's least-squares trend for uneven steps; dates on the same day of the
+  month step by months), one number copies and one date counts by a day,
+  "Item 1" counts on keeping its zeros, weekday and month names go round (en
+  and the sheet's locale), formulas move like copies, anything else repeats,
+  styles repeat. Ctrl while dragging copies instead. Pulling the handle back
+  inside the selection clears what it left; a double-click fills down as far
+  as the column next to it. A hint shows what the last cell gets. Ctrl+D and
+  Ctrl+R copy down and right. Fills are plain cell and style writes, so they
+  co-edit and undo as one step (at most 1,000,000 cells).
+- Dragging a selection by its outline moves it (Ctrl: copies); dragging
+  selected whole columns or rows by their headers moves them (`moveDims`).
+  A move, like a cut and paste, points formulas that read the moved cells
+  (and those inside the block) at where the cells went. Selections, fills
+  and moves scroll the grid when held past its edge.
+- A double-click on a header border fits the column or row to its contents
+  ("Fit to data" in the menu for selected columns or rows).
+- Find and replace (Ctrl+F, Ctrl+H): match case, whole cell, in formulas,
+  across sheets; replace all is one undo step.
+- Paste values only (Ctrl+Shift+V, right-click), Ctrl+; and Ctrl+Shift+;
+  (date and time now), Ctrl+\ (clear formatting), Ctrl+5 (strikethrough).
+
 Known gaps, to pick up in later phases:
 
-- Autofill (dragging the fill handle) and auto-fit on double-clicking a
-  column border are not built yet; a double-click resets the size.
+- Autofill has no custom lists and no "Series" dialog (step and stop
+  value); a move does not rewrite references from other spreadsheets or
+  defined names, and a cut to another sheet keeps formulas as they were.
 - Comments have no reactions or attachments; a mention
   of someone who cannot open the sheet is not offered sharing.
 - Connected tables cannot join objects or group rows, and custom fields and

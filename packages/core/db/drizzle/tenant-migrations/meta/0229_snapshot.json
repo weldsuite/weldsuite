@@ -1,5 +1,5 @@
 {
-  "id": "df66365d-1073-447a-ac43-2044036db544",
+  "id": "ccc0283a-f10f-40dc-875a-43e9db2b98cd",
   "prevId": "5ea78f44-5cba-43cf-8fef-5a6920180cd4",
   "version": "7",
   "dialect": "postgresql",
@@ -63037,6 +63037,181 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.hr_announcement_reads": {
+      "name": "hr_announcement_reads",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(30)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "announcement_id": {
+          "name": "announcement_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "employee_id": {
+          "name": "employee_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "hr_announcement_reads_uidx": {
+          "name": "hr_announcement_reads_uidx",
+          "columns": [
+            {
+              "expression": "announcement_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "employee_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "hr_announcement_reads_employee_idx": {
+          "name": "hr_announcement_reads_employee_idx",
+          "columns": [
+            {
+              "expression": "employee_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.hr_announcements": {
+      "name": "hr_announcements",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(30)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pinned": {
+          "name": "pinned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "department_ids": {
+          "name": "department_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "notified_at": {
+          "name": "notified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "hr_announcements_published_idx": {
+          "name": "hr_announcements_published_idx",
+          "columns": [
+            {
+              "expression": "published_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.hr_attendance_records": {
       "name": "hr_attendance_records",
       "schema": "",
@@ -63132,6 +63307,42 @@
         "approved_at": {
           "name": "approved_at",
           "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "clock_in_location_id": {
+          "name": "clock_in_location_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "clock_in_latitude": {
+          "name": "clock_in_latitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "clock_in_longitude": {
+          "name": "clock_in_longitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "clock_out_location_id": {
+          "name": "clock_out_location_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "clock_out_latitude": {
+          "name": "clock_out_latitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "clock_out_longitude": {
+          "name": "clock_out_longitude",
+          "type": "double precision",
           "primaryKey": false,
           "notNull": false
         },
@@ -64372,6 +64583,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "work_location_ids": {
+          "name": "work_location_ids",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "sensitive_encrypted": {
           "name": "sensitive_encrypted",
           "type": "text",
@@ -65434,6 +65651,138 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.hr_open_shifts": {
+      "name": "hr_open_shifts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(30)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "department_id": {
+          "name": "department_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "work_type": {
+          "name": "work_type",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "break_starts_at": {
+          "name": "break_starts_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "break_ends_at": {
+          "name": "break_ends_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "spots": {
+          "name": "spots",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "hr_open_shifts_start_idx": {
+          "name": "hr_open_shifts_start_idx",
+          "columns": [
+            {
+              "expression": "starts_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "hr_open_shifts_status_idx": {
+          "name": "hr_open_shifts_status_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.hr_portal_access": {
       "name": "hr_portal_access",
       "schema": "",
@@ -65701,59 +66050,12 @@
           "notNull": true,
           "default": true
         },
-        "employee_leave_requests": {
-          "name": "employee_leave_requests",
+        "clock_in_requires_location": {
+          "name": "clock_in_requires_location",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
-          "default": true
-        },
-        "employee_declarations": {
-          "name": "employee_declarations",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hr_settings": {
-      "name": "hr_settings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(30)",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "employee_self_clock_in": {
-          "name": "employee_self_clock_in",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
+          "default": false
         },
         "employee_leave_requests": {
           "name": "employee_leave_requests",
@@ -65807,6 +66109,12 @@
           "type": "varchar(30)",
           "primaryKey": false,
           "notNull": true
+        },
+        "open_shift_id": {
+          "name": "open_shift_id",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": false
         },
         "starts_at": {
           "name": "starts_at",
@@ -65911,6 +66219,21 @@
           "columns": [
             {
               "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "hr_shift_requests_open_shift_idx": {
+          "name": "hr_shift_requests_open_shift_idx",
+          "columns": [
+            {
+              "expression": "open_shift_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -66046,6 +66369,83 @@
           "with": {}
         }
       },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.hr_work_locations": {
+      "name": "hr_work_locations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(30)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(160)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "radius_meters": {
+          "name": "radius_meters",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 150
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

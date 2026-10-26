@@ -22,6 +22,9 @@ vi.mock('@/app/weldhr/settings/components/departments-tab', () => ({
 vi.mock('@/app/weldhr/settings/components/leave-types-tab', () => ({
   LeaveTypesTab: () => <div>leave types panel</div>,
 }));
+vi.mock('@/app/weldhr/settings/components/work-locations-tab', () => ({
+  WorkLocationsTab: () => <div>work locations panel</div>,
+}));
 vi.mock('@/app/weldhr/settings/components/self-service-tab', () => ({
   SelfServiceTab: () => <div>self-service panel</div>,
 }));
@@ -56,6 +59,14 @@ describe('WeldHR settings page', () => {
 
     expect(screen.getByText('self-service panel')).toBeTruthy();
     expect(screen.getByRole('tab', { name: en.weldhr.settings.tabs.selfService })).toBeTruthy();
+  });
+
+  it('opens the work locations tab from the query string', () => {
+    tab = 'work-locations';
+    render(<WeldHrSettingsPage />);
+
+    expect(screen.getByText('work locations panel')).toBeTruthy();
+    expect(screen.queryByText('departments panel')).toBeNull();
   });
 
   it('writes the selected tab into the settings URL', () => {

@@ -1,6 +1,7 @@
 /**
- * /api/weldhr/shifts, /api/weldhr/shift-requests, /api/weldhr/attendance,
- * /api/weldhr/leave-types, /api/weldhr/leave-allowances, /api/weldhr/leave-requests
+ * /api/weldhr/shifts, /api/weldhr/shift-requests, /api/weldhr/open-shifts,
+ * /api/weldhr/attendance, /api/weldhr/leave-types, /api/weldhr/leave-allowances,
+ * /api/weldhr/leave-requests
  */
 
 import { Hono } from 'hono';
@@ -10,6 +11,7 @@ import {
   createHrAttendanceSchema,
   createHrLeaveRequestSchema,
   createHrLeaveTypeSchema,
+  createHrOpenShiftSchema,
   createHrShiftSchema,
   importHrAttendanceSchema,
   reviewHrLeaveRequestSchema,
@@ -17,6 +19,7 @@ import {
   setHrLeaveAllowanceSchema,
   updateHrAttendanceSchema,
   updateHrLeaveTypeSchema,
+  updateHrOpenShiftSchema,
   updateHrShiftSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import type { Env, Variables } from '../../types';
@@ -49,6 +52,14 @@ import {
 } from '../../services/weldhr/time';
 import { addDays, todayIso } from '../../services/weldhr/shared';
 import { listShiftRequests, reviewShiftRequest, shiftRequestWithNames } from '../../services/weldhr/shift-requests';
+import {
+  cancelOpenShift,
+  createOpenShift,
+  listOpenShifts,
+  openShiftWithDetails,
+  settleOpenShift,
+  updateOpenShift,
+} from '../../services/weldhr/open-shifts';
 import { actor, hrJson, db, emit, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
@@ -110,9 +121,56 @@ shiftRequestsRoutes.post(
       employeeId: row.employeeId,
       status: row.status,
     });
+    if (row.openShiftId && row.status === 'approved') {
+      // The last spot taken turns down whoever is still waiting for it.
+      for (const closed of await settleOpenShift(db(c), row.openShiftId, actor(c))) {
+        emit(c, 'hr_shift_request', 'rejected', closed.id, { employeeId: closed.employeeId, status: closed.status });
+      }
+      emit(c, 'hr_open_shift', 'updated', row.openShiftId);
+    }
     return success(c, await shiftRequestWithNames(db(c), row.id));
   },
 );
+
+// ---------------------------------------------------------------------------
+// Open shifts (posted for employees to sign up; sign-ups are shift requests)
+// ---------------------------------------------------------------------------
+
+export const openShiftsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+openShiftsRoutes.get('/', requirePermission('attendance:read'), async (c) => {
+  const q = c.req.query();
+  return success(
+    c,
+    await listOpenShifts(db(c), {
+      from: q.from && isoDate.test(q.from) ? q.from : undefined,
+      to: q.to && isoDate.test(q.to) ? q.to : undefined,
+      status: q.status || undefined,
+    }),
+  );
+});
+
+openShiftsRoutes.post('/', requirePermission('attendance:create'), hrJson(createHrOpenShiftSchema), async (c) => {
+  const row = await createOpenShift(db(c), c.req.valid('json'), actor(c));
+  emit(c, 'hr_open_shift', 'created', row.id, { status: row.status });
+  return success(c, await openShiftWithDetails(db(c), row.id), 201);
+});
+
+openShiftsRoutes.patch('/:openShiftId', requirePermission('attendance:update'), hrJson(updateHrOpenShiftSchema), async (c) => {
+  const row = await updateOpenShift(db(c), param(c, 'openShiftId'), c.req.valid('json'));
+  emit(c, 'hr_open_shift', 'updated', row.id, { status: row.status });
+  return success(c, await openShiftWithDetails(db(c), row.id));
+});
+
+// Withdrawing keeps the row (sign-ups point at it); waiting sign-ups are cancelled.
+openShiftsRoutes.post('/:openShiftId/cancel', requirePermission('attendance:delete'), async (c) => {
+  const { row, closed } = await cancelOpenShift(db(c), param(c, 'openShiftId'), actor(c));
+  emit(c, 'hr_open_shift', 'cancelled', row.id, { status: row.status });
+  for (const request of closed) {
+    emit(c, 'hr_shift_request', 'updated', request.id, { employeeId: request.employeeId, status: request.status });
+  }
+  return success(c, await openShiftWithDetails(db(c), row.id));
+});
 
 // ---------------------------------------------------------------------------
 // Attendance

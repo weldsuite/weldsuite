@@ -14,6 +14,8 @@
  *                                        report for themselves under /me)
  *   coaching:read|create|update|delete
  *   evaluations:read|create|update|delete  evaluations, KPI values, milestones
+ *   announcements:read|create|update|delete  news to employees (they read theirs under /me)
+ *   open shifts use attendance:*; work locations are settings (employees:manage)
  *   employees:self                       My HR: the caller's own record (/me), incl. their
  *                                        payslips, payroll details and tax forms
  *   payroll:read|prepare|approve|manage  /payroll (flag `weldhr-payroll`), see ./payroll
@@ -52,9 +54,12 @@ import {
   leaveAllowancesRoutes,
   leaveRequestsRoutes,
   leaveTypesRoutes,
+  openShiftsRoutes,
   shiftRequestsRoutes,
   shiftsRoutes,
 } from './time';
+import { announcementsRoutes } from './announcements';
+import { workLocationsRoutes } from './work-locations';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -88,6 +93,9 @@ app.route('/checklist-templates', checklistTemplatesRoutes);
 app.route('/checklists', checklistsRoutes);
 app.route('/shifts', shiftsRoutes);
 app.route('/shift-requests', shiftRequestsRoutes);
+app.route('/open-shifts', openShiftsRoutes);
+app.route('/work-locations', workLocationsRoutes);
+app.route('/announcements', announcementsRoutes);
 app.route('/attendance', attendanceRoutes);
 app.route('/leave-types', leaveTypesRoutes);
 app.route('/leave-allowances', leaveAllowancesRoutes);

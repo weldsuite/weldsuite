@@ -13,6 +13,8 @@ export const HR_ENTITY_EVENTS = {
   hr_attendance: ['created', 'updated', 'deleted', 'approved'],
   hr_leave_request: ['created', 'updated', 'deleted', 'approved', 'rejected'],
   hr_shift_request: ['created', 'updated', 'approved', 'rejected'],
+  hr_open_shift: ['created', 'updated', 'cancelled'],
+  hr_announcement: ['created', 'updated', 'deleted'],
   hr_declaration: ['created', 'updated', 'deleted', 'approved', 'rejected', 'paid'],
   hr_absence: ['created', 'updated', 'deleted', 'recovered'],
   hr_coaching_log: ['created', 'updated', 'deleted', 'acknowledged'],

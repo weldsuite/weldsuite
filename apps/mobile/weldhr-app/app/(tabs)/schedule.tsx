@@ -3,7 +3,8 @@
  * My week has the member's own days: each shift with the hours clocked on it
  * (the running clock while clocked in), hours worked without a shift, shifts
  * asked for and not yet approved, and leave or sick days, then the week's
- * worked-of-planned total and its pay. Team has everyone's shifts per day
+ * worked-of-planned total and its pay. Open shifts HR posted for anyone to
+ * take are listed above the week, to sign up for. Team has everyone's shifts per day
  * with whether they clocked in, for people who can read attendance. Pull the
  * sheet down for the month to jump weeks.
  */
@@ -19,6 +20,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { LeaveTypeTile, SickTile, statusColor, timeRange } from '@/components/HrRows';
 import { MonthCalendar } from '@/components/MonthCalendar';
 import { MyHrGate, useSelfState } from '@/components/MyHrGate';
+import { OpenShiftsSection } from '@/components/OpenShifts';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { QueryBody } from '@/components/QueryBody';
 import { Pinned, useStickySections } from '@/components/Sticky';
@@ -26,7 +28,15 @@ import { Row, type RowProps } from '@/components/Row';
 import { PeriodNav, Screen, Segments, type SegmentOption } from '@/components/Screen';
 import { swatchFor } from '@/constants/brand';
 import { usePalette } from '@/hooks/use-palette';
-import { useAbsences, useAttendance, useHrAccess, useLeave, useTeamAttendance, useTeamShifts } from '@/hooks/use-weldhr-queries';
+import {
+  useAbsences,
+  useAttendance,
+  useHrAccess,
+  useLeave,
+  useOpenShifts,
+  useTeamAttendance,
+  useTeamShifts,
+} from '@/hooks/use-weldhr-queries';
 import { addDays, dayOf, isoWeek, parseIsoDate, startOfWeek, todayIso } from '@/lib/dates';
 import { formatDuration, formatHoursMinutes, formatShortDate, formatSpan, formatTime, formatTimer } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
@@ -76,6 +86,7 @@ export default function ScheduleScreen() {
   const from = startOfWeek(day);
   const to = addDays(from, 6);
   const mine = useAttendance(from, to, view === 'mine' && state.status === 'ready');
+  const openShifts = useOpenShifts(view === 'mine' && state.status === 'ready');
   const teamShifts = useTeamShifts(from, to, view === 'team');
   const teamHours = useTeamAttendance(from, to, view === 'team');
 
@@ -84,6 +95,7 @@ export default function ScheduleScreen() {
     state.refetch();
     if (view === 'mine') {
       void mine.refetch();
+      void openShifts.refetch();
     } else {
       void teamShifts.refetch();
       void teamHours.refetch();
@@ -117,6 +129,7 @@ export default function ScheduleScreen() {
     >
       {view === 'mine' ? (
         <MyHrGate state={state} onRetry={refresh}>
+          <OpenShiftsSection enabled={state.status === 'ready'} />
           <QueryBody query={mine}>{(data) => <MyWeek data={data} from={from} to={to} />}</QueryBody>
         </MyHrGate>
       ) : (

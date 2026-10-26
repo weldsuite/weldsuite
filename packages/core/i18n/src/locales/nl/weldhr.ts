@@ -4,6 +4,7 @@
  * Per onderdeel opgesplitst, zie en/weldhr.ts voor de indeling.
  */
 import { weldhrAdmin } from './weldhr-admin';
+import { weldhrAnnouncements } from './weldhr-announcements';
 import { weldhrDeclarations } from './weldhr-declarations';
 import { weldhrPayroll } from './weldhr-payroll';
 import { weldhrPeople } from './weldhr-people';
@@ -86,6 +87,11 @@ export const weldhr = {
       rejected: 'Afgewezen',
       cancelled: 'Ingetrokken',
     },
+    openShift: {
+      open: 'Open',
+      full: 'Vol',
+      cancelled: 'Ingetrokken',
+    },
     declaration: {
       pending: 'In afwachting',
       approved: 'Goedgekeurd',
@@ -161,5 +167,6 @@ export const weldhr = {
   ...weldhrDeclarations,
   ...weldhrPayroll,
   ...weldhrAdmin,
+  ...weldhrAnnouncements,
   ...weldhrSelf,
 };

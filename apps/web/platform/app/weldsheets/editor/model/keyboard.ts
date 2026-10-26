@@ -68,6 +68,30 @@ function handleModKey(ctl: SheetController, e: KeyInput): boolean {
     case ' ':
       selectWholeColumns(ctl);
       return true;
+    case 'd':
+      ctl.fillDown();
+      return true;
+    case 'r':
+      ctl.fillRight();
+      return true;
+    case ';':
+      ctl.insertNow(e.shiftKey ? 'time' : 'date');
+      return true;
+    case ':':
+      ctl.insertNow('time');
+      return true;
+    case '\\':
+      ctl.clearFormatting();
+      return true;
+    case '5':
+      ctl.toggle('strike');
+      return true;
+    case 'f':
+      ctl.openFind('find');
+      return true;
+    case 'h':
+      ctl.openFind('replace');
+      return true;
     default:
       return false;
   }

@@ -64,6 +64,7 @@ const CATEGORY_APP_CODES: Record<string, string[]> = {
   weldbooks: ['weldbooks', 'weldsuite'],
   weldagent: ['weldagent', 'weldsuite'],
   weldcalendar: ['weldcalendar', 'weldsuite'],
+  weldhr: ['weldhr', 'weldsuite'],
 };
 
 export function appCodesForCategory(category: string): string[] {

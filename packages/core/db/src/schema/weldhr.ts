@@ -197,6 +197,11 @@ export const hrEmployees = pgTable('hr_employees', {
   location: varchar('location', { length: 160 }),
   timezone: varchar('timezone', { length: 60 }),
   weeklyHours: doublePrecision('weekly_hours'),
+  /**
+   * `hr_work_locations` this employee may clock in at when the workspace
+   * requires a location. Null or empty: any of the workspace's locations.
+   */
+  workLocationIds: jsonb('work_location_ids').$type<string[]>(),
 
   /** AES-GCM blob of `HrEmployeeSensitive`. Never returned without `employees:sensitive`. */
   sensitiveEncrypted: text('sensitive_encrypted'),
@@ -323,12 +328,44 @@ export const hrShifts = pgTable('hr_shifts', {
 ]);
 
 /**
+ * A shift nobody is on yet, posted for employees who want to work. An employee
+ * signs up with a shift request pointing here (`hr_shift_requests.open_shift_id`);
+ * a manager approves who gets it, and each approval puts a shift on that
+ * employee's rooster, until `spots` of them are taken. How many are taken is
+ * counted from those approved requests whose shift still exists, never stored.
+ */
+export const hrOpenShifts = pgTable('hr_open_shifts', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  companyId: varchar('company_id', { length: 30 }),
+  /** Only employees of this department (or one under it) see it. Null: everyone. */
+  departmentId: varchar('department_id', { length: 30 }),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  workType: varchar('work_type', { length: 100 }),
+  breakStartsAt: timestamp('break_starts_at', { withTimezone: true }),
+  breakEndsAt: timestamp('break_ends_at', { withTimezone: true }),
+  notes: text('notes'),
+  /** How many people the shift needs. */
+  spots: integer('spots').notNull().default(1),
+  /** `open` or `cancelled`. Full is derived from the approved sign-ups. */
+  status: varchar('status', { length: 20 }).notNull().default('open'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_open_shifts_start_idx').on(table.startsAt),
+  index('hr_open_shifts_status_idx').on(table.status),
+]);
+
+/**
  * An employee asking to work a shift (from the WeldHR app). A manager approves
  * or rejects it; approving puts the shift on the rooster and links it here.
  */
 export const hrShiftRequests = pgTable('hr_shift_requests', {
   id: varchar('id', { length: 30 }).primaryKey(),
   employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  /** Set when the employee signed up for an open shift; the times are copied from it. */
+  openShiftId: varchar('open_shift_id', { length: 30 }),
   startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
   endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
   /** What the employee offers to do, e.g. "Cashier". Free text. */
@@ -349,7 +386,27 @@ export const hrShiftRequests = pgTable('hr_shift_requests', {
 }, (table) => [
   index('hr_shift_requests_employee_start_idx').on(table.employeeId, table.startsAt),
   index('hr_shift_requests_status_idx').on(table.status),
+  index('hr_shift_requests_open_shift_idx').on(table.openShiftId),
 ]);
+
+/**
+ * A place employees clock in at. When `hr_settings.clock_in_requires_location`
+ * is on, clocking in or out needs the device within `radius_meters` of one the
+ * employee is allowed (`hr_employees.work_location_ids`). Soft-deleted, so the
+ * records that name one keep their name.
+ */
+export const hrWorkLocations = pgTable('hr_work_locations', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  name: varchar('name', { length: 160 }).notNull(),
+  address: text('address'),
+  latitude: doublePrecision('latitude').notNull(),
+  longitude: doublePrecision('longitude').notNull(),
+  radiusMeters: integer('radius_meters').notNull().default(150),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+});
 
 export const hrAttendanceRecords = pgTable('hr_attendance_records', {
   id: varchar('id', { length: 30 }).primaryKey(),
@@ -368,6 +425,17 @@ export const hrAttendanceRecords = pgTable('hr_attendance_records', {
   notes: text('notes'),
   approvedBy: varchar('approved_by', { length: 255 }),
   approvedAt: timestamp('approved_at'),
+  /**
+   * Where the employee was when clocking in and out, only recorded while the
+   * workspace requires a location; the location id is the work location they
+   * were at.
+   */
+  clockInLocationId: varchar('clock_in_location_id', { length: 30 }),
+  clockInLatitude: doublePrecision('clock_in_latitude'),
+  clockInLongitude: doublePrecision('clock_in_longitude'),
+  clockOutLocationId: varchar('clock_out_location_id', { length: 30 }),
+  clockOutLatitude: doublePrecision('clock_out_latitude'),
+  clockOutLongitude: doublePrecision('clock_out_longitude'),
   createdBy: varchar('created_by', { length: 255 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -616,6 +684,44 @@ export const hrMilestones = pgTable('hr_milestones', {
 ]);
 
 // ---------------------------------------------------------------------------
+// Announcements
+// ---------------------------------------------------------------------------
+
+/**
+ * News from HR to employees, read in My HR and the WeldHR app. The audience is
+ * everyone, or the employees of `department_ids` and the departments under them.
+ */
+export const hrAnnouncements = pgTable('hr_announcements', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  title: varchar('title', { length: 200 }).notNull(),
+  body: text('body').notNull(),
+  /** Pinned announcements stay above the rest. */
+  pinned: boolean('pinned').notNull().default(false),
+  /** Empty: every employee. */
+  departmentIds: jsonb('department_ids').$type<string[]>().notNull().default([]),
+  publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  /** When the push notification to the audience went out; null when none was sent. */
+  notifiedAt: timestamp('notified_at', { withTimezone: true }),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => [
+  index('hr_announcements_published_idx').on(table.publishedAt),
+]);
+
+/** Who has read an announcement: one row per employee, written the first time they open it. */
+export const hrAnnouncementReads = pgTable('hr_announcement_reads', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  announcementId: varchar('announcement_id', { length: 30 }).notNull(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  readAt: timestamp('read_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('hr_announcement_reads_uidx').on(table.announcementId, table.employeeId),
+  index('hr_announcement_reads_employee_idx').on(table.employeeId),
+]);
+
+// ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 
@@ -624,6 +730,8 @@ export const hrSettings = pgTable('hr_settings', {
   id: varchar('id', { length: 30 }).primaryKey(),
   /** Employees may clock in and out from My HR. */
   employeeSelfClockIn: boolean('employee_self_clock_in').notNull().default(true),
+  /** Clocking in or out yourself needs being at one of the work locations (`hr_work_locations`). */
+  clockInRequiresLocation: boolean('clock_in_requires_location').notNull().default(false),
   /** Employees may request leave from My HR. */
   employeeLeaveRequests: boolean('employee_leave_requests').notNull().default(true),
   /** Employees may submit expense declarations from My HR. */
@@ -662,6 +770,11 @@ export type HrChecklistTemplate = typeof hrChecklistTemplates.$inferSelect;
 export type HrChecklist = typeof hrChecklists.$inferSelect;
 export type HrChecklistTask = typeof hrChecklistTasks.$inferSelect;
 export type HrShift = typeof hrShifts.$inferSelect;
+export type HrOpenShift = typeof hrOpenShifts.$inferSelect;
+export type HrShiftRequest = typeof hrShiftRequests.$inferSelect;
+export type HrWorkLocation = typeof hrWorkLocations.$inferSelect;
+export type HrAnnouncement = typeof hrAnnouncements.$inferSelect;
+export type HrAnnouncementRead = typeof hrAnnouncementReads.$inferSelect;
 export type HrAttendanceRecord = typeof hrAttendanceRecords.$inferSelect;
 export type HrLeaveType = typeof hrLeaveTypes.$inferSelect;
 export type HrLeaveAllowance = typeof hrLeaveAllowances.$inferSelect;
