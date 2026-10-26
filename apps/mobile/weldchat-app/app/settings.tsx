@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AppState, View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Application from 'expo-application';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
@@ -38,12 +38,24 @@ export default function SettingsScreen() {
     isPermissionGranted,
     requestPermissions,
     openNotificationSettings,
+    refreshRegistrationStatus,
     unregisterDevice,
     prepareWorkspaceSwitch,
   } = useNotifications();
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [notifBusy, setNotifBusy] = useState(false);
   const router = useRouter();
+
+  // Read the push state when the screen opens and again when the app returns
+  // from the system settings (the row opens them), so On / Off follows what
+  // the user changed there.
+  useEffect(() => {
+    void refreshRegistrationStatus();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refreshRegistrationStatus();
+    });
+    return () => subscription.remove();
+  }, [refreshRegistrationStatus]);
 
   const appVersion = Application.nativeApplicationVersion ?? '—';
   const buildVersion = Application.nativeBuildVersion ?? '—';
