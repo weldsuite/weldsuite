@@ -95,13 +95,39 @@ interface ConversationMenuProps {
   children: React.ReactElement<{ onPressIn?: () => void }>;
 }
 
-export function ConversationMenu({ conversation, onChange, children }: Readonly<ConversationMenuProps>) {
+type RecordConversation = Extract<MenuConversation, { kind: 'record' }>;
+type ChatConversation = Exclude<MenuConversation, { kind: 'record' }>;
+
+/** Where tapping the row goes. */
+function conversationHref(conversation: MenuConversation): Href {
+  const { id, name } = conversation;
+  switch (conversation.kind) {
+    case 'channel':
+      return { pathname: '/channel/[channelId]', params: { channelId: id, name, type: conversation.type ?? '' } } as Href;
+    case 'record':
+      return {
+        pathname: '/channel/[channelId]',
+        params: { channelId: id, name, type: 'entity', entityType: conversation.entityType },
+      } as Href;
+    default:
+      return { pathname: '/dm/[channelId]', params: { channelId: id, name, type: 'dm' } } as Href;
+  }
+}
+
+/**
+ * What every kind of menu shares: the notification level (loaded on
+ * press-in), changes shown at once and put back on failure, mark read, mute
+ * and copy link.
+ */
+function useMenuActions(
+  conversation: MenuConversation,
+  onChange: ConversationMenuProps['onChange'],
+) {
   const { t, format } = useI18n();
   const m = t.conversationMenu;
   const toast = useToast();
   const router = useRouter();
   const { userId } = useAuth();
-  const openRecordInApp = useOpenRecordInApp();
   const { id } = conversation;
   const [level, setLevel] = useState<NotificationLevel | null>(
     () => cachedMembership(id, userId)?.notificationPreference ?? null,
@@ -159,31 +185,6 @@ export function ConversationMenu({ conversation, onChange, children }: Readonly<
     toast.success(m.linkCopied);
   };
 
-  const toggleFollow = () => {
-    if (conversation.kind !== 'record') return;
-    const next = !conversation.isFollowing;
-    const { entityType, entityId } = conversation;
-    forgetMembership(id, userId);
-    setLevel(null);
-    apply({ isFollowing: next }, { isFollowing: !next }, () =>
-      next
-        ? appApi.chatEntityChannels.follow(entityType, entityId)
-        : appApi.chatEntityChannels.unfollow(entityType, entityId),
-    );
-  };
-
-  let href: Href;
-  if (conversation.kind === 'channel') {
-    href = { pathname: '/channel/[channelId]', params: { channelId: id, name: conversation.name, type: conversation.type ?? '' } } as Href;
-  } else if (conversation.kind === 'record') {
-    href = {
-      pathname: '/channel/[channelId]',
-      params: { channelId: id, name: conversation.name, type: 'entity', entityType: conversation.entityType },
-    } as Href;
-  } else {
-    href = { pathname: '/dm/[channelId]', params: { channelId: id, name: conversation.name, type: 'dm' } } as Href;
-  }
-
   const notifications = (
     <Link.Menu title={m.notifications} icon="bell.badge">
       <Link.MenuAction isOn={level === 'all'} onPress={() => setNotificationLevel('all')}>
@@ -204,44 +205,38 @@ export function ConversationMenu({ conversation, onChange, children }: Readonly<
     </Link.MenuAction>
   );
 
+  return { t, m, format, router, userId, setLevel, prefetch, apply, markRead, copyLink, notifications, muteAction };
+}
+
+export function ConversationMenu({ conversation, onChange, children }: Readonly<ConversationMenuProps>) {
   if (conversation.kind === 'record') {
-    const app = recordAppFor(conversation.entityType);
-    const { entityType, entityId, isFollowing } = conversation;
     return (
-      <Link href={href} push asChild>
-        <Link.Trigger>{cloneElement(children, { onPressIn: prefetch })}</Link.Trigger>
-        <Link.Menu title={conversation.name}>
-          <Link.Menu inline>
-            <Link.MenuAction icon="envelope.open" disabled={!conversation.hasUnread} onPress={markRead}>
-              {m.markRead}
-            </Link.MenuAction>
-            {app ? (
-              <Link.MenuAction icon="arrow.up.forward.app" onPress={() => void openRecordInApp(entityType, entityId)}>
-                {format(t.recordChats.openIn, { app })}
-              </Link.MenuAction>
-            ) : null}
-            <Link.MenuAction icon="link" onPress={copyLink}>
-              {m.copyLink}
-            </Link.MenuAction>
-          </Link.Menu>
-          {isFollowing ? (
-            <Link.Menu inline>
-              {muteAction}
-              {notifications}
-            </Link.Menu>
-          ) : null}
-          <Link.Menu inline>
-            <Link.MenuAction icon={isFollowing ? 'minus.circle' : 'plus.circle'} onPress={toggleFollow}>
-              {isFollowing ? t.recordChats.unfollow : t.recordChats.follow}
-            </Link.MenuAction>
-          </Link.Menu>
-        </Link.Menu>
-      </Link>
+      <RecordConversationMenu conversation={conversation} onChange={onChange}>
+        {children}
+      </RecordConversationMenu>
     );
   }
+  return (
+    <ChatConversationMenu conversation={conversation} onChange={onChange}>
+      {children}
+    </ChatConversationMenu>
+  );
+}
+
+/** A channel or a direct message. */
+function ChatConversationMenu({
+  conversation,
+  onChange,
+  children,
+}: Readonly<Omit<ConversationMenuProps, 'conversation'> & { conversation: ChatConversation }>) {
+  const { m, router, prefetch, apply, markRead, copyLink, notifications, muteAction } = useMenuActions(
+    conversation,
+    onChange,
+  );
+  const { id } = conversation;
 
   return (
-    <Link href={href} push asChild>
+    <Link href={conversationHref(conversation)} push asChild>
       <Link.Trigger>{cloneElement(children, { onPressIn: prefetch })}</Link.Trigger>
       {conversation.kind === 'channel' ? (
         <Link.Menu title={`#${conversation.name}`}>
@@ -319,6 +314,61 @@ export function ConversationMenu({ conversation, onChange, children }: Readonly<
           </Link.Menu>
         </Link.Menu>
       )}
+    </Link>
+  );
+}
+
+/** A chat on a company, person, task, project or domain: open its record, follow or unfollow. */
+function RecordConversationMenu({
+  conversation,
+  onChange,
+  children,
+}: Readonly<Omit<ConversationMenuProps, 'conversation'> & { conversation: RecordConversation }>) {
+  const { t, m, format, userId, setLevel, prefetch, apply, markRead, copyLink, notifications, muteAction } =
+    useMenuActions(conversation, onChange);
+  const openRecordInApp = useOpenRecordInApp();
+  const { id, entityType, entityId, isFollowing } = conversation;
+  const app = recordAppFor(entityType);
+
+  const toggleFollow = () => {
+    const next = !isFollowing;
+    forgetMembership(id, userId);
+    setLevel(null);
+    const request = next
+      ? () => appApi.chatEntityChannels.follow(entityType, entityId)
+      : () => appApi.chatEntityChannels.unfollow(entityType, entityId);
+    apply({ isFollowing: next }, { isFollowing: !next }, request);
+  };
+
+  return (
+    <Link href={conversationHref(conversation)} push asChild>
+      <Link.Trigger>{cloneElement(children, { onPressIn: prefetch })}</Link.Trigger>
+      <Link.Menu title={conversation.name}>
+        <Link.Menu inline>
+          <Link.MenuAction icon="envelope.open" disabled={!conversation.hasUnread} onPress={markRead}>
+            {m.markRead}
+          </Link.MenuAction>
+          {app ? (
+            <Link.MenuAction icon="arrow.up.forward.app" onPress={() => void openRecordInApp(entityType, entityId)}>
+              {format(t.recordChats.openIn, { app })}
+            </Link.MenuAction>
+          ) : null}
+          <Link.MenuAction icon="link" onPress={copyLink}>
+            {m.copyLink}
+          </Link.MenuAction>
+        </Link.Menu>
+        {isFollowing ? (
+          <Link.Menu inline>
+            {muteAction}
+            {notifications}
+          </Link.Menu>
+        ) : null}
+        <Link.Menu inline>
+          <Link.MenuAction icon={isFollowing ? 'minus.circle' : 'plus.circle'} onPress={toggleFollow}>
+            {isFollowing ? t.recordChats.unfollow : t.recordChats.follow}
+          </Link.MenuAction>
+        </Link.Menu>
+      </Link.Menu>
     </Link>
   );
 }

@@ -66,18 +66,19 @@ const SIDEBAR_WIDTH = 320;
 /**
  * What the sidebar should have open after a reload. A selection that is no
  * longer in either list (the channel was deleted, or the user left it) is
- * cleared; with nothing selected, the first channel, else the first DM. A
- * record chat stays open: it is readable whether or not it is listed.
+ * cleared; with nothing selected, the first channel, else the first DM. An
+ * open record chat stays open, followed or not (unfollowing it from its header
+ * takes it out of the sidebar, but it is still readable).
  */
 function nextSelection(
   prev: string | null,
   channels: readonly Channel[],
   dms: readonly DmChannel[],
-  recordChatIds: ReadonlySet<string>,
+  openRecordChatId: string | null,
 ): string | null {
   if (prev) {
     const stillListed =
-      channels.some((c) => c.id === prev) || dms.some((d) => d.id === prev) || recordChatIds.has(prev);
+      prev === openRecordChatId || channels.some((c) => c.id === prev) || dms.some((d) => d.id === prev);
     return stillListed ? prev : null;
   }
   return channels[0]?.id ?? dms[0]?.id ?? null;
@@ -129,6 +130,12 @@ export function IPadLayout() {
   );
   const recordChatIdsRef = useRef<ReadonlySet<string>>(new Set());
   recordChatIdsRef.current = new Set(recordRows.map((row) => row.id));
+  // The record chat open in the right pane, if that is what is selected.
+  const openRecordChatIdRef = useRef<string | null>(null);
+  const selectConversation = useCallback((id: string, isRecordChat = false) => {
+    openRecordChatIdRef.current = isRecordChat ? id : null;
+    setSelectedChannelId(id);
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -148,7 +155,7 @@ export function IPadLayout() {
       setDms(dmList);
       void cache.setChannels(chs);
       // Auto-select the first channel if none is selected; drop a selection that is gone.
-      setSelectedChannelId((prev) => nextSelection(prev, chs, dmList, recordChatIdsRef.current));
+      setSelectedChannelId((prev) => nextSelection(prev, chs, dmList, openRecordChatIdRef.current));
     } catch (err) {
       // Keep any cached / previously-loaded list instead of clearing to [].
       console.error('Failed to load data:', err);
@@ -267,7 +274,7 @@ export function IPadLayout() {
                 <Pressable
                   key={ch.id}
                   style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
-                  onPress={() => setSelectedChannelId(ch.id)}
+                  onPress={() => selectConversation(ch.id)}
                 >
                   {ch.type === 'private' ? (
                     <Lock size={16} color={colors.muted} style={styles.itemIcon} />
@@ -321,7 +328,7 @@ export function IPadLayout() {
                   <Pressable
                     key={chat.id}
                     style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
-                    onPress={() => setSelectedChannelId(chat.id)}
+                    onPress={() => selectConversation(chat.id, true)}
                   >
                     <RecordIcon size={16} color={colors.muted} style={styles.itemIcon} />
                     <Text
@@ -382,7 +389,7 @@ export function IPadLayout() {
                 <Pressable
                   key={dm.id}
                   style={[styles.sidebarItem, isActive && styles.sidebarItemActive]}
-                  onPress={() => setSelectedChannelId(dm.id)}
+                  onPress={() => selectConversation(dm.id)}
                 >
                   <View style={styles.dmAvatar}>
                     {dm.picture ? (
