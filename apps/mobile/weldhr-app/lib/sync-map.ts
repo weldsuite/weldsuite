@@ -16,6 +16,8 @@ export const appSyncMap: EntitySyncMap = {
   hr_attendance: refreshWeldHr,
   hr_leave_request: refreshWeldHr,
   hr_shift_request: refreshWeldHr,
+  hr_open_shift: refreshWeldHr,
+  hr_announcement: refreshWeldHr,
   hr_declaration: refreshWeldHr,
   hr_absence: refreshWeldHr,
   hr_coaching_log: refreshWeldHr,

@@ -25,6 +25,7 @@ import type {
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { HrConflictError, HrNotFoundError, HrValidationError, assertDateOrder, companyNames, todayIso } from './shared';
+import { assertWorkLocations } from './work-locations';
 
 const t = schema.hrEmployees;
 
@@ -389,6 +390,7 @@ export type EmployeeWriteInput = {
   location?: string | null;
   timezone?: string | null;
   weeklyHours?: number | null;
+  workLocationIds?: string[] | null;
   customFields?: Record<string, unknown>;
 };
 
@@ -432,6 +434,7 @@ export async function createEmployee(
   await assertUserIdFree(db, input.userId);
   await assertEmailFree(db, input.email);
   await assertManager(db, input.managerId);
+  await assertWorkLocations(db, input.workLocationIds);
 
   const definitions = await prepareCustomFields(db, input.customFields);
 
@@ -508,6 +511,7 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     await requireActiveWorkspaceMember(db, input.userId);
     await assertUserIdFree(db, input.userId, id);
   }
+  await assertWorkLocations(db, input.workLocationIds);
   const definitions = await prepareCustomFields(db, input.customFields);
 
   const [row] = await db
@@ -630,6 +634,40 @@ export function departmentAndDescendants(departments: Array<{ id: string; parent
     }
   }
   return out;
+}
+
+/**
+ * The employee's department and every department above it: what something
+ * aimed at a department (an announcement, an open shift) reaches them through.
+ * Empty for someone without a department.
+ */
+export async function departmentLineage(db: Database, departmentId: string | null): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!departmentId) return out;
+  const departments = await db.select({ id: d.id, parentId: d.parentId }).from(d).where(isNull(d.deletedAt));
+  const parentOf = new Map(departments.map((dept) => [dept.id, dept.parentId]));
+  let cursor: string | null | undefined = departmentId;
+  // Bounded walk: bad data may already hold a cycle.
+  while (cursor && !out.has(cursor) && out.size < 100) {
+    out.add(cursor);
+    cursor = parentOf.get(cursor);
+  }
+  return out;
+}
+
+/** Active employees in any of `departmentIds` or a department under one; every active employee for an empty list. */
+export async function employeesInDepartments(db: Database, departmentIds: string[]) {
+  const conditions: SQL[] = [isNull(t.deletedAt), sql`${t.status} <> 'terminated'`];
+  if (departmentIds.length) {
+    const departments = await db.select({ id: d.id, parentId: d.parentId }).from(d).where(isNull(d.deletedAt));
+    const reach = new Set<string>();
+    for (const root of departmentIds) for (const id of departmentAndDescendants(departments, root)) reach.add(id);
+    conditions.push(inArray(t.departmentId, [...reach]));
+  }
+  return db
+    .select({ id: t.id, userId: t.userId, firstName: t.firstName, lastName: t.lastName, preferredName: t.preferredName })
+    .from(t)
+    .where(and(...conditions));
 }
 
 export async function createDepartment(

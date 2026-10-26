@@ -211,6 +211,8 @@ function AppStack() {
                         <Stack.Screen name="leave/[id]" />
                         <Stack.Screen name="sick/[id]" />
                         <Stack.Screen name="shift-request/[id]" />
+                        <Stack.Screen name="open-shift/[id]" />
+                        <Stack.Screen name="announcement/[id]" />
                         <Stack.Screen name="pay" />
                         <Stack.Screen name="tasks" />
                         <Stack.Screen name="reviews" />

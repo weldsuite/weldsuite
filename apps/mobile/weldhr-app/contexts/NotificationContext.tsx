@@ -3,7 +3,8 @@ import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
+import { notificationTarget } from '@/lib/notification-route';
 
 const EAS_PROJECT_ID =
   Constants.expoConfig?.extra?.eas?.projectId || process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
@@ -55,6 +56,8 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const [isConnected, setIsConnected] = useState(false);
   const [isPermissionGranted, setIsPermissionGranted] = useState(false);
   const cleanupRef = useRef<(() => void) | null>(null);
+  // Notifications already followed, so the one that launched the app is not followed again when this re-runs.
+  const followed = useRef(new Set<string>());
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
     if (!notifUtils || !EAS_PROJECT_ID) return false;
@@ -123,19 +126,28 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
           }
         }
 
+        // Announcements open their page; anything else with a `route` goes there; the rest stays on Home.
+        const follow = (response: any) => {
+          const id: string | undefined = response?.notification?.request?.identifier;
+          if (id) {
+            if (followed.current.has(id)) return;
+            followed.current.add(id);
+          }
+          const target = notificationTarget(response?.notification?.request?.content?.data);
+          if (target) router.push(target as Href);
+        };
+
         const cleanup = notifUtils.setupNotificationListeners(
           (notification: any) => {
             const data = notification.request.content.data;
             if (data?.unreadCount !== undefined) { setUnreadCount(data.unreadCount); void notifUtils!.setBadgeCount(data.unreadCount); }
           },
-          (response: any) => {
-            const data = response.notification.request.content.data;
-            // Customize deep-link routing per app. Default: go home.
-            if (data?.route) {
-              router.push(data.route);
-            }
-          }
+          (response: any) => follow(response),
         );
+
+        // A tap that launched the app arrives before this listener exists.
+        const launched = await Notifications.getLastNotificationResponseAsync();
+        if (launched) follow(launched);
 
         // Re-register when the device token rotates so pushes don't silently
         // stop between cold starts.

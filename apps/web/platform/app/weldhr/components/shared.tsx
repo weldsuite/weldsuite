@@ -216,6 +216,8 @@ const STATUS_TONE: Record<string, Tone> = {
   completed: 'default',
   invited: 'outline',
   revoked: 'destructive',
+  // open shifts (open / cancelled are shared with the groups above)
+  full: 'secondary',
 };
 
 /**

@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -95,7 +96,15 @@ export function RequestsTab() {
       width: HR_COL.main,
       render: (r) => (
         <div className="min-w-0">
-          <p className="truncate font-medium">{r.employeeName}</p>
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="truncate font-medium">{r.employeeName}</p>
+            {/* A sign-up for a posted open shift, not a shift the employee proposed. */}
+            {r.openShiftId && (
+              <Badge variant="outline" className="shrink-0">
+                {t('weldhr.attendance.requests.openShiftBadge')}
+              </Badge>
+            )}
+          </div>
           {/* What the hidden columns would show, once the list is too narrow for them. */}
           <p className="truncate text-xs text-muted-foreground @4xl:hidden">
             {dayLabel(r.startsAt)} · {timeRange(r)} · {formatMinutes(lengthMinutes(r))}

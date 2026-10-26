@@ -21,9 +21,9 @@ export interface WeldhrMenuState {
   pathname: string;
   /**
    * Open onboarding tasks, coaching + evaluations waiting for an acknowledgement,
-   * and missing payroll details + unsigned tax forms.
+   * and missing payroll details + unsigned tax forms, and announcements not opened yet.
    */
-  counts: { tasks: number; reviews: number; payroll: number };
+  counts: { tasks: number; reviews: number; payroll: number; announcements: number };
   /** The sidebar's own check: owner, or holds the permission. */
   canSee: (permission: string) => boolean;
   onToggleCollapse: () => void;
@@ -40,6 +40,7 @@ const COUNTED: Partial<Record<string, keyof WeldhrMenuState['counts']>> = {
   [MY_HR_PATHS.tasks]: 'tasks',
   [MY_HR_PATHS.reviews]: 'reviews',
   [MY_HR_PATHS.payroll]: 'payroll',
+  [MY_HR_PATHS.announcements]: 'announcements',
 };
 
 /** Puts each count on its My HR item as a badge; a zero count shows none. */
@@ -151,6 +152,7 @@ export function useWeldhrSidebarItems(enabled: boolean) {
 
   const tasks = overview.data?.openTasks ?? 0;
   const reviews = overview.data ? overview.data.toAcknowledge.coaching + overview.data.toAcknowledge.evaluations : 0;
+  const announcements = overview.data?.unreadAnnouncements ?? 0;
 
   const adjust = useCallback(
     (groups: MenuGroupProps[]): MenuGroupProps[] => {
@@ -161,12 +163,12 @@ export function useWeldhrSidebarItems(enabled: boolean) {
         myPayroll: payroll.show,
         collapsed,
         pathname,
-        counts: { tasks, reviews, payroll: payroll.todo },
+        counts: { tasks, reviews, payroll: payroll.todo, announcements },
         canSee: (permission) => isOwner || can(permission),
         onToggleCollapse,
       });
     },
-    [enabled, hasEmployee, payroll.flagOn, payroll.show, payroll.todo, collapsed, pathname, tasks, reviews, isOwner, can, onToggleCollapse],
+    [enabled, hasEmployee, payroll.flagOn, payroll.show, payroll.todo, collapsed, pathname, tasks, reviews, announcements, isOwner, can, onToggleCollapse],
   );
 
   return { adjust };

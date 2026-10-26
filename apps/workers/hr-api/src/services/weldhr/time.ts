@@ -23,6 +23,7 @@ import {
   workingDaysBetween,
   yearOf,
 } from './shared';
+import { NO_CLOCK_PLACE, workLocationNames, type ClockPlace } from './work-locations';
 
 const LATE_GRACE_MINUTES = 5;
 
@@ -98,7 +99,7 @@ export async function assertNoOverlappingShift(
 }
 
 /** A break is optional, but when set it has both ends and sits inside the shift. */
-function assertShiftBreak(startsAt: Date, endsAt: Date, breakStartsAt: Date | null, breakEndsAt: Date | null) {
+export function assertShiftBreak(startsAt: Date, endsAt: Date, breakStartsAt: Date | null, breakEndsAt: Date | null) {
   if (!breakStartsAt && !breakEndsAt) return;
   if (!breakStartsAt || !breakEndsAt) throw new HrValidationError('A break needs both a start and an end time');
   if (breakEndsAt <= breakStartsAt) throw new HrValidationError('A break must end after it starts');
@@ -338,9 +339,10 @@ export async function listAttendance(db: Database, filters: AttendanceFilters) {
   ]);
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  const [companies, approvers] = await Promise.all([
+  const [companies, approvers, places] = await Promise.all([
     companyNames(db, page.map((r) => r.record.companyId)),
     memberNames(db, page.map((r) => r.record.approvedBy)),
+    workLocationNames(db, page.flatMap((r) => [r.record.clockInLocationId, r.record.clockOutLocationId])),
   ]);
   return {
     data: page.map((r) => ({
@@ -348,6 +350,8 @@ export async function listAttendance(db: Database, filters: AttendanceFilters) {
       employeeName: employeeName(r),
       companyName: r.record.companyId ? companies.get(r.record.companyId) ?? null : null,
       approvedByName: r.record.approvedBy ? approvers.get(r.record.approvedBy) ?? null : null,
+      clockInLocationName: r.record.clockInLocationId ? places.get(r.record.clockInLocationId) ?? null : null,
+      clockOutLocationName: r.record.clockOutLocationId ? places.get(r.record.clockOutLocationId) ?? null : null,
     })),
     totalCount: Number(countRes[0]?.count ?? 0),
     hasMore,
@@ -358,8 +362,11 @@ export async function listAttendance(db: Database, filters: AttendanceFilters) {
 export async function createAttendance(
   db: Database,
   input: AttendanceWrite & { employeeId: string; date: string },
-  /** `shiftId` pins the record to that shift instead of the day's first one. */
-  opts: { createdBy: string; source?: string; shiftId?: string | null },
+  /**
+   * `shiftId` pins the record to that shift instead of the day's first one;
+   * `place` is where a self-service clock-in happened.
+   */
+  opts: { createdBy: string; source?: string; shiftId?: string | null; place?: ClockPlace },
 ) {
   await requireEmployee(db, input.employeeId);
   const clockIn = input.clockIn ? new Date(input.clockIn) : null;
@@ -387,6 +394,9 @@ export async function createAttendance(
       status: derived.status,
       source: opts.source ?? 'manual',
       notes: input.notes ?? null,
+      clockInLocationId: opts.place?.locationId ?? null,
+      clockInLatitude: opts.place?.latitude ?? null,
+      clockInLongitude: opts.place?.longitude ?? null,
       createdBy: opts.createdBy,
     })
     .returning();
@@ -398,7 +408,13 @@ function nextClockTime(value: string | null | undefined, current: Date | null): 
   return value ? new Date(value) : null;
 }
 
-export async function updateAttendance(db: Database, id: string, input: AttendanceWrite) {
+export async function updateAttendance(
+  db: Database,
+  id: string,
+  input: AttendanceWrite,
+  /** Where a self-service clock-out happened. */
+  opts: { clockOutPlace?: ClockPlace } = {},
+) {
   const existing = await requireAttendance(db, id);
   const date = input.date ?? existing.date;
   const clockIn = nextClockTime(input.clockIn, existing.clockIn);
@@ -425,6 +441,13 @@ export async function updateAttendance(db: Database, id: string, input: Attendan
       workedMinutes: derived.workedMinutes,
       lateMinutes: derived.lateMinutes,
       status: derived.status,
+      ...(opts.clockOutPlace
+        ? {
+            clockOutLocationId: opts.clockOutPlace.locationId,
+            clockOutLatitude: opts.clockOutPlace.latitude,
+            clockOutLongitude: opts.clockOutPlace.longitude,
+          }
+        : {}),
       // An edited record needs approving again.
       approvedAt: null,
       approvedBy: null,
@@ -582,7 +605,8 @@ async function currentShift(db: Database, employeeId: string, now: Date) {
  * Self-service clock in/out (workforce portal and My HR). One open record per
  * day; clocking in twice is a conflict. Clocking in links `shiftId`, or else
  * the first of today's shifts that has not ended. `createdBy` defaults to the
- * portal principal; My HR passes the member's user id.
+ * portal principal; My HR passes the member's user id. `place` is where it
+ * happened, already checked against the work locations (see work-locations.ts).
  */
 export async function clock(
   db: Database,
@@ -591,6 +615,7 @@ export async function clock(
   now: Date = new Date(),
   createdBy: string = `portal:${employeeId}`,
   shiftId?: string,
+  place: ClockPlace = NO_CLOCK_PLACE,
 ) {
   const today = todayIso(now);
   const open = await openClockRecord(db, employeeId);
@@ -601,11 +626,11 @@ export async function clock(
     return createAttendance(
       db,
       { employeeId, date: today, clockIn: now.toISOString() },
-      { createdBy, source: 'portal', shiftId: shift?.id ?? null },
+      { createdBy, source: 'portal', shiftId: shift?.id ?? null, place },
     );
   }
   if (!open) throw new HrConflictError('You are not clocked in');
-  return updateAttendance(db, open.id, { clockOut: now.toISOString() });
+  return updateAttendance(db, open.id, { clockOut: now.toISOString() }, { clockOutPlace: place });
 }
 
 /**
@@ -618,17 +643,18 @@ export async function switchShift(
   shiftId: string | undefined,
   now: Date = new Date(),
   createdBy: string = `portal:${employeeId}`,
+  place: ClockPlace = NO_CLOCK_PLACE,
 ) {
   if (!shiftId) throw new HrValidationError('Pick the shift to switch to');
   const open = await openClockRecord(db, employeeId);
   if (!open) throw new HrConflictError('You are not clocked in');
   const shift = await clockableShift(db, employeeId, shiftId, now);
   if (open.shiftId === shift.id) throw new HrConflictError('You are already on this shift');
-  const closed = await updateAttendance(db, open.id, { clockOut: now.toISOString() });
+  const closed = await updateAttendance(db, open.id, { clockOut: now.toISOString() }, { clockOutPlace: place });
   const opened = await createAttendance(
     db,
     { employeeId, date: todayIso(now), clockIn: now.toISOString() },
-    { createdBy, source: 'portal', shiftId: shift.id },
+    { createdBy, source: 'portal', shiftId: shift.id, place },
   );
   return { closed, opened };
 }

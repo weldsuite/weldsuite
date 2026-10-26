@@ -47,6 +47,7 @@ import {
   todayIso,
 } from '../../components/shared';
 import { employeeFieldRules } from './employee-field-rules';
+import { WorkLocationsField, useWorkLocationOptions } from './work-locations-field';
 
 function buildFormSchema(t: (path: string) => string) {
   return z.object({
@@ -95,6 +96,8 @@ export function CreateEmployeeDialog({
   const { data: availableMembers, isLoading: membersLoading } = useHrAvailableMembers({ limit: 200 });
   const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined);
   const [managerLabel, setManagerLabel] = useState<string | null>(null);
+  const workLocationOptions = useWorkLocationOptions();
+  const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [failure, setFailure] = useState<string | null>(null);
 
   const members = availableMembers ?? [];
@@ -160,6 +163,7 @@ export function CreateEmployeeDialog({
         startDate: values.startDate || null,
         departmentId: values.departmentId || null,
         managerId: values.managerId || null,
+        ...(workLocationIds.length > 0 ? { workLocationIds } : {}),
       });
 
       onClose();
@@ -410,6 +414,8 @@ export function CreateEmployeeDialog({
                     />
                   </FormItem>
                 </div>
+
+                <WorkLocationsField options={workLocationOptions} value={workLocationIds} onChange={setWorkLocationIds} />
               </>
             )}
 

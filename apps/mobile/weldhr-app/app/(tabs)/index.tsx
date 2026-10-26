@@ -2,20 +2,27 @@
  * Home: the workspace at the top (tap for the menu with the profile and the
  * workspaces), the next shift in a flat grey card with the clock button,
  * then My schedule and My absences as lists on the page, without a box.
+ * Where the workspace requires being at a work location, clocking asks the
+ * phone for its position first (hooks/use-clock-location.ts).
  */
 
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useObserve } from 'expo-observe';
 import * as Haptics from 'expo-haptics';
 import {
   CalendarClock,
   CalendarHeart,
+  CalendarPlus,
   ClipboardCheck,
   Clock3,
+  MapPin,
+  Megaphone,
   MessageSquareText,
 } from 'lucide-react-native';
+import type { HrSelfServiceClockInput } from '@weldsuite/app-api-client/schemas/weldhr';
+import { ConfirmModal } from '@weldsuite/mobile-ui/components/ConfirmModal';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
@@ -27,12 +34,14 @@ import { Card, EmptyRow, IconTile, Row } from '@/components/Row';
 import { Screen, Section } from '@/components/Screen';
 import { WorkspaceMenu } from '@/components/WorkspaceMenu';
 import { swatchFor } from '@/constants/brand';
+import { useClockLocation } from '@/hooks/use-clock-location';
 import { usePalette } from '@/hooks/use-palette';
 import { useAbsences, useClock, useLeave, useOverview } from '@/hooks/use-weldhr-queries';
 import { addDays, dayOf, todayIso } from '@/lib/dates';
 import { formatDay, formatLongDay, formatTime, formatTimer } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import type { Translations } from '@/lib/i18n/locales/en';
+import type { ClockLocation } from '@/lib/location';
 import { hideAppSplash } from '@/utils/splash';
 
 /** The current time, ticking every `intervalMs`. */
@@ -110,6 +119,7 @@ function HomeBody({ self }: Readonly<{ self: LinkedSelf }>) {
           clockedIn={data.clock.clockedIn}
           since={data.clock.since}
           canClock={self.features.selfClockIn}
+          requiresLocation={Boolean(self.features.clockInRequiresLocation)}
           workspace={workspace}
         />
       ) : null}
@@ -135,7 +145,12 @@ function HomeBody({ self }: Readonly<{ self: LinkedSelf }>) {
 
       <MyAbsences canRequest={self.features.leaveRequests} />
 
-      <ToDo openTasks={data.openTasks} toAcknowledge={data.toAcknowledge.coaching + data.toAcknowledge.evaluations} />
+      <ToDo
+        openTasks={data.openTasks}
+        toAcknowledge={data.toAcknowledge.coaching + data.toAcknowledge.evaluations}
+        openShifts={data.openShifts ?? 0}
+        unreadAnnouncements={data.unreadAnnouncements ?? 0}
+      />
     </>
   );
 }
@@ -181,14 +196,39 @@ function MyAbsences({ canRequest }: Readonly<{ canRequest: boolean }>) {
   );
 }
 
-/** Open tasks and reviews to read, when there are any. */
-function ToDo({ openTasks, toAcknowledge }: Readonly<{ openTasks: number; toAcknowledge: number }>) {
+/** Unread announcements, open shifts to sign up for, open tasks and reviews to read, when there are any. */
+function ToDo({
+  openTasks,
+  toAcknowledge,
+  openShifts,
+  unreadAnnouncements,
+}: Readonly<{ openTasks: number; toAcknowledge: number; openShifts: number; unreadAnnouncements: number }>) {
   const { t, plural } = useI18n();
   const router = useRouter();
-  if (openTasks === 0 && toAcknowledge === 0) return null;
+  if (openTasks === 0 && toAcknowledge === 0 && openShifts === 0 && unreadAnnouncements === 0) return null;
   return (
     <Section title={t.home.toDo} large>
       <Card style={styles.open}>
+        {unreadAnnouncements > 0 ? (
+          <Row
+            leading={<IconTile icon={Megaphone} />}
+            title={t.announcements.title}
+            subtitle={plural(unreadAnnouncements, t.home.unreadAnnouncements)}
+            onPress={() => router.navigate('/announcements')}
+            chevron
+            testID="home-announcements"
+          />
+        ) : null}
+        {openShifts > 0 ? (
+          <Row
+            leading={<IconTile icon={CalendarPlus} />}
+            title={t.openShifts.title}
+            subtitle={plural(openShifts, t.home.openShiftsToSignUp)}
+            onPress={() => router.navigate('/schedule')}
+            chevron
+            testID="home-open-shifts"
+          />
+        ) : null}
         {openTasks > 0 ? (
           <Row
             leading={<IconTile icon={ClipboardCheck} />}
@@ -237,6 +277,7 @@ function ShiftHero({
   clockedIn,
   since,
   canClock,
+  requiresLocation,
   workspace,
 }: Readonly<{
   shift: HeroShift | null;
@@ -245,14 +286,19 @@ function ShiftHero({
   clockedIn: boolean;
   since: string | null;
   canClock: boolean;
+  /** The workspace needs the phone to be at a work location to clock in, out or switch. */
+  requiresLocation: boolean;
   workspace?: string;
 }>) {
   const palette = usePalette();
   const { t, format, intlLocale } = useI18n();
   const clock = useClock();
+  const geo = useClockLocation(requiresLocation);
   const toast = useToast();
   const now = useNow(clockedIn ? 1000 : 30_000);
   const [switching, setSwitching] = useState(false);
+  const [denied, setDenied] = useState(false);
+  const working = clock.isPending || geo.locating;
 
   const sinceMs = since ? new Date(since).getTime() : Number.NaN;
   const running = clockedIn && !Number.isNaN(sinceMs);
@@ -270,32 +316,39 @@ function ShiftHero({
   const shown = running ? onShift : shift;
   const bar = shown ? swatchFor(shown.companyName ?? workspace) : palette.grabber;
 
+  /**
+   * Clocks in, out or to another shift. When the workspace requires a work
+   * location the phone's position goes along; without permission or a
+   * position the clock is not touched and the person is told why. The server
+   * has the last word (wrong place, no location set up) and its message is shown.
+   */
+  const clockWith = async (input: HrSelfServiceClockInput, onDone: () => void) => {
+    let location: ClockLocation | undefined;
+    if (requiresLocation) {
+      const found = await geo.locate();
+      if (found?.status === 'denied') return setDenied(true);
+      if (found?.status === 'unavailable') return toast.error(t.location.unavailable);
+      if (found?.status === 'ok') location = found.location;
+    }
+    clock.mutate(location ? { ...input, location } : input, {
+      onSuccess: () => {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        onDone();
+      },
+      onError: (err) => toast.error((err as Error).message || t.common.somethingWrong),
+    });
+  };
+
   const onPress = () => {
     const action = clockedIn ? 'out' : 'in';
-    clock.mutate(
-      { action },
-      {
-        onSuccess: () => {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          toast.success(action === 'in' ? t.home.clockedIn : t.home.clockedOut);
-        },
-        onError: (err) => toast.error((err as Error).message || t.common.somethingWrong),
-      },
-    );
+    void clockWith({ action }, () => toast.success(action === 'in' ? t.home.clockedIn : t.home.clockedOut));
   };
 
   const switchTo = (shiftId: string) => {
-    clock.mutate(
-      { action: 'switch', shiftId },
-      {
-        onSuccess: () => {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          toast.success(t.home.switched);
-          setSwitching(false);
-        },
-        onError: (err) => toast.error((err as Error).message || t.common.somethingWrong),
-      },
-    );
+    void clockWith({ action: 'switch', shiftId }, () => {
+      toast.success(t.home.switched);
+      setSwitching(false);
+    });
   };
 
   return (
@@ -329,22 +382,40 @@ function ShiftHero({
           <ClockButtons
             clockedIn={clockedIn}
             canSwitch={clockedIn && canClock}
-            pending={clock.isPending}
-            busy={clock.isPending && !switching}
+            pending={working}
+            busy={working && !switching}
             onClock={onPress}
             onSwitch={() => setSwitching(true)}
           />
+        ) : null}
+        {requiresLocation && (canClock || clockedIn) ? (
+          <View style={styles.locationHint}>
+            <MapPin size={14} color={palette.muted} strokeWidth={2.2} />
+            <Text style={[styles.locationHintText, { color: palette.muted }]}>{t.location.required}</Text>
+          </View>
         ) : null}
       </View>
       {switching ? (
         <SwitchShiftSheet
           shifts={switchable}
           workspace={workspace}
-          pending={clock.isPending}
+          pending={working}
           onPick={switchTo}
           onClose={() => setSwitching(false)}
         />
       ) : null}
+      <ConfirmModal
+        visible={denied}
+        title={t.location.deniedTitle}
+        message={t.location.deniedMessage}
+        confirmText={t.location.openSettings}
+        cancelText={t.common.close}
+        onCancel={() => setDenied(false)}
+        onConfirm={() => {
+          setDenied(false);
+          void Linking.openSettings();
+        }}
+      />
     </View>
   );
 }
@@ -495,6 +566,8 @@ const styles = StyleSheet.create({
   since: { flexDirection: 'row', alignItems: 'center', gap: 5, marginLeft: 'auto' },
   sinceText: { fontSize: 14, fontWeight: '500', fontVariant: ['tabular-nums'] },
   heroButtons: { flexDirection: 'row', gap: 10 },
+  locationHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -4 },
+  locationHintText: { fontSize: 13 },
   clockButton: {
     flex: 1,
     flexDirection: 'row',

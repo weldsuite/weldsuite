@@ -31,6 +31,7 @@ import type { HrEmployeeDetail } from '@weldsuite/app-api-client/domains/weldhr'
 import { useHrDepartments, useUpdateHrEmployee } from '@/hooks/queries/use-weldhr-queries';
 import { EmployeePicker, ErrorBanner, errorMessage } from '../../components/shared';
 import { employeeFieldRules } from './employee-field-rules';
+import { WorkLocationsField, useWorkLocationOptions } from './work-locations-field';
 
 function buildFormSchema(t: (path: string) => string) {
   return z.object({
@@ -60,6 +61,8 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
   const updateEmployee = useUpdateHrEmployee();
   const { data: departments } = useHrDepartments();
   const [managerLabel, setManagerLabel] = useState<string | null>(employee.managerName);
+  const workLocationOptions = useWorkLocationOptions();
+  const [workLocationIds, setWorkLocationIds] = useState<string[]>(employee.workLocationIds ?? []);
   const [failure, setFailure] = useState<string | null>(null);
 
   const form = useForm<FormValues>({
@@ -109,6 +112,8 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
         weeklyHours: values.weeklyHours === '' || values.weeklyHours === undefined ? null : Number(values.weeklyHours),
         departmentId: values.departmentId || null,
         managerId: values.managerId || null,
+        // A location that was deleted since is no longer a valid assignment.
+        workLocationIds: workLocationOptions.length > 0 ? workLocationIds.filter((id) => workLocationOptions.some((o) => o.value === id)) : undefined,
       });
       onClose();
     } catch (err) {
@@ -377,6 +382,8 @@ export function EditEmployeeDialog({ employee, onClose }: Readonly<{ employee: H
                 />
               </FormItem>
             </div>
+
+            <WorkLocationsField options={workLocationOptions} value={workLocationIds} onChange={setWorkLocationIds} />
 
             <div className="grid grid-cols-3 gap-3">
               <FormField

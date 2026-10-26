@@ -8,6 +8,7 @@ import { useMe } from '@/lib/me-context';
 import { usePortalQuery } from '@/lib/hooks/use-portal-query';
 import { portalPost } from '@/lib/client';
 import { formatDate, formatDateTime, formatTime, hourIn } from '@/lib/date';
+import { PositionError, currentPosition } from '@/lib/geolocation';
 import type { ClockResult, EmployeeOverview } from '@/lib/types';
 import { Card } from '@/components/ui/primitives';
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/states';
@@ -25,12 +26,15 @@ type Overview = EmployeeOverview;
 function ClockCard({
   overview,
   canClockIn,
+  needsLocation,
   clocking,
   clockError,
   onClock,
 }: Readonly<{
   overview: Overview;
   canClockIn: boolean;
+  /** Clocking needs the device at a work location; the browser is asked for its position. */
+  needsLocation: boolean;
   clocking: boolean;
   clockError: string | null;
   onClock: (action: 'in' | 'out') => void;
@@ -53,6 +57,7 @@ function ClockCard({
               ? format(dict.home.clockedInSince, { time: formatTime(since, locale, timeZone) })
               : dict.home.notClockedIn}
           </p>
+          {needsLocation && <p className="text-xs text-gray-500 mt-1">{dict.home.locationRequired}</p>}
           {clockError && <p className="text-sm text-red-600 mt-1">{clockError}</p>}
         </div>
         <button
@@ -234,14 +239,21 @@ export default function EmployeeHomeView() {
   const [clocking, setClocking] = useState(false);
   const [clockError, setClockError] = useState<string | null>(null);
 
+  const needsLocation = Boolean(me.config.features.clockInRequiresLocation);
+
   async function clock(action: 'in' | 'out') {
     setClocking(true);
     setClockError(null);
     try {
-      await portalPost<ClockResult>(slug, '/employee/clock', { action });
+      const location = needsLocation ? await currentPosition() : undefined;
+      await portalPost<ClockResult>(slug, '/employee/clock', { action, location });
       refetch();
     } catch (err) {
-      setClockError(err instanceof Error ? err.message : dict.errors.generic);
+      if (err instanceof PositionError) {
+        setClockError(err.reason === 'denied' ? dict.home.locationDenied : dict.home.locationUnavailable);
+      } else {
+        setClockError(err instanceof Error ? err.message : dict.errors.generic);
+      }
     } finally {
       setClocking(false);
     }
@@ -265,6 +277,7 @@ export default function EmployeeHomeView() {
       <ClockCard
         overview={data}
         canClockIn={canClockIn}
+        needsLocation={needsLocation}
         clocking={clocking}
         clockError={clockError}
         onClock={(action) => void clock(action)}

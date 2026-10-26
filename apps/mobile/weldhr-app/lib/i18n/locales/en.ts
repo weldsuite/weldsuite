@@ -30,6 +30,7 @@ export const en = {
     schedule: 'Schedule',
     absence: 'Absence',
     expenses: 'Expenses',
+    announcements: 'Announcements',
   },
 
   login: {
@@ -83,6 +84,8 @@ export const en = {
     newExpense: 'New expense',
     imBetter: "I'm better",
     requestShift: 'Request a shift',
+    openShiftsToSignUp: { one: '{count} open shift to sign up for', other: '{count} open shifts to sign up for' },
+    unreadAnnouncements: { one: '{count} unread announcement', other: '{count} unread announcements' },
   },
 
   balance: {
@@ -374,6 +377,65 @@ export const en = {
     withdrawConfirm: 'Withdraw',
     keep: 'Keep',
     withdrawn: 'Request withdrawn',
+  },
+
+  openShifts: {
+    title: 'Open shifts',
+    details: 'Open shift',
+    hint: 'Shifts anyone can take. Sign up and your manager decides who gets it.',
+    spotsLeft: { one: '{count} spot left', other: '{count} spots left' },
+    spots: 'Spots',
+    spotsOf: '{left} of {total} left',
+    signUp: 'Sign up',
+    waiting: 'Waiting for approval',
+    declined: 'Declined',
+    full: 'Full',
+    client: 'Client',
+    department: 'Department',
+    note: 'Note',
+    notePlaceholder: 'Optional, for your manager',
+    managerNote: "Manager's note",
+    signUpHint: 'Your manager decides who gets the shift. Once approved, it is in your schedule.',
+    waitingHint: 'You signed up. Your manager has not decided yet.',
+    declinedHint: 'Your sign-up was declined.',
+    fullHint: 'All spots are taken.',
+    submit: 'Sign up',
+    signedUp: 'You signed up',
+    withdraw: 'Withdraw sign-up',
+    withdrawTitle: 'Withdraw your sign-up?',
+    withdrawMessage: 'You will no longer be in the running for {when}.',
+    withdrawConfirm: 'Withdraw',
+    keep: 'Keep',
+    withdrawn: 'Sign-up withdrawn',
+    notFound: 'This shift is no longer open',
+    reviewNote: 'Note: {note}',
+    showAll: 'Show all {count}',
+    showLess: 'Show less',
+  },
+
+  announcements: {
+    title: 'Announcements',
+    details: 'Announcement',
+    empty: 'No announcements',
+    emptyDescription: 'News from HR and your managers shows up here.',
+    pinned: 'Pinned',
+    unread: 'Unread',
+    by: 'By {name}',
+    notFound: 'This announcement is no longer there',
+    justNow: 'Just now',
+    minutesAgo: '{count} min ago',
+    hoursAgo: '{count} h ago',
+    yesterday: 'Yesterday',
+    daysAgo: '{count} days ago',
+  },
+
+  location: {
+    required: 'Location required to clock',
+    deniedTitle: 'Location access is off',
+    deniedMessage:
+      'WeldHR checks that you are at work when you clock in or out. Allow location access in Settings, then try again.',
+    openSettings: 'Open Settings',
+    unavailable: 'Could not find your location. Check that location services are on and try again.',
   },
 
   leaveDetail: {

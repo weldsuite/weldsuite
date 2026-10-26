@@ -7,17 +7,22 @@
  * reviewed or withdrawn; an approved one is a shift, changed on the rooster.
  */
 
-import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, sql, type SQL } from 'drizzle-orm';
+import { atomically } from '@weldsuite/worker-kit/atomically';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { displayNameOf, requireEmployee } from './employees';
 import { HrConflictError, HrNotFoundError, HrValidationError, memberNames } from './shared';
-import { assertNoOverlappingShift, assertShiftWindow, createShift, deleteShift } from './time';
+import { assertCanSignUp, assertOpenShiftHasSpot } from './open-shifts';
+import { assertNoOverlappingShift, assertShiftBreak, assertShiftWindow, createShift, deleteShift } from './time';
 
 const sr = schema.hrShiftRequests;
 const emp = schema.hrEmployees;
+const sh = schema.hrShifts;
+const os = schema.hrOpenShifts;
 
 type ShiftRequestRow = typeof sr.$inferSelect;
+type OpenShiftRow = typeof os.$inferSelect;
 
 export async function requireShiftRequest(db: Database, id: string) {
   const [row] = await db.select().from(sr).where(eq(sr.id, id)).limit(1);
@@ -71,6 +76,7 @@ export async function shiftRequestWithNames(db: Database, id: string) {
 export function toSelfShiftRequest(row: ShiftRequestRow & { reviewedByName?: string | null }) {
   return {
     id: row.id,
+    openShiftId: row.openShiftId,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
     workType: row.workType,
@@ -91,7 +97,7 @@ export function toSelfShiftRequest(row: ShiftRequestRow & { reviewedByName?: str
 export async function requestShift(
   db: Database,
   employeeId: string,
-  input: { startsAt: string; endsAt: string; workType?: string | null; note?: string | null },
+  input: { startsAt: string; endsAt: string; workType?: string | null; note?: string | null; openShiftId?: string },
   requestedBy: string,
   now = new Date(),
 ) {
@@ -113,6 +119,7 @@ export async function requestShift(
     .values({
       id: generateId('hrsrq'),
       employeeId,
+      openShiftId: input.openShiftId ?? null,
       startsAt,
       endsAt,
       workType: input.workType?.trim() || null,
@@ -124,7 +131,95 @@ export async function requestShift(
   return row!;
 }
 
-/** A manager's answer. Approving creates the shift; a clash with a shift already on the rooster is a 409. */
+/** An employee signs up for an open shift: a shift request with the open shift's times. */
+export async function signUpForOpenShift(
+  db: Database,
+  employeeId: string,
+  openShiftId: string,
+  input: { note?: string | null },
+  requestedBy: string,
+  now = new Date(),
+) {
+  const open = await assertCanSignUp(db, employeeId, openShiftId, now);
+  return requestShift(
+    db,
+    employeeId,
+    {
+      startsAt: open.startsAt.toISOString(),
+      endsAt: open.endsAt.toISOString(),
+      workType: open.workType,
+      note: input.note,
+      openShiftId,
+    },
+    requestedBy,
+    now,
+  );
+}
+
+/**
+ * Take a spot on an open shift for a sign-up: put its shift on the rooster
+ * (client, break and notes copied from the open shift) and approve it, in one
+ * transaction that only approves while a spot is left. The first statement
+ * locks the open shift's row, so a second manager approving at the same time
+ * waits for this one to commit, and then counts the spots again and finds the
+ * one taken. The earlier approval keeps the spot; the later one gets the 409.
+ * `open` is the open shift as read before; the count inside the transaction is
+ * what decides.
+ */
+export async function claimOpenShiftSpot(
+  db: Database,
+  request: ShiftRequestRow,
+  open: OpenShiftRow,
+  note: string | null,
+  reviewedBy: string,
+) {
+  const breakStartsAt = open.breakStartsAt ?? null;
+  const breakEndsAt = open.breakEndsAt ?? null;
+  assertShiftWindow(request.startsAt, request.endsAt);
+  assertShiftBreak(request.startsAt, request.endsAt, breakStartsAt, breakEndsAt);
+  await assertNoOverlappingShift(db, request.employeeId, request.startsAt, request.endsAt);
+
+  const shiftId = generateId('hrshf');
+  const now = new Date();
+  const spotLeft = sql`(
+    select count(*) from hr_shift_requests r join hr_shifts s on s.id = r.shift_id
+    where r.open_shift_id = ${open.id} and r.status = 'approved'
+  ) < (select o.spots from hr_open_shifts o where o.id = ${open.id} and o.status = 'open')`;
+  await atomically(db, (h) => [
+    // The lock: touching the row holds it until commit.
+    h.update(os).set({ updatedAt: now }).where(eq(os.id, open.id)),
+    h.insert(sh).values({
+      id: shiftId,
+      employeeId: request.employeeId,
+      companyId: open.companyId,
+      startsAt: request.startsAt,
+      endsAt: request.endsAt,
+      workType: request.workType,
+      breakStartsAt,
+      breakEndsAt,
+      notes: open.notes,
+      createdBy: reviewedBy,
+    }),
+    h
+      .update(sr)
+      .set({ status: 'approved', shiftId, reviewNote: note, reviewedBy, reviewedAt: now, updatedAt: now })
+      .where(and(eq(sr.id, request.id), eq(sr.status, 'pending'), spotLeft)),
+    // No spot (or answered by someone else): the shift goes again.
+    h
+      .delete(sh)
+      .where(and(eq(sh.id, shiftId), sql`not exists (select 1 from hr_shift_requests where id = ${request.id} and shift_id = ${shiftId})`)),
+  ]);
+
+  const after = await requireShiftRequest(db, request.id);
+  if (after.shiftId === shiftId) return after;
+  if (after.status !== 'pending') throw new HrConflictError('This request was answered in the meantime');
+  throw new HrConflictError('All spots on this shift are filled');
+}
+
+/**
+ * A manager's answer. Approving creates the shift; a clash with a shift already
+ * on the rooster is a 409, and so is a sign-up for an open shift that is full.
+ */
 export async function reviewShiftRequest(
   db: Database,
   id: string,
@@ -133,6 +228,12 @@ export async function reviewShiftRequest(
 ) {
   const existing = await requireShiftRequest(db, id);
   if (existing.status !== 'pending') throw new HrConflictError(`This request is already ${existing.status}`);
+
+  if (input.decision === 'approved' && existing.openShiftId) {
+    // A quick refusal when it is already full or withdrawn; the claim itself decides.
+    const open = await assertOpenShiftHasSpot(db, existing.openShiftId);
+    return claimOpenShiftSpot(db, existing, open, input.note?.trim() || null, reviewedBy);
+  }
 
   const shift =
     input.decision === 'approved'

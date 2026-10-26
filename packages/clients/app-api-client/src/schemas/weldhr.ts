@@ -96,6 +96,8 @@ export const createHrEmployeeSchema = z.object({
   location: shortText(160).nullable().optional(),
   timezone: shortText(60).nullable().optional(),
   weeklyHours: z.number().min(0).max(168).nullable().optional(),
+  /** Work locations this employee may clock in at; null or empty is any of them. */
+  workLocationIds: z.array(id).max(50).nullable().optional(),
   customFields: z.record(z.unknown()).optional(),
   /** Requires `employees:sensitive`; ignored with a 403 otherwise. */
   sensitive: hrEmployeeSensitiveSchema.optional(),
@@ -213,6 +215,22 @@ export const createHrShiftSchema = z.object({
   notes: z.string().max(1000).nullable().optional(),
 });
 export const updateHrShiftSchema = createHrShiftSchema.omit({ employeeId: true }).partial();
+
+/** A shift posted for anyone who wants to work it; employees sign up and a manager approves who gets it. */
+export const createHrOpenShiftSchema = z.object({
+  companyId: id.nullable().optional(),
+  /** Only this department (and those under it) sees it; leave out for everyone. */
+  departmentId: id.nullable().optional(),
+  startsAt: isoDateTime,
+  endsAt: isoDateTime,
+  workType: shortText(100).nullable().optional(),
+  breakStartsAt: isoDateTime.nullable().optional(),
+  breakEndsAt: isoDateTime.nullable().optional(),
+  notes: z.string().max(1000).nullable().optional(),
+  /** How many people the shift needs. */
+  spots: z.number().int().min(1).max(100).optional(),
+});
+export const updateHrOpenShiftSchema = createHrOpenShiftSchema.partial();
 
 /** A manager's answer to a shift request; approving puts the shift on the rooster. */
 export const reviewHrShiftRequestSchema = z.object({
@@ -483,6 +501,32 @@ export const createHrMilestoneSchema = z.object({
 export const updateHrMilestoneSchema = createHrMilestoneSchema.omit({ employeeId: true }).partial();
 
 // ---------------------------------------------------------------------------
+// Work locations & announcements
+// ---------------------------------------------------------------------------
+
+export const createHrWorkLocationSchema = z.object({
+  name: shortText(160).min(1),
+  address: z.string().trim().max(500).nullable().optional(),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  /** How far from the point still counts as being there. */
+  radiusMeters: z.number().int().min(25).max(5000).optional(),
+  isActive: z.boolean().optional(),
+});
+export const updateHrWorkLocationSchema = createHrWorkLocationSchema.partial();
+
+export const createHrAnnouncementSchema = z.object({
+  title: shortText(200).min(1),
+  body: z.string().trim().min(1).max(20000),
+  pinned: z.boolean().optional(),
+  /** Departments it is for (and the ones under them); empty or left out is every employee. */
+  departmentIds: z.array(id).max(100).optional(),
+  /** Send a push notification to the audience's WeldHR app. */
+  notify: z.boolean().optional(),
+});
+export const updateHrAnnouncementSchema = createHrAnnouncementSchema.omit({ notify: true }).partial();
+
+// ---------------------------------------------------------------------------
 // Portal (back office)
 // ---------------------------------------------------------------------------
 
@@ -508,6 +552,7 @@ export const updateHrPortalSettingsSchema = z.object({
     .optional(),
   clientCanSeeIndividualScores: z.boolean().optional(),
   employeeSelfClockIn: z.boolean().optional(),
+  clockInRequiresLocation: z.boolean().optional(),
   employeeLeaveRequests: z.boolean().optional(),
   employeeDeclarations: z.boolean().optional(),
 });
@@ -535,6 +580,13 @@ export const hrPortalSelectAccessSchema = z.object({
   accessId: id,
 });
 
+/** Where the device is, from its GPS; `accuracy` is the radius of uncertainty in metres. */
+export const hrGeoPointSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracy: z.number().min(0).max(100_000).nullable().optional(),
+});
+
 export const hrPortalClockSchema = z.object({
   /** `switch` clocks out of the open record and straight in on `shiftId`. */
   action: z.enum(['in', 'out', 'switch']),
@@ -543,6 +595,13 @@ export const hrPortalClockSchema = z.object({
    * the first of today's shifts that has not ended.
    */
   shiftId: id.optional(),
+  /** Required while the workspace requires being at a work location to clock in or out. */
+  location: hrGeoPointSchema.optional(),
+});
+
+/** Signing up for an open shift; the times come from the open shift. */
+export const hrPortalOpenShiftRequestSchema = z.object({
+  note: z.string().max(1000).nullable().optional(),
 });
 
 export const hrPortalLeaveRequestSchema = z.object({
@@ -592,6 +651,14 @@ export type CreateHrChecklistTaskInput = z.infer<typeof createHrChecklistTaskSch
 export type UpdateHrChecklistTaskInput = z.infer<typeof updateHrChecklistTaskSchema>;
 export type CreateHrShiftInput = z.infer<typeof createHrShiftSchema>;
 export type ReviewHrShiftRequestInput = z.infer<typeof reviewHrShiftRequestSchema>;
+export type CreateHrOpenShiftInput = z.infer<typeof createHrOpenShiftSchema>;
+export type UpdateHrOpenShiftInput = z.infer<typeof updateHrOpenShiftSchema>;
+export type CreateHrWorkLocationInput = z.infer<typeof createHrWorkLocationSchema>;
+export type UpdateHrWorkLocationInput = z.infer<typeof updateHrWorkLocationSchema>;
+export type CreateHrAnnouncementInput = z.infer<typeof createHrAnnouncementSchema>;
+export type UpdateHrAnnouncementInput = z.infer<typeof updateHrAnnouncementSchema>;
+export type HrGeoPointInput = z.infer<typeof hrGeoPointSchema>;
+export type HrSelfServiceOpenShiftRequestInput = z.infer<typeof hrPortalOpenShiftRequestSchema>;
 export type CreateHrAttendanceInput = z.infer<typeof createHrAttendanceSchema>;
 export type UpdateHrAttendanceInput = z.infer<typeof updateHrAttendanceSchema>;
 export type ImportHrAttendanceInput = z.infer<typeof importHrAttendanceSchema>;
