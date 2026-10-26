@@ -247,6 +247,8 @@ describe('licence gate lookups', () => {
     ]);
     expect(licenceAppsForPath('/api/chat-entity-channels/domain/dom_1')).toContain('weldhost');
     expect(licenceAppsForPath('/api/chat-entity-channels/task/t_1/follow')).toContain('weldcrm');
+    expect(licenceAppsForPath('/api/chat-entity-channels/sheet/sht_1/comments')).toContain('weldsheets');
+    expect(licenceAppsForPath('/api/chat-entity-channels/doc/doc_1/messages')).toContain('welddocs');
     // The WeldChat lists, unknown types and other chat paths keep chat's apps.
     for (const path of ['/api/chat-entity-channels', '/api/chat-entity-channels/summary', '/api/chat-entity-channels?type=company', '/api/chat-entity-channels/customer/c_1', '/api/channels/ch_1']) {
       expect(licenceAppsForPath(path), path).toEqual(chat);
@@ -254,6 +256,7 @@ describe('licence gate lookups', () => {
     expect(licenceAppsForPath('/api/me')).toBeNull();
     expect(missingLicensedAppForPath('/api/chat-entity-channels/person/p_1/channel', licensed('weldcrm'))).toBeNull();
     expect(missingLicensedAppForPath('/api/chat-entity-channels/domain/d_1/channel', licensed('weldcrm'))).toBe('weldchat');
+    expect(missingLicensedAppForPath('/api/chat-entity-channels/sheet/s_1/comments', licensed('weldsheets'))).toBeNull();
     expect(missingLicensedAppForPath('/api/invoices', licensed('welddesk'))).toBe('weldbooks');
   });
 

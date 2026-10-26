@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
 import {
   MessageSquare,
+  MessageSquareText,
   Pin,
   Phone,
   PhoneIncoming,
@@ -226,6 +227,18 @@ interface MessageItemProps {
   hasActiveCall?: boolean;
   /** The call this notice stands for (its start and end folded into one row), when it is a call notice */
   call?: CallSummary;
+}
+
+/**
+ * Where a comment thread's first message is in its spreadsheet or document
+ * ("Sheet1!B7", or the text it is about), from `metadata.anchor` (ADR
+ * CHAT-007). Null for any other message.
+ */
+function commentPlace(message: MessageItemMessage): string | null {
+  const anchor = (message.metadata as { anchor?: { label?: unknown; quote?: unknown } } | null | undefined)?.anchor;
+  if (!anchor || message.parentId) return null;
+  if (typeof anchor.label === 'string' && anchor.label) return anchor.label;
+  return typeof anchor.quote === 'string' && anchor.quote ? `“${anchor.quote}”` : null;
 }
 
 function shortTime(iso?: string): string {
@@ -589,6 +602,13 @@ export function MessageItem({
             <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
             <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>
           </div>
+        </div>
+      )}
+      {/* The comment thread this message starts, on a sheet or a document */}
+      {commentPlace(message) && (
+        <div data-testid="chat-message-comment-place" className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
+          <MessageSquareText className="h-3 w-3 shrink-0" />
+          <span className="truncate max-w-[420px]">{format(t.weldchat.messageItem.commentOn, { place: commentPlace(message)! })}</span>
         </div>
       )}
       <div className="flex items-start gap-2 md:gap-3">

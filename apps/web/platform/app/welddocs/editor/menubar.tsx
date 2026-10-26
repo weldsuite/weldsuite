@@ -71,7 +71,7 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>{tm.download}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            <Item onSelect={() => void download(controller.doc, name, 'docx')}>{t.welddocs.download.docx}</Item>
+            <Item onSelect={() => void download(controller.doc, name, 'docx', controller.commentTexts)}>{t.welddocs.download.docx}</Item>
             <Item onSelect={() => void download(controller.doc, name, 'pdf')}>{t.welddocs.download.pdf}</Item>
             <Item onSelect={() => void download(controller.doc, name, 'html')}>{t.welddocs.download.html}</Item>
             <Item onSelect={() => void download(controller.doc, name, 'markdown')}>{t.welddocs.download.markdown}</Item>
@@ -142,9 +142,11 @@ export function Menubar({ controller, name, onRename }: { controller: DocControl
 
       {!ro && (
         <TopMenu label={tm.insert}>
-          <Item shortcut={`${MOD_LABEL}+Alt+M`} onSelect={() => controller.startComment()}>
-            {tr.comment}
-          </Item>
+          {controller.commentsAvailable && (
+            <Item shortcut={`${MOD_LABEL}+Alt+M`} onSelect={() => controller.startComment()}>
+              {tr.comment}
+            </Item>
+          )}
           <Item onSelect={() => controller.openDialog('image')}>{tm.image}</Item>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>{t.welddocs.table.insert}</DropdownMenuSubTrigger>

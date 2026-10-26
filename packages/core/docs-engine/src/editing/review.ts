@@ -2,8 +2,9 @@
  * Review: comments and suggestions. Pure functions returning ops, like the
  * text commands.
  *
- * A comment thread is a comment anchor on the text plus its comments (the
- * first one and the replies, each its own entry, see `DocComment`).
+ * A comment thread is a comment anchor on the text plus its discussion entry
+ * (`DocComment`, same id). What is said in it is in the document's WeldChat
+ * chat, in messages that carry the thread's id (ADR CHAT-007).
  *
  * A suggestion is text marked with a `suggestion` style: typed text is
  * inserted marked `insert`, deleted text stays in place marked `delete`.
@@ -34,20 +35,18 @@ const HIDDEN = new RegExp(`[${PARA}${LINE_BREAK}${OBJECT}]`, 'g');
 
 // ---------------------------------------------------------------- comments
 
-export interface CommentInput {
-  body: string;
-  mentions?: string[];
-}
-
-/** Starts a discussion on the selection (or the word at the caret). The caret stays where it is. */
-export function addComment(doc: DocModel, sel: DocSelection, author: Reviewer, input: CommentInput, makeId: () => string = newId, now = Date.now()): { op: Op; thread: string } {
+/**
+ * Starts a discussion on the selection (or the word at the caret): the op
+ * that marks it, its id and the text it is about, for the first message in
+ * the document's chat. The caret stays where it is.
+ */
+export function addComment(doc: DocModel, sel: DocSelection, author: Reviewer, makeId: () => string = newId, now = Date.now()): { op: Op; thread: string; quote: string } {
   const story = doc.stories.get(sel.story);
-  if (!story) return { op: NOOP, thread: '' };
+  if (!story) return { op: NOOP, thread: '', quote: '' };
   let { from, to } = selectionRange(sel);
   if (from === to) ({ from, to } = wordAt(story, from));
   const id = makeId();
-  const comment: DocComment = { id, thread: id, author: { ...author }, createdAt: now, body: input.body };
-  if (input.mentions?.length) comment.mentions = [...input.mentions];
+  const comment: DocComment = { id, author: { ...author }, createdAt: now };
   const quote = story.text(from, to).replace(HIDDEN, ' ').trim().slice(0, 200);
   if (quote) comment.quote = quote;
   return {
@@ -56,68 +55,40 @@ export function addComment(doc: DocModel, sel: DocSelection, author: Reviewer, i
       { type: 'patchComments', set: [comment] },
     ]),
     thread: id,
+    quote,
   };
-}
-
-export function replyToThread(thread: string, author: Reviewer, input: CommentInput, makeId: () => string = newId, now = Date.now()): Op {
-  const reply: DocComment = { id: makeId(), thread, author: { ...author }, createdAt: now, body: input.body };
-  if (input.mentions?.length) reply.mentions = [...input.mentions];
-  return { type: 'patchComments', set: [reply] };
-}
-
-export function editComment(doc: DocModel, id: string, input: CommentInput, now = Date.now()): Op {
-  const old = doc.comments.get(id);
-  if (!old) return NOOP;
-  const next: DocComment = { ...old, body: input.body, editedAt: now };
-  if (input.mentions?.length) next.mentions = [...input.mentions];
-  else delete next.mentions;
-  return { type: 'patchComments', set: [next] };
 }
 
 export function setResolved(doc: DocModel, thread: string, resolved: boolean): Op {
   const root = doc.comments.get(thread);
-  if (!root || root.thread !== root.id) return NOOP;
+  if (!root) return NOOP;
   const next: DocComment = { ...root };
   if (resolved) next.resolved = true;
   else delete next.resolved;
   return { type: 'patchComments', set: [next] };
 }
 
-/** Deletes a reply, or a whole discussion (its anchor and every reply). */
-export function deleteComment(doc: DocModel, id: string): Op {
-  const c = doc.comments.get(id);
-  if (!c) return NOOP;
-  if (c.thread !== c.id) return { type: 'patchComments', remove: [id] };
-  const ids = [...doc.comments.values()].filter((x) => x.thread === id).map((x) => x.id);
-  const ops: Op[] = [{ type: 'patchComments', remove: ids }];
+/** Deletes a discussion and its anchor (what was said in it stays in the chat). */
+export function deleteThread(doc: DocModel, id: string): Op {
+  if (!doc.comments.has(id)) return NOOP;
+  const ops: Op[] = [{ type: 'patchComments', remove: [id] }];
   if (doc.anchors.has(id)) ops.push({ type: 'patchAnchors', remove: [id] });
   return batch(ops);
 }
 
 export interface Thread {
   root: DocComment;
-  replies: DocComment[];
   /** Where it is in the text (its anchor, or a suggestion's first stretch); null when that text is gone. */
   at: { story: string; from: number; to: number } | null;
 }
 
 /** Every discussion, in the order of the text it is about (those whose text is gone last). */
 export function threadsOf(doc: DocModel): Thread[] {
-  const replies = new Map<string, DocComment[]>();
-  const roots: DocComment[] = [];
-  for (const c of doc.comments.values()) {
-    if (c.thread === c.id) roots.push(c);
-    else {
-      const list = replies.get(c.thread);
-      if (list) list.push(c);
-      else replies.set(c.thread, [c]);
-    }
-  }
   const order = new Map(storiesInOrder(doc).map((id, i) => [id, i]));
   const suggestionAt = suggestionStarts(doc);
-  const threads = roots.map((root): Thread => {
+  const threads = [...doc.comments.values()].map((root): Thread => {
     const at = root.suggestion ? (suggestionAt.get(root.suggestion) ?? null) : anchorPlace(doc, root.id);
-    return { root, replies: (replies.get(root.id) ?? []).sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1)), at };
+    return { root, at };
   });
   const key = (t: Thread) => (t.at ? [order.get(t.at.story) ?? 1e9, t.at.from] : [2e9, t.root.createdAt]);
   return threads.sort((a, b) => {
@@ -190,7 +161,7 @@ function ownNeighbour(doc: DocModel, storyId: string, positions: number[], kind:
 }
 
 function newSuggestionThread(id: string, author: Reviewer, now: number): Op {
-  return { type: 'patchComments', set: [{ id, thread: id, author: { ...author }, createdAt: now, body: '', suggestion: id }] };
+  return { type: 'patchComments', set: [{ id, author: { ...author }, createdAt: now, suggestion: id }] };
 }
 
 /**
@@ -277,8 +248,7 @@ export function resolveSuggestion(doc: DocModel, id: string, accept: boolean): O
     const to = Math.min(r.to, doc.stories.get(r.story)!.length - 1);
     if (to > r.from) ops.push({ type: 'delete', story: r.story, from: r.from, to });
   }
-  const thread = [...doc.comments.values()].filter((c) => c.thread === id).map((c) => c.id);
-  if (thread.length) ops.push({ type: 'patchComments', remove: thread });
+  if (doc.comments.has(id)) ops.push({ type: 'patchComments', remove: [id] });
   return batch(ops);
 }
 

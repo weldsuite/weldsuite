@@ -22,6 +22,8 @@ import { docsQueryKey, useDocMutations } from '../store/use-doc-store';
 import { MissingDoc, type DocStatus } from './doc-chrome';
 import { PeerAvatars } from './peer-avatars';
 import { VersionsPanel } from './versions-panel';
+import { CommentsPanel } from '../editor/comments-panel';
+import { commentTexts } from '../comment-texts';
 
 /** How often, at most, this person's caret goes out to the others. */
 const PRESENCE_MS = 120;
@@ -95,6 +97,8 @@ export function LiveDoc({ docId }: { docId: string }) {
           current = new DocController(doc, { applyOp: (op) => conn.apply(op), title: nameRef.current, locale: languageRef.current, reviewer: reviewer.current });
           current.setPeers(latestPeers);
           current.versionsAvailable = true;
+          current.commentsAvailable = true;
+          current.commentTexts = () => commentTexts(docId);
           setController(current);
         },
         onRemoteOp: (op) => current?.remoteOp(op),
@@ -216,7 +220,7 @@ export function LiveDoc({ docId }: { docId: string }) {
           <ShareDialog target={shareTarget} onOpenChange={(open) => !open && setShareTarget(null)} />
         </>
       }
-      people={people}
+      commentsPanel={<CommentsPanel controller={controller} docId={docId} people={people} />}
       versionsPanel={<VersionsPanel docId={docId} name={name || tw.home.untitled} canEdit={canEdit} people={people} onClose={() => controller.setShowVersions(false)} />}
     />
   );

@@ -1,14 +1,17 @@
 /**
  * WeldChat entity channel routes ("record chats") — flat /api/chat-entity-channels/* surface.
  *
- * Lets any business record (a company, person, task, project, domain) have its
- * own chat channel that appears in WeldChat for the people who follow it. The
- * channel is created lazily on the first message (or the first follow).
+ * Lets any business record (a company, person, task, project, domain, sheet,
+ * document) have its own chat channel that appears in WeldChat for the people
+ * who follow it. The channel is created lazily on the first message (or the
+ * first follow). A sheet's or a document's comment threads are threads in its
+ * chat (ADR CHAT-007).
  *
  *   GET    /                                    — record chats, cursor paginated (?type=&filter=&search=)
  *   GET    /summary                             — per type: followed / unread / mention counts
  *   PATCH  /:entityType/mute                    — mute/unmute every chat of this type the caller follows
  *   GET    /:entityType/:entityId/channel       — linked channel or null (no create)
+ *   GET    /:entityType/:entityId/comments      — the chat's comment threads (anchored messages + replies)
  *   POST   /:entityType/:entityId/messages      — get-or-create channel + post a message
  *   POST   /:entityType/:entityId/follow        — follow (get-or-create channel)
  *   DELETE /:entityType/:entityId/follow        — unfollow
@@ -56,6 +59,7 @@ import {
   type PermissionCheck,
 } from '../../services/chat/entity-channels';
 import { listRecordChats, summarizeRecordChats } from '../../services/chat/entity-channels/record-chat-list';
+import { listRecordComments } from '../../services/chat/entity-channels/record-comments';
 import { ChatFeatureError, postChatMessage } from '../../services/chat/post-message';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
@@ -231,6 +235,27 @@ app.get('/:entityType/:entityId/channel', readPerm, async (c) => {
   } catch (err) {
     console.error('[chat-api/chat-entity-channels] fetch channel failed:', err);
     return error.internal(c, 'Failed to fetch entity channel');
+  }
+});
+
+/**
+ * GET /:entityType/:entityId/comments — the record's comment threads: its
+ * chat (null before the first message) and the messages of the threads
+ * posted with `metadata.anchor`, replies included, oldest first. Read here
+ * rather than through `/api/channels/:id/messages` so the record's own app
+ * licenses it, like the rest of the record's chat.
+ */
+app.get('/:entityType/:entityId/comments', readPerm, async (c) => {
+  try {
+    const access = await resolveAccess(c);
+    if (access instanceof Response) return access;
+    const db = c.get('tenantDb');
+    const channel = await findEntityChannel(db, access.entityType, access.entityId);
+    const messages = channel ? await listRecordComments(db, channel.id) : [];
+    return success(c, { channel, messages });
+  } catch (err) {
+    console.error('[chat-api/chat-entity-channels] fetch comments failed:', err);
+    return error.internal(c, 'Failed to fetch comments');
   }
 });
 

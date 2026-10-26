@@ -215,13 +215,13 @@ function anchorOp(g: Gen): Op {
   return { type: 'patchAnchors', set: [{ id, kind: 'comment', story: storyId, from, to }] };
 }
 
-/** Starts, edits, resolves or removes a discussion (first comments only: replies need their thread to exist). */
+/** Starts, resolves or removes a discussion. */
 function commentOp(g: Gen): Op {
   const { doc, random, makeId } = g;
-  const threads = [...doc.comments.values()].filter((c) => c.thread === c.id);
+  const threads = [...doc.comments.values()];
   if (threads.length && random() < 0.3) return { type: 'patchComments', remove: [pick(random, threads).id] };
   const id = threads.length && random() < 0.5 ? pick(random, threads).id : makeId();
-  const comment: DocComment = { id, thread: id, author: { id: 'u1', name: 'Ann' }, createdAt: 1, body: `note ${Math.floor(random() * 100)}` };
+  const comment: DocComment = { id, author: { id: 'u1', name: 'Ann' }, createdAt: Math.floor(random() * 100) };
   if (random() < 0.3) comment.resolved = true;
   return { type: 'patchComments', set: [comment] };
 }

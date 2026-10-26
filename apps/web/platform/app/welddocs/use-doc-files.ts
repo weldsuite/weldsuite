@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@clerk/clerk-react';
 import { useNavigate } from '@tanstack/react-router';
 import { useCan } from '@weldsuite/permissions/react';
-import type { DocModel, DocxImportWarning } from '@weldsuite/docs-engine';
+import type { CommentText, DocModel, DocxImportWarning } from '@weldsuite/docs-engine';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useFileUpload } from '@/hooks/use-file-upload';
 import { useIsAppInstalled } from '@/hooks/use-is-app-installed';
@@ -54,17 +54,22 @@ export function announceImportFailure(err: unknown, name: string, { t, format }:
   toast.error(format(t.welddocs.home.importFailed, { name }), reason ? { description: reasons[reason] } : undefined);
 }
 
-/** Downloads a document; .docx and PDF are made in the browser with its pictures. */
-export function useDocDownload(): (doc: DocModel, name: string, kind: DownloadFormat) => Promise<void> {
+/**
+ * Downloads a document; .docx and PDF are made in the browser with its
+ * pictures. A .docx carries the comments `comments` reads (from the
+ * document's chat); when they cannot be read it goes without them.
+ */
+export function useDocDownload(): (doc: DocModel, name: string, kind: DownloadFormat, comments?: (() => Promise<(thread: string) => CommentText[]>) | null) => Promise<void> {
   const { getToken } = useAuth();
   const { t, format, language } = useI18n();
   return useCallback(
-    async (doc, name, kind) => {
+    async (doc, name, kind, comments) => {
       const td = t.welddocs.download;
       const slow = kind === 'docx' || kind === 'pdf';
       const pending = slow ? toast.loading(format(td.preparing, { name })) : undefined;
       try {
-        const file = await downloadDocument(doc, name, kind, { images: imageFetcher(() => getToken()), locale: language });
+        const said = kind === 'docx' && comments ? await comments().catch(() => undefined) : undefined;
+        const file = await downloadDocument(doc, name, kind, { images: imageFetcher(() => getToken()), locale: language, comments: said });
         if (pending !== undefined) toast.dismiss(pending);
         if (file.missingImages) toast.warning(td.imagesLeftOut);
       } catch {

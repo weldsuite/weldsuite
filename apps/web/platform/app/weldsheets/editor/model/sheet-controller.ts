@@ -90,6 +90,11 @@ export interface ControllerOptions {
   onOp?: (op: Op) => void;
   /** Who new comments are by (the signed-in person). */
   author?: { id: string; name: string };
+  /**
+   * The sheet has comments (default true). Their text lives in its WeldChat
+   * chat, so a sheet kept only in the browser has none.
+   */
+  comments?: boolean;
   /** Typed input a strict validation rule refused (the cell keeps its value). */
   onInputRefused?: (rule: DataValidation) => void;
   /**
@@ -224,9 +229,9 @@ export class SheetController {
     return data;
   }
 
-  /** May write comments: an editor, or a commenter. */
+  /** May write comments: an editor, or a commenter (on a sheet that has comments). */
   get mayComment(): boolean {
-    return !this.readOnly || this.canComment;
+    return this.options.comments !== false && (!this.readOnly || this.canComment);
   }
 
   setCanComment(canComment: boolean): void {
@@ -271,7 +276,7 @@ export class SheetController {
     if (memo?.version !== this.contentVersion || memo.sheetId !== this.activeSheetId) {
       const cells = new Map<number, boolean>();
       for (const c of sheet.comments) {
-        if (c.thread !== c.id || !c.cell) continue;
+        if (!c.cell) continue;
         const key = c.cell.row * 16_384 + c.cell.col;
         cells.set(key, cells.get(key) === true || !c.resolved);
       }

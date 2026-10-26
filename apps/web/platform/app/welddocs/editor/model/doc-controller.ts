@@ -3,6 +3,7 @@ import {
   CanvasMeasurer,
   addComment,
   batch,
+  deleteThread,
   DocLayout,
   DocModel,
   FINAL_SECTION,
@@ -17,10 +18,8 @@ import {
   clearFormatting,
   commonParagraphStyle,
   deleteBackward,
-  deleteComment,
   deleteForward,
   deleteSelection,
-  editComment,
   findAll,
   footnoteStoryId,
   formatParagraphs,
@@ -49,7 +48,6 @@ import {
   removeLink,
   replaceAll,
   replaceRange,
-  replyToThread,
   resolveSuggestion,
   replacementFor,
   resolvedParagraphAt,
@@ -75,7 +73,7 @@ import {
   updateToc,
   wordAt,
   type Affinity,
-  type CommentInput,
+  type CommentText,
   type DocPeer,
   type DocPresence,
   type DocSelection,
@@ -160,6 +158,13 @@ export class DocController {
   editMode: EditMode = 'editing';
   /** May add comments even while unable to edit (a commenter). */
   canComment = true;
+  /**
+   * The document has comments: what is said in them lives in its WeldChat
+   * chat, so a workspace document has them and the browser-only preview not.
+   */
+  commentsAvailable = false;
+  /** What is said in each discussion, read from the chat when a .docx is written (null: comments are left out). */
+  commentTexts: (() => Promise<(thread: string) => CommentText[]>) | null = null;
   showComments = true;
   /** The version history panel is open (it replaces the comments beside the pages). */
   showVersions = false;
@@ -879,7 +884,7 @@ export class DocController {
 
   /** Opens a new comment on the selection (or the word at the caret) in the side panel. */
   startComment(): void {
-    if (!this.canComment && this.readOnly) return;
+    if (!this.commentsAvailable || (!this.canComment && this.readOnly)) return;
     this.draft = this.selection;
     this.activeThread = null;
     this.showComments = true;
@@ -892,23 +897,24 @@ export class DocController {
     this.emit();
   }
 
-  /** Posts the comment being written; the id of its discussion. */
-  addComment(input: CommentInput): string | null {
-    if (!this.draft || !input.body.trim()) return null;
-    const { op, thread } = addComment(this.doc, this.draft, this.reviewer, input);
+  /**
+   * The comment being written: a new discussion's id and the text it is
+   * about, for its first message in the document's chat.
+   */
+  draftComment(): { thread: string; quote: string } | null {
+    if (!this.draft) return null;
+    const { thread, quote } = addComment(this.doc, this.draft, this.reviewer);
+    return thread ? { thread, quote } : null;
+  }
+
+  /** Marks the comment being written on the text, once its first message is in the chat under `thread`. */
+  addComment(thread: string): void {
+    if (!this.draft) return;
+    const { op } = addComment(this.doc, this.draft, this.reviewer, () => thread);
     this.draft = null;
     this.apply({ op, selection: this.selection }, { review: true, keepPending: true });
     this.activeThread = thread;
     this.emit();
-    return thread;
-  }
-
-  reply(thread: string, input: CommentInput): void {
-    if (input.body.trim()) this.apply({ op: replyToThread(thread, this.reviewer, input), selection: this.selection }, { review: true, keepPending: true });
-  }
-
-  editComment(id: string, input: CommentInput): void {
-    if (input.body.trim()) this.apply({ op: editComment(this.doc, id, input), selection: this.selection }, { review: true, keepPending: true });
   }
 
   setResolved(thread: string, resolved: boolean): void {
@@ -916,8 +922,10 @@ export class DocController {
     if (resolved && this.activeThread === thread) this.activeThread = null;
   }
 
-  deleteComment(id: string): void {
-    this.apply({ op: deleteComment(this.doc, id), selection: this.selection }, { review: true, keepPending: true });
+  /** Takes a discussion and its mark off the text (what was said stays in the chat). */
+  deleteThread(id: string): void {
+    this.apply({ op: deleteThread(this.doc, id), selection: this.selection }, { review: true, keepPending: true });
+    if (this.activeThread === id) this.activeThread = null;
   }
 
   /** Accepts or rejects a suggestion (editors only). */

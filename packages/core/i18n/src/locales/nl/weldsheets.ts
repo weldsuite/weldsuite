@@ -464,6 +464,10 @@ export const weldsheets = {
     save: 'Opslaan',
     cancel: 'Annuleren',
     noMatch: 'Niemand gevonden',
+    failed: 'Je opmerking kon niet worden opgeslagen. Probeer het zo opnieuw.',
+    loadFailed: 'De opmerkingen konden niet worden geladen.',
+    loading: 'Laden…',
+    missing: 'Wat hier gezegd is, is verwijderd.',
   },
 
   versions: {

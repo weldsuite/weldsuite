@@ -6,6 +6,7 @@
  * lazily creates the channel on the first message.
  */
 
+import type { RecordComments } from '@weldsuite/app-api-client';
 import { appApi } from '../app-api-browser-client';
 import type { MessageItemMessage } from '@/app/weldchat/components/message-item';
 
@@ -77,6 +78,27 @@ export const weldchatEntityApi = {
       `/chat-entity-channels?type=${encodeURIComponent(entityType)}&filter=following`,
     );
     return res?.data ?? [];
+  },
+
+  /**
+   * A record's comment threads (a sheet's, a document's): its chat and the
+   * messages posted with `metadata.anchor`, replies included.
+   */
+  getRecordComments: async (entityType: string, entityId: string): Promise<RecordComments> => {
+    const res = await appApi.get<Envelope<RecordComments>>(
+      `/chat-entity-channels/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}/comments`,
+    );
+    return res.data;
+  },
+
+  /** Changes the text of one of the caller's messages. */
+  editMessage: async (messageId: string, content: string): Promise<void> => {
+    await appApi.patch(`/chat-messages/${encodeURIComponent(messageId)}`, { content });
+  },
+
+  /** Deletes one of the caller's messages. */
+  deleteMessage: async (messageId: string): Promise<void> => {
+    await appApi.delete(`/chat-messages/${encodeURIComponent(messageId)}`);
   },
 
   /** Provider-specific entity details for the right-side panel. */

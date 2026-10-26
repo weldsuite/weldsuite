@@ -3,7 +3,9 @@
  * on the ranges the stories marked for them, with the replies Word 2013 and
  * later record in `word/commentsExtended.xml` (`paraIdParent`) and whether a
  * thread is resolved (`done`). A comment whose place in the text is unknown
- * is left out (Word does not show it either).
+ * is left out (Word does not show it either). The snapshot gets each thread's
+ * anchor and discussion entry; what was said in it comes back as text, for
+ * the document's chat.
  *
  * Word knows people by name only, so a name is also the author's id.
  */
@@ -13,6 +15,7 @@ import { LINE_BREAK, OBJECT, PARA } from '../../model/chars';
 import type { StoryContent } from '../../model/content';
 import type { Anchor, DocComment } from '../../model/objects';
 import { onOff, readWordDate } from './convert';
+import type { CommentText, DocxCommentThread } from './types';
 
 /** A comment's range as a story marked it. */
 export interface CommentRange {
@@ -48,6 +51,8 @@ interface WordComment {
 export interface CommentThreads {
   anchors: Anchor[];
   comments: DocComment[];
+  /** What was said in each thread kept. */
+  texts: DocxCommentThread[];
   /** Some comments were left out. */
   dropped: boolean;
 }
@@ -59,27 +64,30 @@ export function readCommentThreads(
   stories: Record<string, StoryContent>,
   makeId: () => string,
 ): CommentThreads {
-  const out: CommentThreads = { anchors: [], comments: [], dropped: false };
+  const out: CommentThreads = { anchors: [], comments: [], texts: [], dropped: false };
   if (!part) return out;
   const list = readComments(part, makeId);
   const ext = readExtended(extended);
   const rootOf = threadRoots(list, ext);
 
   // Threads first (each on its range), then the replies of the threads kept.
-  const kept = new Set<WordComment>();
+  const kept = new Map<WordComment, DocxCommentThread>();
   for (const c of list) {
     if (rootOf(c) !== c) continue;
     const thread = placeThread(c, ranges.get(c.word), stories, ext);
     if (thread) {
-      kept.add(c);
+      const text: DocxCommentThread = { thread: c.id, comments: [commentText(c)] };
+      kept.set(c, text);
       out.anchors.push(thread.anchor);
       out.comments.push(thread.entry);
+      out.texts.push(text);
     } else out.dropped = true;
   }
   for (const c of list) {
     const root = rootOf(c);
     if (root === c) continue;
-    if (kept.has(root)) out.comments.push(commentEntry(c, root.id));
+    const text = kept.get(root);
+    if (text) text.comments.push(commentText(c));
     else out.dropped = true;
   }
   return out;
@@ -140,15 +148,15 @@ function placeThread(
 ): { anchor: Anchor; entry: DocComment } | null {
   const story = range ? stories[range.story] : undefined;
   if (!range || !story) return null;
-  const entry = commentEntry(c, c.id);
+  const entry: DocComment = { id: c.id, author: c.author, createdAt: c.createdAt };
   if (c.paraId && ext.get(c.paraId)?.done) entry.resolved = true;
   const quote = story.text.slice(range.from, range.to).replace(HIDDEN, ' ').trim().slice(0, MAX_QUOTE);
   if (quote) entry.quote = quote;
   return { anchor: { id: c.id, kind: 'comment', story: range.story, from: range.from, to: range.to }, entry };
 }
 
-function commentEntry(c: WordComment, thread: string): DocComment {
-  return { id: c.id, thread, author: c.author, createdAt: c.createdAt, body: c.body };
+function commentText(c: WordComment): CommentText {
+  return { author: c.author.name, createdAt: c.createdAt, body: c.body };
 }
 
 /** The paragraphs of a comment, also those inside content controls (not those inside tables). */

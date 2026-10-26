@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/av
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { useObjectPanel } from '@/components/object-panel';
+import { useRouter } from '@/lib/router';
 import { ActiveCallBanner } from './active-call-banner';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
@@ -77,6 +78,7 @@ function RecordChatTitle({
 function RecordChatActions({ channel }: Readonly<{ channel: ChannelHeaderChannel }>) {
   const st = useTranslations();
   const { open: openObjectPanel } = useObjectPanel();
+  const { push } = useRouter();
   const { isOpen: isEntitySheetOpen, close: closeEntitySheet } = useEntitySheet();
   const info = getRecordChatTypeInfo(channel.entityType);
   if (!info || !channel.entityId) return null;
@@ -91,7 +93,7 @@ function RecordChatActions({ channel }: Readonly<{ channel: ChannelHeaderChannel
         data-testid="chat-open-record"
         onClick={() => {
           if (isEntitySheetOpen) closeEntitySheet();
-          openRecordPanel(openObjectPanel, info.type, entityId);
+          openRecordPanel(openObjectPanel, info.type, entityId, push);
         }}
       >
         <info.icon className="h-4 w-4" />

@@ -65,8 +65,6 @@ function validateSimple(doc: DocModel, op: SimpleOp): string | null {
       return headerSection(op.story) ? null : 'only header and footer stories can be deleted';
     case 'patchStyles':
       return op.remove?.includes(NORMAL) ? 'the normal style cannot be removed' : null;
-    case 'patchComments':
-      return validateComments(doc, op);
     case 'patchAnchors':
       return validateAnchors(doc, op);
     default:
@@ -137,17 +135,6 @@ function validateAnchors(doc: DocModel, op: OpOf<'patchAnchors'>): string | null
   for (const a of op.set ?? []) {
     const story = doc.stories.get(a.story);
     if (story && (a.from > a.to || a.to > story.length)) return 'anchor out of range';
-  }
-  return null;
-}
-
-/** A reply belongs to a thread that exists (or arrives in the same op); only a first comment carries thread fields. */
-function validateComments(doc: DocModel, op: OpOf<'patchComments'>): string | null {
-  const arriving = new Set((op.set ?? []).filter((c) => c.thread === c.id).map((c) => c.id));
-  for (const c of op.set ?? []) {
-    if (c.thread === c.id) continue;
-    if (!arriving.has(c.thread) && doc.comments.get(c.thread)?.thread !== c.thread) return 'a reply needs its thread';
-    if (c.resolved !== undefined || c.suggestion !== undefined || c.quote !== undefined) return 'only a thread is resolved or quotes';
   }
   return null;
 }

@@ -17,6 +17,7 @@ import { getApiOriginForPath } from '@/lib/api/public-env';
 import { useI18n } from '@/lib/i18n/provider';
 import { SheetEditor } from '../editor/sheet-editor';
 import { SheetController } from '../editor/model/sheet-controller';
+import { CommentsPanel } from '../editor/comments/comments-panel';
 import { sheetLocale } from '../editor/number-formats';
 import { SheetConnection } from '../collab/sheet-connection';
 import { sheetsQueryKey, useSheetMutations } from '../store/use-sheet-store';
@@ -127,7 +128,7 @@ export function LiveSheet({ sheetId, embedded = false, onBack }: { sheetId: stri
             author: author.current,
           });
           current.setPeers(latestPeers);
-          // A link to a comment (a mention notification) opens it.
+          // A link to a comment (from WeldChat) opens it.
           const thread = new URLSearchParams(window.location.search).get('comment');
           if (thread) current.openThread(thread);
           setController(current);
@@ -256,8 +257,8 @@ export function LiveSheet({ sheetId, embedded = false, onBack }: { sheetId: stri
       <div className="min-h-0 flex-1">
         <SheetEditor
           controller={controller}
-          people={people}
           panels={{
+            comments: <CommentsPanel controller={controller} sheetId={sheetId} people={people} />,
             versions: (
               <VersionsPanel
                 sheetId={sheetId}

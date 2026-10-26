@@ -8,9 +8,7 @@ import { counterIds, snapshotKey } from '../test-support';
 import { caretAt, insertText } from './commands';
 import {
   addComment,
-  deleteComment,
-  editComment,
-  replyToThread,
+  deleteThread,
   resolveSuggestion,
   setResolved,
   suggestDeleteChar,
@@ -43,48 +41,57 @@ const kinds = (d: DocModel) =>
     .join('');
 
 describe('comments', () => {
-  it('starts a discussion on the word at the caret, with replies, edits and resolving', () => {
+  it('starts a discussion on the word at the caret, resolves it, and deletes it with its anchor', () => {
     const d = docWith('Hello brave world');
     const ids = counterIds('c');
-    const started = addComment(d, caretAt(BODY, 8), ANN, { body: 'Bold choice', mentions: ['u-bob'] }, ids, 10);
+    const started = addComment(d, caretAt(BODY, 8), ANN, ids, 10);
     run(d, started.op);
+    expect(started.quote).toBe('brave');
     expect(d.anchors.get(started.thread)).toMatchObject({ kind: 'comment', from: 6, to: 11 });
-    expect(d.comments.get(started.thread)).toMatchObject({ body: 'Bold choice', quote: 'brave', mentions: ['u-bob'] });
+    expect(d.comments.get(started.thread)).toEqual({ id: started.thread, author: ANN, createdAt: 10, quote: 'brave' });
 
-    run(d, replyToThread(started.thread, BOB, { body: 'Agreed' }, ids, 20));
-    run(d, editComment(d, started.thread, { body: 'Bold choice!' }, 30));
     run(d, setResolved(d, started.thread, true));
     const [thread] = threadsOf(d);
-    expect(thread!.root).toMatchObject({ body: 'Bold choice!', editedAt: 30, resolved: true });
-    expect(thread!.replies.map((r) => r.body)).toEqual(['Agreed']);
+    expect(thread!.root).toMatchObject({ resolved: true });
     expect(thread!.at).toEqual({ story: BODY, from: 6, to: 11 });
 
     const before = snapshotKey(d);
-    const undo = run(d, deleteComment(d, started.thread));
+    const undo = run(d, deleteThread(d, started.thread));
     expect(d.comments.size).toBe(0);
     expect(d.anchors.size).toBe(0);
     applyOp(d, undo);
     expect(snapshotKey(d)).toBe(before);
   });
 
-  it('refuses a reply to a discussion that is not there', () => {
-    const d = docWith('Text');
-    expect(validateOp(d, replyToThread('nope', ANN, { body: 'Hi' }))).toBe('a reply needs its thread');
-  });
-
   it('lists discussions in the order of their text', () => {
     const d = docWith('one two three');
-    run(d, addComment(d, { story: BODY, anchor: 8, head: 13 }, ANN, { body: 'third' }, counterIds('a')).op);
-    run(d, addComment(d, { story: BODY, anchor: 0, head: 3 }, ANN, { body: 'first' }, counterIds('b')).op);
-    expect(threadsOf(d).map((t) => t.root.body)).toEqual(['first', 'third']);
+    const third = addComment(d, { story: BODY, anchor: 8, head: 13 }, ANN, counterIds('a'));
+    run(d, third.op);
+    const first = addComment(d, { story: BODY, anchor: 0, head: 3 }, ANN, counterIds('b'));
+    run(d, first.op);
+    expect(threadsOf(d).map((t) => t.root.id)).toEqual([first.thread, third.thread]);
   });
 
   it('keeps comments in snapshots, and documents without them stay as they were', () => {
     const plain = docWith('Text');
     expect('comments' in plain.toSnapshot()).toBe(false);
-    run(plain, addComment(plain, caretAt(BODY, 1), ANN, { body: 'x' }, counterIds('c')).op);
+    run(plain, addComment(plain, caretAt(BODY, 1), ANN, counterIds('c')).op);
     const copy = DocModel.fromSnapshot(plain.toSnapshot());
     expect(snapshotKey(copy)).toBe(snapshotKey(plain));
+  });
+
+  it('loads a document from before comments moved to WeldChat without its comment threads, keeping who suggested what', () => {
+    const d = docWith('Hello world');
+    const snapshot = d.toSnapshot();
+    snapshot.anchors.push({ id: 'old', kind: 'comment', story: BODY, from: 0, to: 5 });
+    (snapshot as { comments?: unknown[] }).comments = [
+      { id: 'old', thread: 'old', author: ANN, createdAt: 1, body: 'Hi', quote: 'Hello' },
+      { id: 'old-r', thread: 'old', author: BOB, createdAt: 2, body: 'Yes' },
+      { id: 'sg', thread: 'sg', author: BOB, createdAt: 3, body: '', suggestion: 'sg' },
+    ];
+    const loaded = DocModel.fromSnapshot(snapshot);
+    expect([...loaded.comments.values()]).toEqual([{ id: 'sg', author: BOB, createdAt: 3, suggestion: 'sg' }]);
+    expect(loaded.anchors.has('old')).toBe(false);
   });
 });
 

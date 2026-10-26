@@ -9,7 +9,7 @@
 import { MAX_COLS, MAX_ROWS, type Range } from '../address';
 import type { Workbook } from '../model/workbook';
 import { CHART_TYPES, MAX_CHART_SERIES, MAX_CHART_SIZE, MIN_CHART_SIZE, type Chart } from '../model/charts';
-import { isThreadStart, MAX_COMMENT_LENGTH, MAX_MENTIONS, type SheetComment } from '../model/anchors';
+import type { SheetComment } from '../model/anchors';
 import type { Op } from './types';
 
 /** Cells one op may write; a paste larger than this is split by the client. */
@@ -99,13 +99,7 @@ function checkSheetOp(op: SheetOp): string | null {
 }
 
 function validComment(c: SheetComment): boolean {
-  return (
-    (!c.cell || inCell(c.cell.row, c.cell.col)) &&
-    c.body.length <= MAX_COMMENT_LENGTH &&
-    (c.mentions?.length ?? 0) <= MAX_MENTIONS &&
-    // Only a thread's first comment has a cell or a resolved state.
-    (isThreadStart(c) || (c.cell === undefined && c.resolved === undefined))
-  );
+  return !c.cell || inCell(c.cell.row, c.cell.col);
 }
 
 function validChart(c: Chart): boolean {

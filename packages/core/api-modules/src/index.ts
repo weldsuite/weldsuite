@@ -510,6 +510,8 @@ const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
   task: 'flow',
   project: 'flow',
   domain: 'host',
+  sheet: 'sheets',
+  doc: 'docs',
 };
 
 /** The apps that open a first-party path for a licensed workspace; `null` when it is never gated. */

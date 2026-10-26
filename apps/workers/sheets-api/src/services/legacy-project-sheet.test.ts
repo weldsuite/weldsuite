@@ -45,7 +45,7 @@ const MODEL: LegacyModel = {
 
 let tabs = 0;
 const convert = (model: LegacyModel) =>
-  convertLegacyModel(model, { newTabId: () => `sh_${++tabs}`, owner: { id: 'u_ann', name: 'Ann' }, now: 1_000, firstTabName: 'Sheet1' });
+  convertLegacyModel(model, { newTabId: () => `sh_${++tabs}`, now: 1_000, firstTabName: 'Sheet1' });
 
 describe('old WeldFlow project sheets', () => {
   it('becomes tabs in order, with the column names as a bold, frozen first row', () => {
@@ -66,7 +66,7 @@ describe('old WeldFlow project sheets', () => {
     expect(plan!.cols.sizeOf(0)).toBe(160);
   });
 
-  it('keeps formats, dates, links, dropdowns and notes', () => {
+  it('keeps formats, dates, links and dropdowns, and leaves notes out', () => {
     const engine = Engine.fromSnapshot(convert(MODEL));
     engine.recalcAll();
     const plan = engine.workbook.sheets[0]!;
@@ -77,7 +77,7 @@ describe('old WeldFlow project sheets', () => {
     expect(engine.workbook.style(plan, 2, 3)?.numFmt).toBe('yyyy-mm-dd');
     expect(engine.getCell(plan.id, 1, 2)?.f).toBe('HYPERLINK("https://weldsuite.org","Done")');
     expect(plan.validations[0]).toMatchObject({ criteria: { type: 'list', values: ['Open', 'Done'] }, ranges: [{ r1: 1, c1: 2 }], dropdown: true });
-    expect(plan.comments).toEqual([expect.objectContaining({ body: 'Ask Bo', author: { id: 'u_ann', name: 'Ann' }, cell: { row: 1, col: 0 } })]);
+    expect(plan.comments).toEqual([]);
   });
 
   it('gives a sheet that was never saved one empty tab', () => {

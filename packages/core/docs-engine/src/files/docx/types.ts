@@ -38,8 +38,29 @@ export interface DocxImage {
   name: string;
 }
 
+/** One comment of a discussion as text: its first comment or a reply. */
+export interface CommentText {
+  /** The author's name. */
+  author: string;
+  /** Epoch ms. */
+  createdAt: number;
+  /** Plain text, line ends as `\n`. */
+  body: string;
+}
+
+/** What is said in one discussion of a snapshot: its id there, and its comments, first one first. */
+export interface DocxCommentThread {
+  thread: string;
+  comments: CommentText[];
+}
+
 export interface DocxImport {
   snapshot: DocSnapshot;
+  /**
+   * The text of the comment threads in the snapshot, for the caller to post
+   * to the document's chat (the snapshot holds only where each one is).
+   */
+  comments: DocxCommentThread[];
   /** The pictures the document uses, for the caller to store and re-point (`src`). */
   images: DocxImage[];
   warnings: DocxImportWarning[];
@@ -61,6 +82,11 @@ export interface WriteDocxOptions {
   images?: (src: string) => Promise<{ bytes: Uint8Array; mime: string } | null>;
   /** Creation and modification time written to the file (default now). */
   date?: Date;
+  /**
+   * What is said in a comment thread (first comment first), from the
+   * document's chat. A thread with nothing said is left out.
+   */
+  comments?: (thread: string) => readonly CommentText[];
 }
 
 export type DocxImportErrorCode = 'not_docx' | 'too_large' | 'corrupt' | 'unsupported';

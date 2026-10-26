@@ -9,7 +9,7 @@
 import { PARA } from '../model/chars';
 import type { DocSnapshot } from '../model/document';
 import { SNAPSHOT_VERSION } from '../model/document';
-import { BODY, type TableData } from '../model/objects';
+import { BODY, isLegacyComment, type TableData } from '../model/objects';
 import { isWellFormedOp } from './shape';
 import { validateStoryContent } from './validate';
 
@@ -32,7 +32,8 @@ function hasWellFormedDefinitions(s: Record<string, unknown>): boolean {
     isWellFormedOp({ type: 'patchStyles', set: s.styles }) &&
     isWellFormedOp({ type: 'patchLists', set: s.lists }) &&
     isWellFormedOp({ type: 'patchAnchors', set: s.anchors }) &&
-    (s.comments === undefined || (Array.isArray(s.comments) && isWellFormedOp({ type: 'patchComments', set: s.comments })))
+    // Comments stored before their text moved to WeldChat are left out when the document loads.
+    (s.comments === undefined || (Array.isArray(s.comments) && isWellFormedOp({ type: 'patchComments', set: s.comments.filter((c) => !isLegacyComment(c)) })))
   );
 }
 
