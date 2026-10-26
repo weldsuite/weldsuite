@@ -21,6 +21,8 @@ export function useChatCache() {
         setSections: (_sections: unknown[]) => Promise.resolve(),
         getDms: () => Promise.resolve<unknown[] | null>(null),
         setDms: (_dms: unknown[]) => Promise.resolve(),
+        getRecordChats: () => Promise.resolve<unknown>(null),
+        setRecordChats: (_recordChats: unknown) => Promise.resolve(),
       };
     }
     const oid = orgId;
@@ -31,6 +33,8 @@ export function useChatCache() {
       setSections: (sections: unknown[]) => chatCache.setSections(oid, sections),
       getDms: () => chatCache.getDms(oid),
       setDms: (dms: unknown[]) => chatCache.setDms(oid, dms),
+      getRecordChats: () => chatCache.getRecordChats(oid),
+      setRecordChats: (recordChats: unknown) => chatCache.setRecordChats(oid, recordChats),
     };
   }, [orgId]);
 }

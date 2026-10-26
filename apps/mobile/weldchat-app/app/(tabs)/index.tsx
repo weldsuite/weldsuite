@@ -28,7 +28,10 @@ import {
   MessageSquarePlus,
   SquarePen,
   FolderPlus,
+  BellOff,
+  MoreHorizontal,
 } from 'lucide-react-native';
+import type { RecordChatListItem } from '@weldsuite/app-api-client/domains/chat-entity-channels';
 import { useAuth, useOrganization, useOrganizationList, useUser } from '@clerk/expo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
@@ -47,11 +50,23 @@ import { ComposeMenu } from '@/components/home/ComposeMenu';
 import {
   ConversationMenu,
   dmMenuTarget,
+  recordMenuTarget,
   type ConversationPatch,
   type MenuConversation,
 } from '@/components/home/ConversationMenu';
 import { PhoneLogIcon } from '@/components/icons/PhoneLogIcon';
 import { floatingTabBarBottomInset } from '@/components/floating-tab-bar';
+import { useRecordChatGroups } from '@/hooks/useRecordChatGroups';
+import {
+  RECORD_CHAT_TYPES,
+  buildRecordGroups,
+  hasUnreadMentions,
+  isUnreadRecordChat,
+  needsAttention,
+  recordChatName,
+  recordRefreshFor,
+} from '@/lib/record-chats/rules';
+import { recordChatIcon, recordGroupLabel } from '@/lib/record-chats/registry';
 import { hideAppSplash } from '@/utils/splash';
 
 interface Channel {
@@ -88,14 +103,18 @@ type Styles = ReturnType<typeof makeStyles>;
 /** A section's actions, shown in a bottom sheet on long-press. */
 type HomeSheet = { id: string; name: string };
 
+/** Collapse state of a record chat group shares the sections' map under this prefix. */
+const RECORD_GROUP_KEY = 'record:';
+
 /**
  * Home, the screen the app opens on: the workspace at the top (tap to switch),
- * search, Saved and Drafts, what is unread, the channel sections and the most
- * recent direct messages.
+ * search, Saved and Drafts, what is unread, the channel sections, the record
+ * chats the user follows (one group per type) and the most recent direct
+ * messages.
  */
 export default function HomeTab() {
   const { markInteractive } = useObserve();
-  const { t, plural } = useI18n();
+  const { t, plural, format } = useI18n();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [dms, setDms] = useState<DmChannel[]>([]);
@@ -235,8 +254,8 @@ export default function HomeTab() {
         appApi.chatSections.list(),
         appApi.chatDm.list(),
       ]);
-      // Match platform WeldChat: DMs have their own list, and entity/object
-      // channels stay on their object panels — sections list people channels only.
+      // Match platform WeldChat: DMs have their own list, and record chats
+      // (type 'entity') their own groups — sections list people channels only.
       // The server already filters by type; this also covers an older API.
       const nextChannels = (chRes.data || []).filter(
         (c: any) => c.type !== 'dm' && c.type !== 'entity',
@@ -284,21 +303,44 @@ export default function HomeTab() {
     }
   }, [loading, markInteractive]);
 
+  // Record chats (companies, people, tasks, projects, domains) the user follows.
+  const recordChats = useRecordChatGroups();
+  const { refresh: refreshRecordChats, patch: patchRecordChat } = recordChats;
+
   useFocusEffect(
     useCallback(() => {
       void loadData();
       loadCounts();
-    }, [loadData, loadCounts])
+      refreshRecordChats('all', true);
+    }, [loadData, loadCounts, refreshRecordChats])
   );
 
-  useChatUserEvents(loadData);
+  const recordRows = useMemo(
+    () => RECORD_CHAT_TYPES.flatMap((type) => recordChats.rows[type] ?? []),
+    [recordChats.rows],
+  );
+  // What the user-topic events are about: a record chat the groups hold, a
+  // channel or DM Home already lists (no record reload), or neither.
+  const knownIds = useMemo(
+    () => ({
+      recordChatIds: new Set(recordRows.map((row) => row.id)),
+      channelIds: new Set([...channels.map((ch) => ch.id), ...dms.map((dm) => dm.id)]),
+    }),
+    [recordRows, channels, dms],
+  );
+
+  useChatUserEvents((event) => {
+    void loadData();
+    const kind = recordRefreshFor(event, knownIds);
+    if (kind !== 'none') refreshRecordChats(kind);
+  });
 
   const toggleSection = useCallback((sectionId: string) => {
     setCollapsedSections((prev) => ({ ...prev, [sectionId]: !prev[sectionId] }));
   }, []);
 
-  // Group regular channels by section. Entity-linked object conversations
-  // are intentionally omitted — same rule as platform WeldChat's sidebar.
+  // Group regular channels by section. Record chats never go into sections
+  // (they are shared by the whole workspace) — same rule as platform WeldChat.
   const groupedSections = useMemo(() => {
     const groups: { id: string; name: string; channels: Channel[] }[] = sections.map((s) => ({
       id: s.id,
@@ -326,10 +368,29 @@ export default function HomeTab() {
     [dms],
   );
   const unreadChannels = useMemo(() => channels.filter(isChannelUnread), [channels]);
-  const unreadTotal = unreadDms.length + unreadChannels.length;
+  // Record chats with unread messages (not muted) or mentions, newest first.
+  const unreadRecordChats = useMemo(
+    () =>
+      recordRows
+        .filter(needsAttention)
+        .sort((a, b) => (b.lastMessageAt ?? '').localeCompare(a.lastMessageAt ?? '')),
+    [recordRows],
+  );
+  const unreadTotal = unreadDms.length + unreadChannels.length + unreadRecordChats.length;
+
+  // One group per record type the user follows: top 5, quiet chats left out,
+  // only unread ones under a collapsed header.
+  const recordGroups = useMemo(
+    () =>
+      buildRecordGroups(recordChats.summary, recordChats.rows, {
+        isCollapsed: (type) => collapsedSections[`${RECORD_GROUP_KEY}${type}`] ?? false,
+      }),
+    [recordChats.summary, recordChats.rows, collapsedSections],
+  );
+  const followsRecordChats = (recordChats.summary ?? []).some((s) => s.followed > 0);
 
   // Nothing at all yet: point at the two ways to get started.
-  const showEmptyState = !loading && channels.length === 0 && dms.length === 0;
+  const showEmptyState = !loading && channels.length === 0 && dms.length === 0 && !followsRecordChats;
 
   // A change made from a row's long-press menu, shown right away.
   const patchChannel = useCallback((id: string, patch: ConversationPatch) => {
@@ -348,6 +409,18 @@ export default function HomeTab() {
     );
     if (patch.hasUnread === true) void loadData();
   }, [loadData]);
+  const patchRecord = useCallback((id: string, patch: ConversationPatch) => {
+    // Undoing a failed unfollow or mark-read: load what the server has.
+    if (patch.isFollowing === true || patch.hasUnread === true) {
+      refreshRecordChats('all', true);
+      return;
+    }
+    patchRecordChat(id, {
+      isMuted: patch.isMuted,
+      hasUnread: patch.hasUnread === false ? false : undefined,
+      isFollowing: patch.isFollowing === false ? false : undefined,
+    });
+  }, [refreshRecordChats, patchRecordChat]);
   const patchDm = useCallback((id: string, patch: ConversationPatch) => {
     if (patch.archived === false) {
       void loadData();
@@ -526,6 +599,11 @@ export default function HomeTab() {
                 <ChannelRow channel={ch} styles={styles} colors={colors} />
               </ConversationMenu>
             ))}
+            {unreadRecordChats.map((chat) => (
+              <ConversationMenu key={`u-${chat.id}`} conversation={recordMenuTarget(chat)} onChange={patchRecord}>
+                <RecordChatRow chat={chat} styles={styles} colors={colors} />
+              </ConversationMenu>
+            ))}
           </View>
         )}
 
@@ -550,6 +628,48 @@ export default function HomeTab() {
             </View>
           );
         })}
+
+        {!showEmptyState && recordGroups.map((group) => {
+          const key = `${RECORD_GROUP_KEY}${group.type}`;
+          return (
+            <View key={key} style={styles.block}>
+              <SectionHeader
+                title={recordGroupLabel(t, group.type)}
+                count={group.unread > 0 ? group.unread : undefined}
+                mentionCount={group.mentions}
+                collapsed={group.collapsed}
+                onPress={() => toggleSection(key)}
+                styles={styles}
+                colors={colors}
+              />
+              {group.rows.map((chat) => (
+                <ConversationMenu key={chat.id} conversation={recordMenuTarget(chat)} onChange={patchRecord}>
+                  <RecordChatRow chat={chat} styles={styles} colors={colors} />
+                </ConversationMenu>
+              ))}
+              {group.showAll && (
+                <LinkRow
+                  title={format(t.recordChats.showAll, { count: group.followed })}
+                  onPress={() => router.push(`/records?type=${group.type}` as any)}
+                  styles={styles}
+                  colors={colors}
+                />
+              )}
+            </View>
+          );
+        })}
+
+        {/* The records screen for everything else: other filters, search, chats to follow. */}
+        {!showEmptyState && followsRecordChats && (
+          <View style={recordGroups.length > 0 ? undefined : styles.block}>
+            <LinkRow
+              title={t.recordChats.title}
+              onPress={() => router.push('/records' as any)}
+              styles={styles}
+              colors={colors}
+            />
+          </View>
+        )}
 
         {!showEmptyState && recentDms.length > 0 && (
           <View style={styles.block}>
@@ -724,6 +844,7 @@ function QuickTile({
 function SectionHeader({
   title,
   count,
+  mentionCount: mentions,
   collapsed,
   onPress,
   onLongPress,
@@ -733,6 +854,8 @@ function SectionHeader({
 }: Readonly<{
   title: string;
   count?: number;
+  /** Unread @mentions under the heading, so a collapsed group still signals them. */
+  mentionCount?: number;
   collapsed?: boolean;
   onPress?: () => void;
   onLongPress?: () => void;
@@ -755,6 +878,11 @@ function SectionHeader({
         {count !== undefined && (
           <View style={styles.countChip}>
             <Text style={styles.countChipText}>{count}</Text>
+          </View>
+        )}
+        {(mentions ?? 0) > 0 && (
+          <View style={styles.headerBadge}>
+            <Text style={styles.headerBadgeText}>@{mentions}</Text>
           </View>
         )}
         {onPress && (
@@ -796,6 +924,64 @@ function ChannelRow({
           <Text style={styles.badgeText}>{mentionCount(channel)}</Text>
         </View>
       )}
+    </Pressable>
+  );
+}
+
+/** A chat on a company, person, task, project or domain: the type's icon and the record's name. */
+function RecordChatRow({
+  chat,
+  onPress,
+  onPressIn,
+  styles,
+  colors,
+}: Readonly<{
+  chat: RecordChatListItem;
+  onPress?: () => void;
+  onPressIn?: () => void;
+  styles: Styles;
+  colors: ThemeColors;
+}>) {
+  const unread = isUnreadRecordChat(chat) || hasUnreadMentions(chat);
+  const Icon = recordChatIcon(chat.entityType) ?? Hash;
+  const mentions = chat.unreadMentionCount ?? 0;
+  return (
+    <Pressable style={({ pressed }) => [styles.row, pressed && styles.rowPressed]} onPress={onPress} onPressIn={onPressIn}>
+      {unread && <View style={styles.unreadPill} />}
+      <View style={styles.rowIcon}>
+        <Icon size={18} color={unread ? colors.text : colors.mutedForeground} strokeWidth={2} />
+      </View>
+      <Text style={[styles.rowName, unread && styles.rowNameUnread]} numberOfLines={1}>
+        {recordChatName(chat)}
+      </Text>
+      {chat.isMuted && <BellOff size={14} color={colors.mutedForeground} strokeWidth={2} />}
+      {mentions > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeText}>{mentions}</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+/** A muted row that opens another screen ("Show all (12)", "Record chats"). */
+function LinkRow({
+  title,
+  onPress,
+  styles,
+  colors,
+}: Readonly<{ title: string; onPress: () => void; styles: Styles; colors: ThemeColors }>) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+      onPress={onPress}
+      accessibilityRole="link"
+    >
+      <View style={styles.rowIcon}>
+        <MoreHorizontal size={18} color={colors.mutedForeground} strokeWidth={2} />
+      </View>
+      <Text style={styles.rowName} numberOfLines={1}>{title}</Text>
+      <ChevronRight size={16} color={colors.mutedForeground} strokeWidth={2.2} />
     </Pressable>
   );
 }
@@ -949,6 +1135,16 @@ const makeStyles = (c: ThemeColors, topInset: number) =>
       justifyContent: 'center',
     },
     countChipText: { fontSize: 10, fontWeight: '600', color: c.mutedForeground, fontVariant: ['tabular-nums'] },
+    headerBadge: {
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 5,
+      borderRadius: 9,
+      backgroundColor: BRAND,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerBadgeText: { fontSize: 10, fontWeight: '700', color: '#fff', fontVariant: ['tabular-nums'] },
     sectionAction: { flexDirection: 'row', alignItems: 'center', gap: 2 },
     sectionActionText: { fontSize: 13, fontWeight: '500', color: c.mutedForeground },
 

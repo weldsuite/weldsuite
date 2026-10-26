@@ -440,6 +440,59 @@ export const en = {
     pushOn: 'On',
     pushOff: 'Off · tap to turn on',
   },
+
+  // Chats on companies, people, tasks, projects and domains.
+  recordChats: {
+    title: 'Record chats',
+    // Quick action card on Home; short, three cards share the row.
+    quickAction: 'Records',
+    groups: {
+      company: 'Companies',
+      person: 'People',
+      task: 'Tasks',
+      project: 'Projects',
+      domain: 'Domains',
+    },
+    types: {
+      company: 'Company',
+      person: 'Person',
+      task: 'Task',
+      project: 'Project',
+      domain: 'Domain',
+    },
+    // The records screen's title menu: every type, or one.
+    allTypes: 'All record chats',
+    chooseType: 'Choose a record type',
+    filters: {
+      following: 'Following',
+      unread: 'Unread',
+      mentions: 'Mentions',
+      all: 'All',
+    },
+    showAll: 'Show all ({count})',
+    searchPlaceholder: 'Search record chats',
+    follow: 'Follow',
+    following: 'Following',
+    unfollow: 'Unfollow',
+    mute: 'Mute',
+    unmute: 'Unmute',
+    openIn: 'Open in {app}',
+    appMissingTitle: '{app} is not installed',
+    appMissingBody: 'Install {app} on this device to open the record there.',
+    openFailed: 'This record cannot be opened in {app}.',
+    followFailed: 'Could not follow this chat.',
+    unfollowFailed: 'Could not unfollow this chat.',
+    muteFailed: 'Could not change notifications for this chat.',
+    loadFailed: 'Could not load record chats.',
+    noMessages: 'No messages yet',
+    emptyFollowing: 'You follow no record chats yet. Post in a chat on a company, person, task, project or domain, or follow one under All.',
+    emptyUnread: 'You are all caught up.',
+    emptyMentions: 'No unread mentions.',
+    emptyAll: 'No record chats yet.',
+    emptySearch: 'No record chats match "{query}".',
+    welcome: 'Chat about {name}',
+    messagePlaceholder: 'Message {name}',
+  },
 };
 
 export type Translations = typeof en;

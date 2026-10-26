@@ -87,6 +87,8 @@ export * from './domains/chat-search';
 export * from './domains/chat-calls';
 export * from './domains/chat-members';
 export * from './domains/chat-agent';
+// Record chats (chats on companies, people, tasks, projects, domains).
+export * from './domains/chat-entity-channels';
 
 // Notifications — flat /api/notifications/* surface (list / unread-count / read).
 export * from './domains/notifications';
