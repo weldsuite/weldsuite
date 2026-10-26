@@ -110,13 +110,7 @@ export default function UserDetailsScreen() {
     };
   }, [userId, profileRetryKey]);
 
-  const name = profile
-    ? profile.name || profile.email || t.member.fallbackName
-    : profileState === 'notFound'
-      ? t.member.notFoundTitle
-      : profileState === 'error'
-        ? t.member.profileLoadFailedTitle
-        : '';
+  const name = headerName(profile, profileState, t);
   const customStatus =
     presence?.statusText || presence?.statusEmoji
       ? `${presence.statusEmoji ?? ''} ${presence.statusText ?? ''}`.trim()
@@ -211,33 +205,17 @@ export default function UserDetailsScreen() {
             <ChevronLeft size={16} color={colors.mutedForeground} strokeWidth={2} />
           </TouchableOpacity>
 
-          {profile ? (
-            <View style={styles.avatarWrap}>
-              {profile.picture ? (
-                <Image source={{ uri: profile.picture }} style={styles.avatar} />
-              ) : (
-                <View style={[styles.avatar, styles.avatarFallback]}>
-                  <Text style={styles.avatarText}>{(name.trim()[0] ?? '#').toUpperCase()}</Text>
-                </View>
-              )}
-              <View
-                style={[styles.statusDot, { backgroundColor: PRESENCE_COLORS[presence?.status ?? 'offline'] }]}
-              />
-            </View>
-          ) : profileState === 'loading' ? (
-            <View style={[styles.avatar, styles.skeleton]} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarFallback]}>
-              {profileState === 'notFound' ? (
-                <UserX size={14} color={colors.mutedForeground} strokeWidth={2} />
-              ) : (
-                <AlertCircle size={14} color={colors.destructive} strokeWidth={2} />
-              )}
-            </View>
-          )}
+          <HeaderAvatar
+            profile={profile}
+            name={name}
+            presence={presence}
+            state={profileState}
+            styles={styles}
+            colors={colors}
+          />
 
           <View style={styles.titleBlock}>
-            {profile || profileState !== 'loading' ? (
+            {profileState !== 'loading' ? (
               <>
                 <Text style={styles.title} numberOfLines={1}>{name}</Text>
                 {customStatus ? <Text style={styles.customStatus} numberOfLines={1}>{customStatus}</Text> : null}
@@ -299,36 +277,119 @@ export default function UserDetailsScreen() {
               )}
             </ScrollView>
           </>
-        ) : profileState === 'loading' ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={colors.mutedForeground} />
-          </View>
-        ) : profileState === 'notFound' ? (
-          <View style={styles.center}>
-            <PanelEmptyState
-              icon={<UserX size={20} color={colors.mutedForeground} />}
-              title={t.member.notFoundTitle}
-              description={t.member.notFoundDescription}
-            />
-          </View>
         ) : (
-          <View style={styles.center}>
-            <PanelEmptyState
-              icon={<AlertCircle size={20} color={colors.destructive} />}
-              title={t.member.profileLoadFailedTitle}
-              description={t.member.profileLoadFailedDescription}
-            />
-            <TouchableOpacity
-              style={[styles.retryBtn, { borderColor: colors.border }]}
-              onPress={() => setProfileRetryKey((n) => n + 1)}
-              accessibilityRole="button"
-            >
-              <Text style={[styles.retryText, { color: colors.text }]}>{t.common.retry}</Text>
-            </TouchableOpacity>
-          </View>
+          <ProfileUnavailable
+            state={profileState}
+            styles={styles}
+            colors={colors}
+            t={t}
+            onRetry={() => setProfileRetryKey((n) => n + 1)}
+          />
         )}
       </View>
     </>
+  );
+}
+
+type Styles = ReturnType<typeof makeStyles>;
+type Translations = ReturnType<typeof useI18n>['t'];
+
+/** The header title: the person's name, or what went wrong loading them. */
+function headerName(profile: MemberProfile | null, state: ProfileState, t: Translations): string {
+  if (profile) return profile.name || profile.email || t.member.fallbackName;
+  if (state === 'notFound') return t.member.notFoundTitle;
+  if (state === 'error') return t.member.profileLoadFailedTitle;
+  return '';
+}
+
+function HeaderAvatar({
+  profile,
+  name,
+  presence,
+  state,
+  styles,
+  colors,
+}: {
+  profile: MemberProfile | null;
+  name: string;
+  presence: MemberPresence | null;
+  state: ProfileState;
+  styles: Styles;
+  colors: ThemeColors;
+}) {
+  if (profile) {
+    return (
+      <View style={styles.avatarWrap}>
+        {profile.picture ? (
+          <Image source={{ uri: profile.picture }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Text style={styles.avatarText}>{(name.trim()[0] ?? '#').toUpperCase()}</Text>
+          </View>
+        )}
+        <View style={[styles.statusDot, { backgroundColor: PRESENCE_COLORS[presence?.status ?? 'offline'] }]} />
+      </View>
+    );
+  }
+  if (state === 'loading') return <View style={[styles.avatar, styles.skeleton]} />;
+  return (
+    <View style={[styles.avatar, styles.avatarFallback]}>
+      {state === 'notFound' ? (
+        <UserX size={14} color={colors.mutedForeground} strokeWidth={2} />
+      ) : (
+        <AlertCircle size={14} color={colors.destructive} strokeWidth={2} />
+      )}
+    </View>
+  );
+}
+
+/** The body while there is no profile: a spinner, a gone member, or a retry. */
+function ProfileUnavailable({
+  state,
+  styles,
+  colors,
+  t,
+  onRetry,
+}: {
+  state: ProfileState;
+  styles: Styles;
+  colors: ThemeColors;
+  t: Translations;
+  onRetry: () => void;
+}) {
+  if (state === 'loading') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color={colors.mutedForeground} />
+      </View>
+    );
+  }
+  if (state === 'notFound') {
+    return (
+      <View style={styles.center}>
+        <PanelEmptyState
+          icon={<UserX size={20} color={colors.mutedForeground} />}
+          title={t.member.notFoundTitle}
+          description={t.member.notFoundDescription}
+        />
+      </View>
+    );
+  }
+  return (
+    <View style={styles.center}>
+      <PanelEmptyState
+        icon={<AlertCircle size={20} color={colors.destructive} />}
+        title={t.member.profileLoadFailedTitle}
+        description={t.member.profileLoadFailedDescription}
+      />
+      <TouchableOpacity
+        style={[styles.retryBtn, { borderColor: colors.border }]}
+        onPress={onRetry}
+        accessibilityRole="button"
+      >
+        <Text style={[styles.retryText, { color: colors.text }]}>{t.common.retry}</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
