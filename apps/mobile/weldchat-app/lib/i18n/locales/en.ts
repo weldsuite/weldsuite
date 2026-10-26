@@ -429,6 +429,11 @@ export const en = {
     },
     failed: 'Could not add people to this channel.',
   },
+
+  settings: {
+    pushOn: 'On',
+    pushOff: 'Off · tap to turn on',
+  },
 };
 
 export type Translations = typeof en;
