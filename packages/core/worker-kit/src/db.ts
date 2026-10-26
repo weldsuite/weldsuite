@@ -1,9 +1,15 @@
 /**
  * Master and tenant database clients for API workers.
  *
- * Tenant resolution: Clerk org id → KV `wsx:<org>` (300 s TTL) → on a miss,
+ * Tenant resolution: workspace ref → KV `wsx:<ref>` (300 s TTL) → on a miss,
  * the master DB row + `resolveDatabaseUrl`. Every API worker shares the
  * WORKSPACE_CACHE namespace, so a lookup cached by one worker serves all.
+ *
+ * A ref is either identifier of the workspace: `workspaces.id` or its Clerk org
+ * id. The request context still carries the org id, but events, Workflows and
+ * internal callers increasingly carry `workspaces.id`
+ * (docs/plans/workspace-id-standardization.md), so every resolver here accepts
+ * both and the entry is cached under the ref it was asked for.
  *
  * The cached entry never holds the connection string in the clear: it is sealed
  * with the DATABASE_ENCRYPTION_KEY keyring (`databaseUrlSealed`), like
@@ -12,8 +18,8 @@
  * A database move (TASK-1150) changes what a cached entry says: the workflow
  * that drives it purges the entry when the soft lock starts and again after
  * the switch, and `forgetWorkspaceContext` drops the entry of a request that
- * found its database gone (rotated password). Both clear the sealed `wsx:<org>`
- * key and the old plaintext `ws:<org>` key.
+ * found its database gone (rotated password). Both clear the sealed `wsx:<ref>`
+ * and old plaintext `ws:<ref>` keys of both identifiers.
  */
 
 import { eq } from 'drizzle-orm';
@@ -23,6 +29,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '@weldsuite/db/schema';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import { resolveDatabaseUrl } from '@weldsuite/db/lib/neon-resolve';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 import {
   openCacheEntry,
   sealCacheEntry,
@@ -46,6 +53,8 @@ const KV_TTL_SECONDS = 300;
 
 interface CachedWorkspace {
   id: string;
+  /** The workspace's Clerk org id; null for a workspace that has none. */
+  clerkOrgId: string | null;
   databaseUrl: string;
   /**
    * True when the workspace is suspended (not `isActive`). An admin scheduling
@@ -74,7 +83,8 @@ interface CachedWorkspace {
 }
 
 /** What lands in KV: the cached shape with the URL sealed instead of in the clear. */
-type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl' | 'suspended' | 'readOnly' | 'readOnlyReason'> & {
+type StoredWorkspace = Omit<CachedWorkspace, 'clerkOrgId' | 'databaseUrl' | 'suspended' | 'readOnly' | 'readOnlyReason'> & {
+  clerkOrgId?: string | null;
   databaseUrlSealed?: string;
   suspended?: boolean;
   readOnly?: boolean;
@@ -82,7 +92,7 @@ type StoredWorkspace = Omit<CachedWorkspace, 'databaseUrl' | 'suspended' | 'read
 };
 
 /**
- * Other workers write `wsx:<org>` entries too, with only the sealed DB URL (they predate
+ * Other workers write `wsx:<ref>` entries too, with only the sealed DB URL (they predate
  * the licence). Such an entry has no `licensedApps` key at all, so it cannot say
  * whether the workspace is licensed: it is treated as a miss and re-resolved
  * from the master DB, rather than letting a partner workspace through
@@ -92,9 +102,9 @@ function isCompleteEntry(cached: StoredWorkspace): boolean {
   return cached.licensedApps !== undefined;
 }
 
-/** The KV key of a workspace's cached resolution (WORKSPACE_CACHE): the sealed entry. */
-export function workspaceCacheKey(clerkOrgId: string): string {
-  return sealedWorkspaceCacheKey(clerkOrgId);
+/** The KV key of a workspace's cached resolution (WORKSPACE_CACHE): the sealed entry, under the ref it was looked up by. */
+export function workspaceCacheKey(ref: string): string {
+  return sealedWorkspaceCacheKey(ref);
 }
 
 /**
@@ -102,41 +112,46 @@ export function workspaceCacheKey(clerkOrgId: string): string {
  * any more, but a worker not yet redeployed may still write it, so a purge
  * clears it too.
  */
-export function legacyWorkspaceCacheKey(clerkOrgId: string): string {
-  return `ws:${clerkOrgId}`;
+export function legacyWorkspaceCacheKey(ref: string): string {
+  return `ws:${ref}`;
 }
 
 /**
  * Drop a workspace's cached resolution, so the next request reads the master DB
  * again. For a request whose tenant database refused the cached URL (the role's
- * password was rotated by a database move). Never throws: a failed purge only
- * leaves the entry to expire on its own.
+ * password was rotated by a database move). Pass every identifier you know: an
+ * entry may be cached under each. Never throws: a failed purge only leaves the
+ * entry to expire on its own.
  */
 export async function forgetWorkspaceContext(
   env: Pick<DbEnv, 'WORKSPACE_CACHE'>,
-  clerkOrgId: string,
+  ...refs: readonly (string | null | undefined)[]
 ): Promise<void> {
+  const known = [...new Set(refs.filter((ref): ref is string => Boolean(ref)))];
   try {
-    await Promise.all([
-      env.WORKSPACE_CACHE.delete(workspaceCacheKey(clerkOrgId)),
-      env.WORKSPACE_CACHE.delete(legacyWorkspaceCacheKey(clerkOrgId)),
-    ]);
+    await Promise.all(
+      known.flatMap((ref) => [
+        env.WORKSPACE_CACHE.delete(workspaceCacheKey(ref)),
+        env.WORKSPACE_CACHE.delete(legacyWorkspaceCacheKey(ref)),
+      ]),
+    );
   } catch (err) {
     console.warn('Could not purge a workspace cache entry:', err instanceof Error ? err.message : 'unknown error');
   }
 }
 
 /**
- * The master-DB row tenant resolution reads for a Clerk org: the workspace,
- * plus (for partner workspaces) its licence and the partner's payment standing,
- * plus whether a database move is blocking writes. One query, one round trip;
- * direct workspaces join to nothing. Exported for the tests that run it on a
- * real master schema.
+ * The master-DB row tenant resolution reads for a workspace ref (its id or its
+ * Clerk org id): the workspace, plus (for partner workspaces) its licence and
+ * the partner's payment standing, plus whether a database move is blocking
+ * writes. One query, one round trip; direct workspaces join to nothing.
+ * Exported for the tests that run it on a real master schema.
  */
-export async function selectWorkspaceForOrg(masterDb: AnyMasterDatabase, clerkOrgId: string) {
+export async function selectWorkspaceForRef(masterDb: AnyMasterDatabase, ref: string) {
   const [workspace] = await masterDb
     .select({
       id: masterSchema.workspaces.id,
+      clerkOrgId: masterSchema.workspaces.clerkOrgId,
       neonProjectId: masterSchema.workspaces.neonProjectId,
       neonBranchId: masterSchema.workspaces.neonBranchId,
       neonRoleName: masterSchema.workspaces.neonRoleName,
@@ -155,15 +170,15 @@ export async function selectWorkspaceForOrg(masterDb: AnyMasterDatabase, clerkOr
       eq(masterSchema.workspaceLicences.workspaceId, masterSchema.workspaces.id),
     )
     .leftJoin(masterSchema.partners, eq(masterSchema.partners.id, masterSchema.workspaces.partnerId))
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(ref))
     .limit(1);
   return workspace;
 }
 
-async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<CachedWorkspace> {
-  // Sealed entries live under `wsx:`; the old plaintext `ws:<org>` key is never
+async function getCachedWorkspaceUrl(env: DbEnv, ref: string): Promise<CachedWorkspace> {
+  // Sealed entries live under `wsx:`; the old plaintext `ws:<ref>` key is never
   // read (a worker not yet redeployed still writes it, and it expires on its own).
-  const cacheKey = workspaceCacheKey(clerkOrgId);
+  const cacheKey = workspaceCacheKey(ref);
   const keyring = { v1: env.DATABASE_ENCRYPTION_KEY, v2: env.DATABASE_ENCRYPTION_KEY_V2 };
   // `suspended` and `readOnly` were added later: an entry cached before they
   // existed omits them and reads as not-suspended / not read-only (it refreshes
@@ -176,6 +191,8 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
     if (opened) {
       return {
         ...opened,
+        // Entries cached before the field existed were only ever keyed by the org id.
+        clerkOrgId: cached.clerkOrgId !== undefined ? cached.clerkOrgId : ref,
         suspended: cached.suspended ?? false,
         readOnly: cached.readOnly ?? false,
         readOnlyReason: cached.readOnly ? (cached.readOnlyReason ?? 'licence_inactive') : null,
@@ -183,9 +200,9 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
     }
   }
 
-  const workspace = await selectWorkspaceForOrg(getMasterDb(env), clerkOrgId);
+  const workspace = await selectWorkspaceForRef(getMasterDb(env), ref);
 
-  if (!workspace) throw new Error(`Workspace not found for org: ${clerkOrgId}`);
+  if (!workspace) throw new Error(`Workspace not found: ${ref}`);
   if (!workspace.neonProjectId || !workspace.neonBranchId || !workspace.neonRoleName) {
     throw new Error(`No database configured for workspace: ${workspace.id}`);
   }
@@ -217,6 +234,7 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
 
   const entry: CachedWorkspace = {
     id: workspace.id,
+    clerkOrgId: workspace.clerkOrgId,
     databaseUrl,
     suspended: !workspace.isActive,
     ...restrictions,
@@ -232,34 +250,37 @@ async function getCachedWorkspaceUrl(env: DbEnv, clerkOrgId: string): Promise<Ca
   return entry;
 }
 
+/** The tenant DB of a workspace, by its id or its Clerk org id. */
 export async function getTenantDbForWorkspace(
   env: DbEnv,
-  clerkOrgId: string,
+  ref: string,
 ): Promise<NeonHttpDatabase<typeof schema>> {
-  const workspace = await getCachedWorkspaceUrl(env, clerkOrgId);
+  const workspace = await getCachedWorkspaceUrl(env, ref);
   return createNeonTenantDb(workspace.databaseUrl);
 }
 
 /**
  * Resolve the tenant DB together with the workspace's suspension state, licence
- * and read-only state. The request middleware uses this to reject suspended
- * workspaces (a 403) instead of serving them a working DB handle, and hands the
- * licence and read-only flag to `licenceGate()`.
+ * and read-only state, by its id or its Clerk org id. The request middleware
+ * uses this to reject suspended workspaces (a 403) instead of serving them a
+ * working DB handle, and hands the licence and read-only flag to `licenceGate()`.
  */
 export async function getWorkspaceContextForOrg(
   env: DbEnv,
-  clerkOrgId: string,
+  ref: string,
 ): Promise<{
   id: string;
+  clerkOrgId: string | null;
   db: NeonHttpDatabase<typeof schema>;
   suspended: boolean;
   licensedApps: string[] | null;
   readOnly: boolean;
   readOnlyReason: ReadOnlyReason | null;
 }> {
-  const workspace = await getCachedWorkspaceUrl(env, clerkOrgId);
+  const workspace = await getCachedWorkspaceUrl(env, ref);
   return {
     id: workspace.id,
+    clerkOrgId: workspace.clerkOrgId,
     db: createNeonTenantDb(workspace.databaseUrl),
     suspended: workspace.suspended,
     licensedApps: workspace.licensedApps,
@@ -269,12 +290,15 @@ export async function getWorkspaceContextForOrg(
 }
 
 /**
- * Resolve the internal workspace id for a Clerk org.
- * Uses the same KV-cached lookup as tenant DB resolution.
+ * Both identifiers of a workspace, from either of them: `workspaces.id` and its
+ * Clerk org id. Uses the same KV-cached lookup as tenant DB resolution.
  */
-export async function getWorkspaceForOrg(env: DbEnv, clerkOrgId: string): Promise<{ id: string }> {
-  const workspace = await getCachedWorkspaceUrl(env, clerkOrgId);
-  return { id: workspace.id };
+export async function getWorkspaceForOrg(
+  env: DbEnv,
+  ref: string,
+): Promise<{ id: string; clerkOrgId: string | null }> {
+  const workspace = await getCachedWorkspaceUrl(env, ref);
+  return { id: workspace.id, clerkOrgId: workspace.clerkOrgId };
 }
 
 export type { Database } from './env';

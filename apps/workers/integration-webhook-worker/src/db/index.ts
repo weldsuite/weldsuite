@@ -7,7 +7,6 @@
  */
 
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
-import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
@@ -20,6 +19,7 @@ import {
   sealedWorkspaceCacheKey,
   sealedWorkspaceIdCacheKey,
 } from '@weldsuite/db/lib/workspace-url-cache';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 import type { Env } from '../index';
 
 // ============ Master DB (Hyperdrive + postgres-js) ============
@@ -91,7 +91,7 @@ async function getCachedWorkspaceUrlById(
       databaseUrl: masterSchema.workspaces.databaseUrl,
     })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.id, workspaceId))
+    .where(matchWorkspaceRef(workspaceId))
     .limit(1);
 
   if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`);
@@ -137,7 +137,8 @@ export async function getTenantDbForWorkspaceById(
 // The sync engine and CrmSyncWorkflow identify a workspace by its Clerk org id
 // (the workflow payload's `workspaceId` is the clerkOrgId), whereas the webhook
 // ingress identifies it by the internal workspace id (from the connection KV
-// entry). Both lookups live here so the consolidated worker speaks both.
+// entry). Both lookups live here so the consolidated worker speaks both; each
+// accepts either id (matchWorkspaceRef) and only the cache key differs.
 
 async function getCachedWorkspaceUrlByClerkOrg(
   env: Env,
@@ -162,10 +163,10 @@ async function getCachedWorkspaceUrlByClerkOrg(
       databaseUrl: masterSchema.workspaces.databaseUrl,
     })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(clerkOrgId))
     .limit(1);
 
-  if (!workspace) throw new Error(`Workspace not found for org: ${clerkOrgId}`);
+  if (!workspace) throw new Error(`Workspace not found: ${clerkOrgId}`);
   if (!workspace.neonProjectId || !workspace.neonBranchId || !workspace.neonRoleName) {
     throw new Error(`No database configured for workspace: ${workspace.id}`);
   }
@@ -179,7 +180,7 @@ async function getCachedWorkspaceUrlByClerkOrg(
   const entry: CachedWorkspace = {
     id: workspace.id,
     databaseUrl,
-    clerkOrgId: workspace.clerkOrgId ?? clerkOrgId,
+    clerkOrgId: workspace.clerkOrgId ?? undefined,
   };
   // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
   const databaseUrlSealed = await sealCachedDatabaseUrl(databaseUrl, keyring);

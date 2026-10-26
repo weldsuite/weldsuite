@@ -379,7 +379,8 @@ type KvDeleter = { delete(key: string): Promise<void> };
  *
  * - worker-kit (every module worker, app-api) and workflow-worker,
  *   realtime-worker, audit-log-worker, helpdesk-widget-api,
- *   helpdesk-workflow-worker, workspace-worker: `wsx:<clerkOrgId>` in
+ *   helpdesk-workflow-worker, workspace-worker: `wsx:<clerkOrgId>` and
+ *   `wsx:<workspaceId>` (each caches under the id it was asked by) in
  *   `WORKSPACE_CACHE` (`kv`, the first argument);
  * - external-api: `wsx:id:<master workspaceId>` in `API_CACHE` (middleware/auth.ts
  *   `getWorkspaceDetails`);
@@ -439,13 +440,17 @@ function sealedBillingCacheKey(workspaceIdOrOrgId: string): string {
 /** The `WORKSPACE_CACHE` keys to drop, in the order they are deleted: each sealed key, then its old plaintext twin. */
 function workspaceCacheKeys(orgIds: readonly string[], workspaceIds: readonly string[], databaseKeys: boolean): string[] {
   const keys = orgIds.flatMap((id) => [sealedWorkspaceCacheKey(id), `ws:${id}`]);
+  // Resolvers accept either id and cache under the one they were given, so an
+  // entry may sit under the workspace id too (never under a plaintext key).
+  for (const id of workspaceIds) keys.push(sealedWorkspaceCacheKey(id));
   if (databaseKeys) {
     for (const id of orgIds) keys.push(sealedBillingCacheKey(id), `ws:id:${id}`);
     for (const id of workspaceIds) {
       keys.push(sealedWorkspaceIdCacheKey(id), `wsid:${id}`, sealedBillingCacheKey(id), `ws:id:${id}`);
     }
   }
-  return keys;
+  // An early workspace's id is its org id: delete each key once.
+  return [...new Set(keys)];
 }
 
 /** The `API_CACHE` keys to drop (external-api, then mcp-server), in the order they are deleted. */

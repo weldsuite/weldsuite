@@ -10,7 +10,6 @@
  * sending can be stopped before anything changes; later mails are best effort.
  */
 
-import { eq } from 'drizzle-orm';
 import {
   resolveEmailLocale,
   sendSystemEmail,
@@ -30,6 +29,7 @@ import { getMasterDb, masterSchema, type Database, type MasterDatabase } from '@
 import type { SignEnvelope, SignRecipient } from '@weldsuite/db/schema';
 import type { SignEnv as Env } from './env';
 import { loadSignBrand } from './settings';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const SYSTEM_SENDER = 'notifications@mail.weldsuite.org';
 
@@ -68,7 +68,7 @@ export async function workspaceBrand(ctx: Pick<MailContext, 'env' | 'db' | 'cler
       const [row] = await (ctx.master ?? getMasterDb(ctx.env))
         .select({ name: masterSchema.workspaces.name })
         .from(masterSchema.workspaces)
-        .where(eq(masterSchema.workspaces.clerkOrgId, ctx.clerkOrgId))
+        .where(matchWorkspaceRef(ctx.clerkOrgId))
         .limit(1);
       name = row?.name ?? null;
     } catch (err) {

@@ -6,7 +6,6 @@
  * cached in Cloudflare KV for 5 minutes.
  */
 
-import { eq } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp, type NeonHttpDatabase } from 'drizzle-orm/neon-http';
 // Tenant schema (mail messages, folders, etc.)
@@ -21,6 +20,7 @@ import {
   sealCachedDatabaseUrl,
   sealedWorkspaceIdCacheKey,
 } from '@weldsuite/db/lib/workspace-url-cache';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 import type { Env } from '../index';
 
 // ============ Master DB (Neon HTTP) ============
@@ -75,7 +75,7 @@ async function getCachedWorkspaceUrlById(
       databaseUrl: masterSchema.workspaces.databaseUrl,
     })
     .from(masterSchema.workspaces)
-    .where(eq(masterSchema.workspaces.id, workspaceId))
+    .where(matchWorkspaceRef(workspaceId))
     .limit(1);
 
   if (!workspace) throw new Error(`Workspace not found: ${workspaceId}`);

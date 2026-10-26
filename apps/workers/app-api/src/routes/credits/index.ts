@@ -45,21 +45,23 @@ import { getOrCreateWorkspaceCredits, createCreditTopupCheckout } from '../../se
 import { success, error as apiError } from '@weldsuite/worker-kit/response';
 import { creditTopupCheckoutSchema } from '@weldsuite/app-api-client/schemas/credits';
 import { blockPartnerManaged } from '../../middleware/partner-managed';
+import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { creditTransactions, creditPackages, workspaces, plans } = masterSchema;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 /**
- * Resolve the internal workspace id from the Clerk org id stored in
- * `c.get('workspaceId')`. Credit data is keyed by the internal id, not the
- * Clerk org id.
+ * Resolve the internal workspace id from `c.get('workspaceId')`, which is the
+ * Clerk org id today and `workspaces.id` after phase 2 of
+ * docs/plans/workspace-id-standardization.md. Credit data is keyed by the
+ * internal id.
  */
-async function resolveWorkspaceId(masterDb: MasterDatabase, clerkOrgId: string): Promise<string | null> {
+async function resolveWorkspaceId(masterDb: MasterDatabase, ref: string): Promise<string | null> {
   const [row] = await masterDb
     .select({ id: workspaces.id })
     .from(workspaces)
-    .where(eq(workspaces.clerkOrgId, clerkOrgId))
+    .where(matchWorkspaceRef(ref))
     .limit(1);
   return row?.id ?? null;
 }

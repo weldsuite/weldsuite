@@ -6,7 +6,7 @@
 import type { Context } from 'hono';
 import type { Env, Variables } from '../types';
 import { error } from '@weldsuite/worker-kit/response';
-import { getStoredObject } from '@weldsuite/worker-kit/storage';
+import { getStoredObject, isWorkspaceObjectKey } from '@weldsuite/worker-kit/storage';
 
 export async function streamDocumentAttachment(
   c: Context<{ Bindings: Env; Variables: Variables }>,
@@ -29,8 +29,9 @@ export async function streamDocumentAttachment(
   if (!workspaceId) {
     return error.orgRequired(c);
   }
-  const prefix = `workspaces/${workspaceId}/`;
-  if (!fileKey.startsWith(prefix) || fileKey.split('/').includes('..')) {
+  // Uploads sit under the Clerk org id, accounting-inbox mail under
+  // `workspaces.id` (mail-inbound-worker): accept the workspace under either.
+  if (!isWorkspaceObjectKey(fileKey, workspaceId, c.get('internalWorkspaceId'))) {
     return error.forbidden(c, 'Attachment is outside this workspace');
   }
 

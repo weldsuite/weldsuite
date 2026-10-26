@@ -8,7 +8,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import type { DatabaseMoveStatus } from '@weldsuite/db/schema/master';
-import { selectWorkspaceForOrg, type AnyMasterDatabase } from './db';
+import { selectWorkspaceForRef, type AnyMasterDatabase } from './db';
 import { createMasterPgliteDb } from './testing/pglite';
 
 const { workspaces, workspaceDatabaseMoves } = masterSchema;
@@ -54,11 +54,11 @@ async function seedMove(workspaceId: string, status: DatabaseMoveStatus): Promis
 }
 
 async function isMoving(orgId: string): Promise<boolean | undefined> {
-  const row = await selectWorkspaceForOrg(db, orgId);
+  const row = await selectWorkspaceForRef(db, orgId);
   return row?.databaseMoveInProgress;
 }
 
-describe('selectWorkspaceForOrg · databaseMoveInProgress', () => {
+describe('selectWorkspaceForRef · databaseMoveInProgress', () => {
   it.each(['soft_locked', 'locked', 'copying', 'verifying', 'switching', 'cancelling'] as const)(
     'is true while a move is %s',
     async (status) => {
@@ -108,7 +108,7 @@ describe('selectWorkspaceForOrg · databaseMoveInProgress', () => {
 
   it('still returns the workspace columns resolution needs, and nothing for an unknown org', async () => {
     const { id, orgId } = await seedWorkspace();
-    expect(await selectWorkspaceForOrg(db, orgId)).toMatchObject({
+    expect(await selectWorkspaceForRef(db, orgId)).toMatchObject({
       id,
       neonProjectId: 'proj_1',
       neonBranchId: 'br_1',
@@ -117,6 +117,31 @@ describe('selectWorkspaceForOrg · databaseMoveInProgress', () => {
       isActive: true,
       databaseMoveInProgress: false,
     });
-    expect(await selectWorkspaceForOrg(db, 'org_nobody')).toBeUndefined();
+    expect(await selectWorkspaceForRef(db, 'org_nobody')).toBeUndefined();
+  });
+});
+
+describe('selectWorkspaceForRef · either identifier', () => {
+  it('finds the same workspace by its id and by its Clerk org id, and returns both', async () => {
+    const { id, orgId } = await seedWorkspace();
+    const byOrg = await selectWorkspaceForRef(db, orgId);
+    const byId = await selectWorkspaceForRef(db, id);
+    expect(byOrg).toMatchObject({ id, clerkOrgId: orgId });
+    expect(byId).toEqual(byOrg);
+  });
+
+  it('finds an early workspace whose id is its Clerk org id', async () => {
+    seq += 1;
+    const orgId = `org_legacy_${seq}`;
+    await db.insert(workspaces).values({ id: orgId, clerkOrgId: orgId, name: 'Legacy', slug: `legacy-${seq}` });
+    expect(await selectWorkspaceForRef(db, orgId)).toMatchObject({ id: orgId, clerkOrgId: orgId });
+  });
+
+  it('does not let one workspace\'s id reach another workspace', async () => {
+    const a = await seedWorkspace();
+    const b = await seedWorkspace();
+    expect((await selectWorkspaceForRef(db, a.id))?.id).toBe(a.id);
+    expect((await selectWorkspaceForRef(db, b.orgId))?.id).toBe(b.id);
+    expect(await selectWorkspaceForRef(db, 'ws_nobody')).toBeUndefined();
   });
 });

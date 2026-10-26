@@ -362,6 +362,7 @@ All three legacy backends were **deleted from the repo on 2026-07-17**. There is
 - JSONB columns typed via `.$type<T>()`
 - **Master DB**: cross-tenant (workspaces, users, billing)
 - **Tenant DB**: per-workspace business data
+- **Workspace ids**: `workspaces.id` (`ws_…`) is the identifier; the Clerk org id (`org_…`) is only for Clerk calls and Clerk webhooks (ADR SEC-011, `docs/plans/workspace-id-standardization.md`). Mid-migration: `c.get('workspaceId')` is still the org id on Clerk paths, so use `c.get('internalWorkspaceId')` / `c.get('clerkOrgId')`, store `workspaces.id` in anything new, and look up a value that may be either id with `matchWorkspaceRef` (`@weldsuite/db/lib/workspace-ref`), never by its prefix.
 - Production uses Cloudflare Hyperdrive; dev uses direct Neon URL
 - Field-level encryption supported via worker secret
 - **Adding columns/tables to `packages/core/db/src/schema/` is fine. Do NOT create migration files, ask the user first.**
