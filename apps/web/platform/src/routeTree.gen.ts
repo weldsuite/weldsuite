@@ -132,6 +132,7 @@ import { Route as WeldhrLeaveIndexRouteImport } from './routes/weldhr/leave/inde
 import { Route as WeldhrEmployeesIndexRouteImport } from './routes/weldhr/employees/index'
 import { Route as WeldhrDeclarationsIndexRouteImport } from './routes/weldhr/declarations/index'
 import { Route as WeldhrAttendanceIndexRouteImport } from './routes/weldhr/attendance/index'
+import { Route as WeldhrAnnouncementsIndexRouteImport } from './routes/weldhr/announcements/index'
 import { Route as WeldhrAbsenteeismIndexRouteImport } from './routes/weldhr/absenteeism/index'
 import { Route as WeldhostDomainsIndexRouteImport } from './routes/weldhost/domains/index'
 import { Route as WeldflowWorkloadIndexRouteImport } from './routes/weldflow/workload/index'
@@ -306,6 +307,7 @@ import { Route as WeldhrMeScheduleIndexRouteImport } from './routes/weldhr/me/sc
 import { Route as WeldhrMeReviewsIndexRouteImport } from './routes/weldhr/me/reviews/index'
 import { Route as WeldhrMePayrollIndexRouteImport } from './routes/weldhr/me/payroll/index'
 import { Route as WeldhrMeExpensesIndexRouteImport } from './routes/weldhr/me/expenses/index'
+import { Route as WeldhrMeAnnouncementsIndexRouteImport } from './routes/weldhr/me/announcements/index'
 import { Route as WeldhrEmployeesEmployeeIdIndexRouteImport } from './routes/weldhr/employees/$employeeId/index'
 import { Route as WeldhostDomainsSearchIndexRouteImport } from './routes/weldhost/domains/search/index'
 import { Route as WeldhostDomainsRegisterIndexRouteImport } from './routes/weldhost/domains/register/index'
@@ -1125,6 +1127,12 @@ const WeldhrAttendanceIndexRoute = WeldhrAttendanceIndexRouteImport.update({
   path: '/attendance/',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
+const WeldhrAnnouncementsIndexRoute =
+  WeldhrAnnouncementsIndexRouteImport.update({
+    id: '/announcements/',
+    path: '/announcements/',
+    getParentRoute: () => WeldhrRouteRoute,
+  } as any)
 const WeldhrAbsenteeismIndexRoute = WeldhrAbsenteeismIndexRouteImport.update({
   id: '/absenteeism/',
   path: '/absenteeism/',
@@ -2045,6 +2053,12 @@ const WeldhrMeExpensesIndexRoute = WeldhrMeExpensesIndexRouteImport.update({
   path: '/expenses/',
   getParentRoute: () => WeldhrMeRouteRoute,
 } as any)
+const WeldhrMeAnnouncementsIndexRoute =
+  WeldhrMeAnnouncementsIndexRouteImport.update({
+    id: '/announcements/',
+    path: '/announcements/',
+    getParentRoute: () => WeldhrMeRouteRoute,
+  } as any)
 const WeldhrEmployeesEmployeeIdIndexRoute =
   WeldhrEmployeesEmployeeIdIndexRouteImport.update({
     id: '/employees/$employeeId/',
@@ -3468,6 +3482,7 @@ export interface FileRoutesByFullPath {
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism/': typeof WeldhrAbsenteeismIndexRoute
+  '/weldhr/announcements/': typeof WeldhrAnnouncementsIndexRoute
   '/weldhr/attendance/': typeof WeldhrAttendanceIndexRoute
   '/weldhr/declarations/': typeof WeldhrDeclarationsIndexRoute
   '/weldhr/employees/': typeof WeldhrEmployeesIndexRoute
@@ -3623,6 +3638,7 @@ export interface FileRoutesByFullPath {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/announcements/': typeof WeldhrMeAnnouncementsIndexRoute
   '/weldhr/me/expenses/': typeof WeldhrMeExpensesIndexRoute
   '/weldhr/me/payroll/': typeof WeldhrMePayrollIndexRoute
   '/weldhr/me/reviews/': typeof WeldhrMeReviewsIndexRoute
@@ -3924,6 +3940,7 @@ export interface FileRoutesByTo {
   '/weldflow/workload': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism': typeof WeldhrAbsenteeismIndexRoute
+  '/weldhr/announcements': typeof WeldhrAnnouncementsIndexRoute
   '/weldhr/attendance': typeof WeldhrAttendanceIndexRoute
   '/weldhr/declarations': typeof WeldhrDeclarationsIndexRoute
   '/weldhr/employees': typeof WeldhrEmployeesIndexRoute
@@ -4077,6 +4094,7 @@ export interface FileRoutesByTo {
   '/weldhost/domains/register': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/announcements': typeof WeldhrMeAnnouncementsIndexRoute
   '/weldhr/me/expenses': typeof WeldhrMeExpensesIndexRoute
   '/weldhr/me/payroll': typeof WeldhrMePayrollIndexRoute
   '/weldhr/me/reviews': typeof WeldhrMeReviewsIndexRoute
@@ -4422,6 +4440,7 @@ export interface FileRoutesById {
   '/weldflow/workload/': typeof WeldflowWorkloadIndexRoute
   '/weldhost/domains/': typeof WeldhostDomainsIndexRoute
   '/weldhr/absenteeism/': typeof WeldhrAbsenteeismIndexRoute
+  '/weldhr/announcements/': typeof WeldhrAnnouncementsIndexRoute
   '/weldhr/attendance/': typeof WeldhrAttendanceIndexRoute
   '/weldhr/declarations/': typeof WeldhrDeclarationsIndexRoute
   '/weldhr/employees/': typeof WeldhrEmployeesIndexRoute
@@ -4577,6 +4596,7 @@ export interface FileRoutesById {
   '/weldhost/domains/register/': typeof WeldhostDomainsRegisterIndexRoute
   '/weldhost/domains/search/': typeof WeldhostDomainsSearchIndexRoute
   '/weldhr/employees/$employeeId/': typeof WeldhrEmployeesEmployeeIdIndexRoute
+  '/weldhr/me/announcements/': typeof WeldhrMeAnnouncementsIndexRoute
   '/weldhr/me/expenses/': typeof WeldhrMeExpensesIndexRoute
   '/weldhr/me/payroll/': typeof WeldhrMePayrollIndexRoute
   '/weldhr/me/reviews/': typeof WeldhrMeReviewsIndexRoute
@@ -4923,6 +4943,7 @@ export interface FileRouteTypes {
     | '/weldflow/workload/'
     | '/weldhost/domains/'
     | '/weldhr/absenteeism/'
+    | '/weldhr/announcements/'
     | '/weldhr/attendance/'
     | '/weldhr/declarations/'
     | '/weldhr/employees/'
@@ -5078,6 +5099,7 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/me/announcements/'
     | '/weldhr/me/expenses/'
     | '/weldhr/me/payroll/'
     | '/weldhr/me/reviews/'
@@ -5379,6 +5401,7 @@ export interface FileRouteTypes {
     | '/weldflow/workload'
     | '/weldhost/domains'
     | '/weldhr/absenteeism'
+    | '/weldhr/announcements'
     | '/weldhr/attendance'
     | '/weldhr/declarations'
     | '/weldhr/employees'
@@ -5532,6 +5555,7 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register'
     | '/weldhost/domains/search'
     | '/weldhr/employees/$employeeId'
+    | '/weldhr/me/announcements'
     | '/weldhr/me/expenses'
     | '/weldhr/me/payroll'
     | '/weldhr/me/reviews'
@@ -5876,6 +5900,7 @@ export interface FileRouteTypes {
     | '/weldflow/workload/'
     | '/weldhost/domains/'
     | '/weldhr/absenteeism/'
+    | '/weldhr/announcements/'
     | '/weldhr/attendance/'
     | '/weldhr/declarations/'
     | '/weldhr/employees/'
@@ -6031,6 +6056,7 @@ export interface FileRouteTypes {
     | '/weldhost/domains/register/'
     | '/weldhost/domains/search/'
     | '/weldhr/employees/$employeeId/'
+    | '/weldhr/me/announcements/'
     | '/weldhr/me/expenses/'
     | '/weldhr/me/payroll/'
     | '/weldhr/me/reviews/'
@@ -7058,6 +7084,13 @@ declare module '@tanstack/react-router' {
       path: '/attendance'
       fullPath: '/weldhr/attendance/'
       preLoaderRoute: typeof WeldhrAttendanceIndexRouteImport
+      parentRoute: typeof WeldhrRouteRoute
+    }
+    '/weldhr/announcements/': {
+      id: '/weldhr/announcements/'
+      path: '/announcements'
+      fullPath: '/weldhr/announcements/'
+      preLoaderRoute: typeof WeldhrAnnouncementsIndexRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
     '/weldhr/absenteeism/': {
@@ -8276,6 +8309,13 @@ declare module '@tanstack/react-router' {
       path: '/expenses'
       fullPath: '/weldhr/me/expenses/'
       preLoaderRoute: typeof WeldhrMeExpensesIndexRouteImport
+      parentRoute: typeof WeldhrMeRouteRoute
+    }
+    '/weldhr/me/announcements/': {
+      id: '/weldhr/me/announcements/'
+      path: '/announcements'
+      fullPath: '/weldhr/me/announcements/'
+      preLoaderRoute: typeof WeldhrMeAnnouncementsIndexRouteImport
       parentRoute: typeof WeldhrMeRouteRoute
     }
     '/weldhr/employees/$employeeId/': {
@@ -10617,6 +10657,7 @@ const WeldhostRouteRouteWithChildren = WeldhostRouteRoute._addFileChildren(
 
 interface WeldhrMeRouteRouteChildren {
   WeldhrMeIndexRoute: typeof WeldhrMeIndexRoute
+  WeldhrMeAnnouncementsIndexRoute: typeof WeldhrMeAnnouncementsIndexRoute
   WeldhrMeExpensesIndexRoute: typeof WeldhrMeExpensesIndexRoute
   WeldhrMePayrollIndexRoute: typeof WeldhrMePayrollIndexRoute
   WeldhrMeReviewsIndexRoute: typeof WeldhrMeReviewsIndexRoute
@@ -10627,6 +10668,7 @@ interface WeldhrMeRouteRouteChildren {
 
 const WeldhrMeRouteRouteChildren: WeldhrMeRouteRouteChildren = {
   WeldhrMeIndexRoute: WeldhrMeIndexRoute,
+  WeldhrMeAnnouncementsIndexRoute: WeldhrMeAnnouncementsIndexRoute,
   WeldhrMeExpensesIndexRoute: WeldhrMeExpensesIndexRoute,
   WeldhrMePayrollIndexRoute: WeldhrMePayrollIndexRoute,
   WeldhrMeReviewsIndexRoute: WeldhrMeReviewsIndexRoute,
@@ -10643,6 +10685,7 @@ interface WeldhrRouteRouteChildren {
   WeldhrMeRouteRoute: typeof WeldhrMeRouteRouteWithChildren
   WeldhrIndexRoute: typeof WeldhrIndexRoute
   WeldhrAbsenteeismIndexRoute: typeof WeldhrAbsenteeismIndexRoute
+  WeldhrAnnouncementsIndexRoute: typeof WeldhrAnnouncementsIndexRoute
   WeldhrAttendanceIndexRoute: typeof WeldhrAttendanceIndexRoute
   WeldhrDeclarationsIndexRoute: typeof WeldhrDeclarationsIndexRoute
   WeldhrEmployeesIndexRoute: typeof WeldhrEmployeesIndexRoute
@@ -10662,6 +10705,7 @@ const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
   WeldhrMeRouteRoute: WeldhrMeRouteRouteWithChildren,
   WeldhrIndexRoute: WeldhrIndexRoute,
   WeldhrAbsenteeismIndexRoute: WeldhrAbsenteeismIndexRoute,
+  WeldhrAnnouncementsIndexRoute: WeldhrAnnouncementsIndexRoute,
   WeldhrAttendanceIndexRoute: WeldhrAttendanceIndexRoute,
   WeldhrDeclarationsIndexRoute: WeldhrDeclarationsIndexRoute,
   WeldhrEmployeesIndexRoute: WeldhrEmployeesIndexRoute,

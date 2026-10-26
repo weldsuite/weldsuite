@@ -84,6 +84,7 @@ import {
   todayIso,
 } from '../../services/weldhr/shared';
 import { cancelLeaveRequest, clock, createLeaveRequest, switchShift } from '../../services/weldhr/time';
+import { clockPlaceFor } from '../../services/weldhr/work-locations';
 import { requirePayrollFlag } from '../weldhr/payroll/flag';
 import { registerPayrollSelfService } from '../weldhr/payroll/self-service';
 
@@ -129,7 +130,7 @@ type PortalContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 app.onError((err, c) => {
   if (err instanceof HrNotFoundError) return error.notFound(c, err.resource, err.id);
-  if (err instanceof HrValidationError) return error.badRequest(c, err.message);
+  if (err instanceof HrValidationError) return error.badRequest(c, err.message, err.details);
   if (err instanceof HrConflictError) return error.conflict(c, err.message);
   if (err instanceof HrPayrollError) return c.json({ error: { code: err.code, message: err.message, details: err.details } }, err.status);
   console.error('[public-hr-portal] unhandled error:', err);
@@ -190,6 +191,7 @@ function publicConfig(settings: HrPortalSettings) {
     clientPortalEnabled: settings.clientPortalEnabled,
     features: {
       selfClockIn: settings.employeeSelfClockIn,
+      clockInRequiresLocation: settings.clockInRequiresLocation,
       leaveRequests: settings.employeeLeaveRequests,
       declarations: settings.employeeDeclarations,
       individualScores: settings.clientCanSeeIndividualScores,
@@ -502,15 +504,16 @@ app.post('/employee/clock', zValidator('json', hrPortalClockSchema), async (c) =
   const settings = await sessionSettings(c);
   if (!settings.employeeSelfClockIn) return error.forbidden(c, 'Clocking in from the portal is turned off');
   const employeeId = employeeIdOf(c);
-  const { action, shiftId } = c.req.valid('json');
+  const { action, shiftId, location } = c.req.valid('json');
+  const place = await clockPlaceFor(c.get('tenantDb'), employeeId, settings.clockInRequiresLocation, location);
   let record;
   if (action === 'switch') {
-    const { closed, opened } = await switchShift(c.get('tenantDb'), employeeId, shiftId);
+    const { closed, opened } = await switchShift(c.get('tenantDb'), employeeId, shiftId, new Date(), `portal:${employeeId}`, place);
     emitPortal(c, 'hr_attendance', 'updated', closed.id, employeeId);
     emitPortal(c, 'hr_attendance', 'created', opened.id, employeeId);
     record = opened;
   } else {
-    record = await clock(c.get('tenantDb'), employeeId, action, new Date(), `portal:${employeeId}`, shiftId);
+    record = await clock(c.get('tenantDb'), employeeId, action, new Date(), `portal:${employeeId}`, shiftId, place);
     emitPortal(c, 'hr_attendance', action === 'in' ? 'created' : 'updated', record.id, employeeId);
   }
   return success(c, {

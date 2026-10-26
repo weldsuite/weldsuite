@@ -22,6 +22,9 @@ vi.mock('@/app/weldhr/settings/components/departments-tab', () => ({
 vi.mock('@/app/weldhr/settings/components/leave-types-tab', () => ({
   LeaveTypesTab: () => <div>leave types panel</div>,
 }));
+vi.mock('@/app/weldhr/settings/components/work-locations-tab', () => ({
+  WorkLocationsTab: () => <div>work locations panel</div>,
+}));
 
 describe('WeldHR settings page', () => {
   beforeEach(() => {
@@ -44,6 +47,14 @@ describe('WeldHR settings page', () => {
     render(<WeldHrSettingsPage />);
 
     expect(screen.getByText('leave types panel')).toBeTruthy();
+    expect(screen.queryByText('departments panel')).toBeNull();
+  });
+
+  it('opens the work locations tab from the query string', () => {
+    tab = 'work-locations';
+    render(<WeldHrSettingsPage />);
+
+    expect(screen.getByText('work locations panel')).toBeTruthy();
     expect(screen.queryByText('departments panel')).toBeNull();
   });
 

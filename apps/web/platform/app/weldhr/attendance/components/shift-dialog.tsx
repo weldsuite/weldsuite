@@ -19,12 +19,12 @@ import { useCreateHrShift, useUpdateHrShift } from '@/hooks/queries/use-weldhr-q
 import { CompanyPicker, EmployeePicker, ErrorBanner, errorMessage, instantAt, minutesAfter } from '../../components/shared';
 
 /** The local calendar day (`YYYY-MM-DD`) of a UTC instant, matching `timeOf`. */
-function dateOf(iso: string): string {
+export function dateOf(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function timeOf(iso: string): string {
+export function timeOf(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
@@ -34,7 +34,7 @@ function timeOf(iso: string): string {
  * next morning: 22:00 → 06:00 is an eight-hour night shift. A break is
  * optional, but needs both ends and has to sit inside the shift.
  */
-function shiftWindow(start: string, end: string, breakStart: string, breakEnd: string) {
+export function shiftWindow(start: string, end: string, breakStart: string, breakEnd: string) {
   const shiftMinutes = start && end ? minutesAfter(start, end) : 0;
   /** Minutes from the shift start to `time`, on the shift's own clock (past midnight for a night shift). */
   const offset = (time: string) => (time === start ? 0 : minutesAfter(start, time));

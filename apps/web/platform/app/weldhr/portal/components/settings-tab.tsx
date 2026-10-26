@@ -25,8 +25,17 @@ interface FormState {
   clientCanSeeIndividualScores: boolean;
 }
 
+/** Only the switches on this tab, so saving it never writes back settings that are managed elsewhere (clock-in location). */
 function toForm(data: FormState): FormState {
-  return { ...data };
+  return {
+    isEnabled: data.isEnabled,
+    employeePortalEnabled: data.employeePortalEnabled,
+    clientPortalEnabled: data.clientPortalEnabled,
+    employeeSelfClockIn: data.employeeSelfClockIn,
+    employeeLeaveRequests: data.employeeLeaveRequests,
+    employeeDeclarations: data.employeeDeclarations,
+    clientCanSeeIndividualScores: data.clientCanSeeIndividualScores,
+  };
 }
 
 export function PortalSettingsTab() {

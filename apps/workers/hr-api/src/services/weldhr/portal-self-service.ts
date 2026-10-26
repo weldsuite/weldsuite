@@ -12,6 +12,8 @@ import { compensationOn } from './payroll/employees';
 import { settleChecklist } from './lifecycle';
 import { listCoachingLogs, listEvaluations, listKpiValues, listMilestones } from './performance';
 import { addDays, HrNotFoundError, HrValidationError, todayIso } from './shared';
+import { unreadAnnouncementCount } from './announcements';
+import { openShiftsForEmployee } from './open-shifts';
 import { listShiftRequests, toSelfShiftRequest } from './shift-requests';
 import {
   leaveBalances,
@@ -103,16 +105,19 @@ export async function completeEmployeeTask(
 export async function employeeOverview(db: Database, employeeId: string) {
   const today = todayIso();
   const year = Number(today.slice(0, 4));
-  const [profile, openClock, shifts, balances, tasks, coaching, evaluations, milestones] = await Promise.all([
-    employeeProfile(db, employeeId),
-    openClockRecord(db, employeeId),
-    listShifts(db, { from: today, to: addDays(today, 13), employeeId }),
-    leaveBalances(db, employeeId, year),
-    employeeTasks(db, employeeId),
-    listCoachingLogs(db, { employeeId, visibilities: ['employee', 'client'] }),
-    listEvaluations(db, { employeeId, status: 'submitted,acknowledged' }),
-    listMilestones(db, { employeeId }),
-  ]);
+  const [profile, openClock, shifts, balances, tasks, coaching, evaluations, milestones, unreadAnnouncements, openShifts] =
+    await Promise.all([
+      employeeProfile(db, employeeId),
+      openClockRecord(db, employeeId),
+      listShifts(db, { from: today, to: addDays(today, 13), employeeId }),
+      leaveBalances(db, employeeId, year),
+      employeeTasks(db, employeeId),
+      listCoachingLogs(db, { employeeId, visibilities: ['employee', 'client'] }),
+      listEvaluations(db, { employeeId, status: 'submitted,acknowledged' }),
+      listMilestones(db, { employeeId }),
+      unreadAnnouncementCount(db, employeeId),
+      openShiftsForEmployee(db, employeeId),
+    ]);
   return {
     profile,
     clock: { clockedIn: Boolean(openClock), since: openClock?.clockIn ?? null, shiftId: openClock?.shiftId ?? null },
@@ -130,6 +135,9 @@ export async function employeeOverview(db: Database, employeeId: string) {
       achieved: milestones.filter((m) => m.status === 'achieved').length,
       open: milestones.filter((m) => m.status === 'planned' || m.status === 'in_progress').length,
     },
+    unreadAnnouncements,
+    /** Open shifts with a spot left that the employee has not signed up for. */
+    openShifts: openShifts.filter((s) => !s.myRequest && s.spotsLeft > 0).length,
   };
 }
 

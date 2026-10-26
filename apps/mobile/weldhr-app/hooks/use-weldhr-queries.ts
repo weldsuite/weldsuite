@@ -12,6 +12,7 @@ import type {
   HrSelfServiceClockInput,
   HrSelfServiceDeclarationInput,
   HrSelfServiceLeaveRequestInput,
+  HrSelfServiceOpenShiftRequestInput,
   HrSelfServiceShiftRequestInput,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
@@ -122,6 +123,41 @@ export function useCancelShiftRequest() {
   const invalidate = useInvalidateWeldHr();
   return useMutation({
     mutationFn: (id: string) => appApi.weldhr.meCancelShiftRequest(id),
+    onSuccess: invalidate,
+  });
+}
+
+/** Open shifts I can sign up for, and those I did (`myRequest`). */
+export function useOpenShifts(enabled = true) {
+  return useQuery({
+    queryKey: weldhrKeys.openShifts(),
+    queryFn: async () => (await appApi.weldhr.meOpenShifts()).data,
+    enabled,
+  });
+}
+
+/** Sign up for an open shift; a manager approves who gets it. Withdraw with useCancelShiftRequest. */
+export function useSignUpForOpenShift() {
+  const invalidate = useInvalidateWeldHr();
+  return useMutation({
+    mutationFn: ({ id, ...body }: HrSelfServiceOpenShiftRequestInput & { id: string }) =>
+      appApi.weldhr.meSignUpForOpenShift(id, body),
+    onSuccess: invalidate,
+  });
+}
+
+export function useAnnouncements(enabled = true) {
+  return useQuery({
+    queryKey: weldhrKeys.announcements(),
+    queryFn: async () => (await appApi.weldhr.meAnnouncements()).data,
+    enabled,
+  });
+}
+
+export function useMarkAnnouncementRead() {
+  const invalidate = useInvalidateWeldHr();
+  return useMutation({
+    mutationFn: (id: string) => appApi.weldhr.meMarkAnnouncementRead(id),
     onSuccess: invalidate,
   });
 }

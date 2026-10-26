@@ -26,6 +26,7 @@ export const MY_HR_PATHS = {
   payroll: '/weldhr/me/payroll',
   tasks: '/weldhr/me/tasks',
   reviews: '/weldhr/me/reviews',
+  announcements: '/weldhr/me/announcements',
 } as const;
 
 export type MyHrPath = (typeof MY_HR_PATHS)[keyof typeof MY_HR_PATHS];

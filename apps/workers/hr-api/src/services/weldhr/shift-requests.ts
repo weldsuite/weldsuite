@@ -12,6 +12,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { displayNameOf, requireEmployee } from './employees';
 import { HrConflictError, HrNotFoundError, HrValidationError, memberNames } from './shared';
+import { assertCanSignUp, assertOpenShiftHasSpot, openShiftOverfilled } from './open-shifts';
 import { assertNoOverlappingShift, assertShiftWindow, createShift, deleteShift } from './time';
 
 const sr = schema.hrShiftRequests;
@@ -71,6 +72,7 @@ export async function shiftRequestWithNames(db: Database, id: string) {
 export function toSelfShiftRequest(row: ShiftRequestRow & { reviewedByName?: string | null }) {
   return {
     id: row.id,
+    openShiftId: row.openShiftId,
     startsAt: row.startsAt,
     endsAt: row.endsAt,
     workType: row.workType,
@@ -91,7 +93,7 @@ export function toSelfShiftRequest(row: ShiftRequestRow & { reviewedByName?: str
 export async function requestShift(
   db: Database,
   employeeId: string,
-  input: { startsAt: string; endsAt: string; workType?: string | null; note?: string | null },
+  input: { startsAt: string; endsAt: string; workType?: string | null; note?: string | null; openShiftId?: string },
   requestedBy: string,
   now = new Date(),
 ) {
@@ -113,6 +115,7 @@ export async function requestShift(
     .values({
       id: generateId('hrsrq'),
       employeeId,
+      openShiftId: input.openShiftId ?? null,
       startsAt,
       endsAt,
       workType: input.workType?.trim() || null,
@@ -124,7 +127,54 @@ export async function requestShift(
   return row!;
 }
 
-/** A manager's answer. Approving creates the shift; a clash with a shift already on the rooster is a 409. */
+/** An employee signs up for an open shift: a shift request with the open shift's times. */
+export async function signUpForOpenShift(
+  db: Database,
+  employeeId: string,
+  openShiftId: string,
+  input: { note?: string | null },
+  requestedBy: string,
+  now = new Date(),
+) {
+  const open = await assertCanSignUp(db, employeeId, openShiftId, now);
+  return requestShift(
+    db,
+    employeeId,
+    {
+      startsAt: open.startsAt.toISOString(),
+      endsAt: open.endsAt.toISOString(),
+      workType: open.workType,
+      note: input.note,
+      openShiftId,
+    },
+    requestedBy,
+    now,
+  );
+}
+
+/** The shift approving a request puts on the rooster; one for an open shift copies its client, break and notes. */
+async function shiftForApproval(db: Database, request: ShiftRequestRow, reviewedBy: string) {
+  const open = request.openShiftId ? await assertOpenShiftHasSpot(db, request.openShiftId) : null;
+  return createShift(
+    db,
+    {
+      employeeId: request.employeeId,
+      startsAt: request.startsAt.toISOString(),
+      endsAt: request.endsAt.toISOString(),
+      workType: request.workType,
+      companyId: open?.companyId ?? null,
+      breakStartsAt: open?.breakStartsAt?.toISOString() ?? null,
+      breakEndsAt: open?.breakEndsAt?.toISOString() ?? null,
+      notes: open?.notes ?? null,
+    },
+    reviewedBy,
+  );
+}
+
+/**
+ * A manager's answer. Approving creates the shift; a clash with a shift already
+ * on the rooster is a 409, and so is a sign-up for an open shift that is full.
+ */
 export async function reviewShiftRequest(
   db: Database,
   id: string,
@@ -134,19 +184,7 @@ export async function reviewShiftRequest(
   const existing = await requireShiftRequest(db, id);
   if (existing.status !== 'pending') throw new HrConflictError(`This request is already ${existing.status}`);
 
-  const shift =
-    input.decision === 'approved'
-      ? await createShift(
-          db,
-          {
-            employeeId: existing.employeeId,
-            startsAt: existing.startsAt.toISOString(),
-            endsAt: existing.endsAt.toISOString(),
-            workType: existing.workType,
-          },
-          reviewedBy,
-        )
-      : null;
+  const shift = input.decision === 'approved' ? await shiftForApproval(db, existing, reviewedBy) : null;
 
   // Only while it is still waiting: two managers answering at once get one shift, not two.
   const [row] = await db
@@ -164,6 +202,15 @@ export async function reviewShiftRequest(
   if (!row) {
     if (shift) await deleteShift(db, shift.id);
     throw new HrConflictError('This request was answered in the meantime');
+  }
+  // Two managers approving the last spot at once: the later one steps back.
+  if (shift && row.openShiftId && (await openShiftOverfilled(db, row.openShiftId))) {
+    await deleteShift(db, shift.id);
+    await db
+      .update(sr)
+      .set({ status: 'pending', shiftId: null, reviewNote: null, reviewedBy: null, reviewedAt: null, updatedAt: new Date() })
+      .where(eq(sr.id, id));
+    throw new HrConflictError('All spots on this shift are filled');
   }
   return row;
 }

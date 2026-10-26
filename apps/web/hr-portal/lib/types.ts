@@ -11,6 +11,8 @@ export type PortalAccessKind = 'employee' | 'client';
 
 export interface PortalFeatures {
   selfClockIn: boolean;
+  /** Clocking needs the device at a work location; absent from a worker that predates it. */
+  clockInRequiresLocation?: boolean;
   leaveRequests: boolean;
   declarations: boolean;
   individualScores: boolean;

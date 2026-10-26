@@ -21,6 +21,7 @@
     "@weldsuite/db": "workspace:*",
     "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/notifications": "workspace:*",
     "@weldsuite/payroll-domain": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/realtime": "workspace:*",

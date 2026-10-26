@@ -21,6 +21,7 @@ export type NotificationCategory =
   | 'weldagent'
   | 'weldbooks'
   | 'weldsheets'
+  | 'weldhr'
   | 'system'
   | 'security';
 
@@ -67,6 +68,8 @@ export type NotificationType =
   | 'tax_deadline'
   | 'certificate_expiring'
   | 'nexus_exceeded'
+  // WeldHR
+  | 'hr_announcement'
   | 'custom';
 
 export const notifications = pgTable('notifications', {

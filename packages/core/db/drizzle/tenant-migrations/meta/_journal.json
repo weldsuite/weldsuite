@@ -1604,6 +1604,13 @@
       "when": 1793040383470,
       "tag": "0228_hr_shift_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 229,
+      "version": "7",
+      "when": 1793047182531,
+      "tag": "0229_hr_open_shifts_announcements_locations",
+      "breakpoints": true
     }
   ]
 }
