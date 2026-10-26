@@ -260,13 +260,6 @@ export async function assertOpenShiftHasSpot(db: Database, openShiftId: string) 
   return shift;
 }
 
-/** Whether approving one more would take the open shift past its spots (two managers approving at once). */
-export async function openShiftOverfilled(db: Database, openShiftId: string) {
-  const shift = await requireOpenShift(db, openShiftId);
-  const { filled } = (await openShiftCounts(db, [openShiftId])).get(openShiftId) ?? { filled: 0 };
-  return filled > shift.spots;
-}
-
 // ---------------------------------------------------------------------------
 // Employee side
 // ---------------------------------------------------------------------------

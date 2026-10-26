@@ -20,7 +20,13 @@ import {
   settleOpenShift,
   updateOpenShift,
 } from './open-shifts';
-import { cancelShiftRequest, listShiftRequests, reviewShiftRequest, signUpForOpenShift } from './shift-requests';
+import {
+  cancelShiftRequest,
+  claimOpenShiftSpot,
+  listShiftRequests,
+  reviewShiftRequest,
+  signUpForOpenShift,
+} from './shift-requests';
 import { deleteShift } from './time';
 
 let db: Database;
@@ -141,6 +147,35 @@ describe('signing up and approving', () => {
     const [still] = await listShiftRequests(db, { id: cas.id });
     expect(still?.status).toBe('pending');
     await cancelShiftRequest(db, cas.id, 'emp_os_cas');
+  });
+});
+
+describe('two managers approving the last spot at once', () => {
+  it('keeps the spot for the approval that got there first, and leaves no shift behind for the other', async () => {
+    const open = await createOpenShift(db, { startsAt: '2026-03-22T09:00:00Z', endsAt: '2026-03-22T13:00:00Z', spots: 1 }, 'user_hr', now);
+    const ann = await signUpForOpenShift(db, 'emp_os_ann', open.id, {}, 'user_ann', now);
+    const ben = await signUpForOpenShift(db, 'emp_os_ben', open.id, {}, 'user_ben', now);
+    // Both managers read the open shift while its spot was still free.
+    const seenByBoth = (await db.select().from(schema.hrOpenShifts).where(eq(schema.hrOpenShifts.id, open.id)))[0]!;
+    const shiftsBefore = (await db.select().from(schema.hrShifts)).length;
+
+    expect((await claimOpenShiftSpot(db, ann, seenByBoth, null, 'user_manager_1')).status).toBe('approved');
+    await expect(claimOpenShiftSpot(db, ben, seenByBoth, null, 'user_manager_2')).rejects.toThrow('All spots');
+
+    const [benNow] = await listShiftRequests(db, { id: ben.id });
+    expect(benNow).toMatchObject({ status: 'pending', shiftId: null });
+    expect(await db.select().from(schema.hrShifts)).toHaveLength(shiftsBefore + 1);
+    expect((await listOpenShifts(db, { id: open.id }))[0]).toMatchObject({ filled: 1, spotsLeft: 0 });
+  });
+
+  it('says so when the same sign-up was answered in the meantime', async () => {
+    const open = await createOpenShift(db, { startsAt: '2026-03-22T14:00:00Z', endsAt: '2026-03-22T18:00:00Z', spots: 2 }, 'user_hr', now);
+    const cas = await signUpForOpenShift(db, 'emp_os_cas', open.id, {}, 'user_cas', now);
+    const openRow = (await db.select().from(schema.hrOpenShifts).where(eq(schema.hrOpenShifts.id, open.id)))[0]!;
+    await reviewShiftRequest(db, cas.id, { decision: 'rejected' }, 'user_manager_1');
+    const shiftsBefore = (await db.select().from(schema.hrShifts)).length;
+    await expect(claimOpenShiftSpot(db, cas, openRow, null, 'user_manager_2')).rejects.toThrow('answered in the meantime');
+    expect(await db.select().from(schema.hrShifts)).toHaveLength(shiftsBefore);
   });
 });
 
