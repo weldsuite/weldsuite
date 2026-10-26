@@ -1,9 +1,11 @@
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { fileRole, loadDriveAccessForUser, type DriveFileRef } from '@weldsuite/core-domain/drive-access';
+import { canEdit, fileRole, loadDriveAccessForUser, type DriveFileRef } from '@weldsuite/core-domain/drive-access';
+import { resolveProjectAccess } from '@weldsuite/flow-domain/project-access';
 import {
   canAccessViaFilter,
   registerEntityProvider,
+  type EntityChannelContext,
   type EntityChannelProvider,
   type EntityVisibilityContext,
 } from '../registry';
@@ -19,8 +21,12 @@ import { projectEntityProvider } from './project';
  *
  * The record is a WeldDrive file, so who may see its chat is who may open
  * the file: a Drive role on it, and for a WeldFlow project's file the
- * project's own rule (as sheets-api's `findSheet` applies). The file's owner
- * follows a new chat; everyone else follows by commenting or being mentioned.
+ * project's own rule (as sheets-api's `findSheet` applies). Writing in it is
+ * commenting, so it takes what commenting in the editor takes: the comment
+ * permission, or an editor's role with the update permission (a read-only
+ * workspace is refused before any of this, by the licence gate). The file's
+ * owner follows a new chat; everyone else follows by commenting or being
+ * mentioned.
  */
 
 /** Files kept by WeldFlow projects carry this entity type (sheets-api `PROJECT_ENTITY`). */
@@ -103,7 +109,25 @@ async function visibleFiles(load: Loader, ctx: EntityVisibilityContext, ids: str
   return visible;
 }
 
-function driveFileProvider(type: string, label: string, requiredPermission: string, load: Loader): EntityChannelProvider {
+/** The permissions that let someone comment on a type's files: by comment, or by editing. */
+interface CommentPermissions {
+  comment: string;
+  update: string;
+}
+
+/** May comment on a file the caller may open: with the comment permission, or as an editor (sessionMode in sheets-api / docs-api). */
+async function mayComment(load: Loader, perms: CommentPermissions, ctx: EntityChannelContext): Promise<boolean> {
+  if (await ctx.can(perms.comment)) return true;
+  if (!(await ctx.can(perms.update))) return false;
+  const [record] = await load(ctx.db, [ctx.entityId]);
+  if (!record || !canEdit(fileRole(await loadDriveAccessForUser(ctx.db, ctx.actingUserId), record.file))) return false;
+  if (!record.projectId) return true;
+  // A project's file is edited by those who may change the project's work (sheets-api `projectRole`).
+  const scopeAll = await ctx.can('projects:scope:all');
+  return (await resolveProjectAccess(ctx.db, ctx.actingUserId, { scopeAll }, record.projectId)).canWrite;
+}
+
+function driveFileProvider(type: string, label: string, requiredPermission: string, perms: CommentPermissions, load: Loader): EntityChannelProvider {
   const provider: EntityChannelProvider = {
     type,
     label,
@@ -128,12 +152,16 @@ function driveFileProvider(type: string, label: string, requiredPermission: stri
     canAccess(ctx) {
       return canAccessViaFilter(provider, ctx);
     },
+
+    canPost(ctx) {
+      return mayComment(load, perms, ctx);
+    },
   };
   return provider;
 }
 
-export const sheetEntityProvider = driveFileProvider('sheet', 'Sheets', 'sheets:read', loadSheets);
-export const docEntityProvider = driveFileProvider('doc', 'Documents', 'docs:read', loadDocs);
+export const sheetEntityProvider = driveFileProvider('sheet', 'Sheets', 'sheets:read', { comment: 'sheets:comment', update: 'sheets:update' }, loadSheets);
+export const docEntityProvider = driveFileProvider('doc', 'Documents', 'docs:read', { comment: 'docs:comment', update: 'docs:update' }, loadDocs);
 
 registerEntityProvider(sheetEntityProvider);
 registerEntityProvider(docEntityProvider);

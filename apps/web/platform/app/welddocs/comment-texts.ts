@@ -42,6 +42,8 @@ const said = (c: CommentText) => (c.author ? `${c.author}: ${c.body}` : c.body);
 /** A snapshot without its comment threads (suggestions stay), for a document that has no chat. */
 export function withoutCommentThreads(snapshot: DocSnapshot): DocSnapshot {
   const comments = (snapshot.comments ?? []).filter((c) => c.suggestion);
-  const { comments: _all, ...rest } = snapshot;
-  return { ...rest, anchors: snapshot.anchors.filter((a) => a.kind !== 'comment'), ...(comments.length ? { comments } : {}) };
+  const out: DocSnapshot = { ...snapshot, anchors: snapshot.anchors.filter((a) => a.kind !== 'comment') };
+  if (comments.length) out.comments = comments;
+  else delete out.comments;
+  return out;
 }

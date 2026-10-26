@@ -134,6 +134,11 @@ function ThreadCard({
     }
     controller.deleteThread(root.id);
   };
+  /** A reply goes alone; the discussion's first comment goes with the discussion, when it may. */
+  const onDeleteOf = (m: RecordCommentMessage, first: boolean) => {
+    if (!first) return () => void comments?.remove([m.id]).catch(() => toast.error(tr.failed));
+    return deletable ? deleteThread : undefined;
+  };
 
   return (
     <div
@@ -190,7 +195,7 @@ function ThreadCard({
             names={names}
             own={m.authorId === me && canComment}
             first={i === 0 && suggestion === null}
-            onDelete={i === 0 && suggestion === null ? (deletable ? deleteThread : undefined) : () => comments?.remove([m.id]).catch(() => toast.error(tr.failed))}
+            onDelete={onDeleteOf(m, i === 0 && suggestion === null)}
             onEdit={(body) =>
               comments!.edit(m.id, body).catch((err) => {
                 toast.error(tr.failed);

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 
@@ -11,7 +11,10 @@ const MAX_REPLIES = 2_000;
  * chat posted with `metadata.anchor` (a place in the record, such as a
  * spreadsheet cell or a stretch of a document's text) and every reply in
  * their threads, oldest first. The record keeps where each thread is; the
- * comment panel beside it joins the two by `metadata.anchor.id`.
+ * comment panel beside it joins the two by `metadata.anchor.id`. Past the
+ * limits, the newest threads and replies are the ones kept: threads whose
+ * text or cell is gone leave their messages in the chat, and must not crowd
+ * out the ones in use.
  */
 export async function listRecordComments(
   db: Database,
@@ -29,9 +32,10 @@ export async function listRecordComments(
         sql`(${m.metadata} -> 'anchor') is not null`,
       ),
     )
-    .orderBy(asc(m.createdAt))
+    .orderBy(desc(m.createdAt))
     .limit(MAX_THREADS);
   if (threads.length === 0) return [];
+  threads.reverse();
 
   const replies = await db
     .select()
@@ -46,7 +50,7 @@ export async function listRecordComments(
         ),
       ),
     )
-    .orderBy(asc(m.createdAt))
+    .orderBy(desc(m.createdAt))
     .limit(MAX_REPLIES);
-  return [...threads, ...replies];
+  return [...threads, ...replies.reverse()];
 }

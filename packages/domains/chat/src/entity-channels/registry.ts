@@ -58,6 +58,14 @@ export interface EntityChannelProvider {
   canAccess(ctx: EntityChannelContext): Promise<boolean>;
 
   /**
+   * Optional: may the acting user, who may read this record's chat, also
+   * write in it? Without it, everyone who may read it may. A sheet's or a
+   * document's chat holds its comments, so writing there takes the right to
+   * comment on the file (ADR CHAT-007).
+   */
+  canPost?(ctx: EntityChannelContext): Promise<boolean>;
+
+  /**
    * Batch form of `canAccess`: the ids out of `entityIds` the acting user may
    * see. Records that are deleted or missing are left out. Used by the record
    * chat lists, so a deleted company's chat never lingers in a sidebar.
@@ -101,6 +109,11 @@ export async function canAccessEntity(
 ): Promise<boolean> {
   if (!(await ctx.can(provider.requiredPermission))) return false;
   return provider.canAccess(ctx);
+}
+
+/** May the acting user write in a record's chat they may read (`canPost`, else yes)? */
+export async function canPostInRecordChat(provider: EntityChannelProvider, ctx: EntityChannelContext): Promise<boolean> {
+  return provider.canPost ? provider.canPost(ctx) : true;
 }
 
 /** `canAccess` in terms of `filterVisible`, so a provider's single and batch checks cannot drift. */

@@ -49,6 +49,7 @@ import {
   addFollowers,
   announceNewFollowers,
   canAccessEntity,
+  canPostInRecordChat,
   findEntityChannel,
   getEntityProvider,
   getOrCreateEntityChannel,
@@ -275,6 +276,11 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
   try {
     const access = await resolveAccess(c);
     if (access instanceof Response) return access;
+    // Checked before the chat is created: someone who may only read it never creates it by posting.
+    const ctx = { db, actingUserId: userId, entityId: access.entityId, can: callerCan(c) };
+    if (!(await canPostInRecordChat(access.provider, ctx))) {
+      return error.forbidden(c, 'You may read this chat but not write in it');
+    }
 
     const { channel, created, newFollowerIds } = await getOrCreateEntityChannel({
       db,
@@ -296,6 +302,7 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
   } catch (err) {
     if (err instanceof ChatFeatureError) {
       if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+      if (err.status === 403) return error.forbidden(c, err.message);
       return error.badRequest(c, err.message);
     }
     console.error('[chat-api/chat-entity-channels] post message failed:', err);

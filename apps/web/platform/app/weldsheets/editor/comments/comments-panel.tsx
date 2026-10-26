@@ -166,6 +166,11 @@ function ThreadCard({
     }
     removeThread(controller, thread);
   };
+  /** A reply goes alone; the first comment goes with its thread, when it may. */
+  const onDeleteOf = (m: RecordCommentMessage, first: boolean) => {
+    if (!first) return () => void comments.remove([m.id]).catch(() => toast.error(tc.failed));
+    return deletable ? deleteThread : undefined;
+  };
 
   return (
     <div ref={ref} className={`flex flex-col gap-2 rounded-lg border bg-card p-3 ${active ? 'ring-2 ring-primary/50' : ''} ${comment.resolved ? 'opacity-70' : ''}`}>
@@ -194,8 +199,7 @@ function ThreadCard({
           names={names}
           own={m.authorId === me && controller.mayComment}
           deleteLabel={i === 0 ? tc.deleteThread : tc.delete}
-          // The first comment goes with its thread.
-          onDelete={i === 0 ? (deletable ? deleteThread : undefined) : () => comments.remove([m.id]).catch(() => toast.error(tc.failed))}
+          onDelete={onDeleteOf(m, i === 0)}
           onEdit={(body) => comments.edit(m.id, body).catch((err) => {
             toast.error(tc.failed);
             throw err;

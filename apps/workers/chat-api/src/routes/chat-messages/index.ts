@@ -237,6 +237,7 @@ function messageInputFromBody(data: Record<string, unknown>) {
 /** Maps a send-pipeline feature error to its HTTP response. */
 function chatFeatureErrorResponse(c: ChatContext, err: ChatFeatureError, channelId: string) {
   if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+  if (err.status === 403) return error.forbidden(c, err.message);
   return error.badRequest(c, err.message);
 }
 

@@ -1,8 +1,9 @@
 /**
  * DB-backed integration tests for sheet and document chats (ADR CHAT-007):
- * who may read them (their WeldDrive file's access), who follows a new one,
- * and `GET …/comments`, which returns the comment threads (messages posted
- * with `metadata.anchor`) and their replies.
+ * who may read them (their WeldDrive file's access), who may write in them
+ * (who may comment on the file), who follows a new one, and `GET …/comments`,
+ * which returns the comment threads (messages posted with `metadata.anchor`)
+ * and their replies.
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
@@ -41,8 +42,10 @@ beforeAll(async () => {
   }
 }, 60_000);
 
-const SHEETS = ['channels:read', 'messages:create', 'sheets:read'];
-const DOCS = ['channels:read', 'messages:create', 'docs:read'];
+const SHEETS = ['channels:read', 'messages:create', 'sheets:read', 'sheets:comment'];
+const DOCS = ['channels:read', 'messages:create', 'docs:read', 'docs:comment'];
+/** May open sheets, but not comment on them. */
+const SHEETS_READ = ['channels:read', 'messages:create', 'sheets:read'];
 
 function api(userId: string, perms: string[]) {
   const { request } = createTestApp('/api/chat-entity-channels', chatEntityChannelsRoutes, {
@@ -131,6 +134,20 @@ describe('sheet and document chats', () => {
     const shared = await seedFile('Shared', 'alice', 'workspace_view', 'sheet');
     expect((await api('bob', ['channels:read', 'messages:create'])(`/sheet/${shared}/comments`)).status).toBe(403);
     expect((await api('bob', SHEETS)('/sheet/sht_missing/comments')).status).toBe(403);
+  });
+
+  it('takes the right to comment to write in it: the comment permission, or editing the file', async () => {
+    const viewOnly = await seedFile('Read only', 'alice', 'workspace_view', 'sheet');
+    const refused = await api('bob', SHEETS_READ)(`/sheet/${viewOnly}/messages`, 'POST', { content: 'x', metadata: { anchor: { id: 'cm_x' } } });
+    expect(refused.status).toBe(403);
+    // Refused before the chat exists: reading it alone never creates it.
+    expect(((await (await api('bob', SHEETS_READ)(`/sheet/${viewOnly}/comments`)).json()) as CommentsBody).data.channel).toBeNull();
+
+    // Editing the file is enough.
+    const editable = await seedFile('Shared to edit', 'alice', 'workspace_edit', 'sheet');
+    expect((await api('bob', [...SHEETS_READ, 'sheets:update'])(`/sheet/${editable}/messages`, 'POST', { content: 'y' })).status).toBe(201);
+    // Update rights on a file shared to view are not.
+    expect((await api('bob', [...SHEETS_READ, 'sheets:update'])(`/sheet/${viewOnly}/messages`, 'POST', { content: 'z' })).status).toBe(403);
   });
 
   it('gives documents a chat too', async () => {
