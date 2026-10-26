@@ -52,6 +52,7 @@ import {
   leaveAllowancesRoutes,
   leaveRequestsRoutes,
   leaveTypesRoutes,
+  shiftRequestsRoutes,
   shiftsRoutes,
 } from './time';
 
@@ -86,6 +87,7 @@ app.route('/clients', clientsRoutes);
 app.route('/checklist-templates', checklistTemplatesRoutes);
 app.route('/checklists', checklistsRoutes);
 app.route('/shifts', shiftsRoutes);
+app.route('/shift-requests', shiftRequestsRoutes);
 app.route('/attendance', attendanceRoutes);
 app.route('/leave-types', leaveTypesRoutes);
 app.route('/leave-allowances', leaveAllowancesRoutes);

@@ -83,7 +83,7 @@ import {
   recordHrAudit,
   todayIso,
 } from '../../services/weldhr/shared';
-import { cancelLeaveRequest, clock, createLeaveRequest } from '../../services/weldhr/time';
+import { cancelLeaveRequest, clock, createLeaveRequest, switchShift } from '../../services/weldhr/time';
 import { requirePayrollFlag } from '../weldhr/payroll/flag';
 import { registerPayrollSelfService } from '../weldhr/payroll/self-service';
 
@@ -502,9 +502,17 @@ app.post('/employee/clock', zValidator('json', hrPortalClockSchema), async (c) =
   const settings = await sessionSettings(c);
   if (!settings.employeeSelfClockIn) return error.forbidden(c, 'Clocking in from the portal is turned off');
   const employeeId = employeeIdOf(c);
-  const { action } = c.req.valid('json');
-  const record = await clock(c.get('tenantDb'), employeeId, action);
-  emitPortal(c, 'hr_attendance', action === 'in' ? 'created' : 'updated', record.id, employeeId);
+  const { action, shiftId } = c.req.valid('json');
+  let record;
+  if (action === 'switch') {
+    const { closed, opened } = await switchShift(c.get('tenantDb'), employeeId, shiftId);
+    emitPortal(c, 'hr_attendance', 'updated', closed.id, employeeId);
+    emitPortal(c, 'hr_attendance', 'created', opened.id, employeeId);
+    record = opened;
+  } else {
+    record = await clock(c.get('tenantDb'), employeeId, action, new Date(), `portal:${employeeId}`, shiftId);
+    emitPortal(c, 'hr_attendance', action === 'in' ? 'created' : 'updated', record.id, employeeId);
+  }
   return success(c, {
     id: record.id,
     date: record.date,

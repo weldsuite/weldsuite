@@ -25,6 +25,10 @@ export const weldhrKeys = {
   pendingLeave: () => [...weldhrKeys.team(), 'leave', 'pending'] as const,
   pendingExpenses: () => [...weldhrKeys.team(), 'declarations', 'pending'] as const,
   sickToday: () => [...weldhrKeys.team(), 'absences', 'ongoing'] as const,
+  sickReports: () => [...weldhrKeys.team(), 'absences', 'recent'] as const,
+  teamShifts: (from: string, to: string) => [...weldhrKeys.team(), 'shifts', from, to] as const,
+  teamAttendance: (from: string, to: string) => [...weldhrKeys.team(), 'attendance', from, to] as const,
+  teamLeave: (from: string, to: string) => [...weldhrKeys.team(), 'leave', 'approved', from, to] as const,
   employees: (search: string) => [...weldhrKeys.team(), 'employees', search] as const,
   employee: (id: string) => [...weldhrKeys.team(), 'employee', id] as const,
 };

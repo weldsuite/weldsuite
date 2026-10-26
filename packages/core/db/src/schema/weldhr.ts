@@ -319,6 +319,35 @@ export const hrShifts = pgTable('hr_shifts', {
   index('hr_shifts_start_idx').on(table.startsAt),
 ]);
 
+/**
+ * An employee asking to work a shift (from the WeldHR app). A manager approves
+ * or rejects it; approving puts the shift on the rooster and links it here.
+ */
+export const hrShiftRequests = pgTable('hr_shift_requests', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  /** What the employee offers to do, e.g. "Cashier". Free text. */
+  workType: varchar('work_type', { length: 100 }),
+  /** The employee's note to the manager. */
+  note: text('note'),
+  /** pending, approved, rejected or cancelled. */
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  /** The shift approving it created. */
+  shiftId: varchar('shift_id', { length: 30 }),
+  /** Clerk user id of whoever asked (the employee themselves). */
+  requestedBy: varchar('requested_by', { length: 255 }),
+  reviewedBy: varchar('reviewed_by', { length: 255 }),
+  reviewedAt: timestamp('reviewed_at'),
+  reviewNote: text('review_note'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_shift_requests_employee_start_idx').on(table.employeeId, table.startsAt),
+  index('hr_shift_requests_status_idx').on(table.status),
+]);
+
 export const hrAttendanceRecords = pgTable('hr_attendance_records', {
   id: varchar('id', { length: 30 }).primaryKey(),
   employeeId: varchar('employee_id', { length: 30 }).notNull(),

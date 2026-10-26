@@ -13,7 +13,7 @@
  * Clock-in, leave requests and expense declarations honour the same switches
  * as the portal (`hr_portal_settings.employee_self_clock_in` /
  * `employee_leave_requests` / `employee_declarations`); reporting sick and
- * recovered is always available.
+ * recovered, and asking for a shift, are always available.
  */
 
 import { Hono } from 'hono';
@@ -24,6 +24,7 @@ import {
   hrPortalClockSchema,
   hrPortalDeclarationSchema,
   hrPortalLeaveRequestSchema,
+  hrPortalShiftRequestSchema,
   recoverHrAbsenceSchema,
 } from '@weldsuite/app-api-client/schemas/weldhr';
 import { error, success } from '@weldsuite/worker-kit/response';
@@ -54,7 +55,8 @@ import {
   employeeTasks,
 } from '../../services/weldhr/portal-self-service';
 import { HrNotFoundError, addDays, todayIso } from '../../services/weldhr/shared';
-import { cancelLeaveRequest, clock, createLeaveRequest } from '../../services/weldhr/time';
+import { cancelShiftRequest, requestShift, toSelfShiftRequest } from '../../services/weldhr/shift-requests';
+import { cancelLeaveRequest, clock, createLeaveRequest, switchShift } from '../../services/weldhr/time';
 import { actor, hrJson, db, emit, param, receiptBucket, workspaceIdOf, type HrContext } from './helpers';
 import { requirePayrollFlag } from './payroll/flag';
 import { registerPayrollSelfService } from './payroll/self-service';
@@ -98,15 +100,39 @@ meRoutes.get('/attendance', async (c) => {
   const to = q.to && isoDate.test(q.to) ? q.to : addDays(todayIso(), 14);
   const from = q.from && isoDate.test(q.from) ? q.from : addDays(todayIso(), -30);
   if (to < from || addDays(from, 92) < to) return error.badRequest(c, 'Pick a range of at most 92 days');
-  return success(c, await employeeAttendance(db(c), employeeId, from, to));
+  return success(c, await employeeAttendance(db(c), employeeId, from, to, { withPay: true, withRequests: true }));
+});
+
+// Asking to work a shift; a manager answers it in WeldHR → Attendance. Like
+// reporting sick it has no switch: asking commits the company to nothing.
+meRoutes.post('/shift-requests', hrJson(hrPortalShiftRequestSchema), async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await requestShift(db(c), employeeId, c.req.valid('json'), actor(c));
+  emit(c, 'hr_shift_request', 'created', row.id, { employeeId, status: row.status });
+  return success(c, toSelfShiftRequest(row), 201);
+});
+
+meRoutes.post('/shift-requests/:shiftRequestId/cancel', async (c) => {
+  const employeeId = await selfEmployeeId(c);
+  const row = await cancelShiftRequest(db(c), param(c, 'shiftRequestId'), employeeId);
+  emit(c, 'hr_shift_request', 'updated', row.id, { employeeId, status: row.status });
+  return success(c, toSelfShiftRequest(row));
 });
 
 meRoutes.post('/clock', hrJson(hrPortalClockSchema), async (c) => {
   const employeeId = await selfEmployeeId(c);
   if (!(await features(c)).selfClockIn) return error.forbidden(c, 'Clocking in yourself is turned off');
-  const { action } = c.req.valid('json');
-  const record = await clock(db(c), employeeId, action, new Date(), actor(c));
-  emit(c, 'hr_attendance', action === 'in' ? 'created' : 'updated', record.id, { employeeId, status: record.status });
+  const { action, shiftId } = c.req.valid('json');
+  let record;
+  if (action === 'switch') {
+    const { closed, opened } = await switchShift(db(c), employeeId, shiftId, new Date(), actor(c));
+    emit(c, 'hr_attendance', 'updated', closed.id, { employeeId, status: closed.status });
+    emit(c, 'hr_attendance', 'created', opened.id, { employeeId, status: opened.status });
+    record = opened;
+  } else {
+    record = await clock(db(c), employeeId, action, new Date(), actor(c), shiftId);
+    emit(c, 'hr_attendance', action === 'in' ? 'created' : 'updated', record.id, { employeeId, status: record.status });
+  }
   return success(c, {
     id: record.id,
     date: record.date,

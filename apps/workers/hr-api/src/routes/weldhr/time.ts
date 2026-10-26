@@ -1,6 +1,6 @@
 /**
- * /api/weldhr/shifts, /api/weldhr/attendance, /api/weldhr/leave-types,
- * /api/weldhr/leave-allowances, /api/weldhr/leave-requests
+ * /api/weldhr/shifts, /api/weldhr/shift-requests, /api/weldhr/attendance,
+ * /api/weldhr/leave-types, /api/weldhr/leave-allowances, /api/weldhr/leave-requests
  */
 
 import { Hono } from 'hono';
@@ -13,6 +13,7 @@ import {
   createHrShiftSchema,
   importHrAttendanceSchema,
   reviewHrLeaveRequestSchema,
+  reviewHrShiftRequestSchema,
   setHrLeaveAllowanceSchema,
   updateHrAttendanceSchema,
   updateHrLeaveTypeSchema,
@@ -47,6 +48,7 @@ import {
   updateShift,
 } from '../../services/weldhr/time';
 import { addDays, todayIso } from '../../services/weldhr/shared';
+import { listShiftRequests, reviewShiftRequest, shiftRequestWithNames } from '../../services/weldhr/shift-requests';
 import { actor, hrJson, db, emit, emitPortalConfig, param } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
@@ -77,6 +79,40 @@ shiftsRoutes.delete('/:shiftId', requirePermission('attendance:delete'), async (
   await deleteShift(db(c), param(c, 'shiftId'));
   return noContent(c);
 });
+
+// ---------------------------------------------------------------------------
+// Shift requests (employees asking to work a shift, from the WeldHR app)
+// ---------------------------------------------------------------------------
+
+export const shiftRequestsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+shiftRequestsRoutes.get('/', requirePermission('attendance:read'), async (c) => {
+  const q = c.req.query();
+  return success(
+    c,
+    await listShiftRequests(db(c), {
+      employeeId: q.employeeId || undefined,
+      status: q.status || undefined,
+      from: q.from && isoDate.test(q.from) ? q.from : undefined,
+      to: q.to && isoDate.test(q.to) ? q.to : undefined,
+    }),
+  );
+});
+
+// Approving puts a shift on the rooster, so it takes the right to create one.
+shiftRequestsRoutes.post(
+  '/:shiftRequestId/review',
+  requirePermission('attendance:create'),
+  hrJson(reviewHrShiftRequestSchema),
+  async (c) => {
+    const row = await reviewShiftRequest(db(c), param(c, 'shiftRequestId'), c.req.valid('json'), actor(c));
+    emit(c, 'hr_shift_request', row.status === 'approved' ? 'approved' : 'rejected', row.id, {
+      employeeId: row.employeeId,
+      status: row.status,
+    });
+    return success(c, await shiftRequestWithNames(db(c), row.id));
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Attendance

@@ -8,9 +8,11 @@ import { and, asc, desc, eq, gte, inArray, isNull } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { activeClientsFor, displayNameOf, requireEmployee } from './employees';
+import { compensationOn } from './payroll/employees';
 import { settleChecklist } from './lifecycle';
 import { listCoachingLogs, listEvaluations, listKpiValues, listMilestones } from './performance';
 import { addDays, HrNotFoundError, HrValidationError, todayIso } from './shared';
+import { listShiftRequests, toSelfShiftRequest } from './shift-requests';
 import {
   leaveBalances,
   listAttendance,
@@ -113,7 +115,7 @@ export async function employeeOverview(db: Database, employeeId: string) {
   ]);
   return {
     profile,
-    clock: { clockedIn: Boolean(openClock), since: openClock?.clockIn ?? null },
+    clock: { clockedIn: Boolean(openClock), since: openClock?.clockIn ?? null, shiftId: openClock?.shiftId ?? null },
     upcomingShifts: shifts.map((s) => ({ id: s.id, startsAt: s.startsAt, endsAt: s.endsAt, companyName: s.companyName })),
     leaveBalances: balances,
     openTasks: tasks.filter((t) => !t.completedAt).length,
@@ -131,13 +133,49 @@ export async function employeeOverview(db: Database, employeeId: string) {
   };
 }
 
-export async function employeeAttendance(db: Database, employeeId: string, from: string, to: string) {
-  const [records, shifts] = await Promise.all([
+/**
+ * What an hour of work pays under a compensation row: an hourly wage as is, a
+ * salary spread over its contract hours (40 a week when none are set), the
+ * way the payroll engine works out an hourly rate.
+ */
+export function hourlyRateOf(comp: { payType: string; amount: string | number; period: string; hoursPerWeek: number | null }): number | null {
+  const amount = Number(comp.amount);
+  if (!Number.isFinite(amount)) return null;
+  if (comp.period === 'hour') return amount;
+  const hours = comp.hoursPerWeek && comp.hoursPerWeek > 0 ? comp.hoursPerWeek : 40;
+  const perYear = { week: 52, month: 12, year: 1 }[comp.period];
+  return perYear ? (amount * perYear) / (hours * 52) : null;
+}
+
+/**
+ * The employee's own clocked records and shifts, with each shift's break.
+ * `withPay` adds, per record and per shift, the hourly rate in force on its
+ * day (from payroll's compensations), so the app can show what the hours earn
+ * and what a shift will. Only My HR asks for it.
+ */
+export async function employeeAttendance(
+  db: Database,
+  employeeId: string,
+  from: string,
+  to: string,
+  opts: { withPay?: boolean; withRequests?: boolean } = {},
+) {
+  const [records, shifts, compensations, requests] = await Promise.all([
     listAttendance(db, { employeeId, from, to, limit: 500 }),
     listShifts(db, { from, to, employeeId }),
+    opts.withPay
+      ? db.select().from(schema.hrCompensations).where(eq(schema.hrCompensations.employeeId, employeeId))
+      : Promise.resolve([]),
+    // Waiting or turned down; an approved request is one of `shifts` now.
+    opts.withRequests ? listShiftRequests(db, { employeeId, from, to, status: 'pending,rejected' }) : Promise.resolve(null),
   ]);
+  const payOn = (date: string) => {
+    const comp = opts.withPay ? compensationOn(compensations, date) : null;
+    return { hourlyRate: comp ? hourlyRateOf(comp) : null, currency: comp?.currency ?? null };
+  };
   return {
     records: records.data.map((r) => ({
+      ...payOn(r.date),
       id: r.id,
       date: r.date,
       clockIn: r.clockIn,
@@ -149,8 +187,21 @@ export async function employeeAttendance(db: Database, employeeId: string, from:
       source: r.source,
       approved: Boolean(r.approvedAt),
       companyName: r.companyName,
+      shiftId: r.shiftId,
+      notes: r.notes,
     })),
-    shifts: shifts.map((s) => ({ id: s.id, startsAt: s.startsAt, endsAt: s.endsAt, companyName: s.companyName, notes: s.notes })),
+    shifts: shifts.map((s) => ({
+      ...payOn(s.startsAt.toISOString().slice(0, 10)),
+      id: s.id,
+      startsAt: s.startsAt,
+      endsAt: s.endsAt,
+      workType: s.workType,
+      breakStartsAt: s.breakStartsAt,
+      breakEndsAt: s.breakEndsAt,
+      companyName: s.companyName,
+      notes: s.notes,
+    })),
+    ...(requests ? { requests: requests.map(toSelfShiftRequest) } : {}),
   };
 }
 
@@ -176,6 +227,8 @@ export async function employeeLeave(db: Database, employeeId: string) {
       status: r.status,
       reviewNote: r.reviewNote,
       reviewedAt: r.reviewedAt,
+      reviewedByName: r.reviewedByName,
+      createdAt: r.createdAt,
     })),
   };
 }

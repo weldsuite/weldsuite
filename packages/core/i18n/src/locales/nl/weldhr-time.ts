@@ -10,6 +10,7 @@ export const weldhrTime = {
     tabs: {
       records: 'Registraties',
       schedule: 'Rooster',
+      requests: 'Aanvragen',
       import: 'Importeren',
     },
     records: {
@@ -136,6 +137,34 @@ export const weldhrTime = {
         create: 'Dienst toevoegen',
         cancel: 'Annuleren',
         failed: 'Deze dienst kon niet worden opgeslagen.',
+      },
+    },
+    requests: {
+      groups: {
+        pending: 'In behandeling',
+        reviewed: 'Recent beoordeeld',
+      },
+      table: {
+        employee: 'Medewerker',
+        day: 'Dag',
+        time: 'Tijd',
+        length: 'Duur',
+        workType: 'Soort werk',
+        note: 'Notitie',
+        requested: 'Aangevraagd',
+        status: 'Status',
+        reviewer: 'Beoordeeld door',
+      },
+      approve: 'Goedkeuren',
+      decline: 'Afwijzen',
+      approvedToast: 'Dienst goedgekeurd en op het rooster gezet.',
+      reviewFailed: 'Deze dienstaanvraag kon niet worden beoordeeld.',
+      declineTitle: 'Dienstaanvraag afwijzen',
+      declineNoteLabel: 'Notitie (optioneel)',
+      declineNotePlaceholder: 'Zichtbaar voor de medewerker',
+      empty: {
+        title: 'Geen dienstaanvragen',
+        description: 'Aanvragen uit de WeldHR-app verschijnen hier',
       },
     },
     import: {

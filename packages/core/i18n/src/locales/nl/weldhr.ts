@@ -80,6 +80,12 @@ export const weldhr = {
       rejected: 'Afgewezen',
       cancelled: 'Geannuleerd',
     },
+    shiftRequest: {
+      pending: 'In afwachting',
+      approved: 'Goedgekeurd',
+      rejected: 'Afgewezen',
+      cancelled: 'Ingetrokken',
+    },
     declaration: {
       pending: 'In afwachting',
       approved: 'Goedgekeurd',

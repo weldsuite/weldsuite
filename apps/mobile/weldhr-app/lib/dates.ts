@@ -72,3 +72,38 @@ export function monthGrid(year: number, month: number): (string | null)[][] {
   for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
   return weeks;
 }
+
+/** The Monday of the week `iso` falls in. */
+export function startOfWeek(iso: string): string {
+  const day = parseIsoDate(iso)?.getDay();
+  if (day == null) return iso;
+  return addDays(iso, -((day + 6) % 7));
+}
+
+/** The ISO 8601 week number ("Week 43"): weeks start on Monday, week 1 holds the year's first Thursday. */
+export function isoWeek(iso: string): number {
+  const date = parseIsoDate(iso);
+  if (!date) return 0;
+  const thursday = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const firstThursday = new Date(thursday.getFullYear(), 0, 4);
+  const diffDays = Math.round((thursday.getTime() - firstThursday.getTime()) / 86_400_000);
+  return 1 + Math.round((diffDays - 3 + ((firstThursday.getDay() + 6) % 7)) / 7);
+}
+
+/** Monday-first weeks covering the month of `iso`, padded with the days of the months around it. */
+export function monthWeeks(iso: string): string[][] {
+  const date = parseIsoDate(iso) ?? new Date();
+  const first = toIsoDate(new Date(date.getFullYear(), date.getMonth(), 1));
+  const last = toIsoDate(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+  const weeks: string[][] = [];
+  for (let monday = startOfWeek(first); monday <= last; monday = addDays(monday, 7)) {
+    weeks.push(Array.from({ length: 7 }, (_, i) => addDays(monday, i)));
+  }
+  return weeks;
+}
+
+/** The local calendar day of an ISO timestamp (a shift's start), or the date part when it does not parse. */
+export function dayOf(timestamp: string): string {
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? timestamp.slice(0, 10) : toIsoDate(date);
+}
