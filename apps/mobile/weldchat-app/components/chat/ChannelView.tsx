@@ -28,7 +28,8 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
 
-import { Archive, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X } from 'lucide-react-native';
+import { Archive, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X, type LucideIcon } from 'lucide-react-native';
+import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -75,8 +76,30 @@ import {
   mentionsToPlainText,
 } from '@/lib/chat/mentions';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { forgetMembership, updateMembership } from '@/lib/chat/conversation-menu';
+import { recordAppFor } from '@/lib/record-chats/app-links';
+import { isRecordChatType, recordChatName } from '@/lib/record-chats/rules';
+import { recordChatIcon, recordTypeLabel } from '@/lib/record-chats/registry';
+import { useOpenRecordInApp } from '@/hooks/useOpenRecordInApp';
 
 type Styles = ReturnType<typeof makeStyles>;
+
+/** What the header shows for a record chat (a chat on a company, person, task, …). */
+interface RecordHeader {
+  Icon: LucideIcon;
+  /** "Company", under the record's name. */
+  typeLabel: string | null;
+  /** Null until the channel (and so its followers) has loaded. */
+  following: boolean | null;
+  onToggleFollow: () => void;
+  /** Tapping the name: open in WeldCRM / WeldFlow, mute. Empty: the name does nothing. */
+  menu: MenuAction[];
+  onMenuAction: (id: string) => void;
+}
+
+/** Header menu actions of a record chat. */
+const RECORD_MENU_OPEN = 'open-in-app';
+const RECORD_MENU_MUTE = 'mute';
 
 interface Message {
   id: string;
@@ -825,6 +848,7 @@ function ThreadLink({
 function HeaderAvatar({
   isDm,
   isPrivate,
+  recordIcon,
   picture,
   channelName,
   peerIsOnline,
@@ -833,6 +857,8 @@ function HeaderAvatar({
 }: Readonly<{
   isDm: boolean;
   isPrivate: boolean;
+  /** A record chat shows its record type's icon instead of the `#`. */
+  recordIcon?: LucideIcon;
   picture?: string | null;
   channelName: string;
   peerIsOnline: boolean | null;
@@ -840,7 +866,7 @@ function HeaderAvatar({
   styles: Styles;
 }>) {
   if (!isDm) {
-    const ChannelIcon = isPrivate ? Lock : Hash;
+    const ChannelIcon = recordIcon ?? (isPrivate ? Lock : Hash);
     return (
       <View style={styles.headerChannelIcon}>
         <ChannelIcon size={20} color={colors.text} strokeWidth={2.2} />
@@ -873,6 +899,7 @@ function ChannelHeader({
   inCall,
   joinableCall,
   identityEnabled,
+  record,
   colors,
   styles,
   onBack,
@@ -890,6 +917,8 @@ function ChannelHeader({
   joinableCall: ActiveCall['callType'] | null;
   /** Tapping the name opens the DM peer's profile, or the channel details. */
   identityEnabled: boolean;
+  /** Set for a record chat: its type, the follow toggle and its own menu. */
+  record?: RecordHeader;
   colors: ThemeColors;
   styles: Styles;
   onBack: () => void;
@@ -897,6 +926,70 @@ function ChannelHeader({
   onStartCall: (callType: 'voice' | 'video') => void;
 }>) {
   const { t } = useI18n();
+  const identityContent = (
+    <>
+      <HeaderAvatar
+        isDm={isDm}
+        isPrivate={isPrivate}
+        recordIcon={record?.Icon}
+        picture={picture}
+        channelName={channelName}
+        peerIsOnline={peerIsOnline}
+        colors={colors}
+        styles={styles}
+      />
+      <View style={styles.headerIdentityText}>
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {channelName || t.channel.loadingTitle}
+        </Text>
+        {isDm && peerIsOnline !== null && (
+          <Text style={styles.headerSubtitle} numberOfLines={1}>
+            {peerIsOnline ? t.channel.activeNow : t.channel.offline}
+          </Text>
+        )}
+        {record?.typeLabel ? (
+          <Text style={styles.headerSubtitle} numberOfLines={1}>
+            {record.typeLabel}
+          </Text>
+        ) : null}
+      </View>
+    </>
+  );
+
+  // A record chat has no channel details (no rename, no delete from WeldChat):
+  // its name opens a menu with the record's app and mute, when there is one.
+  let identity: React.ReactNode;
+  if (record && record.menu.length > 0) {
+    identity = (
+      <MenuView
+        actions={record.menu}
+        onPressAction={({ nativeEvent }) => record.onMenuAction(nativeEvent.event)}
+        style={styles.headerIdentityMenu}
+      >
+        <View style={styles.headerIdentity} accessible accessibilityRole="button" accessibilityLabel={channelName}>
+          {identityContent}
+        </View>
+      </MenuView>
+    );
+  } else if (record) {
+    identity = <View style={styles.headerIdentity}>{identityContent}</View>;
+  } else {
+    identity = (
+      <TouchableOpacity
+        style={styles.headerIdentity}
+        activeOpacity={0.6}
+        onPress={onOpenIdentity}
+        disabled={!identityEnabled}
+        accessibilityRole={identityEnabled ? 'button' : undefined}
+        accessibilityLabel={
+          identityEnabled && !isDm ? `${channelName}, ${t.channel.channelDetails}` : undefined
+        }
+      >
+        {identityContent}
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <View style={styles.header}>
       <View style={[styles.headerContent, hideBackButton && styles.headerContentNoBack]}>
@@ -912,36 +1005,22 @@ function ChannelHeader({
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          style={styles.headerIdentity}
-          activeOpacity={0.6}
-          onPress={onOpenIdentity}
-          disabled={!identityEnabled}
-          accessibilityRole={identityEnabled ? 'button' : undefined}
-          accessibilityLabel={
-            identityEnabled && !isDm ? `${channelName}, ${t.channel.channelDetails}` : undefined
-          }
-        >
-          <HeaderAvatar
-            isDm={isDm}
-            isPrivate={isPrivate}
-            picture={picture}
-            channelName={channelName}
-            peerIsOnline={peerIsOnline}
-            colors={colors}
-            styles={styles}
-          />
-          <View style={styles.headerIdentityText}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {channelName || t.channel.loadingTitle}
+        {identity}
+
+        {record && record.following !== null && (
+          <TouchableOpacity
+            style={[styles.headerFollow, record.following && styles.headerFollowOn]}
+            activeOpacity={0.7}
+            onPress={record.onToggleFollow}
+            accessibilityRole="button"
+            accessibilityState={{ selected: record.following }}
+            accessibilityHint={record.following ? t.recordChats.unfollow : undefined}
+          >
+            <Text style={[styles.headerFollowText, record.following && styles.headerFollowTextOn]}>
+              {record.following ? t.recordChats.following : t.recordChats.follow}
             </Text>
-            {isDm && peerIsOnline !== null && (
-              <Text style={styles.headerSubtitle} numberOfLines={1}>
-                {peerIsOnline ? t.channel.activeNow : t.channel.offline}
-              </Text>
-            )}
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        )}
 
         {joinableCall ? (
           <TouchableOpacity
@@ -1168,6 +1247,8 @@ interface ComposerProps extends Omit<ExpandedComposerProps, 'onFocus' | 'onBlur'
   colors: ThemeColors;
   styles: Styles;
   isDm: boolean;
+  /** A record chat: its name has no `#`. */
+  isRecord?: boolean;
   channelName: string;
   isArchived: boolean;
   /** Recording, or uploading the recording just taken. */
@@ -1194,10 +1275,10 @@ function Composer(props: Readonly<ComposerProps>) {
   const { t, format } = useI18n();
   // Until the channel name is known (route param or loaded channel) the
   // placeholder stays neutral instead of reading "Message #".
-  const placeholder =
-    props.isDm || !props.channelName
-      ? t.composer.messageDm
-      : format(t.composer.messageChannel, { name: props.channelName });
+  let placeholder: string;
+  if (props.isDm || !props.channelName) placeholder = t.composer.messageDm;
+  else if (props.isRecord) placeholder = format(t.recordChats.messagePlaceholder, { name: props.channelName });
+  else placeholder = format(t.composer.messageChannel, { name: props.channelName });
 
   let inputBody: React.ReactNode;
   if (isRecording) {
@@ -1357,6 +1438,7 @@ function PinDurationModal({
  */
 function EmptyChannel({
   isDm,
+  isRecord,
   channelName,
   loading,
   colors,
@@ -1365,6 +1447,7 @@ function EmptyChannel({
   onLayout,
 }: Readonly<{
   isDm: boolean;
+  isRecord?: boolean;
   channelName: string;
   /** Messages or channel still loading: no welcome text yet. */
   loading: boolean;
@@ -1381,11 +1464,12 @@ function EmptyChannel({
       </View>
     );
   }
+  let welcome = t.channel.welcome;
+  if (isDm) welcome = t.channel.dmConversation;
+  else if (isRecord) welcome = t.recordChats.welcome;
   return (
     <View style={[styles.empty, style]} onLayout={onLayout}>
-      <Text style={styles.emptyTitle}>
-        {format(isDm ? t.channel.dmConversation : t.channel.welcome, { name: channelName })}
-      </Text>
+      <Text style={styles.emptyTitle}>{format(welcome, { name: channelName })}</Text>
       <Text style={styles.emptyText}>{t.channel.startOfConversation}</Text>
     </View>
   );
@@ -1397,8 +1481,10 @@ interface ChannelViewProps {
   hideHeader?: boolean;
   /** Name from the list the user tapped, shown until the channel itself loads. */
   initialName?: string;
-  /** Channel type from the same list item ('dm', 'public', 'private'). */
+  /** Channel type from the same list item ('dm', 'public', 'private', 'entity'). */
   initialType?: string;
+  /** A record chat's record type from the same list item ('company', 'task', …). */
+  initialEntityType?: string;
 }
 
 export function ChannelView({
@@ -1407,6 +1493,7 @@ export function ChannelView({
   hideHeader,
   initialName,
   initialType,
+  initialEntityType,
 }: Readonly<ChannelViewProps>) {
   const { markInteractive } = useObserve();
   const { t, format, intlLocale } = useI18n();
@@ -1491,6 +1578,9 @@ export function ChannelView({
   const [messagesLoading, setMessagesLoading] = useState(true);
   const [input, setInput] = useState('');
   const [channel, setChannel] = useState<any>(null);
+  // A record chat's follow / mute change, shown before the channel reloads.
+  const [recordOverride, setRecordOverride] = useState<{ following?: boolean; muted?: boolean }>({});
+  const openRecordInApp = useOpenRecordInApp();
   const [uploading, setUploading] = useState(false);
   const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
   const [showActions, setShowActions] = useState(false);
@@ -1671,6 +1761,7 @@ export function ChannelView({
   useEffect(() => {
     setMessages([]);
     setChannel(null);
+    setRecordOverride({});
     setInput('');
     setEditingMessage(null);
     setReplyTo(null);
@@ -1732,6 +1823,8 @@ export function ChannelView({
         }
       }
       setChannel(channelData);
+      // The members just loaded say who follows a record chat; drop what was shown ahead of them.
+      setRecordOverride({});
     } catch (err) {
       console.error(err);
     }
@@ -1964,6 +2057,10 @@ export function ChannelView({
       const entry = pendingSendsRef.current.get(tempId);
       if (entry) entry.serverId = res.data?.id;
       void loadMessages();
+      // Posting in a record chat follows it: reload, so the header says so.
+      if (channel?.type === 'entity' && !(channel.members ?? []).some((m: { userId?: string }) => m.userId === userId)) {
+        void loadChannel();
+      }
     } catch (err) {
       console.error('[WeldChat] Send failed:', err);
       pendingSendsRef.current.delete(tempId);
@@ -1974,7 +2071,7 @@ export function ChannelView({
       if (files.length > 0) setPendingFiles((current) => (current.length > 0 ? current : files));
       toast.error(t.channel.sendFailed);
     }
-  }, [editingMessage, handleEditSubmit, input, channelId, uploading, onSend, userId, user, membersMap, messages, replyTo, replyMention, pendingFiles, clearDraft, toast, t]);
+  }, [editingMessage, handleEditSubmit, input, channelId, channel, uploading, onSend, userId, user, membersMap, messages, replyTo, replyMention, pendingFiles, clearDraft, toast, t]);
 
   // Reacting shows at once with a light tap, as in WhatsApp; the server's
   // version replaces it once the request is done (or puts it back if it failed).
@@ -2391,11 +2488,15 @@ export function ChannelView({
     );
   };
 
-  // The list item's name covers the gap until the channel request answers.
-  const channelName: string = channel?.name || initialName || '';
   const channelType: string | undefined = channel?.type ?? initialType;
   const isPrivate = channelType === 'private';
   const isDm = channelType === 'dm';
+  // A record chat: a chat on a company, person, task, project or domain.
+  const isRecord = channelType === 'entity';
+  const entityType: string | undefined = channel?.entityType ?? initialEntityType;
+  // The list item's name covers the gap until the channel request answers. A
+  // record chat goes by its record's name.
+  const channelName: string = (isRecord ? recordChatName(channel ?? {}) : channel?.name) || initialName || '';
   const isArchived = channel?.isArchived === true;
   // A call is already in progress (possibly minimized) → block starting another.
   const inCall = !!session;
@@ -2410,9 +2511,10 @@ export function ChannelView({
         // so this is also race-safe.)
         // Hand the call screen who it is with, on both the start and join-active
         // paths: the person for a DM, the channel's name otherwise.
-        const peer = isDm
-          ? { name: channelName, avatar: channel?.picture, isDirect: true }
-          : { name: channelName ? `#${channelName}` : undefined };
+        let peer: { name?: string; avatar?: string | null; isDirect?: boolean };
+        if (isDm) peer = { name: channelName, avatar: channel?.picture, isDirect: true };
+        else if (isRecord) peer = { name: channelName || undefined };
+        else peer = { name: channelName ? `#${channelName}` : undefined };
         if (activeCall) {
           await joinCall(activeCall.callId, peer);
         } else {
@@ -2422,7 +2524,7 @@ export function ChannelView({
         Alert.alert(t.channel.callFailedTitle, t.channel.callFailedBody);
       }
     },
-    [activeCall, joinCall, startCall, channelId, isDm, channelName, channel?.picture, t],
+    [activeCall, joinCall, startCall, channelId, isDm, isRecord, channelName, channel?.picture, t],
   );
 
   const handleUnarchive = useCallback(async () => {
@@ -2472,6 +2574,69 @@ export function ChannelView({
       params: { channelId, name: channelName },
     } as never);
   };
+
+  // A record chat: following is a membership row (the loaded channel's
+  // members), so it is only known once the channel has loaded.
+  let recordHeader: RecordHeader | undefined;
+  if (isRecord) {
+    const me = channel ? (channel.members ?? []).find((m: { userId?: string }) => m.userId === userId) : undefined;
+    const following = channel ? (recordOverride.following ?? !!me) : null;
+    const muted = recordOverride.muted ?? !!me?.isMuted;
+    const app = entityType ? recordAppFor(entityType) : null;
+
+    const toggleFollow = () => {
+      if (following === null || !channel?.entityType || !channel?.entityId) return;
+      const next = !following;
+      setRecordOverride({ following: next, muted: next ? muted : false });
+      forgetMembership(channelId, userId);
+      const request = next
+        ? appApi.chatEntityChannels.follow(channel.entityType, channel.entityId)
+        : appApi.chatEntityChannels.unfollow(channel.entityType, channel.entityId);
+      request
+        .then(() => loadChannel())
+        .catch(() => {
+          setRecordOverride({});
+          toast.error(next ? t.recordChats.followFailed : t.recordChats.unfollowFailed);
+        });
+    };
+
+    const toggleMute = () => {
+      if (!userId || !following) return;
+      const next = !muted;
+      setRecordOverride((prev) => ({ ...prev, muted: next }));
+      updateMembership(channelId, userId, { isMuted: next }).catch(() => {
+        setRecordOverride((prev) => ({ ...prev, muted: !next }));
+        toast.error(t.recordChats.muteFailed);
+      });
+    };
+
+    const menu: MenuAction[] = [];
+    if (app && channel?.entityId) {
+      menu.push({ id: RECORD_MENU_OPEN, title: format(t.recordChats.openIn, { app }), image: 'arrow.up.forward.app' });
+    }
+    if (following) {
+      menu.push({
+        id: RECORD_MENU_MUTE,
+        title: muted ? t.recordChats.unmute : t.recordChats.mute,
+        image: muted ? 'bell' : 'bell.slash',
+      });
+    }
+
+    recordHeader = {
+      Icon: recordChatIcon(entityType) ?? Hash,
+      typeLabel: isRecordChatType(entityType) ? recordTypeLabel(t, entityType) : null,
+      following,
+      onToggleFollow: toggleFollow,
+      menu,
+      onMenuAction: (id) => {
+        if (id === RECORD_MENU_OPEN && channel?.entityType && channel?.entityId) {
+          void openRecordInApp(channel.entityType, channel.entityId);
+        } else if (id === RECORD_MENU_MUTE) {
+          toggleMute();
+        }
+      },
+    };
+  }
 
   const handlePinnedBarPress = () => {
     if (!currentPinned) return;
@@ -2538,6 +2703,7 @@ export function ChannelView({
           inCall={inCall}
           joinableCall={activeCall && session?.callId !== activeCall.callId ? activeCall.callType : null}
           identityEnabled={isDm || channel !== null}
+          record={recordHeader}
           colors={colors}
           styles={styles}
           onBack={() => router.back()}
@@ -2605,6 +2771,7 @@ export function ChannelView({
           ListEmptyComponent={
             <EmptyChannel
               isDm={isDm}
+              isRecord={isRecord}
               channelName={channelName}
               loading={messagesLoading || (channel === null && !channelName)}
               colors={colors}
@@ -2692,6 +2859,7 @@ export function ChannelView({
         recordingMs={sendingVoiceMs ?? durationMs}
         input={input}
         isDm={isDm}
+        isRecord={isRecord}
         channelName={channelName}
         members={membersMap}
         uploading={uploading}
@@ -2831,6 +2999,24 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       flex: 1,
       justifyContent: 'center',
     },
+    // The menu trigger takes the identity's place in the row.
+    headerIdentityMenu: { flex: 1 },
+    // A record chat's follow toggle: filled to follow, outlined while following.
+    headerFollow: {
+      height: 30,
+      paddingHorizontal: 12,
+      marginRight: 4,
+      borderRadius: 11,
+      borderCurve: 'continuous',
+      backgroundColor: c.text,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.text,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    headerFollowOn: { backgroundColor: c.background, borderColor: c.border },
+    headerFollowText: { fontSize: 14, fontWeight: '600', color: c.background },
+    headerFollowTextOn: { color: c.text },
     headerTitle: {
       fontSize: 17,
       fontWeight: '600',

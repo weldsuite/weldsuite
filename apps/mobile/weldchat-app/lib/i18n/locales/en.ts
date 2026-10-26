@@ -477,6 +477,7 @@ export const en = {
     openIn: 'Open in {app}',
     appMissingTitle: '{app} is not installed',
     appMissingBody: 'Install {app} on this device to open the record there.',
+    openFailed: 'This record cannot be opened in {app}.',
     followFailed: 'Could not follow this chat.',
     unfollowFailed: 'Could not unfollow this chat.',
     muteFailed: 'Could not change notifications for this chat.',

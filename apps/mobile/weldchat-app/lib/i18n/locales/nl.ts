@@ -463,6 +463,7 @@ export const nl: Translations = {
     openIn: 'Openen in {app}',
     appMissingTitle: '{app} is niet geïnstalleerd',
     appMissingBody: 'Installeer {app} op dit apparaat om het record daar te openen.',
+    openFailed: 'Dit record kan niet in {app} worden geopend.',
     followFailed: 'Deze chat kon niet worden gevolgd.',
     unfollowFailed: 'Kon deze chat niet ontvolgen.',
     muteFailed: 'De meldingen voor deze chat konden niet worden gewijzigd.',

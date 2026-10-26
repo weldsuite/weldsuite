@@ -165,12 +165,78 @@ export function coversUnread(rows: readonly RecordChatState[], summary: RecordCh
 }
 
 /** Rows of several pages, each chat once (a chat can move between pages as messages arrive). */
-export function uniqueRows<T extends { id: string }>(pages: ReadonlyArray<readonly T[]>): T[] {
+export function uniqueRows<T extends { id: string }>(pages: readonly (readonly T[])[]): T[] {
   const byId = new Map<string, T>();
   for (const page of pages) {
     for (const row of page) if (!byId.has(row.id)) byId.set(row.id, row);
   }
   return [...byId.values()];
+}
+
+/** What Home keeps of the record chats: the summary and the loaded followed chats per type. */
+export interface RecordChatsSnapshot<T extends RecordChatState & { entityType: string }> {
+  summary: RecordChatTypeSummary[] | null;
+  rows: Partial<Record<RecordChatType, T[]>>;
+}
+
+/** A change made from a row's menu, shown before the server confirms it. */
+export interface RecordChatPatch {
+  isMuted?: boolean;
+  /** `false`: read up to now. */
+  hasUnread?: false;
+  /** `false`: unfollowed, so the chat leaves Home. */
+  isFollowing?: false;
+}
+
+/**
+ * The snapshot with one chat changed, its type's summary counts moved with
+ * it, so the group header and "Show all (N)" stay right until the next load.
+ */
+export function patchRecordChats<T extends RecordChatState & { entityType: string }>(
+  snapshot: RecordChatsSnapshot<T>,
+  id: string,
+  patch: RecordChatPatch,
+  now: number = Date.now(),
+): RecordChatsSnapshot<T> {
+  const type = RECORD_CHAT_TYPES.find((ty) => snapshot.rows[ty]?.some((row) => row.id === id));
+  if (!type) return snapshot;
+  const rows = snapshot.rows[type] ?? [];
+  const before = rows.find((row) => row.id === id)!;
+
+  let after: T | null = { ...before };
+  if (patch.isMuted !== undefined) after.isMuted = patch.isMuted;
+  if (patch.hasUnread === false) {
+    after.lastReadAt = new Date(now).toISOString();
+    after.unreadMentionCount = 0;
+  }
+  if (patch.isFollowing === false) after = null;
+
+  const count = (row: T | null) => ({
+    followed: row ? 1 : 0,
+    unread: row && isUnreadRecordChat(row) ? 1 : 0,
+    mentions: row?.unreadMentionCount ?? 0,
+  });
+  const a = count(before);
+  const b = count(after);
+  const summary =
+    snapshot.summary?.map((s) =>
+      s.type === type
+        ? {
+            ...s,
+            followed: Math.max(0, s.followed - a.followed + b.followed),
+            unread: Math.max(0, s.unread - a.unread + b.unread),
+            mentions: Math.max(0, s.mentions - a.mentions + b.mentions),
+          }
+        : s,
+    ) ?? null;
+
+  return {
+    summary,
+    rows: {
+      ...snapshot.rows,
+      [type]: after ? rows.map((row) => (row.id === id ? after : row)) : rows.filter((row) => row.id !== id),
+    },
+  };
 }
 
 /** Record types whose followed, unread or mention counts differ between two summaries. */
