@@ -460,7 +460,9 @@ export const en = {
       project: 'Project',
       domain: 'Domain',
     },
-    allTypes: 'All types',
+    // The records screen's title menu: every type, or one.
+    allTypes: 'All record chats',
+    chooseType: 'Choose a record type',
     filters: {
       following: 'Following',
       unread: 'Unread',

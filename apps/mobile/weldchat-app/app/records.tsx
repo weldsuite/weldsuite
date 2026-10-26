@@ -1,6 +1,7 @@
 /**
  * Record chats: every chat on a company, person, task, project or domain the
- * user may read, not only the 5 per type Home shows. Type chips, filters
+ * user may read, not only the 5 per type Home shows. The title picks the
+ * record type ("Record chats ⌄" / "Companies ⌄"); one chip row of filters
  * (Following, Unread, Mentions, All), search, infinite scroll. Swipe a row to
  * follow, unfollow or mute it; long-press for its menu.
  *
@@ -15,7 +16,8 @@ import ReanimatedSwipeable, { type SwipeableMethods } from 'react-native-gesture
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@clerk/expo';
-import { Bell, BellOff, ChevronLeft, Hash, Plus, UserMinus } from 'lucide-react-native';
+import { Bell, BellOff, ChevronDown, ChevronLeft, Hash, Plus, UserMinus } from 'lucide-react-native';
+import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import type { RecordChatListItem } from '@weldsuite/app-api-client/domains/chat-entity-channels';
 import {
   RECORD_CHAT_FILTERS,
@@ -52,6 +54,17 @@ const REFRESH_DEBOUNCE_MS = 400;
 
 type Styles = ReturnType<typeof makeStyles>;
 
+/** The title menu's "every type" action. */
+const TYPE_ALL = 'all';
+/** iOS menu icons per type (Android menus show none). */
+const TYPE_SYMBOLS = {
+  company: 'building.2',
+  person: 'person',
+  task: 'checkmark.square',
+  project: 'briefcase',
+  domain: 'globe',
+} as const satisfies Record<RecordChatType, string>;
+
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -72,6 +85,10 @@ export default function RecordsScreen() {
   const styles = useMemo(() => makeStyles(colors, insets.top, insets.bottom), [colors, insets.top, insets.bottom]);
 
   const [type, setType] = useState<RecordChatType | null>(isRecordChatType(params.type) ? params.type : null);
+  // A link to this screen while it is open (`?type=task`) reuses it with new params.
+  useEffect(() => {
+    if (params.type !== undefined) setType(isRecordChatType(params.type) ? params.type : null);
+  }, [params.type]);
   const [filter, setFilter] = useState<RecordChatFilter>('following');
   const [query, setQuery] = useState('');
   const search = useDebounced(query.trim(), SEARCH_DEBOUNCE_MS);
@@ -218,9 +235,17 @@ export default function RecordsScreen() {
     return t.recordChats.emptyAll;
   })();
 
-  const typeChips: { key: RecordChatType | null; label: string }[] = [
-    { key: null, label: t.recordChats.allTypes },
-    ...RECORD_CHAT_TYPES.map((key) => ({ key, label: recordGroupLabel(t, key) })),
+  // The record type is picked from the title (like Home's workspace menu), so
+  // the filters keep the only chip row.
+  const title = type ? recordGroupLabel(t, type) : t.recordChats.title;
+  const typeMenu: MenuAction[] = [
+    { id: TYPE_ALL, title: t.recordChats.allTypes, state: type === null ? 'on' : 'off' },
+    ...RECORD_CHAT_TYPES.map((key) => ({
+      id: key,
+      title: recordGroupLabel(t, key),
+      image: TYPE_SYMBOLS[key],
+      state: key === type ? ('on' as const) : ('off' as const),
+    })),
   ];
 
   return (
@@ -235,7 +260,23 @@ export default function RecordsScreen() {
         >
           <ChevronLeft size={26} color={colors.text} strokeWidth={2} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{t.recordChats.title}</Text>
+        <MenuView
+          actions={typeMenu}
+          onPressAction={({ nativeEvent }) =>
+            setType(isRecordChatType(nativeEvent.event) ? nativeEvent.event : null)
+          }
+          style={styles.titleMenu}
+        >
+          <View
+            style={styles.titleBtn}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={`${title}, ${t.recordChats.chooseType}`}
+          >
+            <Text style={styles.headerTitle} numberOfLines={1}>{title}</Text>
+            <ChevronDown size={18} color={colors.mutedForeground} strokeWidth={2.2} />
+          </View>
+        </MenuView>
       </View>
 
       <FlatList
@@ -261,7 +302,6 @@ export default function RecordsScreen() {
               onSelect={setFilter}
               styles={styles}
             />
-            <ChipRow chips={typeChips} active={type} onSelect={setType} styles={styles} />
           </View>
         }
         renderItem={({ item }) => (
@@ -326,7 +366,7 @@ export default function RecordsScreen() {
   );
 }
 
-function ChipRow<K extends string | null>({
+function ChipRow<K extends string>({
   chips,
   active,
   onSelect,
@@ -343,7 +383,7 @@ function ChipRow<K extends string | null>({
         const selected = chip.key === active;
         return (
           <TouchableOpacity
-            key={chip.key ?? 'all'}
+            key={chip.key}
             style={[styles.chip, selected && styles.chipActive]}
             activeOpacity={0.7}
             onPress={() => onSelect(chip.key)}
@@ -436,7 +476,10 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       backgroundColor: c.background,
     },
     backBtn: { padding: 4 },
-    headerTitle: { fontSize: 18, fontWeight: '700', color: c.text },
+    headerTitle: { flexShrink: 1, fontSize: 18, fontWeight: '700', color: c.text },
+    // The menu trigger sizes to the title; the title truncates first.
+    titleMenu: { flexShrink: 1 },
+    titleBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },
     list: { paddingBottom: 24 + bottomInset },
     search: { marginHorizontal: 16, marginTop: 4 },
     chipRow: { paddingHorizontal: 16, paddingTop: 10, gap: 8 },

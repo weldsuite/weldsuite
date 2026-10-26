@@ -446,7 +446,8 @@ export const nl: Translations = {
       project: 'Project',
       domain: 'Domein',
     },
-    allTypes: 'Alle soorten',
+    allTypes: 'Alle recordchats',
+    chooseType: 'Kies een soort record',
     filters: {
       following: 'Gevolgd',
       unread: 'Ongelezen',
