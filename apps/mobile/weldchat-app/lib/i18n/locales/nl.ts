@@ -423,4 +423,9 @@ export const nl: Translations = {
     },
     failed: 'Kon geen mensen aan dit kanaal toevoegen.',
   },
+
+  settings: {
+    pushOn: 'Aan',
+    pushOff: 'Uit · tik om aan te zetten',
+  },
 };
