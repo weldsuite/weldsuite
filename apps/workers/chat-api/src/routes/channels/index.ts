@@ -947,8 +947,16 @@ app.delete('/:channelId/agents/:agentId', requirePermission('weldagent:use'), as
   const room = await resolveAgentRoom(c, channelId);
   if (room instanceof Response) return room;
 
+  // A deleted agent's leftover membership can always be cleared; a live one
+  // only by someone who can use it.
+  const { weldagentAgents: agents } = schema;
+  const [live] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, agentId), isNull(agents.deletedAt)))
+    .limit(1);
   const viewer = agentViewerFor(c.get('userId'), await ensurePermissionsResolved(c));
-  if ((await inaccessibleAgentIds(db, [agentId], viewer)).length > 0) {
+  if (live && (await inaccessibleAgentIds(db, [agentId], viewer)).length > 0) {
     return error.forbidden(c, 'You do not have access to this agent');
   }
 

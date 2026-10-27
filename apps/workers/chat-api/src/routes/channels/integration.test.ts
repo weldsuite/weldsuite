@@ -632,6 +632,21 @@ describe('/api/channels · pglite integration', () => {
       expect(row).toBeDefined();
     });
 
+    it('DELETE /:channelId/agents/:agentId still clears a deleted agent nobody can use', async () => {
+      const goneAgent = generateId('agt');
+      await db.insert(schema.weldagentAgents).values({
+        id: goneAgent, name: 'Retired helper', status: 'active', visibility: 'private',
+        ownerId: 'user_someone_else', deletedAt: new Date(),
+      });
+      const channelId = await room('private');
+      await db.insert(schema.chatChannelMembers).values({
+        id: generateId('cmb'), channelId, userId: goneAgent, memberType: 'agent', role: 'member',
+        createdAt: now, joinedAt: now,
+      });
+      const res = await asMember()(`/api/channels/${channelId}/agents/${goneAgent}`, { method: 'DELETE' });
+      expect(res.status).toBe(200);
+    });
+
     it('DELETE /:channelId/agents/:agentId only removes agents', async () => {
       const channelId = await room('private');
       const res = await asMember()(`/api/channels/${channelId}/agents/${member}`, { method: 'DELETE' });
