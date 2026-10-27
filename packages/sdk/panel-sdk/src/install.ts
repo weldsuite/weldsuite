@@ -3,9 +3,9 @@
  * the stub and the loader that replays it (./snippet.ts) change together.
  */
 
-import { DEFAULT_HOST } from './host';
+import { DEFAULT_HOST, trimTrailingSlashes } from './host';
 
-export { DEFAULT_HOST };
+export { DEFAULT_HOST, trimTrailingSlashes };
 
 /**
  * Defines `window.weldpanel` before the script has loaded, queueing calls in
@@ -22,6 +22,6 @@ const attr = (v: string): string => v.replace(/&/g, '&amp;').replace(/"/g, '&quo
 
 /** The HTML to paste before `</head>`: the stub, then the async loader. */
 export function installSnippet(token: string, host: string = DEFAULT_HOST): string {
-  const origin = host.replace(/\/+$/, '');
+  const origin = trimTrailingSlashes(host);
   return `<script>${STUB}</script>\n<script async src="${attr(origin)}/s.js" data-project="${attr(token)}"></script>`;
 }

@@ -78,8 +78,8 @@ describe('cookieless (no consent yet)', () => {
       expect(e.session_id).toBeUndefined();
     }
     expect(setItem).not.toHaveBeenCalled();
-    expect(localStorage.length).toBe(0);
-    expect(sessionStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
+    expect(sessionStorage).toHaveLength(0);
     expect(document.cookie).toBe('');
   });
 });
@@ -102,7 +102,7 @@ describe('consent', () => {
     expect(after.session_id).toMatch(/^s_[0-9a-f-]{36}$/);
     expect(Object.keys(localStorage)).toEqual([stateKey(TOKEN)]);
     expect(stored()).toMatchObject({ a: after.anon_id, s: after.session_id, g: 1 });
-    expect(sessionStorage.length).toBe(0);
+    expect(sessionStorage).toHaveLength(0);
     expect(document.cookie).toBe('');
   });
 
@@ -133,7 +133,7 @@ describe('consent', () => {
       [false, ['Revoked']],
     ]);
     expect(sent[2].batch.events[0].anon_id).toBeUndefined();
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
   });
 
   it('a revoke or opt-out in another tab holds in this one', async () => {
@@ -143,7 +143,7 @@ describe('consent', () => {
     window.dispatchEvent(new StorageEvent('storage', { key: stateKey(TOKEN), oldValue: '{}', newValue: null }));
     client.api.track('After revoke');
     await client.api.flush();
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
     const [revoked] = byName(await net.events(), 'After revoke');
     expect(revoked.anon_id).toBeUndefined();
 
@@ -187,14 +187,14 @@ describe('consent', () => {
     await client.api.flush();
     const [pageview] = await net.events();
     expect(pageview.anon_id).toBeUndefined();
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
   });
 
   it('a Global Privacy Control signal means no consent until grant(), even when the project needs none', async () => {
     defineOn(navigator, 'globalPrivacyControl', true);
     const { client, net } = setup({ consentMode: 'none' });
     client.api.track('Before');
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
     client.api.consent.grant();
     client.api.track('After');
     await client.api.flush();
@@ -610,6 +610,6 @@ describe('before the config arrives', () => {
     client.api.consent.grant();
     await client.api.flush();
     expect(net.fetchMock).not.toHaveBeenCalled();
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
   });
 });

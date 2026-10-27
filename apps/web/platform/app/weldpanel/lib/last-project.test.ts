@@ -18,7 +18,7 @@ describe('last project', () => {
   it('does nothing without a workspace', () => {
     writeLastProjectId(null, 'wpp_a');
     expect(readLastProjectId(null)).toBeNull();
-    expect(window.localStorage.length).toBe(0);
+    expect(window.localStorage).toHaveLength(0);
   });
 
   it('survives storage that throws', () => {

@@ -52,7 +52,7 @@ function parseIpv6(text: string): bigint | null {
 
 function parseAddress(raw: string): Address | null {
   // `[::1]`, and a zone id (`fe80::1%eth0`) that has no bearing on the address.
-  const text = raw.trim().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  const text = raw.trim().replace(/^\[|\]$/g, '').split('%')[0]!;
   if (!text.includes(':')) {
     const value = parseIpv4(text);
     return value === null ? null : { version: 4, value };

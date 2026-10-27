@@ -18,7 +18,12 @@ const SECRET_WORDS = new Set([
 /** Run-together names (`accesstoken`, `apikey`) end in one of these. */
 const SECRET_SUFFIXES = ['token', 'secret', 'password', 'apikey'];
 
-const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** `a@b.c` without whitespace: one `@` with something before it and a dot with something after it. */
+function looksLikeEmail(value: string): boolean {
+  const at = value.indexOf('@');
+  const dot = value.lastIndexOf('.');
+  return !/\s/.test(value) && at > 0 && at === value.lastIndexOf('@') && dot > at + 1 && dot < value.length - 1;
+}
 
 function words(name: string): string[] {
   return name
@@ -41,7 +46,7 @@ export function isSecretParam(name: string, value: string): boolean {
   if (words(name).some((word) => SECRET_WORDS.has(word))) return true;
   const squashed = name.toLowerCase().replace(/[^a-z0-9]/g, '');
   if (SECRET_SUFFIXES.some((suffix) => squashed.endsWith(suffix))) return true;
-  return EMAIL_LIKE.test(value);
+  return looksLikeEmail(value);
 }
 
 /** `?a=1&b=2` without the secret parameters, original encoding kept. */

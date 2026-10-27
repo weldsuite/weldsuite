@@ -11,6 +11,7 @@
 
 import { createClient, type WeldPanel } from './client';
 import { DEFAULT_HOST, fetchConfig } from './config';
+import { trimTrailingSlashes } from './host';
 import { LIB_VERSION } from './event';
 
 export interface InitOptions {
@@ -41,7 +42,7 @@ const inert: WeldPanel = {
  */
 export function init(options: InitOptions): WeldPanel {
   if (typeof window === 'undefined' || typeof document === 'undefined' || !options || !options.token) return inert;
-  const host = (options.host || DEFAULT_HOST).replace(/\/+$/, '');
+  const host = trimTrailingSlashes(options.host || DEFAULT_HOST);
   const client = createClient({ token: options.token, host, debug: options.debug });
   fetchConfig(host, options.token).then(client.start, client.fail);
   return client.api;

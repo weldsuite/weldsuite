@@ -43,12 +43,10 @@ export interface EventInput {
 }
 
 export function uuid(): string {
-  const c = typeof crypto !== 'undefined' ? crypto : undefined;
-  // randomUUID only exists in secure contexts; plain-http sites still get a v4 id.
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
-  const b = new Uint8Array(16);
-  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
-  else for (let i = 0; i < 16; i++) b[i] = (Math.random() * 256) | 0;
+  // randomUUID only exists in secure contexts; plain-http sites still get a v4
+  // id from getRandomValues, which every browser the ES2018 target covers has.
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
   b[6] = (b[6] & 0x0f) | 0x40;
   b[8] = (b[8] & 0x3f) | 0x80;
   const h = Array.from(b, (x) => (x < 16 ? '0' : '') + x.toString(16)).join('');
@@ -148,39 +146,43 @@ export function normalizeEvent(e: EventInput): WireEvent | null {
   const url = typeof e.url === 'string' ? clampUrl(e.url) : null;
   if (!url) return null;
   const id = e.event_id;
-  const out: WireEvent = {
+  return {
     event_id: typeof id === 'string' && id.length >= 8 && id.length <= MAX_ID ? id : uuid(),
     name: e.name,
     ts: isoTime(e.ts),
     url,
+    ...optionalFields(e),
   };
-  const anon = str(e.anon_id, MAX_ID);
-  const session = str(e.session_id, MAX_ID);
-  if (anon) out.anon_id = anon;
-  if (session) out.session_id = session;
-  const title = str(e.title, MAX_TITLE);
-  if (title) out.title = title;
-  const referrer = str(e.referrer, MAX_STRING);
-  if (referrer) out.referrer = referrer;
-  const vw = int(e.viewport_w, 20000);
-  if (vw !== undefined) out.viewport_w = vw;
-  if (e.el && typeof e.el.tag === 'string' && typeof e.el.selector === 'string') {
-    const el: WireElement = {
-      tag: e.el.tag.slice(0, 32),
-      selector: e.el.selector.slice(0, 512),
-      action: e.el.action === 'submit' ? 'submit' : 'click',
-    };
-    const text = str(e.el.text, MAX_ELEMENT_TEXT);
-    if (text) el.text = text;
-    out.el = el;
+}
+
+/** The optional fields that survive cleaning; one that doesn't is left out, not set to undefined. */
+function optionalFields(e: EventInput): Partial<WireEvent> {
+  const fields: Partial<WireEvent> = {
+    anon_id: str(e.anon_id, MAX_ID),
+    session_id: str(e.session_id, MAX_ID),
+    title: str(e.title, MAX_TITLE),
+    referrer: str(e.referrer, MAX_STRING),
+    viewport_w: int(e.viewport_w, 20000),
+    el: normalizeElement(e.el),
+    x: int(e.x, 100000),
+    y: int(e.y, 1000000),
+    scroll_depth: int(e.scroll_depth, 100),
+    props: cleanProps(e.props),
+  };
+  for (const key of Object.keys(fields) as (keyof WireEvent)[]) {
+    if (fields[key] === undefined) delete fields[key];
   }
-  const x = int(e.x, 100000);
-  const y = int(e.y, 1000000);
-  if (x !== undefined) out.x = x;
-  if (y !== undefined) out.y = y;
-  const depth = int(e.scroll_depth, 100);
-  if (depth !== undefined) out.scroll_depth = depth;
-  const props = cleanProps(e.props);
-  if (props) out.props = props;
+  return fields;
+}
+
+function normalizeElement(el: EventInput['el']): WireElement | undefined {
+  if (!el || typeof el.tag !== 'string' || typeof el.selector !== 'string') return undefined;
+  const out: WireElement = {
+    tag: el.tag.slice(0, 32),
+    selector: el.selector.slice(0, 512),
+    action: el.action === 'submit' ? 'submit' : 'click',
+  };
+  const text = str(el.text, MAX_ELEMENT_TEXT);
+  if (text) out.text = text;
   return out;
 }

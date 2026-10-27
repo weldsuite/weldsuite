@@ -26,11 +26,9 @@ export const MAX_EXCLUDED_URLS = 50;
  * host, so the scheme, port, path, query and fragment are dropped first.
  */
 export function normalizeDomainInput(raw: string): string {
-  return raw
-    .trim()
-    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, '')
-    .replace(/[/?#].*$/, '')
-    .replace(/:\d+$/, '');
+  const withoutScheme = raw.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const end = withoutScheme.search(/[/?#]/);
+  return (end === -1 ? withoutScheme : withoutScheme.slice(0, end)).replace(/:\d+$/, '');
 }
 
 /** The host `panelDomainSchema` accepts for this input, or `null`. */

@@ -14,7 +14,7 @@ import type { PanelProject } from '@weldsuite/db/schema';
 import { seenKvKey } from '@weldsuite/panel-domain/registry';
 import { DEFAULT_PANEL_SETTINGS, withSettingDefaults } from '@weldsuite/panel-domain/settings';
 import { generateProjectToken } from '@weldsuite/panel-domain/tokens';
-import { DEFAULT_HOST, installSnippet } from '@weldsuite/panel-sdk/install';
+import { DEFAULT_HOST, installSnippet, trimTrailingSlashes } from '@weldsuite/panel-sdk/install';
 import type {
   CreatePanelProjectInput,
   PanelInstallInfo,
@@ -205,7 +205,7 @@ export async function loadInstallInfo(
   collectorUrl: string,
   now: Date = new Date(),
 ): Promise<PanelInstallInfo> {
-  const origin = collectorUrl.replace(/\/+$/, '');
+  const origin = trimTrailingSlashes(collectorUrl);
   const seen = await kv.get(seenKvKey(project.id));
   const seenAt = seen ? new Date(seen) : null;
   const lastEventAt = seenAt && !Number.isNaN(seenAt.getTime()) ? seenAt : null;

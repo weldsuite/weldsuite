@@ -28,6 +28,8 @@ import type { ClientConfig, WireEvent } from './wire';
 export const FLUSH_INTERVAL_MS = 5000;
 /** …or as soon as this many are. */
 export const FLUSH_AT = 20;
+/** The one retry after a network failure waits this long. */
+const RETRY_DELAY_MS = 1500;
 
 export interface ClientOptions {
   /** The project token, `wpk_…`. */
@@ -96,7 +98,8 @@ export function createClient(options: ClientOptions): Client {
     };
 
   let config: ClientConfig | null = null;
-  let excluded: (path: string) => boolean = () => false;
+  // Until the config arrives no path is excluded (and nothing is sent anyway).
+  let excluded: (path: string) => boolean = excludedMatcher([]);
   /** Calls made before the config arrived: `[changes state, run]`. Null once started. */
   let pending: Array<[boolean, () => void]> | null = [];
   /** The visitor's ids. Non-null exactly when there is consent (or none is needed). */
@@ -225,7 +228,7 @@ export function createClient(options: ClientOptions): Client {
 
   function pageKey(): string {
     const hash = location.hash;
-    return location.href.replace(/#.*$/, '') + (/^#[/!]/.test(hash) ? hash : '');
+    return location.href.split('#')[0] + (/^#[/!]/.test(hash) ? hash : '');
   }
 
   function depthNow(): number {
@@ -293,7 +296,7 @@ export function createClient(options: ClientOptions): Client {
       // A network failure (offline, or keepalive's in-flight quota) gets one more go; a 4xx/5xx answer does not.
       () =>
         retry
-          ? new Promise<void>((resolve) => setTimeout(resolve, 1000 + Math.random() * 1000)).then(() => post(body, false))
+          ? new Promise<void>((resolve) => setTimeout(resolve, RETRY_DELAY_MS)).then(() => post(body, false))
           : warn('batch not sent'),
     );
   }

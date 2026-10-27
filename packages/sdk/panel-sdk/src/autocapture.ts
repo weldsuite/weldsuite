@@ -53,10 +53,20 @@ export function cssSelector(el: Element): string {
   return parts.join(' > ').slice(0, 512);
 }
 
-/** Email addresses and runs of 4 or more digits (cards, phones, ids, codes) become `*`. */
+/** `a@b.c`: one `@` with something before it and a dot with something after it. */
+function looksLikeEmail(word: string): boolean {
+  const at = word.indexOf('@');
+  const dot = word.lastIndexOf('.');
+  return at > 0 && at === word.lastIndexOf('@') && dot > at + 1 && dot < word.length - 1;
+}
+
+/**
+ * Email addresses and runs of 4 or more digits (cards, phones, ids, codes)
+ * become `*`. A word that holds an address is masked whole, punctuation and all.
+ */
 export function maskText(text: string): string {
   return text
-    .replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, '*')
+    .replace(/\S+/g, (word) => (looksLikeEmail(word) ? '*' : word))
     .replace(/\d{4,}/g, '*');
 }
 

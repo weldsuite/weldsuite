@@ -28,7 +28,7 @@ export type SystemEventName = (typeof SYSTEM_EVENTS)[number];
  */
 export const CUSTOM_EVENT_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9 _.:/-]{0,98}[A-Za-z0-9_.:/-])?$/;
 /** Property keys: identifiers, kept SQL-safe because the query compiler reads them with `json_get_*`. */
-export const PROPERTY_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+export const PROPERTY_KEY = /^[A-Za-z_]\w{0,63}$/;
 
 export type PropertyValue = string | number | boolean | null;
 export type Properties = Record<string, PropertyValue>;

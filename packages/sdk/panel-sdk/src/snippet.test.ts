@@ -133,7 +133,7 @@ describe('init()', () => {
     api.track('Lost');
     await api.flush();
     expect(net.fetchMock).toHaveBeenCalledTimes(1);
-    expect(localStorage.length).toBe(0);
+    expect(localStorage).toHaveLength(0);
   });
 
   it('does nothing without a token', async () => {
