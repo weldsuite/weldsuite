@@ -229,8 +229,8 @@ workers there are more cold isolates, and each would otherwise fetch the JWKS.
   `lib/documents/api.ts`, uploads, direct `fetch`) switch to the resolver.
 - Mobile: `services/app-api.ts` in each app uses the same resolver.
   `EXPO_PUBLIC_API_MODULES` is set in `eas.json` and `deploy.yml`.
-- Portals (`helpcenter`, `commerce-portal`, `hr-portal`): `APP_API_URL` per portal can
-  point straight at desk-api / commerce-api / hr-api after cutover. Until then the
+- Portals (`helpcenter`, `commerce-portal`): `APP_API_URL` per portal can
+  point straight at desk-api / commerce-api after cutover. Until then the
   forwarder covers them.
 
 Auth already uses `Authorization: Bearer` (no cookies), so going cross-origin needs no
@@ -316,7 +316,7 @@ Deferred from phase 0, on purpose:
   moved to `@weldsuite/worker-kit/testing/pglite` in phase 1.
 - **A runtime switch for `VITE_API_MODULES`** (feature flag instead of build-time env).
   Reverting a cutover is a Pages redeploy for now.
-- Portals (`helpcenter`, `commerce-portal`, `hr-portal`) and the developer portal keep
+- Portals (`helpcenter`, `commerce-portal`) and the developer portal keep
   calling app-api; the forwarder covers them until their module moves.
 
 ## Phase 1: pilot, WeldPass → `pass-api`
