@@ -39,7 +39,11 @@ export function eventData(doc: DocRecord): DataFor<'doc'> {
   return { id: doc.id, fileId: doc.fileId, name: doc.name, revision: doc.revision, updatedById: doc.updatedById };
 }
 
-/** The room for a document: one Durable Object per document, named by workspace and id. */
+/**
+ * The room for a document: one Durable Object per document, named by workspace and id.
+ * `workspaceId` is the Clerk org id: the room name and the R2 prefix still use it
+ * (a rename would split live sessions; workspace-id plan).
+ */
 export function roomFor(c: Ctx, workspaceId: string, doc: DocRecord) {
   return c.env.DOC_ROOM.get(c.env.DOC_ROOM.idFromName(`${workspaceId}:${doc.id}`));
 }

@@ -55,11 +55,11 @@ vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
     releaseOutbound: vi.fn(async () => undefined),
   };
 });
-// The lifecycle routes resolve the master DB and the workspace's master id themselves.
+// The lifecycle routes open the master DB themselves.
 const dbs = vi.hoisted(() => ({ master: null as unknown }));
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => dbs.master, getWorkspaceForOrg: async () => ({ id: 'ws_flow' }) };
+  return { ...actual, getMasterDb: () => dbs.master };
 });
 
 const ORG = 'org_flow';
@@ -120,7 +120,7 @@ beforeEach(() => {
 
 function member(grants: string[] = ['*'], userId = 'user_sender') {
   return createTestApp(BASE, envelopesRoutes, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId, workspaceId: ORG, orgId: ORG },
+    context: { permissions: permissions(...grants), tenantDb: db, userId, workspaceId: WS, orgId: ORG },
     env: env() as Partial<Env>,
   });
 }

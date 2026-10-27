@@ -25,8 +25,10 @@ let agentReadOnly = false;
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
   getTenantDbForWorkspace: async () => db,
-  getWorkspaceContextForOrg: async (_env: unknown, workspaceId: string) => ({
-    id: workspaceId,
+  // The agent's path param is the Clerk org id; the lookup hands back both ids, like the real one.
+  getWorkspaceContextForOrg: async (_env: unknown, ref: string) => ({
+    id: 'ws_test_default',
+    clerkOrgId: ref,
     db,
     suspended: false,
     licensedApps: null,

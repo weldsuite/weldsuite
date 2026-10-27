@@ -327,7 +327,6 @@ app.get('/:id/attachments/:index', requirePermission('bills:read'), async (c) =>
     return streamDocumentAttachment(c, {
       attachmentKeys: bill.attachmentKeys,
       index,
-      workspaceId: c.get('workspaceId') || c.get('orgId'),
     });
   } catch (err) {
     console.error('[app-api/bills] attachment download failed:', err);

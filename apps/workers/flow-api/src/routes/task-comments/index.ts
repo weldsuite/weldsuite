@@ -203,7 +203,7 @@ app.post(
         notifyTaskComment({
           db,
           env: c.env,
-          workspaceId: c.get('workspaceId'),
+          workspaceId: c.get('clerkOrgId'),
           authorId: userId,
           commentId: id,
           taskId: data.taskId,

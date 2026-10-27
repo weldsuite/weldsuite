@@ -6,6 +6,7 @@
  *
  * These are GraphQL reads used by the link picker + status→stage mapping UI.
  * All routes require Clerk auth and the github:manage permission.
+ * The connection lookup is keyed by the Clerk org id (github_connections.workspace_id).
  */
 
 import { Hono } from 'hono';
@@ -25,8 +26,8 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 // ---------------------------------------------------------------------------
 
 app.get('/projects/available', requirePermission('integrations:github:manage'), async (c) => {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.orgRequired(c);
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return error.orgRequired(c);
 
   const appId = c.env.GITHUB_APP_ID;
   const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
@@ -36,7 +37,7 @@ app.get('/projects/available', requirePermission('integrations:github:manage'), 
 
   try {
     const db = c.get('tenantDb');
-    const conn = await getConnectionByWorkspace(db, workspaceId);
+    const conn = await getConnectionByWorkspace(db, clerkOrgId);
     if (conn?.status !== 'active') {
       return error.notFound(c, 'GitHub connection');
     }
@@ -63,8 +64,8 @@ app.get(
   requirePermission('integrations:github:manage'),
   zValidator('query', ProjectStatusFieldsQuerySchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const { nodeId } = c.req.valid('query');
 
@@ -76,7 +77,7 @@ app.get(
 
     try {
       const db = c.get('tenantDb');
-      const conn = await getConnectionByWorkspace(db, workspaceId);
+      const conn = await getConnectionByWorkspace(db, clerkOrgId);
       if (conn?.status !== 'active') {
         return error.notFound(c, 'GitHub connection');
       }

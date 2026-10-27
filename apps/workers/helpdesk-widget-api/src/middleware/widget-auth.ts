@@ -167,8 +167,8 @@ export function widgetAuthMiddleware() {
         }
 
         c.set('widgetId', widgetId);
-        c.set('workspaceId', clerkOrgId);
-        c.set('internalWorkspaceId', internalWorkspaceId);
+        c.set('workspaceId', internalWorkspaceId);
+        c.set('clerkOrgId', clerkOrgId);
         c.set('widgetConfig', widgetConfig);
         c.set('tenantDb', tenantDb);
         c.set('removeBranding', removeBranding);

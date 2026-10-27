@@ -15,7 +15,7 @@ import { ReachServiceError } from './reach-errors';
 export interface ReachAccountContext {
   db: Database;
   master: MasterDatabase;
-  /** Clerk org id: the tenant key (`c.get('workspaceId')`). */
+  /** Clerk org id (`c.get('clerkOrgId')`): the key of the stores still keyed by it (R2, due index, pool rows). */
   clerkOrgId: string;
   /** Master `workspaces.id`, the owner of `reach_routes` rows. */
   masterWorkspaceId: string;
@@ -33,7 +33,7 @@ export function accountContextOf(c: Context<{ Bindings: Env; Variables: Variable
   return {
     db: c.get('tenantDb'),
     master: getMasterDb(c.env),
-    clerkOrgId: c.get('workspaceId'),
+    clerkOrgId: c.get('clerkOrgId'),
     masterWorkspaceId: access.workspaceId,
     userId: c.get('userId'),
     limits: resolveWeldReachLimits(access.limits),

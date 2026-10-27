@@ -6,6 +6,10 @@
  *
  * Both routes require Clerk authentication. The callback additionally verifies
  * the state JWT to bind the installation to the correct workspace/user.
+ *
+ * The github_* tables' `workspace_id` column (and the state JWT's `workspaceId`
+ * the callback stores it from) hold the Clerk org id until phase 3
+ * (workspace-id plan), so the handlers use `c.get('clerkOrgId')`.
  */
 
 import { Hono } from 'hono';
@@ -37,10 +41,10 @@ app.get(
   zValidator('query', InstallUrlQuerySchema),
   async (c) => {
     const { projectId, returnTo } = c.req.valid('query');
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const userId = c.get('userId');
 
-    if (!workspaceId) {
+    if (!clerkOrgId) {
       return error.orgRequired(c);
     }
 
@@ -55,7 +59,7 @@ app.get(
     // We use CLERK_SECRET_KEY as the HMAC secret for the state JWT.
     // It is already required, always present, and never leaves the worker.
     const stateToken = await signInstallStateJwt(
-      { workspaceId, userId, projectId: projectId ?? undefined, returnTo, nonce },
+      { workspaceId: clerkOrgId, userId, projectId: projectId ?? undefined, returnTo, nonce },
       c.env.CLERK_SECRET_KEY,
     );
 
@@ -79,12 +83,12 @@ app.get(
   '/connection',
   requirePermission('integrations:github:manage'),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     try {
       const db = c.get('tenantDb');
-      const conn = await getConnectionByWorkspace(db, workspaceId);
+      const conn = await getConnectionByWorkspace(db, clerkOrgId);
 
       if (!conn) {
         return success(c, null);
@@ -106,12 +110,12 @@ app.delete(
   '/connection',
   requirePermission('integrations:github:manage'),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     try {
       const db = c.get('tenantDb');
-      await revokeConnection(db, workspaceId);
+      await revokeConnection(db, clerkOrgId);
       return new Response(null, { status: 204 });
     } catch (err) {
       console.error('[GitHub] Failed to disconnect:', err);
@@ -130,8 +134,8 @@ app.get(
   '/installations/discoverable',
   requirePermission('integrations:github:manage'),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const appId = c.env.GITHUB_APP_ID;
     const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
@@ -198,8 +202,8 @@ app.post(
   requirePermission('integrations:github:manage'),
   zValidator('json', RecoverInstallationInputSchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const userId = c.get('userId');
     const { installationId } = c.req.valid('json');
@@ -221,7 +225,7 @@ app.post(
       const db = c.get('tenantDb');
       const { connection } = await upsertConnection(
         db,
-        workspaceId,
+        clerkOrgId,
         {
           installationId,
           appSlug: meta.appSlug,

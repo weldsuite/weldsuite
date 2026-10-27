@@ -202,10 +202,12 @@ app.get('/providers', requirePermission('secrets:read'), (c) => success(c, listP
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
+// weldpass_projects.workspace_id holds the Clerk org id, so every project
+// lookup below passes `clerkOrgId`; phase 3 drops the column (workspace-id plan).
 
 app.get('/projects', requirePermission('secrets:read'), async (c) => {
   const db = c.get('tenantDb');
-  const projects = await listProjects(db, c.get('workspaceId'));
+  const projects = await listProjects(db, c.get('clerkOrgId'));
 
   const withEnvironments = await Promise.all(
     projects.map(async (project) => {
@@ -233,16 +235,16 @@ app.post(
   zValidator('json', createProjectSchema),
   async (c) => {
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const body = c.req.valid('json');
     const userId = c.get('userId');
 
     const slug = slugify(body.slug ?? body.name);
-    if (await findProjectBySlug(db, workspaceId, slug)) {
+    if (await findProjectBySlug(db, clerkOrgId, slug)) {
       return error.conflict(c, `A project with the slug "${slug}" already exists.`);
     }
 
-    const { project, environments } = await createProject(db, workspaceId, keyring(c), {
+    const { project, environments } = await createProject(db, clerkOrgId, keyring(c), {
       name: body.name,
       slug: body.slug,
       description: body.description ?? null,
@@ -262,7 +264,7 @@ app.post(
 
 app.get('/projects/:projectId', requirePermission('secrets:read'), async (c) => {
   const db = c.get('tenantDb');
-  const project = await requireProject(db, c.get('workspaceId'), c.req.param('projectId'));
+  const project = await requireProject(db, c.get('clerkOrgId'), c.req.param('projectId'));
   const environments = await listEnvironments(db, project.id);
   const keys = await listSecretKeys(
     db,
@@ -287,7 +289,7 @@ app.patch(
     const projectId = c.req.param('projectId');
     const project = await updateProject(
       db,
-      c.get('workspaceId'),
+      c.get('clerkOrgId'),
       projectId,
       c.req.valid('json'),
     );
@@ -308,11 +310,11 @@ app.delete(
   requirePermission('secrets:delete', 'secrets:manage'),
   async (c) => {
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const projectId = c.req.param('projectId');
-    const project = await requireProject(db, workspaceId, projectId);
+    const project = await requireProject(db, clerkOrgId, projectId);
 
-    await deleteProject(db, workspaceId, projectId);
+    await deleteProject(db, clerkOrgId, projectId);
     await recordAudit(db, auditContextFrom(c.req.raw.headers), {
       projectId,
       actorId: c.get('userId'),
@@ -333,7 +335,7 @@ app.get(
   requirePermission('secrets:read'),
   async (c) => {
     const db = c.get('tenantDb');
-    const project = await requireProject(db, c.get('workspaceId'), c.req.param('projectId'));
+    const project = await requireProject(db, c.get('clerkOrgId'), c.req.param('projectId'));
     return success(c, await listEnvironments(db, project.id));
   },
 );
@@ -344,7 +346,7 @@ app.post(
   zValidator('json', createEnvironmentSchema),
   async (c) => {
     const db = c.get('tenantDb');
-    const project = await requireProject(db, c.get('workspaceId'), c.req.param('projectId'));
+    const project = await requireProject(db, c.get('clerkOrgId'), c.req.param('projectId'));
     const body = c.req.valid('json');
 
     const slug = slugify(body.slug ?? body.name);
@@ -372,7 +374,7 @@ app.patch(
   zValidator('json', updateEnvironmentSchema),
   async (c) => {
     const db = c.get('tenantDb');
-    const project = await requireProject(db, c.get('workspaceId'), c.req.param('projectId'));
+    const project = await requireProject(db, c.get('clerkOrgId'), c.req.param('projectId'));
     const environment = await updateEnvironment(
       db,
       project.id,
@@ -397,7 +399,7 @@ app.delete(
   requirePermission('secrets:manage'),
   async (c) => {
     const db = c.get('tenantDb');
-    const project = await requireProject(db, c.get('workspaceId'), c.req.param('projectId'));
+    const project = await requireProject(db, c.get('clerkOrgId'), c.req.param('projectId'));
     const environmentId = c.req.param('environmentId');
 
     await deleteEnvironment(db, project.id, environmentId);

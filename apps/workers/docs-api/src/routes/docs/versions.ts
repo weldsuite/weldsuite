@@ -63,16 +63,16 @@ app.get('/', requirePermission('docs:read'), zValidator('query', listDocVersions
 
 app.post('/', requirePermission('docs:update'), zValidator('json', createDocVersionSchema), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const doc = await editableDoc(c);
   if (doc instanceof Response) return doc;
 
-  const meta = roomMeta(doc, workspaceId);
+  const meta = roomMeta(doc, clerkOrgId);
   const id = generateId('docv');
   const snapshotKey = versionKeyFor(meta.snapshotKey, id);
-  const saved = await roomFor(c, workspaceId, doc).saveVersion(meta, snapshotKey);
+  const saved = await roomFor(c, clerkOrgId, doc).saveVersion(meta, snapshotKey);
   const row = await insertVersion(c.get('tenantDb'), {
     id,
     docId: doc.id,
@@ -119,9 +119,9 @@ app.get('/:versionId/snapshot', requirePermission('docs:read'), async (c) => {
 
 app.post('/:versionId/restore', requirePermission('docs:update'), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const doc = await editableDoc(c);
   if (doc instanceof Response) return doc;
   const versionId = c.req.param('versionId');
@@ -130,8 +130,8 @@ app.post('/:versionId/restore', requirePermission('docs:update'), async (c) => {
   if (!version) return error.notFound(c, 'Version', versionId);
 
   const autoVersionId = generateId('docv');
-  const outcome = await roomFor(c, workspaceId, doc).restoreVersion({
-    doc: roomMeta(doc, workspaceId),
+  const outcome = await roomFor(c, clerkOrgId, doc).restoreVersion({
+    doc: roomMeta(doc, clerkOrgId),
     versionId,
     versionKey: version.snapshotKey,
     autoVersionId,

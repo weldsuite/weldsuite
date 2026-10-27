@@ -66,6 +66,7 @@ export interface FlagsContext {
   env: MinimalEnv;
   get(key: 'userId'): string | undefined;
   get(key: 'workspaceId'): string | undefined;
+  get(key: 'clerkOrgId'): string | undefined;
   get(key: 'orgId'): string | null | undefined;
 }
 
@@ -96,7 +97,8 @@ export function getFlags(c: FlagsContext): Promise<FlagEvaluator> {
 
   const baseAttributes: FlagAttributes = {
     userId: c.get('userId') ?? '',
-    workspaceId: c.get('workspaceId') ?? c.get('orgId') ?? '',
+    workspaceId: c.get('workspaceId') ?? '',
+    clerkOrgId: c.get('clerkOrgId') ?? c.get('orgId') ?? '',
     plan: 'unknown',
     role: '',
     environment:

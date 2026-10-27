@@ -15,8 +15,9 @@ import {
   TEST_FIXTURES_ENVIRONMENTS,
 } from './test-fixtures-guard';
 
+// The header may carry either id; the guard resolves both ids from it.
 vi.mock('@weldsuite/worker-kit/db', () => ({
-  getTenantDbForWorkspace: vi.fn(async () => ({ /* mock db */ })),
+  getWorkspaceContextForOrg: vi.fn(async () => ({ id: 'ws_x', clerkOrgId: 'org_x', db: { /* mock db */ } })),
 }));
 
 function makeApp() {
@@ -158,5 +159,16 @@ describe('testFixturesGuard', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok: boolean };
     expect(body.ok).toBe(true);
+  });
+
+  it('puts workspaces.id in workspaceId and the Clerk org id in clerkOrgId', async () => {
+    const app = new Hono();
+    app.use('*', testFixturesGuard());
+    app.get('/ids', (c) =>
+      c.json({ workspaceId: c.get('workspaceId' as never), clerkOrgId: c.get('clerkOrgId' as never) }),
+    );
+    const res = await app.request('/ids', { headers: goodHeaders }, validEnv);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ workspaceId: 'ws_x', clerkOrgId: 'org_x' });
   });
 });

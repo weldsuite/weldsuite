@@ -55,7 +55,7 @@ function writeDeps(c: Parameters<typeof accountContextOf>[0]) {
 
 /** Reads show the warmup pool's numbers; master is opened only when there is a mailbox to show them for. */
 function readDeps(c: Parameters<typeof accountContextOf>[0]): MailboxReadDeps {
-  return { db: c.get('tenantDb'), warmup: { clerkOrgId: c.get('workspaceId'), master: () => getMasterDb(c.env) } };
+  return { db: c.get('tenantDb'), warmup: { clerkOrgId: c.get('clerkOrgId'), master: () => getMasterDb(c.env) } };
 }
 
 app.get('/', requirePermission('reach_mailboxes:read'), zValidator('query', listQuerySchema), async (c) => {

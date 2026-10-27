@@ -58,7 +58,8 @@ app.post('/', requirePermission('workflows:create'), zValidator('json', createSc
   const db = c.get('tenantDb');
   const userId = c.get('userId');
   const data = c.req.valid('json');
-  const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
+  // The schedule index is keyed by the Clerk org id until phase 3 (workspace-id plan).
+  const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('clerkOrgId') };
   try {
     const result = await schedules.createSchedule(db, data, userId, sync);
     if ('error' in result) return error.notFound(c, 'Workflow', String(data.workflowId));
@@ -81,7 +82,7 @@ for (const method of ['put', 'patch'] as const) {
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const data = c.req.valid('json');
-    const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
+    const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('clerkOrgId') };
     try {
       const result = await schedules.updateSchedule(db, id, data, sync);
       if (!result) return error.notFound(c, 'Workflow schedule', id);
@@ -108,7 +109,7 @@ app.patch(
     const db = c.get('tenantDb');
     const id = c.req.param('id');
     const { enabled } = c.req.valid('json');
-    const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
+    const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('clerkOrgId') };
     try {
       const result = await schedules.toggleSchedule(db, id, enabled, sync);
       if (!result) return error.notFound(c, 'Workflow schedule', id);
@@ -130,7 +131,7 @@ app.patch(
 app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
+  const sync = { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('clerkOrgId') };
   try {
     const existing = await schedules.getSchedule(db, id);
     if (!existing) return error.notFound(c, 'Workflow schedule', id);

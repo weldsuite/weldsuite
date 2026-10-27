@@ -54,7 +54,8 @@ function harness(opts: { permissions: string[]; flags?: string[]; userId?: strin
     set('orgId', 'org_test');
     set('sessionId', 'sess');
     set('tenantDb', db);
-    set('workspaceId', 'org_test');
+    set('workspaceId', 'ws_test');
+    set('clerkOrgId', 'org_test');
     set('userPermissions', permissions(...opts.permissions));
     set('flags', { isOn: async (key: string) => flags.has(key), getValue: async (key: string) => flags.has(key) });
     set('payrollDepsOverride', depsOverride);

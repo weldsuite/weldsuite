@@ -79,7 +79,7 @@ export function publishEntityEvent({
     data,
     ...(changes ? { changes } : {}),
     metadata: {
-      workspaceId: (c.get('workspaceId') as string) ?? '',
+      workspaceId: (c.get('clerkOrgId') as string) ?? '',
       userId: (c.get('widgetId') as string) ?? 'widget-customer',
       timestamp: new Date().toISOString(),
       source: 'widget',

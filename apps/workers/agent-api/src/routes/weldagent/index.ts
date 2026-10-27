@@ -376,7 +376,8 @@ app.post(
     const timezone = validTimezone(c.req.valid('json').timezone);
     const db = c.get('tenantDb');
     const env = c.env;
-    const workspaceId = c.get('workspaceId');
+    // Carried into the WeldAgent job params and tool context, which hold the Clerk org id.
+    const clerkOrgId = c.get('clerkOrgId');
     const userId = c.get('userId');
     // The agent acts on the user's behalf: its grants are narrowed to theirs.
     const actorPermissions = (await ensurePermissionsResolved(c))?.permissions ?? [];
@@ -388,7 +389,7 @@ app.post(
         const work = completeConversationTurn({
           db,
           env,
-          workspaceId,
+          workspaceId: clerkOrgId,
           userId,
           conversationId,
           content,
@@ -412,7 +413,7 @@ app.post(
       const accepted = await acceptConversationTurn({
         db,
         env,
-        workspaceId,
+        workspaceId: clerkOrgId,
         userId,
         conversationId,
         content,

@@ -518,7 +518,7 @@ app.post(
             isInternal,
           },
           // Already inside waitUntil: the guard counts the send inline.
-          { clerkOrgId: c.get('workspaceId') },
+          { clerkOrgId: c.get('clerkOrgId') },
         ).catch((err) => console.error('[app-api/conversations] channel dispatch failed:', err)),
       );
 

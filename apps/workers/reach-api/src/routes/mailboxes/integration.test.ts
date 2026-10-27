@@ -58,7 +58,7 @@ const ALL = ['reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:
 
 function api(keys: string[] = ALL, access = approvedAccess(), env: Record<string, string> = {}) {
   return createTestApp('/api/reach/mailboxes', withAppAccess(mailboxRoutes, access), {
-    context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'org_acme' },
+    context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'ws_acme', clerkOrgId: 'org_acme' },
     env: {
       REACH_INBOUND_DOMAIN: 'reply-test.weldreach.com',
       DATABASE_ENCRYPTION_KEY: 'ab'.repeat(32),

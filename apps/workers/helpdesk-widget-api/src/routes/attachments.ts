@@ -52,7 +52,7 @@ export const attachmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables 
  * Returns the uploaded file's metadata and public URL.
  */
 attachmentsRoutes.post('/upload', async (c) => {
-  const workspaceId = c.get('workspaceId');
+  const workspaceId = c.get('clerkOrgId');
 
   // Check if R2 storage is configured
   if (!c.env.STORAGE) {

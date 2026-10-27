@@ -192,9 +192,12 @@ describe('GET /providers and /institutions', () => {
 
 describe('link flow', () => {
   it('starts a link session', async () => {
+    const link = vi.spyOn(provider, 'createLinkSession');
     const res = await client()('/link-session', { method: 'POST', body: { provider: 'plaid', redirectUrl: 'https://app.example/weldbooks/banking/callback' } });
     expect(res.status).toBe(201);
     expect(res.json?.data).toMatchObject({ provider: 'plaid', kind: 'plaid_link', token: 'link-create-new', historyDays: 730 });
+    // Plaid's client_user_id and Stripe's account holder are keyed by the Clerk org id, never workspaces.id.
+    expect(link).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'org_test' }));
   });
 
   it('validates the request and reports an unconfigured provider as 503', async () => {

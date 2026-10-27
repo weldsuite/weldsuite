@@ -118,13 +118,13 @@ app.get('/:fileId', requirePermission('files:read'), async (c) => {
 app.post('/', requirePermission('files:create'), zValidator('json', createDocumentSchema), async (c) => {
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
-  if (!workspaceId) return error.orgRequired(c);
+  const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
+  if (!clerkOrgId) return error.orgRequired(c);
 
   const { name, folderId } = c.req.valid('json');
   const fileName = name.endsWith('.docx') ? name : `${name}.docx`;
   const sanitized = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-  const fileKey = `workspaces/${workspaceId}/documents/drive/${Date.now()}_${sanitized}`;
+  const fileKey = `workspaces/${clerkOrgId}/documents/drive/${Date.now()}_${sanitized}`;
   const r2PublicUrl = c.env.R2_PUBLIC_URL || 'https://weldsuite-storage-test.weldsuite.org';
   const publicUrl = `${r2PublicUrl}/${fileKey}`;
   const db = c.get('tenantDb');

@@ -31,7 +31,8 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.post('/', zValidator('json', createAccessRequestSchema), async (c) => {
   const db = c.get('tenantDb');
   const requesterId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  // R4: realtime hubs are still named by the Clerk org id.
+  const orgId = c.get('clerkOrgId');
   const input = c.req.valid('json');
   // Only real permission keys can be requested (never `*`): approving one
   // writes it into the requester's own grants.
@@ -59,13 +60,13 @@ app.post('/', zValidator('json', createAccessRequestSchema), async (c) => {
       pagePath: input.pagePath,
     });
 
-    if (!result.deduped && workspaceId && c.env.REALTIME && result.insertedNotifications.length > 0) {
+    if (!result.deduped && orgId && c.env.REALTIME && result.insertedNotifications.length > 0) {
       const realtime = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
       // Publish each admin's full notification row to their personal
       // `notification.{userId}` topic so the bell updates live.
       const promise = Promise.allSettled(
         result.insertedNotifications.map((notification) =>
-          realtime.notify(workspaceId, notification.userId, notification),
+          realtime.notify(orgId, notification.userId, notification),
         ),
       ).then((results) => {
         for (const r of results) {
@@ -91,7 +92,7 @@ app.patch(
   async (c) => {
     const db = c.get('tenantDb');
     const resolverUserId = c.get('userId');
-    const workspaceId = c.get('workspaceId');
+    const orgId = c.get('clerkOrgId');
     const requestId = c.req.param('id');
     const { status } = c.req.valid('json');
 
@@ -115,17 +116,17 @@ app.patch(
         return error.conflict(c, 'Access request has already been resolved');
       }
 
-      if (workspaceId && c.env.REALTIME) {
+      if (orgId && c.env.REALTIME) {
         const realtime = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
         const promise = Promise.allSettled([
           // Push the full requester-facing notification row so their bell updates live.
           realtime.notify(
-            workspaceId,
+            orgId,
             result.requesterId,
             result.requesterNotification,
           ),
           realtime.publish(
-            workspaceId,
+            orgId,
             'access_request',
             'resolved',
             {

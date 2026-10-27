@@ -34,12 +34,12 @@ const { workspaceSettings, carriers } = schema;
 app.get('/', requirePermission('carriers:read'), async (c) => {
   try {
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
 
     const [settings] = await db
       .select()
       .from(workspaceSettings)
-      .where(eq(workspaceSettings.id, workspaceId))
+      .where(eq(workspaceSettings.id, clerkOrgId))
       .limit(1);
 
     const custom = (settings?.customSettings ?? {}) as Record<string, unknown>;
@@ -74,12 +74,12 @@ app.put('/', requirePermission('carriers:update'), zValidator('json', updateParc
 
   try {
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
 
     const [existing] = await db
       .select()
       .from(workspaceSettings)
-      .where(eq(workspaceSettings.id, workspaceId))
+      .where(eq(workspaceSettings.id, clerkOrgId))
       .limit(1);
 
     const custom = ((existing?.customSettings ?? {}) as Record<string, unknown>);
@@ -95,10 +95,10 @@ app.put('/', requirePermission('carriers:update'), zValidator('json', updateParc
       await db
         .update(workspaceSettings)
         .set({ customSettings: newCustomSettings, updatedAt: now })
-        .where(eq(workspaceSettings.id, workspaceId));
+        .where(eq(workspaceSettings.id, clerkOrgId));
     } else {
       await db.insert(workspaceSettings).values({
-        id: workspaceId,
+        id: clerkOrgId,
         customSettings: newCustomSettings,
         createdAt: now,
         updatedAt: now,
@@ -108,7 +108,7 @@ app.put('/', requirePermission('carriers:update'), zValidator('json', updateParc
     publishEntityEvent({
       c,
       entityType: 'parcel_settings',
-      entityId: workspaceId,
+      entityId: clerkOrgId,
       action: 'updated',
       data: data as unknown as Record<string, unknown>,
     });

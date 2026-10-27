@@ -637,7 +637,8 @@ export interface ShipPickListOptions {
   weightKg?: number;
   sendcloud?: SendcloudClient;
   keyring?: EncryptionKeyring;
-  workspaceId?: string;
+  /** Clerk org id: the key of the workspace's `workspace_settings` row (the Sendcloud keys live there). */
+  clerkOrgId?: string;
 }
 
 export interface ShipPickListResult {
@@ -842,8 +843,8 @@ async function resolveSendcloudClient(
   shippingOptionCode: string,
 ): Promise<SendcloudClient> {
   let client = options.sendcloud ?? null;
-  const stored = options.workspaceId
-    ? await getSendcloudSettings(db, options.workspaceId)
+  const stored = options.clerkOrgId
+    ? await getSendcloudSettings(db, options.clerkOrgId)
     : null;
   if (!client) {
     const secret = stored ? await decryptSecret(stored.secretKey, options.keyring ?? {}) : null;
@@ -895,7 +896,7 @@ async function announceSendcloudParcel(
       'SHIPPING_NOT_CONFIGURED',
     );
   }
-  if (!options.workspaceId && !options.sendcloud) {
+  if (!options.clerkOrgId && !options.sendcloud) {
     throw new PickListError('Sendcloud is not connected', 'SHIPPING_NOT_CONFIGURED');
   }
 

@@ -63,7 +63,7 @@ async function buildClient(
 
 app.get('/', requirePermission('integrations:read', 'picklists:read'), async (c) => {
   try {
-    const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'));
+    const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'));
     return success(c, toPublicSettings(stored));
   } catch (err) {
     return mapSendcloudHttp(c, err, 'Failed to load Sendcloud settings');
@@ -79,7 +79,7 @@ app.put(
     try {
       const client = createSendcloudClient({ publicKey, secretKey });
       const keyring = keyringFromEnv(c.env);
-      const current = await getSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'));
+      const current = await getSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'));
       const synced = await syncSendcloudCatalog(
         {
           ...current,
@@ -88,7 +88,7 @@ app.put(
         },
         client,
       );
-      await saveSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'), synced);
+      await saveSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'), synced);
       return success(c, toPublicSettings(synced));
     } catch (err) {
       return mapSendcloudHttp(c, err, 'Failed to connect Sendcloud');
@@ -99,11 +99,11 @@ app.put(
 app.post('/sync', requirePermission('integrations:create', 'integrations:update'), async (c) => {
   try {
     const keyring = keyringFromEnv(c.env);
-    const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'));
+    const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'));
     const client = await buildClient(stored, keyring);
     if (!client) return error.badRequest(c, 'Sendcloud is not connected');
     const synced = await syncSendcloudCatalog(stored, client);
-    await saveSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'), synced);
+    await saveSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'), synced);
     return success(c, toPublicSettings(synced));
   } catch (err) {
     return mapSendcloudHttp(c, err, 'Failed to sync Sendcloud catalog');
@@ -116,12 +116,12 @@ app.patch(
   zValidator('json', updateSendcloudSettingsSchema),
   async (c) => {
     try {
-      const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'));
+      const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'));
       if (!stored.publicKey || !stored.secretKey) {
         return error.badRequest(c, 'Sendcloud is not connected');
       }
       const next = applySendcloudPatches(stored, c.req.valid('json'));
-      await saveSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'), next);
+      await saveSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'), next);
       return success(c, toPublicSettings(next));
     } catch (err) {
       return mapSendcloudHttp(c, err, 'Failed to update Sendcloud settings');
@@ -131,7 +131,7 @@ app.patch(
 
 app.delete('/', requirePermission('integrations:create', 'integrations:update'), async (c) => {
   try {
-    await saveSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'), {
+    await saveSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'), {
       senders: [],
       methods: [],
     });
@@ -149,7 +149,7 @@ app.get(
     if (!Number.isFinite(parcelId)) return error.badRequest(c, 'Invalid parcel id');
     try {
       const keyring = keyringFromEnv(c.env);
-      const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('workspaceId'));
+      const stored = await getSendcloudSettings(c.get('tenantDb'), c.get('clerkOrgId'));
       const client = await buildClient(stored, keyring);
       if (!client) return error.badRequest(c, 'Sendcloud is not connected');
       const doc = await client.getParcelDocument(parcelId);

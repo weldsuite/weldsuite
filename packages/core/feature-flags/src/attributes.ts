@@ -23,7 +23,10 @@ export type Environment = 'development' | 'test' | 'preview' | 'production';
 
 export interface FlagAttributes {
   userId: string;
+  /** `workspaces.id` (`ws_…`): target a workspace by this. */
   workspaceId: string;
+  /** The workspace's Clerk org id, for rules that predate SEC-011. */
+  clerkOrgId?: string;
   plan: Plan;
   role: string;
   environment: Environment;

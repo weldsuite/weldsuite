@@ -40,7 +40,14 @@ beforeAll(async () => {
 
 function app() {
   return createTestApp('/api/workflows', workflowsRoutes, {
-    context: { permissions: permissions('workflows:create', 'workflows:update', 'workflows:delete'), tenantDb: db },
+    context: {
+      permissions: permissions('workflows:create', 'workflows:update', 'workflows:delete'),
+      tenantDb: db,
+      // Distinct ids: the registry stores the Clerk org id (phase 3 of the
+      // workspace-id plan moves it to workspaces.id), never `workspaceId`.
+      workspaceId: 'ws_registry_test',
+      orgId: 'org_registry_test',
+    },
   }).request;
 }
 
@@ -75,6 +82,7 @@ describe('webhook trigger provisioning (end to end through /api/workflows)', () 
     const registered = await registryRow(webhook.id);
     expect(registered).toBeTruthy();
     expect(registered.deletedAt).toBeNull();
+    expect(registered.workspaceId).toBe('org_registry_test');
   });
 
   it('removing the webhook trigger on update retires the row and deregisters it', async () => {

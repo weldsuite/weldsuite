@@ -755,12 +755,11 @@ app.post(
 
       const projectIds = await accessibleProjectIds(c);
       const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
-      const workspaceId = c.get('workspaceId');
 
       const entries = await Promise.all(
         charts.map(async (config) => {
           const { chartId, projectId, limit, ...query } = config;
-          const points = await queryAnalytics(c.env, [workspaceId, c.get('internalWorkspaceId')], {
+          const points = await queryAnalytics(c.env, [c.get('workspaceId'), c.get('clerkOrgId')], {
             ...query,
             limit: limit ?? undefined,
             projectId: projectId ?? undefined,

@@ -186,7 +186,7 @@ app.patch('/:id', requirePermission('weldagent:update', 'weldagent:manage'), zVa
     const agent = await updateAgent(db, id, data);
     if (!agent) return error.notFound(c, 'Agent not found');
     if (data.status !== undefined) {
-      await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, id);
+      await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), db, id);
     }
     return success(c, withCapabilities(agent, resolved.viewer));
   } catch (err) {
@@ -286,7 +286,7 @@ app.delete('/:id', requirePermission('weldagent:delete', 'weldagent:manage'), as
   if ('response' in resolved) return resolved.response;
   const deleted = await deleteAgent(db, resolved.agent.id);
   if (!deleted) return error.notFound(c, 'Agent not found');
-  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, resolved.agent.id);
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), db, resolved.agent.id);
   c.executionCtx.waitUntil(archiveManagedAgent(c.env, deleted.anthropicAgentId));
   return noContent(c);
 });
@@ -303,7 +303,7 @@ app.post('/:id/activate', requirePermission('weldagent:update', 'weldagent:manag
     status: 'active',
     eventSubscriptions: subscriptions,
   });
-  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, id);
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), db, id);
   return success(c, agent ? withCapabilities(agent, resolved.viewer) : agent);
 });
 
@@ -314,7 +314,7 @@ app.post('/:id/pause', requirePermission('weldagent:update', 'weldagent:manage')
   if ('response' in resolved) return resolved.response;
   const agent = await updateAgent(db, resolved.agent.id, { status: 'paused' });
   if (!agent) return error.notFound(c, 'Agent not found');
-  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), db, agent.id);
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), db, agent.id);
   return success(c, withCapabilities(agent, resolved.viewer));
 });
 
@@ -344,7 +344,9 @@ app.post(
       const result = await executeAgentRun({
         db,
         env: c.env,
-        workspaceId: c.get('workspaceId'),
+        // The agent runtime keeps the Clerk org id: it reaches Anthropic metadata, the
+        // sandbox id and WeldAgent job params (workspace-id plan).
+        workspaceId: c.get('clerkOrgId'),
         actorUserId: c.get('userId'),
         agentId: id,
         triggerType: 'manual',

@@ -100,8 +100,9 @@ app.get('/:id', requirePermission('channels:read'), async (c) => {
 app.post('/', requirePermission('channels:read'), zValidator('json', createChatDraftSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
-  if (!workspaceId) return error.orgRequired(c);
+  // chat_drafts.workspace_id holds the Clerk org id (workspace-id plan).
+  const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
+  if (!clerkOrgId) return error.orgRequired(c);
   const data = c.req.valid('json') as Record<string, any>;
   const id = generateId('cdft');
   const now = new Date();
@@ -132,7 +133,7 @@ app.post('/', requirePermission('channels:read'), zValidator('json', createChatD
     }
     await db
       .insert(t)
-      .values({ ...rest, id, userId, workspaceId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
+      .values({ ...rest, id, userId, workspaceId: clerkOrgId, createdAt: now, updatedAt: now } as unknown as typeof t.$inferInsert);
     return success(c, { id }, 201);
   } catch (err) {
     console.error('[app-api/chat-drafts] create failed:', err);

@@ -45,7 +45,8 @@ export type WorkflowsContext = Context<{ Bindings: Env; Variables: Variables }>;
  * normal save would.
  */
 export function scheduleSyncFor(c: WorkflowsContext): ScheduleIndexSync {
-  return { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') };
+  // The schedule index is keyed by the Clerk org id until phase 3 (workspace-id plan).
+  return { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('clerkOrgId') };
 }
 
 /**
@@ -56,7 +57,8 @@ export function scheduleSyncFor(c: WorkflowsContext): ScheduleIndexSync {
  * Exported for the same reason as `scheduleSyncFor` above.
  */
 export function webhookSyncFor(c: WorkflowsContext): WebhookSyncContext {
-  return { registry: () => registryDeps(c.env), workspaceId: c.get('workspaceId'), publicApiBase: publicApiBase(c.env) };
+  // The webhook registry stores the Clerk org id until phase 3 (workspace-id plan).
+  return { registry: () => registryDeps(c.env), workspaceId: c.get('clerkOrgId'), publicApiBase: publicApiBase(c.env) };
 }
 
 /**
@@ -189,7 +191,7 @@ app.post('/', requirePermission('workflows:create'), zValidator('json', createWo
   }
   try {
     const result = await workflowsService.createWorkflow(db, data, userId, scheduleSyncFor(c), webhookSyncFor(c));
-    await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
+    await syncWorkflowPollIndex(c.env, db, c.get('clerkOrgId'));
     if (data.status === 'active') {
       await snapshotWorkflowVersion(db, {
         workflowId: result.id,
@@ -246,7 +248,7 @@ for (const method of ['put', 'patch'] as const) {
 
       const result = await workflowsService.updateWorkflow(db, id, data, scheduleSyncFor(c), webhookSyncFor(c));
       if (!result) return error.notFound(c, 'Workflow', id);
-      await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
+      await syncWorkflowPollIndex(c.env, db, c.get('clerkOrgId'));
       const after = await workflowsService.getWorkflow(db, id);
 
       // Snapshot a version when this save lands the workflow active with a
@@ -301,7 +303,7 @@ app.patch(
       }
       const result = await workflowsService.updateWorkflowStatus(db, id, status, scheduleSyncFor(c));
       if (!result) return error.notFound(c, 'Workflow', id);
-      await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
+      await syncWorkflowPollIndex(c.env, db, c.get('clerkOrgId'));
       const after = await workflowsService.getWorkflow(db, id);
 
       if (status === 'active' && wasActivating && after) {
@@ -362,7 +364,7 @@ app.delete('/:id', requirePermission('workflows:delete'), async (c) => {
     const existing = await workflowsService.getWorkflow(db, id);
     if (!existing) return error.notFound(c, 'Workflow', id);
     await workflowsService.deleteWorkflow(db, id, scheduleSyncFor(c), webhookSyncFor(c));
-    await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
+    await syncWorkflowPollIndex(c.env, db, c.get('clerkOrgId'));
     publishEntityEvent({
       c,
       entityType: 'workflow',

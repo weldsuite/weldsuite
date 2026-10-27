@@ -31,8 +31,9 @@ app.post(
   zValidator('json', resolveCompanyLogosSchema),
   async (c) => {
     const { domains } = c.req.valid('json');
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.badRequest(c, 'No active workspace');
+    // Logo objects are keyed `workspaces/<Clerk org id>/company-logos/…`.
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.badRequest(c, 'No active workspace');
 
     const storage = c.env.STORAGE;
     const r2PublicUrl = c.env.R2_PUBLIC_URL;
@@ -46,7 +47,7 @@ app.post(
     const logos = await resolveCompanyLogos(domains, {
       storage,
       r2PublicUrl: logoPublicBase(c.req.url, r2PublicUrl),
-      workspaceId,
+      workspaceId: clerkOrgId,
     });
     return success(c, { logos });
   },

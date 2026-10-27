@@ -53,12 +53,14 @@ export type Variables = {
   apiSession: ApiKeySession;
   /** Per-request tenant Drizzle client set by `tenantDbMiddleware`. */
   tenantDb: Database;
-  /**
-   * The workspace's Clerk org id, which `publishEntityEvent` stamps on every
-   * event and its subscribers resolve the tenant DB by. Not the master
-   * `workspaces.id`: that one is `apiSession.workspaceId`.
-   */
+  /** The master `workspaces.id` of the session's workspace (= `apiSession.workspaceId`, ADR SEC-011). */
   workspaceId: string;
+  /**
+   * The workspace's Clerk org id (from the OAuth token), which
+   * `publishEntityEvent` stamps on every event until event consumers move to
+   * `workspaces.id`, and the key of the stores still keyed by it.
+   */
+  clerkOrgId?: string;
   /** Actor id for entity events — the Clerk user behind the OAuth token. */
   userId: string;
   /**
