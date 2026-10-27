@@ -85,6 +85,26 @@ export function MentionPicker({ query, visible, onSelect, channelId }: Readonly<
     return [...filteredAgents, ...filteredPeople];
   }, [members, agents, query]);
 
+  const renderAvatar = (item: Member) => {
+    if (item.isAgent) {
+      return (
+        <View style={styles.avatarFallback}>
+          {item.agentIcon ? (
+            <Text style={styles.avatarEmoji}>{item.agentIcon}</Text>
+          ) : (
+            <Bot size={14} color="#fff" />
+          )}
+        </View>
+      );
+    }
+    if (item.picture) return <Image source={{ uri: item.picture }} style={styles.avatar} />;
+    return (
+      <View style={styles.avatarFallback}>
+        <Text style={styles.avatarText}>{(item.name || '?')[0].toUpperCase()}</Text>
+      </View>
+    );
+  };
+
   if (!visible || filtered.length === 0) return null;
 
   return (
@@ -95,21 +115,7 @@ export function MentionPicker({ query, visible, onSelect, channelId }: Readonly<
         keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.item} onPress={() => onSelect(item)}>
-            {item.isAgent ? (
-              <View style={styles.avatarFallback}>
-                {item.agentIcon ? (
-                  <Text style={styles.avatarEmoji}>{item.agentIcon}</Text>
-                ) : (
-                  <Bot size={14} color="#fff" />
-                )}
-              </View>
-            ) : item.picture ? (
-              <Image source={{ uri: item.picture }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarFallback}>
-                <Text style={styles.avatarText}>{(item.name || '?')[0].toUpperCase()}</Text>
-              </View>
-            )}
+            {renderAvatar(item)}
             <View style={styles.info}>
               <Text style={styles.name}>{item.name}</Text>
               {item.email && !item.isAgent && <Text style={styles.email}>{item.email}</Text>}

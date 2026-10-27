@@ -128,27 +128,35 @@ export default function ThreadScreen() {
     }
   }, [input, channelId, messageId, toast]);
 
+  const renderAvatar = (item: Message) => {
+    if (item.authorType === 'agent') {
+      // An agent's "avatar" is its emoji icon (plain text), never an image.
+      return (
+        <View style={styles.avatar}>
+          {item.authorAvatar ? (
+            <Text style={styles.avatarEmoji}>{item.authorAvatar}</Text>
+          ) : (
+            <Bot size={16} color="#fff" />
+          )}
+        </View>
+      );
+    }
+    if (item.authorAvatar) {
+      return <Image source={{ uri: item.authorAvatar }} style={styles.avatarImg} />;
+    }
+    return (
+      <View style={styles.avatar}>
+        <Text style={styles.avatarText}>
+          {(item.authorName || '?')[0].toUpperCase()}
+        </Text>
+      </View>
+    );
+  };
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => (
     <>
       <View style={styles.message}>
-        {item.authorType === 'agent' ? (
-          // An agent's "avatar" is its emoji icon (plain text), never an image.
-          <View style={styles.avatar}>
-            {item.authorAvatar ? (
-              <Text style={styles.avatarEmoji}>{item.authorAvatar}</Text>
-            ) : (
-              <Bot size={16} color="#fff" />
-            )}
-          </View>
-        ) : item.authorAvatar ? (
-          <Image source={{ uri: item.authorAvatar }} style={styles.avatarImg} />
-        ) : (
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(item.authorName || '?')[0].toUpperCase()}
-            </Text>
-          </View>
-        )}
+        {renderAvatar(item)}
         <View style={styles.content}>
           <View style={styles.header}>
             <Text style={styles.author}>{item.authorName}</Text>
