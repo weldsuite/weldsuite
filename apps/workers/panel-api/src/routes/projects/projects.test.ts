@@ -105,9 +105,8 @@ function app(grants: string[] = ADMIN, options: AppOptions = {}) {
       tenantDb: db,
       userId: 'user_alice',
       orgId: workspace.clerkOrgId,
-      workspaceId: workspace.clerkOrgId,
+      workspaceId: workspace.workspaceId,
       clerkOrgId: workspace.clerkOrgId,
-      internalWorkspaceId: workspace.workspaceId,
     },
     env: {
       WORKSPACE_CACHE: options.kv ?? kv,
