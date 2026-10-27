@@ -52,6 +52,9 @@ export const weldsheets = {
     count: 'Count',
     min: 'Min',
     max: 'Max',
+    addRows: 'Add',
+    addRowsCount: 'Number of rows to add',
+    addRowsSuffix: 'more rows at the bottom',
   },
 
   toolbar: {
@@ -536,7 +539,10 @@ export const weldsheets = {
       hourly: 'Every hour',
       daily: 'Every day',
     },
-    at: 'Starts at {cell}. Select another cell to move it.',
+    at: 'Goes on a new tab, {name}.',
+    table: 'Table',
+    filterTable: 'Filter the table',
+    unfilterTable: 'Remove the filter',
     save: 'Save',
     cancel: 'Cancel',
     rows: '{count} records',
@@ -559,7 +565,7 @@ export const weldsheets = {
       no_permission: 'The person who connected this table can no longer read these records. Edit it to list them with your access.',
       no_access: 'The person who connected this table can no longer edit the sheet. Edit it to list them with your access.',
       failed: "The records couldn't be listed. Try again later.",
-      unplaced: "The table doesn't fit where it was placed: its tab was deleted or the sheet has too few rows or columns.",
+      unplaced: "The table couldn't be written: its tab was deleted or it doesn't fit on the sheet.",
     },
   },
 };

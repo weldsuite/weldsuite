@@ -125,6 +125,56 @@ describe('connected tables', () => {
     expect(dataTableOp(e, { id: 'nowhere', header: ['x'], rows: [] })).toBe('The table has no place in the workbook');
   });
 
+  it('gets a tab of its own: named after its object, header frozen and filtered, undone as one', () => {
+    const e = engine();
+    e.workbook.sheets.push(new Sheet('s2', 'Companies'));
+    const op = dataTableOp(e, { id: 'ds1', at: { newSheet: { id: 'tab', name: 'Companies' } }, header: ['Name', 'Email'], rows: [['Acme', 'a@x.org']] });
+    if (typeof op === 'string') throw new Error(op);
+    expect(validateOp(e.workbook, op)).toBeNull();
+    expect(isWellFormedOp(op)).toBe(true);
+    const undo = applyOp(e, op);
+    const tab = e.workbook.requireSheet('tab');
+    expect(tab.name).toBe('Companies 2');
+    expect(e.workbook.sheets.at(-1)).toBe(tab);
+    expect(tab.freeze).toEqual({ rows: 1, cols: 0 });
+    expect(tab.filter).toEqual({ range: { r1: 0, c1: 0, r2: 1, c2: 1 }, columns: [] });
+    expect(tab.dataTables).toEqual([{ id: 'ds1', range: { r1: 0, c1: 0, r2: 1, c2: 1 } }]);
+    expect(e.getValue('tab', 1, 1)).toBe('a@x.org');
+    applyOp(e, undo);
+    expect(e.workbook.getSheet('tab')).toBeUndefined();
+    // Once placed, a refresh writes where the table is: no second tab.
+    applyOp(e, op);
+    const again = dataTableOp(e, { id: 'ds1', at: { newSheet: { id: 'other', name: 'Companies' } }, header: ['Name'], rows: [['Acme'], ['Bolt']] });
+    if (typeof again === 'string') throw new Error(again);
+    applyOp(e, again);
+    expect(e.workbook.getSheet('other')).toBeUndefined();
+    expect(e.getValue('tab', 2, 0)).toBe('Bolt');
+  });
+
+  it('grows the sheet to hold more records than it has rows', () => {
+    const e = engine();
+    const sheet = e.workbook.requireSheet(S);
+    const rows = Array.from({ length: sheet.rowCount + 5 }, (_, i) => [i]);
+    const op = dataTableOp(e, { id: 'ds1', at: { sheetId: S, row: 0, col: 0 }, header: ['N'], rows });
+    if (typeof op === 'string') throw new Error(op);
+    applyOp(e, op);
+    expect(sheet.rowCount).toBe(rows.length + 1);
+    expect(e.getValue(S, rows.length, 0)).toBe(rows.length - 1);
+  });
+
+  it('moves a filter on its header with its block, keeping the filter columns that still fit', () => {
+    const e = engine();
+    const first = dataTableOp(e, { id: 'ds1', at: { sheetId: S, row: 0, col: 0 }, header: ['A', 'B'], rows: [[1, 2]] });
+    if (typeof first === 'string') throw new Error(first);
+    applyOp(e, first);
+    const columns = [{ col: 0, hiddenValues: ['n:1'] }, { col: 1, hiddenValues: ['n:2'] }];
+    applyOp(e, { type: 'setFilter', sheetId: S, filter: { range: { r1: 0, c1: 0, r2: 1, c2: 1 }, columns } });
+    const second = dataTableOp(e, { id: 'ds1', header: ['A'], rows: [[1], [3], [4]] });
+    if (typeof second === 'string') throw new Error(second);
+    applyOp(e, second);
+    expect(e.workbook.requireSheet(S).filter).toEqual({ range: { r1: 0, c1: 0, r2: 3, c2: 0 }, columns: [columns[0]] });
+  });
+
   it('loses its block when all its rows are deleted', () => {
     const e = engine();
     applyOp(e, { type: 'patchDataTables', sheetId: S, set: [{ id: 'ds1', range: { r1: 2, c1: 0, r2: 3, c2: 1 } }] });
