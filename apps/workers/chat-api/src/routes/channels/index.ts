@@ -19,6 +19,7 @@ import { postChatMessage, ChatFeatureError } from '../../services/chat/post-mess
 import { setChannelMuted } from '../../services/chat/dm-membership';
 import { canAccessChannel, isChannelModerator, unreadableRecordChatIds } from '../../services/chat/channel-access';
 import { consumeChatRateLimit } from '../../services/chat/rate-limit';
+import { AGENT_ROOM_TYPES, mayWriteInRecordChat } from '../../services/chat/agent-members';
 import { createChannel, resolveChannelSlug } from '@weldsuite/chat-domain/create-channel';
 import {
   addChannelMembers,
@@ -846,29 +847,32 @@ const inviteAgentsSchema = z.object({
   agentIds: z.array(z.string().startsWith('agt_')).min(1).max(10),
 });
 
-/** Rooms an agent can be invited into. DMs stay between people. */
-const AGENT_ROOM_TYPES = new Set(['public', 'private']);
-
 /**
- * The caller may bring agents into (or out of) this room: they can see it and
- * it is a channel, not a DM. Returns the channel name, or an error response.
+ * The caller may bring agents into (or out of) this room: it is a channel or
+ * a record chat (not a DM) and they may write in it. Returns the channel name,
+ * or an error response.
  */
 async function resolveAgentRoom(
   c: Context<{ Bindings: Env; Variables: Variables }>,
   channelId: string,
 ): Promise<{ name: string } | Response> {
   const db = c.get('tenantDb');
+  const userId = c.get('userId');
   const [channel] = await db
-    .select({ name: t.name, type: t.type })
+    .select({ name: t.name, type: t.type, entityType: t.entityType, entityId: t.entityId })
     .from(t)
     .where(and(eq(t.id, channelId), isNull(t.deletedAt)))
     .limit(1);
   if (!channel) return error.notFound(c, 'Channel', channelId);
-  if (!(await canAccessChannel(db, channelId, c.get('userId')))) {
+  const can = (permission: string) => hasContextPermission(c, permission);
+  if (!(await canAccessChannel(db, channelId, userId, { can }))) {
     return error.forbidden(c, 'You do not have access to this channel');
   }
   if (!AGENT_ROOM_TYPES.has(channel.type)) {
-    return error.badRequest(c, 'Agents can only join channels');
+    return error.badRequest(c, 'Agents can only join channels and record chats');
+  }
+  if (!(await mayWriteInRecordChat(db, channel, userId, can))) {
+    return error.forbidden(c, 'You may read this chat but not write in it');
   }
   return { name: channel.name };
 }

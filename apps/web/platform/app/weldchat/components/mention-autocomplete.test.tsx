@@ -161,6 +161,28 @@ describe('MentionAutocomplete agents', () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
+  it('lists agents before people when nothing is typed yet', () => {
+    const { getAllByRole } = setup('');
+    const rows = getAllByRole('button').map((b) => b.textContent ?? '');
+    const firstPerson = rows.findIndex((r) => r.includes('Gert') && !r.includes('Gerty'));
+    expect(rows.findIndex((r) => r.includes('Gerty Bot'))).toBeLessThan(firstPerson);
+    expect(rows.findIndex((r) => r.includes('Germaine Researcher'))).toBeLessThan(firstPerson);
+  });
+
+  it('in a record chat with no messages yet, inserts the agent without inviting (the message brings it in)', () => {
+    agents.inChannel = [];
+    const onSelect = vi.fn();
+    const { getByTestId } = render(
+      <div data-chat-composer-root="">
+        <MentionAutocomplete query="Germaine" channelId="" agentsJoinOnSend onSelect={onSelect} />
+        <div data-testid="editor" contentEditable suppressContentEditableWarning />
+      </div>,
+    );
+    fireEvent.keyDown(getByTestId('editor'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'user', userId: 'agt_new', name: 'Germaine Researcher' });
+    expect(agents.invite).not.toHaveBeenCalled();
+  });
+
   it('offers no outside agents without weldagent:use', () => {
     agents.canUse = false;
     const { queryByText } = setup('Germaine');

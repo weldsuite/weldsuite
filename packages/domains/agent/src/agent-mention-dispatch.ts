@@ -11,7 +11,7 @@
  * instead of staying silent.
  */
 
-import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { WeldAgentEnv as Env } from './env';
@@ -152,7 +152,10 @@ export async function dispatchAgentRoomReplies(
   });
   if (toReply.length === 0) return;
 
-  const activeAgents = await db
+  // Any status answers a mention (draft and paused agents still chat, like in
+  // their own panel); unprompted "always" replies are for active agents only,
+  // the way pausing stops routines and event triggers.
+  const roomAgents = await db
     .select({
       id: weldagentAgents.id,
       name: weldagentAgents.name,
@@ -167,12 +170,16 @@ export async function dispatchAgentRoomReplies(
       enabledTools: weldagentAgents.enabledTools,
     })
     .from(weldagentAgents)
-    .where(and(eq(weldagentAgents.status, 'active'), isNull(weldagentAgents.deletedAt)));
+    .where(and(inArray(weldagentAgents.id, toReply), isNull(weldagentAgents.deletedAt)));
 
-  const activeById = new Map(activeAgents.map((a) => [a.id, a]));
-  const [recent, replyTo] = await Promise.all([
+  const mentioned = new Set(input.mentionedAgentIds);
+  const agentsById = new Map(
+    roomAgents.filter((a) => mentioned.has(a.id) || a.status === 'active').map((a) => [a.id, a]),
+  );
+  const [recent, replyTo, roomBrief] = await Promise.all([
     loadRoomContext(db, input.channelId, input.messageId, input.parentId ?? null),
     loadReplyReference(db, input.messageId),
+    describeRoom(db, input.channelId),
   ]);
   // Resolve once per dispatch; hop replies reuse it through ctx.
   const actorCtx: DispatchAgentMentionsContext = {
@@ -183,10 +190,10 @@ export async function dispatchAgentRoomReplies(
   // Every addressed agent works at the same time; one slow or failing agent
   // never holds up (or silences) the others.
   const runs = toReply.flatMap((agentId) => {
-    const agent = activeById.get(agentId);
+    const agent = agentsById.get(agentId);
     if (!agent) return [];
     return [
-      replyAsAgent({ ctx: actorCtx, agent, input, recent, replyTo }).catch((e) =>
+      replyAsAgent({ ctx: actorCtx, agent, input, recent, replyTo, roomBrief }).catch((e) =>
         console.error(`[weldagent/room] agent ${agentId} room reply failed:`, e),
       ),
     ];
@@ -197,6 +204,34 @@ export async function dispatchAgentRoomReplies(
   } else {
     await Promise.all(runs);
   }
+}
+
+/**
+ * What the room is, for the agent's instructions. A record chat names its
+ * record (type, name and id), so the agent can look it up with its tools.
+ */
+export async function describeRoom(db: Database, channelId: string): Promise<string> {
+  const { chatChannels } = schema;
+  const [room] = await db
+    .select({
+      name: chatChannels.name,
+      type: chatChannels.type,
+      entityType: chatChannels.entityType,
+      entityId: chatChannels.entityId,
+      entityDisplayName: chatChannels.entityDisplayName,
+    })
+    .from(chatChannels)
+    .where(eq(chatChannels.id, channelId))
+    .limit(1);
+  if (!room) return 'You are in a WeldChat room.';
+  if (room.type === 'entity' && room.entityType && room.entityId) {
+    const title = room.entityDisplayName || room.name;
+    return (
+      `You are in the chat of a ${room.entityType} record: "${title}" (id ${room.entityId}). ` +
+      `Questions here are usually about that ${room.entityType}; look it up with your tools when needed.`
+    );
+  }
+  return `You are in the WeldChat channel "${room.name}".`;
 }
 
 /** The quote shown above an agent's reply: the message it answers. */
@@ -289,8 +324,9 @@ async function replyAsAgent(params: {
   input: DispatchAgentRoomRepliesInput;
   recent: Array<{ role: 'user' | 'assistant'; content: string }>;
   replyTo: ChatReplyReference | null;
+  roomBrief: string;
 }): Promise<void> {
-  const { ctx, agent, input, recent, replyTo } = params;
+  const { ctx, agent, input, recent, replyTo, roomBrief } = params;
   const { db, env, orgId, invokerUserId } = ctx;
 
   const runId = await createAgentRun(db, {
@@ -306,7 +342,7 @@ async function replyAsAgent(params: {
   await markRunRunning(db, runId);
 
   const extraSystem =
-    `You are participating in a WeldChat room. ` +
+    `${roomBrief} ` +
     `Other humans and agents may be present. Address the latest message. ` +
     `You work in the background: the room sees that you are working, and your reply is ` +
     `posted when you finish, so do the work first and then report what you did. ` +

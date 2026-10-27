@@ -27,8 +27,9 @@ export type AddChannelMembersResult =
  * Validate the ids being invited.
  *
  * `user` → each id must resolve to an ACTIVE workspace member.
- * `agent` → each id must be `agt_*` and resolve to an active, non-deleted
- *           `weldagent_agents` row.
+ * `agent` → each id must be `agt_*` and resolve to a non-deleted
+ *           `weldagent_agents` row, whatever its status: draft and paused
+ *           agents still answer when tagged, like their own chat.
  */
 async function validateMemberIds(
   db: Database,
@@ -47,14 +48,13 @@ async function validateMemberIds(
       .where(
         and(
           inArray(weldagentAgents.id, userIds),
-          eq(weldagentAgents.status, 'active'),
           isNull(weldagentAgents.deletedAt),
         ),
       );
     const found = new Set(existing.map((a) => a.id));
     const missing = userIds.filter((id) => !found.has(id));
     if (missing.length > 0) {
-      return { ok: false, message: `Active agent(s) not found: ${missing.join(', ')}` };
+      return { ok: false, message: `Agent(s) not found: ${missing.join(', ')}` };
     }
     return { ok: true };
   }

@@ -599,6 +599,39 @@ describe('/api/channels · pglite integration', () => {
       expect(channel?.memberCount).toBe(1);
     });
 
+    it('brings in a draft or paused agent too: it still answers when tagged', async () => {
+      const draft = generateId('agt');
+      const paused = generateId('agt');
+      await db.insert(schema.weldagentAgents).values([
+        { id: draft, name: 'New helper', status: 'draft', visibility: 'workspace' },
+        { id: paused, name: 'Resting helper', status: 'paused', visibility: 'workspace' },
+      ]);
+      const channelId = await room('public');
+      const res = await invite(asMember(), channelId, [draft, paused]);
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { data: { addedAgentIds: string[] } }).data.addedAgentIds.sort()).toEqual(
+        [draft, paused].sort(),
+      );
+    });
+
+    it('brings an agent into a record chat the caller may read', async () => {
+      const companyId = generateId('cmp');
+      await db.insert(schema.companies).values({
+        id: companyId, name: 'Agent Corp', displayName: 'Agent Corp', createdAt: now, updatedAt: now,
+      } as unknown as typeof schema.companies.$inferInsert);
+      const channelId = generateId('ch');
+      await db.insert(schema.chatChannels).values({
+        id: channelId, name: 'Agent Corp', slug: `rec-${channelId}`, type: 'entity',
+        entityType: 'company', entityId: companyId, entityDisplayName: 'Agent Corp',
+        memberCount: 0, createdAt: now, updatedAt: now,
+      });
+
+      const crm = ['weldagent:use', 'companies:read', 'companies:scope:all'];
+      expect((await invite(asMember(crm), channelId, [openAgent])).status).toBe(201);
+      // Without the record's permission the chat is out of reach.
+      expect((await invite(asMember(['weldagent:use']), channelId, [openAgent])).status).toBe(403);
+    });
+
     it('refuses an agent the caller cannot see', async () => {
       const channelId = await room('public');
       const res = await invite(asMember(), channelId, [hiddenAgent]);

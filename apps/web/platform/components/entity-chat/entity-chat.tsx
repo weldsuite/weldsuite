@@ -205,6 +205,7 @@ function FirstMessageComposer({
       </div>
       <MessageInput
         channelId=""
+        agentsJoinOnSend
         placeholder={t('sweep.weldchat.entityChat.messagePlaceholder')}
         onSubmitOverride={async (payload) => {
           const id = `opt_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
