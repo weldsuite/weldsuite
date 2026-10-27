@@ -3,6 +3,9 @@
 Status: **phase 1 + 2 in progress** on `claude/weldhr-module`. Tenant migration
 `0192_weldhr_employee_operations` is written (approved 2026-09-23).
 
+The workforce portal (phase 2) has since been removed: every employee is a
+workspace member who uses My HR (ADR HR-008, supersedes HR-007).
+
 ## Why this exists
 
 A BPO prospect (outsourced teams for medium/large companies) wants one portal
@@ -148,8 +151,7 @@ Client: `@weldsuite/app-api-client/domains/weldhr` + schemas
    (hand-finished drizzle DDL with IF NOT EXISTS, like 0180+; the tenant snapshot stops at 0179,
    so `drizzle-kit generate` cannot be used without sweeping in unrelated drift). Bundled into
    workspace-worker via `pnpm bundle-migrations`.
-2. The portal deploys as Vercel project `weldsuite-hr-portal` (see
-   `apps/web/hr-portal/README.md`). Customer custom domains must also be added
-   to that project; today that is manual, automating it from the branding save
-   is phase 2b.
+2. No longer applies: the portal is removed, and its Vercel project
+   `weldsuite-hr-portal` (domains `team.weldsuite.org` and
+   `team-test.weldsuite.org`) was deleted on 2026-10-27.
 3. App catalog row in the master DB (admin seed) so workspaces can install it.
