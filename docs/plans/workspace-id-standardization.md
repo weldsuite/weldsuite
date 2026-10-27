@@ -130,6 +130,21 @@ in `publishEntityEvent`, `publishEntityEventRaw` and Workflow params. Sleeping
 Workflows created before the switch still carry the org id, so the engine keeps
 accepting both until the longest sleep (TrashCleanup, 30 days) has passed.
 
+Mixed ids found while doing 2a, left for 2b and 3:
+
+- books `public-w9` and `public-fiscal-webhooks` publish entity events with
+  `workspaces.id`, every other publisher with the org id.
+- connect `integrations/internal.ts` mixes the two ids in one handler, and the
+  `intconn:` KV prefix holds entries under both.
+- GitHub install state JWTs carry the org id.
+- Private-file reads accept only an org-id prefix, so accounting-inbox objects
+  (stored under `workspaces/<ws>/`) cannot be read through them.
+- sheets' `isWorkspaceObjectKey` call passes only the org id.
+- agent-api's routine backfill names jobs by `ws.clerkOrgId || ws.id`.
+- `@weldsuite/notifications` names a parameter `workspaceId` that holds the org
+  id; the `slack_team` KV value names one `internalWorkspaceId`.
+- app-api still reads `c.get('orgId')` (the raw claim) in about 66 places.
+
 ### Phase 3: stored data moves to `workspaces.id`
 
 Needs approved migrations (master) and one-off scripts (D1, tenants).
