@@ -255,7 +255,7 @@ describe('default WeldAgent (no agentId)', () => {
     const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ data: { cells: 1 } }), { status: 200 }));
     const { request } = createTestApp('/api/ai', aiRoutes, {
       context: { permissions: permissions('weldagent:use', 'agents:read', 'sheets:read', 'sheets:update'), tenantDb: db, userId: ME },
-      env: { WORKSPACE_CACHE: undefined, SHEETS_INTERNAL: { fetch } },
+      env: { WORKSPACE_CACHE: undefined, SHEETS_INTERNAL: { fetch } as unknown as Fetcher },
     });
 
     const res = await request('/api/ai/chat', {

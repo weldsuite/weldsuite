@@ -52,7 +52,8 @@ export function withTagTokens(text: string, tags: readonly Tag[]): string {
   // Longest first, so `@Budget` does not take the start of `@Budget 2026`.
   const byLength = [...tags].sort((a, b) => b.label.length - a.label.length);
   let out = text;
-  for (const tag of byLength) out = out.replace(`@${tag.label}`, tag.token);
+  // A replacer function, so a `$` in a record's name is not read as a replacement pattern.
+  for (const tag of byLength) out = out.replace(`@${tag.label}`, () => tag.token);
   return out;
 }
 

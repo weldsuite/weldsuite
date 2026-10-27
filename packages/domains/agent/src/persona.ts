@@ -179,7 +179,10 @@ function sheetsSection(sheets: PersonaSheets, canWrite: boolean): string {
   }
   const tagged = (sheets.tagged ?? []).filter((sheet) => sheet.id !== sheets.open?.id);
   if (tagged.length > 0) {
-    const names = tagged.map((sheet) => `${sheet.label ? `"${sheet.label}"` : 'a spreadsheet'} (spreadsheetId ${sheet.id})`);
+    const names = tagged.map((sheet) => {
+      const name = sheet.label ? `"${sheet.label}"` : 'a spreadsheet';
+      return `${name} (spreadsheetId ${sheet.id})`;
+    });
     lines.push(`The user tagged: ${names.join(', ')}.`);
   }
   if (canWrite) {

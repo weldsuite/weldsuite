@@ -29,6 +29,13 @@ describe('sending tags', () => {
     );
   });
 
+  it('keeps a $ in a record name as it is', () => {
+    const costs = { label: "Costs $'000", token: "<@sheet:sht_3|Costs $'000>" };
+    expect(withTagTokens("Check @Costs $'000 and the rest", [costs])).toBe("Check <@sheet:sht_3|Costs $'000> and the rest");
+    const revenue = { label: 'Revenue $$', token: '<@sheet:sht_4|Revenue $$>' };
+    expect(withTagTokens('See @Revenue $$', [revenue])).toBe('See <@sheet:sht_4|Revenue $$>');
+  });
+
   it('leaves a tag the user deleted or retyped as text', () => {
     expect(withTagTokens('Add totals to the budget', [budget])).toBe('Add totals to the budget');
   });

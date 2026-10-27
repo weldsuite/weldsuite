@@ -152,7 +152,8 @@ export function describeOpenSheet(sheet: AiOpenSheet): string {
     sheet.tab ? `on the tab "${sheet.tab}"` : null,
     sheet.selection ? `with ${sheet.selection} selected` : null,
   ].filter(Boolean);
-  return `The user has the spreadsheet ${name} open (spreadsheetId ${sheet.id})${where.length ? `, ${where.join(', ')}` : ''}.`;
+  const place = where.length ? `, ${where.join(', ')}` : '';
+  return `The user has the spreadsheet ${name} open (spreadsheetId ${sheet.id})${place}.`;
 }
 
 /**

@@ -952,10 +952,12 @@ export async function searchSheets(
   const { sheets, files } = schema;
   const term = q.toLowerCase();
   const escaped = escapeLike(term);
+  const contains = `%${escaped}%`;
+  const startsWith = `${escaped}%`;
   const nameMatches = and(
     isNull(files.deletedAt),
     isNull(files.entityType),
-    sql`lower(${files.fileName}) LIKE ${`%${escaped}%`}`,
+    sql`lower(${files.fileName}) LIKE ${contains}`,
   );
 
   // Most keystrokes match no spreadsheet. Skip loading the drive's folder tree
@@ -971,8 +973,8 @@ export async function searchSheets(
   const access = await loadDriveAccessForUser(db, userId);
   const score = sql<number>`CASE
     WHEN lower(${files.fileName}) = ${term} THEN 1.0
-    WHEN lower(${files.fileName}) LIKE ${`${escaped}%`} THEN 0.9
-    WHEN lower(${files.fileName}) LIKE ${`%${escaped}%`} THEN 0.6
+    WHEN lower(${files.fileName}) LIKE ${startsWith} THEN 0.9
+    WHEN lower(${files.fileName}) LIKE ${contains} THEN 0.6
     ELSE 0
   END`;
   const changedAt = sql`greatest(${sheets.updatedAt}, ${files.updatedAt})`;
