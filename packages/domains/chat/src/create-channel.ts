@@ -207,17 +207,12 @@ export async function createChannel(
   );
   if (agentIds.length > 0) {
     const { weldagentAgents } = schema;
-    const active = await db
+    // Any non-deleted agent: a draft or paused one still answers when tagged.
+    const existing = await db
       .select({ id: weldagentAgents.id })
       .from(weldagentAgents)
-      .where(
-        and(
-          inArray(weldagentAgents.id, agentIds),
-          eq(weldagentAgents.status, 'active'),
-          isNull(weldagentAgents.deletedAt),
-        ),
-      );
-    const validAgentIds = active.map((a) => a.id);
+      .where(and(inArray(weldagentAgents.id, agentIds), isNull(weldagentAgents.deletedAt)));
+    const validAgentIds = existing.map((a) => a.id);
     if (validAgentIds.length > 0) {
       await db
         .insert(chatChannelMembers)

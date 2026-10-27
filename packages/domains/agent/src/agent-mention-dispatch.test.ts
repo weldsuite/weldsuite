@@ -32,7 +32,7 @@ vi.mock('./actor-permissions', () => ({ resolveActorPermissions: vi.fn(async () 
 const runAgentOnce = vi.fn();
 vi.mock('./executor', () => ({ runAgentOnce: (...args: unknown[]) => runAgentOnce(...args) }));
 
-const { dispatchAgentMentions, roomFailureReply } = await import('./agent-mention-dispatch');
+const { dispatchAgentMentions, roomFailureReply, describeRoom } = await import('./agent-mention-dispatch');
 
 const env = { REALTIME: { fetch: async () => new Response('ok') } };
 let db: Database;
@@ -58,6 +58,20 @@ beforeAll(async () => {
   await db.insert(schema.weldagentAgents).values([
     { id: 'agt_a', name: 'Alpha', status: 'active', icon: '🅰️' },
     { id: 'agt_b', name: 'Beta', status: 'active' },
+    { id: 'agt_p', name: 'Paused', status: 'paused' },
+  ]);
+  await db.insert(schema.chatChannels).values({
+    id: 'chan_always',
+    name: 'standup',
+    slug: 'standup',
+    type: 'private',
+    metadata: { agentReplyPolicy: 'always' },
+  });
+  await db.insert(schema.chatChannelMembers).values([
+    { id: 'cmb_al_ann', channelId: 'chan_always', userId: 'user_ann', role: 'member' },
+    { id: 'cmb_al_a', channelId: 'chan_always', userId: 'agt_a', memberType: 'agent', role: 'member' },
+    { id: 'cmb_al_p', channelId: 'chan_always', userId: 'agt_p', memberType: 'agent', role: 'member' },
+    { id: 'cmb_room_p', channelId: 'chan_room', userId: 'agt_p', memberType: 'agent', role: 'member' },
   ]);
 }, 60_000);
 
@@ -68,12 +82,15 @@ beforeEach(() => {
 });
 
 let seq = 0;
-async function post(content: string, opts: { parentId?: string; authorId?: string } = {}): Promise<string> {
+async function post(
+  content: string,
+  opts: { parentId?: string; authorId?: string; channelId?: string } = {},
+): Promise<string> {
   seq += 1;
   const id = `msg_${seq}`;
   await db.insert(schema.chatMessages).values({
     id,
-    channelId: 'chan_room',
+    channelId: opts.channelId ?? 'chan_room',
     authorId: opts.authorId ?? 'user_ann',
     authorName: 'Ann',
     authorType: 'user',
@@ -85,10 +102,10 @@ async function post(content: string, opts: { parentId?: string; authorId?: strin
   return id;
 }
 
-async function dispatch(messageId: string, content: string, agentMentionIds: string[]) {
+async function dispatch(messageId: string, content: string, agentMentionIds: string[], channelId = 'chan_room') {
   await dispatchAgentMentions(
     { db, env: env as never, orgId: 'org_1', invokerUserId: 'user_ann' },
-    { agentMentionIds, channelId: 'chan_room', messageId, messageContent: content },
+    { agentMentionIds, channelId, messageId, messageContent: content },
   );
 }
 
@@ -163,5 +180,38 @@ describe('dispatchAgentMentions', () => {
 
     const answers = await agentReplies('agt_a');
     expect(answers.at(-1)?.parentId).toBe(root);
+  });
+
+  it('lets a paused or draft agent answer when tagged, as in its own chat', async () => {
+    runAgentOnce.mockResolvedValueOnce(reply('Still here.'));
+    const ask = await post('<@agt_p> are you there?');
+    await dispatch(ask, '<@agt_p> are you there?', ['agt_p']);
+    expect(runAgentOnce).toHaveBeenCalledTimes(1);
+    expect((await agentReplies('agt_p')).map((m) => m.content)).toContain('Still here.');
+  });
+
+  it('keeps a paused agent quiet in an "always" room unless it is tagged', async () => {
+    runAgentOnce.mockResolvedValue(reply('Morning!'));
+    const ask = await post('good morning team', { channelId: 'chan_always' });
+    await dispatch(ask, 'good morning team', [], 'chan_always');
+    const agentIds = runAgentOnce.mock.calls.map((call) => (call[0] as { agent: { id: string } }).agent.id);
+    expect(agentIds).toEqual(['agt_a']);
+  });
+});
+
+describe('describeRoom', () => {
+  it('names the record a record chat is about', async () => {
+    await db.insert(schema.chatChannels).values({
+      id: 'chan_record',
+      name: 'Acme BV',
+      slug: 'acme-bv',
+      type: 'entity',
+      entityType: 'company',
+      entityId: 'cmp_acme',
+      entityDisplayName: 'Acme BV',
+    });
+    const brief = await describeRoom(db, 'chan_record');
+    expect(brief).toContain('company record: "Acme BV" (id cmp_acme)');
+    expect(await describeRoom(db, 'chan_room')).toBe('You are in the WeldChat channel "ops".');
   });
 });

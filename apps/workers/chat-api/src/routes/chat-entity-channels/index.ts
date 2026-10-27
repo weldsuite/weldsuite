@@ -35,7 +35,8 @@
 
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import { ensurePermissionsResolved, hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import { agentViewerFor } from '@weldsuite/agent-domain/access';
 import {
   listEntityChannelsQuerySchema,
   muteRecordChatsSchema,
@@ -62,6 +63,7 @@ import {
 import { listRecordChats, summarizeRecordChats } from '../../services/chat/entity-channels/record-chat-list';
 import { listRecordComments } from '../../services/chat/entity-channels/record-comments';
 import { ChatFeatureError, postChatMessage } from '../../services/chat/post-message';
+import { addMentionedAgents } from '../../services/chat/agent-members';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
 type AppContext = Context<AppEnv>;
@@ -263,7 +265,9 @@ app.get('/:entityType/:entityId/comments', readPerm, async (c) => {
 /**
  * POST /:entityType/:entityId/messages — get-or-create the channel and post.
  * Posting follows the chat (postChatMessage), and a new channel's default
- * members follow it from the start.
+ * members follow it from the start. Agents the message mentions, and the
+ * author may use, join first so they answer it: a chat that does not exist
+ * yet has nobody to invite them into beforehand (ADR AGENT-014).
  */
 app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEntityMessageSchema), async (c) => {
   const orgId = c.get('orgId');
@@ -290,6 +294,14 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
       can: callerCan(c),
     });
     channelId = channel.id;
+
+    await addMentionedAgents(db, c.env, {
+      channelId: channel.id,
+      content: input.content,
+      mentions: input.mentions,
+      canUseAgents: await hasContextPermission(c, 'weldagent:use'),
+      viewer: async () => agentViewerFor(userId, await ensurePermissionsResolved(c)),
+    });
 
     const message = await postChatMessage(
       { db, env: c.env, orgId, channelId: channel.id, authorUserId: userId, waitUntil: waitUntilFor(c) },

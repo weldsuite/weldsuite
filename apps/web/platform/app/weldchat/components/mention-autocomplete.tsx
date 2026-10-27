@@ -29,6 +29,7 @@ import type { EntitySheetType } from '@/components/entity-sheet/types';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
+import { useCan } from '@weldsuite/permissions/react';
 import { useCanInviteAgents, useInvitableAgents, useInviteAgent } from './invite-agent-picker';
 
 export type MentionSelection =
@@ -39,6 +40,11 @@ export type MentionSelection =
 interface MentionAutocompleteProps {
   query: string;
   channelId?: string;
+  /**
+   * No channel yet (a record chat's first message): offer every agent the
+   * viewer can use, and insert its mention directly; the message brings it in.
+   */
+  agentsJoinOnSend?: boolean;
   onSelect: (selection: MentionSelection) => void;
   onDismiss?: () => void;
 }
@@ -83,6 +89,7 @@ const LIST_SETTLE_MS = 300;
 export function MentionAutocomplete({
   query,
   channelId,
+  agentsJoinOnSend = false,
   onSelect,
   onDismiss,
 }: Readonly<MentionAutocompleteProps>) {
@@ -146,7 +153,9 @@ export function MentionAutocomplete({
   );
 
   const canInviteAgents = useCanInviteAgents(channelId);
-  const invitableAgents = useInvitableAgents(channelId, canInviteAgents);
+  const canUseAgents = useCan('weldagent:use');
+  const offerAgents = canInviteAgents || (agentsJoinOnSend && canUseAgents);
+  const invitableAgents = useInvitableAgents(channelId, offerAgents);
   const inviteAgent = useInviteAgent(channelId || '');
   const invitableSuggestions: PersonItem[] = useMemo(
     () =>
@@ -162,10 +171,13 @@ export function MentionAutocomplete({
   );
 
   const filteredPeople = useMemo(() => {
+    // Agents first: a chat has few of them, and below eight people they'd be
+    // scrolled out of sight.
     if (!trimmed) {
       return [
-        ...[...agentSuggestions, ...userSuggestions].slice(0, 8),
+        ...agentSuggestions,
         ...invitableSuggestions.slice(0, INVITABLE_AGENTS_IDLE_LIMIT),
+        ...userSuggestions.slice(0, 8),
       ];
     }
     const q = trimmed.toLowerCase();
@@ -179,7 +191,7 @@ export function MentionAutocomplete({
   const choosePerson = useCallback(
     (s: PersonItem) => {
       const selection: MentionSelection = { kind: 'user', userId: s.userId, name: s.name };
-      if (!s.notInChannel) {
+      if (!s.notInChannel || agentsJoinOnSend) {
         onSelect(selection);
         return;
       }
@@ -187,7 +199,7 @@ export function MentionAutocomplete({
         if (joined) onSelect(selection);
       });
     },
-    [onSelect, inviteAgent],
+    [onSelect, inviteAgent, agentsJoinOnSend],
   );
 
   // -- Records section -----------------------------------------------------

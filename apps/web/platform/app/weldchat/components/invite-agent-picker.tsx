@@ -1,7 +1,7 @@
 /**
  * Bring a workspace agent into a channel.
  *
- * Lists the active agents the viewer may use that are not in the channel yet.
+ * Lists the agents the viewer may use that are not in the channel yet.
  * Once in, an agent answers when someone @mentions it there, working in the
  * background and replying in the chat. Anyone in the channel with
  * `weldagent:use` may invite one (the agent acts with the asker's permissions),
@@ -20,8 +20,8 @@ import { useAgents } from '@/hooks/queries/use-agent-queries';
 import { useChannel, useChannelMembers, useInviteChannelAgents } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
 
-/** Channel types agents can join; DMs stay between people. */
-const AGENT_ROOM_TYPES = new Set(['public', 'private']);
+/** Channel types agents can join (record chats included); DMs stay between people. */
+const AGENT_ROOM_TYPES = new Set(['public', 'private', 'entity']);
 
 /** Whether the viewer can bring agents into (and out of) this channel. */
 export function useCanInviteAgents(channelId: string | undefined): boolean {
@@ -30,9 +30,13 @@ export function useCanInviteAgents(channelId: string | undefined): boolean {
   return canUseAgents && !!channelId && AGENT_ROOM_TYPES.has(data?.data?.type ?? '');
 }
 
-/** Active agents the viewer may use that are not in the channel yet. */
+/**
+ * Agents the viewer may use that are not in the channel yet, whatever their
+ * status: a draft or paused agent still answers when tagged, as in its own chat
+ * (pausing only stops routines and event triggers).
+ */
 export function useInvitableAgents(channelId: string | undefined, enabled: boolean): WorkspaceAgent[] {
-  const { data: agents } = useAgents({ status: 'active' }, enabled);
+  const { data: agents } = useAgents(undefined, enabled);
   const { data: membersData } = useChannelMembers(channelId || '');
   return useMemo(() => {
     if (!enabled) return [];

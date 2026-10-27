@@ -66,6 +66,12 @@ interface MessageInputProps {
     mentions: string[];
     attachments: MessageAttachment[];
   }) => Promise<void> | void;
+  /**
+   * There is no channel yet (a record chat's first message): the @ picker
+   * offers every agent the viewer can use, and the message that mentions one
+   * brings it into the chat it creates.
+   */
+  agentsJoinOnSend?: boolean;
 }
 
 /**
@@ -130,6 +136,7 @@ export function MessageInput({
   placeholder,
   client,
   onSubmitOverride,
+  agentsJoinOnSend,
 }: Readonly<MessageInputProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -1168,7 +1175,13 @@ export function MessageInput({
 
               {mentionQuery !== null && slashQuery === null && (
                 <div className="absolute bottom-full -left-[10px] -right-[10px] mb-6 z-50 [&>div]:static [&>div]:mb-0 [&>div]:rounded-xl">
-                  <MentionAutocomplete query={mentionQuery} channelId={channelId} onSelect={handleMentionSelect} onDismiss={() => setMentionQuery(null)} />
+                  <MentionAutocomplete
+                    query={mentionQuery}
+                    channelId={channelId}
+                    agentsJoinOnSend={agentsJoinOnSend}
+                    onSelect={handleMentionSelect}
+                    onDismiss={() => setMentionQuery(null)}
+                  />
                 </div>
               )}
 
