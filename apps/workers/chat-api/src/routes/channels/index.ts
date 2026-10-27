@@ -4,7 +4,7 @@
  * Permissions: channels:read | channels:create | channels:update | channels:delete.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, asc, desc, eq, gt, inArray, isNull, like, lt, ne, or, sql, type SQL } from 'drizzle-orm';
@@ -841,6 +841,136 @@ app.post(
     }
   },
 );
+
+const inviteAgentsSchema = z.object({
+  agentIds: z.array(z.string().startsWith('agt_')).min(1).max(10),
+});
+
+/** Rooms an agent can be invited into. DMs stay between people. */
+const AGENT_ROOM_TYPES = new Set(['public', 'private']);
+
+/**
+ * The caller may bring agents into (or out of) this room: they can see it and
+ * it is a channel, not a DM. Returns the channel name, or an error response.
+ */
+async function resolveAgentRoom(
+  c: Context<{ Bindings: Env; Variables: Variables }>,
+  channelId: string,
+): Promise<{ name: string } | Response> {
+  const db = c.get('tenantDb');
+  const [channel] = await db
+    .select({ name: t.name, type: t.type })
+    .from(t)
+    .where(and(eq(t.id, channelId), isNull(t.deletedAt)))
+    .limit(1);
+  if (!channel) return error.notFound(c, 'Channel', channelId);
+  if (!(await canAccessChannel(db, channelId, c.get('userId')))) {
+    return error.forbidden(c, 'You do not have access to this channel');
+  }
+  if (!AGENT_ROOM_TYPES.has(channel.type)) {
+    return error.badRequest(c, 'Agents can only join channels');
+  }
+  return { name: channel.name };
+}
+
+/**
+ * POST /:channelId/agents — invite workspace agents into a room.
+ *
+ * Anyone in the room may bring in an agent they can use (`weldagent:use` plus
+ * the agent's own visibility). A tagged agent acts with the permissions of the
+ * person who tagged it, never more, so inviting one widens nobody's reach.
+ * Adding people stays a moderation action (POST /:channelId/members).
+ */
+app.post(
+  '/:channelId/agents',
+  requirePermission('weldagent:use'),
+  zValidator('json', inviteAgentsSchema),
+  async (c) => {
+    const orgId = c.get('orgId');
+    if (!orgId) return error.orgRequired(c);
+    const db = c.get('tenantDb');
+    const channelId = c.req.param('channelId');
+    const agentIds = Array.from(new Set(c.req.valid('json').agentIds));
+
+    const room = await resolveAgentRoom(c, channelId);
+    if (room instanceof Response) return room;
+
+    const viewer = agentViewerFor(c.get('userId'), await ensurePermissionsResolved(c));
+    if ((await inaccessibleAgentIds(db, agentIds, viewer)).length > 0) {
+      return error.forbidden(c, 'You do not have access to one of these agents');
+    }
+
+    try {
+      const result = await addChannelMembers(db, { channelId, userIds: agentIds, memberType: 'agent' });
+      if (!result.ok) return error.badRequest(c, result.message);
+
+      await Promise.all(
+        result.addedUserIds.map(async (agentId) => {
+          try {
+            await publishChatMemberJoined(c.env, channelId, { channelId, userId: agentId });
+          } catch (e) {
+            console.error('[chat-api/channels] agent member_joined publish failed:', e);
+          }
+        }),
+      );
+      if (result.addedCount > 0) {
+        safePublish(() =>
+          publishEntityEvent({
+            c,
+            entityType: 'chat_channel',
+            action: 'joined',
+            entityId: channelId,
+            data: { id: channelId, name: room.name },
+          }),
+        );
+      }
+
+      return success(c, { channelId, addedAgentIds: result.addedUserIds }, 201);
+    } catch (err) {
+      console.error('[chat-api/channels] invite agents failed:', err);
+      return error.internal(c, 'Failed to add agents');
+    }
+  },
+);
+
+/**
+ * DELETE /:channelId/agents/:agentId — take an agent out of a room. Same door
+ * as inviting one: anyone in the room who can use agents.
+ */
+app.delete('/:channelId/agents/:agentId', requirePermission('weldagent:use'), async (c) => {
+  const db = c.get('tenantDb');
+  const channelId = c.req.param('channelId');
+  const agentId = c.req.param('agentId');
+  if (!agentId.startsWith('agt_')) return error.badRequest(c, `Invalid agent id: ${agentId}`);
+
+  const room = await resolveAgentRoom(c, channelId);
+  if (room instanceof Response) return room;
+
+  try {
+    const { removed } = await removeChannelMemberByUserId(db, channelId, agentId);
+    if (!removed) return error.notFound(c, 'Agent', agentId);
+
+    try {
+      await publishChatMemberLeft(c.env, channelId, { channelId, userId: agentId });
+    } catch (e) {
+      console.error('[chat-api/channels] agent member_left publish failed:', e);
+    }
+    safePublish(() =>
+      publishEntityEvent({
+        c,
+        entityType: 'chat_channel',
+        action: 'left',
+        entityId: channelId,
+        data: { id: channelId, name: room.name },
+      }),
+    );
+
+    return success(c, { channelId, agentId, removed: true });
+  } catch (err) {
+    console.error('[chat-api/channels] remove agent failed:', err);
+    return error.internal(c, 'Failed to remove agent');
+  }
+});
 
 /**
  * POST /:channelId/members/join — self-join a public channel.

@@ -25,6 +25,7 @@ import type { Env } from '../../types';
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import { parseAgentRoomPolicy } from '@weldsuite/chat-domain/agent-room-policy';
 import { buildMessagePreview } from '@weldsuite/chat-domain/message-preview';
+import { buildReplyReference, readReplyReference } from '@weldsuite/chat-domain/reply-reference';
 import {
   checkSlowMode,
   getChannelFeatureFlags,
@@ -89,39 +90,7 @@ export interface PostChatMessageInput {
   replyMention?: boolean;
 }
 
-/**
- * Snapshot of the message an inline reply answers, stored at
- * `chat_messages.metadata.replyTo`. `depth` is the reply's position in the
- * chain (a reply to a plain message is 1, a reply to that reply 2, …) and
- * `rootId` is the message that started the chain, so clients can suggest
- * moving a long back-and-forth into a thread on the root.
- */
-export interface ChatReplyReference {
-  messageId: string;
-  rootId: string;
-  depth: number;
-  authorId: string;
-  authorName: string;
-  authorAvatar: string | null;
-  content: string;
-  hasAttachments: boolean;
-}
-
-const REPLY_SNIPPET_LENGTH = 200;
-
-/** Truncate a quoted message without leaving half a `<@…>` token behind. */
-function replySnippet(content: string): string {
-  if (content.length <= REPLY_SNIPPET_LENGTH) return content;
-  return content.slice(0, REPLY_SNIPPET_LENGTH).replace(/<@[^>]*$/, '').trimEnd() + '…';
-}
-
-function readReplyReference(metadata: unknown): ChatReplyReference | null {
-  if (!metadata || typeof metadata !== 'object') return null;
-  const ref = (metadata as Record<string, unknown>).replyTo;
-  if (!ref || typeof ref !== 'object') return null;
-  const r = ref as Partial<ChatReplyReference>;
-  return typeof r.messageId === 'string' ? (r as ChatReplyReference) : null;
-}
+export type { ChatReplyReference } from '@weldsuite/chat-domain/reply-reference';
 
 export interface PostChatMessageContext {
   db: Database;
@@ -257,18 +226,7 @@ async function resolveInlineReply(
     .limit(1);
   if (!target) return { metadata, replyMentions };
 
-  const previous = readReplyReference(target.metadata);
-  const replyTo: ChatReplyReference = {
-    messageId: target.id,
-    rootId: previous?.rootId ?? target.id,
-    depth: (previous?.depth ?? 0) + 1,
-    authorId: target.authorId,
-    authorName: target.authorName,
-    authorAvatar: target.authorAvatar ?? null,
-    content: replySnippet(target.content),
-    hasAttachments: target.hasAttachments,
-  };
-  metadata = { ...metadata, replyTo };
+  metadata = { ...metadata, replyTo: buildReplyReference(target) };
   if (input.replyMention !== false && target.authorId !== authorUserId) {
     replyMentions.push(target.authorId);
   }

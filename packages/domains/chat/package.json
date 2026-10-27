@@ -17,6 +17,7 @@
     "./message-preview": "./src/message-preview.ts",
     "./post-agent-message": "./src/post-agent-message.ts",
     "./post-system-message": "./src/post-system-message.ts",
+    "./reply-reference": "./src/reply-reference.ts",
     "./realtime/weldchat-call-publisher": "./src/realtime/weldchat-call-publisher.ts",
     "./realtime/weldchat-publisher": "./src/realtime/weldchat-publisher.ts",
     "./testing/cloudflare-workers-stub": "./src/testing/cloudflare-workers-stub.ts",

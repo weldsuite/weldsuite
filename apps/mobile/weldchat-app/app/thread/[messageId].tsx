@@ -11,10 +11,11 @@ import {
   Platform,
 } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
-import { Send, ChevronLeft } from 'lucide-react-native';
+import { Send, ChevronLeft, Bot } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { BRAND } from '@/lib/brand';
+import { useI18n } from '@/lib/i18n';
 
 import type { ThemeColors } from '@/lib/theme-colors';
 
@@ -29,6 +30,8 @@ interface Message {
   authorId: string;
   authorName: string;
   authorAvatar?: string;
+  /** 'agent' for a WeldAgent reply (authorAvatar is then its emoji icon, not a URL). */
+  authorType?: string | null;
   content: string;
   createdAt: string;
 }
@@ -49,6 +52,7 @@ export default function ThreadScreen() {
   const flatListRef = useRef<FlatList>(null);
   const router = useRouter();
   const { colors } = useTheme();
+  const { t } = useI18n();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets.top, insets.bottom), [colors, insets.top, insets.bottom]);
 
@@ -61,14 +65,35 @@ export default function ThreadScreen() {
     appApi.chatMembers
       .list()
       .then((res) => {
-        const map = new Map<string, string>();
-        for (const m of res.data ?? []) {
-          if (m.userId && m.name) map.set(m.userId, m.name);
-        }
-        setMembersMap(map);
+        // Merge, don't replace: the channel's agent names may have landed first.
+        setMembersMap((prev) => {
+          const map = new Map(prev);
+          for (const m of res.data ?? []) {
+            if (m.userId && m.name) map.set(m.userId, m.name);
+          }
+          return map;
+        });
       })
       .catch(console.error);
   }, []);
+
+  // The channel's agent members resolve `<@agt_…>` mentions and agent
+  // authorship the same way the people roster does — merged into the same map.
+  useEffect(() => {
+    if (!channelId) return;
+    appApi.channels
+      .members(channelId)
+      .then((res) => {
+        const agents = (res.data ?? []).filter((m) => m.memberType === 'agent' && m.userId && m.name);
+        if (agents.length === 0) return;
+        setMembersMap((prev) => {
+          const next = new Map(prev);
+          for (const a of agents) next.set(a.userId, a.name as string);
+          return next;
+        });
+      })
+      .catch(console.error);
+  }, [channelId]);
 
   const loadThread = async () => {
     if (!channelId || !messageId) return;
@@ -106,7 +131,16 @@ export default function ThreadScreen() {
   const renderMessage = ({ item, index }: { item: Message; index: number }) => (
     <>
       <View style={styles.message}>
-        {item.authorAvatar ? (
+        {item.authorType === 'agent' ? (
+          // An agent's "avatar" is its emoji icon (plain text), never an image.
+          <View style={styles.avatar}>
+            {item.authorAvatar ? (
+              <Text style={styles.avatarEmoji}>{item.authorAvatar}</Text>
+            ) : (
+              <Bot size={16} color="#fff" />
+            )}
+          </View>
+        ) : item.authorAvatar ? (
           <Image source={{ uri: item.authorAvatar }} style={styles.avatarImg} />
         ) : (
           <View style={styles.avatar}>
@@ -118,6 +152,11 @@ export default function ThreadScreen() {
         <View style={styles.content}>
           <View style={styles.header}>
             <Text style={styles.author}>{item.authorName}</Text>
+            {item.authorType === 'agent' && (
+              <View style={styles.agentBadge}>
+                <Text style={styles.agentBadgeText}>{t.channel.agentBadge}</Text>
+              </View>
+            )}
             <Text style={styles.time}>
               {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </Text>
@@ -168,6 +207,7 @@ export default function ThreadScreen() {
         <MentionPicker
           query={mentionQuery ?? ''}
           visible={mentionQuery !== null}
+          channelId={channelId}
           onSelect={(member) => {
             setInput((prev) => insertMention(prev, member.userId));
             setMentionQuery(null);
@@ -217,9 +257,15 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center', marginRight: 10,
     },
     avatarText: { fontSize: 14, fontWeight: '700', color: '#fff' },
+    avatarEmoji: { fontSize: 15 },
     content: { flex: 1 },
-    header: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 2 },
+    header: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
     author: { fontSize: 15, fontWeight: '600', color: c.text, marginRight: 8 },
+    agentBadge: {
+      backgroundColor: c.secondary, borderRadius: 4,
+      paddingHorizontal: 5, paddingVertical: 1, marginRight: 8,
+    },
+    agentBadgeText: { fontSize: 10, fontWeight: '600', color: c.muted, textTransform: 'uppercase' },
     time: { fontSize: 12, color: c.muted },
     divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 12, gap: 8 },
     dividerLine: { flex: 1, height: 1, backgroundColor: c.border },
