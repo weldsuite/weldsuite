@@ -31,6 +31,8 @@ head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+# Public collector (panel-ingest): the origin the install snippet points tracked sites at.
+PANEL_COLLECTOR_URL = "http://localhost:8841"
 
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -56,6 +58,7 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+PANEL_COLLECTOR_URL = "https://pnl-test.weldsuite.org"
 
 [[env.test.flagship]]
 binding = "FLAGSHIP"
@@ -87,6 +90,7 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+PANEL_COLLECTOR_URL = "https://pnl.weldsuite.org"
 
 [[env.production.flagship]]
 binding = "FLAGSHIP"

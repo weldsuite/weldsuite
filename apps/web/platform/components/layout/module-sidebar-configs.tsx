@@ -252,7 +252,10 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
     getMenuItems: (t) => [
       {
         group: t.navigation.moduleSidebar.groups.general,
-        items: [{ title: t.navigation.moduleSidebar.weldpanel.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' }],
+        items: [
+          { title: t.navigation.moduleSidebar.weldpanel.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' },
+          { title: t.navigation.moduleSidebar.weldpanel.projects, href: '/weldpanel/projects', icon: Globe, permission: 'panel_projects:read' },
+        ],
       },
     ],
   },

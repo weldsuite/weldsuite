@@ -88,7 +88,8 @@ Routes (Clerk, `apiAuth()`), organised by object:
 | Route | Purpose |
 |---|---|
 | `/api/panel/projects` | list, create, get, update, delete |
-| `/api/panel/projects/:id/keys` | rotate the project token, create and revoke secret keys |
+| `/api/panel/projects/:id/rotate-token` | issue a new project token; the old one stops at once |
+| `/api/panel/projects/:id/keys` | create and revoke secret keys (phase 3) |
 | `/api/panel/projects/:id/settings` | domains, autocapture, masking, sampling, consent mode, exclusions, retention |
 | `/api/panel/projects/:id/install` | install snippets and status (events seen in the last 24 hours) |
 | `/api/panel/query` | `POST` a typed query spec (below), returns rows plus `dataAsOf` |
@@ -113,7 +114,7 @@ awake all day (DATA-008).
 |---|---|
 | `GET /s.js` | the loader script, versioned and cached at the edge |
 | `GET /c/:token` | client config: sampling, masking, consent mode, excluded URLs (cached) |
-| `POST /e` | a batch of events (gzip, `sendBeacon` or `fetch` keepalive) |
+| `POST /e` | a batch of events: uncompressed `text/plain` JSON up to 64 KiB (`sendBeacon` must be synchronous, so no `CompressionStream`), or `fetch` keepalive |
 | `POST /r` | one recording chunk (`session`, `seq`, gzip body) |
 | `POST /v1/track` · `/v1/import` | server-side events with a secret key; import accepts old timestamps |
 
@@ -123,10 +124,11 @@ Per request:
    settings and status, written by panel-api whenever a project changes. The
    tenant `panel_projects` row is the source of truth; the master registry
    `panel_project_registry` only routes (DATA-009 pattern), and KV caches
-   the registry. Secret keys are looked up by SHA-256 hash, like
-   `api_key_registry`. panel-ingest gets the master DB but not
-   `DATABASE_ENCRYPTION_KEY`, so it cannot decrypt a tenant DB URL even by
-   mistake.
+   the registry. Phase 1 reads only KV: the collector has no database binding
+   and no secrets at all. Secret keys (phase 3) are looked up by SHA-256 hash,
+   like `api_key_registry`; if that needs the master DB, panel-ingest gets it
+   but never `DATABASE_ENCRYPTION_KEY`, so it cannot decrypt a tenant DB URL
+   even by mistake.
 2. `Origin` must match an allowed domain (or a subdomain) when the project lists
    any. Per-IP rate limits. Known bots dropped (user-agent list, plus
    Cloudflare's verified-bot flag where the zone provides it).
@@ -260,7 +262,8 @@ Rules:
   secret key (fetch-based, so it runs on Node and Workers).
 - **Consent**: without consent nothing is written to cookies or storage, no
   session id is kept, `identify()` and `people.*` calls are dropped and the
-  recording plugin is not loaded. A `GPC` signal counts as no consent.
+  recording plugin is not loaded. A `GPC` signal counts as no consent, also on
+  a project with `consentMode: 'none'`, until the site calls `grant()`.
 
 ### Recordings
 
@@ -491,12 +494,59 @@ Done:
   All spike resources deleted.
 - Residency decided: event tables on Basin with location hint `weur`,
   recordings in the EU-jurisdiction bucket.
+- Design doc and ADRs PANEL-001 to PANEL-007 merged in
+  `weldsuite-documentation` (weldsuite/weldsuite-documentation#50).
+
+**Phase 1 (Collect), started 2026-10-27.**
+
+Done:
+
+- `@weldsuite/panel-domain` (`packages/domains/panel`): the KV project record
+  and keys, default settings, `wpk_` tokens, the SDK→collector wire format
+  (Zod; the envelope is strict, each event is checked on its own so a bad
+  event costs that event, not the batch), the `events_v1` row type and its
+  stream schema file.
+- `@weldsuite/panel-sdk` (`packages/sdk/panel-sdk`, MIT): snippet with a
+  queueing stub, npm `init()`, pageviews incl. SPA navigation, `$pageleave`
+  with scroll depth, click and submit autocapture (masked text, never input
+  values, `data-panel-block` / `data-panel-mask`), `track()`, consent
+  (cookieless until `grant()`, GPC, `revoke`, `optOut`), excluded URLs,
+  batching with `sendBeacon`. 5.1 KB gzipped; the build fails above 10 KB.
+- panel-ingest: `/s.js`, `/c/:token`, `POST /e` with CORS; KV only; origin,
+  bot, paused, IP-filter and excluded-path drops; clock-skew correction;
+  secret-looking query params, fragments and credentials stripped from URLs;
+  geo from `request.cf`, its own user-agent parser; the cookieless id
+  `ck_` + SHA-256(daily salt, project, IP, UA), with the salt held by the
+  `PanelSalt` Durable Object and deleted after a day; `PanelUsage` counts
+  events per workspace and day (no enforcement yet); `panel:seen:<project>`
+  for the install check. Click vs submit is kept in the reserved `$action`
+  property, as `events_v1` has no column for it. No rate limiting yet.
+- panel-api: projects CRUD, settings, pause, token rotation, install info
+  (snippet from the SDK's own `installSnippet`), registry + KV sync, entity
+  events `panel_project`.
+- Platform: home with project picker and install status, projects list,
+  project page (Install, General, Privacy & collection, Danger zone), en + nl.
+- Basin: test bucket `weldsuite-panel-test` (`weur`) with stream
+  `weldpanel_events_test`, sink and pipeline into `panel.events_v1`,
+  compaction and snapshot expiration; production bucket `weldsuite-panel`
+  (`weur`) and stream `weldpanel_events`.
+- Verified on test (2026-10-27): panel-ingest deployed from the branch, a
+  temporary project in test KV, a real page with the snippet in a browser.
+  All 11 events landed in `events_v1` within two minutes with the right
+  consent state, masking, UTM, stripped `token=` parameter, `$action`, geo
+  and device; the excluded page sent nothing. The temporary project was
+  removed from KV; its rows stay in the test table.
 
 Open:
 
-- Design doc `design/modules/weldpanel.md` and ADRs PANEL-001 to PANEL-007
-  (Proposed) are written on branch `weldpanel-design` of
-  `weldsuite-documentation`, not committed yet.
+- Production sink and pipeline (and catalog compaction / snapshot expiry):
+  waiting for a dedicated catalog token in Doppler `prd`
+  (`PANEL_CATALOG_TOKEN`). Until then production events would queue in the
+  stream without reaching a table.
+- panel-api secrets on test and production (`pnpm secrets:sync <env> panel-api`)
+  before the UI can create projects there.
+- Per-IP rate limiting on `/e`.
+- Help docs (`apps/web/docs`) once the module is published.
 
 ## Later (not in v1)
 

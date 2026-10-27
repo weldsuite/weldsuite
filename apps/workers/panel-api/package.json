@@ -16,8 +16,11 @@
   "dependencies": {
     "@hono/zod-validator": "^0.4.0",
     "@weldsuite/api-modules": "workspace:*",
+    "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
+    "@weldsuite/panel-domain": "workspace:*",
+    "@weldsuite/panel-sdk": "workspace:*",
     "@weldsuite/permissions": "workspace:*",
     "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2",
