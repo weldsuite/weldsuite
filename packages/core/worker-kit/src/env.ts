@@ -56,17 +56,16 @@ export type KitVariables = {
    */
   factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
-  /**
-   * The workspace the request acts in. Still the Clerk org id on the Clerk
-   * paths (workspaceDbMiddleware); some entry points set `workspaces.id`. It
-   * becomes `workspaces.id` everywhere in phase 2 of
-   * docs/plans/workspace-id-standardization.md.
-   */
+  /** `workspaces.id` (`ws_…`) of the workspace the request acts in (ADR SEC-011). */
   workspaceId: string;
-  /** `workspaces.id` (`ws_…`) of the request's workspace (workspaceDbMiddleware). */
-  internalWorkspaceId?: string;
-  /** The Clerk org id of the request's workspace (workspaceDbMiddleware). Use it for Clerk calls only. */
-  clerkOrgId?: string;
+  /**
+   * The Clerk org id of the request's workspace. For Clerk calls, and for the
+   * stores still keyed by it (R2 prefixes, KV keys, D1 indexes, Durable Object
+   * names, entity events, Workflow params) until each moves to `workspaceId`
+   * (docs/plans/workspace-id-standardization.md). Set by workspaceDbMiddleware
+   * and by every other entry point that sets `workspaceId`.
+   */
+  clerkOrgId: string;
   /** Apps the workspace is licensed for; null = unrestricted (workspaceDbMiddleware). */
   licensedApps?: readonly string[] | null;
   /**

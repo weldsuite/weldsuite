@@ -73,7 +73,8 @@ app.post('/upload', requireScope('social_posts:write'), zValidator('json', uploa
   const db = c.get('tenantDb');
   const body = c.req.valid('json');
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  // Media R2 keys stay under the Clerk org id until they move (phase 3 of the workspace-id plan).
+  const workspaceId = c.get('clerkOrgId') ?? c.get('workspaceId');
   const storage = c.env.STORAGE;
 
   if (!storage) return error.internal(c, 'Storage is not configured');

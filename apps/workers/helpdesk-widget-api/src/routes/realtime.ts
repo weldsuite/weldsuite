@@ -51,7 +51,7 @@ export const realtimeRoutes = new Hono<{ Bindings: Env; Variables: Variables }>(
 realtimeRoutes.post('/token', zValidator('json', tokenSchema), async (c) => {
   const db = c.get('tenantDb');
   const widgetId = c.get('widgetId');
-  const workspaceId = c.get('workspaceId');
+  const workspaceId = c.get('clerkOrgId');
   const data = c.req.valid('json');
 
   const secret = c.env.WIDGET_TOKEN_SECRET;

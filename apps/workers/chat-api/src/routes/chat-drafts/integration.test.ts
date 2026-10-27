@@ -73,6 +73,8 @@ describe('/api/chat-drafts · owner boundary', () => {
       .where(eq(schema.chatDrafts.id, body.data.id))
       .limit(1);
     expect(row?.userId).toBe(ALICE);
+    // chat_drafts.workspace_id still holds the Clerk org id (workspace-id plan), not `ws_…`.
+    expect(row?.workspaceId).toBe('org_test_default');
   });
 
   it('GET /:id 404s another user’s draft', async () => {

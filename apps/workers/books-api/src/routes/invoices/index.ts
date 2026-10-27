@@ -715,7 +715,6 @@ app.get('/:id/attachments/:index', requirePermission('invoices:read'), async (c)
     return streamDocumentAttachment(c, {
       attachmentKeys: invoice.attachmentKeys,
       index,
-      workspaceId: c.get('workspaceId') || c.get('orgId'),
     });
   } catch (err) {
     console.error('[app-api/invoices] attachment download failed:', err);

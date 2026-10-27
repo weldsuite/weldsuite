@@ -27,7 +27,6 @@ import { toPublicAttachment, isWorkspaceStorageKey } from '@weldsuite/mail-domai
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 import { getStoredObject } from '@weldsuite/worker-kit/storage';
-import { getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -52,23 +51,15 @@ type AppContext = import('hono').Context<{ Bindings: Env; Variables: Variables }
 /**
  * The ids the workspace's storage folders are named after: the Clerk org id
  * (compose uploads) and the master workspace id (inbound mail, written by
- * mail-inbound-worker). The master id comes from the KV-cached lookup the
- * tenant DB middleware already warmed.
+ * mail-inbound-worker). Both come from the request context.
  */
-async function workspaceStorageIds(c: AppContext): Promise<string[]> {
-  const orgId = c.get('workspaceId');
-  try {
-    const { id } = await getWorkspaceForOrg(c.env, orgId);
-    return [orgId, id];
-  } catch (err) {
-    console.warn('[mail-attachments] master workspace id lookup failed:', err instanceof Error ? err.message : err);
-    return [orgId];
-  }
+function workspaceStorageIds(c: AppContext): string[] {
+  return [c.get('clerkOrgId'), c.get('workspaceId')];
 }
 
 /** 400 body when a storagePath points outside the workspace's folder. */
 async function foreignStoragePath(c: AppContext, path: string | undefined) {
-  if (path === undefined || isWorkspaceStorageKey(path, await workspaceStorageIds(c))) return null;
+  if (path === undefined || isWorkspaceStorageKey(path, workspaceStorageIds(c))) return null;
   return error.badRequest(c, 'storagePath must be a file in this workspace');
 }
 
@@ -165,7 +156,7 @@ app.get('/:id/download', requirePermission('messages:read'), async (c) => {
     }
     // A key outside the workspace's folder is never served, whatever the row says.
     const object =
-      row.storagePath && isWorkspaceStorageKey(row.storagePath, await workspaceStorageIds(c))
+      row.storagePath && isWorkspaceStorageKey(row.storagePath, workspaceStorageIds(c))
         ? await getStoredObject(c.env, row.storagePath)
         : null;
     if (!object) return error.notFound(c, 'Attachment', id);

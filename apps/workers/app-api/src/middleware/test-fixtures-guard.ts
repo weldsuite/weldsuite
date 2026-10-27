@@ -21,13 +21,14 @@
  */
 
 import { createMiddleware } from 'hono/factory';
-import { getTenantDbForWorkspace, type Database } from '@weldsuite/worker-kit/db';
+import { getWorkspaceContextForOrg, type Database } from '@weldsuite/worker-kit/db';
 import { secretMatches } from '@weldsuite/worker-kit/webhook-token';
 import type { Env } from '../types';
 
 type TestFixturesVariables = {
   tenantDb: Database;
   workspaceId: string;
+  clerkOrgId: string;
 };
 
 /**
@@ -101,9 +102,11 @@ export const testFixturesGuard = () => {
     }
 
     try {
-      const db = await getTenantDbForWorkspace(c.env, workspaceId);
-      c.set('tenantDb', db);
-      c.set('workspaceId', workspaceId);
+      // The header may carry either id; the context gets both, like workspaceDbMiddleware.
+      const workspace = await getWorkspaceContextForOrg(c.env, workspaceId);
+      c.set('tenantDb', workspace.db);
+      c.set('workspaceId', workspace.id);
+      c.set('clerkOrgId', workspace.clerkOrgId ?? workspaceId);
     } catch (err) {
       return c.json(
         {

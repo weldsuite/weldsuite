@@ -106,7 +106,8 @@ app.post(
   (c) =>
     handle(c, async () => {
       const userId = c.get('userId');
-      const orgId = c.get('workspaceId');
+      // useTemplate copies the template's PDFs under workspaces/<org>/…, keyed by the Clerk org id.
+      const orgId = c.get('clerkOrgId');
       if (!userId) return error.unauthorized(c);
       if (!orgId) return error.orgRequired(c);
       const db = c.get('tenantDb');

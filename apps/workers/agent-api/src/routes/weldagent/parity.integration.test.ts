@@ -98,6 +98,46 @@ describe('weldagent parity routes', () => {
     expect(memory.status).toBe(201);
   });
 
+  it('keys the routine index on the Clerk org id, not workspaces.id', async () => {
+    // The D1 index is read back by the hourly sweep with the org id
+    // (docs/plans/workspace-id-standardization.md), so a write under `ws_…` would orphan it.
+    const statements: Array<{ sql: string; args: unknown[] }> = [];
+    const scheduleIndex = {
+      prepare: (sql: string) => ({ bind: (...args: unknown[]) => ({ sql, args }) }),
+      batch: async (batch: Array<{ sql: string; args: unknown[] }>) => {
+        statements.push(...batch);
+        return [];
+      },
+    } as unknown as D1Database;
+    const { request } = createTestApp('/api/weldagent', weldagentRoutes, {
+      context: { permissions: perms, tenantDb: db, workspaceId: 'ws_not_the_org', orgId: 'org_index_test' },
+      env: { SCHEDULE_INDEX: scheduleIndex },
+    });
+    const json = (body: unknown) => ({
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const created = await request('/api/weldagent/agents', json({ name: 'Index Bot', systemPrompt: 'When a ticket arrives, triage it.' }));
+    const { data: agent } = (await created.json()) as { data: { id: string } };
+    const routine = await request(
+      '/api/weldagent/routines',
+      json({
+        agentId: agent.id,
+        name: 'Index triage',
+        instructions: 'Triage all new tickets.',
+        scheduleKind: 'cron',
+        cronExpr: '0 8 * * *',
+        timezone: 'Europe/Amsterdam',
+      }),
+    );
+    expect(routine.status).toBe(201);
+
+    const cleared = statements.find((s) => s.sql.startsWith('DELETE FROM weldagent_routine_index'));
+    expect(cleared?.args).toEqual(['org_index_test', agent.id]);
+  });
+
   it('keeps template export and teaching to the agent\'s owner', async () => {
     const member = permissions('weldagent:read', 'weldagent:use', 'weldagent:create', 'weldagent:update');
     const as = (userId: string) =>

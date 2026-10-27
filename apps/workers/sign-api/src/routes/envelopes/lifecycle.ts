@@ -34,7 +34,7 @@ app.post('/:id/send', requirePermission('sign_envelopes:send'), zValidator('json
   handle(c, async () => {
     const viewer = await viewerOf(c);
     const draft = await loadDraft(c.get('tenantDb'), c.req.param('id'), viewer);
-    const sent = await sendEnvelope(await sendContextOf(c), draft, await actorOf(c), c.req.valid('json').expiresAt);
+    const sent = await sendEnvelope(sendContextOf(c), draft, await actorOf(c), c.req.valid('json').expiresAt);
     publishEntityEvent({ c, entityType: 'sign_envelope', entityId: sent.id, action: 'sent', data: envelopeEventData(sent) });
     return success(c, await detailFor(c, sent, viewer));
   }),
@@ -64,7 +64,7 @@ app.post('/:id/void', requirePermission('sign_envelopes:void'), zValidator('json
   handle(c, async () => {
     const viewer = await viewerOf(c);
     const envelope = await loadOwnEnvelope(c.get('tenantDb'), c.req.param('id'), viewer);
-    const voided = await voidRequest(await sendContextOf(c), envelope, await actorOf(c), c.req.valid('json').reason);
+    const voided = await voidRequest(sendContextOf(c), envelope, await actorOf(c), c.req.valid('json').reason);
     publishEntityEvent({ c, entityType: 'sign_envelope', entityId: voided.id, action: 'voided', data: envelopeEventData(voided) });
     return success(c, await detailFor(c, voided, viewer));
   }),
@@ -73,7 +73,7 @@ app.post('/:id/void', requirePermission('sign_envelopes:void'), zValidator('json
 app.post('/:id/remind', requirePermission('sign_envelopes:send'), (c) =>
   handle(c, async () => {
     const envelope = await loadOwnEnvelope(c.get('tenantDb'), c.req.param('id'), await viewerOf(c));
-    const reminded = await remindNow(await sendContextOf(c), envelope, await actorOf(c));
+    const reminded = await remindNow(sendContextOf(c), envelope, await actorOf(c));
     publishEnvelopeUpdated(c, envelope);
     return success(c, { reminded });
   }),
@@ -91,7 +91,7 @@ app.post('/:id/signing-link', requirePermission('sign_envelopes:read'), (c) =>
   handle(c, async () => {
     const viewer = await viewerOf(c);
     const envelope = await loadEnvelope(c.get('tenantDb'), c.req.param('id'), viewer);
-    return success(c, { url: await memberSigningLink(await sendContextOf(c), envelope, viewer.email) });
+    return success(c, { url: await memberSigningLink(sendContextOf(c), envelope, viewer.email) });
   }),
 );
 

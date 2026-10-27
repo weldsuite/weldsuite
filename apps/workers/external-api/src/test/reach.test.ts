@@ -15,7 +15,7 @@ import { reachEnrollments, reachProspects } from '@weldsuite/db/schema';
 import { resetReach, seedCampaign, seedEnrollment, seedMailbox, seedProspect, seedSettings } from '@weldsuite/reach-domain/testing/reach';
 import { createPgliteDb } from './pglite';
 import type { Database } from '../db';
-import { approvedAccess, ORG_ID, reachTestApp, WORKSPACE_ID } from './reach-support';
+import { approvedAccess, ORG_ID, reachTestApp } from './reach-support';
 import { stubDns } from './reach-dns-stub';
 
 let db: Database;
@@ -110,12 +110,13 @@ describe('campaigns', () => {
     // a weekend, so the bound is a week rather than a day.
     expect(due?.nextDueAt).toBeLessThan(Date.now() + 7 * 24 * 3_600_000);
 
-    // The events carry the workspace and the actor of the key.
+    // The events carry the workspace (its Clerk org id, like every first-party
+    // event until consumers move to workspaces.id) and the actor of the key.
     const launchEvents = app.eventsOf('reach_campaign', 'launched');
     expect(launchEvents).toHaveLength(1);
     expect(launchEvents[0]).toMatchObject({
       entityId: campaign.id,
-      metadata: { workspaceId: WORKSPACE_ID, userId: 'user_reach_test', source: 'api' },
+      metadata: { workspaceId: ORG_ID, userId: 'user_reach_test', source: 'api' },
     });
 
     const enrollments = await app.get<Paged<{ status: string; prospect: { email: string } }>>(`/v1/reach/campaigns/${campaign.id}/enrollments`);

@@ -73,6 +73,7 @@ export async function createInternalFeedContext(c: AppContext): Promise<FeedCont
     if (workspace.suspended) return null;
     c.set('tenantDb', workspace.db);
     c.set('workspaceId', workspace.id);
+    c.set('clerkOrgId', orgId);
     c.set('orgId', orgId);
     c.set('userId', 'system');
     return buildFeedContext(c.env, workspace.db, orgId);

@@ -93,10 +93,10 @@ apiApp.use('*', async (c, next) => {
   const apiSession = toApiSession(session);
   c.set('apiSession', apiSession);
   c.set('tenantDb', createTenantDb(session.databaseUrl));
-  // The Clerk org id, not the master `workspaces.id`: entity-event subscribers
-  // (audit log, workflows, realtime) resolve the tenant DB by org id, the same
-  // value the first-party workers publish. The master id is on `apiSession`.
-  c.set('workspaceId', session.clerkOrgId);
+  // `workspaceId` is the master `workspaces.id` (ADR SEC-011); events still
+  // carry the Clerk org id (`clerkOrgId`) until their consumers move.
+  c.set('workspaceId', apiSession.workspaceId);
+  c.set('clerkOrgId', session.clerkOrgId);
   c.set('userId', session.userId);
 
   await next();

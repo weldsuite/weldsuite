@@ -100,12 +100,13 @@ app.post(
       );
 
       if (row.externalTransferId && c.env.WORKSPACE_CACHE) {
-        const workspaceId = c.get('workspaceId');
-        if (workspaceId) {
+        // The KV entry is keyed to the Clerk org id: the RTR webhook reads it back for the tenant lookup and the due index.
+        const orgId = c.get('clerkOrgId');
+        if (orgId) {
           await c.env.WORKSPACE_CACHE.put(
             `rtr:process:${row.externalTransferId}`,
             JSON.stringify({
-              workspaceId,
+              workspaceId: orgId,
               transferId: row.id,
               domainId: row.domainId,
               kind: 'transfer',

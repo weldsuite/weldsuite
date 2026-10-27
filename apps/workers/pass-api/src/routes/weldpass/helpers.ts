@@ -43,14 +43,15 @@ function pathParam(c: WeldPassContext, name: string): string {
 /** Project + unwrapped KEK for the `:projectId` in the path. */
 export async function vaultFor(c: WeldPassContext): Promise<{
   db: Database;
-  workspaceId: string;
+  clerkOrgId: string;
   project: VaultProject;
   kek: Uint8Array<ArrayBuffer>;
 }> {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
-  const { project, kek } = await openVault(db, workspaceId, keyring(c), pathParam(c, 'projectId'));
-  return { db, workspaceId, project, kek };
+  // weldpass_*.workspace_id holds the Clerk org id; phase 3 drops the column (workspace-id plan).
+  const clerkOrgId = c.get('clerkOrgId');
+  const { project, kek } = await openVault(db, clerkOrgId, keyring(c), pathParam(c, 'projectId'));
+  return { db, clerkOrgId, project, kek };
 }
 
 /** As `vaultFor`, plus the `:environmentId` verified to belong to that project. */

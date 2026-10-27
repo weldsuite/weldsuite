@@ -25,7 +25,7 @@ import {
 } from '@weldsuite/connectors';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import { getWorkspaceForOrg, schema, type Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   decryptCredentials,
@@ -168,25 +168,30 @@ async function accountingEntityExists(db: Database, entityId: string): Promise<b
   return Boolean(entity);
 }
 
+/** Both ids of the request's workspace: `workspaces.id` and its Clerk org id. */
+interface WorkspaceIds {
+  workspaceId: string;
+  clerkOrgId: string;
+}
+
 /** Registers a fresh connection in the webhook KV mapping and the D1 index (best effort). */
 async function indexNewConnection(
   env: Env,
-  clerkOrgId: string,
+  ids: WorkspaceIds,
   connection: ConnectionRow,
   provider: string,
 ): Promise<void> {
   try {
-    const { id: internalWorkspaceId } = await getWorkspaceForOrg(env, clerkOrgId);
     await putConnectorWebhookMapping({
       env,
       connectionId: connection.id,
-      workspaceId: internalWorkspaceId,
+      workspaceId: ids.workspaceId,
       provider,
     });
     await upsertConnectorIndexFromRow(env, {
       connection,
-      workspaceId: internalWorkspaceId,
-      clerkOrgId,
+      workspaceId: ids.workspaceId,
+      clerkOrgId: ids.clerkOrgId,
       enabled: true,
     });
   } catch (err) {
@@ -197,15 +202,14 @@ async function indexNewConnection(
 /** Refreshes the D1 index row after a settings patch (best effort). */
 async function refreshConnectorIndex(
   env: Env,
-  clerkOrgId: string,
+  ids: WorkspaceIds,
   connection: ConnectionRow,
 ): Promise<void> {
   try {
-    const { id: internalWorkspaceId } = await getWorkspaceForOrg(env, clerkOrgId);
     await upsertConnectorIndexFromRow(env, {
       connection,
-      workspaceId: internalWorkspaceId,
-      clerkOrgId,
+      workspaceId: ids.workspaceId,
+      clerkOrgId: ids.clerkOrgId,
       enabled: connection.status !== 'paused',
     });
   } catch (err) {
@@ -326,7 +330,8 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
     if (!tested.ok) return error.badRequest(c, tested.message);
 
     const userId = c.get('userId');
-    const clerkOrgId = c.get('workspaceId');
+    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const keyring = keyringFromEnv(c.env);
     const encrypted = await encryptCredentials(credentials, keyring);
     const syncs = normalizeEnabledSyncs(provider, enabledSyncs);
@@ -371,7 +376,7 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
       warning = 'Connected. Webhook registration failed — use Sync now until the store can push updates.';
     }
 
-    if (clerkOrgId) await indexNewConnection(c.env, clerkOrgId, row, provider);
+    if (workspaceId && clerkOrgId) await indexNewConnection(c.env, { workspaceId, clerkOrgId }, row, provider);
 
     const fresh = await getConnectionById(db, row.id);
     publishEntityEvent({
@@ -389,6 +394,7 @@ app.post('/connect', requirePermission('integrations:create'), zValidator('json'
           env: c.env,
           connection: fresh ?? row,
           ownerId: userId,
+          // The Clerk org id: the sync keys R2 attachments and stamps entity events with it.
           workspaceId: clerkOrgId,
           trigger: 'initial',
         }).catch((err) => {
@@ -431,7 +437,7 @@ const authorizeSchema = z.discriminatedUnion('provider', [
 
 app.post('/authorize', requirePermission('integrations:create'), zValidator('json', authorizeSchema), async (c) => {
   const body = c.req.valid('json');
-  const clerkOrgId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!clerkOrgId) return error.orgRequired(c);
 
   try {
@@ -525,7 +531,7 @@ app.post(
   requirePermission('integrations:create'),
   zValidator('json', selectAccountSchema),
   async (c) => {
-    const clerkOrgId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     if (!clerkOrgId) return error.orgRequired(c);
     try {
       const result = await selectMoneybirdAdministration({
@@ -669,8 +675,11 @@ app.patch(
       });
 
       const updated = await getConnectionById(db, row.id);
-      const clerkOrgId = c.get('workspaceId');
-      if (updated && clerkOrgId) await refreshConnectorIndex(c.env, clerkOrgId, updated);
+      const workspaceId = c.get('workspaceId');
+      const clerkOrgId = c.get('clerkOrgId');
+      if (updated && workspaceId && clerkOrgId) {
+        await refreshConnectorIndex(c.env, { workspaceId, clerkOrgId }, updated);
+      }
       if (updated && clerkOrgId && body.settings) {
         afterSettingsChange(c, { db, before: row, after: updated, clerkOrgId, userId: c.get('userId') });
       }
@@ -799,8 +808,8 @@ app.post(
     if (row.status === 'paused') return error.badRequest(c, 'Connection is paused');
 
     const body = c.req.valid('json') ?? {};
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     try {
       c.executionCtx.waitUntil(
@@ -809,7 +818,8 @@ app.post(
           env: c.env,
           connection: row,
           ownerId: c.get('userId'),
-          workspaceId,
+          // The Clerk org id: the sync keys R2 attachments and stamps entity events with it.
+          workspaceId: clerkOrgId,
           trigger: 'manual',
           full: body.full ?? false,
           syncs: body.syncs,

@@ -12,7 +12,7 @@
  *   `POST /associate` cannot move an attachment out of a private mailbox.
  */
 
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 import { mailAttachmentsRoutes } from './index';
@@ -24,12 +24,8 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
 
+// The harness defaults: the master workspace id and the Clerk org id of the request.
 const WS = 'ws_test_default';
-// The master workspace id of ORG (KV / master DB in production).
-vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
-  getWorkspaceForOrg: vi.fn(async () => ({ id: WS })),
-}));
 
 const { mailAccounts, mailAttachments, mailMessages, workspaceMembers } = schema;
 

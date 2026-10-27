@@ -261,7 +261,7 @@ app.post('/', requirePermission('workflow-webhooks:create'), zValidator('json', 
       createdAt: now,
       updatedAt: now,
     });
-    await registerWebhookOwner(registryDeps(c.env), id, c.get('workspaceId'));
+    await registerWebhookOwner(registryDeps(c.env), id, c.get('clerkOrgId'));
     const [webhook] = await db.select().from(wh).where(eq(wh.id, id)).limit(1);
     publishEntityEvent({
       c,
@@ -321,7 +321,7 @@ app.post(
         createdAt: now,
         updatedAt: now,
       });
-      await registerWebhookOwner(registryDeps(c.env), webhookId, c.get('workspaceId'));
+      await registerWebhookOwner(registryDeps(c.env), webhookId, c.get('clerkOrgId'));
 
       const [trigger] = await db.select().from(wt).where(eq(wt.id, triggerId)).limit(1);
       publishEntityEvent({

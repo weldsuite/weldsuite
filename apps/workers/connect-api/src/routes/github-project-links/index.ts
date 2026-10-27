@@ -12,6 +12,9 @@
  *   POST   /github-project-links/:id/sync     — trigger a sync for this link
  *
  * All routes require Clerk auth and the github:manage permission.
+ *
+ * The github_* tables' `workspace_id` column holds the Clerk org id until
+ * phase 3 (workspace-id plan), so the handlers pass `c.get('clerkOrgId')`.
  */
 
 import { Hono } from 'hono';
@@ -46,14 +49,14 @@ app.get(
   requirePermission('integrations:github:manage'),
   zValidator('query', ListLinkedProjectsQuerySchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const { projectId, cursor, limit } = c.req.valid('query');
 
     try {
       const db = c.get('tenantDb');
-      const result = await listLinkedProjects(db, workspaceId, {
+      const result = await listLinkedProjects(db, clerkOrgId, {
         projectId: projectId ?? undefined,
         cursor,
         limit,
@@ -76,14 +79,14 @@ app.get(
 // ---------------------------------------------------------------------------
 
 app.get('/:id', requirePermission('integrations:github:manage'), async (c) => {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.orgRequired(c);
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return error.orgRequired(c);
 
   const id = c.req.param('id');
 
   try {
     const db = c.get('tenantDb');
-    const row = await getLinkedProject(db, workspaceId, id);
+    const row = await getLinkedProject(db, clerkOrgId, id);
     if (!row) return error.notFound(c, 'GitHub project link', id);
     return success(c, serializeProjectLink(row));
   } catch (err) {
@@ -101,21 +104,21 @@ app.post(
   requirePermission('integrations:github:manage'),
   zValidator('json', LinkProjectInputSchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const userId = c.get('userId');
-    if (!workspaceId) return error.orgRequired(c);
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const input = c.req.valid('json');
 
     try {
       const db = c.get('tenantDb');
-      const conn = await getConnectionByWorkspace(db, workspaceId);
+      const conn = await getConnectionByWorkspace(db, clerkOrgId);
 
       if (conn?.status !== 'active') {
         return error.badRequest(c, 'No active GitHub connection. Install the GitHub App first.');
       }
 
-      const row = await linkProject(db, workspaceId, conn.id, input, userId);
+      const row = await linkProject(db, clerkOrgId, conn.id, input, userId);
       return success(c, serializeProjectLink(row), 201);
     } catch (err) {
       const message = err instanceof Error ? err.message : '';
@@ -140,15 +143,15 @@ app.patch(
   requirePermission('integrations:github:manage'),
   zValidator('json', UpdateProjectLinkInputSchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const id = c.req.param('id');
     const input = c.req.valid('json');
 
     try {
       const db = c.get('tenantDb');
-      const updated = await updateProjectLink(db, workspaceId, id, input);
+      const updated = await updateProjectLink(db, clerkOrgId, id, input);
       if (!updated) return error.notFound(c, 'GitHub project link', id);
       return success(c, serializeProjectLink(updated));
     } catch (err) {
@@ -163,14 +166,14 @@ app.patch(
 // ---------------------------------------------------------------------------
 
 app.delete('/:id', requirePermission('integrations:github:manage'), async (c) => {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.orgRequired(c);
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return error.orgRequired(c);
 
   const id = c.req.param('id');
 
   try {
     const db = c.get('tenantDb');
-    const deleted = await unlinkProject(db, workspaceId, id);
+    const deleted = await unlinkProject(db, clerkOrgId, id);
     if (!deleted) return error.notFound(c, 'GitHub project link', id);
     return noContent(c);
   } catch (err) {
@@ -188,20 +191,20 @@ app.delete('/:id', requirePermission('integrations:github:manage'), async (c) =>
 // ---------------------------------------------------------------------------
 
 app.post('/:id/sync', requirePermission('integrations:github:manage'), async (c) => {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.orgRequired(c);
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return error.orgRequired(c);
 
   const id = c.req.param('id');
 
   try {
     const db = c.get('tenantDb');
 
-    const conn = await getConnectionByWorkspace(db, workspaceId);
+    const conn = await getConnectionByWorkspace(db, clerkOrgId);
     if (conn?.status !== 'active') {
       return error.badRequest(c, 'No active GitHub connection.');
     }
 
-    const link = await getLinkedProject(db, workspaceId, id);
+    const link = await getLinkedProject(db, clerkOrgId, id);
     if (!link) return error.notFound(c, 'GitHub project link', id);
 
     if (!c.env.GITHUB_PROJECT_SYNC) {
@@ -215,7 +218,7 @@ app.post('/:id/sync', requirePermission('integrations:github:manage'), async (c)
     const bucket = Math.floor(Date.now() / 60000);
     const runId = `github-project-sync-${id}-${bucket}`;
     try {
-      await c.env.GITHUB_PROJECT_SYNC.create({ id: runId, params: { workspaceId, projectLinkId: id } });
+      await c.env.GITHUB_PROJECT_SYNC.create({ id: runId, params: { workspaceId: clerkOrgId, projectLinkId: id } });
       console.log(`[GitHub] Project sync started for link ${logSafe(id)}, runId: ${logSafe(runId)}`);
     } catch {
       console.log(`[GitHub] Project sync already running for link ${logSafe(id)} (${logSafe(runId)}) — reusing`);

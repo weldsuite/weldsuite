@@ -55,7 +55,7 @@ beforeAll(async () => {
 
 function app(grants: string[] = ALL, userId = 'user_alice') {
   return createTestApp(BASE, envelopesRoutes, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId, workspaceId: WORKSPACE, orgId: WORKSPACE },
+    context: { permissions: permissions(...grants), tenantDb: db, userId, orgId: WORKSPACE },
     env: { PRIVATE_STORAGE: storage.bucket, SIGN_SESSION_SECRET: SECRET },
   });
 }

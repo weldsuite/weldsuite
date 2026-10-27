@@ -70,6 +70,7 @@ export function helpcenterDomainMiddleware() {
       const tenantDb = await getTenantDbForWorkspace(c.env, entry.clerkOrgId);
       c.set('tenantDb', tenantDb);
       c.set('workspaceId', entry.workspaceId);
+      c.set('clerkOrgId', entry.clerkOrgId);
       await next();
     } catch (err) {
       console.error('[app-api/helpcenter-domain] resolution error:', err);

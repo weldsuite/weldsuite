@@ -508,6 +508,10 @@ export const platformSyncMap: EntitySyncMap = {
   // Templates share the root: the template list and detail keys sit under it.
   sign_template: inv(['weldsign']),
 
+  // WeldPanel — the root of use-weldpanel-queries.ts. The payload has ids,
+  // name, kind and status only, so a change refetches the mounted projects.
+  panel_project: inv(['weldpanel']),
+
   // =========================================================================
   // WeldKnow — Workspace knowledge base / wiki
   // =========================================================================

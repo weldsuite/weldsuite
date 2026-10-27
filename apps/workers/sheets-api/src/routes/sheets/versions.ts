@@ -53,16 +53,16 @@ app.get('/', requirePermission('sheets:read'), zValidator('query', listSheetVers
 
 app.post('/', requirePermission('sheets:update'), zValidator('json', createSheetVersionSchema), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const sheet = await editableSheet(c);
   if (sheet instanceof Response) return sheet;
 
-  const meta = roomMeta(sheet, workspaceId);
+  const meta = roomMeta(sheet, clerkOrgId);
   const id = generateId('shtv');
   const snapshotKey = versionKeyFor(meta.snapshotKey, id);
-  const saved = await roomFor(c, workspaceId, sheet).saveVersion(meta, snapshotKey);
+  const saved = await roomFor(c, clerkOrgId, sheet).saveVersion(meta, snapshotKey);
   const row = await insertVersion(c.get('tenantDb'), {
     id,
     sheetId: sheet.id,
@@ -134,9 +134,9 @@ app.get('/:versionId/export', requirePermission('sheets:read'), async (c) => {
 
 app.post('/:versionId/restore', requirePermission('sheets:update'), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const sheet = await editableSheet(c);
   if (sheet instanceof Response) return sheet;
   const versionId = c.req.param('versionId');
@@ -145,8 +145,8 @@ app.post('/:versionId/restore', requirePermission('sheets:update'), async (c) =>
   if (!version) return error.notFound(c, 'Version', versionId);
 
   const autoVersionId = generateId('shtv');
-  const outcome = await roomFor(c, workspaceId, sheet).restoreVersion({
-    sheet: roomMeta(sheet, workspaceId),
+  const outcome = await roomFor(c, clerkOrgId, sheet).restoreVersion({
+    sheet: roomMeta(sheet, clerkOrgId),
     versionId,
     versionKey: version.snapshotKey,
     autoVersionId,

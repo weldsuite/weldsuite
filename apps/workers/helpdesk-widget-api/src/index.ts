@@ -45,11 +45,13 @@ export interface Env {
 
 export type Variables = {
   widgetId: string;
+  /** `workspaces.id` of the widget's workspace (ADR SEC-011). */
   workspaceId: string;
+  /** The workspace's Clerk org id: events, attachment keys and realtime still use it. */
+  clerkOrgId: string;
   widgetConfig: DeskWidgetSettings;
   tenantDb: Database;
   removeBranding: boolean;
-  internalWorkspaceId: string;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();

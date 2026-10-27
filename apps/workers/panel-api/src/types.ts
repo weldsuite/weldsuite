@@ -6,6 +6,11 @@ import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
  * the panel module uses. Add a binding here and in wrangler.toml together.
  */
 export interface Env extends KitEnv {
+  /**
+   * Public collector origin for this environment (panel-ingest), without a
+   * trailing slash: what the install snippet points tracked sites at.
+   */
+  PANEL_COLLECTOR_URL: string;
   /** Entity-events hub queue (publishEntityEvent). */
   ENTITY_EVENTS?: Queue<EntityEventMessage>;
   /** realtime-worker service binding for live WorkspaceHub fan-out. */

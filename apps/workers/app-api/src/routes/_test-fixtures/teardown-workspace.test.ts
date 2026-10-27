@@ -22,7 +22,8 @@ const holder = vi.hoisted(() => ({
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
   getMasterDb: () => holder.masterDb,
-  getTenantDbForWorkspace: async () => ({}),
+  // The guard resolves X-Test-Workspace-Id (either id) into the request context.
+  getWorkspaceContextForOrg: async () => ({ id: 'ws_shared', clerkOrgId: 'org_shared', db: {} }),
 }));
 vi.mock('@weldsuite/neon-provisioning', () => ({
   createProvisioningService: () => ({
@@ -104,6 +105,26 @@ const teardown = () =>
   );
 
 describe('POST /test-fixtures/teardown-workspace', () => {
+  it('refuses to tear down the workspace the request is made as (its Clerk org id), even without TEST_WORKSPACE_ID', async () => {
+    await seedWorkspace({ id: 'ws_shared', clerkOrgId: 'org_shared', slug: 'shared' });
+
+    const { TEST_WORKSPACE_ID: _unset, ...withoutSharedId } = env;
+    const res = await testFixturesRoutes.request(
+      '/teardown-workspace',
+      {
+        method: 'POST',
+        headers: { 'X-Test-Token': TOKEN, 'X-Test-Workspace-Id': 'org_shared', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clerkOrgId: 'org_shared' }),
+      },
+      withoutSharedId as never,
+    );
+
+    expect(res.status).toBe(400);
+    expect(holder.deleteWorkspaceDatabase).not.toHaveBeenCalled();
+    expect(clerkFetch).not.toHaveBeenCalled();
+    expect((await master.db.select().from(workspaces).where(eq(workspaces.id, 'ws_shared')))[0]).toBeDefined();
+  });
+
   it('tears the database down through the shared teardown, then deletes the Clerk org and the row', async () => {
     await seedWorkspace({ neonProjectId: 'prj-shard', sharedProjectId: null, neonDatabaseName: 'ws_pool_dbp_1' });
 

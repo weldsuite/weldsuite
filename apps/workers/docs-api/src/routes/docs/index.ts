@@ -129,9 +129,10 @@ function startingSnapshot(c: Ctx, sent: { version: number } | undefined): DocSna
 
 app.post('/', requirePermission('docs:create'), zValidator('json', createDocSchema), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  // Room names and R2 keys stay on the Clerk org id: renaming would split live sessions (workspace-id plan).
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   if (Number(c.req.header('content-length')) > DOC_SNAPSHOT_MAX_BYTES + BODY_SLACK) {
     return error.badRequest(c, 'The document is too large to create', { reason: 'too_large' });
   }
@@ -143,8 +144,8 @@ app.post('/', requirePermission('docs:create'), zValidator('json', createDocSche
 
   // The first checkpoint goes in before the rows, so a room never opens a document without one.
   const docId = generateId('doc');
-  const size = await writeSnapshot(c.env.PRIVATE_STORAGE, snapshotKeyFor(workspaceId, docId), { revision: 0, doc });
-  const created = await createDoc(c.get('tenantDb'), { workspaceId, userId, name, folderId: folder, docId, snapshotSize: size });
+  const size = await writeSnapshot(c.env.PRIVATE_STORAGE, snapshotKeyFor(clerkOrgId, docId), { revision: 0, doc });
+  const created = await createDoc(c.get('tenantDb'), { workspaceId: clerkOrgId, userId, name, folderId: folder, docId, snapshotSize: size });
   publishEntityEvent({
     c,
     entityType: 'file',
@@ -157,12 +158,12 @@ app.post('/', requirePermission('docs:create'), zValidator('json', createDocSche
 });
 
 app.get('/:id/snapshot', requirePermission('docs:read'), async (c) => {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.orgRequired(c);
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return error.orgRequired(c);
   const found = await findDoc(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const { doc } = found;
-  const live = await roomFor(c, workspaceId, doc).snapshot(roomMeta(doc, workspaceId));
+  const live = await roomFor(c, clerkOrgId, doc).snapshot(roomMeta(doc, clerkOrgId));
   // The envelope of success(), around the snapshot's JSON as the room wrote it.
   return new Response(`{"data":{"revision":${live.revision},"snapshot":${live.json}}}`, {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store' },
@@ -235,9 +236,9 @@ app.delete('/:id', requirePermission('docs:delete'), async (c) => {
 
 app.post('/:id/session', requirePermission('docs:read'), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const found = await findDoc(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const { doc, role } = found;
@@ -245,8 +246,8 @@ app.post('/:id/session', requirePermission('docs:read'), async (c) => {
   const mode = await sessionMode(c, role);
   const profile = await memberProfile(c.get('tenantDb'), userId);
   const color = colorFor(userId);
-  const ticket = await roomFor(c, workspaceId, doc).admit({
-    ...roomMeta(doc, workspaceId),
+  const ticket = await roomFor(c, clerkOrgId, doc).admit({
+    ...roomMeta(doc, clerkOrgId),
     userId,
     name: profile.name ?? 'Unknown',
     picture: profile.picture,

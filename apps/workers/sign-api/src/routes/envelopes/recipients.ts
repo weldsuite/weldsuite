@@ -82,7 +82,7 @@ app.get('/suggestions', requirePermission('sign_envelopes:read'), (c) =>
 app.post('/:recipientId/resend', requirePermission('sign_envelopes:send'), (c) =>
   handle(c, async () => {
     const envelope = await loadOwnEnvelope(c.get('tenantDb'), c.req.param('id')!, await viewerOf(c));
-    const recipient = await resendLink(await sendContextOf(c), envelope, c.req.param('recipientId'), await actorOf(c));
+    const recipient = await resendLink(sendContextOf(c), envelope, c.req.param('recipientId'), await actorOf(c));
     publishEnvelopeUpdated(c, envelope);
     return success(c, toRecipientDto(recipient));
   }),
@@ -92,7 +92,7 @@ app.post('/:recipientId/correct', requirePermission('sign_envelopes:send'), zVal
   handle(c, async () => {
     const db = c.get('tenantDb');
     const envelope = await loadOwnEnvelope(db, c.req.param('id')!, await viewerOf(c));
-    const recipient = await correctRecipient(await sendContextOf(c), envelope, c.req.param('recipientId'), c.req.valid('json'), await actorOf(c));
+    const recipient = await correctRecipient(sendContextOf(c), envelope, c.req.param('recipientId'), c.req.valid('json'), await actorOf(c));
     await touchEnvelope(db, envelope.id);
     publishEnvelopeUpdated(c, envelope);
     return success(c, toRecipientDto(recipient));

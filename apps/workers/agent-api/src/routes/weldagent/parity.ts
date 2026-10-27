@@ -147,7 +147,7 @@ app.post('/routines', requirePermission('weldagent:create', 'weldagent:manage'),
   const denied = await agentGuard(c, data.agentId, 'edit');
   if (denied) return denied;
   const routine = await createRoutine(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
-  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), routine.agentId);
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), c.get('tenantDb'), routine.agentId);
   return success(c, routine, 201);
 });
 
@@ -158,7 +158,7 @@ app.patch('/routines/:id', requirePermission('weldagent:update', 'weldagent:mana
   if (denied) return denied;
   const routine = await updateRoutine(c.get('tenantDb'), c.req.param('id'), c.req.valid('json'));
   if (!routine) return error.notFound(c, 'Routine not found');
-  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), routine.agentId);
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), c.get('tenantDb'), routine.agentId);
   return success(c, routine);
 });
 
@@ -169,7 +169,7 @@ app.delete('/routines/:id', requirePermission('weldagent:manage', 'weldagent:upd
   if (denied) return denied;
   const ok = await deleteRoutine(c.get('tenantDb'), c.req.param('id'));
   if (!ok || !existing) return error.notFound(c, 'Routine not found');
-  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), existing.agentId);
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), c.get('tenantDb'), existing.agentId);
   return noContent(c);
 });
 
@@ -199,7 +199,8 @@ app.post('/routines/:id/test', requirePermission('weldagent:update', 'weldagent:
     (p) => c.executionCtx.waitUntil(p),
     {
       kind: 'agent-run',
-      workspaceId: c.get('workspaceId'),
+      // WeldAgent job params carry the Clerk org id (workspace-id plan).
+      workspaceId: c.get('clerkOrgId'),
       actorUserId: c.get('userId'),
       agentId: routine.agentId,
       triggerType: 'manual',
@@ -256,7 +257,7 @@ app.post('/approvals/:id/decide', requirePermission('weldagent:use', 'weldagent:
   const execution = await executeDecidedApproval({
     db: c.get('tenantDb'),
     env: c.env,
-    workspaceId: c.get('workspaceId'),
+    workspaceId: c.get('clerkOrgId'),
     approval,
     deciderUserId: c.get('userId'),
     deciderPermissions: resolved?.permissions ?? [],
@@ -329,7 +330,7 @@ app.post('/templates/install', requirePermission('weldagent:create', 'weldagent:
   }
   const agent = await installTemplate(c.get('tenantDb'), { ...data, createdBy: c.get('userId') });
   if (!agent) return error.notFound(c, 'Template not found');
-  await reindexAgentRoutines(routineIndexSync(c.env, c.get('workspaceId')), c.get('tenantDb'), agent.id);
+  await reindexAgentRoutines(routineIndexSync(c.env, c.get('clerkOrgId')), c.get('tenantDb'), agent.id);
   return success(c, agent, 201);
 });
 
@@ -400,7 +401,7 @@ app.post('/connectors/events', requirePermission('weldagent:manage', 'weldagent:
         (p) => c.executionCtx.waitUntil(p),
         {
           kind: 'agent-run',
-          workspaceId: c.get('workspaceId'),
+          workspaceId: c.get('clerkOrgId'),
           actorUserId: c.get('userId'),
           agentId: routine.agentId,
           triggerType: 'event',

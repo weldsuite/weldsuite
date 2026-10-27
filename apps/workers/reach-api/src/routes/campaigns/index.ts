@@ -70,7 +70,7 @@ function requestSink(c: AppContext): ReachEventSink {
 
 /** Tell the send sweep when this workspace next has outreach due. */
 function dueOf(c: AppContext): ReachDuePort {
-  return (kind, at) => markWorkspaceDue(c.env.SCHEDULE_INDEX, kind, c.get('workspaceId'), at);
+  return (kind, at) => markWorkspaceDue(c.env.SCHEDULE_INDEX, kind, c.get('clerkOrgId'), at);
 }
 
 function depsOf(c: AppContext) {

@@ -75,7 +75,7 @@ const VICTIM_KEY = 'workspaces/org_victim/uploads/general/1_x/payroll.pdf';
 
 function brokerApp(kv: KVNamespace, bucket: R2Bucket) {
   return createTestApp('/api/storage', storageRoutes, {
-    context: { userId: 'user_a', workspaceId: 'org_a', orgId: 'org_a' },
+    context: { userId: 'user_a', workspaceId: 'ws_a', orgId: 'org_a' },
     env: { WORKSPACE_CACHE: kv, STORAGE: bucket, R2_PUBLIC_URL: 'https://files.example' } as never,
   });
 }
@@ -564,7 +564,7 @@ interface Buckets {
 
 function splitApp(kv: KVNamespace, buckets: Buckets, extraEnv: Record<string, unknown> = {}) {
   return createTestApp('/api/storage', storageRoutes, {
-    context: { userId: 'user_a', workspaceId: 'org_a', orgId: 'org_a' },
+    context: { userId: 'user_a', workspaceId: 'ws_a', orgId: 'org_a' },
     env: {
       WORKSPACE_CACHE: kv,
       R2_PUBLIC_URL: 'https://files.example',
@@ -661,15 +661,15 @@ describe('GET /api/storage/private/* (TASK-620)', () => {
   });
   const url = (key: string) => `${API}/api/storage/private/${key}`;
 
-  async function filesCookie(workspaceId = 'org_a') {
+  async function filesCookie(orgId = 'org_a') {
     const app = createTestApp('/api/storage', storageRoutes, {
-      context: { userId: 'user_a', workspaceId, orgId: workspaceId },
+      context: { userId: 'user_a', workspaceId: 'ws_a', orgId },
       env: { STORAGE_SIGNING_KEY: SIGNING_KEY } as never,
     });
     const res = await app.request(`${API}/api/storage/access`, { method: 'POST' });
     expect(res.status).toBe(200);
     const setCookie = res.headers.get('Set-Cookie')!;
-    expect(setCookie).toContain(`Path=/api/storage/private/workspaces/${workspaceId}/`);
+    expect(setCookie).toContain(`Path=/api/storage/private/workspaces/${orgId}/`);
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).toContain('Secure');
     return setCookie.split(';')[0]!;

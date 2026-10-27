@@ -392,7 +392,7 @@ function dispatchAssignmentNotifications(
   c: {
     env: Env;
     executionCtx: ExecutionContext;
-    get: (k: 'tenantDb' | 'userId' | 'workspaceId') => any;
+    get: (k: 'tenantDb' | 'userId' | 'workspaceId' | 'clerkOrgId') => any;
   },
   opts: {
     assigneeIds: string[];
@@ -408,7 +408,8 @@ function dispatchAssignmentNotifications(
 
   const db = c.get('tenantDb');
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  // sendTaskAssignmentNotification builds the app links and persists with the Clerk org id.
+  const clerkOrgId = c.get('clerkOrgId');
   const category: 'projects' | 'crm' = opts.projectId ? 'projects' : 'crm';
   // Web in-app opens the task itself via the stable `/weldflow/task/{id}` link
   // (it resolves the project and opens the panel); mobile push uses
@@ -435,7 +436,7 @@ function dispatchAssignmentNotifications(
           const [row] = await masterDb
             .select({ name: masterSchema.workspaces.name })
             .from(masterSchema.workspaces)
-            .where(matchWorkspaceRef(workspaceId))
+            .where(matchWorkspaceRef(c.get('workspaceId')))
             .limit(1);
           return row?.name ?? null;
         } catch {
@@ -453,7 +454,7 @@ function dispatchAssignmentNotifications(
           sendTaskAssignmentNotification({
             db,
             env: c.env,
-            workspaceId,
+            workspaceId: clerkOrgId,
             assigneeId,
             assignedByUserId: userId,
             taskId: opts.taskId,
@@ -508,8 +509,9 @@ function dispatchGithubOutboundSync(
   if (!opts.projectId || opts.kinds.length === 0) return;
 
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return;
+  // The GitHub outbound workflow (integration-webhook-worker) looks the workspace up by org id.
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return;
   const projectId = opts.projectId;
   const binding = c.env.GITHUB_PROJECT_OUTBOUND;
 
@@ -539,7 +541,7 @@ function dispatchGithubOutboundSync(
             try {
               await binding.create({
                 id: `github-outbound-${opts.taskId}-${kind}-${bucket}`,
-                params: { workspaceId, taskId: opts.taskId, kind },
+                params: { workspaceId: clerkOrgId, taskId: opts.taskId, kind },
               });
             } catch {
               // Duplicate within the debounce window — already dispatched.
@@ -594,7 +596,7 @@ function confirmCalendarInBackground(c: TaskCtx, db: TaskDb, calendarEventId: st
  * Call after any write that places or re-places an auto-scheduled event.
  */
 function syncReplanDue(c: TaskCtx, db: TaskDb): Promise<void> {
-  return syncWorkspaceDue(c.env.SCHEDULE_INDEX, 'calendar_replan', c.get('workspaceId'), () =>
+  return syncWorkspaceDue(c.env.SCHEDULE_INDEX, 'calendar_replan', c.get('clerkOrgId'), () =>
     nextAutoScheduledReplanAt(db),
   );
 }
@@ -1884,7 +1886,7 @@ app.post(
     const data = c.req.valid('json');
     // The key comes from the client and the row is later served by key: it
     // must be one of this workspace's uploads (TASK-620).
-    if (!isWorkspaceObjectKey(data.fileKey, c.get('workspaceId'))) {
+    if (!isWorkspaceObjectKey(data.fileKey, c.get('clerkOrgId'))) {
       return error.badRequest(c, 'fileKey is not a file of this workspace');
     }
     try {

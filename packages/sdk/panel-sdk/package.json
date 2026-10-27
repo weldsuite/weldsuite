@@ -1,0 +1,31 @@
+{
+  "name": "@weldsuite/panel-sdk",
+  "version": "0.1.0",
+  "description": "WeldPanel analytics SDK: pageviews, clicks and custom events for websites and web apps",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "./src/global.ts",
+    "./dist/panel.global.js"
+  ],
+  "exports": {
+    ".": "./src/index.ts",
+    "./wire": "./src/wire.ts",
+    "./install": "./src/install.ts",
+    "./dist/panel.global.js": "./dist/panel.global.js"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "esbuild": "^0.28.1",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7",
+    "vitest": "^4.1.12"
+  }
+}

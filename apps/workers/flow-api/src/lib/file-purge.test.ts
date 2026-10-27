@@ -22,11 +22,11 @@ const MIGRATION = readFileSync(
 const DAY = 24 * 60 * 60 * 1000;
 const DELETED_AT = new Date('2031-07-10T10:00:00.000Z');
 
-function fakeContext(d1: D1Database | undefined, workspaceId = 'org_files') {
+function fakeContext(d1: D1Database | undefined, clerkOrgId = 'org_files') {
   const pending: Promise<unknown>[] = [];
   const c = {
     env: { SCHEDULE_INDEX: d1 },
-    get: (key: string) => (key === 'workspaceId' ? workspaceId : undefined),
+    get: (key: string) => (key === 'clerkOrgId' ? clerkOrgId : undefined),
     executionCtx: { waitUntil: (p: Promise<unknown>) => pending.push(p) },
   };
   return { c: c as unknown as Parameters<typeof markFilePurgeDue>[0], settled: () => Promise.all(pending) };

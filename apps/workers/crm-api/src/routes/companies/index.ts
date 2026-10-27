@@ -428,8 +428,9 @@ app.post('/:id/refresh-logo', requirePermission('companies:update'), async (c) =
     if (!storage || !r2PublicUrl) {
       return error.internal(c, 'Logo storage is not configured');
     }
-    const workspaceId =
-      (c.get('workspaceId') as string | undefined) ??
+    // R2 avatar keys are `workspaces/<Clerk org id>/avatars/…`.
+    const clerkOrgId =
+      (c.get('clerkOrgId') as string | undefined) ??
       (c.get('orgId') as string | undefined) ??
       'unknown';
     const result = await companiesService.refreshCompanyLogo(db, id, async (args) => {
@@ -439,7 +440,7 @@ app.post('/:id/refresh-logo', requirePermission('companies:update'), async (c) =
           customerName: args.companyName ?? id,
           website: args.website ?? undefined,
           customerId: id,
-          workspaceId,
+          workspaceId: clerkOrgId,
           storage,
           r2PublicUrl,
           entityFolder: 'companies',

@@ -972,10 +972,12 @@ app.post(
   requirePermission('tasks:create'),
   zValidator('json', importTasksSchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
+    // task_import_jobs.workspace_id, the R2 import key and the workflow params carry the
+    // Clerk org id; phase 3 moves them to workspaces.id (workspace-id plan).
+    const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
     const userId = c.get('userId');
     const projectId = c.req.param('projectId');
-    if (!workspaceId) return error.orgRequired(c);
+    if (!clerkOrgId) return error.orgRequired(c);
     if (!(await canWriteProject(c, projectId))) {
       return error.forbidden(c, 'You do not have write access to this project');
     }
@@ -1000,7 +1002,7 @@ app.post(
     if (!project) return error.notFound(c, 'Project', projectId);
 
     const jobId = generateId('timp');
-    const r2Key = `imports/tasks/${workspaceId}/${projectId}/${jobId}.json`;
+    const r2Key = `imports/tasks/${clerkOrgId}/${projectId}/${jobId}.json`;
 
     try {
       await c.env.STORAGE.put(r2Key, JSON.stringify(rows), {
@@ -1009,7 +1011,7 @@ app.post(
 
       await db.insert(schema.taskImportJobs).values({
         id: jobId,
-        workspaceId,
+        workspaceId: clerkOrgId,
         userId,
         projectId,
         r2Key,
@@ -1024,7 +1026,7 @@ app.post(
 
       const instance = await c.env.IMPORT_TASKS.create({
         id: jobId,
-        params: { jobId, workspaceId, userId, projectId, r2Key },
+        params: { jobId, workspaceId: clerkOrgId, userId, projectId, r2Key },
       });
 
       await db
@@ -1065,10 +1067,11 @@ app.get(
   '/:projectId/tasks/import-jobs/:jobId',
   requirePermission('tasks:create'),
   async (c) => {
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
+    // task_import_jobs.workspace_id holds the Clerk org id (see the POST above).
+    const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
     const projectId = c.req.param('projectId');
     const jobId = c.req.param('jobId');
-    if (!workspaceId) return error.orgRequired(c);
+    if (!clerkOrgId) return error.orgRequired(c);
     if (!(await canAccessProject(c, projectId))) {
       return error.forbidden(c, 'You are not a member of this project');
     }
@@ -1081,7 +1084,7 @@ app.get(
       .where(
         and(
           eq(schema.taskImportJobs.id, jobId),
-          eq(schema.taskImportJobs.workspaceId, workspaceId),
+          eq(schema.taskImportJobs.workspaceId, clerkOrgId),
           eq(schema.taskImportJobs.projectId, projectId),
         ),
       )

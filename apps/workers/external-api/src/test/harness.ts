@@ -101,6 +101,7 @@ export function createExternalTestApp(options: CreateExternalTestAppOptions = {}
     if (session) {
       c.set('apiSession', session);
       c.set('workspaceId', session.workspaceId);
+      if (session.clerkOrgId) c.set('clerkOrgId', session.clerkOrgId);
       c.set('userId', session.userId ?? session.keyId);
       c.set('tenantDb', tenantDb);
     }

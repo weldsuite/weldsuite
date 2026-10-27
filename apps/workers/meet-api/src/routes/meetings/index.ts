@@ -1029,7 +1029,8 @@ async function resolveAttendeeWrites(
     unique.push(input);
   }
 
-  const workspaceKey = c.get('orgId') ?? c.get('workspaceId') ?? '';
+  // R2 avatar keys (workspaces/<org>/…) are keyed by the Clerk org id.
+  const workspaceKey = c.get('orgId') ?? c.get('clerkOrgId');
   const resolved = await Promise.all(
     unique.map(async (input): Promise<Partial<MeetingAttendee> & { email: string }> => {
       const email = normalizeEmail(input.email);

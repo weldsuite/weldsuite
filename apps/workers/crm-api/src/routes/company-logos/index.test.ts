@@ -23,7 +23,7 @@ function png(): Uint8Array {
 function makeApp(opts: { perms?: string[]; storage?: FakeR2 | null; r2PublicUrl?: string | null } = {}) {
   const storage = opts.storage === undefined ? new FakeR2() : opts.storage;
   const app = createTestApp<Env, Variables>('/api/company-logos', companyLogosRoutes, {
-    context: { workspaceId: 'ws_7', permissions: permissions(...(opts.perms ?? ['companies:read'])) },
+    context: { clerkOrgId: 'org_7', permissions: permissions(...(opts.perms ?? ['companies:read'])) },
     env: {
       ...(storage ? { STORAGE: storage.asBucket() } : {}),
       ...(opts.r2PublicUrl === null ? {} : { R2_PUBLIC_URL: opts.r2PublicUrl ?? PUBLIC_URL }),
@@ -80,13 +80,13 @@ describe('POST /api/company-logos/resolve', () => {
     expect(await res.json()).toEqual({
       data: {
         logos: {
-          'https://www.acme.com/about': `${PUBLIC_URL}/workspaces/ws_7/company-logos/acme.com`,
+          'https://www.acme.com/about': `${PUBLIC_URL}/workspaces/org_7/company-logos/acme.com`,
           localhost: null,
           'gmail.com': null,
         },
       },
     });
-    expect([...(storage?.objects.keys() ?? [])]).toEqual(['workspaces/ws_7/company-logos/acme.com']);
+    expect([...(storage?.objects.keys() ?? [])]).toEqual(['workspaces/org_7/company-logos/acme.com']);
     // Nothing but the company's own site was contacted.
     const hosts = new Set(fetchMock.mock.calls.map(([url]) => new URL(url).hostname));
     expect([...hosts]).toEqual(['acme.com']);
@@ -99,7 +99,7 @@ describe('POST /api/company-logos/resolve', () => {
     const { post } = makeApp();
     const res = await post({ domains: ['acme.com'] }, 'http://localhost:8801');
     expect(await res.json()).toEqual({
-      data: { logos: { 'acme.com': 'http://localhost:8789/api/storage/public/workspaces/ws_7/company-logos/acme.com' } },
+      data: { logos: { 'acme.com': 'http://localhost:8789/api/storage/public/workspaces/org_7/company-logos/acme.com' } },
     });
   });
 
@@ -108,11 +108,11 @@ describe('POST /api/company-logos/resolve', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const storage = new FakeR2();
-    await storage.put('workspaces/ws_7/company-logos/acme.com', png(), {
+    await storage.put('workspaces/org_7/company-logos/acme.com', png(), {
       httpMetadata: { contentType: 'image/png' },
       customMetadata: { status: 'hit', expiresAt: String(Date.now() + 60_000) },
     });
-    await storage.put('workspaces/ws_7/company-logos/nologo.com', new Uint8Array(0), {
+    await storage.put('workspaces/org_7/company-logos/nologo.com', new Uint8Array(0), {
       customMetadata: { status: 'miss', expiresAt: String(Date.now() + 60_000) },
     });
 
@@ -121,7 +121,7 @@ describe('POST /api/company-logos/resolve', () => {
     expect(await res.json()).toEqual({
       data: {
         logos: {
-          'acme.com': `${PUBLIC_URL}/workspaces/ws_7/company-logos/acme.com`,
+          'acme.com': `${PUBLIC_URL}/workspaces/org_7/company-logos/acme.com`,
           'nologo.com': null,
         },
       },

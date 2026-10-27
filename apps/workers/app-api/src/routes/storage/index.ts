@@ -429,8 +429,9 @@ app.post(
   async (c) => {
     const userId = c.get('userId');
     if (!userId) return error.unauthorized(c);
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
-    if (!workspaceId) return error.orgRequired(c);
+    // R2 keys stay under the Clerk org id until phase 3 (workspace-id plan).
+    const orgId = c.get('clerkOrgId');
+    if (!orgId) return error.orgRequired(c);
 
     const data = c.req.valid('json');
     const bucket = chooseUploadBucket(c.env, data);
@@ -438,7 +439,7 @@ app.post(
 
     try {
       const uploadToken = generateUploadToken();
-      const { fileKey, createOnly } = buildUploadKey(workspaceId, data);
+      const { fileKey, createOnly } = buildUploadKey(orgId, data);
 
       await setPendingUpload(c.env.WORKSPACE_CACHE, uploadToken, {
         fileKey,
@@ -540,22 +541,24 @@ function filesCookieHeader(c: Context, workspaceId: string, value: string, maxAg
 app.post('/access', async (c) => {
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
-  if (!workspaceId) return error.orgRequired(c);
+  // The cookie value and Path name the key prefix, still the Clerk org id (R2 keys),
+  // and the response keeps the id clients got before.
+  const orgId = c.get('clerkOrgId');
+  if (!orgId) return error.orgRequired(c);
   const secret = c.env.STORAGE_SIGNING_KEY;
   if (!secret) return error.unavailable(c, 'File access signing is not configured');
 
-  const { value, expiresAt } = await signFilesCookie(secret, workspaceId);
-  c.header('Set-Cookie', filesCookieHeader(c, workspaceId, value, expiresAt - Math.floor(Date.now() / 1000)));
+  const { value, expiresAt } = await signFilesCookie(secret, orgId);
+  c.header('Set-Cookie', filesCookieHeader(c, orgId, value, expiresAt - Math.floor(Date.now() / 1000)));
   c.header('Cache-Control', 'no-store');
-  return c.json({ data: { workspaceId, expiresAt } });
+  return c.json({ data: { workspaceId: orgId, expiresAt } });
 });
 
 /** DELETE /api/storage/access — drop the caller's files cookie (sign-out). */
 app.delete('/access', async (c) => {
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
-  if (!workspaceId) return error.orgRequired(c);
-  c.header('Set-Cookie', filesCookieHeader(c, workspaceId, '', 0));
+  const orgId = c.get('clerkOrgId');
+  if (!orgId) return error.orgRequired(c);
+  c.header('Set-Cookie', filesCookieHeader(c, orgId, '', 0));
   return c.body(null, 204);
 });
 
@@ -574,8 +577,8 @@ const signSchema = z.object({
 app.post('/sign', zValidator('json', signSchema), async (c) => {
   const userId = c.get('userId');
   if (!userId) return error.unauthorized(c);
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
-  if (!workspaceId) return error.orgRequired(c);
+  const orgId = c.get('clerkOrgId'); // the key prefix (R2 keys stay under the org id)
+  if (!orgId) return error.orgRequired(c);
   const secret = c.env.STORAGE_SIGNING_KEY;
   if (!secret) return error.unavailable(c, 'File access signing is not configured');
 
@@ -584,7 +587,7 @@ app.post('/sign', zValidator('json', signSchema), async (c) => {
   const urls: Record<string, { url: string; expiresAt: number }> = {};
   for (const ref of files) {
     const key = keyFromPrivateObjectUrl(ref) ?? (isSafeObjectKey(ref) ? ref : null);
-    if (!key || workspaceOfKey(key) !== workspaceId) continue;
+    if (!key || workspaceOfKey(key) !== orgId) continue;
     urls[ref] = await signPrivateObjectUrl(secret, origin, key, ttlSeconds);
   }
   return c.json({ data: urls });
@@ -607,8 +610,8 @@ app.post(
   requirePermission('settings:general:update'),
   zValidator('json', migrateSchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
-    if (!workspaceId) return error.orgRequired(c);
+    const orgId = c.get('clerkOrgId'); // stored file keys sit under the org id prefix
+    if (!orgId) return error.orgRequired(c);
     if (!c.env.STORAGE || !c.env.PRIVATE_STORAGE) {
       return error.unavailable(c, 'Private storage is not configured');
     }
@@ -617,7 +620,7 @@ app.post(
       const result = await migratePrivateFilesBatch({
         db: c.get('tenantDb'),
         env: c.env,
-        workspaceId,
+        workspaceId: orgId,
         apiOrigin: new URL(c.req.url).origin,
         cursor,
         dryRun,

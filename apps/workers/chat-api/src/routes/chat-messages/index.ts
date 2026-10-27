@@ -514,11 +514,12 @@ app.post('/:id/pin', requirePermission('messages:update'), async (c) => {
     // api-worker routes/chat/messages.ts). Instance id = messageId so the
     // manual unpin below can look it up and abort it.
     if (expiresAt && c.env.UNPIN_EXPIRED_MESSAGE) {
-      const workspaceId = c.get('workspaceId') || c.get('orgId') || '';
+      // Workflow params carry the Clerk org id (workspace-id plan).
+      const clerkOrgId = c.get('clerkOrgId') || c.get('orgId') || '';
       try {
         await c.env.UNPIN_EXPIRED_MESSAGE.create({
           id,
-          params: { workspaceId, channelId: result.channelId, messageId: id, expiresAt },
+          params: { workspaceId: clerkOrgId, channelId: result.channelId, messageId: id, expiresAt },
         });
       } catch (e) {
         console.error('[app-api/chat-messages] failed to create unpin workflow:', e);
@@ -654,9 +655,10 @@ async function attachmentChannelRejection(
  * Returns the stored file's URL + metadata.
  */
 app.post('/upload', requirePermission('messages:create'), async (c) => {
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
+  // The R2 key prefix and the rate-limit key stay on the Clerk org id (workspace-id plan).
+  const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
   const userId = c.get('userId');
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   if (!c.env.STORAGE) return error.internal(c, 'Storage is not configured');
 
   try {
@@ -675,13 +677,13 @@ app.post('/upload', requirePermission('messages:create'), async (c) => {
     const channelRejection = channelId ? await attachmentChannelRejection(c, channelId, userId) : null;
     if (channelRejection) return channelRejection;
 
-    const rl = await consumeChatRateLimit(c.env, `upload:${workspaceId}:${userId}`, 30);
+    const rl = await consumeChatRateLimit(c.env, `upload:${clerkOrgId}:${userId}`, 30);
     if (!rl.ok) return error.badRequest(c, 'Too many uploads — slow down and try again');
 
     const result = await uploadChatFile({
       storage: c.env.STORAGE,
       r2PublicUrl: validated.r2PublicUrl,
-      workspaceId,
+      workspaceId: clerkOrgId,
       channelId,
       file,
       requirePublicUrl: true,

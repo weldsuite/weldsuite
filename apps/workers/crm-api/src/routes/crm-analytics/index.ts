@@ -538,10 +538,9 @@ app.post('/chart-data', requirePermission('contacts:read'), async (c) => {
   }>;
   try {
     const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
-    const workspaceId = c.get('workspaceId') as string;
     const entries = await Promise.all(
       chartConfigs.map(async (config) => {
-        const data = await queryAnalytics(c.env, [workspaceId, c.get('internalWorkspaceId')], config);
+        const data = await queryAnalytics(c.env, [c.get('workspaceId'), c.get('clerkOrgId')], config);
         return [config.chartId, data] as const;
       }),
     );

@@ -6,7 +6,17 @@
 # The host name is still an open item in the plan; it avoids words ad-block
 # lists match (analytics, track, collect).
 #
-# Never binds a tenant database (ADR DATA-008). No secrets yet.
+# Never binds a tenant database (ADR DATA-008). No secrets: project records come
+# from the WORKSPACE_CACHE KV namespace panel-api writes, events go to a Basin
+# stream, and the Durable Objects keep the daily visitor-hash salt and the
+# per-workspace event counts.
+#
+# PANEL_EVENTS is the stream behind the Basin table panel.events_v1, one per
+# environment (a stream cannot be changed after creation; schema:
+# packages/domains/panel/src/events-v1-schema.json). The __PANEL_EVENTS_STREAM_*__
+# values below are placeholders until the streams are created: replace them
+# with the stream ids. Local dev uses the test stream, so it can never write to
+# the production table.
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-panel-ingest-dev"
@@ -14,12 +24,42 @@ main = "src/index.ts"
 compatibility_date = "2024-12-30"
 compatibility_flags = ["nodejs_compat"]
 
+# GET /s.js serves the browser SDK bundle (`pnpm --filter @weldsuite/panel-sdk
+# build`, which the dev/build/deploy scripts run first) imported as a string.
+[[rules]]
+type = "Text"
+globs = ["**/*.global.js"]
+fallthrough = false
+
 [observability]
 enabled = true
 head_sampling_rate = 1
 
 [vars]
 ENVIRONMENT = "development"
+
+[[kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "748b8f38937f4807b3978cacb17e1880"
+
+[[pipelines]]
+binding = "PANEL_EVENTS"
+stream = "d94fcbaac8204f8a8f1e3af430e65b57"
+
+# PanelSalt: one global instance, the daily salt of the cookieless visitor hash.
+# PanelUsage: one instance per workspace, events counted per UTC day.
+# Durable Object bindings and migrations are NOT inherited by [env.*].
+[[durable_objects.bindings]]
+name = "PANEL_SALT"
+class_name = "PanelSalt"
+
+[[durable_objects.bindings]]
+name = "PANEL_USAGE"
+class_name = "PanelUsage"
+
+[[migrations]]
+tag = "panel-v1"
+new_sqlite_classes = ["PanelSalt", "PanelUsage"]
 
 # ============ TEST ENVIRONMENT ============
 [env.test]
@@ -32,6 +72,26 @@ routes = [
 
 [env.test.vars]
 ENVIRONMENT = "test"
+
+[[env.test.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "54dd4f453a5e4021a31695ada36cc708"
+
+[[env.test.pipelines]]
+binding = "PANEL_EVENTS"
+stream = "d94fcbaac8204f8a8f1e3af430e65b57"
+
+[[env.test.durable_objects.bindings]]
+name = "PANEL_SALT"
+class_name = "PanelSalt"
+
+[[env.test.durable_objects.bindings]]
+name = "PANEL_USAGE"
+class_name = "PanelUsage"
+
+[[env.test.migrations]]
+tag = "panel-v1"
+new_sqlite_classes = ["PanelSalt", "PanelUsage"]
 
 [env.test.observability]
 enabled = true
@@ -48,6 +108,26 @@ routes = [
 
 [env.production.vars]
 ENVIRONMENT = "production"
+
+[[env.production.kv_namespaces]]
+binding = "WORKSPACE_CACHE"
+id = "99689831a815455ba7f836175e5e17c9"
+
+[[env.production.pipelines]]
+binding = "PANEL_EVENTS"
+stream = "34778ac479a9406ba91d214e6de4ae83"
+
+[[env.production.durable_objects.bindings]]
+name = "PANEL_SALT"
+class_name = "PanelSalt"
+
+[[env.production.durable_objects.bindings]]
+name = "PANEL_USAGE"
+class_name = "PanelUsage"
+
+[[env.production.migrations]]
+tag = "panel-v1"
+new_sqlite_classes = ["PanelSalt", "PanelUsage"]
 
 # Head-sampled: every tracked page view on every customer site lands here.
 [env.production.observability]

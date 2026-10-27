@@ -176,8 +176,8 @@ app.post(
     const db = c.get('tenantDb');
     const { email } = c.req.valid('json');
     // mail_account_registry.workspace_id references workspaces.id; mail-inbound-worker
-    // resolves the tenant from it. `c.get('workspaceId')` is the Clerk org id here.
-    const workspaceId = c.get('internalWorkspaceId')!;
+    // resolves the tenant from it.
+    const workspaceId = c.get('workspaceId');
 
     try {
       const masterDb = getMasterDb(c.env);

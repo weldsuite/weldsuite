@@ -8,6 +8,9 @@
  * DELETE /repos/:linkId             — Unlink a repo
  *
  * All routes require Clerk auth and the github:manage permission.
+ *
+ * The github_* tables' `workspace_id` column holds the Clerk org id until
+ * phase 3 (workspace-id plan), so the handlers pass `c.get('clerkOrgId')`.
  */
 
 import { Hono } from 'hono';
@@ -40,8 +43,8 @@ app.get(
   '/repos/available',
   requirePermission('integrations:github:manage'),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const appId = c.env.GITHUB_APP_ID;
     const privateKey = c.env.GITHUB_APP_PRIVATE_KEY;
@@ -52,7 +55,7 @@ app.get(
 
     try {
       const db = c.get('tenantDb');
-      const conn = await getConnectionByWorkspace(db, workspaceId);
+      const conn = await getConnectionByWorkspace(db, clerkOrgId);
 
       if (conn?.status !== 'active') {
         return error.notFound(c, 'GitHub connection');
@@ -78,14 +81,14 @@ app.get(
   requirePermission('integrations:github:manage'),
   zValidator('query', ListLinkedReposQuerySchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const { projectId, cursor, limit } = c.req.valid('query');
 
     try {
       const db = c.get('tenantDb');
-      const result = await listLinkedRepos(db, workspaceId, {
+      const result = await listLinkedRepos(db, clerkOrgId, {
         projectId: projectId ?? undefined,
         cursor,
         limit,
@@ -112,21 +115,21 @@ app.post(
   requirePermission('integrations:github:manage'),
   zValidator('json', LinkRepoInputSchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const userId = c.get('userId');
-    if (!workspaceId) return error.orgRequired(c);
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const input = c.req.valid('json');
 
     try {
       const db = c.get('tenantDb');
-      const conn = await getConnectionByWorkspace(db, workspaceId);
+      const conn = await getConnectionByWorkspace(db, clerkOrgId);
 
       if (conn?.status !== 'active') {
         return error.badRequest(c, 'No active GitHub connection. Install the GitHub App first.');
       }
 
-      const row = await linkRepo(db, workspaceId, conn.id, input, userId);
+      const row = await linkRepo(db, clerkOrgId, conn.id, input, userId);
       return success(c, serializeRepoLink(row), 201);
     } catch (err) {
       // Catch unique constraint violation (already linked)
@@ -149,15 +152,15 @@ app.patch(
   requirePermission('integrations:github:manage'),
   zValidator('json', UpdateRepoLinkInputSchema),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const linkId = c.req.param('linkId');
     const input = c.req.valid('json');
 
     try {
       const db = c.get('tenantDb');
-      const updated = await updateRepoLink(db, workspaceId, linkId, input);
+      const updated = await updateRepoLink(db, clerkOrgId, linkId, input);
 
       if (!updated) {
         return error.notFound(c, 'Repository link', linkId);
@@ -179,14 +182,14 @@ app.delete(
   '/repos/:linkId',
   requirePermission('integrations:github:manage'),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId');
+    if (!clerkOrgId) return error.orgRequired(c);
 
     const linkId = c.req.param('linkId');
 
     try {
       const db = c.get('tenantDb');
-      const deleted = await unlinkRepo(db, workspaceId, linkId);
+      const deleted = await unlinkRepo(db, clerkOrgId, linkId);
 
       if (!deleted) {
         return error.notFound(c, 'Repository link', linkId);
