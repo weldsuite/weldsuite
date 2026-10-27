@@ -1,8 +1,7 @@
 /**
  * /api/weldhr/work-locations — where employees clock in. Configuration, like
- * leave types: no entity events, a portal config signal instead. Whether a
- * location is required at all is `clockInRequiresLocation` in the portal
- * settings.
+ * leave types: no entity events. Whether a location is required at all is
+ * `clockInRequiresLocation` in the WeldHR settings (`hr_settings`).
  */
 
 import { Hono } from 'hono';
@@ -16,7 +15,7 @@ import {
   listWorkLocations,
   updateWorkLocation,
 } from '../../services/weldhr/work-locations';
-import { db, emitPortalConfig, hrJson, param } from './helpers';
+import { db, hrJson, param } from './helpers';
 
 export const workLocationsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -26,19 +25,15 @@ workLocationsRoutes.get('/', requirePermission('employees:read', 'attendance:rea
 
 workLocationsRoutes.post('/', requirePermission('employees:manage'), hrJson(createHrWorkLocationSchema), async (c) => {
   const row = await createWorkLocation(db(c), c.req.valid('json'));
-  emitPortalConfig(c, 'hr_work_location', row.id);
   return success(c, row, 201);
 });
 
 workLocationsRoutes.patch('/:locationId', requirePermission('employees:manage'), hrJson(updateHrWorkLocationSchema), async (c) => {
   const row = await updateWorkLocation(db(c), param(c, 'locationId'), c.req.valid('json'));
-  emitPortalConfig(c, 'hr_work_location', row.id);
   return success(c, row);
 });
 
 workLocationsRoutes.delete('/:locationId', requirePermission('employees:manage'), async (c) => {
-  const id = param(c, 'locationId');
-  await deleteWorkLocation(db(c), id);
-  emitPortalConfig(c, 'hr_work_location', id);
+  await deleteWorkLocation(db(c), param(c, 'locationId'));
   return noContent(c);
 });

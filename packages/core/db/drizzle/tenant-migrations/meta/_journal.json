@@ -1611,6 +1611,20 @@
       "when": 1793047182531,
       "tag": "0229_hr_open_shifts_announcements_locations",
       "breakpoints": true
+    },
+    {
+      "idx": 230,
+      "version": "7",
+      "when": 1793050422040,
+      "tag": "0230_weldhr_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 231,
+      "version": "7",
+      "when": 1793050439306,
+      "tag": "0231_weldhr_drop_workforce_portal",
+      "breakpoints": true
     }
   ]
 }

@@ -11,7 +11,6 @@ import calendarEvent from './calendar/event';
 import flowDigest from './flow/digest';
 import hrBankChanged from './hr/bank-changed';
 import hrPayslipReady from './hr/payslip-ready';
-import hrPortalInvite from './hr/portal-invite';
 import appAccessRequested from './internal/app-access-requested';
 import enterpriseInquiry from './internal/enterprise-inquiry';
 import outboundAbuseAlert from './internal/outbound-abuse-alert';
@@ -40,7 +39,6 @@ export const templates = {
   'task.assigned': taskAssigned,
   'flow.digest': flowDigest,
   'portal.sign-in': portalSignIn,
-  'hr.portal-invite': hrPortalInvite,
   'hr.payslip-ready': hrPayslipReady,
   'hr.bank-changed': hrBankChanged,
   'admin.workspace-deletion': workspaceDeletion,
@@ -71,7 +69,6 @@ export type { CalendarEventEmailProps, CalendarEventKind } from './calendar/even
 export type { DigestTask, FlowDigestEmailProps } from './flow/digest';
 export type { HrBankChangedEmailProps } from './hr/bank-changed';
 export type { HrPayslipReadyEmailProps } from './hr/payslip-ready';
-export type { HrPortalInviteEmailProps } from './hr/portal-invite';
 export type { AppAccessRequestedEmailProps } from './internal/app-access-requested';
 export type { OutboundAbuseAlertEmailProps } from './internal/outbound-abuse-alert';
 export type { EnterpriseInquiryEmailProps } from './internal/enterprise-inquiry';

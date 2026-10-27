@@ -125,7 +125,6 @@ import { Route as WeldmailScheduledIndexRouteImport } from './routes/weldmail/sc
 import { Route as WeldmailInboxIndexRouteImport } from './routes/weldmail/inbox/index'
 import { Route as WeldmailDomainsIndexRouteImport } from './routes/weldmail/domains/index'
 import { Route as WeldhrSettingsIndexRouteImport } from './routes/weldhr/settings/index'
-import { Route as WeldhrPortalIndexRouteImport } from './routes/weldhr/portal/index'
 import { Route as WeldhrPayrollIndexRouteImport } from './routes/weldhr/payroll/index'
 import { Route as WeldhrMeIndexRouteImport } from './routes/weldhr/me/index'
 import { Route as WeldhrLeaveIndexRouteImport } from './routes/weldhr/leave/index'
@@ -1090,11 +1089,6 @@ const WeldmailDomainsIndexRoute = WeldmailDomainsIndexRouteImport.update({
 const WeldhrSettingsIndexRoute = WeldhrSettingsIndexRouteImport.update({
   id: '/settings/',
   path: '/settings/',
-  getParentRoute: () => WeldhrRouteRoute,
-} as any)
-const WeldhrPortalIndexRoute = WeldhrPortalIndexRouteImport.update({
-  id: '/portal/',
-  path: '/portal/',
   getParentRoute: () => WeldhrRouteRoute,
 } as any)
 const WeldhrPayrollIndexRoute = WeldhrPayrollIndexRouteImport.update({
@@ -3489,7 +3483,6 @@ export interface FileRoutesByFullPath {
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/me/': typeof WeldhrMeIndexRoute
   '/weldhr/payroll/': typeof WeldhrPayrollIndexRoute
-  '/weldhr/portal/': typeof WeldhrPortalIndexRoute
   '/weldhr/settings/': typeof WeldhrSettingsIndexRoute
   '/weldmail/domains/': typeof WeldmailDomainsIndexRoute
   '/weldmail/inbox/': typeof WeldmailInboxIndexRoute
@@ -3947,7 +3940,6 @@ export interface FileRoutesByTo {
   '/weldhr/leave': typeof WeldhrLeaveIndexRoute
   '/weldhr/me': typeof WeldhrMeIndexRoute
   '/weldhr/payroll': typeof WeldhrPayrollIndexRoute
-  '/weldhr/portal': typeof WeldhrPortalIndexRoute
   '/weldhr/settings': typeof WeldhrSettingsIndexRoute
   '/weldmail/domains': typeof WeldmailDomainsIndexRoute
   '/weldmail/inbox': typeof WeldmailInboxIndexRoute
@@ -4447,7 +4439,6 @@ export interface FileRoutesById {
   '/weldhr/leave/': typeof WeldhrLeaveIndexRoute
   '/weldhr/me/': typeof WeldhrMeIndexRoute
   '/weldhr/payroll/': typeof WeldhrPayrollIndexRoute
-  '/weldhr/portal/': typeof WeldhrPortalIndexRoute
   '/weldhr/settings/': typeof WeldhrSettingsIndexRoute
   '/weldmail/domains/': typeof WeldmailDomainsIndexRoute
   '/weldmail/inbox/': typeof WeldmailInboxIndexRoute
@@ -4950,7 +4941,6 @@ export interface FileRouteTypes {
     | '/weldhr/leave/'
     | '/weldhr/me/'
     | '/weldhr/payroll/'
-    | '/weldhr/portal/'
     | '/weldhr/settings/'
     | '/weldmail/domains/'
     | '/weldmail/inbox/'
@@ -5408,7 +5398,6 @@ export interface FileRouteTypes {
     | '/weldhr/leave'
     | '/weldhr/me'
     | '/weldhr/payroll'
-    | '/weldhr/portal'
     | '/weldhr/settings'
     | '/weldmail/domains'
     | '/weldmail/inbox'
@@ -5907,7 +5896,6 @@ export interface FileRouteTypes {
     | '/weldhr/leave/'
     | '/weldhr/me/'
     | '/weldhr/payroll/'
-    | '/weldhr/portal/'
     | '/weldhr/settings/'
     | '/weldmail/domains/'
     | '/weldmail/inbox/'
@@ -7035,13 +7023,6 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/weldhr/settings/'
       preLoaderRoute: typeof WeldhrSettingsIndexRouteImport
-      parentRoute: typeof WeldhrRouteRoute
-    }
-    '/weldhr/portal/': {
-      id: '/weldhr/portal/'
-      path: '/portal'
-      fullPath: '/weldhr/portal/'
-      preLoaderRoute: typeof WeldhrPortalIndexRouteImport
       parentRoute: typeof WeldhrRouteRoute
     }
     '/weldhr/payroll/': {
@@ -10691,7 +10672,6 @@ interface WeldhrRouteRouteChildren {
   WeldhrEmployeesIndexRoute: typeof WeldhrEmployeesIndexRoute
   WeldhrLeaveIndexRoute: typeof WeldhrLeaveIndexRoute
   WeldhrPayrollIndexRoute: typeof WeldhrPayrollIndexRoute
-  WeldhrPortalIndexRoute: typeof WeldhrPortalIndexRoute
   WeldhrSettingsIndexRoute: typeof WeldhrSettingsIndexRoute
   WeldhrEmployeesEmployeeIdIndexRoute: typeof WeldhrEmployeesEmployeeIdIndexRoute
   WeldhrPayrollEmployeesIndexRoute: typeof WeldhrPayrollEmployeesIndexRoute
@@ -10711,7 +10691,6 @@ const WeldhrRouteRouteChildren: WeldhrRouteRouteChildren = {
   WeldhrEmployeesIndexRoute: WeldhrEmployeesIndexRoute,
   WeldhrLeaveIndexRoute: WeldhrLeaveIndexRoute,
   WeldhrPayrollIndexRoute: WeldhrPayrollIndexRoute,
-  WeldhrPortalIndexRoute: WeldhrPortalIndexRoute,
   WeldhrSettingsIndexRoute: WeldhrSettingsIndexRoute,
   WeldhrEmployeesEmployeeIdIndexRoute: WeldhrEmployeesEmployeeIdIndexRoute,
   WeldhrPayrollEmployeesIndexRoute: WeldhrPayrollEmployeesIndexRoute,

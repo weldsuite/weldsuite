@@ -307,7 +307,7 @@ export function receiptResponse(receipt: Awaited<ReturnType<typeof loadDeclarati
 }
 
 // ---------------------------------------------------------------------------
-// Self-service (My HR and the workforce portal)
+// Self-service (My HR)
 // ---------------------------------------------------------------------------
 
 /** The employee's own declarations, with what is still awaiting a decision or a payout. */

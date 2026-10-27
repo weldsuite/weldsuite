@@ -1,12 +1,12 @@
 /**
- * WeldHR — employee operations and the workforce portal.
+ * WeldHR — employee operations and My HR.
  *
  * Split per area so each screen group owns its own file:
  *   weldhr-people.ts       dashboard, employees
  *   weldhr-time.ts         attendance, shifts, leave
  *   weldhr-declarations.ts expense declarations
  *   weldhr-payroll.ts      payroll: pay runs, payslips, filings, settings, tax forms
- *   weldhr-admin.ts        settings (departments, leave types, work locations) and the workforce portal
+ *   weldhr-admin.ts        settings (departments, leave types, work locations, My HR self-service)
  *   weldhr-announcements.ts announcements from HR to employees
  *   weldhr-self.ts         My HR, the employee self-service page
  * Shared labels (status chips, pickers, generic actions) live here.
@@ -156,11 +156,6 @@ export const weldhr = {
       it: 'IT',
       employee: 'Employee',
       other: 'Other',
-    },
-    portalAccess: {
-      invited: 'Invited',
-      active: 'Active',
-      revoked: 'Revoked',
     },
     kpiUnit: {
       number: 'Number',

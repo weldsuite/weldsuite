@@ -26,9 +26,9 @@ import type { HrWorkLocation } from '@weldsuite/app-api-client/domains/weldhr';
 import {
   useCreateHrWorkLocation,
   useDeleteHrWorkLocation,
-  useHrPortalSettings,
+  useHrSettings,
   useHrWorkLocations,
-  useUpdateHrPortalSettings,
+  useUpdateHrSettings,
   useUpdateHrWorkLocation,
 } from '@/hooks/queries/use-weldhr-queries';
 import { ConfirmDialog } from '@/components/confirm-dialog';
@@ -55,8 +55,8 @@ export function WorkLocationsTab() {
   const { can } = usePermissions();
   const canManage = can('employees:manage');
   const { data: locations, isLoading, error } = useHrWorkLocations({ includeInactive: true });
-  const { data: settings } = useHrPortalSettings();
-  const updateSettings = useUpdateHrPortalSettings();
+  const { data: settings } = useHrSettings();
+  const updateSettings = useUpdateHrSettings();
   const [search, setSearch] = useState('');
   const [dialogState, setDialogState] = useState<'create' | HrWorkLocation | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<HrWorkLocation | null>(null);

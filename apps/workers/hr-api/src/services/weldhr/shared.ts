@@ -148,11 +148,8 @@ export type HrAuditAction =
   | 'employee.sensitive_viewed'
   | 'employee.sensitive_updated'
   | 'employee.deleted'
-  | 'portal.access_invited'
-  | 'portal.access_revoked'
-  | 'portal.access_restored'
-  | 'portal.settings_updated'
-  | 'portal.signed_in'
+  | 'employee.linked'
+  | 'settings.updated'
   // Payroll (services/weldhr/payroll). Never carries the values, only which fields.
   | 'payroll.payment_details_updated'
   | 'payroll.bank_changed'

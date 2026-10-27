@@ -403,7 +403,7 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('agent', 8814, null, ['/api/ai', '/api/ai-models', '/api/chat-agent', '/api/weldagent']),
   mod('data', 8815, ['welddata'], ['/api/enrich-fields', '/api/enrichments', '/api/welddata']),
   mod('know', 8816, ['weldknow'], ['/api/knowledge']),
-  mod('hr', 8817, ['weldhr'], ['/api/weldhr', '/public/hr-portal']),
+  mod('hr', 8817, ['weldhr'], ['/api/weldhr']),
   mod('social', 8818, ['weldsocial'], [
     '/api/social-accounts',
     '/api/social-analytics',

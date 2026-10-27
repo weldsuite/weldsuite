@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { employeeAttendance, hourlyRateOf } from './portal-self-service';
+import { employeeAttendance, hourlyRateOf } from './self-service';
 
 let db: Database;
 

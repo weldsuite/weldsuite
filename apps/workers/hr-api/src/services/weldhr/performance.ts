@@ -160,7 +160,7 @@ export async function deleteCoachingLog(db: Database, id: string) {
   await db.update(co).set({ deletedAt: now, updatedAt: now }).where(eq(co.id, id));
 }
 
-/** Employee acknowledgement from the portal. Only logs shared with the employee can be acknowledged. */
+/** Employee acknowledgement from My HR. Only logs shared with the employee can be acknowledged. */
 export async function acknowledgeCoachingLog(db: Database, id: string, employeeId: string, comment?: string | null) {
   const log = await requireCoachingLog(db, id);
   if (log.employeeId !== employeeId || log.visibility === 'internal') throw new HrNotFoundError('Coaching log', id);

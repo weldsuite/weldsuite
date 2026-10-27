@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
-import { employeeAttendance } from './portal-self-service';
+import { employeeAttendance } from './self-service';
 import { cancelShiftRequest, listShiftRequests, requestShift, reviewShiftRequest } from './shift-requests';
 
 let db: Database;

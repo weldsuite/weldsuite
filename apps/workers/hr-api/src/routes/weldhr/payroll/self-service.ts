@@ -1,8 +1,7 @@
 /**
- * The employee-facing payroll endpoints, shared by My HR (`/api/weldhr/me`,
- * the signed-in member's own employee) and the workforce portal
- * (`/public/hr-portal/employee`, the session's employee). Only who the
- * employee is differs; the employee id never comes from the request.
+ * The employee-facing payroll endpoints, mounted on My HR (`/api/weldhr/me`,
+ * the signed-in member's own employee). The caller passes who the employee
+ * is; the employee id never comes from the request.
  *
  *   GET  /payslips                       final payslips
  *   GET  /payslips/:payslipId/pdf        the PDF (stamps `viewedAt`, audited)
@@ -33,7 +32,7 @@ import { pdfResponse } from './responses';
 
 export interface SelfWho {
   employeeId: string;
-  /** Audit actor and signer: the Clerk user id, or `portal:<employeeId>`. */
+  /** Audit actor and signer: the Clerk user id. */
   actor: string;
 }
 

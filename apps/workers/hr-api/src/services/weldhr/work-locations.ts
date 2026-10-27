@@ -1,8 +1,8 @@
 /**
  * Work locations and the clock-in location rule.
  *
- * With `hr_portal_settings.clock_in_requires_location` on, clocking in or out
- * yourself (My HR, the WeldHR app, the workforce portal) needs the device's
+ * With `hr_settings.clock_in_requires_location` on, clocking in or out
+ * yourself (My HR, the WeldHR app) needs the device's
  * position within the radius of a work location the employee may use. The
  * position is only asked for and stored while the rule is on. It is what the
  * device reports, so it keeps honest people honest rather than stopping a

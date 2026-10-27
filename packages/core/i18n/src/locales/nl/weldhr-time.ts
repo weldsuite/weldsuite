@@ -46,7 +46,7 @@ export const weldhrTime = {
         approved: 'Goedgekeurd',
       },
       source: {
-        portal: 'Portaal',
+        portal: 'Mijn HR',
         manual: 'Handmatig',
         import: 'Import',
         api: 'API',
@@ -63,7 +63,7 @@ export const weldhrTime = {
       loadMore: 'Meer laden',
       empty: {
         title: 'Geen aanwezigheidsregistraties',
-        description: 'Handmatig toegevoegde, geïmporteerde of via het portaal ingeklokte registraties verschijnen hier.',
+        description: 'Handmatig toegevoegde, geïmporteerde of in Mijn HR ingeklokte registraties verschijnen hier.',
       },
       loadFailed: 'Aanwezigheidsregistraties konden niet worden geladen.',
       addRecord: 'Registratie toevoegen',
@@ -408,7 +408,7 @@ export const weldhrTime = {
       newRequest: 'Nieuwe aanvraag',
       empty: {
         title: 'Geen verlofaanvragen',
-        description: 'Aanvragen namens een medewerker, of ingediend via het portaal, verschijnen hier.',
+        description: 'Aanvragen namens een medewerker, of ingediend via Mijn HR, verschijnen hier.',
       },
       loadFailed: 'Verlofaanvragen konden niet worden geladen.',
       form: {

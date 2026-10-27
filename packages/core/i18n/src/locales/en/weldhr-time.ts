@@ -46,7 +46,7 @@ export const weldhrTime = {
         approved: 'Approved',
       },
       source: {
-        portal: 'Portal',
+        portal: 'My HR',
         manual: 'Manual',
         import: 'Import',
         api: 'API',
@@ -63,7 +63,7 @@ export const weldhrTime = {
       loadMore: 'Load more',
       empty: {
         title: 'No attendance records',
-        description: 'Records added manually, imported or clocked in the portal show up here.',
+        description: 'Records added manually, imported or clocked in My HR show up here.',
       },
       loadFailed: 'Could not load attendance records.',
       addRecord: 'Add record',
@@ -408,7 +408,7 @@ export const weldhrTime = {
       newRequest: 'New request',
       empty: {
         title: 'No leave requests',
-        description: 'Requests made on behalf of an employee, or submitted from the portal, show up here.',
+        description: 'Requests made on behalf of an employee, or submitted from My HR, show up here.',
       },
       loadFailed: 'Could not load leave requests.',
       form: {

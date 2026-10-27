@@ -10,8 +10,8 @@
  *   payroll:approve  approve and pay runs, the payment file, the journal
  *   payroll:manage   employers, pay schedules, submitting and recording filings
  *
- * The employee's own payslips, details and tax forms are under /me and the
- * workforce portal (`self-service.ts`), not here.
+ * The employee's own payslips, details and tax forms are under /me
+ * (`self-service.ts`), not here.
  *
  * Mutations of runs and filings publish `hr_pay_run`, `hr_payslip` and
  * `hr_payroll_filing` events with ids and status only. Setup objects

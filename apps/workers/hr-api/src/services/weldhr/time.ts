@@ -478,7 +478,7 @@ export function approveAttendance(
     .execute();
 }
 
-/** Resolve import/portal employee references: email (case-insensitive) or employee number. */
+/** Resolve imported employee references: email (case-insensitive) or employee number. */
 export async function resolveEmployeeRefs(db: Database, refs: string[]) {
   const unique = [...new Set(refs.map((r) => r.trim()).filter(Boolean))];
   const out = new Map<string, string>();
@@ -602,11 +602,12 @@ async function currentShift(db: Database, employeeId: string, now: Date) {
 }
 
 /**
- * Self-service clock in/out (workforce portal and My HR). One open record per
- * day; clocking in twice is a conflict. Clocking in links `shiftId`, or else
- * the first of today's shifts that has not ended. `createdBy` defaults to the
- * portal principal; My HR passes the member's user id. `place` is where it
- * happened, already checked against the work locations (see work-locations.ts).
+ * Self-service clock in/out (My HR). One open record per day; clocking in
+ * twice is a conflict. Clocking in links `shiftId`, or else the first of
+ * today's shifts that has not ended. My HR passes the member's Clerk user id
+ * as `createdBy`; the default is the `portal:<employeeId>` marker older
+ * self-service rows carry. `place` is where it happened, already checked
+ * against the work locations (see work-locations.ts).
  */
 export async function clock(
   db: Database,

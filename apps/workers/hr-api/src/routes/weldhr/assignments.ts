@@ -16,8 +16,6 @@ import {
   requireCompany,
   updateAssignment,
 } from '../../services/weldhr/assignments';
-import { buildClientView } from '../../services/weldhr/client-view';
-import { listPortalAccess, loadPortalSettings } from '../../services/weldhr/portal';
 import { actor, hrJson, db, emit, param } from './helpers';
 
 export const assignmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -57,21 +55,11 @@ export const clientsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>()
 
 clientsRoutes.get('/', requirePermission('employees:read'), async (c) => success(c, await listClientAccounts(db(c))));
 
-/**
- * One client account: the full team (internal view) plus exactly what the
- * client sees in the portal, built by the same function the portal uses.
- */
+/** One client account and everyone who works, or has worked, on it. */
 clientsRoutes.get('/:companyId', requirePermission('employees:read'), async (c) => {
   const database = db(c);
   const companyId = param(c, 'companyId');
   const company = await requireCompany(database, companyId);
-  const [settings, assignments, portalAccess] = await Promise.all([
-    loadPortalSettings(database),
-    listAssignments(database, { companyId }),
-    listPortalAccess(database, { kind: 'client', companyId }),
-  ]);
-  const clientView = await buildClientView(database, companyId, {
-    individualScores: settings.clientCanSeeIndividualScores,
-  });
-  return success(c, { company, assignments, portalAccess, clientView });
+  const assignments = await listAssignments(database, { companyId });
+  return success(c, { company, assignments });
 });

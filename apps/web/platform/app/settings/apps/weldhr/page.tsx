@@ -1,4 +1,4 @@
-import { Building2, Lock, MapPin, Plane } from 'lucide-react';
+import { Building2, Lock, MapPin, Plane, UserCog } from 'lucide-react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { usePermissions } from '@weldsuite/permissions/react';
@@ -6,9 +6,10 @@ import { getTranslations } from '@/lib/i18n';
 import { emptyIcon } from '@/app/weldhr/components/page-kit';
 import { DepartmentsTab } from '@/app/weldhr/settings/components/departments-tab';
 import { LeaveTypesTab } from '@/app/weldhr/settings/components/leave-types-tab';
+import { SelfServiceTab } from '@/app/weldhr/settings/components/self-service-tab';
 import { WorkLocationsTab } from '@/app/weldhr/settings/components/work-locations-tab';
 
-const TABS = ['departments', 'leave-types', 'work-locations'] as const;
+const TABS = ['departments', 'leave-types', 'work-locations', 'self-service'] as const;
 type SettingsTab = (typeof TABS)[number];
 
 function isSettingsTab(value: string | undefined): value is SettingsTab {
@@ -36,6 +37,7 @@ export default function WeldHrSettingsPage() {
     { id: 'departments', label: hr.settings.tabs.departments, icon: Building2 },
     { id: 'leave-types', label: hr.settings.tabs.leaveTypes, icon: Plane },
     { id: 'work-locations', label: hr.settings.tabs.workLocations, icon: MapPin },
+    { id: 'self-service', label: hr.settings.tabs.selfService, icon: UserCog },
   ];
 
   return (
@@ -52,6 +54,7 @@ export default function WeldHrSettingsPage() {
             {activeTab === 'departments' && <DepartmentsTab />}
             {activeTab === 'leave-types' && <LeaveTypesTab />}
             {activeTab === 'work-locations' && <WorkLocationsTab />}
+            {activeTab === 'self-service' && <SelfServiceTab />}
           </div>
         </>
       ) : (

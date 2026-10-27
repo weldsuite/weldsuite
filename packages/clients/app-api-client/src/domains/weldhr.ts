@@ -44,7 +44,6 @@ import type {
   HrSelfServiceShiftRequestInput,
   ImportHrAttendanceInput,
   ImportHrKpiValuesInput,
-  InviteHrPortalAccessInput,
   RecoverHrAbsenceInput,
   ReviewHrDeclarationInput,
   ReviewHrLeaveRequestInput,
@@ -58,7 +57,7 @@ import type {
   UpdateHrEmployeeInput,
   UpdateHrEvaluationInput,
   UpdateHrMilestoneInput,
-  UpdateHrPortalSettingsInput,
+  UpdateHrSettingsInput,
 } from '../schemas/weldhr';
 
 // ---------------------------------------------------------------------------
@@ -695,21 +694,9 @@ export interface HrMilestone {
   createdAt: string;
 }
 
-export interface HrPortalSettings {
+/** What employees may do for themselves in My HR (WeldHR settings → Self-service). */
+export interface HrSettings {
   id: string;
-  isEnabled: boolean;
-  employeePortalEnabled: boolean;
-  clientPortalEnabled: boolean;
-  displayName: string | null;
-  logoUrl: string | null;
-  faviconUrl: string | null;
-  primaryColor: string | null;
-  accentColor: string | null;
-  welcomeMessage: string | null;
-  supportEmail: string | null;
-  hideWeldsuiteBranding: boolean;
-  customDomain: string | null;
-  clientCanSeeIndividualScores: boolean;
   employeeSelfClockIn: boolean;
   /** Clocking in or out yourself needs being at a work location. */
   clockInRequiresLocation: boolean;
@@ -718,98 +705,9 @@ export interface HrPortalSettings {
   updatedAt: string;
 }
 
-export interface HrPortalAccess {
-  id: string;
-  kind: 'employee' | 'client';
-  employeeId: string | null;
-  personId: string | null;
-  companyId: string | null;
-  companyName: string | null;
-  email: string;
-  displayName: string | null;
-  status: 'invited' | 'active' | 'revoked';
-  invitedAt: string | null;
-  lastLoginAt: string | null;
-  createdAt: string;
-}
-
-export interface HrClientKpi {
-  kpiId: string;
-  name: string;
-  unit: HrKpiUnit;
-  direction: HrKpiDirection;
-  target: number | null;
-  latest: { periodStart: string; periodEnd: string; average: number; count: number } | null;
-  onTarget: boolean | null;
-  trend: Array<{ periodStart: string; periodEnd: string; average: number; count: number }>;
-  byEmployee: Array<{ employeeId: string; employeeName: string; value: number }>;
-}
-
-/** Exactly what a client sees in the workforce portal. */
-export interface HrClientView {
-  companyId: string;
-  generatedAt: string;
-  individualScores: boolean;
-  team: Array<{
-    employeeId: string;
-    displayName: string;
-    jobTitle: string | null;
-    avatarUrl: string | null;
-    pronouns: string | null;
-    status: HrEmployeeStatus;
-    role: string | null;
-    allocationPercent: number;
-    assignedSince: string;
-    averageScore: number | null;
-  }>;
-  summary: {
-    headcount: number;
-    fte: number;
-    averageEvaluationScore: number | null;
-    evaluationsCount: number;
-    attendanceRate30d: number | null;
-    milestonesAchieved: number;
-    milestonesOpen: number;
-  };
-  kpis: HrClientKpi[];
-  evaluations: Array<{
-    id: string;
-    employeeId: string;
-    employeeName: string;
-    formName: string | null;
-    periodStart: string | null;
-    periodEnd: string | null;
-    overallScore: number | null;
-    summary: string | null;
-    submittedAt: string | null;
-  }>;
-  milestones: Array<{
-    id: string;
-    employeeId: string;
-    employeeName: string;
-    title: string;
-    description: string | null;
-    type: HrMilestoneType;
-    status: HrMilestoneStatus;
-    dueDate: string | null;
-    achievedAt: string | null;
-  }>;
-  coaching: Array<{
-    id: string;
-    employeeId: string;
-    employeeName: string;
-    sessionDate: string;
-    category: HrCoachingCategory;
-    topic: string;
-    status: HrCoachingStatus;
-  }>;
-}
-
 export interface HrClientDetail {
   company: { id: string; name: string };
   assignments: HrAssignment[];
-  portalAccess: HrPortalAccess[];
-  clientView: HrClientView;
 }
 
 export interface HrDashboard {
@@ -846,8 +744,8 @@ export interface HrAvailableMember {
 }
 
 // ---------------------------------------------------------------------------
-// My HR — the signed-in member's own employee record (`/weldhr/me/*`).
-// Same shapes the workforce portal serves; see services/weldhr/portal-self-service.
+// My HR — the signed-in member's own employee record (`/weldhr/me/*`);
+// see services/weldhr/self-service.
 // ---------------------------------------------------------------------------
 
 export interface HrSelfProfile {
@@ -870,16 +768,16 @@ export interface HrSelfProfile {
 }
 
 export interface HrSelfFeatures {
-  /** Clock in/out from My HR (WeldHR settings → portal → self clock-in). */
+  /** Clock in/out from My HR (WeldHR settings → Self-service). */
   selfClockIn: boolean;
   /**
    * Clocking needs the device at a work location: send `location` with the
    * clock call. Absent from an API that predates it (treat as false).
    */
   clockInRequiresLocation?: boolean;
-  /** Request leave from My HR (WeldHR settings → portal → leave requests). */
+  /** Request leave from My HR (WeldHR settings → Self-service). */
   leaveRequests: boolean;
-  /** Submit expense declarations from My HR (WeldHR settings → portal → declarations). */
+  /** Submit expense declarations from My HR (WeldHR settings → Self-service). */
   declarations: boolean;
 }
 
@@ -1515,27 +1413,12 @@ export function createWeldHrApi(api: ClientApi) {
       return api.delete(`${base}/milestones/${id}`);
     },
 
-    // Portal -----------------------------------------------------------------
-    getPortalSettings(): Promise<DataResponse<HrPortalSettings>> {
-      return api.get(`${base}/portal/settings`);
+    // Settings ---------------------------------------------------------------
+    getSettings(): Promise<DataResponse<HrSettings>> {
+      return api.get(`${base}/settings`);
     },
-    updatePortalSettings(body: UpdateHrPortalSettingsInput): Promise<DataResponse<HrPortalSettings>> {
-      return api.put(`${base}/portal/settings`, body);
-    },
-    listPortalAccess(params: { kind?: 'employee' | 'client'; companyId?: string; employeeId?: string } = {}): Promise<DataResponse<HrPortalAccess[]>> {
-      return api.get(`${base}/portal/access${qs(params)}`);
-    },
-    invitePortalAccess(body: InviteHrPortalAccessInput): Promise<DataResponse<HrPortalAccess & { emailed: boolean }>> {
-      return api.post(`${base}/portal/access`, body);
-    },
-    revokePortalAccess(id: string): Promise<DataResponse<HrPortalAccess>> {
-      return api.post(`${base}/portal/access/${id}/revoke`, {});
-    },
-    restorePortalAccess(id: string): Promise<DataResponse<HrPortalAccess>> {
-      return api.post(`${base}/portal/access/${id}/restore`, {});
-    },
-    deletePortalAccess(id: string): Promise<void> {
-      return api.delete(`${base}/portal/access/${id}`);
+    updateSettings(body: UpdateHrSettingsInput): Promise<DataResponse<HrSettings>> {
+      return api.put(`${base}/settings`, body);
     },
 
     // My HR (the caller's own employee record) -------------------------------
