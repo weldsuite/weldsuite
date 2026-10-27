@@ -31,6 +31,28 @@ function getContentWrapperClassName(pathname: string): string {
 }
 
 /**
+ * Width of the open member drawer (`TeamMemberDetailsPanel`), which announces
+ * itself with a `member-detail-panel` `{ isOpen, width }` event. The drawer is
+ * fixed-position, so without this the page would sit underneath it instead of
+ * shrinking beside it the way it does for an in-flow object panel.
+ */
+function useMemberPanelWidth(): number {
+  const [width, setWidth] = React.useState(0);
+  // Layout effect: the drawer announces itself from a passive effect, and a
+  // drawer that opens in the same commit as this layout (a `?member=` deep
+  // link with cached members) would otherwise fire before we listen.
+  React.useLayoutEffect(() => {
+    const handler = (e: Event) => {
+      const { isOpen, width: panelWidth } = (e as CustomEvent<{ isOpen: boolean; width: number }>).detail;
+      setWidth(isOpen ? panelWidth : 0);
+    };
+    window.addEventListener('member-detail-panel', handler);
+    return () => window.removeEventListener('member-detail-panel', handler);
+  }, []);
+  return width;
+}
+
+/**
  * Settings layout: breadcrumb header + content. The settings menu (with its
  * back button) is the unified module sidebar that PlatformShell renders for
  * every module, see `useSettingsSidebarItems`.
@@ -41,6 +63,7 @@ export function SettingsLayoutClient({ children }: Readonly<{ children: React.Re
   const pathname = usePathname();
 
   const segments = buildBreadcrumbSegments(pathname, ts.title, ts.menu);
+  const memberPanelWidth = useMemberPanelWidth();
 
   return (
     <div className="flex-1 flex flex-col min-h-0 h-full overflow-hidden">
@@ -49,7 +72,16 @@ export function SettingsLayoutClient({ children }: Readonly<{ children: React.Re
         showBackButton={false}
         moduleKey="settings"
       />
-      <ModuleContent className="overflow-y-auto">
+      <ModuleContent
+        className="overflow-y-auto"
+        aside={
+          // Keeps the drawer's column free. Below md the drawer covers the
+          // whole screen, so there is nothing to make room for.
+          memberPanelWidth > 0 ? (
+            <div aria-hidden className="hidden md:block shrink-0" style={{ width: memberPanelWidth }} />
+          ) : undefined
+        }
+      >
         <div className={getContentWrapperClassName(pathname)}>{children}</div>
       </ModuleContent>
     </div>
