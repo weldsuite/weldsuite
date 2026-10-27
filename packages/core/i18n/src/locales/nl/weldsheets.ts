@@ -568,4 +568,13 @@ export const weldsheets = {
       unplaced: 'De tabel kon niet worden geschreven: het tabblad is verwijderd of hij past niet op de sheet.',
     },
   },
+
+  /** Het WeldAgent-paneel naast een geopende sheet. */
+  agent: {
+    suggestions: {
+      summarize: 'Vat deze sheet samen',
+      totals: 'Voeg onder de selectie een totaalrij toe',
+      explain: 'Leg de formules in de selectie uit',
+    },
+  },
 };

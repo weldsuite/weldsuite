@@ -18,6 +18,7 @@ import {
   Briefcase,
   CheckSquare,
   Globe,
+  Sheet,
   type LucideIcon,
 } from 'lucide-react';
 import type { SearchEntityType } from '@weldsuite/core-api-client/schemas/search';
@@ -37,6 +38,7 @@ export const RESULT_TYPE_LABEL: Record<SearchEntityType, string> = {
   bill: 'Bills',
   project: 'Projects',
   task: 'Tasks',
+  sheet: 'Spreadsheets',
   domain: 'Domains',
 };
 
@@ -53,5 +55,6 @@ export const RESULT_TYPE_ICON: Record<SearchEntityType, LucideIcon | ComponentTy
   bill: Receipt,
   project: Briefcase,
   task: CheckSquare,
+  sheet: Sheet,
   domain: Globe,
 };

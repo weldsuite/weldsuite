@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ArrowUp, CornerDownRight, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
+import { useRecordTags } from './record-tags';
 
 /**
  * The empty-state chips of the general assistant. Each one needs data the
@@ -24,7 +25,10 @@ interface AgentChatInputProps {
   className?: string;
 }
 
-/** The WeldAgent composer: grows with its text, Enter sends, Shift+Enter breaks a line. */
+/**
+ * The WeldAgent composer: grows with its text, Enter sends, Shift+Enter breaks
+ * a line, `@` tags a spreadsheet or another record (`./record-tags`).
+ */
 export function AgentChatInput({
   value,
   onChange,
@@ -37,7 +41,11 @@ export function AgentChatInput({
 }: Readonly<AgentChatInputProps>) {
   const t = getTranslations('common').ai.chat;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const tags = useRecordTags(value, onChange, textareaRef);
   const canSubmit = value.trim().length > 0 && !isSending && !disabled;
+  const submit = () => {
+    if (canSubmit) onSubmit(tags.toSend(value));
+  };
 
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
@@ -54,14 +62,14 @@ export function AgentChatInput({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (canSubmit) onSubmit(value);
+        submit();
       }}
       className={cn('w-full', className)}
     >
       <div
         role="presentation"
         className={cn(
-          'flex cursor-text items-end gap-2 rounded-2xl border bg-background py-2 pl-4 pr-2',
+          'relative flex cursor-text items-end gap-2 rounded-2xl border bg-background py-2 pl-4 pr-2',
           'shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-colors focus-within:border-foreground/25',
           disabled && 'opacity-60',
         )}
@@ -69,15 +77,23 @@ export function AgentChatInput({
           if (!(e.target as HTMLElement).closest('button')) textareaRef.current?.focus();
         }}
       >
+        {tags.menu}
         <textarea
           ref={textareaRef}
           value={value}
           disabled={disabled}
-          onChange={(e) => onChange(e.target.value)}
+          aria-autocomplete="list"
+          aria-expanded={tags.open}
+          onChange={(e) => {
+            onChange(e.target.value);
+            tags.sync(e.target);
+          }}
+          onSelect={(e) => tags.sync(e.currentTarget)}
           onKeyDown={(e) => {
+            if (tags.onKeyDown(e)) return;
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              if (canSubmit) onSubmit(value);
+              submit();
             }
           }}
           placeholder={placeholder ?? t.placeholder}

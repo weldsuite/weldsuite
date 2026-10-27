@@ -244,4 +244,50 @@ describe('default WeldAgent (no agentId)', () => {
     const body = (await res.json()) as { data: { text: string } };
     expect(body.data.text).toContain("couldn't finish");
   });
+
+  it('works on the open sheet and the sheets tagged in the chat, as the caller, and on no other', async () => {
+    const model = scriptedModel([
+      { tool: { name: 'write_spreadsheet_range', input: { spreadsheetId: 'sht_open', range: 'B10', values: [['=SUM(B2:B9)']] } } },
+      { tool: { name: 'read_spreadsheet_range', input: { spreadsheetId: 'sht_elsewhere' } } },
+      { text: 'Added the total in B10 on Q3.' },
+    ]);
+    hoisted.model = model;
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({ data: { cells: 1 } }), { status: 200 }));
+    const { request } = createTestApp('/api/ai', aiRoutes, {
+      context: { permissions: permissions('weldagent:use', 'agents:read', 'sheets:read', 'sheets:update'), tenantDb: db, userId: ME },
+      env: { WORKSPACE_CACHE: undefined, SHEETS_INTERNAL: { fetch } },
+    });
+
+    const res = await request('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'Total column B, like in <@sheet:sht_tagged|Forecast>' }],
+        context: { sheet: { id: 'sht_open', name: 'Budget', tab: 'Q3', selection: 'B2:B9' } },
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(toolNames(model)).toEqual(['list_spreadsheet_tabs', 'read_spreadsheet_range', 'write_spreadsheet_range']);
+    const system = JSON.stringify(model.doGenerateCalls[0].prompt[0]);
+    expect(system).toContain('open (spreadsheetId sht_open), on the tab \\"Q3\\", with B2:B9 selected');
+    expect(system).toContain('\\"Forecast\\" (spreadsheetId sht_tagged)');
+    // The tag reaches the model spelled out, not as a token.
+    const userTurn = JSON.stringify(model.doGenerateCalls[0].prompt.slice(1));
+    expect(userTurn).toContain('spreadsheet \\"Forecast\\" (id sht_tagged)');
+    expect(userTurn).not.toContain('<@sheet:');
+
+    // The write went to sheets-api as the caller; the sheet nobody pointed at was refused before it.
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0][0]).toContain('/sheets/sht_open/write');
+    expect((fetch.mock.calls[0][1].headers as Record<string, string>)['x-weld-user']).toBe(ME);
+    expect(JSON.stringify(model.doGenerateCalls[2].prompt)).toContain('only work in the spreadsheet the user has open or tagged');
+  });
+
+  it('offers no spreadsheet tools without a sheet to work on', async () => {
+    const model = scriptedModel([{ text: 'Which sheet?' }]);
+    hoisted.model = model;
+    await post(app('weldagent:use', 'agents:read', 'sheets:read', 'sheets:update').request, '/chat', 'Add a total row');
+    expect(model.doGenerateCalls[0].tools ?? []).toEqual([]);
+  });
 });

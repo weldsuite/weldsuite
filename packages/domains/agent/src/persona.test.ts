@@ -5,6 +5,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import {
   PERSONA_FALLBACK_TEXT,
   PERSONA_MAX_STEPS,
+  PERSONA_SHEET_MAX_STEPS,
   PERSONA_TOOL_IDS,
   buildPersonaCall,
   buildPersonaSystem,
@@ -14,9 +15,13 @@ import {
   personaPermissionKeys,
   personaReplyText,
   personaRowScope,
+  personaSheetIds,
+  selectPersonaSheetTools,
   selectPersonaTools,
   sumStepUsage,
+  type PersonaSheets,
 } from './persona';
+import { sheetToolsLimitedTo } from './sheets-tools';
 import { PLATFORM_TOOLS, type PlatformToolDefinition, type ToolContext } from './tools';
 
 const ids = (permissions: string[]) => selectPersonaTools(holdsPermissions(permissions)).map((t) => t.id);
@@ -385,5 +390,105 @@ describe('createPersonaTextTransform', () => {
     // The stream's usage covers both model requests (what the route bills).
     expect(finished).toHaveBeenCalledTimes(1);
     expect(finished.mock.calls[0][0]).toMatchObject({ inputTokens: 100, outputTokens: 10 });
+  });
+});
+
+describe('spreadsheets the user points at', () => {
+  const open = { id: 'sht_open', name: 'Budget', tab: 'Q3', selection: 'B2:D9' };
+  const sheetIds = (permissions: string[], sheets?: PersonaSheets) =>
+    selectPersonaSheetTools(holdsPermissions(permissions), sheets).map((t) => t.id);
+
+  it('offers no spreadsheet tools without a sheet to work on', () => {
+    expect(sheetIds(['*'])).toEqual([]);
+    expect(sheetIds(['*'], { open: null, tagged: [] })).toEqual([]);
+  });
+
+  it('reads with sheets:read and writes only with sheets:update as well', () => {
+    expect(sheetIds(['sheets:read'], { open })).toEqual(['sheets.list_tabs', 'sheets.read_range']);
+    expect(sheetIds(['sheets:read', 'sheets:update'], { open })).toEqual([
+      'sheets.list_tabs',
+      'sheets.read_range',
+      'sheets.write_range',
+    ]);
+    expect(sheetIds(['sheets:update'], { open })).toEqual([]);
+    expect(sheetIds(['weldsheets:sheets:read'], { tagged: [{ id: 'sht_1', label: 'Forecast' }] })).toEqual([
+      'sheets.list_tabs',
+      'sheets.read_range',
+    ]);
+  });
+
+  it('never offers finding or creating spreadsheets', () => {
+    const names = selectPersonaSheetTools(() => true, { open }).map((t) => t.name);
+    expect(names).not.toContain('find_spreadsheets');
+    expect(names).not.toContain('create_spreadsheet');
+  });
+
+  it('lists the open sheet first and each sheet once', () => {
+    expect(personaSheetIds({ open, tagged: [{ id: 'sht_2', label: null }, { id: 'sht_open', label: 'Budget' }] })).toEqual([
+      'sht_open',
+      'sht_2',
+    ]);
+  });
+
+  it('consults the spreadsheet permissions', () => {
+    expect(personaPermissionKeys()).toEqual(expect.arrayContaining(['sheets:read', 'sheets:update']));
+  });
+
+  it('refuses a spreadsheet the user did not open or tag, before calling sheets-api', async () => {
+    const fetch = vi.fn();
+    const ctx = { db: {} as never, agentId: 'agt_x', actorUserId: 'user_1', workspaceId: 'ws_1', env: { SHEETS_INTERNAL: { fetch } } } as unknown as ToolContext;
+    const [, read] = sheetToolsLimitedTo(['sht_open']);
+    expect(await read.execute(ctx, { spreadsheetId: 'sht_other' })).toEqual({
+      error: 'You can only work in the spreadsheet the user has open or tagged.',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('works on an allowed spreadsheet as the user, through sheets-api', async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ data: { values: [[1]] } }), { status: 200 }));
+    const ctx = { db: {} as never, agentId: 'agt_x', actorUserId: 'user_1', workspaceId: 'ws_1', env: { SHEETS_INTERNAL: { fetch } } } as unknown as ToolContext;
+    const [, read] = sheetToolsLimitedTo(['sht_open']);
+    expect(await read.execute(ctx, { spreadsheetId: 'sht_open', range: 'A1' })).toEqual({ values: [[1]] });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://sheets-api.internal/internal/agent/ws_1/sheets/sht_open/read',
+      expect.objectContaining({ headers: expect.objectContaining({ 'x-weld-user': 'user_1' }) }),
+    );
+  });
+
+  it('tells it which sheet is open, where the user is, and how to change it', () => {
+    const text = buildPersonaSystem({
+      tools: selectPersonaSheetTools(holdsPermissions(['sheets:read', 'sheets:update']), { open }),
+      sheets: { open, tagged: [{ id: 'sht_2', label: 'Forecast' }] },
+      today: '2026-10-27',
+    });
+    expect(text).toContain('SPREADSHEETS');
+    expect(text).toContain('The user has the spreadsheet "Budget" open (spreadsheetId sht_open), on the tab "Q3", with B2:D9 selected.');
+    expect(text).toContain('The user tagged: "Forecast" (spreadsheetId sht_2).');
+    expect(text).toContain('read and change these spreadsheets, and only these');
+    expect(text).toContain('Only the spreadsheets below');
+    expect(text).not.toContain('you have no lookup tools for this user, so you cannot read');
+  });
+
+  it('says it may only read when the user cannot edit spreadsheets', () => {
+    const text = buildPersonaSystem({
+      tools: selectPersonaSheetTools(holdsPermissions(['sheets:read']), { open }),
+      sheets: { open },
+      today: '2026-10-27',
+    });
+    expect(text).toContain('You cannot change them');
+    expect(text).not.toContain('write_spreadsheet_range');
+  });
+
+  it('gets more steps when it has a sheet to work on', async () => {
+    const call = await buildPersonaCall({
+      db: {} as never,
+      workspaceId: 'ws_1',
+      userId: 'user_1',
+      timezone: 'Europe/Amsterdam',
+      holds: holdsPermissions(['sheets:read', 'sheets:update']),
+      sheets: { open },
+    });
+    expect(call.toolNames).toEqual(['list_spreadsheet_tabs', 'read_spreadsheet_range', 'write_spreadsheet_range']);
+    expect(PERSONA_SHEET_MAX_STEPS).toBeGreaterThan(PERSONA_MAX_STEPS);
   });
 });

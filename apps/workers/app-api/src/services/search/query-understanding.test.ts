@@ -78,6 +78,14 @@ describe('parseWithLexicon', () => {
     expect(parseWithLexicon('openstaande rekeningen')!.entityTypes).toEqual(['bill']);
   });
 
+  it('knows spreadsheets by their English and Dutch names', () => {
+    expect(parseWithLexicon('spreadsheet Budget')).toMatchObject({ entityTypes: ['sheet'], lexicalTerm: 'Budget' });
+    expect(parseWithLexicon('sheets about Budget')).toMatchObject({ entityTypes: ['sheet'], lexicalTerm: 'Budget' });
+    expect(parseWithLexicon('rekenblad Begroting')).toMatchObject({ entityTypes: ['sheet'], lexicalTerm: 'Begroting' });
+    expect(parseWithLexicon('rekenbladen van Piet')!.entityTypes).toEqual(['sheet']);
+    expect(shouldUnderstand('Budget spreadsheets')).toBe(true);
+  });
+
   it('preserves the original casing of the extracted term', () => {
     expect(parseWithLexicon('ticket for ACME B.V.')!.lexicalTerm).toBe('ACME B.V.');
   });

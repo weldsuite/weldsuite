@@ -103,3 +103,28 @@ describe('postChatMessage realtime + notification payloads', () => {
     expect(channel.preview).toBe('hey @Ann can you check?');
   });
 });
+
+describe('postChatMessage record references', () => {
+  const userMentionPings = () => rtCalls.filter((c) => c.method === 'chatUserMention').map((c) => c.args[1]);
+
+  it('stores a sheet token as a record reference, never as a user mention', async () => {
+    const message = await postChatMessage(ctx(), { content: 'numbers are in <@sheet:sht_1|Budget 2026>' });
+
+    // `entity:<type>:<id>`, not a "user" named `sheet` (which would also be pinged).
+    expect(message.mentions).toEqual(['entity:sheet:sht_1']);
+    expect(mentionPushes).toEqual([]);
+    expect(userMentionPings()).toEqual([]);
+  });
+
+  it('tells a person from a sheet in the same message, and only pings the person', async () => {
+    const message = await postChatMessage(ctx(), {
+      content: 'hey <@user_ann> see <@sheet:sht_1|Budget 2026> and <@ticket:tkt_1|Broken pump>',
+    });
+
+    expect(message.mentions).toEqual(['user_ann', 'entity:sheet:sht_1', 'entity:ticket:tkt_1']);
+    expect(mentionPushes).toEqual([
+      { mentionedUserId: 'user_ann', preview: 'hey @Ann see @Budget 2026 and @Broken pump' },
+    ]);
+    expect(userMentionPings()).toEqual(['user_ann']);
+  });
+});

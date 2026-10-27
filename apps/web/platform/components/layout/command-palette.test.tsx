@@ -76,6 +76,22 @@ vi.mock('@/hooks/queries/use-global-search-queries', () => ({
                   },
                 ],
               },
+              ...(q.includes('budget')
+                ? [
+                    {
+                      type: 'sheet',
+                      items: [
+                        {
+                          id: 'sht_1',
+                          type: 'sheet',
+                          title: 'Budget 2026',
+                          subtitle: null,
+                          url: '/weldsheets/sht_1',
+                        },
+                      ],
+                    },
+                  ]
+                : []),
             ],
           }
         : undefined,
@@ -200,6 +216,21 @@ describe('CommandPalette', () => {
 
     expect(openPanel).toHaveBeenCalledWith({ type: 'company', id: 'cus_acme' });
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('labels a spreadsheet as Spreadsheets and opens its page, since it has no entity sheet', async () => {
+    const user = userEvent.setup();
+    render(<CommandPalette />);
+    openWithShortcut();
+
+    await user.type(await screen.findByTestId('cmdk-input'), 'budget');
+
+    const record = await screen.findByRole('option', { name: /Budget 2026/ });
+    expect(record).toHaveTextContent('Spreadsheets');
+    fireEvent.click(record);
+
+    expect(push).toHaveBeenCalledWith('/weldsheets/sht_1');
+    expect(openPanel).not.toHaveBeenCalled();
   });
 
   it('toggles the theme from the actions group', async () => {

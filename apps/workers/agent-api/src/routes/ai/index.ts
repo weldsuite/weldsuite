@@ -61,6 +61,10 @@ import {
   type PersonaCall,
 } from '@weldsuite/agent-domain/persona';
 import { isWorkspaceAgentModel } from '@weldsuite/app-api-client/schemas/workspace-agents';
+import { aiChatContextSchema } from '@weldsuite/app-api-client/schemas/ai';
+import { describeUserTags, taggedSheetsIn } from '@weldsuite/agent-domain/record-tokens';
+import { openSheetInstructions } from '@weldsuite/agent-domain/sheets-tools';
+import type { PersonaSheets } from '@weldsuite/agent-domain/persona';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -96,6 +100,8 @@ const chatSchema = z.object({
   maxTokens: z.number().int().min(1).max(8192).optional(),
   /** When set, load a workspace agent and run with its tools + instructions. */
   agentId: z.string().min(1).max(30).optional(),
+  /** What the person has open (a spreadsheet), for the agent to work on. */
+  context: aiChatContextSchema.optional(),
 });
 
 /**
@@ -187,7 +193,7 @@ app.post(
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 type ChatInput = z.infer<typeof chatSchema>;
 type ChatTurn = { role: 'user' | 'assistant'; content: string };
-type ChatParts = { extraSystem: string; chatMessages: ChatTurn[] };
+type ChatParts = { extraSystem: string; chatMessages: ChatTurn[]; sheets: PersonaSheets };
 type Metering = Awaited<ReturnType<typeof resolveAiMetering>>;
 type WorkspaceAgent = NonNullable<Awaited<ReturnType<typeof getAgent>>>;
 type ResolvedPermissions = NonNullable<Awaited<ReturnType<typeof ensurePermissionsResolved>>>;
@@ -206,17 +212,28 @@ function aiErrorResponse(c: AppContext, err: unknown) {
 
 /**
  * Fold `system` turns (plus the optional extra `system` field) into one system
- * string and keep only the user/assistant turns as chat messages.
+ * string and keep only the user/assistant turns as chat messages. The
+ * spreadsheets the person points at are the open one (`context.sheet`) and
+ * the ones tagged in their messages (`<@sheet:id|Budget>`); the tags are then
+ * spelled out for the model.
  */
-function splitChatMessages(messages: ChatInput['messages'], system: string | undefined): ChatParts {
+function splitChatMessages(
+  messages: ChatInput['messages'],
+  system: string | undefined,
+  context?: ChatInput['context'],
+): ChatParts {
   const extraSystem = [
     ...messages.filter((m) => m.role === 'system').map((m) => m.content),
     ...(system ? [system] : []),
   ].join('\n\n');
-  const chatMessages = messages
+  const turns = messages
     .filter((m): m is ChatTurn => m.role !== 'system')
     .map((m) => ({ role: m.role, content: m.content }));
-  return { extraSystem, chatMessages };
+  return {
+    extraSystem,
+    chatMessages: describeUserTags(turns),
+    sheets: { open: context?.sheet ?? null, tagged: taggedSheetsIn(turns) },
+  };
 }
 
 /**
@@ -233,7 +250,10 @@ async function personaPermissionCheck(c: AppContext): Promise<PermissionCheck> {
   return (key) => held.has(key);
 }
 
-/** The default WeldAgent's instructions and read-only tools for this caller. */
+/**
+ * The default WeldAgent's instructions and tools for this caller: read-only
+ * lookups, plus the spreadsheet tools for the sheets they point at.
+ */
 async function preparePersona(c: AppContext, chat: ChatParts): Promise<PersonaCall> {
   return buildPersonaCall({
     db: c.get('tenantDb'),
@@ -242,6 +262,7 @@ async function preparePersona(c: AppContext, chat: ChatParts): Promise<PersonaCa
     env: c.env,
     holds: await personaPermissionCheck(c),
     extraSystem: chat.extraSystem || undefined,
+    sheets: chat.sheets,
   });
 }
 
@@ -310,7 +331,10 @@ function buildAgentRunArgs(
       env: c.env,
     },
     messages: chat.chatMessages,
-    extraSystem: chat.extraSystem || undefined,
+    // The agent works on the open sheet with its own spreadsheet tools, if it has them.
+    extraSystem:
+      [chat.extraSystem, chat.sheets.open ? openSheetInstructions(chat.sheets.open) : ''].filter(Boolean).join('\n\n') ||
+      undefined,
     actorPermissions: resolved.permissions,
   };
 }
@@ -422,7 +446,7 @@ app.post(
   zValidator('json', chatSchema),
   async (c) => {
     const input = c.req.valid('json');
-    const chat = splitChatMessages(input.messages, input.system);
+    const chat = splitChatMessages(input.messages, input.system, input.context);
     if (chat.chatMessages.length === 0) {
       return error.badRequest(c, 'At least one user message is required');
     }
@@ -547,7 +571,7 @@ app.post(
     }
     const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
 
-    const chat = splitChatMessages(input.messages, input.system);
+    const chat = splitChatMessages(input.messages, input.system, input.context);
     if (chat.chatMessages.length === 0) {
       return error.badRequest(c, 'At least one user message is required');
     }

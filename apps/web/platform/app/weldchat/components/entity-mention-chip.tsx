@@ -2,21 +2,25 @@
  * Clickable inline chip rendered for each `<@type:id|Label>` token.
  *
  * Click-intent contract (matches `command-palette.tsx`):
- * - plain click           → opens the entity sheet (in-place peek)
+ * - plain click           → opens the entity sheet (in-place peek); a record
+ *                           that has a page but no sheet (a spreadsheet)
+ *                           navigates to its page in the app
  * - cmd/ctrl/shift/middle → opens the page route in a new tab
  *
  * Visual states:
  * - loading            → soft chip with the baked-in fallbackLabel
  * - ok                 → live title from `useEntityTitle`
  * - forbidden/notfound → muted, non-clickable, fallback label + tooltip
- * - missing renderer   → defensive plain-text branch (registry covers all 13
- *                        types today; this preserves correctness if the set
- *                        ever shrinks)
+ * - missing renderer   → a record without a sheet renderer but with a page is
+ *                        still a chip (a link to the page); one with neither
+ *                        (people, companies, products and orders have no
+ *                        standalone route here) is plain text
  */
 
 import { useCallback, useRef } from 'react';
 import { Button } from '@weldsuite/ui/components/button';
 import { cn } from '@/lib/utils';
+import { useRouter } from '@/lib/router';
 import { useEntitySheet } from '@/components/entity-sheet/use-entity-sheet';
 import { flagSkipNextEntitySheetAnimation } from '@/components/entity-sheet/skip-animation';
 import {
@@ -61,6 +65,8 @@ const TYPE_STYLES: Record<EntitySheetType, string> = {
     'bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-950 dark:text-purple-400 dark:hover:bg-purple-900',
   task:
     'bg-teal-50 text-teal-700 hover:bg-teal-100 dark:bg-teal-950 dark:text-teal-400 dark:hover:bg-teal-900',
+  sheet:
+    'bg-lime-50 text-lime-700 hover:bg-lime-100 dark:bg-lime-950 dark:text-lime-400 dark:hover:bg-lime-900',
   domain:
     'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
 };
@@ -73,9 +79,13 @@ interface EntityMentionChipProps {
 
 export function EntityMentionChip({ type, id, fallbackLabel }: Readonly<EntityMentionChipProps>) {
   const t = useTranslations();
+  const router = useRouter();
   const { open: openEntitySheet } = useEntitySheet();
   const newTabRef = useRef(false);
   const { status, title } = useEntityTitle(type, id);
+  // A record without a sheet renderer (a spreadsheet) opens as its page instead.
+  const hasSheet: boolean = hasEntitySheetRenderer(type);
+  const pageHref = pageHrefForEntity(type, id);
 
   const captureClickIntent = useCallback((e: React.MouseEvent) => {
     newTabRef.current = e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1;
@@ -90,24 +100,27 @@ export function EntityMentionChip({ type, id, fallbackLabel }: Readonly<EntityMe
       if (newTab) {
         // Some entities (lead, opportunity) have no full page — fall through
         // to opening the in-app sheet instead of a blank new tab.
-        const href = pageHrefForEntity(type, id);
-        if (href) {
-          window.open(toPublicPath(href), '_blank', 'noopener');
+        if (pageHref) {
+          window.open(toPublicPath(pageHref), '_blank', 'noopener');
           return;
         }
+      }
+      if (!hasSheet) {
+        if (pageHref) router.push(pageHref);
+        return;
       }
       // The chat already has a right-side panel (members / pinned / entity /
       // thread) — swapping to the entity sheet should snap, not slide.
       flagSkipNextEntitySheetAnimation();
       openEntitySheet(type, id);
     },
-    [type, id, openEntitySheet],
+    [type, id, hasSheet, pageHref, router, openEntitySheet],
   );
 
-  // Defensive: registry covers all 13 types today. If a type is ever removed
-  // from the registry, render the chip as plain text rather than crashing.
-  // Hooks above this guard run unconditionally so the order is stable.
-  if (!hasEntitySheetRenderer(type)) {
+  // A record with neither a sheet renderer nor a page has nowhere to open:
+  // render the chip as plain text rather than a dead button. Hooks above this
+  // guard run unconditionally so the order is stable.
+  if (!hasSheet && !pageHref) {
     return (
       <span className="inline align-middle text-muted-foreground">
         @{fallbackLabel ?? `${type}:${id}`}

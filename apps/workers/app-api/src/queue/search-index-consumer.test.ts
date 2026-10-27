@@ -26,7 +26,11 @@ vi.mock('../services/search/indexer', () => ({
   })),
 }));
 
-vi.mock('@weldsuite/worker-kit/db', () => ({
+// Only the tenant lookup is faked. The rest stays real: the consumer imports
+// `services/search` (for `buildResultUrl`), which reaches the drive access
+// rules, and those read `schema` as soon as they load.
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
   getTenantDbForWorkspace: vi.fn(async () => ({}) as never),
 }));
 

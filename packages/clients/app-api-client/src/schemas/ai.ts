@@ -13,6 +13,28 @@ export const aiChatMessageSchema = z.object({
   content: z.string().min(1).max(20000),
 });
 
+/**
+ * The spreadsheet open in WeldSheets next to the chat. The agent works on it
+ * with the person's own access; name, tab and selection only tell the agent
+ * where they are looking.
+ */
+export const aiOpenSheetSchema = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string().max(255).optional(),
+  /** Name of the tab on screen. */
+  tab: z.string().max(200).optional(),
+  /** The selected cells, in A1 notation (`B2:D9`, `A1`). */
+  selection: z.string().max(200).optional(),
+});
+
+/** What the person has open while they chat. */
+export const aiChatContextSchema = z.object({
+  sheet: aiOpenSheetSchema.optional(),
+});
+
+export type AiOpenSheet = z.infer<typeof aiOpenSheetSchema>;
+export type AiChatContext = z.infer<typeof aiChatContextSchema>;
+
 export const aiChatSchema = z.object({
   /** Full running conversation — the server is stateless, so send history each turn. */
   messages: z.array(aiChatMessageSchema).min(1).max(50),
@@ -24,6 +46,8 @@ export const aiChatSchema = z.object({
   maxTokens: z.number().int().min(1).max(8192).optional(),
   /** When set, load a workspace agent and run with its tools + instructions. */
   agentId: z.string().min(1).max(30).optional(),
+  /** What the person has open (a spreadsheet), for the agent to work on. */
+  context: aiChatContextSchema.optional(),
 });
 
 export interface AiUsage {

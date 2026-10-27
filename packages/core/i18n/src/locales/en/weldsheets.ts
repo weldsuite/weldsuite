@@ -568,4 +568,13 @@ export const weldsheets = {
       unplaced: "The table couldn't be written: its tab was deleted or it doesn't fit on the sheet.",
     },
   },
+
+  /** The WeldAgent panel next to an open sheet. */
+  agent: {
+    suggestions: {
+      summarize: 'Summarize this sheet',
+      totals: 'Add a totals row below the selection',
+      explain: 'Explain the formulas in the selection',
+    },
+  },
 };

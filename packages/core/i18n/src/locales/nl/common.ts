@@ -942,6 +942,13 @@ export const common = {
         messageAgent: 'Bericht aan {name}…',
         agentEmptyBody: 'Vraag {name} iets, of geef een opdracht.',
         close: 'Sluiten',
+        openSheet: 'Werkt in {name}',
+        mentions: {
+          label: 'Tag een record',
+          hint: 'Typ om een sheet of ander record te taggen',
+          searching: 'Zoeken…',
+          noResults: 'Niets gevonden voor "{query}"',
+        },
         suggestions: {
           today: 'Wat staat er vandaag op mijn bord?',
           tasks: 'Toon mijn openstaande taken',

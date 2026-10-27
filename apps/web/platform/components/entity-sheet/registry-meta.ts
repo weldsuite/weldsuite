@@ -60,6 +60,8 @@ export function pageHrefForEntity(type: EntitySheetType, id: string): string | n
       return `/weldflow/task/${id}`;
     case 'domain':
       return `/weldhost/domains/${id}`;
+    case 'sheet':
+      return `/weldsheets/${id}`;
     default:
       return null;
   }
