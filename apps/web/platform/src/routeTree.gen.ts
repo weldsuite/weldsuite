@@ -17,6 +17,7 @@ import { Route as WeldsignRouteRouteImport } from './routes/weldsign/route'
 import { Route as WeldsheetsRouteRouteImport } from './routes/weldsheets/route'
 import { Route as WeldreachRouteRouteImport } from './routes/weldreach/route'
 import { Route as WeldpassRouteRouteImport } from './routes/weldpass/route'
+import { Route as WeldpanelRouteRouteImport } from './routes/weldpanel/route'
 import { Route as WeldmeetRouteRouteImport } from './routes/weldmeet/route'
 import { Route as WeldmailRouteRouteImport } from './routes/weldmail/route'
 import { Route as WeldknowRouteRouteImport } from './routes/weldknow/route'
@@ -46,6 +47,7 @@ import { Route as WeldsignIndexRouteImport } from './routes/weldsign/index'
 import { Route as WeldsheetsIndexRouteImport } from './routes/weldsheets/index'
 import { Route as WeldreachIndexRouteImport } from './routes/weldreach/index'
 import { Route as WeldpassIndexRouteImport } from './routes/weldpass/index'
+import { Route as WeldpanelIndexRouteImport } from './routes/weldpanel/index'
 import { Route as WeldmeetIndexRouteImport } from './routes/weldmeet/index'
 import { Route as WeldmailIndexRouteImport } from './routes/weldmail/index'
 import { Route as WeldknowIndexRouteImport } from './routes/weldknow/index'
@@ -548,6 +550,11 @@ const WeldpassRouteRoute = WeldpassRouteRouteImport.update({
   path: '/weldpass',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WeldpanelRouteRoute = WeldpanelRouteRouteImport.update({
+  id: '/weldpanel',
+  path: '/weldpanel',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WeldmeetRouteRoute = WeldmeetRouteRouteImport.update({
   id: '/weldmeet',
   path: '/weldmeet',
@@ -692,6 +699,11 @@ const WeldpassIndexRoute = WeldpassIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => WeldpassRouteRoute,
+} as any)
+const WeldpanelIndexRoute = WeldpanelIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WeldpanelRouteRoute,
 } as any)
 const WeldmeetIndexRoute = WeldmeetIndexRouteImport.update({
   id: '/',
@@ -3264,6 +3276,7 @@ export interface FileRoutesByFullPath {
   '/weldknow': typeof WeldknowRouteRouteWithChildren
   '/weldmail': typeof WeldmailRouteRouteWithChildren
   '/weldmeet': typeof WeldmeetRouteRouteWithChildren
+  '/weldpanel': typeof WeldpanelRouteRouteWithChildren
   '/weldpass': typeof WeldpassRouteRouteWithChildren
   '/weldreach': typeof WeldreachRouteRouteWithChildren
   '/weldsheets': typeof WeldsheetsRouteRouteWithChildren
@@ -3321,6 +3334,7 @@ export interface FileRoutesByFullPath {
   '/weldknow/': typeof WeldknowIndexRoute
   '/weldmail/': typeof WeldmailIndexRoute
   '/weldmeet/': typeof WeldmeetIndexRoute
+  '/weldpanel/': typeof WeldpanelIndexRoute
   '/weldpass/': typeof WeldpassIndexRoute
   '/weldreach/': typeof WeldreachIndexRoute
   '/weldsheets/': typeof WeldsheetsIndexRoute
@@ -3782,6 +3796,7 @@ export interface FileRoutesByTo {
   '/weldknow': typeof WeldknowIndexRoute
   '/weldmail': typeof WeldmailIndexRoute
   '/weldmeet': typeof WeldmeetIndexRoute
+  '/weldpanel': typeof WeldpanelIndexRoute
   '/weldpass': typeof WeldpassIndexRoute
   '/weldreach': typeof WeldreachIndexRoute
   '/weldsheets': typeof WeldsheetsIndexRoute
@@ -4220,6 +4235,7 @@ export interface FileRoutesById {
   '/weldknow': typeof WeldknowRouteRouteWithChildren
   '/weldmail': typeof WeldmailRouteRouteWithChildren
   '/weldmeet': typeof WeldmeetRouteRouteWithChildren
+  '/weldpanel': typeof WeldpanelRouteRouteWithChildren
   '/weldpass': typeof WeldpassRouteRouteWithChildren
   '/weldreach': typeof WeldreachRouteRouteWithChildren
   '/weldsheets': typeof WeldsheetsRouteRouteWithChildren
@@ -4277,6 +4293,7 @@ export interface FileRoutesById {
   '/weldknow/': typeof WeldknowIndexRoute
   '/weldmail/': typeof WeldmailIndexRoute
   '/weldmeet/': typeof WeldmeetIndexRoute
+  '/weldpanel/': typeof WeldpanelIndexRoute
   '/weldpass/': typeof WeldpassIndexRoute
   '/weldreach/': typeof WeldreachIndexRoute
   '/weldsheets/': typeof WeldsheetsIndexRoute
@@ -4722,6 +4739,7 @@ export interface FileRouteTypes {
     | '/weldknow'
     | '/weldmail'
     | '/weldmeet'
+    | '/weldpanel'
     | '/weldpass'
     | '/weldreach'
     | '/weldsheets'
@@ -4779,6 +4797,7 @@ export interface FileRouteTypes {
     | '/weldknow/'
     | '/weldmail/'
     | '/weldmeet/'
+    | '/weldpanel/'
     | '/weldpass/'
     | '/weldreach/'
     | '/weldsheets/'
@@ -5240,6 +5259,7 @@ export interface FileRouteTypes {
     | '/weldknow'
     | '/weldmail'
     | '/weldmeet'
+    | '/weldpanel'
     | '/weldpass'
     | '/weldreach'
     | '/weldsheets'
@@ -5677,6 +5697,7 @@ export interface FileRouteTypes {
     | '/weldknow'
     | '/weldmail'
     | '/weldmeet'
+    | '/weldpanel'
     | '/weldpass'
     | '/weldreach'
     | '/weldsheets'
@@ -5734,6 +5755,7 @@ export interface FileRouteTypes {
     | '/weldknow/'
     | '/weldmail/'
     | '/weldmeet/'
+    | '/weldpanel/'
     | '/weldpass/'
     | '/weldreach/'
     | '/weldsheets/'
@@ -6178,6 +6200,7 @@ export interface RootRouteChildren {
   WeldknowRouteRoute: typeof WeldknowRouteRouteWithChildren
   WeldmailRouteRoute: typeof WeldmailRouteRouteWithChildren
   WeldmeetRouteRoute: typeof WeldmeetRouteRouteWithChildren
+  WeldpanelRouteRoute: typeof WeldpanelRouteRouteWithChildren
   WeldpassRouteRoute: typeof WeldpassRouteRouteWithChildren
   WeldreachRouteRoute: typeof WeldreachRouteRouteWithChildren
   WeldsheetsRouteRoute: typeof WeldsheetsRouteRouteWithChildren
@@ -6267,6 +6290,13 @@ declare module '@tanstack/react-router' {
       path: '/weldpass'
       fullPath: '/weldpass'
       preLoaderRoute: typeof WeldpassRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/weldpanel': {
+      id: '/weldpanel'
+      path: '/weldpanel'
+      fullPath: '/weldpanel'
+      preLoaderRoute: typeof WeldpanelRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/weldmeet': {
@@ -6471,6 +6501,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/weldpass/'
       preLoaderRoute: typeof WeldpassIndexRouteImport
       parentRoute: typeof WeldpassRouteRoute
+    }
+    '/weldpanel/': {
+      id: '/weldpanel/'
+      path: '/'
+      fullPath: '/weldpanel/'
+      preLoaderRoute: typeof WeldpanelIndexRouteImport
+      parentRoute: typeof WeldpanelRouteRoute
     }
     '/weldmeet/': {
       id: '/weldmeet/'
@@ -10851,6 +10888,18 @@ const WeldmeetRouteRouteWithChildren = WeldmeetRouteRoute._addFileChildren(
   WeldmeetRouteRouteChildren,
 )
 
+interface WeldpanelRouteRouteChildren {
+  WeldpanelIndexRoute: typeof WeldpanelIndexRoute
+}
+
+const WeldpanelRouteRouteChildren: WeldpanelRouteRouteChildren = {
+  WeldpanelIndexRoute: WeldpanelIndexRoute,
+}
+
+const WeldpanelRouteRouteWithChildren = WeldpanelRouteRoute._addFileChildren(
+  WeldpanelRouteRouteChildren,
+)
+
 interface WeldpassRouteRouteChildren {
   WeldpassIndexRoute: typeof WeldpassIndexRoute
   WeldpassProjectIdIndexRoute: typeof WeldpassProjectIdIndexRoute
@@ -11241,6 +11290,7 @@ const rootRouteChildren: RootRouteChildren = {
   WeldknowRouteRoute: WeldknowRouteRouteWithChildren,
   WeldmailRouteRoute: WeldmailRouteRouteWithChildren,
   WeldmeetRouteRoute: WeldmeetRouteRouteWithChildren,
+  WeldpanelRouteRoute: WeldpanelRouteRouteWithChildren,
   WeldpassRouteRoute: WeldpassRouteRouteWithChildren,
   WeldreachRouteRoute: WeldreachRouteRouteWithChildren,
   WeldsheetsRouteRoute: WeldsheetsRouteRouteWithChildren,

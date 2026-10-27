@@ -26,6 +26,7 @@ import {
   FileSpreadsheet,
   FileText,
   Signature,
+  ChartSpline,
   type LucideIcon,
 } from 'lucide-react';
 import type { AppLogo } from '@/components/app-sidebar-layout';
@@ -153,6 +154,18 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: {
       iconLight: '/assets/images/weldsign/logo-light.svg',
       iconDark: '/assets/images/weldsign/logo-dark.svg',
+    },
+    sidebarIconClass: 'h-6 w-6 object-contain',
+  },
+  // WeldPanel. Icon-only logo like WeldPass: a rising line with a cursor dot,
+  // analytics and the recordings behind them.
+  weldpanel: {
+    lucideIcon: ChartSpline,
+    shortName: 'Analytics',
+    icon: '/assets/images/weldpanel/icon.svg',
+    logo: {
+      iconLight: '/assets/images/weldpanel/logo-light.svg',
+      iconDark: '/assets/images/weldpanel/logo-dark.svg',
     },
     sidebarIconClass: 'h-6 w-6 object-contain',
   },
