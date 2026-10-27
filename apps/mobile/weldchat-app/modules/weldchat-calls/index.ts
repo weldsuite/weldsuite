@@ -17,6 +17,7 @@
  */
 
 import { requireOptionalNativeModule } from 'expo';
+import { Platform } from 'react-native';
 
 interface EventSubscription {
   remove(): void;
@@ -45,6 +46,8 @@ export interface NativeRingLabels {
 interface WeldChatCallsNative {
   configure(declineUrl: string | null): void;
   getVoipToken(): string | null;
+  /** Absent in binaries built before the China gate (they always use CallKit). */
+  isCallKitAvailable?(): boolean;
   reportIncomingCall(payload: NativeCallPayload): void;
   showIncomingCall(payload: NativeCallPayload, labels: NativeRingLabels): boolean;
   endCall(callId: string): void;
@@ -68,6 +71,16 @@ export function configureNativeCalls(declineUrl: string | null): void {
 /** iOS PushKit token (hex), once iOS issued it. Null on Android. */
 export function getVoipToken(): string | null {
   return native?.getVoipToken() ?? null;
+}
+
+/**
+ * iOS: whether CallKit may ring. False in mainland China, where MIIT does not
+ * allow it (App Review guideline 5): no VoIP token, and calls ring in-app.
+ * False on Android and without the native module.
+ */
+export function isCallKitAvailable(): boolean {
+  if (Platform.OS !== 'ios' || !native) return false;
+  return native.isCallKitAvailable?.() ?? true;
 }
 
 export function addVoipTokenListener(listener: (token: string) => void): () => void {
