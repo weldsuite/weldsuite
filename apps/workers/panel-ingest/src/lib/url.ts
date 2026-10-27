@@ -18,11 +18,22 @@ const SECRET_WORDS = new Set([
 /** Run-together names (`accesstoken`, `apikey`) end in one of these. */
 const SECRET_SUFFIXES = ['token', 'secret', 'password', 'apikey'];
 
-/** `a@b.c` without whitespace: one `@` with something before it and a dot with something after it. */
+/**
+ * Whether a word holds an address (`a@b.c`): something before an `@`, then a
+ * dot with something before and after it. Errs towards stripping, like the
+ * SDK's masking: a trailing dot (`jane@acme.com.`) or several addresses
+ * (`a@x.com,b@y.com`) count.
+ */
+function looksLikeEmailWord(word: string): boolean {
+  const at = word.indexOf('@');
+  if (at <= 0) return false;
+  const dot = word.indexOf('.', at + 2);
+  return dot !== -1 && dot < word.length - 1;
+}
+
+/** Whether any word of a (decoded) value holds an address, also inside a sentence. */
 function looksLikeEmail(value: string): boolean {
-  const at = value.indexOf('@');
-  const dot = value.lastIndexOf('.');
-  return !/\s/.test(value) && at > 0 && at === value.lastIndexOf('@') && dot > at + 1 && dot < value.length - 1;
+  return value.split(/\s+/).some(looksLikeEmailWord);
 }
 
 function words(name: string): string[] {

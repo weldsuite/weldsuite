@@ -53,11 +53,17 @@ export function cssSelector(el: Element): string {
   return parts.join(' > ').slice(0, 512);
 }
 
-/** `a@b.c`: one `@` with something before it and a dot with something after it. */
+/**
+ * Whether a word holds an address (`a@b.c`): something before an `@`, then a
+ * dot with something before and after it. Errs towards masking: a word with
+ * a trailing dot (`support@acme.com.`) or several addresses
+ * (`a@x.com,b@y.com`) counts.
+ */
 function looksLikeEmail(word: string): boolean {
   const at = word.indexOf('@');
-  const dot = word.lastIndexOf('.');
-  return at > 0 && at === word.lastIndexOf('@') && dot > at + 1 && dot < word.length - 1;
+  if (at <= 0) return false;
+  const dot = word.indexOf('.', at + 2);
+  return dot !== -1 && dot < word.length - 1;
 }
 
 /**

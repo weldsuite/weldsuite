@@ -21,6 +21,16 @@ describe('isSecretParam', () => {
     expect(isSecretParam('ref', 'someone@example.com')).toBe(true);
     expect(isSecretParam('ref', 'not an email')).toBe(false);
   });
+
+  it('flags an address with a trailing dot, several addresses, or one inside a sentence', () => {
+    expect(isSecretParam('ref', 'jane@acme.com.')).toBe(true);
+    expect(isSecretParam('ref', 'a@x.com,b@y.com')).toBe(true);
+    expect(isSecretParam('q', 'contact jane@acme.com please')).toBe(true);
+  });
+
+  it('leaves values that only look a bit like an address', () => {
+    for (const value of ['@weldsuite', 'a@b', 'a@.com', 'a@b.']) expect(isSecretParam('ref', value), value).toBe(false);
+  });
 });
 
 describe('parsePageUrl', () => {
