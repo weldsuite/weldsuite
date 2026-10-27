@@ -1221,6 +1221,32 @@ async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn)
   };
 }
 
+/** A sub-agent's call: its own tools, narrowed to the actor, attributed to it. */
+function runMemberTool(
+  input: Pick<AgentExecutorInput, 'toolContext' | 'skipApprovals'>,
+  member: SubagentMember,
+  name: string,
+  args: unknown,
+  invocations: StoredToolInvocation[],
+) {
+  const def = member.tools.find((tool) => tool.name === name);
+  if (!def) {
+    const error = `Tool "${name}" is not available to ${member.agent.name} right now.`;
+    invocations.push({ toolName: name, state: 'error', args, result: { error } });
+    return { result: { error }, isError: true };
+  }
+  return executePlatformTool(
+    def,
+    { ...input.toolContext, agentId: member.agent.id, actorCanEdit: member.canEdit },
+    args,
+    invocations,
+    {
+      autoReviewEnabled: member.agent.autoReviewEnabled,
+      skipApprovals: input.skipApprovals,
+    },
+  );
+}
+
 /**
  * Runs a custom tool call: refused when the tool is not allowed this turn.
  * Exported for tests.
@@ -1242,25 +1268,7 @@ export function customToolRunner(
       invocations.push({ toolName: name, state: 'error', args, result: { error } });
       return { result: { error }, isError: true };
     }
-    if (member) {
-      // A sub-agent's call: its own tools, narrowed to the actor, attributed to it.
-      const def = member.tools.find((tool) => tool.name === name);
-      if (!def) {
-        const error = `Tool "${name}" is not available to ${member.agent.name} right now.`;
-        invocations.push({ toolName: name, state: 'error', args, result: { error } });
-        return { result: { error }, isError: true };
-      }
-      return executePlatformTool(
-        def,
-        { ...input.toolContext, agentId: member.agent.id, actorCanEdit: member.canEdit },
-        args,
-        invocations,
-        {
-          autoReviewEnabled: member.agent.autoReviewEnabled,
-          skipApprovals: input.skipApprovals,
-        },
-      );
-    }
+    if (member) return runMemberTool(input, member, name, args, invocations);
     // One question per turn: the user answers one card, then the agent continues.
     // The same question again (the model asked twice in one go) gets the same
     // answer and is not recorded again; a different one is refused.

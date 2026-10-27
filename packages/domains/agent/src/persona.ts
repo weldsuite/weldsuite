@@ -217,7 +217,7 @@ export async function buildPersonaCall(input: PersonaCallInput): Promise<Persona
  * that was cut short (the SDK only reports the total of a reply that finished).
  */
 export function sumStepUsage(
-  steps: ReadonlyArray<{ usage: { inputTokens?: number | undefined; outputTokens?: number | undefined } }>,
+  steps: ReadonlyArray<{ usage: { inputTokens?: number; outputTokens?: number } }>,
 ): { inputTokens: number; outputTokens: number; totalTokens: number } {
   let inputTokens = 0;
   let outputTokens = 0;

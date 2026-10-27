@@ -438,7 +438,8 @@ async function replyAsAgent(params: {
   // show Approve / Reject under it; with nothing else to say, it says that.
   const approvals = pendingApprovalsOf(result.toolInvocations);
   const text = (result.text || '').trim() || (approvals.length > 0 ? approvalsNotice(approvals) : '');
-  const posted = text ? await post(text, approvals.length > 0 ? { approvals } : {}) : null;
+  const metadata = approvals.length > 0 ? { approvals } : {};
+  const posted = text ? await post(text, metadata) : null;
   await completeAgentRun(db, {
     runId,
     agentId: agent.id,

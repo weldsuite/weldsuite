@@ -32,11 +32,12 @@ export type MessageBlock =
 const MAX_DEPTH = 4;
 
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
-const HEADING = /^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/;
+/** The closing `#`s and surrounding space are trimmed by {@link headingText}. */
+const HEADING = /^\s{0,3}(#{1,6})\s(.*)$/;
 const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
 /** indent · marker (`-`, `*`, `+`, `•`, `1.`, `1)`) · gap · text */
-const ITEM = /^( *)([-*+•]|\d{1,4}[.)])( +)(.*)$/;
+const ITEM = /^( *)([-*+•]|\d{1,4}[.)])( +)([^ ].*)?$/;
 
 function expandTabs(line: string): string {
   return line.replace(/^\t+/, (tabs) => '    '.repeat(tabs.length));
@@ -48,7 +49,16 @@ function indentOf(line: string): number {
 
 function matchItem(line: string): { indent: number; marker: string; gap: number; text: string } | null {
   const m = ITEM.exec(line);
-  return m ? { indent: m[1].length, marker: m[2], gap: Math.min(m[3].length, 4), text: m[4] } : null;
+  return m ? { indent: m[1].length, marker: m[2], gap: Math.min(m[3].length, 4), text: m[4] ?? '' } : null;
+}
+
+/** A heading's text without its optional closing run of `#`s ("# Title ##" → "Title"; "# C#" keeps its `#`). */
+function headingText(raw: string): string {
+  const text = raw.trim();
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '#') end--;
+  if (end < text.length && end > 0 && /\s/.test(text[end - 1])) return text.slice(0, end).trim();
+  return text;
 }
 
 const isOrderedMarker = (marker: string): boolean => /\d/.test(marker);
@@ -62,8 +72,56 @@ function closesFence(line: string, opener: string): boolean {
   return trimmed.length >= opener.length && trimmed === opener[0].repeat(trimmed.length);
 }
 
-function parseList(lines: string[], start: number, depth: number): { block: MessageBlock; next: number } {
-  const first = matchItem(lines[start]) as NonNullable<ReturnType<typeof matchItem>>;
+type ListItem = NonNullable<ReturnType<typeof matchItem>>;
+
+/** A block read from `lines` at some index, and the index after it. */
+type BlockRead = { block: MessageBlock; next: number };
+
+/**
+ * Where an indented continuation resumes after the blank line at `start`, or
+ * null when none follows (blank lines stay in an item only in that case).
+ */
+function continuationAfterBlanks(lines: string[], start: number, baseIndent: number): number | null {
+  let k = start + 1;
+  while (k < lines.length && lines[k].trim() === '') k++;
+  return k < lines.length && indentOf(lines[k]) >= baseIndent + 2 ? k : null;
+}
+
+/** The lines that belong to the list item at `start`, and the index after them. */
+function collectItemBody(lines: string[], start: number, baseIndent: number, item: ListItem): { body: string[]; next: number } {
+  const contentIndent = item.indent + item.marker.length + item.gap;
+  const body: string[] = [item.text];
+  let j = start + 1;
+  while (j < lines.length) {
+    const line = lines[j];
+    if (line.trim() === '') {
+      const resume = continuationAfterBlanks(lines, j, baseIndent);
+      if (resume === null) break;
+      for (let b = j; b < resume; b++) body.push('');
+      j = resume;
+      continue;
+    }
+    const indent = indentOf(line);
+    if (indent >= baseIndent + 2) body.push(line.slice(Math.min(contentIndent, indent)));
+    // Lazy continuation: a wrapped line of the item's text.
+    else if (!startsBlock(line) && lines[j - 1].trim() !== '') body.push(line.trim());
+    else break;
+    j++;
+  }
+  return { body, next: j };
+}
+
+/** A loose list (blank line between items) is still one list: the index of its next item, else `i`. */
+function nextLooseItem(lines: string[], i: number, baseIndent: number, ordered: boolean): number {
+  let k = i;
+  while (k < lines.length && lines[k].trim() === '') k++;
+  if (k === i || k >= lines.length) return i;
+  const next = matchItem(lines[k]);
+  return next && next.indent < baseIndent + 2 && isOrderedMarker(next.marker) === ordered ? k : i;
+}
+
+function parseList(lines: string[], start: number, depth: number): BlockRead {
+  const first = matchItem(lines[start]) as ListItem;
   const baseIndent = first.indent;
   const ordered = isOrderedMarker(first.marker);
   const startNumber = ordered ? Number.parseInt(first.marker, 10) : 1;
@@ -73,51 +131,66 @@ function parseList(lines: string[], start: number, depth: number): { block: Mess
   while (i < lines.length) {
     const item = matchItem(lines[i]);
     if (!item || item.indent >= baseIndent + 2 || isOrderedMarker(item.marker) !== ordered) break;
-
-    const contentIndent = item.indent + item.marker.length + item.gap;
-    const body: string[] = [item.text];
-    let j = i + 1;
-    while (j < lines.length) {
-      const line = lines[j];
-      if (line.trim() === '') {
-        // Blank lines stay in the item only when an indented continuation follows.
-        let k = j + 1;
-        while (k < lines.length && lines[k].trim() === '') k++;
-        if (k < lines.length && indentOf(lines[k]) >= baseIndent + 2) {
-          for (let b = j; b < k; b++) body.push('');
-          j = k;
-          continue;
-        }
-        break;
-      }
-      const indent = indentOf(line);
-      if (indent >= baseIndent + 2) {
-        body.push(line.slice(Math.min(contentIndent, indent)));
-        j++;
-        continue;
-      }
-      if (startsBlock(line)) break;
-      // Lazy continuation: a wrapped line of the item's text.
-      if (lines[j - 1].trim() !== '') {
-        body.push(line.trim());
-        j++;
-        continue;
-      }
-      break;
-    }
+    const { body, next } = collectItemBody(lines, i, baseIndent, item);
     items.push(parseBlocks(body, depth + 1));
-    i = j;
-
-    // A loose list (blank line between items) is still one list.
-    let k = i;
-    while (k < lines.length && lines[k].trim() === '') k++;
-    if (k > i && k < lines.length) {
-      const next = matchItem(lines[k]);
-      if (next && next.indent < baseIndent + 2 && isOrderedMarker(next.marker) === ordered) i = k;
-    }
+    i = nextLooseItem(lines, next, baseIndent, ordered);
   }
 
   return { block: { kind: 'list', ordered, start: startNumber, items }, next: i };
+}
+
+function readFence(lines: string[], i: number): BlockRead | null {
+  const fence = FENCE.exec(lines[i]);
+  if (!fence) return null;
+  const body: string[] = [];
+  let j = i + 1;
+  while (j < lines.length && !closesFence(lines[j], fence[1])) body.push(lines[j++]);
+  // Past the closing fence (an unclosed one runs to the end of the message).
+  return { block: { kind: 'code', text: body.join('\n') }, next: j + 1 };
+}
+
+function readHeading(lines: string[], i: number): BlockRead | null {
+  const heading = HEADING.exec(lines[i]);
+  if (!heading) return null;
+  const level = Math.min(heading[1].length, 3) as 1 | 2 | 3;
+  return { block: { kind: 'heading', level, text: headingText(heading[2]) }, next: i + 1 };
+}
+
+function readRule(lines: string[], i: number): BlockRead | null {
+  return RULE.test(lines[i]) ? { block: { kind: 'rule' }, next: i + 1 } : null;
+}
+
+function readQuote(lines: string[], i: number, depth: number): BlockRead | null {
+  if (depth >= MAX_DEPTH || !QUOTE.test(lines[i])) return null;
+  const quoted: string[] = [];
+  let j = i;
+  while (j < lines.length) {
+    const q = QUOTE.exec(lines[j]);
+    if (!q) break;
+    quoted.push(q[1]);
+    j++;
+  }
+  return { block: { kind: 'quote', blocks: parseBlocks(quoted, depth + 1) }, next: j };
+}
+
+function readList(lines: string[], i: number, depth: number): BlockRead | null {
+  return depth < MAX_DEPTH && matchItem(lines[i]) ? parseList(lines, i, depth) : null;
+}
+
+const BLOCK_READERS: ReadonlyArray<(lines: string[], i: number, depth: number) => BlockRead | null> = [
+  readFence,
+  readHeading,
+  readRule,
+  readQuote,
+  readList,
+];
+
+function readBlock(lines: string[], i: number, depth: number): BlockRead | null {
+  for (const read of BLOCK_READERS) {
+    const result = read(lines, i, depth);
+    if (result) return result;
+  }
+  return null;
 }
 
 function parseBlocks(lines: string[], depth: number): MessageBlock[] {
@@ -133,60 +206,16 @@ function parseBlocks(lines: string[], depth: number): MessageBlock[] {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    if (line.trim() === '') {
+    const blank = line.trim() === '';
+    const read = blank ? null : readBlock(lines, i, depth);
+    if (read) {
       flush();
-      i++;
+      blocks.push(read.block);
+      i = read.next;
       continue;
     }
-
-    const fence = FENCE.exec(line);
-    if (fence) {
-      flush();
-      const body: string[] = [];
-      i++;
-      while (i < lines.length && !closesFence(lines[i], fence[1])) body.push(lines[i++]);
-      i++; // the closing fence (an unclosed one runs to the end of the message)
-      blocks.push({ kind: 'code', text: body.join('\n') });
-      continue;
-    }
-
-    const heading = HEADING.exec(line);
-    if (heading) {
-      flush();
-      blocks.push({ kind: 'heading', level: Math.min(heading[1].length, 3) as 1 | 2 | 3, text: heading[2] });
-      i++;
-      continue;
-    }
-
-    if (RULE.test(line)) {
-      flush();
-      blocks.push({ kind: 'rule' });
-      i++;
-      continue;
-    }
-
-    if (depth < MAX_DEPTH && QUOTE.test(line)) {
-      flush();
-      const quoted: string[] = [];
-      while (i < lines.length) {
-        const q = QUOTE.exec(lines[i]);
-        if (!q) break;
-        quoted.push(q[1]);
-        i++;
-      }
-      blocks.push({ kind: 'quote', blocks: parseBlocks(quoted, depth + 1) });
-      continue;
-    }
-
-    if (depth < MAX_DEPTH && matchItem(line)) {
-      flush();
-      const { block, next } = parseList(lines, i, depth);
-      blocks.push(block);
-      i = next;
-      continue;
-    }
-
-    paragraph.push(line.trim());
+    if (blank) flush();
+    else paragraph.push(line.trim());
     i++;
   }
   flush();

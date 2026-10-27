@@ -60,9 +60,20 @@ export function normalizeExplicitTriggers(triggers: readonly string[]): {
 // Reading the instructions
 // ---------------------------------------------------------------------------
 
-/** Words that make a clause something the agent must NOT do, or does not have. */
-const NEGATION =
-  /\b(?:no|not|never|none|nor|cannot|can't|cant|don't|dont|doesn't|doesnt|do not|does not|won't|will not|shouldn't|should not|mustn't|must not|without|avoid|refrain|unless|except|instead of|rather than)\b/i;
+/**
+ * Words that make a clause something the agent must NOT do, or does not have.
+ * "do not", "will not", … are covered by "not".
+ */
+const NEGATION_WORDS: ReadonlySet<string> = new Set([
+  'no', 'not', 'never', 'none', 'nor', 'cannot', "can't", 'cant', "don't", 'dont', "doesn't", 'doesnt',
+  "won't", "shouldn't", "mustn't", 'without', 'avoid', 'refrain', 'unless', 'except',
+]);
+const NEGATION_PHRASE = /\b(?:instead\s+of|rather\s+than)\b/i;
+
+function isNegated(clause: string): boolean {
+  const words = clause.toLowerCase().match(/[a-z']+/g) ?? [];
+  return words.some((word) => NEGATION_WORDS.has(word)) || NEGATION_PHRASE.test(clause);
+}
 
 /** Clauses that only apply when someone asks: that is chat, not a trigger. */
 const ON_REQUEST = new RegExp(
@@ -149,14 +160,17 @@ function clausesOf(instructions: string): string[] {
     .replace(/[‘’]/g, "'")
     // A full stop ends a sentence only before a space: `ticket.created` is one word.
     .split(/[;\n\r•]+|(?<=[.!?])\s+/)
-    .flatMap((sentence) => sentence.split(/[,:()–—]|\s-\s|\s+(?:but|however|although|though|while|whereas)\s+/i))
+    // Whitespace is collapsed first so the split needs no `\s+` on both sides (which backtracks).
+    .flatMap((sentence) =>
+      sentence.replace(/\s+/g, ' ').split(/[,:()–—]| - | (?:but|however|although|though|while|whereas) /i),
+    )
     .map((clause) => clause.trim())
     .filter(Boolean);
 }
 
 /** A clause that tells the agent what NOT to do, or that only applies when asked. */
 function isExcluded(clause: string): boolean {
-  return NEGATION.test(clause) || ON_REQUEST.test(clause);
+  return isNegated(clause) || ON_REQUEST.test(clause);
 }
 
 /** Events a clause says the agent reacts to. */

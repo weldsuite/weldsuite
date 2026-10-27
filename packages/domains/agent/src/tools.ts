@@ -363,11 +363,9 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       // here are used as given (an empty list: chat only), and stay when a
       // later save does not repeat them.
       const explicit = args.triggers ? normalizeExplicitTriggers(args.triggers) : null;
-      const eventSubscriptions = explicit
-        ? explicit.subscriptions
-        : hasExplicitTriggers(existing.enabledTools)
-          ? existing.eventSubscriptions
-          : extractEventSubscriptions(prompt);
+      let eventSubscriptions = existing.eventSubscriptions;
+      if (explicit) eventSubscriptions = explicit.subscriptions;
+      else if (!hasExplicitTriggers(existing.enabledTools)) eventSubscriptions = extractEventSubscriptions(prompt);
       const nextName = args.name.trim();
       const { splitGrantable } = await import('./grants');
       const { granted, refused } = splitGrantable(args.permissions ?? [], {
