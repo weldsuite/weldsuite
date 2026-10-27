@@ -1,0 +1,55 @@
+# WeldSuite panel-ingest worker — WeldPanel's public collector.
+#
+# Tracked sites send events and recording chunks here (docs/plans/weldpanel.md):
+#   pnl.weldsuite.org        production
+#   pnl-test.weldsuite.org   test
+# The host name is still an open item in the plan; it avoids words ad-block
+# lists match (analytics, track, collect).
+#
+# Never binds a tenant database (ADR DATA-008). No secrets yet.
+
+# Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
+name = "weldsuite-panel-ingest-dev"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+ENVIRONMENT = "development"
+
+# ============ TEST ENVIRONMENT ============
+[env.test]
+logpush = true
+name = "weldsuite-panel-ingest-test"
+workers_dev = false
+routes = [
+  { pattern = "pnl-test.weldsuite.org", custom_domain = true }
+]
+
+[env.test.vars]
+ENVIRONMENT = "test"
+
+[env.test.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ============ PRODUCTION ENVIRONMENT ============
+[env.production]
+logpush = true
+name = "weldsuite-panel-ingest"
+workers_dev = false
+routes = [
+  { pattern = "pnl.weldsuite.org", custom_domain = true }
+]
+
+[env.production.vars]
+ENVIRONMENT = "production"
+
+# Head-sampled: every tracked page view on every customer site lands here.
+[env.production.observability]
+enabled = true
+head_sampling_rate = 0.05

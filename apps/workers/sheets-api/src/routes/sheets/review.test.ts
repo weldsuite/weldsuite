@@ -182,6 +182,22 @@ describe('connected tables', () => {
     expect(await call<SheetDataSource[]>(app().request(`/api/sheets/${sheet.id}/data-sources`))).toEqual([]);
   });
 
+  it('puts a table on a new tab of its own, at A1', async () => {
+    await member(ALICE, 'OWNER');
+    await db.insert(schema.companies).values({ id: 'co_1', name: 'Acme', displayName: 'Acme', leadScore: 10 } as typeof schema.companies.$inferInsert);
+    const sheet = await create({ name: 'CRM' });
+    const meta = metaFor(sheet.id);
+    const room = rooms.roomFor(`${WORKSPACE}:${sheet.id}`).room;
+    const created = await call<SheetDataRefreshResult>(
+      app().request(`/api/sheets/${sheet.id}/data-sources`, json('POST', { objectType: 'companies', definition, target: { newTab: 'Companies' } })),
+      201,
+    );
+    expect(created.refreshed).toBe(true);
+    const tabs = await room.tabs(meta);
+    expect(tabs.map((t) => t.name)).toEqual(['Sheet1', 'Companies']);
+    expect(await room.readRange(meta, { range: 'Companies!A1:B2' })).toMatchObject({ values: [['Company', 'Staff'], ['Acme', 10]] });
+  });
+
   it('needs the object’s own read permission to connect or change one', async () => {
     const sheet = await create({ name: 'CRM' });
     const keys = ALL.filter((k) => k !== 'companies:read');

@@ -723,6 +723,43 @@ export const APP_CATALOG_SEED: SeedAppEntry[] = [
     isPublished: false,
   },
   {
+    code: 'weldpanel',
+    name: 'WeldPanel',
+    description: 'See how people use your website or app: traffic, funnels and retention, with session recordings and heatmaps.',
+    icon: 'ChartSpline',
+    category: 'Sales & Marketing',
+    path: '/weldpanel',
+    overview:
+      'WeldPanel shows how people use your website or web app, and lets you watch what they did. Paste one script tag and see visitors, sources and top pages; track your own events and follow them through funnels, retention and user paths. Session recordings and heatmaps show where people click, scroll, rage-click or hit an error, and every drop-off in a funnel links to the recordings behind it. Before a visitor accepts cookies WeldPanel counts anonymously and records nothing; data is stored in the EU and inputs are masked by default.',
+    features: [
+      'Traffic overview: visitors, sources, UTM campaigns, pages, countries and devices',
+      'Custom events, funnels, retention and user paths, with breakdowns and saved dashboards',
+      'User profiles for logged-in users, linked to the matching WeldCRM person',
+      'Session recordings with inputs masked by default',
+      'Click, scroll and area heatmaps',
+      'Rage clicks, dead clicks, quick backs and JavaScript errors flagged',
+      'AI summaries of a recording or of everyone who dropped out of a funnel',
+      'Cookieless counting until consent, EU data storage',
+    ],
+    howItWorks: [
+      { title: 'Add a project', description: 'One per website or app.' },
+      { title: 'Paste the snippet', description: 'A script tag on your site, or the npm package in your app.' },
+      { title: 'Track what matters', description: 'Pageviews and clicks are automatic; add your own events and identify logged-in users.' },
+      { title: 'Watch and fix', description: 'Find the drop-off, watch the recordings behind it, and see what to change.' },
+    ],
+    sortOrder: 158,
+    version: '0.1.0',
+    provider: 'WeldSuite',
+    verified: true,
+    releasedAt: '2026-10-27',
+    websiteUrl: null,
+    documentationUrl: null,
+    contactUrl: SUPPORT_EMAIL,
+    // Not installable from the App Store until projects and the snippet work
+    // (phase 1 of docs/plans/weldpanel.md); staff publish the row then.
+    isPublished: false,
+  },
+  {
     code: 'weldhr',
     name: 'WeldHR',
     description: 'Run your people operations, with My HR for every employee.',

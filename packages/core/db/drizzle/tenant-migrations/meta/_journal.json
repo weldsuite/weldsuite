@@ -1625,6 +1625,13 @@
       "when": 1793050439306,
       "tag": "0231_weldhr_drop_workforce_portal",
       "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "7",
+      "when": 1793120150001,
+      "tag": "0232_weldpanel",
+      "breakpoints": true
     }
   ]
 }

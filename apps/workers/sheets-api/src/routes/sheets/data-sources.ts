@@ -26,7 +26,9 @@ import {
   updateSheetDataSourceSchema,
   type SheetDataRefreshResult,
 } from '@weldsuite/app-api-client/schemas/sheets';
+import type { DataTablePlace } from '@weldsuite/sheets-engine';
 import type { Env, Variables } from '../../types';
+import { newTabId } from '../../room/people';
 import type { SheetRecord } from '../../services/sheets';
 import { buildRefresh } from '../../services/data-sources/refresh';
 import {
@@ -74,7 +76,10 @@ app.post('/', requirePermission('sheets:update'), zValidator('json', createSheet
     createdById: userId,
   });
   publishEntityEvent({ c, entityType: 'sheet_data_source', entityId: row.id, action: 'created', data: dataSourceEventData(row) });
-  const result = await refreshNow(c, { sheet, clerkOrgId, userId, source: row, at: { sheetId: input.target.tabId, row: input.target.row, col: input.target.col } });
+  const { target } = input;
+  const at: DataTablePlace =
+    'newTab' in target ? { newSheet: { id: newTabId(), name: target.newTab } } : { sheetId: target.tabId, row: target.row, col: target.col };
+  const result = await refreshNow(c, { sheet, clerkOrgId, userId, source: row, at });
   await reschedule(c, sheet, clerkOrgId);
   return success(c, result, 201);
 });
@@ -146,7 +151,7 @@ app.delete('/:sourceId', requirePermission('sheets:update'), async (c) => {
  */
 async function refreshNow(
   c: Ctx,
-  params: { sheet: SheetRecord; clerkOrgId: string; userId: string; source: DataSourceRecord; at?: { sheetId: string; row: number; col: number } },
+  params: { sheet: SheetRecord; clerkOrgId: string; userId: string; source: DataSourceRecord; at?: DataTablePlace },
 ): Promise<SheetDataRefreshResult> {
   const db = c.get('tenantDb');
   const { sheet, clerkOrgId, userId, source } = params;

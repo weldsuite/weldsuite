@@ -331,6 +331,28 @@ export const PERMISSION_CATALOG_OBJECTS: ObjectDefinition[] = [
   },
   objectPermissions('sign_templates', 'Signature templates'),
 
+  // ── Product analytics (WeldPanel) ─────────────────────────────────────
+  // Recordings and people are kept apart from reports: a recording shows what
+  // a visitor saw and did, and a profile carries their email.
+  objectPermissions('panel_projects', 'Tracked projects (WeldPanel)', ['read', 'create', 'update', 'delete', 'manage']),
+  objectPermissions('panel_reports', 'Analytics reports and dashboards'),
+  {
+    key: 'panel_recordings',
+    label: 'Session recordings (WeldPanel)',
+    permissions: [
+      { key: 'panel_recordings:read', label: 'Watch session recordings' },
+      { key: 'panel_recordings:delete', label: 'Delete session recordings' },
+    ],
+  },
+  {
+    key: 'panel_people',
+    label: 'Tracked users (WeldPanel)',
+    permissions: [
+      { key: 'panel_people:read', label: 'View tracked user profiles', description: 'Profiles can include the user\'s email and name.' },
+      { key: 'panel_people:delete', label: 'Erase tracked users', description: 'Removes the profile, its events and its recordings (GDPR erasure).' },
+    ],
+  },
+
   // ── Parcel ────────────────────────────────────────────────────────────
   objectPermissions('parcels',       'Parcels'),
   objectPermissions('carriers',      'Carriers',             ['read', 'create', 'update', 'delete', 'manage']),
@@ -734,6 +756,11 @@ const LEGACY_ADMIN_PERMISSIONS: string[] = [
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void', 'sign_envelopes:manage',
   'sign_templates:read', 'sign_templates:create', 'sign_templates:update', 'sign_templates:delete',
+  // WeldPanel — admins also manage keys, privacy settings and usage, and erase users
+  'panel_projects:read', 'panel_projects:create', 'panel_projects:update', 'panel_projects:delete', 'panel_projects:manage',
+  'panel_reports:read', 'panel_reports:create', 'panel_reports:update', 'panel_reports:delete',
+  'panel_recordings:read', 'panel_recordings:delete',
+  'panel_people:read', 'panel_people:delete',
   // WeldReach — admins also run mailboxes (billed) and settings
   'reach_campaigns:read', 'reach_campaigns:create', 'reach_campaigns:update', 'reach_campaigns:delete',
   'reach_prospects:read', 'reach_prospects:create', 'reach_prospects:update', 'reach_prospects:delete',
@@ -862,6 +889,10 @@ const LEGACY_MEMBER_PERMISSIONS: string[] = [
   'sign_envelopes:read', 'sign_envelopes:create', 'sign_envelopes:update', 'sign_envelopes:delete',
   'sign_envelopes:send', 'sign_envelopes:void',
   'sign_templates:read',
+  // WeldPanel — build their own reports and watch recordings; projects are read-only
+  'panel_projects:read',
+  'panel_reports:read', 'panel_reports:create', 'panel_reports:update', 'panel_reports:delete',
+  'panel_recordings:read', 'panel_people:read',
   // WeldHR — My HR only: their own leave, expenses, sick reports, attendance
   // and payslips. Nobody else's records, no approving. Still needs the WeldHR
   // app assigned and a linked employee record.
@@ -896,6 +927,8 @@ const LEGACY_VIEWER_PERMISSIONS: string[] = [
   'docs:read',
   // WeldSign — read-only: only requests they are a recipient of, and templates
   'sign_envelopes:read', 'sign_templates:read',
+  // WeldPanel — shared reports and dashboards only; no recordings or profiles
+  'panel_projects:read', 'panel_reports:read',
   // WeldReach — read-only
   'reach_campaigns:read', 'reach_prospects:read', 'reach_inbox:read', 'reach_mailboxes:read',
 ];

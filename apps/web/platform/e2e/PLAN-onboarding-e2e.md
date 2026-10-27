@@ -34,7 +34,7 @@ This is the only spec that exercises Clerk **sign-up** (existing `auth.setup.ts`
 | Concern | Detail |
 |---|---|
 | **Sign-up, not sign-in** | Custom form via `useSignUp()`, not Clerk's `<SignUp>`. Needs `setupClerkTestingToken({ page })` to bypass bot protection (same as `auth.setup.ts`). |
-| **Email OTP** | Clerk **test mode** lets us use a `+clerk_test` email and the fixed verification code **`424242`**, no real inbox. This is the linchpin that makes the flow automatable. |
+| **Email OTP** | Clerk **test mode** lets us use a `+clerk_test` email and the fixed verification code **`424242`**, no real inbox. This is the linchpin that makes the flow automatable. In Test mode Clerk sends no email at all to a `+clerk_test` address (codes, links, invitations, notices), so the flow must not depend on anything Clerk would mail. |
 | **Real provisioning** | `handleSubmit()` calls `completeOnboarding()` → creates Clerk org + Neon tenant DB, then polls `/onboarding/database-status` (up to 90× / 2s = 3 min). Test timeout must accommodate this. |
 | **Cleanup** | `/test-fixtures/reset` only wipes *entities inside an existing workspace*. It does **not** delete a Clerk org or drop a tenant DB. A new teardown endpoint is required (Part B). |
 | **Project placement** | Must run in `chromium-unauth` (no `storageState`) → file goes in `e2e/specs/unauth/`. |
@@ -94,7 +94,7 @@ This is the only spec that exercises Clerk **sign-up** (existing `auth.setup.ts`
 workflow scripts, not specs, specs may use them freely)
 ```
 const stamp = Date.now();
-const email = `weldsuite-e2e+clerk_test_${stamp}@example.com`;  // +clerk_test = Clerk test addr
+const email = `weldsuite-e2e-${stamp}+clerk_test@example.com`;  // subaddress exactly +clerk_test
 const password = 'E2eTest!' + stamp;                              // meets 8+/upper/lower/number
 const orgName = `E2E Onboarding ${stamp}`;
 ```

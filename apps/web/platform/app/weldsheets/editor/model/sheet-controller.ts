@@ -8,6 +8,7 @@ import {
   isDateFormat,
   isError,
   localizeFormula,
+  MAX_ROWS,
   normalize,
   parseInput,
   Sheet,
@@ -27,6 +28,7 @@ import {
   type ChartData,
   type CellPatch,
   type ConditionalStyle,
+  type DataTable,
   type DataValidation,
   type FormatCache,
   type CellStyle,
@@ -79,6 +81,9 @@ export type BorderKind = 'all' | 'outer' | 'inner' | 'top' | 'bottom' | 'left' |
 
 /** The side panels of the editor. */
 export type SidePanel = 'formats' | 'validation' | 'chart' | 'pivot' | 'comments' | 'versions' | 'data' | null;
+
+/** What can be asked of a connected table from its chip on the grid; the WeldSuite data panel does it. */
+export type DataTableAction = 'refresh' | 'edit' | 'disconnect';
 
 /** A pivot table on the active sheet, with the number format each of its values shows in. */
 type PivotOutput = PivotTableLayout & { formats: (string | undefined)[] };
@@ -133,6 +138,8 @@ export class SheetController {
   focusedThread: string | null = null;
   /** A new comment on the active cell was asked for (Ctrl+Alt+M, the menu); the comments panel opens its box. */
   commentRequested = false;
+  /** An action on a connected table asked for on the grid; the WeldSuite data panel takes it (`takeTableRequest`). */
+  tableRequest: { id: string; action: DataTableAction } | null = null;
   /** The find bar (Ctrl+F), with replacing (Ctrl+H), when open. */
   find: 'find' | 'replace' | null = null;
   /** Bumped on every change; the React snapshot. */
@@ -266,6 +273,53 @@ export class SheetController {
     this.focusedThread = threadId;
     this.panel = 'comments';
     this.emit();
+  }
+
+  // -------------------------------------------------------------------------
+  // Connected tables
+  // -------------------------------------------------------------------------
+
+  /** The connected table on the active tab that holds (row, col). */
+  dataTableAt(row: number, col: number): DataTable | undefined {
+    return this.sheet.dataTables.find((t) => row >= t.range.r1 && row <= t.range.r2 && col >= t.range.c1 && col <= t.range.c2);
+  }
+
+  /** Selects a connected table of the active tab, header and records. */
+  selectDataTable(id: string): void {
+    const table = this.sheet.dataTables.find((t) => t.id === id);
+    if (!table) return;
+    const { r1, c1 } = table.range;
+    this.select({ ranges: [{ ...table.range }], active: { row: r1, col: c1 }, anchor: { row: r1, col: c1 } });
+  }
+
+  /** Asks the WeldSuite data panel to refresh, edit or disconnect a connected table, and opens it. */
+  requestTableAction(id: string, action: DataTableAction): void {
+    if (this.readOnly) return;
+    this.tableRequest = { id, action };
+    this.panel = 'data';
+    this.emit();
+  }
+
+  /** The table action waiting for the data panel, now taken. */
+  takeTableRequest(): { id: string; action: DataTableAction } | null {
+    const request = this.tableRequest;
+    this.tableRequest = null;
+    return request;
+  }
+
+  /** Whether the sheet's filter is the one on this connected table's header. */
+  tableFiltered(id: string): boolean {
+    const table = this.sheet.dataTables.find((t) => t.id === id);
+    const filter = this.sheet.filter;
+    return !!table && !!filter && filter.range.r1 === table.range.r1 && filter.range.c1 === table.range.c1 && filter.range.c2 === table.range.c2;
+  }
+
+  /** Filters a connected table (its header gets the filter buttons: sort and filter), or removes that filter. A sheet has one filter. */
+  toggleTableFilter(id: string): void {
+    const table = this.sheet.dataTables.find((t) => t.id === id);
+    if (!table) return;
+    const filter = this.tableFiltered(id) ? null : { range: { ...table.range }, columns: [] };
+    this.apply({ type: 'setFilter', sheetId: this.activeSheetId, filter });
   }
 
   /** Whether a cell of the active tab has a thread: true for an open one, false for only resolved ones. */
@@ -1059,6 +1113,13 @@ export class SheetController {
     const count = Math.min(hi - lo + 1, 1000);
     const at = where === 'before' ? lo : hi + 1;
     this.apply({ type: 'insertDims', sheetId: this.activeSheetId, sheetName: this.sheet.name, axis, at, count });
+  }
+
+  /** Grows the active sheet by `count` empty rows at the bottom, up to the sheet maximum. */
+  addRows(count: number): void {
+    const rowCount = Math.min(MAX_ROWS, this.sheet.rowCount + Math.max(0, Math.floor(count)));
+    if (rowCount === this.sheet.rowCount) return;
+    this.apply({ type: 'setGridSize', sheetId: this.activeSheetId, rowCount });
   }
 
   deleteDims(axis: 'row' | 'col'): void {

@@ -210,13 +210,20 @@ export type SheetDataRefresh = (typeof SHEET_DATA_REFRESH)[number];
  */
 export type SheetDataRefreshError = 'invalid' | 'no_permission' | 'no_access' | 'failed' | 'unplaced';
 
-/** `POST /api/sheets/:id/data-sources`: connect a table, written at `target` (a tab's cell) by its first refresh. */
+/**
+ * `POST /api/sheets/:id/data-sources`: connect a table, written by its first
+ * refresh at `target`: a tab's cell, or a new tab of its own named `newTab`
+ * (numbered when the name is taken).
+ */
 export const createSheetDataSourceSchema = z
   .object({
     objectType: z.enum(SHEET_DATA_OBJECT_KEYS),
     definition: sheetDataDefinitionSchema,
     refresh: z.enum(SHEET_DATA_REFRESH).default('manual'),
-    target: z.object({ tabId: z.string().min(1).max(200), row: z.number().int().min(0), col: z.number().int().min(0) }),
+    target: z.union([
+      z.object({ tabId: z.string().min(1).max(200), row: z.number().int().min(0), col: z.number().int().min(0) }),
+      z.object({ newTab: z.string().trim().min(1).max(100) }),
+    ]),
   })
   .superRefine((v, ctx) => {
     const problem = checkSheetDataDefinition(v.objectType, v.definition);

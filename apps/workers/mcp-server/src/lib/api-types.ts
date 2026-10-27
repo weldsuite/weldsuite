@@ -1,3 +1,4 @@
+import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { TenantTier } from '@weldsuite/db/schema/master';
 import type { Env } from '../types/env';
 
@@ -59,6 +60,12 @@ export interface McpSession {
  */
 export interface ApiVariables {
   session: McpSession;
+  /**
+   * The caller as the MCP SDK models it, built by Clerk's `verifyClerkToken`.
+   * Handed to the transport so tools receive it as `extra.authInfo`. Same name
+   * as in Clerk's own Hono adapter (`@clerk/mcp-tools/hono`).
+   */
+  mcpAuth: AuthInfo;
 }
 
 declare module 'hono' {
