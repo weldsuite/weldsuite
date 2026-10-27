@@ -46,6 +46,8 @@ const app = new Hono<{ Bindings: Env }>();
  * from; see lib/internal-auth.ts.
  */
 app.use('/publish/*', requireInternalSecret());
+/** Reads for other workers (presence) take the same proof as publishes. */
+app.use('/internal/*', requireInternalSecret());
 
 /**
  * Project gate for project-keyed rooms (whiteboards).
@@ -349,6 +351,22 @@ app.post('/publish/workspace', async (c) => {
       userId: body.userId,
     }),
   });
+});
+
+/**
+ * Live presence of a workspace's members, for workers that have no socket of
+ * their own (`RealtimePublisher.getPresence`): `{ users: { <userId>: 'online'
+ * | 'away' | 'busy' } }`, anyone missing being offline. `userId` may repeat to
+ * ask about a few members only.
+ */
+app.get('/internal/presence', async (c) => {
+  const workspaceId = c.req.query('workspaceId');
+  if (!workspaceId) return c.text('workspaceId is required', 400);
+
+  const id = c.env.WORKSPACE_HUB.idFromName(await workspaceHubKey(c.env, workspaceId));
+  const url = new URL('https://internal/presence');
+  for (const userId of c.req.queries('userId') ?? []) url.searchParams.append('userId', userId);
+  return c.env.WORKSPACE_HUB.get(id).fetch(url.toString());
 });
 
 // ============================================

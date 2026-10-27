@@ -95,6 +95,8 @@ export type RoomEvent =
 export type WorkspaceClientMessage =
   | { type: 'subscribe'; topics: string[]; since?: string }
   | { type: 'unsubscribe'; topics: string[] }
+  /** This connection's live presence (see `presence.ts`); a new connection starts active, not in a call. */
+  | { type: 'presence'; idle: boolean; inCall: boolean }
   | { type: 'ping' };
 
 /** Messages the WorkspaceHub sends to the client */

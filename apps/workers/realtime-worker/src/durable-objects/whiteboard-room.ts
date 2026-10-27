@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../lib/protocol';
 import { AUTH_HEADERS } from '../lib/protocol';
+import { reciprocateClose } from '../lib/close';
 
 interface WhiteboardPresenceMember {
   userId: string;
@@ -156,7 +157,7 @@ export class WhiteboardRoom extends DurableObject<Env> {
       this.broadcastAll(JSON.stringify({ type: 'presence:leave', userId, sessionId }));
     }
 
-    ws.close(code, reason);
+    reciprocateClose(ws, code, reason);
   }
 
   webSocketError(ws: WebSocket, error: unknown): void {

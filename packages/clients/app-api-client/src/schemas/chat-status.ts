@@ -1,13 +1,17 @@
 import { z } from 'zod';
 
 // ============================================================================
-// WeldChat user status — presence + custom status for the current user.
+// WeldChat user status — the status the current user CHOSE, plus a custom
+// text and emoji. Whether they are connected (online / away / in a call) is
+// live presence, kept by the realtime WorkspaceHub and never set here
+// (`@weldsuite/realtime/presence`).
+//
+// `status`: `online` = automatic (follow live presence), `busy`, `dnd`,
+// `away` (stays away until changed), `offline` = appear offline.
 //
 // Backed by the `chat_user_status` table
 // (packages/db/src/schema/chat-user-status). Rows are per-user; the route
 // upserts the caller's own status row.
-//
-// Permission prefix: `settings:*` (presence lives under workspace settings).
 // ============================================================================
 
 export const setChatStatusSchema = z.object({
