@@ -56,10 +56,12 @@ async function resolveOrigin(db: AgentDb, id: string | null): Promise<ApprovalOr
 
 /**
  * The agent's reply that carried this approval in a room (`metadata.approvals`)
- * learns the decision, so its Approve / Reject buttons go away. Never throws.
+ * learns the decision, so its Approve / Reject buttons go away, for everyone
+ * looking at the room right now too. Never throws.
  */
 async function markChannelApprovalDecided(
   db: AgentDb,
+  env: Env,
   channelId: string,
   approvalId: string,
   status: 'approved' | 'rejected',
@@ -79,10 +81,11 @@ async function markChannelApprovalDecided(
     if (!row) return;
     const metadata = (row.metadata ?? {}) as { approvals?: Array<Record<string, unknown>> };
     const approvals = (metadata.approvals ?? []).map((entry) => (entry.id === approvalId ? { ...entry, status } : entry));
-    await db
-      .update(m)
-      .set({ metadata: { ...metadata, approvals }, updatedAt: new Date() })
-      .where(eq(m.id, row.id));
+    const next = { ...metadata, approvals };
+    await db.update(m).set({ metadata: next, updatedAt: new Date() }).where(eq(m.id, row.id));
+    // Only the metadata changed: the message is not marked edited.
+    const { publishChatMessageUpdated } = await import('@weldsuite/chat-domain/realtime/weldchat-publisher');
+    await publishChatMessageUpdated(env, channelId, { id: row.id, metadata: next });
   } catch (err) {
     console.error('[weldagent/approvals] updating the room message failed:', err);
   }
@@ -132,7 +135,7 @@ export async function executeDecidedApproval(params: {
   };
 
   if (origin.kind === 'channel' && (approval.status === 'approved' || approval.status === 'rejected')) {
-    await markChannelApprovalDecided(db, origin.id, approval.id, approval.status);
+    await markChannelApprovalDecided(db, params.env, origin.id, approval.id, approval.status);
   }
 
   if (approval.status !== 'approved') {

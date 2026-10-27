@@ -39,13 +39,60 @@ export interface WeldChatRealtimeMessage {
   createdAt: string;
   isEdited?: boolean;
   forwardedFrom?: unknown;
-  /** Carries `replyTo` for an inline (Discord-style) reply. */
+  /** Carries `replyTo` for an inline (Discord-style) reply, and an agent reply's `approvals`. */
   metadata?: Record<string, unknown>;
+}
+
+/** What a 'message:updated' event changes on a cached message (always with its id). */
+export type WeldChatRealtimeMessageUpdate = Partial<WeldChatRealtimeMessage> & { id: string };
+
+/** A live message's metadata: what the event carries, plus its inline-reply snapshot. */
+export function realtimeMessageMetadata(
+  event: Pick<Extract<RoomEvent, { type: 'message' }>, 'metadata' | 'replyTo'>,
+): Record<string, unknown> | undefined {
+  const metadata = { ...event.metadata, ...(event.replyTo ? { replyTo: event.replyTo } : {}) };
+  return Object.keys(metadata).length > 0 ? metadata : undefined;
+}
+
+const UPDATABLE_FIELDS = [
+  'authorId',
+  'authorName',
+  'authorAvatar',
+  'authorType',
+  'content',
+  'htmlContent',
+  'type',
+  'parentId',
+  'attachments',
+  'mentions',
+  'mentionsEveryone',
+  'createdAt',
+  'metadata',
+] as const;
+
+/**
+ * The fields a 'message:updated' event changes, and nothing else: the cache
+ * merges this over the message, so a field the event leaves out keeps its
+ * value. A content edit marks the message edited; a metadata change (an
+ * approval decided under an agent's reply) does not.
+ */
+export function realtimeMessageUpdate(
+  id: string,
+  data: Record<string, unknown>,
+): WeldChatRealtimeMessageUpdate {
+  const update: Record<string, unknown> = { id };
+  for (const field of UPDATABLE_FIELDS) {
+    if (data[field] !== undefined) update[field] = data[field];
+  }
+  const edited = typeof data.isEdited === 'boolean' ? data.isEdited : data.content !== undefined;
+  if (edited) update.isEdited = true;
+  return update as WeldChatRealtimeMessageUpdate;
 }
 
 interface UseWeldChatMessagesRealtimeOptions {
   onMessageCreated?: (message: WeldChatRealtimeMessage) => void;
-  onMessageUpdated?: (message: WeldChatRealtimeMessage) => void;
+  /** Gets only the fields that changed (see {@link realtimeMessageUpdate}). */
+  onMessageUpdated?: (message: WeldChatRealtimeMessageUpdate) => void;
   onMessageDeleted?: (messageId: string) => void;
   /** Called when a gap is detected after reconnection. Caller should fetch missed messages. */
   onGapDetected?: (lastKnownMessageId: string | null) => void;
@@ -84,7 +131,7 @@ function roomEventToMessage(
     reactions: {},
     createdAt: new Date(event.ts).toISOString(),
     forwardedFrom: event.forwardedFrom,
-    metadata: event.replyTo ? { replyTo: event.replyTo } : undefined,
+    metadata: realtimeMessageMetadata(event),
   };
 }
 
@@ -149,26 +196,7 @@ export function useWeldChatMessagesRealtime(
 
     // Subscribe to message updates
     const unsubUpdated = client.on('message:updated', (event) => {
-      const data = event.data as Record<string, unknown>;
-      const msg: WeldChatRealtimeMessage = {
-        id: event.id,
-        channelId: (data.channelId as string) || channelId,
-        authorId: (data.authorId as string) || '',
-        authorName: (data.authorName as string) || '',
-        authorAvatar: data.authorAvatar as string | undefined,
-        authorType: data.authorType as string | undefined,
-        content: (data.content as string) || '',
-        htmlContent: data.htmlContent as string | undefined,
-        type: (data.type as string) || 'message',
-        parentId: data.parentId as string | undefined,
-        attachments: data.attachments as WeldChatRealtimeMessage['attachments'],
-        mentions: data.mentions as string[] | undefined,
-        mentionsEveryone: data.mentionsEveryone as boolean | undefined,
-        reactions: {},
-        createdAt: (data.createdAt as string) || '',
-        isEdited: true,
-      };
-      onUpdatedRef.current?.(msg);
+      onUpdatedRef.current?.(realtimeMessageUpdate(event.id, (event.data ?? {}) as Record<string, unknown>));
     });
 
     // Subscribe to message deletions

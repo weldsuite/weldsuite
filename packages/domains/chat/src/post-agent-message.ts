@@ -218,9 +218,17 @@ async function publishAgentMessageRealtime(
   rt: RealtimePublisher,
   ctx: PostAgentChatMessageContext,
   members: RoomMember[],
-  message: { id: string; content: string; parentId?: string | null; replyTo?: ChatReplyReference },
+  message: {
+    id: string;
+    content: string;
+    parentId?: string | null;
+    replyTo?: ChatReplyReference;
+    /** What the caller attached (e.g. `approvals`), so a live message renders like a fetched one. */
+    metadata?: Record<string, unknown>;
+  },
 ): Promise<void> {
   const { orgId, channelId, agentId, agentName, agentIcon } = ctx;
+  const hasMetadata = message.metadata !== undefined && Object.keys(message.metadata).length > 0;
 
   try {
     await rt.chatMessage(channelId, {
@@ -232,6 +240,7 @@ async function publishAgentMessageRealtime(
       authorType: 'agent',
       threadId: message.parentId ?? undefined,
       replyTo: message.replyTo,
+      ...(hasMetadata ? { metadata: message.metadata } : {}),
     });
   } catch (e) {
     console.error('[app-api/chat] agent message realtime publish failed:', e);
@@ -322,6 +331,7 @@ export async function postAgentChatMessage(
       content: input.content,
       parentId: input.parentId,
       replyTo: input.replyTo ?? undefined,
+      metadata: input.metadata,
     });
   }
   await notifyMentionedPeople(rt, ctx, members, { messageId: id, preview, mentions: allMentions, replyTo });

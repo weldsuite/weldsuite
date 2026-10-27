@@ -112,6 +112,32 @@ describe('approvals raised in a room', () => {
     expect(await db.select().from(schema.people).where(eq(schema.people.firstName, 'QA Agent'))).toEqual([]);
   });
 
+  it('tells everyone in the room right away, by updating only the reply’s approvals', async () => {
+    const { approval, messageId } = await parkedAction('create_task', { title: 'Live update' }, 'Create task "Live update"');
+    const published: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const REALTIME = {
+      async fetch(input: RequestInfo | URL, init?: RequestInit) {
+        published.push({ path: new URL(String(input)).pathname, body: JSON.parse(String(init?.body ?? '{}')) });
+        return new Response('{}', { status: 200 });
+      },
+    };
+    const { request } = createTestApp('/api/weldagent', weldagentRoutes, {
+      context: { permissions: permissions('weldagent:use', 'weldagent:read', 'tasks:create'), tenantDb: db, userId: ASKER },
+      env: { REALTIME } as never,
+    });
+
+    expect((await decide(request, approval.id, 'rejected')).status).toBe(200);
+    const update = published.find((p) => p.path === '/publish/chat/chan_apr' && p.body.type === 'message:updated');
+    expect(update?.body).toEqual({
+      type: 'message:updated',
+      id: messageId,
+      data: {
+        id: messageId,
+        metadata: { approvals: [{ id: approval.id, label: 'Create task "Live update"', status: 'rejected' }] },
+      },
+    });
+  });
+
   it('is decided once: a second click finds nothing pending', async () => {
     const { approval } = await parkedAction('create_task', { title: 'Only once' }, 'Create task "Only once"');
     const { request } = asAsker();

@@ -289,6 +289,11 @@ export class RealtimePublisher {
       forwardedFrom?: unknown;
       /** Inline (Discord-style) reply snapshot — `chat_messages.metadata.replyTo`. */
       replyTo?: unknown;
+      /**
+       * The rest of `chat_messages.metadata` the client renders, e.g. an agent
+       * reply's `approvals` (its Approve / Reject cards).
+       */
+      metadata?: Record<string, unknown>;
     },
   ) {
     return this.chatPublish(channelId, {
