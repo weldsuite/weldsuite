@@ -55,7 +55,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
  * namespace and the workspace's `workspaces.id`. Null without a workspace.
  */
 function registryFor(c: Ctx): ProjectRegistry | null {
-  const workspaceId = c.get('internalWorkspaceId');
+  const workspaceId = c.get('workspaceId');
   if (!workspaceId) return null;
   return { masterDb: getMasterDb(c.env), kv: c.env.WORKSPACE_CACHE, workspaceId };
 }

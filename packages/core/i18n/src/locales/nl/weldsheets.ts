@@ -55,6 +55,8 @@ export const weldsheets = {
     addRows: 'Toevoegen',
     addRowsCount: 'Aantal rijen om toe te voegen',
     addRowsSuffix: 'extra rijen onderaan',
+    suggestions: 'Formulesuggesties',
+    namedRange: 'Benoemd bereik',
   },
 
   toolbar: {

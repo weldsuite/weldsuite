@@ -55,11 +55,13 @@ export function referenceText(range: Range, targetSheet: string, editingSheet: s
   return targetSheet === editingSheet ? body : `${quoteSheetName(targetSheet)}!${body}`;
 }
 
+const IDENTIFIER = /[A-Za-z0-9_.]/;
+
 /** The identifier being typed at the caret, when it could be a function name. */
 export function functionPrefixAt(text: string, caret: number): { start: number; prefix: string } | null {
   if (!isFormulaText(text)) return null;
   let start = caret;
-  while (start > 1 && /[A-Za-z0-9_.]/.test(text[start - 1]!)) start--;
+  while (start > 1 && IDENTIFIER.test(text[start - 1]!)) start--;
   const prefix = text.slice(start, caret);
   if (!prefix || !/^[A-Za-z]/.test(prefix)) return null;
   const before = text.slice(0, start).trimEnd();
@@ -67,9 +69,159 @@ export function functionPrefixAt(text: string, caret: number): { start: number; 
   return { start, prefix };
 }
 
-export function suggestFunctions(prefix: string, limit = 8): string[] {
-  const upper = prefix.toUpperCase();
-  return functionNames()
-    .filter((n) => n.startsWith(upper))
-    .slice(0, limit);
+/** Something formula autocomplete offers for the name being typed. */
+export interface FormulaSuggestion {
+  kind: 'function' | 'name';
+  name: string;
+}
+
+export interface SuggestionMatch {
+  /** The identifier being replaced: from `start` to `end` (past the caret when typing inside a word). */
+  start: number;
+  end: number;
+  prefix: string;
+  items: FormulaSuggestion[];
+}
+
+/**
+ * Functions and defined names for the identifier at the caret, as Excel lists
+ * them: the ones that start with it first, then the ones that contain it
+ * ("LOOKUP" → HLOOKUP, VLOOKUP, XLOOKUP). Nothing once the identifier is the
+ * only match and typed in full.
+ */
+export function formulaSuggestions(text: string, caret: number, definedNames: readonly string[] = [], limit = 50): SuggestionMatch | null {
+  const at = functionPrefixAt(text, caret);
+  if (!at) return null;
+  let end = caret;
+  while (end < text.length && IDENTIFIER.test(text[end]!)) end++;
+  const upper = at.prefix.toUpperCase();
+  const all: FormulaSuggestion[] = [
+    ...functionNames().map((name) => ({ kind: 'function' as const, name })),
+    ...definedNames.map((name) => ({ kind: 'name' as const, name })),
+  ];
+  const key = (s: FormulaSuggestion) => s.name.toUpperCase();
+  const byName = (a: FormulaSuggestion, b: FormulaSuggestion) => {
+    if (key(a) === key(b)) return 0;
+    return key(a) < key(b) ? -1 : 1;
+  };
+  const starting = all.filter((s) => key(s).startsWith(upper)).sort(byName);
+  const containing = all.filter((s) => !key(s).startsWith(upper) && key(s).includes(upper)).sort(byName);
+  const items = [...starting, ...containing].slice(0, limit);
+  const complete = items.length === 1 && key(items[0]!) === upper;
+  return { start: at.start, end, prefix: at.prefix, items: complete ? [] : items };
+}
+
+/** The edit text with a suggestion put in place of the identifier: a function gets its opening parenthesis. */
+export function applySuggestion(text: string, match: SuggestionMatch, item: FormulaSuggestion): { text: string; caret: number } {
+  const before = text.slice(0, match.start);
+  const after = text.slice(match.end);
+  if (item.kind === 'name') return { text: before + item.name + after, caret: match.start + item.name.length };
+  const paren = after.startsWith('(') ? '' : '(';
+  return { text: `${before}${item.name}${paren}${after}`, caret: match.start + item.name.length + 1 };
+}
+
+/** A function call the caret is in: the function's name, where it starts, and the argument being typed (0-based). */
+export interface CallAt {
+  name: string;
+  start: number;
+  argIndex: number;
+}
+
+/**
+ * The innermost function call around the caret, for the argument hint.
+ * String literals, quoted sheet names and array constants are skipped;
+ * arguments are counted by the locale's separator (";" where the decimal
+ * point is a comma).
+ */
+export function callAt(text: string, caret: number, locale: FormulaLocale): CallAt | null {
+  if (!isFormulaText(text)) return null;
+  const separator = locale.decimal === ',' ? ';' : ',';
+  const calls: { name: string | null; start: number; argIndex: number }[] = [];
+  let braces = 0;
+  let i = 1;
+  while (i < caret) {
+    const ch = text[i]!;
+    if (ch === '"' || ch === "'") i = closingQuote(text, i);
+    else if (ch === '{') braces++;
+    else if (ch === '}') braces = Math.max(0, braces - 1);
+    else if (ch === '(') calls.push(callFrame(text, i));
+    else if (ch === ')') calls.pop();
+    else if (ch === separator && braces === 0 && calls.length) calls[calls.length - 1]!.argIndex++;
+    i++;
+  }
+  for (let k = calls.length - 1; k >= 0; k--) {
+    const call = calls[k]!;
+    if (call.name) return { name: call.name, start: call.start, argIndex: call.argIndex };
+  }
+  return null;
+}
+
+/** An opening parenthesis: a call when a function name is right before it, a grouping otherwise. */
+function callFrame(text: string, paren: number): { name: string | null; start: number; argIndex: number } {
+  let start = paren;
+  while (start > 1 && IDENTIFIER.test(text[start - 1]!)) start--;
+  const name = text.slice(start, paren);
+  return { name: /^[A-Za-z]/.test(name) ? name.toUpperCase() : null, start, argIndex: 0 };
+}
+
+/** Index of the quote closing the literal opened at `open` (doubled quotes are escapes), or the end of the text. */
+function closingQuote(text: string, open: number): number {
+  const q = text[open];
+  for (let i = open + 1; i < text.length; i++) {
+    if (text[i] !== q) continue;
+    if (text[i + 1] === q) i++;
+    else return i;
+  }
+  return text.length;
+}
+
+/**
+ * A function's argument list from its help (`"number1, [number2], …"`) laid
+ * out for the argument being typed: past the listed arguments, the repeating
+ * group at the end is spelled out with its numbers counted up, as Excel does
+ * (`SUM(number1, [number2], [number3], …)`). `active` is -1 when the function
+ * takes no argument at that position.
+ */
+export function signatureTokens(args: string, argIndex: number): { tokens: string[]; active: number } {
+  const listed = splitArgs(args);
+  const repeats = listed[listed.length - 1] === '…';
+  const named = repeats ? listed.slice(0, -1) : listed;
+  if (!repeats || argIndex < named.length || named.length === 0) {
+    return { tokens: listed, active: argIndex < named.length ? argIndex : -1 };
+  }
+  let groupStart = named.length - 1;
+  for (let i = named.length - 1; i >= 0; i--) {
+    if (named[i]!.startsWith('[')) {
+      groupStart = i;
+      break;
+    }
+  }
+  const group = named.slice(groupStart);
+  const tokens = [...named];
+  let round = 0;
+  while (tokens.length <= argIndex) {
+    round++;
+    const step = round;
+    tokens.push(...group.map((t) => t.replace(/\d+/, (n) => String(Number(n) + step))));
+  }
+  return { tokens: [...tokens, '…'], active: argIndex };
+}
+
+/** How many arguments a help argument list requires and takes in all; `repeats` when it ends in "…". */
+export function argumentCounts(args: string): { required: number; total: number; repeats: boolean } {
+  const listed = splitArgs(args);
+  const repeats = listed[listed.length - 1] === '…';
+  const named = repeats ? listed.slice(0, -1) : listed;
+  let required = 0;
+  let optional = false;
+  for (const token of named) {
+    if (token.startsWith('[')) optional = true;
+    if (!optional) required++;
+    if (token.endsWith(']')) optional = false;
+  }
+  return { required, total: named.length, repeats };
+}
+
+function splitArgs(args: string): string[] {
+  return args ? args.split(', ') : [];
 }

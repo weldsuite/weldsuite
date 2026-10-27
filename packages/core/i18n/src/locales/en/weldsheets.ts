@@ -55,6 +55,10 @@ export const weldsheets = {
     addRows: 'Add',
     addRowsCount: 'Number of rows to add',
     addRowsSuffix: 'more rows at the bottom',
+    /** Label of the formula autocomplete list (functions and named ranges). */
+    suggestions: 'Formula suggestions',
+    /** Shown under a named range in the autocomplete list, before what it refers to. */
+    namedRange: 'Named range',
   },
 
   toolbar: {

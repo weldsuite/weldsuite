@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { fillTarget } from '../model/autofill';
 import { copySelection, moveCells, pasteInto } from '../model/clipboard';
-import { acceptsReference, functionPrefixAt, isFormulaText, referenceText, refsInEdit, suggestFunctions } from '../model/formula-edit';
+import { FormulaAssistPopup, useFormulaAssist } from '../formula-assist';
+import { acceptsReference, referenceText, refsInEdit } from '../model/formula-edit';
 import { handleEditKey, handleGridKey } from '../model/keyboard';
 import { MAX_COLS, MAX_ROWS, type Chart, type Range } from '@weldsuite/sheets-engine';
 import { Button } from '@weldsuite/ui/components/button';
@@ -124,7 +125,6 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   /** An open filter menu (on a filter header cell) or dropdown list (on a list cell). */
   const [cellMenu, setCellMenu] = useState<{ kind: 'filter' | 'list'; row: number; col: number } | null>(null);
   const [, setLabelClock] = useState(0);
-  const [suggestionIndex, setSuggestionIndex] = useState(0);
   const [addRowsCount, setAddRowsCount] = useState(ADD_ROWS_DEFAULT);
   const themeRef = useRef<GridTheme | null>(null);
   const layoutRef = useRef<GridLayout | null>(null);
@@ -747,8 +747,6 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   // Keyboard, typing, clipboard (all on the textarea)
   // -------------------------------------------------------------------------
 
-  const suggestions = editing && editing.origin === 'cell' ? currentSuggestions(editing.text, caret) : [];
-
   const placeCaret = (pos: number) => {
     requestAnimationFrame(() => {
       const el = activeInput();
@@ -758,15 +756,11 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
     });
   };
 
-  const acceptSuggestion = (name: string) => {
-    const edit = controller.editing;
-    if (!edit) return;
-    const at = functionPrefixAt(edit.text, caret);
-    if (!at) return;
-    const text = `${edit.text.slice(0, at.start)}${name}(${edit.text.slice(caret)}`;
+  // Function and name suggestions, and the argument hint, for an in-cell edit (the formula bar has its own).
+  const assist = useFormulaAssist(controller, editing?.origin === 'cell' ? editing.text : null, caret, (text, pos) => {
     controller.updateEdit(text);
-    placeCaret(at.start + name.length + 1);
-  };
+    placeCaret(pos);
+  });
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
@@ -776,7 +770,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
       e.preventDefault();
       return;
     }
-    if (suggestions.length && handleSuggestionKey(e)) return;
+    if (assist.onKeyDown(e)) return;
     const handled = controller.editing ? handleEditKey(controller, e) : handleGridKey(controller, e, pageRows());
     if (handled) e.preventDefault();
   };
@@ -797,27 +791,13 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
     return true;
   };
 
-  const handleSuggestionKey = (e: React.KeyboardEvent): boolean => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const step = e.key === 'ArrowDown' ? 1 : -1;
-      setSuggestionIndex((i) => (i + step + suggestions.length) % suggestions.length);
-      e.preventDefault();
-      return true;
-    }
-    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-      acceptSuggestion(suggestions[Math.min(suggestionIndex, suggestions.length - 1)]!);
-      e.preventDefault();
-      return true;
-    }
-    return false;
-  };
-
   const pageRows = () => Math.max(1, Math.floor(viewH / sheet.rows.defaultSize) - 1);
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
-    setCaret(e.target.selectionStart ?? text.length);
-    setSuggestionIndex(0);
+    const pos = e.target.selectionStart ?? text.length;
+    setCaret(pos);
+    assist.noteTyping(text, pos);
     if (controller.editing) controller.updateEdit(text, 'cell');
     else controller.beginEdit({ text });
   };
@@ -986,38 +966,9 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
       {cellMenu?.kind === 'list' && (
         <ListMenu controller={controller} row={cellMenu.row} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
       )}
-      {suggestions.length > 0 && (
-        <ul
-          className="absolute z-20 min-w-[180px] rounded-md border bg-popover py-1 text-sm text-popover-foreground shadow-md"
-          style={{ left: editRect.x, top: editRect.y + editRect.h + 2 }}
-          role="listbox"
-        >
-          {suggestions.map((name, i) => (
-            <li
-              key={name}
-              role="option"
-              aria-selected={i === suggestionIndex}
-              className={`cursor-pointer px-3 py-1 font-mono ${i === suggestionIndex ? 'bg-accent' : ''}`}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                acceptSuggestion(name);
-              }}
-            >
-              {name}
-            </li>
-          ))}
-        </ul>
-      )}
+      {editorVisible && <FormulaAssistPopup assist={assist} controller={controller} style={{ left: editRect.x, top: editRect.y + editRect.h + 2 }} />}
     </div>
   );
-}
-
-function currentSuggestions(text: string, caret: number): string[] {
-  if (!isFormulaText(text)) return [];
-  const at = functionPrefixAt(text, caret);
-  if (!at) return [];
-  const list = suggestFunctions(at.prefix);
-  return list.length === 1 && list[0] === at.prefix.toUpperCase() ? [] : list;
 }
 
 function measureEditor(text: string, style: Parameters<typeof fontFor>[0]): number {
