@@ -100,7 +100,10 @@ export function formulaSuggestions(text: string, caret: number, definedNames: re
     ...definedNames.map((name) => ({ kind: 'name' as const, name })),
   ];
   const key = (s: FormulaSuggestion) => s.name.toUpperCase();
-  const byName = (a: FormulaSuggestion, b: FormulaSuggestion) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+  const byName = (a: FormulaSuggestion, b: FormulaSuggestion) => {
+    if (key(a) === key(b)) return 0;
+    return key(a) < key(b) ? -1 : 1;
+  };
   const starting = all.filter((s) => key(s).startsWith(upper)).sort(byName);
   const containing = all.filter((s) => !key(s).startsWith(upper) && key(s).includes(upper)).sort(byName);
   const items = [...starting, ...containing].slice(0, limit);
@@ -135,17 +138,16 @@ export function callAt(text: string, caret: number, locale: FormulaLocale): Call
   const separator = locale.decimal === ',' ? ';' : ',';
   const calls: { name: string | null; start: number; argIndex: number }[] = [];
   let braces = 0;
-  for (let i = 1; i < caret; i++) {
+  let i = 1;
+  while (i < caret) {
     const ch = text[i]!;
-    if (ch === '"' || ch === "'") {
-      i = closingQuote(text, i);
-      continue;
-    }
-    if (ch === '{') braces++;
+    if (ch === '"' || ch === "'") i = closingQuote(text, i);
+    else if (ch === '{') braces++;
     else if (ch === '}') braces = Math.max(0, braces - 1);
     else if (ch === '(') calls.push(callFrame(text, i));
     else if (ch === ')') calls.pop();
     else if (ch === separator && braces === 0 && calls.length) calls[calls.length - 1]!.argIndex++;
+    i++;
   }
   for (let k = calls.length - 1; k >= 0; k--) {
     const call = calls[k]!;
@@ -196,8 +198,11 @@ export function signatureTokens(args: string, argIndex: number): { tokens: strin
   }
   const group = named.slice(groupStart);
   const tokens = [...named];
-  for (let k = 1; tokens.length <= argIndex; k++) {
-    tokens.push(...group.map((t) => t.replace(/\d+/, (n) => String(Number(n) + k))));
+  let round = 0;
+  while (tokens.length <= argIndex) {
+    round++;
+    const step = round;
+    tokens.push(...group.map((t) => t.replace(/\d+/, (n) => String(Number(n) + step))));
   }
   return { tokens: [...tokens, '…'], active: argIndex };
 }

@@ -207,10 +207,16 @@ function Signature({ name, tokens, active, separator }: { name: string; tokens: 
       {tokens.map((token, i) => (
         <Fragment key={i}>
           {i > 0 && `${separator} `}
-          <span className={i === active ? 'font-bold text-foreground' : active >= 0 ? 'text-muted-foreground' : undefined}>{token}</span>
+          <span className={tokenClass(i, active)}>{token}</span>
         </Fragment>
       ))}
       )
     </div>
   );
+}
+
+/** The argument being typed stands out; with one being typed, the others step back. */
+function tokenClass(i: number, active: number): string | undefined {
+  if (i === active) return 'font-bold text-foreground';
+  return active >= 0 ? 'text-muted-foreground' : undefined;
 }
