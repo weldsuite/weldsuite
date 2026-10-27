@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   fetched: true,
   decide: vi.fn(),
   toastError: vi.fn(),
+  /** The agent id each render subscribed the pending list with ('' = not subscribed). */
+  subscribed: [] as string[],
 }));
 
 vi.mock('@/lib/i18n/provider', () => ({
@@ -30,10 +32,10 @@ vi.mock('@/lib/i18n/provider', () => ({
 }));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => state.canUse }));
 vi.mock('@/hooks/queries/use-agent-parity-queries', () => ({
-  useAgentApprovals: (agentId: string) => ({
-    data: agentId ? state.pending : undefined,
-    isFetchedAfterMount: state.fetched,
-  }),
+  useAgentApprovals: (agentId: string) => {
+    state.subscribed.push(agentId);
+    return { data: agentId ? state.pending : undefined, isFetchedAfterMount: state.fetched };
+  },
   useDecideAgentApproval: () => ({ mutateAsync: state.decide, isPending: false }),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: state.toastError } }));
@@ -71,6 +73,7 @@ beforeEach(() => {
   state.decide.mockReset();
   state.decide.mockResolvedValue({ id: 'apr_1', status: 'approved' });
   state.toastError.mockReset();
+  state.subscribed = [];
 });
 
 describe('MessageApprovals', () => {
@@ -166,5 +169,36 @@ describe('MessageApprovals', () => {
     renderApprovals({ metadata: { approvals: [{ id: 'apr_1', label, status: 'approved' }] } });
     expect(screen.getByText(`Approved: ${label}`)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+
+  describe('polling the pending list', () => {
+    it('subscribes while the card is open', () => {
+      renderApprovals();
+      expect(state.subscribed.at(-1)).toBe('agt_1');
+    });
+
+    it('does not subscribe for an approval the message shows as decided', () => {
+      renderApprovals({ metadata: { approvals: [{ id: 'apr_1', label, status: 'approved' }] } });
+      expect(state.subscribed.every((id) => id === '')).toBe(true);
+    });
+
+    it('does not subscribe for someone who may not decide', () => {
+      state.canUse = false;
+      renderApprovals();
+      expect(state.subscribed.every((id) => id === '')).toBe(true);
+    });
+
+    it('stops once the person decided', () => {
+      renderApprovals();
+      fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+      expect(state.subscribed.at(-1)).toBe('');
+    });
+
+    it('stops once the list shows it was decided elsewhere', async () => {
+      state.pending = [];
+      renderApprovals({ createdAt: new Date(Date.now() - 60 * 60_000).toISOString() });
+      await waitFor(() => expect(state.subscribed.at(-1)).toBe(''));
+      expect(screen.getByText(`Already handled: ${label}`)).toBeTruthy();
+    });
   });
 });

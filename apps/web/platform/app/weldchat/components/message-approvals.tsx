@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, CircleSlash, ShieldAlert, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';
@@ -42,15 +42,22 @@ function ApprovalCard({
   const [local, setLocal] = useState<LocalDecision | null>(null);
 
   // The agent's still-pending approvals tell a card that someone else got there first.
-  // Not read for people who cannot decide (they only see the card).
-  const { data: pendingList, isFetchedAfterMount } = useAgentApprovals(canDecide ? agentId : '');
+  // Read (and polled) only while this card is still open and the viewer may decide it:
+  // a decided card in the loaded history must not keep polling.
+  const open = canDecide && approval.status === 'pending' && local === null;
+  const { data: pendingList, isFetchedAfterMount } = useAgentApprovals(open ? agentId : '');
   const pending = useMemo(
-    () => (canDecide && isFetchedAfterMount && pendingList ? new Set(pendingList.map((a) => a.id)) : null),
-    [canDecide, isFetchedAfterMount, pendingList],
+    () => (open && isFetchedAfterMount && pendingList ? new Set(pendingList.map((a) => a.id)) : null),
+    [open, isFetchedAfterMount, pendingList],
   );
   const decide = useDecideAgentApproval(agentId);
 
   const state = approvalCardState({ approval, local, pending, askedAt });
+
+  // Decided elsewhere (gone from the pending list): remember it, which also stops the polling.
+  useEffect(() => {
+    if (open && state === 'handled') setLocal('handled');
+  }, [open, state]);
   const labels: Record<ApprovalCardState, string> = {
     waiting: strings.waitingFor,
     approved: strings.approved,

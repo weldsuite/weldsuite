@@ -23,13 +23,16 @@ export default function AgentsPage() {
   const canCreate = useCanAny(['weldagent:create', 'weldagent:manage']);
   // Notification links arrive as ?conversation=<id>: open it under its agent.
   const linked = useSearchParams().get('conversation');
-  const { data: conv, isSuccess: linkedResolved } = useWeldAgentConversation(linked);
+  const { data: conv, isSuccess, isError } = useWeldAgentConversation(linked);
+  // Settled either way: a failed lookup (403, 5xx, offline) must not leave the page loading.
+  const linkedResolved = isSuccess || isError;
 
   useEffect(() => {
     if (!linked || !linkedResolved) return;
     // Agent chats are one continuous chat per person: open the agent.
     if (conv?.agentId) router.replace(`/agents/${conv.agentId}`);
     else if (conv) router.replace(`/new-chat?conversation=${encodeURIComponent(linked)}`);
+    // Gone, not theirs, or the lookup failed: the plain overview.
     else router.replace('/agents');
   }, [conv, linked, linkedResolved, router]);
 
