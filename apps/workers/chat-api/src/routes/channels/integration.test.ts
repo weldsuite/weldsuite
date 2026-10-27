@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { channelsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
@@ -529,5 +529,161 @@ describe('/api/channels · pglite integration', () => {
       .where(eq(schema.chatChannels.id, channelId))
       .limit(1);
     expect(row?.deletedAt).toBeNull();
+  });
+
+  describe('agents in rooms', () => {
+    const now = new Date();
+    const member = 'user_agent_room_member';
+    let openAgent: string;
+    let hiddenAgent: string;
+
+    beforeAll(async () => {
+      openAgent = generateId('agt');
+      hiddenAgent = generateId('agt');
+      await db.insert(schema.weldagentAgents).values([
+        { id: openAgent, name: 'Researcher', status: 'active', visibility: 'workspace', ownerId: 'user_someone_else' },
+        { id: hiddenAgent, name: 'Private helper', status: 'active', visibility: 'private', ownerId: 'user_someone_else' },
+      ]);
+    });
+
+    async function room(type: 'public' | 'private' | 'dm', withMember = true): Promise<string> {
+      const channelId = generateId('ch');
+      await db.insert(schema.chatChannels).values({
+        id: channelId, name: `room-${channelId}`, slug: `room-${channelId}`, type,
+        memberCount: withMember ? 1 : 0, createdAt: now, updatedAt: now,
+      });
+      if (withMember) {
+        await db.insert(schema.chatChannelMembers).values({
+          id: generateId('cmb'), channelId, userId: member, role: 'member', createdAt: now, joinedAt: now,
+        });
+      }
+      return channelId;
+    }
+
+    function asMember(perms: string[] = ['weldagent:use']) {
+      return createTestApp('/api/channels', channelsRoutes, {
+        context: { userId: member, permissions: permissions(...perms), tenantDb: db },
+      }).request;
+    }
+
+    const invite = (request: ReturnType<typeof asMember>, channelId: string, agentIds: string[]) =>
+      request(`/api/channels/${channelId}/agents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentIds }),
+      });
+
+    it('POST /:channelId/agents lets a plain member bring in an agent they can use, and DELETE takes it out', async () => {
+      const channelId = await room('private');
+      const request = asMember();
+
+      const res = await invite(request, channelId, [openAgent]);
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { data: { addedAgentIds: string[] } }).data.addedAgentIds).toEqual([openAgent]);
+
+      const [row] = await db
+        .select({ memberType: schema.chatChannelMembers.memberType })
+        .from(schema.chatChannelMembers)
+        .where(and(eq(schema.chatChannelMembers.channelId, channelId), eq(schema.chatChannelMembers.userId, openAgent)));
+      expect(row?.memberType).toBe('agent');
+      let [channel] = await db.select().from(schema.chatChannels).where(eq(schema.chatChannels.id, channelId));
+      expect(channel?.memberCount).toBe(2);
+
+      // Inviting it again changes nothing.
+      const again = await invite(request, channelId, [openAgent]);
+      expect(((await again.json()) as { data: { addedAgentIds: string[] } }).data.addedAgentIds).toEqual([]);
+
+      const del = await request(`/api/channels/${channelId}/agents/${openAgent}`, { method: 'DELETE' });
+      expect(del.status).toBe(200);
+      [channel] = await db.select().from(schema.chatChannels).where(eq(schema.chatChannels.id, channelId));
+      expect(channel?.memberCount).toBe(1);
+    });
+
+    it('brings in a draft or paused agent too: it still answers when tagged', async () => {
+      const draft = generateId('agt');
+      const paused = generateId('agt');
+      await db.insert(schema.weldagentAgents).values([
+        { id: draft, name: 'New helper', status: 'draft', visibility: 'workspace' },
+        { id: paused, name: 'Resting helper', status: 'paused', visibility: 'workspace' },
+      ]);
+      const channelId = await room('public');
+      const res = await invite(asMember(), channelId, [draft, paused]);
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { data: { addedAgentIds: string[] } }).data.addedAgentIds.sort()).toEqual(
+        [draft, paused].sort(),
+      );
+    });
+
+    it('brings an agent into a record chat the caller may read', async () => {
+      const companyId = generateId('cmp');
+      await db.insert(schema.companies).values({
+        id: companyId, name: 'Agent Corp', displayName: 'Agent Corp', createdAt: now, updatedAt: now,
+      } as unknown as typeof schema.companies.$inferInsert);
+      const channelId = generateId('ch');
+      await db.insert(schema.chatChannels).values({
+        id: channelId, name: 'Agent Corp', slug: `rec-${channelId}`, type: 'entity',
+        entityType: 'company', entityId: companyId, entityDisplayName: 'Agent Corp',
+        memberCount: 0, createdAt: now, updatedAt: now,
+      });
+
+      const crm = ['weldagent:use', 'companies:read', 'companies:scope:all'];
+      expect((await invite(asMember(crm), channelId, [openAgent])).status).toBe(201);
+      // Without the record's permission the chat is out of reach.
+      expect((await invite(asMember(['weldagent:use']), channelId, [openAgent])).status).toBe(403);
+    });
+
+    it('refuses an agent the caller cannot see', async () => {
+      const channelId = await room('public');
+      const res = await invite(asMember(), channelId, [hiddenAgent]);
+      expect(res.status).toBe(403);
+    });
+
+    it('refuses a private room the caller is not in, and DMs', async () => {
+      const outside = await room('private', false);
+      expect((await invite(asMember(), outside, [openAgent])).status).toBe(403);
+      const dm = await room('dm');
+      expect((await invite(asMember(), dm, [openAgent])).status).toBe(400);
+    });
+
+    it('needs weldagent:use', async () => {
+      const channelId = await room('public');
+      expect((await invite(asMember(['channels:read']), channelId, [openAgent])).status).toBe(403);
+    });
+
+    it('DELETE /:channelId/agents/:agentId refuses an agent the caller cannot use', async () => {
+      const channelId = await room('private');
+      await db.insert(schema.chatChannelMembers).values({
+        id: generateId('cmb'), channelId, userId: hiddenAgent, memberType: 'agent', role: 'member',
+        createdAt: now, joinedAt: now,
+      });
+      const res = await asMember()(`/api/channels/${channelId}/agents/${hiddenAgent}`, { method: 'DELETE' });
+      expect(res.status).toBe(403);
+      const [row] = await db
+        .select({ id: schema.chatChannelMembers.id })
+        .from(schema.chatChannelMembers)
+        .where(and(eq(schema.chatChannelMembers.channelId, channelId), eq(schema.chatChannelMembers.userId, hiddenAgent)));
+      expect(row).toBeDefined();
+    });
+
+    it('DELETE /:channelId/agents/:agentId still clears a deleted agent nobody can use', async () => {
+      const goneAgent = generateId('agt');
+      await db.insert(schema.weldagentAgents).values({
+        id: goneAgent, name: 'Retired helper', status: 'active', visibility: 'private',
+        ownerId: 'user_someone_else', deletedAt: new Date(),
+      });
+      const channelId = await room('private');
+      await db.insert(schema.chatChannelMembers).values({
+        id: generateId('cmb'), channelId, userId: goneAgent, memberType: 'agent', role: 'member',
+        createdAt: now, joinedAt: now,
+      });
+      const res = await asMember()(`/api/channels/${channelId}/agents/${goneAgent}`, { method: 'DELETE' });
+      expect(res.status).toBe(200);
+    });
+
+    it('DELETE /:channelId/agents/:agentId only removes agents', async () => {
+      const channelId = await room('private');
+      const res = await asMember()(`/api/channels/${channelId}/agents/${member}`, { method: 'DELETE' });
+      expect(res.status).toBe(400);
+    });
   });
 });

@@ -1,12 +1,12 @@
 /**
- * WeldHR routes — /api/weldhr/*, employee operations for the back office.
- * The public workforce portal is `routes/public-hr-portal`.
+ * WeldHR routes — /api/weldhr/*, employee operations for the back office and
+ * My HR (/me). Everyone who uses WeldHR is a workspace member.
  *
  * Permissions (packages/core/permissions/src/catalog.ts):
  *   employees:read|create|update|delete  directory, assignments, onboarding
  *   employees:sensitive                  decrypt/edit the sensitive block (audited)
  *   employees:manage                     settings: departments, templates, forms,
- *                                        KPI definitions, leave types, portal
+ *                                        KPI definitions, leave types, My HR switches
  *   attendance:read|create|update|delete|approve
  *   leave:read|create|update|delete|approve
  *   declarations:read|create|update|delete|approve  expense claims; approve also marks paid
@@ -14,14 +14,16 @@
  *                                        report for themselves under /me)
  *   coaching:read|create|update|delete
  *   evaluations:read|create|update|delete  evaluations, KPI values, milestones
+ *   announcements:read|create|update|delete  news to employees (they read theirs under /me)
+ *   open shifts use attendance:*; work locations are settings (employees:manage)
  *   employees:self                       My HR: the caller's own record (/me), incl. their
  *                                        payslips, payroll details and tax forms
  *   payroll:read|prepare|approve|manage  /payroll (flag `weldhr-payroll`), see ./payroll
  *
  * Mutations of HR records publish `hr_*` entity events with ids and status
  * only (see helpers.emit). Configuration objects — departments, templates,
- * leave types, evaluation forms, KPI definitions, portal settings — are not
- * entities on the bus. Sensitive reads and portal access changes go to
+ * leave types, evaluation forms, KPI definitions, settings — are not
+ * entities on the bus. Sensitive reads and settings changes go to
  * `hr_audit_events` instead.
  */
 
@@ -46,14 +48,18 @@ import {
   milestonesRoutes,
 } from './performance';
 import { payrollRoutes } from './payroll';
-import { portalRoutes } from './portal';
+import { settingsRoutes } from './settings';
 import {
   attendanceRoutes,
   leaveAllowancesRoutes,
   leaveRequestsRoutes,
   leaveTypesRoutes,
+  openShiftsRoutes,
+  shiftRequestsRoutes,
   shiftsRoutes,
 } from './time';
+import { announcementsRoutes } from './announcements';
+import { workLocationsRoutes } from './work-locations';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -86,6 +92,10 @@ app.route('/clients', clientsRoutes);
 app.route('/checklist-templates', checklistTemplatesRoutes);
 app.route('/checklists', checklistsRoutes);
 app.route('/shifts', shiftsRoutes);
+app.route('/shift-requests', shiftRequestsRoutes);
+app.route('/open-shifts', openShiftsRoutes);
+app.route('/work-locations', workLocationsRoutes);
+app.route('/announcements', announcementsRoutes);
 app.route('/attendance', attendanceRoutes);
 app.route('/leave-types', leaveTypesRoutes);
 app.route('/leave-allowances', leaveAllowancesRoutes);
@@ -98,7 +108,7 @@ app.route('/evaluations', evaluationsRoutes);
 app.route('/kpis', kpisRoutes);
 app.route('/kpi-values', kpiValuesRoutes);
 app.route('/milestones', milestonesRoutes);
-app.route('/portal', portalRoutes);
+app.route('/settings', settingsRoutes);
 // Payroll: gated by the `weldhr-payroll` flag; permissions payroll:read|prepare|approve|manage.
 app.route('/payroll', payrollRoutes);
 app.route('/me', meRoutes);

@@ -1,11 +1,15 @@
 /**
- * WeldHR — employee operations and the workforce portal. Tenant DB.
+ * WeldHR — employee operations. Tenant DB.
+ *
+ * Every employee is a workspace member: `hr_employees.user_id` is their Clerk
+ * user id, and they reach their own record through My HR. The one gap is an
+ * invite that hasn't been accepted yet; such an employee is linked by email
+ * once the member is active (services/weldhr/employees.ts, `linkAcceptedInvites`).
  *
  * The spine of the model is employee ↔ client account: a client account is a
- * CRM `companies` row, and `hr_client_assignments` says who works on it. The
- * workforce portal uses that same table to decide what a client may see, so an
- * assignment is end-dated rather than deleted — history is what a client's
- * "team over time" view reads.
+ * CRM `companies` row, and `hr_client_assignments` says who works on it. An
+ * assignment is end-dated rather than deleted, so a client's "team over time"
+ * stays readable.
  *
  * Personal data that is not needed to run the team (date of birth, national id,
  * home address, emergency contact, pay) lives in `sensitive_encrypted`, one
@@ -13,8 +17,8 @@
  * decrypted for callers holding `employees:sensitive`, and every such read is
  * written to `hr_audit_events`.
  *
- * Everything a client can see is opt-in per record (`shared_with_client`,
- * coaching `visibility = 'client'`). The default is internal.
+ * `shared_with_client` and coaching `visibility = 'client'` date from the
+ * workforce portal (removed); nothing outside the back office reads them now.
  */
 
 import {
@@ -97,6 +101,7 @@ export interface HrChecklistTemplateItem {
 }
 
 export type HrAttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | 'remote' | 'half_day';
+/** `portal`: the employee clocked themselves (My HR; the name is kept from the removed workforce portal). */
 export type HrAttendanceSource = 'portal' | 'manual' | 'import' | 'api';
 
 export type HrLeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
@@ -147,8 +152,6 @@ export type HrKpiDirection = 'higher_better' | 'lower_better';
 export type HrMilestoneType = 'goal' | 'milestone' | 'certification';
 export type HrMilestoneStatus = 'planned' | 'in_progress' | 'achieved' | 'missed';
 
-export type HrPortalAccessKind = 'employee' | 'client';
-export type HrPortalAccessStatus = 'invited' | 'active' | 'revoked';
 
 // ---------------------------------------------------------------------------
 // Organisation
@@ -194,6 +197,11 @@ export const hrEmployees = pgTable('hr_employees', {
   location: varchar('location', { length: 160 }),
   timezone: varchar('timezone', { length: 60 }),
   weeklyHours: doublePrecision('weekly_hours'),
+  /**
+   * `hr_work_locations` this employee may clock in at when the workspace
+   * requires a location. Null or empty: any of the workspace's locations.
+   */
+  workLocationIds: jsonb('work_location_ids').$type<string[]>(),
 
   /** AES-GCM blob of `HrEmployeeSensitive`. Never returned without `employees:sensitive`. */
   sensitiveEncrypted: text('sensitive_encrypted'),
@@ -319,6 +327,87 @@ export const hrShifts = pgTable('hr_shifts', {
   index('hr_shifts_start_idx').on(table.startsAt),
 ]);
 
+/**
+ * A shift nobody is on yet, posted for employees who want to work. An employee
+ * signs up with a shift request pointing here (`hr_shift_requests.open_shift_id`);
+ * a manager approves who gets it, and each approval puts a shift on that
+ * employee's rooster, until `spots` of them are taken. How many are taken is
+ * counted from those approved requests whose shift still exists, never stored.
+ */
+export const hrOpenShifts = pgTable('hr_open_shifts', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  companyId: varchar('company_id', { length: 30 }),
+  /** Only employees of this department (or one under it) see it. Null: everyone. */
+  departmentId: varchar('department_id', { length: 30 }),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  workType: varchar('work_type', { length: 100 }),
+  breakStartsAt: timestamp('break_starts_at', { withTimezone: true }),
+  breakEndsAt: timestamp('break_ends_at', { withTimezone: true }),
+  notes: text('notes'),
+  /** How many people the shift needs. */
+  spots: integer('spots').notNull().default(1),
+  /** `open` or `cancelled`. Full is derived from the approved sign-ups. */
+  status: varchar('status', { length: 20 }).notNull().default('open'),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_open_shifts_start_idx').on(table.startsAt),
+  index('hr_open_shifts_status_idx').on(table.status),
+]);
+
+/**
+ * An employee asking to work a shift (from the WeldHR app). A manager approves
+ * or rejects it; approving puts the shift on the rooster and links it here.
+ */
+export const hrShiftRequests = pgTable('hr_shift_requests', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  /** Set when the employee signed up for an open shift; the times are copied from it. */
+  openShiftId: varchar('open_shift_id', { length: 30 }),
+  startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+  endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+  /** What the employee offers to do, e.g. "Cashier". Free text. */
+  workType: varchar('work_type', { length: 100 }),
+  /** The employee's note to the manager. */
+  note: text('note'),
+  /** pending, approved, rejected or cancelled. */
+  status: varchar('status', { length: 20 }).notNull().default('pending'),
+  /** The shift approving it created. */
+  shiftId: varchar('shift_id', { length: 30 }),
+  /** Clerk user id of whoever asked (the employee themselves). */
+  requestedBy: varchar('requested_by', { length: 255 }),
+  reviewedBy: varchar('reviewed_by', { length: 255 }),
+  reviewedAt: timestamp('reviewed_at'),
+  reviewNote: text('review_note'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+  index('hr_shift_requests_employee_start_idx').on(table.employeeId, table.startsAt),
+  index('hr_shift_requests_status_idx').on(table.status),
+  index('hr_shift_requests_open_shift_idx').on(table.openShiftId),
+]);
+
+/**
+ * A place employees clock in at. When `hr_settings.clock_in_requires_location`
+ * is on, clocking in or out needs the device within `radius_meters` of one the
+ * employee is allowed (`hr_employees.work_location_ids`). Soft-deleted, so the
+ * records that name one keep their name.
+ */
+export const hrWorkLocations = pgTable('hr_work_locations', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  name: varchar('name', { length: 160 }).notNull(),
+  address: text('address'),
+  latitude: doublePrecision('latitude').notNull(),
+  longitude: doublePrecision('longitude').notNull(),
+  radiusMeters: integer('radius_meters').notNull().default(150),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+});
+
 export const hrAttendanceRecords = pgTable('hr_attendance_records', {
   id: varchar('id', { length: 30 }).primaryKey(),
   employeeId: varchar('employee_id', { length: 30 }).notNull(),
@@ -336,6 +425,17 @@ export const hrAttendanceRecords = pgTable('hr_attendance_records', {
   notes: text('notes'),
   approvedBy: varchar('approved_by', { length: 255 }),
   approvedAt: timestamp('approved_at'),
+  /**
+   * Where the employee was when clocking in and out, only recorded while the
+   * workspace requires a location; the location id is the work location they
+   * were at.
+   */
+  clockInLocationId: varchar('clock_in_location_id', { length: 30 }),
+  clockInLatitude: doublePrecision('clock_in_latitude'),
+  clockInLongitude: doublePrecision('clock_in_longitude'),
+  clockOutLocationId: varchar('clock_out_location_id', { length: 30 }),
+  clockOutLatitude: doublePrecision('clock_out_latitude'),
+  clockOutLongitude: doublePrecision('clock_out_longitude'),
   createdBy: varchar('created_by', { length: 255 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
@@ -584,66 +684,65 @@ export const hrMilestones = pgTable('hr_milestones', {
 ]);
 
 // ---------------------------------------------------------------------------
-// Workforce portal
+// Announcements
 // ---------------------------------------------------------------------------
 
-/** One row per workspace. The public portal 404s while `is_enabled` is false. */
-export const hrPortalSettings = pgTable('hr_portal_settings', {
+/**
+ * News from HR to employees, read in My HR and the WeldHR app. The audience is
+ * everyone, or the employees of `department_ids` and the departments under them.
+ */
+export const hrAnnouncements = pgTable('hr_announcements', {
   id: varchar('id', { length: 30 }).primaryKey(),
-  isEnabled: boolean('is_enabled').notNull().default(false),
-  employeePortalEnabled: boolean('employee_portal_enabled').notNull().default(true),
-  clientPortalEnabled: boolean('client_portal_enabled').notNull().default(true),
+  title: varchar('title', { length: 200 }).notNull(),
+  body: text('body').notNull(),
+  /** Pinned announcements stay above the rest. */
+  pinned: boolean('pinned').notNull().default(false),
+  /** Empty: every employee. */
+  departmentIds: jsonb('department_ids').$type<string[]>().notNull().default([]),
+  publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  /** When the push notification to the audience went out; null when none was sent. */
+  notifiedAt: timestamp('notified_at', { withTimezone: true }),
+  createdBy: varchar('created_by', { length: 255 }),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
+}, (table) => [
+  index('hr_announcements_published_idx').on(table.publishedAt),
+]);
 
-  displayName: varchar('display_name', { length: 255 }),
-  logoUrl: varchar('logo_url', { length: 500 }),
-  faviconUrl: varchar('favicon_url', { length: 500 }),
-  primaryColor: varchar('primary_color', { length: 20 }),
-  accentColor: varchar('accent_color', { length: 20 }),
-  welcomeMessage: text('welcome_message'),
-  supportEmail: varchar('support_email', { length: 255 }),
-  /** White-label: no WeldSuite marks in the portal or its emails. */
-  hideWeldsuiteBranding: boolean('hide_weldsuite_branding').notNull().default(true),
-  /** Hostname the customer points at the portal, e.g. `portal.acme-bpo.com`. */
-  customDomain: varchar('custom_domain', { length: 255 }),
+/** Who has read an announcement: one row per employee, written the first time they open it. */
+export const hrAnnouncementReads = pgTable('hr_announcement_reads', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  announcementId: varchar('announcement_id', { length: 30 }).notNull(),
+  employeeId: varchar('employee_id', { length: 30 }).notNull(),
+  readAt: timestamp('read_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('hr_announcement_reads_uidx').on(table.announcementId, table.employeeId),
+  index('hr_announcement_reads_employee_idx').on(table.employeeId),
+]);
 
-  /** When false, clients see team aggregates only — never a single employee's score. */
-  clientCanSeeIndividualScores: boolean('client_can_see_individual_scores').notNull().default(true),
-  /** Employees may clock in and out from the portal. */
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+/** One row per workspace: what employees may do for themselves in My HR. */
+export const hrSettings = pgTable('hr_settings', {
+  id: varchar('id', { length: 30 }).primaryKey(),
+  /** Employees may clock in and out from My HR. */
   employeeSelfClockIn: boolean('employee_self_clock_in').notNull().default(true),
-  /** Employees may request leave from the portal. */
+  /** Clocking in or out yourself needs being at one of the work locations (`hr_work_locations`). */
+  clockInRequiresLocation: boolean('clock_in_requires_location').notNull().default(false),
+  /** Employees may request leave from My HR. */
   employeeLeaveRequests: boolean('employee_leave_requests').notNull().default(true),
-  /** Employees may submit expense declarations from the portal. */
+  /** Employees may submit expense declarations from My HR. */
   employeeDeclarations: boolean('employee_declarations').notNull().default(true),
-
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
 });
 
-/**
- * Who may sign in to the workforce portal. An employee grant points at an
- * `hr_employees` row; a client grant points at a CRM person at a company.
- * Revoke is a status flip, so a re-invite updates the same row.
- */
-export const hrPortalAccess = pgTable('hr_portal_access', {
-  id: varchar('id', { length: 30 }).primaryKey(),
-  kind: varchar('kind', { length: 20 }).notNull(),
-  employeeId: varchar('employee_id', { length: 30 }),
-  personId: varchar('person_id', { length: 30 }),
-  companyId: varchar('company_id', { length: 30 }),
-  email: varchar('email', { length: 255 }).notNull(),
-  displayName: varchar('display_name', { length: 255 }),
-  status: varchar('status', { length: 20 }).notNull().default('invited'),
-  invitedBy: varchar('invited_by', { length: 255 }),
-  invitedAt: timestamp('invited_at'),
-  lastLoginAt: timestamp('last_login_at'),
-  createdAt: timestamp('created_at').notNull().defaultNow(),
-  updatedAt: timestamp('updated_at').notNull().defaultNow(),
-}, (table) => [
-  index('hr_portal_access_email_idx').on(table.email),
-  index('hr_portal_access_employee_idx').on(table.employeeId),
-  index('hr_portal_access_company_idx').on(table.companyId),
-  uniqueIndex('hr_portal_access_kind_email_company_uidx').on(table.kind, table.email, table.companyId),
-]);
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
 
 /** Reads of sensitive data and access changes. Append-only. */
 export const hrAuditEvents = pgTable('hr_audit_events', {
@@ -671,6 +770,11 @@ export type HrChecklistTemplate = typeof hrChecklistTemplates.$inferSelect;
 export type HrChecklist = typeof hrChecklists.$inferSelect;
 export type HrChecklistTask = typeof hrChecklistTasks.$inferSelect;
 export type HrShift = typeof hrShifts.$inferSelect;
+export type HrOpenShift = typeof hrOpenShifts.$inferSelect;
+export type HrShiftRequest = typeof hrShiftRequests.$inferSelect;
+export type HrWorkLocation = typeof hrWorkLocations.$inferSelect;
+export type HrAnnouncement = typeof hrAnnouncements.$inferSelect;
+export type HrAnnouncementRead = typeof hrAnnouncementReads.$inferSelect;
 export type HrAttendanceRecord = typeof hrAttendanceRecords.$inferSelect;
 export type HrLeaveType = typeof hrLeaveTypes.$inferSelect;
 export type HrLeaveAllowance = typeof hrLeaveAllowances.$inferSelect;
@@ -683,6 +787,5 @@ export type HrEvaluation = typeof hrEvaluations.$inferSelect;
 export type HrKpiDefinition = typeof hrKpiDefinitions.$inferSelect;
 export type HrKpiValue = typeof hrKpiValues.$inferSelect;
 export type HrMilestone = typeof hrMilestones.$inferSelect;
-export type HrPortalSettings = typeof hrPortalSettings.$inferSelect;
-export type HrPortalAccess = typeof hrPortalAccess.$inferSelect;
+export type HrSettings = typeof hrSettings.$inferSelect;
 export type HrAuditEvent = typeof hrAuditEvents.$inferSelect;

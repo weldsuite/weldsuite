@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { Link } from '@tanstack/react-router';
 import {
   MessageSquare,
+  MessageSquareText,
   Pin,
   Phone,
   PhoneIncoming,
@@ -203,6 +204,11 @@ export interface MessageItemMessage extends ChatMessage {
 }
 
 /** Minimal shape needed to render the "replying to" reference line. */
+/** A real avatar image, as opposed to an agent's emoji icon. */
+function isImageUrl(avatar: string | null | undefined): avatar is string {
+  return !!avatar && /^(https?:|data:|blob:|\/)/.test(avatar);
+}
+
 interface ReplyToMessagePreview {
   authorAvatar?: string | null;
   authorName?: string;
@@ -226,6 +232,18 @@ interface MessageItemProps {
   hasActiveCall?: boolean;
   /** The call this notice stands for (its start and end folded into one row), when it is a call notice */
   call?: CallSummary;
+}
+
+/**
+ * Where a comment thread's first message is in its spreadsheet or document
+ * ("Sheet1!B7", or the text it is about), from `metadata.anchor` (ADR
+ * CHAT-007). Null for any other message.
+ */
+function commentPlace(message: MessageItemMessage): string | null {
+  const anchor = (message.metadata as { anchor?: { label?: unknown; quote?: unknown } } | null | undefined)?.anchor;
+  if (!anchor || message.parentId) return null;
+  if (typeof anchor.label === 'string' && anchor.label) return anchor.label;
+  return typeof anchor.quote === 'string' && anchor.quote ? `“${anchor.quote}”` : null;
 }
 
 function shortTime(iso?: string): string {
@@ -583,12 +601,24 @@ export function MessageItem({
           <div className="w-[22px] h-3 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
           <div className="flex items-center gap-1.5 -translate-y-[4px]">
             <Avatar className="h-4 w-4 !rounded-[5.5px]">
-              {replyToMessage.authorAvatar && <AvatarImage src={replyToMessage.authorAvatar} className="!rounded-[5.5px]" />}
-              <AvatarFallback className="text-[8px] !rounded-[5.5px]">{(replyToMessage.authorName || '?')[0]}</AvatarFallback>
+              {isImageUrl(replyToMessage.authorAvatar) && <AvatarImage src={replyToMessage.authorAvatar} className="!rounded-[5.5px]" />}
+              <AvatarFallback className="text-[8px] !rounded-[5.5px]">
+                {/* An agent's avatar is its emoji icon, not an image. */}
+                {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar)
+                  ? replyToMessage.authorAvatar
+                  : (replyToMessage.authorName || '?')[0]}
+              </AvatarFallback>
             </Avatar>
             <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
             <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>
           </div>
+        </div>
+      )}
+      {/* The comment thread this message starts, on a sheet or a document */}
+      {commentPlace(message) && (
+        <div data-testid="chat-message-comment-place" className="flex items-center gap-1.5 ml-[13px] mb-0.5 text-xs text-muted-foreground">
+          <MessageSquareText className="h-3 w-3 shrink-0" />
+          <span className="truncate max-w-[420px]">{format(t.weldchat.messageItem.commentOn, { place: commentPlace(message)! })}</span>
         </div>
       )}
       <div className="flex items-start gap-2 md:gap-3">

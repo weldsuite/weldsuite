@@ -20,7 +20,9 @@ import {
   chartData,
   pivotTableAt,
   pivotTablesOn,
+  localSerial,
   type BorderSide,
+  type CellContent,
   type Chart,
   type ChartData,
   type CellPatch,
@@ -40,6 +42,7 @@ import {
   type StylePatch,
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
+import { autofill, lastFilled, type FillCell, type FillOptions } from './autofill';
 import {
   cellAfter,
   cellSelection,
@@ -49,6 +52,8 @@ import {
   isWholeRows,
   primaryRange,
   selectionAfter,
+  wholeColumns,
+  wholeRows,
   type CellPos,
   type Selection,
 } from './selection';
@@ -85,6 +90,11 @@ export interface ControllerOptions {
   onOp?: (op: Op) => void;
   /** Who new comments are by (the signed-in person). */
   author?: { id: string; name: string };
+  /**
+   * The sheet has comments (default true). Their text lives in its WeldChat
+   * chat, so a sheet kept only in the browser has none.
+   */
+  comments?: boolean;
   /** Typed input a strict validation rule refused (the cell keeps its value). */
   onInputRefused?: (rule: DataValidation) => void;
   /**
@@ -123,6 +133,8 @@ export class SheetController {
   focusedThread: string | null = null;
   /** A new comment on the active cell was asked for (Ctrl+Alt+M, the menu); the comments panel opens its box. */
   commentRequested = false;
+  /** The find bar (Ctrl+F), with replacing (Ctrl+H), when open. */
+  find: 'find' | 'replace' | null = null;
   /** Bumped on every change; the React snapshot. */
   version = 0;
   /** Bumped when the workbook changes (not the selection or a panel): what the memos of charts and pivot tables key on. */
@@ -184,6 +196,12 @@ export class SheetController {
     this.emit();
   }
 
+  /** Opens the find bar (replacing needs edit rights), or closes it with null. */
+  openFind(mode: 'find' | 'replace' | null): void {
+    this.find = mode === 'replace' && this.readOnly ? 'find' : mode;
+    this.emit();
+  }
+
   /** Picks a chart (null: none); the chart panel goes with it. */
   selectChart(id: string | null): void {
     this.selectedChart = id;
@@ -211,9 +229,9 @@ export class SheetController {
     return data;
   }
 
-  /** May write comments: an editor, or a commenter. */
+  /** May write comments: an editor, or a commenter (on a sheet that has comments). */
   get mayComment(): boolean {
-    return !this.readOnly || this.canComment;
+    return this.options.comments !== false && (!this.readOnly || this.canComment);
   }
 
   setCanComment(canComment: boolean): void {
@@ -258,7 +276,7 @@ export class SheetController {
     if (memo?.version !== this.contentVersion || memo.sheetId !== this.activeSheetId) {
       const cells = new Map<number, boolean>();
       for (const c of sheet.comments) {
-        if (c.thread !== c.id || !c.cell) continue;
+        if (!c.cell) continue;
         const key = c.cell.row * 16_384 + c.cell.col;
         cells.set(key, cells.get(key) === true || !c.resolved);
       }
@@ -642,12 +660,30 @@ export class SheetController {
   // Cell editing
   // -------------------------------------------------------------------------
 
-  /** What the editor shows for a cell: '=' + localized formula, or the value as typed. */
-  inputText(row: number, col: number): string {
-    const cell = this.engine.getCell(this.activeSheetId, row, col);
-    if (!cell) return '';
+  /** What the editor shows for a cell (of the active sheet by default): '=' + localized formula, or the value as typed. */
+  inputText(row: number, col: number, sheetId = this.activeSheetId): string {
+    const cell = this.engine.getCell(sheetId, row, col);
+    const sheet = this.engine.workbook.getSheet(sheetId);
+    if (!cell || !sheet) return '';
     if (cell.f !== undefined) return `=${localizeFormula(cell.f, this.options.formulaLocale)}`;
-    return this.valueAsInput(cell.v, this.engine.workbook.style(this.sheet, row, col));
+    return this.valueAsInput(cell.v, this.engine.workbook.style(sheet, row, col));
+  }
+
+  /** Bumped on every change to the workbook (not the selection): what lookups over its cells key on. */
+  get contentRevision(): number {
+    return this.contentVersion;
+  }
+
+  /** Writes typed input into cells of any sheets, as one change (replace all). */
+  setInputs(entries: { sheetId: string; row: number; col: number; text: string }[]): void {
+    const bySheet = new Map<string, CellPatch[]>();
+    for (const e of entries) {
+      const cells = bySheet.get(e.sheetId) ?? [];
+      cells.push([e.row, e.col, this.contentFor(e.text)]);
+      bySheet.set(e.sheetId, cells);
+    }
+    if (bySheet.size === 0) return;
+    this.apply({ type: 'batch', ops: [...bySheet].map(([sheetId, cells]) => ({ type: 'setCells', sheetId, cells }) as Op) });
   }
 
   private valueAsInput(v: Scalar, style: CellStyle | undefined): string {
@@ -759,6 +795,143 @@ export class SheetController {
     }
     this.editing = null;
     this.apply({ type: 'setCells', sheetId: this.activeSheetId, cells });
+  }
+
+  // -------------------------------------------------------------------------
+  // Autofill
+  // -------------------------------------------------------------------------
+
+  /** A cell as a fill reads it: content, own style and number format. */
+  fillCell = (row: number, col: number): FillCell => {
+    const cell = this.sheet.cells.get(row, col);
+    return { content: contentOf(cell), style: cell?.s ?? null, numFmt: this.engine.workbook.style(this.sheet, row, col)?.numFmt };
+  };
+
+  /** The selection a fill starts from: its one range, within the grid; null for several ranges. */
+  fillSource(): Range | null {
+    if (this.selection.ranges.length !== 1) return null;
+    const sheet = this.sheet;
+    return clampToGrid(primaryRange(this.selection), sheet.rowCount, sheet.colCount);
+  }
+
+  /**
+   * The fill handle was let go over `target`: the selection continues into it
+   * as a series (`toggle`: Ctrl held, copy instead), or, pulled back inside
+   * the selection, the cells it left are cleared. The fill becomes the selection.
+   */
+  fill(target: Range, toggle = false): void {
+    const source = this.fillSource();
+    if (!source || this.readOnly) return;
+    const sheet = this.sheet;
+    const t = capFill(source, clampToGrid(target, sheet.rowCount, sheet.colCount));
+    const { anchor, active } = this.selection;
+    const inside = (r: Range, row: number, col: number) => row >= r.r1 && row <= r.r2 && col >= r.c1 && col <= r.c2;
+    if (inside(source, t.r1, t.c1) && inside(source, t.r2, t.c2)) {
+      if (t.r2 === source.r2 && t.c2 === source.c2) return;
+      const cells: CellPatch[] = [];
+      sheet.cells.forEachInRange(source, (row, col, cell) => {
+        if (!inside(t, row, col) && (cell.v !== null || cell.f !== undefined)) cells.push([row, col, null]);
+      });
+      if (cells.length) this.apply({ type: 'setCells', sheetId: this.activeSheetId, cells });
+      const keep = (p: CellPos) => ({ row: Math.min(p.row, t.r2), col: Math.min(p.col, t.c2) });
+      this.select({ ranges: [t], active: keep(active), anchor: keep(anchor) });
+      return;
+    }
+    this.applyFill(source, t, { toggle, locale: this.options.locale });
+    this.select({ ranges: [t], active, anchor });
+  }
+
+  private applyFill(source: Range, target: Range, opts: FillOptions): void {
+    const result = autofill(source, target, this.fillCell, opts);
+    if (!result || result.setCells.length === 0) return;
+    const sheetId = this.activeSheetId;
+    this.apply({
+      type: 'batch',
+      ops: [
+        { type: 'setCells', sheetId, cells: result.setCells },
+        { type: 'setStyles', sheetId, cells: result.setStyles },
+      ],
+    });
+  }
+
+  /** What the last cell of a fill to `target` would show (the hint next to the dragged handle). */
+  fillHint(target: Range, toggle = false): string | null {
+    const source = this.fillSource();
+    if (!source) return null;
+    const vertical = target.r1 !== source.r1 || target.r2 !== source.r2;
+    const line = vertical ? this.selection.active.col : this.selection.active.row;
+    const last = lastFilled(source, target, line, this.fillCell, { toggle, locale: this.options.locale });
+    const v = last?.content?.v;
+    if (v === undefined || v === null) return null;
+    return formatValue(v, last!.numFmt, this.options.locale).text;
+  }
+
+  /**
+   * Ctrl+D / Ctrl+R: copies the selection's first row down (first column
+   * right) over the rest of it; a single row (column) copies the one above
+   * (to the left). Formulas move as they would when pasted.
+   */
+  fillDown(): void {
+    this.fillAlong('row');
+  }
+
+  fillRight(): void {
+    this.fillAlong('col');
+  }
+
+  private fillAlong(axis: 'row' | 'col'): void {
+    const sheet = this.sheet;
+    const primary = primaryRange(this.selection);
+    let r = clampToGrid(primary, sheet.rowCount, sheet.colCount);
+    // Whole columns (rows) fill as far as there is data, not a million cells.
+    const used = this.engine.usedRange(this.activeSheetId);
+    if (axis === 'row' && isWholeColumns(primary)) r = { ...r, r2: Math.max(r.r1, Math.min(r.r2, used?.r2 ?? 0)) };
+    if (axis === 'col' && isWholeRows(primary)) r = { ...r, c2: Math.max(r.c1, Math.min(r.c2, used?.c2 ?? 0)) };
+    const source = copiedAlong(r, axis);
+    if (!source) return;
+    const target = axis === 'row' ? { ...r, r1: source.r1 } : { ...r, c1: source.c1 };
+    this.applyFill(source, capFill(source, target), { toggle: false, copy: true, locale: this.options.locale });
+  }
+
+  /**
+   * A double-click on the fill handle: fills down as far as the data in the
+   * column next to the selection goes (left, else right), stopping above the
+   * first filled cell under the selection.
+   */
+  fillToAdjacent(): void {
+    const source = this.fillSource();
+    if (!source || this.readOnly) return;
+    const sheet = this.sheet;
+    for (const col of [source.c1 - 1, source.c2 + 1]) {
+      if (col < 0 || col >= sheet.colCount || !this.hasValue(source.r2 + 1, col)) continue;
+      let end = source.r2;
+      while (end + 1 < sheet.rowCount && this.hasValue(end + 1, col) && !this.rowHasValue(end + 1, source.c1, source.c2)) end++;
+      if (end > source.r2) this.fill({ ...source, r2: end });
+      return;
+    }
+  }
+
+  private rowHasValue(row: number, c1: number, c2: number): boolean {
+    for (let c = c1; c <= c2; c++) if (this.hasValue(row, c)) return true;
+    return false;
+  }
+
+  /** Ctrl+; and Ctrl+Shift+; : today's date or the time now, as a value, into the active cell. */
+  insertNow(kind: 'date' | 'time'): void {
+    if (this.readOnly) return;
+    const now = new Date();
+    const serial = localSerial(now.getTime(), now.getTimezoneOffset());
+    const v = kind === 'date' ? Math.floor(serial) : serial - Math.floor(serial);
+    const numFmt = kind === 'date' ? dateInputCode(this.options.locale) : 'h:mm:ss';
+    const { row, col } = this.selection.active;
+    const sheetId = this.activeSheetId;
+    this.apply({
+      type: 'batch',
+      ops: [
+        { type: 'setCells', sheetId, cells: [[row, col, { v }]] },
+        { type: 'formatRanges', sheetId, ranges: [{ r1: row, c1: col, r2: row, c2: col }], patch: { numFmt } },
+      ],
+    });
   }
 
   private contentFor(text: string): CellPatch[2] {
@@ -939,6 +1112,19 @@ export class SheetController {
     this.select({ ...this.selection, active: { row: r.r1, col: r.c1 } });
   }
 
+  /**
+   * Moves `count` rows or columns from `from` to before `to` (an index
+   * before the move, dragging their headers), and keeps them selected.
+   */
+  moveDimsTo(axis: 'row' | 'col', from: number, count: number, to: number): void {
+    if (to >= from && to <= from + count) return;
+    this.apply({ type: 'moveDims', sheetId: this.activeSheetId, sheetName: this.sheet.name, axis, from, count, to });
+    const start = to < from ? to : to - count;
+    const end = start + count - 1;
+    const active = axis === 'col' ? { row: 0, col: start } : { row: start, col: 0 };
+    this.select({ ranges: [axis === 'col' ? wholeColumns(start, end) : wholeRows(start, end)], active, anchor: active });
+  }
+
   /** Freeze up to (not including) the active cell's row/column; 0 unfreezes. */
   setFreeze(rows: number, cols: number): void {
     this.apply({ type: 'setFreeze', sheetId: this.activeSheetId, rows, cols });
@@ -1039,6 +1225,40 @@ export class SheetController {
   snapshot(): WorkbookSnapshot {
     return this.engine.toSnapshot();
   }
+}
+
+/** What a cell holds, as a cell write would set it. */
+function contentOf(cell: { v: Scalar; f?: string } | undefined): CellContent | null {
+  if (!cell) return null;
+  if (cell.f !== undefined) return { f: cell.f };
+  return cell.v === null ? null : ({ v: cell.v } as CellContent);
+}
+
+/**
+ * What Ctrl+D (Ctrl+R) copies over `r`: its first row (column), or for a
+ * single row the one above it (column: left of it). Null at the sheet's edge.
+ */
+function copiedAlong(r: Range, axis: 'row' | 'col'): Range | null {
+  if (axis === 'row') {
+    if (r.r1 !== r.r2) return { ...r, r2: r.r1 };
+    return r.r1 === 0 ? null : { ...r, r1: r.r1 - 1, r2: r.r1 - 1 };
+  }
+  if (r.c1 !== r.c2) return { ...r, c2: r.c1 };
+  return r.c1 === 0 ? null : { ...r, c1: r.c1 - 1, c2: r.c1 - 1 };
+}
+
+/** Most cells one fill writes; a fill further than that stops short. */
+const MAX_FILL_CELLS = 1_000_000;
+
+/** `target` cut back so the cells it adds to `source` stay within MAX_FILL_CELLS. */
+function capFill(source: Range, target: Range): Range {
+  const across = target.r1 !== source.r1 || target.r2 !== source.r2 ? source.c2 - source.c1 + 1 : source.r2 - source.r1 + 1;
+  const most = Math.floor(MAX_FILL_CELLS / across);
+  if (target.r2 - source.r2 > most) return { ...target, r2: source.r2 + most };
+  if (source.r1 - target.r1 > most) return { ...target, r1: source.r1 - most };
+  if (target.c2 - source.c2 > most) return { ...target, c2: source.c2 + most };
+  if (source.c1 - target.c1 > most) return { ...target, c1: source.c1 - most };
+  return target;
 }
 
 /** Entries clearing the row or column styles set between `from` and `to`. */

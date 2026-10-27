@@ -5,7 +5,7 @@ import { appSyncMap } from '../sync-map';
 
 describe('appSyncMap', () => {
   it('refreshes WeldHR screens for the HR events a member can see change', () => {
-    for (const topic of ['hr_leave_request', 'hr_declaration', 'hr_absence', 'hr_attendance', 'hr_payslip']) {
+    for (const topic of ['hr_leave_request', 'hr_shift_request', 'hr_declaration', 'hr_absence', 'hr_attendance', 'hr_payslip']) {
       expect(appSyncMap[topic]).toBeDefined();
     }
   });

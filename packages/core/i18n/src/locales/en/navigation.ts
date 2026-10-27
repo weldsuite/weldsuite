@@ -55,6 +55,7 @@ export const navigation = {
     breadcrumbs: {
       absenteeism: 'Absenteeism',
       adAccounts: 'Ad accounts',
+      announcements: 'Announcements',
       attendance: 'Attendance',
       auditLog: 'Audit log',
       campaigns: 'Campaigns',
@@ -92,7 +93,6 @@ export const navigation = {
       tasks: 'Tasks',
       timeOff: 'Time off',
       vaults: 'Vaults',
-      workforcePortal: 'Workforce portal',
     },
     moduleSidebar: {
       groups: {
@@ -170,14 +170,16 @@ export const navigation = {
           payroll: 'Payroll',
           tasks: 'Tasks',
           reviews: 'Reviews & goals',
+          announcements: 'Announcements',
         },
         dashboard: 'Dashboard',
         employees: 'Employees',
+        announcements: 'Announcements',
         attendance: 'Attendance',
         absenteeism: 'Absenteeism',
         leave: 'Leave',
         declarations: 'Declarations',
-        portal: 'Workforce portal',
+        settings: 'Settings',
         payroll: 'Overview',
         payRuns: 'Pay runs',
         payrollEmployees: 'Payroll employees',

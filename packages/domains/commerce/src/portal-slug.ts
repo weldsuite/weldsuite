@@ -26,8 +26,7 @@ export type PortalSlugVariables = {
 /**
  * The slice of a Hono context this middleware touches. Any worker's
  * `Context<{ Bindings: Env; Variables: Variables }>` fits when its Env includes
- * DbEnv and its Variables include {@link PortalSlugVariables}, so commerce-api
- * (the commerce portal) and hr-api (the workforce portal) share one middleware.
+ * DbEnv and its Variables include {@link PortalSlugVariables}.
  */
 export interface PortalSlugContext {
   req: { query(key: string): string | undefined; header(name: string): string | undefined };

@@ -11,13 +11,15 @@
  * `registerEntityProvider(...)` at import time, and adding an import here.
  *
  * Import order is the record chat group order: Companies, People, Tasks,
- * Projects, Domains. `contact` is a legacy name (see ./providers/contact.ts).
+ * Projects, Domains, Sheets, Documents. `contact` is a legacy name (see
+ * ./providers/contact.ts).
  */
 import './providers/company';
 import './providers/person';
 import './providers/task';
 import './providers/project';
 import './providers/domain';
+import './providers/drive-file';
 import './providers/contact';
 
 export * from './registry';

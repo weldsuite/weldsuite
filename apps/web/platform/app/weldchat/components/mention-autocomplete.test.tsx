@@ -1,19 +1,39 @@
-import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, waitFor } from '@testing-library/react';
+
+const agents = vi.hoisted(() => ({
+  canUse: false,
+  inChannel: [] as Array<{ userId: string; name: string; memberType: string; agentIcon: string | null }>,
+  workspace: [] as Array<{ id: string; name: string; icon: string | null }>,
+  invite: vi.fn(async () => ['agt_new']),
+}));
 
 vi.mock('@/hooks/queries/use-weldchat-queries', () => ({
   useWorkspaceMembers: () => ({
     data: { data: [{ userId: 'user_1', name: 'Gert', email: 'g@example.com' }, { userId: 'user_2', name: 'Gerda' }] },
   }),
-  useChannelMembers: () => ({ data: { data: [] } }),
+  useChannelMembers: () => ({ data: { data: agents.inChannel } }),
   useChannel: () => ({ data: { data: { type: 'public' } } }),
+  useInviteChannelAgents: () => ({ mutateAsync: agents.invite }),
 }));
+vi.mock('@/hooks/queries/use-agent-queries', () => ({
+  useAgents: () => ({ data: agents.workspace }),
+}));
+vi.mock('@weldsuite/permissions/react', () => ({ useCan: () => agents.canUse }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/hooks/queries/use-global-search-queries', () => ({
   useGlobalSearch: () => ({ data: { data: [] }, isFetching: false }),
 }));
 vi.mock('@/lib/search/result-types', () => ({ RESULT_TYPE_ICON: {}, RESULT_TYPE_LABEL: {} }));
 vi.mock('@/lib/i18n/provider', () => ({
-  useI18n: () => ({ t: { weldchat: { mentionAutocomplete: { agent: 'Agent' } } } }),
+  useI18n: () => ({
+    t: {
+      weldchat: {
+        mentionAutocomplete: { agent: 'Agent', addToChat: 'Add to chat' },
+        memberList: { agentAdded: '{name} joined', addAgentFailed: 'Could not add {name}' },
+      },
+    },
+  }),
 }));
 vi.mock('@weldsuite/i18n/client', () => ({ useTranslations: () => (key: string) => key }));
 
@@ -100,5 +120,72 @@ describe('MentionAutocomplete pointer', () => {
     fireEvent.mouseDown(getByText('Gerda'));
     expect(onSelect).toHaveBeenCalledWith({ kind: 'user', userId: 'user_2', name: 'Gerda' });
     now.mockRestore();
+  });
+});
+
+describe('MentionAutocomplete agents', () => {
+  beforeEach(() => {
+    agents.canUse = true;
+    agents.inChannel = [{ userId: 'agt_in', name: 'Gerty Bot', memberType: 'agent', agentIcon: null }];
+    agents.workspace = [
+      { id: 'agt_in', name: 'Gerty Bot', icon: null },
+      { id: 'agt_new', name: 'Germaine Researcher', icon: '🔎' },
+    ];
+    agents.invite.mockClear();
+  });
+
+  it('lists agents in the channel first and offers the others to add', () => {
+    const { getAllByRole, getByText } = setup();
+    const rows = getAllByRole('button').map((b) => b.textContent);
+    expect(rows[0]).toContain('Gerty Bot');
+    expect(rows[1]).toContain('Germaine Researcher');
+    expect(getByText('Add to chat')).toBeTruthy();
+  });
+
+  it('picking an agent from outside the channel adds it, then inserts the mention', async () => {
+    const { getByTestId, onSelect } = setup('Germaine');
+    fireEvent.keyDown(getByTestId('editor'), { key: 'Enter' });
+    expect(onSelect).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(onSelect).toHaveBeenCalledWith({ kind: 'user', userId: 'agt_new', name: 'Germaine Researcher' }),
+    );
+    expect(agents.invite).toHaveBeenCalledWith({ channelId: 'ch_1', agentIds: ['agt_new'] });
+  });
+
+  it('does not insert the mention when the agent could not be added', async () => {
+    agents.invite.mockRejectedValueOnce(new Error('nope'));
+    const { getByTestId, onSelect } = setup('Germaine');
+    fireEvent.keyDown(getByTestId('editor'), { key: 'Enter' });
+    await waitFor(() => expect(agents.invite).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('lists agents before people when nothing is typed yet', () => {
+    const { getAllByRole } = setup('');
+    const rows = getAllByRole('button').map((b) => b.textContent ?? '');
+    const firstPerson = rows.findIndex((r) => r.includes('Gert') && !r.includes('Gerty'));
+    expect(rows.findIndex((r) => r.includes('Gerty Bot'))).toBeLessThan(firstPerson);
+    expect(rows.findIndex((r) => r.includes('Germaine Researcher'))).toBeLessThan(firstPerson);
+  });
+
+  it('in a record chat with no messages yet, inserts the agent without inviting (the message brings it in)', () => {
+    agents.inChannel = [];
+    const onSelect = vi.fn();
+    const { getByTestId } = render(
+      <div data-chat-composer-root="">
+        <MentionAutocomplete query="Germaine" channelId="" agentsJoinOnSend onSelect={onSelect} />
+        <div data-testid="editor" contentEditable suppressContentEditableWarning />
+      </div>,
+    );
+    fireEvent.keyDown(getByTestId('editor'), { key: 'Enter' });
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'user', userId: 'agt_new', name: 'Germaine Researcher' });
+    expect(agents.invite).not.toHaveBeenCalled();
+  });
+
+  it('offers no outside agents without weldagent:use', () => {
+    agents.canUse = false;
+    const { queryByText } = setup('Germaine');
+    expect(queryByText('Germaine Researcher')).toBeNull();
   });
 });

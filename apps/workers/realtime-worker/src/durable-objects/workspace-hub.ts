@@ -3,7 +3,23 @@ import type { Env } from '../lib/protocol';
 import { AUTH_HEADERS } from '../lib/protocol';
 import { canSubscribe, isPersonalTopicForOtherUser } from '../lib/permissions';
 import { topicMatches, isMemberlessHubKey } from '@weldsuite/realtime/topics';
-import { getTenantDbForWorkspace, setUserOffline, setUserOnlineIfOffline } from '../lib/db';
+import {
+  aggregateConnections,
+  PRESENCE_EVENTS,
+  PRESENCE_TOPIC,
+  type LivePresence,
+  type PresenceConnectionChange,
+  type PresenceSnapshot,
+} from '@weldsuite/realtime/presence';
+import { reciprocateClose } from '../lib/close';
+import {
+  OFFLINE_GRACE_MS,
+  PRESENCE_SWEEP_INTERVAL_MS,
+  isConnectionStale,
+  lastHeardFrom,
+  newConnectionState,
+  type ConnectionState,
+} from '../lib/presence';
 
 /**
  * WorkspaceHub Durable Object
@@ -14,31 +30,33 @@ import { getTenantDbForWorkspace, setUserOffline, setUserOnlineIfOffline } from 
  * Uses the WebSocket Hibernation API — the DO sleeps when idle
  * and wakes only when messages arrive or connections open/close.
  *
- * Presence offline detection uses Durable Object **alarms** rather than
- * setTimeout so the grace period survives DO hibernation (which happens
- * almost always when the last WS closes — exactly the case we care about).
+ * It is also the source of truth for **live presence**: who has a connection
+ * open, and whether they are idle or in a call (see
+ * `@weldsuite/realtime/presence`). Nothing about it is written to Postgres.
+ * Members get a snapshot when they subscribe to `presence` and
+ * `connection_changed` events after that; workers ask `GET /presence`.
+ * Timers use Durable Object **alarms** rather than setTimeout so they survive
+ * hibernation, which almost always follows the last socket closing.
  *
  * Storage layout:
  *   workspaceId                — the Clerk org ID this DO represents
- *   pendingOffline:<userId>    — epoch-ms timestamp at which this user
- *                                should be broadcast offline if they have
- *                                not reconnected by then
+ *   presence:<userId>          — the member's last broadcast live presence
+ *   pendingOffline:<userId>    — epoch-ms at which the member goes offline
+ *                                unless a connection of theirs opens first
+ *   presenceNextSweepAt        — when to look for dead connections next
  */
 
-/** Grace period after the last WS closes before we broadcast offline. */
-const OFFLINE_GRACE_MS = 5_000;
+/** Storage key prefix for the last broadcast live presence per member. */
+const PRESENCE_PREFIX = 'presence:';
 
 /** Storage key prefix for per-user pending offline timers. */
 const PENDING_OFFLINE_PREFIX = 'pendingOffline:';
 
-/**
- * Storage key prefix for users that the DO itself transitioned to `offline`
- * via the grace-period alarm. Set in `alarm()` right before
- * `persistOfflineToDb`, cleared on the next `handleWebSocketUpgrade`. When
- * present on reconnect, the DO repairs the DB back to `online` so the row
- * doesn't stay stale until the user happens to touch the API again.
- */
-const DO_MARKED_OFFLINE_PREFIX = 'doMarkedOffline:';
+/** Storage key for the next dead-connection sweep. */
+const NEXT_SWEEP_AT_KEY = 'presenceNextSweepAt';
+
+/** Close code for a connection the sweep found silent (app-defined range). */
+const STALE_CLOSE_CODE = 4000;
 
 /** Storage key prefix for per-connection topic subscriptions. */
 const SUBS_PREFIX = 'subs:';
@@ -83,6 +101,28 @@ function formatEventId(n: number): string {
   return n.toString().padStart(16, '0');
 }
 
+/** A socket's presence state. Sockets accepted before attachments existed count as active. */
+function connectionState(ws: WebSocket): ConnectionState {
+  const stored = ws.deserializeAttachment() as ConnectionState | null;
+  return stored ?? newConnectionState(0);
+}
+
+function saveConnectionState(ws: WebSocket, state: ConnectionState): void {
+  try {
+    ws.serializeAttachment(state);
+  } catch {
+    // The socket is already gone; its state no longer matters.
+  }
+}
+
+/**
+ * Flag a closing socket so presence ignores it: the runtime may keep listing
+ * a socket in `getWebSockets()` until its close completes.
+ */
+function markGone(ws: WebSocket): void {
+  saveConnectionState(ws, { ...connectionState(ws), gone: true });
+}
+
 export class WorkspaceHub extends DurableObject<Env> {
   /**
    * In-memory cache of topic subscriptions per WebSocket, keyed by
@@ -94,11 +134,16 @@ export class WorkspaceHub extends DurableObject<Env> {
    */
   private readonly subscriptions = new Map<string, Set<string>>();
 
+  /** The workspace (Clerk org id or memberless hub key), cached from storage. */
+  private hubKey: string | null = null;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Reply to client heartbeat pings inside the runtime WITHOUT waking the DO
     // from hibernation. The client sends `{"type":"ping"}` on a timer to keep
-    // the connection alive through edge/proxy idle timeouts (~60s).
+    // the connection alive through edge/proxy idle timeouts (~60s). The runtime
+    // records when it last answered each socket, which is how the presence
+    // sweep tells a live connection from a dead one.
     ctx.setWebSocketAutoResponse(
       new WebSocketRequestResponsePair('{"type":"ping"}', '{"type":"pong"}'),
     );
@@ -113,6 +158,13 @@ export class WorkspaceHub extends DurableObject<Env> {
 
     if (url.pathname === '/publish' && request.method === 'POST') {
       return this.handlePublish(request);
+    }
+
+    if (url.pathname === '/presence' && request.method === 'GET') {
+      const userIds = url.searchParams.getAll('userId');
+      const only = userIds.length > 0 ? new Set(userIds) : undefined;
+      const users = (await this.tracksPresence()) ? await this.livePresence(only) : {};
+      return Response.json({ users } satisfies PresenceSnapshot);
     }
 
     return new Response('Not found', { status: 404 });
@@ -133,17 +185,26 @@ export class WorkspaceHub extends DurableObject<Env> {
 
     const tags = this.ctx.getTags(ws);
     const connId = this.getTag(tags, 'conn:');
+    const state = { ...connectionState(ws), lastSeen: Date.now() };
 
     switch (msg.type) {
       case 'subscribe':
+        saveConnectionState(ws, state);
         await this.handleSubscribe(ws, msg, connId, tags);
         break;
 
       case 'unsubscribe':
+        saveConnectionState(ws, state);
         await this.handleUnsubscribe(ws, msg, connId);
         break;
 
+      case 'presence':
+        saveConnectionState(ws, { ...state, idle: msg.idle === true, inCall: msg.inCall === true });
+        await this.refreshPresence(this.getTag(tags, 'user:'));
+        break;
+
       case 'ping':
+        saveConnectionState(ws, state);
         ws.send('{"type":"pong"}');
         break;
 
@@ -246,6 +307,14 @@ export class WorkspaceHub extends DurableObject<Env> {
       await this.sendReplay(ws, sinceRaw, accepted, authUserId);
     }
 
+    // Live presence is not in the replay log: a subscriber gets the whole of
+    // it now, and every change after. A reconnect resubscribes, so a client
+    // that missed changes while away is put right without a reload.
+    if (accepted.some((topic) => topicMatches(topic, PRESENCE_TOPIC)) && (await this.tracksPresence())) {
+      const snapshot: PresenceSnapshot = { users: await this.livePresence() };
+      ws.send(this.presenceMessage(PRESENCE_EVENTS.snapshot, snapshot, 'system'));
+    }
+
     if (accepted.length > 0) {
       ws.send(JSON.stringify({ type: 'subscribed', topics: accepted }));
     }
@@ -266,80 +335,63 @@ export class WorkspaceHub extends DurableObject<Env> {
   }
 
   async webSocketClose(ws: WebSocket, code: number, reason: string, _wasClean: boolean): Promise<void> {
-    const tags = this.ctx.getTags(ws);
-    const connId = this.getTag(tags, 'conn:');
-    const userId = this.getTag(tags, 'user:');
-    await this.deleteSubs(connId);
-    ws.close(code, reason);
-
-    if (userId) {
-      await this.startOfflineGracePeriod(userId, ws);
-    }
+    markGone(ws);
+    reciprocateClose(ws, code, reason);
+    await this.connectionGone(ws);
   }
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     console.error('[WorkspaceHub] WebSocket error:', error);
-    const tags = this.ctx.getTags(ws);
-    const connId = this.getTag(tags, 'conn:');
-    const userId = this.getTag(tags, 'user:');
-    await this.deleteSubs(connId);
-    ws.close(1011, 'Internal error');
-
-    if (userId) {
-      await this.startOfflineGracePeriod(userId, ws);
-    }
+    markGone(ws);
+    reciprocateClose(ws, 1011, 'Internal error');
+    await this.connectionGone(ws);
   }
 
   // ---- Internal ----
 
   private async handleWebSocketUpgrade(request: Request): Promise<Response> {
-    const userId = request.headers.get(AUTH_HEADERS.USER_ID) || 'unknown';
-    const role = request.headers.get(AUTH_HEADERS.ROLE) || 'member';
-    const allowedTopics = request.headers.get(AUTH_HEADERS.SUBSCRIBE_TOPICS) || '';
-    const workspaceId = request.headers.get(AUTH_HEADERS.WORKSPACE_ID) || '';
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+
+    await this.acceptConnection(server, {
+      userId: request.headers.get(AUTH_HEADERS.USER_ID) || 'unknown',
+      role: request.headers.get(AUTH_HEADERS.ROLE) || 'member',
+      allowedTopics: request.headers.get(AUTH_HEADERS.SUBSCRIBE_TOPICS) || '',
+      workspaceId: request.headers.get(AUTH_HEADERS.WORKSPACE_ID) || '',
+    });
+
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** Take on the server end of a new connection: identity, allow list, presence. */
+  private async acceptConnection(
+    server: WebSocket,
+    identity: { userId: string; role: string; allowedTopics: string; workspaceId: string },
+  ): Promise<void> {
+    const { userId, role, allowedTopics, workspaceId } = identity;
     const connId = crypto.randomUUID();
 
     // Persist workspaceId once so the alarm handler knows which workspace
-    // to broadcast on behalf of after hibernation.
+    // it serves after hibernation.
     if (workspaceId) {
       const stored = await this.ctx.storage.get<string>('workspaceId');
       if (!stored) {
         await this.ctx.storage.put('workspaceId', workspaceId);
       }
+      this.hubKey = stored || workspaceId;
     }
-
-    // User reconnected — cancel any pending offline for this user and
-    // recompute the earliest alarm time.
-    await this.ctx.storage.delete(`${PENDING_OFFLINE_PREFIX}${userId}`);
-    await this.rescheduleAlarm();
-
-    // If the DO previously persisted this user offline (grace expired while
-    // they were disconnected), repair the DB back to online and broadcast.
-    // Without this, `chat_user_status` stays stale until the user manually
-    // touches the API.
-    const doOfflineKey = `${DO_MARKED_OFFLINE_PREFIX}${userId}`;
-    const wasMarkedOffline = await this.ctx.storage.get<number>(doOfflineKey);
-    if (wasMarkedOffline) {
-      await this.ctx.storage.delete(doOfflineKey);
-      if (workspaceId && userId !== 'unknown') {
-        // Don't await — the upgrade response must not block on tenant DB
-        // resolution + write. Fire-and-forget with an internal log on error.
-        this.ctx.waitUntil(this.repairOnlineInDb(workspaceId, userId));
-      }
-    }
-
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
 
     // Tags are immutable and capped at 256 chars each. Keep them short
     // (identity only). The allowed-topic list — which easily exceeds
     // 256 chars once personal topics are included — lives in DO storage
-    // under `allowed:<connId>`.
+    // under `allowed:<connId>`; mutable presence state in the attachment.
     this.ctx.acceptWebSocket(server, [
       `conn:${connId}`,
       `user:${userId}`,
       `role:${role}`,
     ]);
+    const now = Date.now();
+    server.serializeAttachment(newConnectionState(now));
 
     await this.ctx.storage.put(`${ALLOWED_PREFIX}${connId}`, allowedTopics);
 
@@ -348,7 +400,10 @@ export class WorkspaceHub extends DurableObject<Env> {
 
     server.send(JSON.stringify({ type: 'connected', connectionId: connId }));
 
-    return new Response(null, { status: 101, webSocket: client });
+    // A reload within the grace period cancels the pending offline and
+    // broadcasts nothing; a member who was away is announced.
+    await this.refreshPresence(userId);
+    if (await this.tracksPresence()) await this.ensureSweepScheduled(now);
   }
 
   private async handlePublish(request: Request): Promise<Response> {
@@ -595,32 +650,103 @@ export class WorkspaceHub extends DurableObject<Env> {
     return '';
   }
 
-  // ---- Presence Grace Period (via DO Alarms) ----
+  // ---- Presence ----
 
   /**
-   * Start a grace period after a user's last WebSocket disconnects.
-   *
-   * Uses DO storage + alarms (survives hibernation). setTimeout would not
-   * survive the DO hibernating after the last WS closes, which is the
-   * exact situation we need to handle.
-   *
-   * `closingWs` is the WebSocket that just closed (when invoked from the
-   * `webSocketClose`/`webSocketError` handlers). It is filtered out of the
-   * `getWebSockets()` scan because the runtime may still return it during
-   * the close handler, which would cause `hasOther` to spuriously be true
-   * for a single-tab user and the grace period would never be scheduled —
-   * leaving `chat_user_status` stuck on `online`.
+   * Presence is kept for workspace members only. Personal (consumer) and HR
+   * portal hubs have no members to show to each other.
    */
-  private async startOfflineGracePeriod(userId: string, closingWs?: WebSocket): Promise<void> {
-    // Check if user still has other open connections, excluding the one
-    // that just closed (if provided).
-    const hasOther = this.ctx.getWebSockets().some((ws) => {
-      if (closingWs && ws === closingWs) return false;
-      const tags = this.ctx.getTags(ws);
-      return this.getTag(tags, 'user:') === userId;
-    });
-    if (hasOther) return; // Other tabs still open
+  private async tracksPresence(): Promise<boolean> {
+    if (this.hubKey === null) {
+      this.hubKey = (await this.ctx.storage.get<string>('workspaceId')) ?? '';
+    }
+    return this.hubKey !== '' && !isMemberlessHubKey(this.hubKey);
+  }
 
+  /** The open connections of one member, minus `exclude` and any already closed. */
+  private connectionsOf(userId: string, exclude?: WebSocket): ConnectionState[] {
+    const states: ConnectionState[] = [];
+    for (const ws of this.ctx.getWebSockets(`user:${userId}`)) {
+      if (ws === exclude) continue;
+      const state = connectionState(ws);
+      if (!state.gone) states.push(state);
+    }
+    return states;
+  }
+
+  /**
+   * Live presence of every connected member (or of `only`), counting members
+   * inside their offline grace period as still here.
+   */
+  private async livePresence(only?: Set<string>): Promise<Record<string, LivePresence>> {
+    const byUser = new Map<string, ConnectionState[]>();
+    for (const ws of this.ctx.getWebSockets()) {
+      const userId = this.getTag(this.ctx.getTags(ws), 'user:');
+      if (!userId || userId === 'unknown' || (only && !only.has(userId))) continue;
+      const state = connectionState(ws);
+      if (state.gone) continue;
+      const list = byUser.get(userId) ?? [];
+      list.push(state);
+      byUser.set(userId, list);
+    }
+
+    const users: Record<string, LivePresence> = {};
+    for (const [userId, connections] of byUser) {
+      const live = aggregateConnections(connections);
+      if (live) users[userId] = live;
+    }
+
+    const pending = await this.ctx.storage.list<number>({ prefix: PENDING_OFFLINE_PREFIX });
+    const graceUserIds = [...pending.keys()]
+      .map((key) => key.slice(PENDING_OFFLINE_PREFIX.length))
+      .filter((userId) => !users[userId] && (!only || only.has(userId)));
+    if (graceUserIds.length > 0) {
+      const last = await this.ctx.storage.get<LivePresence>(graceUserIds.map((id) => `${PRESENCE_PREFIX}${id}`));
+      for (const userId of graceUserIds) {
+        const live = last.get(`${PRESENCE_PREFIX}${userId}`);
+        if (live) users[userId] = live;
+      }
+    }
+    return users;
+  }
+
+  /**
+   * Recompute one member's live presence from their open connections and
+   * broadcast it when it changed. With no connection left the member is not
+   * marked offline yet: that waits out the grace period (`alarm()`), so a
+   * reload does not flicker. `exclude` is a socket that is closing but may
+   * still be listed by the runtime.
+   */
+  private async refreshPresence(userId: string, exclude?: WebSocket): Promise<void> {
+    if (!userId || userId === 'unknown' || !(await this.tracksPresence())) return;
+
+    const live = aggregateConnections(this.connectionsOf(userId, exclude));
+    const stateKey = `${PRESENCE_PREFIX}${userId}`;
+    const previous = (await this.ctx.storage.get<LivePresence>(stateKey)) ?? null;
+
+    if (live === null) {
+      if (previous !== null) await this.startOfflineGracePeriod(userId);
+      return;
+    }
+
+    if (await this.ctx.storage.delete(`${PENDING_OFFLINE_PREFIX}${userId}`)) {
+      await this.rescheduleAlarm();
+    }
+    if (live !== previous) {
+      await this.ctx.storage.put(stateKey, live);
+      await this.broadcastPresence({ userId, live });
+    }
+  }
+
+  /** A connection closed: forget it and update its member. */
+  private async connectionGone(ws: WebSocket): Promise<void> {
+    const tags = this.ctx.getTags(ws);
+    await this.deleteSubs(this.getTag(tags, 'conn:'));
+    await this.refreshPresence(this.getTag(tags, 'user:'), ws);
+  }
+
+  /** Mark a member offline at the end of the grace period, unless they come back first. */
+  private async startOfflineGracePeriod(userId: string): Promise<void> {
     const key = `${PENDING_OFFLINE_PREFIX}${userId}`;
     const existing = await this.ctx.storage.get<number>(key);
     const fireAt = Date.now() + OFFLINE_GRACE_MS;
@@ -632,10 +758,51 @@ export class WorkspaceHub extends DurableObject<Env> {
     await this.rescheduleAlarm();
   }
 
+  private async ensureSweepScheduled(now: number): Promise<void> {
+    if ((await this.ctx.storage.get<number>(NEXT_SWEEP_AT_KEY)) !== undefined) return;
+    await this.ctx.storage.put(NEXT_SWEEP_AT_KEY, now + PRESENCE_SWEEP_INTERVAL_MS);
+    await this.rescheduleAlarm();
+  }
+
   /**
-   * Compute the earliest fire time across both presence offline timers and
-   * the event-log prune sweep, and set the DO alarm accordingly. If neither
-   * has work pending, clears the alarm.
+   * Close every connection that has gone silent — a laptop shut or a network
+   * dropped never sends a close frame — and settle the presence of everyone
+   * affected. Also settles members still recorded as here with no connection
+   * left, which a restart of the object can leave behind.
+   */
+  private async sweepConnections(now: number): Promise<void> {
+    const affected = new Set<string>();
+    let anyOpen = false;
+
+    for (const ws of this.ctx.getWebSockets()) {
+      const state = connectionState(ws);
+      if (state.gone) continue;
+      const lastHeard = lastHeardFrom(state, this.ctx.getWebSocketAutoResponseTimestamp(ws));
+      if (!isConnectionStale(lastHeard, now)) {
+        anyOpen = true;
+        continue;
+      }
+      const tags = this.ctx.getTags(ws);
+      markGone(ws);
+      reciprocateClose(ws, STALE_CLOSE_CODE, 'heartbeat timeout');
+      await this.deleteSubs(this.getTag(tags, 'conn:'));
+      affected.add(this.getTag(tags, 'user:'));
+    }
+
+    const recorded = await this.ctx.storage.list<LivePresence>({ prefix: PRESENCE_PREFIX });
+    for (const key of recorded.keys()) affected.add(key.slice(PRESENCE_PREFIX.length));
+    for (const userId of affected) await this.refreshPresence(userId);
+
+    if (anyOpen) {
+      await this.ctx.storage.put(NEXT_SWEEP_AT_KEY, now + PRESENCE_SWEEP_INTERVAL_MS);
+    } else {
+      await this.ctx.storage.delete(NEXT_SWEEP_AT_KEY);
+    }
+  }
+
+  /**
+   * Set the DO alarm to the earliest of: a pending offline, the next
+   * dead-connection sweep, the next event-log prune. Clears it when none is due.
    */
   private async rescheduleAlarm(): Promise<void> {
     const pending = await this.ctx.storage.list<number>({ prefix: PENDING_OFFLINE_PREFIX });
@@ -645,9 +812,9 @@ export class WorkspaceHub extends DurableObject<Env> {
       if (earliest === null || fireAt < earliest) earliest = fireAt;
     }
 
-    const nextPrune = await this.ctx.storage.get<number>(NEXT_PRUNE_AT_KEY);
-    if (nextPrune && (earliest === null || nextPrune < earliest)) {
-      earliest = nextPrune;
+    for (const key of [NEXT_PRUNE_AT_KEY, NEXT_SWEEP_AT_KEY]) {
+      const at = await this.ctx.storage.get<number>(key);
+      if (at && (earliest === null || at < earliest)) earliest = at;
     }
 
     const currentAlarm = await this.ctx.storage.getAlarm();
@@ -663,8 +830,8 @@ export class WorkspaceHub extends DurableObject<Env> {
 
   /**
    * Alarm handler — runs after DO hibernation via Cloudflare's alarm
-   * subsystem. Processes all due `pendingOffline:*` entries, broadcasts
-   * offline, persists to the tenant DB via api-worker, and reschedules.
+   * subsystem: event-log prune, dead-connection sweep, then the members whose
+   * offline grace period is over.
    */
   async alarm(): Promise<void> {
     const now = Date.now();
@@ -686,146 +853,56 @@ export class WorkspaceHub extends DurableObject<Env> {
       }
     }
 
-    // 2) Presence offline broadcasts.
+    // 2) Dead connections.
+    const nextSweep = await this.ctx.storage.get<number>(NEXT_SWEEP_AT_KEY);
+    if (nextSweep && nextSweep <= now) {
+      await this.sweepConnections(now);
+    }
+
+    // 3) Members whose grace period is over.
     const pending = await this.ctx.storage.list<number>({ prefix: PENDING_OFFLINE_PREFIX });
-
-    const dueUserIds: string[] = [];
     for (const [key, fireAt] of pending.entries()) {
-      if (fireAt <= now) {
-        dueUserIds.push(key.slice(PENDING_OFFLINE_PREFIX.length));
+      if (fireAt > now) continue;
+      const userId = key.slice(PENDING_OFFLINE_PREFIX.length);
+      await this.ctx.storage.delete(key);
+
+      // Reconnected in the meantime (the upgrade should have cancelled the
+      // timer already; this covers the race).
+      if (this.connectionsOf(userId).length > 0) {
+        await this.refreshPresence(userId);
+        continue;
       }
-    }
 
-    if (dueUserIds.length === 0) {
-      await this.rescheduleAlarm();
-      return;
-    }
-
-    const workspaceId = await this.ctx.storage.get<string>('workspaceId');
-
-    for (const userId of dueUserIds) {
-      // One final sanity check — if the user has reconnected in the
-      // interim, skip (the reconnect path should have deleted the key,
-      // but belt-and-suspenders for race conditions).
-      const hasOther = this.ctx.getWebSockets().some((ws) => {
-        const tags = this.ctx.getTags(ws);
-        return this.getTag(tags, 'user:') === userId;
-      });
-
-      await this.ctx.storage.delete(`${PENDING_OFFLINE_PREFIX}${userId}`);
-      if (hasOther) continue;
-
-      await this.broadcastOffline(userId);
-
-      // Persist to the tenant DB. Without this, any client doing a fresh
-      // GET /chat/status after the broadcast would see stale "online"
-      // and the ghost user would reappear on next page load.
-      if (workspaceId) {
-        // Record that this DO transitioned the user to offline so a future
-        // reconnect can repair the DB back to online. Set BEFORE the DB
-        // write so a reconnect that races with the write still has the
-        // signal to repair.
-        await this.ctx.storage.put(`${DO_MARKED_OFFLINE_PREFIX}${userId}`, now);
-        await this.persistOfflineToDb(workspaceId, userId);
-      }
+      await this.ctx.storage.delete(`${PRESENCE_PREFIX}${userId}`);
+      await this.broadcastPresence({ userId, live: null });
     }
 
     await this.rescheduleAlarm();
   }
 
-  /** Broadcast `presence / status_changed offline` to subscribed WebSockets. */
-  private async broadcastOffline(userId: string): Promise<void> {
-    const message = JSON.stringify({
-      type: 'event',
-      topic: 'presence',
-      event: 'status_changed',
-      data: { userId, status: 'offline' },
-      ts: Date.now(),
-      userId,
-    });
+  private presenceMessage(event: string, data: unknown, userId: string): string {
+    return JSON.stringify({ type: 'event', topic: PRESENCE_TOPIC, event, data, ts: Date.now(), userId });
+  }
+
+  /**
+   * Tell every `presence` subscriber that a member's live presence changed.
+   * Not added to the replay log: a subscriber that missed it gets a fresh
+   * snapshot when it resubscribes.
+   */
+  private async broadcastPresence(change: PresenceConnectionChange): Promise<void> {
+    const message = this.presenceMessage(PRESENCE_EVENTS.connection, change, change.userId);
 
     for (const ws of this.ctx.getWebSockets()) {
-      const tags = this.ctx.getTags(ws);
-      const connId = this.getTag(tags, 'conn:');
+      if (connectionState(ws).gone) continue;
+      const connId = this.getTag(this.ctx.getTags(ws), 'conn:');
       // Load from storage on miss — alarm-driven wakes have an empty in-memory
       // map even though the underlying WebSocket and its `subs:*` survive.
       const subs = await this.loadSubs(connId);
-      if (subs.size === 0) continue;
-      for (const sub of subs) {
-        if (sub === 'presence' || topicMatches(sub, 'presence')) {
-          try {
-            ws.send(message);
-          } catch {
-            // WebSocket may have closed
-          }
-          break;
-        }
-      }
-    }
-  }
-
-  private async persistOfflineToDb(workspaceId: string, userId: string): Promise<void> {
-    // Personal (consumer) and HR portal hubs have no workspace members and no
-    // tenant presence rows — presence lives only in the DO.
-    if (isMemberlessHubKey(workspaceId)) return;
-    try {
-      const db = await getTenantDbForWorkspace(this.env, workspaceId);
-      await setUserOffline(db, userId);
-    } catch (err) {
-      console.error('[WorkspaceHub] persistOfflineToDb failed:', err);
-    }
-  }
-
-  /**
-   * Repair `chat_user_status` to online after a reconnect that follows a
-   * DO-induced offline transition. Only writes if the row is currently
-   * `offline`; preserves user-set custom statuses untouched. Broadcasts
-   * a `status_changed online` so any subscribed clients update too.
-   */
-  private async repairOnlineInDb(workspaceId: string, userId: string): Promise<void> {
-    // Personal (consumer) and HR portal hubs have no workspace members and no
-    // tenant presence rows — presence lives only in the DO.
-    if (isMemberlessHubKey(workspaceId)) return;
-    try {
-      const db = await getTenantDbForWorkspace(this.env, workspaceId);
-      const updated = await setUserOnlineIfOffline(db, userId);
-      if (updated) {
-        await this.broadcastStatusChange(userId, 'online');
-      }
-    } catch (err) {
-      console.error('[WorkspaceHub] repairOnlineInDb failed:', err);
-    }
-  }
-
-  /**
-   * Broadcast a `presence/status_changed` event to subscribed WebSockets.
-   * Shared with `broadcastOffline`; pulls subscription state from storage
-   * so it works after an alarm-driven wake.
-   */
-  private async broadcastStatusChange(userId: string, status: string): Promise<void> {
-    const message = JSON.stringify({
-      type: 'event',
-      topic: 'presence',
-      event: 'status_changed',
-      data: { userId, status },
-      ts: Date.now(),
-      userId,
-    });
-
-    for (const ws of this.ctx.getWebSockets()) {
-      const tags = this.ctx.getTags(ws);
-      const connId = this.getTag(tags, 'conn:');
-      const subs = await this.loadSubs(connId);
-      if (subs.size === 0) continue;
-      for (const sub of subs) {
-        if (sub === 'presence' || topicMatches(sub, 'presence')) {
-          try {
-            ws.send(message);
-          } catch {
-            // WebSocket may have closed
-          }
-          break;
-        }
+      if (subs.size === 0 || !this.matchesAnySubscription(subs, PRESENCE_TOPIC)) continue;
+      try {
+        ws.send(message);
+      } catch {
+        // WebSocket may have closed
       }
     }
   }

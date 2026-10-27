@@ -31,7 +31,6 @@ import { RoomClient } from '@weldsuite/realtime/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import type { WorkspaceEvent } from '@weldsuite/realtime';
 import { usePresenceMaybe } from '@/contexts/presence-context';
-import type { PresenceStatus } from '@weldsuite/ui/components/status-dot';
 import { apiUrl, getRealtimeWsOrigin } from '@/lib/api/public-env';
 
 const REALTIME_BASE_URL = getRealtimeWsOrigin();
@@ -412,31 +411,16 @@ export function WeldChatCallProvider({ children }: Readonly<{ children: React.Re
   const [isPiP, setIsPiP] = useState(false);
   const [viewMode, setViewMode] = useState<CallViewMode>('grid');
 
-  // Mirror call activity into the shared presence status so other users see
-  // a "busy" indicator while this user is in a call. We snapshot the pre-call
-  // status the first time we flip to busy and restore it when the call ends.
-  // PresenceProvider may not be mounted (e.g., HMR ordering, auth pages) — in
-  // that case skip the side-effect rather than crashing the shell.
-  const presence = usePresenceMaybe();
-  const myStatus = presence?.myStatus;
-  const setMyStatus = presence?.setMyStatus;
-  const preCallStatusRef = useRef<PresenceStatus | null>(null);
+  // Show this user as busy to others while in a call. It is live presence on
+  // this tab's realtime connection, not a stored status, so it ends with the
+  // call or with the tab — a reload mid-call never leaves anyone stuck on busy,
+  // and a status the user picked is left alone. PresenceProvider may not be
+  // mounted (e.g., HMR ordering, auth pages) — then there is nothing to tell.
+  const setInCall = usePresenceMaybe()?.setInCall;
+  const inCall = status === 'connecting' || status === 'connected' || status === 'ringing-outgoing';
   useEffect(() => {
-    if (!setMyStatus) return;
-    const activeStatuses: CallStatus[] = ['connecting', 'connected', 'ringing-outgoing'];
-    const isActive = activeStatuses.includes(status);
-    if (isActive) {
-      if (preCallStatusRef.current == null) {
-        preCallStatusRef.current = (myStatus?.status as PresenceStatus) ?? 'online';
-        setMyStatus('busy');
-      }
-    } else if (preCallStatusRef.current != null) {
-      const restore = preCallStatusRef.current;
-      preCallStatusRef.current = null;
-      // Only restore if we're still marked busy (don't stomp a manual change).
-      if (myStatus?.status === 'busy') setMyStatus(restore);
-    }
-  }, [status, myStatus?.status, setMyStatus]);
+    setInCall?.(inCall);
+  }, [inCall, setInCall]);
 
   // Auto-apply saved virtual background preference when meeting starts
   const virtualBackground = useVirtualBackground(meeting);

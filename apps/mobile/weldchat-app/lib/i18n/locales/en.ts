@@ -147,6 +147,8 @@ export const en = {
     typingOne: '{name} is typing…',
     typingTwo: '{name} and {other} are typing…',
     typingMany: '{name} and {count} others are typing…',
+    agentWorking: '{name} is working…',
+    agentBadge: 'Agent',
     someone: 'Someone',
     you: 'You',
     attachment: 'Attachment',
@@ -452,6 +454,8 @@ export const en = {
       task: 'Tasks',
       project: 'Projects',
       domain: 'Domains',
+      sheet: 'Spreadsheets',
+      doc: 'Documents',
     },
     types: {
       company: 'Company',
@@ -459,6 +463,8 @@ export const en = {
       task: 'Task',
       project: 'Project',
       domain: 'Domain',
+      sheet: 'Spreadsheet',
+      doc: 'Document',
     },
     // The records screen's title menu: every type, or one.
     allTypes: 'All record chats',

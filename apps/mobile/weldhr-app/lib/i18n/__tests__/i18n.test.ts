@@ -68,11 +68,11 @@ describe('English and Dutch catalogs', () => {
   });
 
   it('translate the tab titles and the screen headings', () => {
-    expect(nl.tabs.timeOff).not.toBe(en.tabs.timeOff);
-    expect(nl.tabs.expenses).not.toBe(en.tabs.expenses);
+    expect(nl.tabs.schedule).not.toBe(en.tabs.schedule);
+    expect(nl.tabs.absence).not.toBe(en.tabs.absence);
     expect(nl.leaveForm.title).not.toBe(en.leaveForm.title);
     expect(nl.sick.title).not.toBe(en.sick.title);
-    expect(nl.team.approvals).not.toBe(en.team.approvals);
+    expect(nl.absence.requests).not.toBe(en.absence.requests);
   });
 
   it('name every status and category the API sends', () => {

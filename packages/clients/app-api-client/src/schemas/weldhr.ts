@@ -35,7 +35,6 @@ export const hrKpiUnitSchema = z.enum(['number', 'percent', 'seconds', 'minutes'
 export const hrKpiDirectionSchema = z.enum(['higher_better', 'lower_better']);
 export const hrMilestoneTypeSchema = z.enum(['goal', 'milestone', 'certification']);
 export const hrMilestoneStatusSchema = z.enum(['planned', 'in_progress', 'achieved', 'missed']);
-export const hrPortalAccessKindSchema = z.enum(['employee', 'client']);
 
 // ---------------------------------------------------------------------------
 // Departments
@@ -84,10 +83,13 @@ export const createHrEmployeeSchema = z.object({
   departmentId: id.nullable().optional(),
   managerId: id.nullable().optional(),
   /**
-   * Clerk id of the workspace member this employee is. Required: every
-   * employee is someone in this workspace (an INTERNAL or EMPLOYEE member).
+   * Clerk id of the workspace member this employee is: every employee is
+   * someone in this workspace (an INTERNAL or EMPLOYEE member). Leave it out
+   * for someone who has been invited but hasn't accepted yet: the server then
+   * needs a pending invite for `email` (or links the active member with that
+   * email) and links the employee once the invite is accepted.
    */
-  userId: z.string().trim().min(1).max(255),
+  userId: z.string().trim().min(1).max(255).optional(),
   employmentType: hrEmploymentTypeSchema.optional(),
   status: hrEmployeeStatusSchema.optional(),
   startDate: isoDate.nullable().optional(),
@@ -96,6 +98,8 @@ export const createHrEmployeeSchema = z.object({
   location: shortText(160).nullable().optional(),
   timezone: shortText(60).nullable().optional(),
   weeklyHours: z.number().min(0).max(168).nullable().optional(),
+  /** Work locations this employee may clock in at; null or empty is any of them. */
+  workLocationIds: z.array(id).max(50).nullable().optional(),
   customFields: z.record(z.unknown()).optional(),
   /** Requires `employees:sensitive`; ignored with a 403 otherwise. */
   sensitive: hrEmployeeSensitiveSchema.optional(),
@@ -213,6 +217,28 @@ export const createHrShiftSchema = z.object({
   notes: z.string().max(1000).nullable().optional(),
 });
 export const updateHrShiftSchema = createHrShiftSchema.omit({ employeeId: true }).partial();
+
+/** A shift posted for anyone who wants to work it; employees sign up and a manager approves who gets it. */
+export const createHrOpenShiftSchema = z.object({
+  companyId: id.nullable().optional(),
+  /** Only this department (and those under it) sees it; leave out for everyone. */
+  departmentId: id.nullable().optional(),
+  startsAt: isoDateTime,
+  endsAt: isoDateTime,
+  workType: shortText(100).nullable().optional(),
+  breakStartsAt: isoDateTime.nullable().optional(),
+  breakEndsAt: isoDateTime.nullable().optional(),
+  notes: z.string().max(1000).nullable().optional(),
+  /** How many people the shift needs. */
+  spots: z.number().int().min(1).max(100).optional(),
+});
+export const updateHrOpenShiftSchema = createHrOpenShiftSchema.partial();
+
+/** A manager's answer to a shift request; approving puts the shift on the rooster. */
+export const reviewHrShiftRequestSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  note: z.string().max(2000).nullable().optional(),
+});
 
 export const createHrAttendanceSchema = z.object({
   employeeId: id,
@@ -477,87 +503,99 @@ export const createHrMilestoneSchema = z.object({
 export const updateHrMilestoneSchema = createHrMilestoneSchema.omit({ employeeId: true }).partial();
 
 // ---------------------------------------------------------------------------
-// Portal (back office)
+// Work locations & announcements
 // ---------------------------------------------------------------------------
 
-export const updateHrPortalSettingsSchema = z.object({
-  isEnabled: z.boolean().optional(),
-  employeePortalEnabled: z.boolean().optional(),
-  clientPortalEnabled: z.boolean().optional(),
-  displayName: shortText(255).nullable().optional(),
-  logoUrl: z.string().url().max(500).nullable().optional(),
-  faviconUrl: z.string().url().max(500).nullable().optional(),
-  primaryColor: color,
-  accentColor: color,
-  welcomeMessage: z.string().max(2000).nullable().optional(),
-  supportEmail: z.string().email().max(255).nullable().optional(),
-  hideWeldsuiteBranding: z.boolean().optional(),
-  customDomain: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .max(255)
-    .regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/, 'Enter a hostname like portal.example.com')
-    .nullable()
-    .optional(),
-  clientCanSeeIndividualScores: z.boolean().optional(),
+export const createHrWorkLocationSchema = z.object({
+  name: shortText(160).min(1),
+  address: z.string().trim().max(500).nullable().optional(),
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  /** How far from the point still counts as being there. */
+  radiusMeters: z.number().int().min(25).max(5000).optional(),
+  isActive: z.boolean().optional(),
+});
+export const updateHrWorkLocationSchema = createHrWorkLocationSchema.partial();
+
+export const createHrAnnouncementSchema = z.object({
+  title: shortText(200).min(1),
+  body: z.string().trim().min(1).max(20000),
+  pinned: z.boolean().optional(),
+  /** Departments it is for (and the ones under them); empty or left out is every employee. */
+  departmentIds: z.array(id).max(100).optional(),
+  /** Send a push notification to the audience's WeldHR app. */
+  notify: z.boolean().optional(),
+});
+export const updateHrAnnouncementSchema = createHrAnnouncementSchema.omit({ notify: true }).partial();
+
+// ---------------------------------------------------------------------------
+// Settings (back office)
+// ---------------------------------------------------------------------------
+
+/** What employees may do for themselves in My HR. */
+export const updateHrSettingsSchema = z.object({
   employeeSelfClockIn: z.boolean().optional(),
+  clockInRequiresLocation: z.boolean().optional(),
   employeeLeaveRequests: z.boolean().optional(),
   employeeDeclarations: z.boolean().optional(),
 });
 
-export const inviteHrPortalAccessSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('employee'), employeeId: id }),
-  z.object({ kind: z.literal('client'), personId: id, companyId: id }),
-]);
-
 // ---------------------------------------------------------------------------
-// Public workforce portal
+// My HR (self-service, /api/weldhr/me)
 // ---------------------------------------------------------------------------
 
-export const hrPortalAuthRequestSchema = z.object({
-  email: z.string().trim().email().max(255),
+/** Where the device is, from its GPS; `accuracy` is the radius of uncertainty in metres. */
+export const hrGeoPointSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  accuracy: z.number().min(0).max(100_000).nullable().optional(),
 });
 
-export const hrPortalAuthVerifySchema = z.object({
-  email: z.string().trim().email().max(255),
-  otp: z.string().min(4).max(12),
+export const hrSelfClockSchema = z.object({
+  /** `switch` clocks out of the open record and straight in on `shiftId`. */
+  action: z.enum(['in', 'out', 'switch']),
+  /**
+   * The shift to clock in on, or to switch to. Clocking in without one picks
+   * the first of today's shifts that has not ended.
+   */
+  shiftId: id.optional(),
+  /** Required while the workspace requires being at a work location to clock in or out. */
+  location: hrGeoPointSchema.optional(),
 });
 
-export const hrPortalSelectAccessSchema = z.object({
-  pickerToken: z.string().min(1).max(200),
-  accessId: id,
+/** Signing up for an open shift; the times come from the open shift. */
+export const hrSelfOpenShiftRequestSchema = z.object({
+  note: z.string().max(1000).nullable().optional(),
 });
 
-export const hrPortalClockSchema = z.object({
-  action: z.enum(['in', 'out']),
-});
-
-export const hrPortalLeaveRequestSchema = z.object({
+export const hrSelfLeaveRequestSchema = z.object({
   leaveTypeId: id,
   startDate: isoDate,
   endDate: isoDate,
   reason: z.string().max(2000).nullable().optional(),
 });
 
-/** A declaration an employee files for themselves (My HR and the workforce portal). */
-export const hrPortalDeclarationSchema = z.object(declarationFields);
+/** An employee asking to work a shift (My HR); a manager approves or rejects it. */
+export const hrSelfShiftRequestSchema = z.object({
+  startsAt: isoDateTime,
+  endsAt: isoDateTime,
+  workType: shortText(100).nullable().optional(),
+  note: z.string().max(1000).nullable().optional(),
+});
+
+/** A declaration an employee files for themselves. */
+export const hrSelfDeclarationSchema = z.object(declarationFields);
 
 /** An employee reporting themselves sick. Recovering uses `recoverHrAbsenceSchema`. */
-export const hrPortalAbsenceSchema = z.object({
+export const hrSelfAbsenceSchema = z.object({
   startDate: isoDate,
   /** Defaults to a full day. */
   firstDay: hrAbsenceFirstDaySchema.optional(),
   note: absenceNote,
 });
 
-export const hrPortalAcknowledgeSchema = z.object({
+export const hrSelfAcknowledgeSchema = z.object({
   comment: z.string().max(5000).nullable().optional(),
-});
-
-export const hrPortalClientRequestSchema = z.object({
-  subject: shortText(255).min(1),
-  message: z.string().trim().min(1).max(20000),
 });
 
 export type CreateHrEmployeeInput = z.infer<typeof createHrEmployeeSchema>;
@@ -571,6 +609,15 @@ export type HrChecklistTemplateItemInput = z.infer<typeof hrChecklistTemplateIte
 export type CreateHrChecklistTaskInput = z.infer<typeof createHrChecklistTaskSchema>;
 export type UpdateHrChecklistTaskInput = z.infer<typeof updateHrChecklistTaskSchema>;
 export type CreateHrShiftInput = z.infer<typeof createHrShiftSchema>;
+export type ReviewHrShiftRequestInput = z.infer<typeof reviewHrShiftRequestSchema>;
+export type CreateHrOpenShiftInput = z.infer<typeof createHrOpenShiftSchema>;
+export type UpdateHrOpenShiftInput = z.infer<typeof updateHrOpenShiftSchema>;
+export type CreateHrWorkLocationInput = z.infer<typeof createHrWorkLocationSchema>;
+export type UpdateHrWorkLocationInput = z.infer<typeof updateHrWorkLocationSchema>;
+export type CreateHrAnnouncementInput = z.infer<typeof createHrAnnouncementSchema>;
+export type UpdateHrAnnouncementInput = z.infer<typeof updateHrAnnouncementSchema>;
+export type HrGeoPointInput = z.infer<typeof hrGeoPointSchema>;
+export type HrSelfServiceOpenShiftRequestInput = z.infer<typeof hrSelfOpenShiftRequestSchema>;
 export type CreateHrAttendanceInput = z.infer<typeof createHrAttendanceSchema>;
 export type UpdateHrAttendanceInput = z.infer<typeof updateHrAttendanceSchema>;
 export type ImportHrAttendanceInput = z.infer<typeof importHrAttendanceSchema>;
@@ -595,11 +642,11 @@ export type CreateHrKpiValueInput = z.infer<typeof createHrKpiValueSchema>;
 export type ImportHrKpiValuesInput = z.infer<typeof importHrKpiValuesSchema>;
 export type CreateHrMilestoneInput = z.infer<typeof createHrMilestoneSchema>;
 export type UpdateHrMilestoneInput = z.infer<typeof updateHrMilestoneSchema>;
-export type UpdateHrPortalSettingsInput = z.infer<typeof updateHrPortalSettingsSchema>;
-export type InviteHrPortalAccessInput = z.infer<typeof inviteHrPortalAccessSchema>;
-export type HrSelfServiceLeaveRequestInput = z.infer<typeof hrPortalLeaveRequestSchema>;
-export type HrSelfServiceDeclarationInput = z.infer<typeof hrPortalDeclarationSchema>;
-export type HrSelfServiceAbsenceInput = z.infer<typeof hrPortalAbsenceSchema>;
-export type HrSelfServiceClockInput = z.infer<typeof hrPortalClockSchema>;
-export type HrSelfServiceAcknowledgeInput = z.infer<typeof hrPortalAcknowledgeSchema>;
+export type UpdateHrSettingsInput = z.infer<typeof updateHrSettingsSchema>;
+export type HrSelfServiceLeaveRequestInput = z.infer<typeof hrSelfLeaveRequestSchema>;
+export type HrSelfServiceShiftRequestInput = z.infer<typeof hrSelfShiftRequestSchema>;
+export type HrSelfServiceDeclarationInput = z.infer<typeof hrSelfDeclarationSchema>;
+export type HrSelfServiceAbsenceInput = z.infer<typeof hrSelfAbsenceSchema>;
+export type HrSelfServiceClockInput = z.infer<typeof hrSelfClockSchema>;
+export type HrSelfServiceAcknowledgeInput = z.infer<typeof hrSelfAcknowledgeSchema>;
 export type CreateHrDepartmentInput = z.infer<typeof createHrDepartmentSchema>;

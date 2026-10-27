@@ -1,6 +1,6 @@
 /**
  * The `weldhr-payroll` feature flag gates every payroll route (the back
- * office, My HR and the workforce portal): a workspace without it gets a 404,
+ * office and My HR): a workspace without it gets a 404,
  * as if the endpoints did not exist. `weldhr-payroll-digipoort` additionally
  * gates sending the loonaangifte over Digipoort.
  */
@@ -14,9 +14,8 @@ import type { HrContext } from '../helpers';
 type FlagKey = 'weldhr-payroll' | 'weldhr-payroll-digipoort';
 
 /**
- * The request's flag evaluator. Authenticated routes get it from `apiAuth()`;
- * the portal has no auth chain, so evaluate it here (same evaluator, the
- * workspace comes from the slug middleware).
+ * The request's flag evaluator, from `apiAuth()`; evaluated here when a route
+ * reaches this without one (tests, mostly).
  */
 async function flagsOf(c: HrContext) {
   let flags = c.get('flags');

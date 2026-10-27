@@ -1,6 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../lib/protocol';
 import { AUTH_HEADERS } from '../lib/protocol';
+import { reciprocateClose } from '../lib/close';
 import type { PresenceMember } from '@weldsuite/realtime/types';
 
 /**
@@ -162,7 +163,7 @@ export class ChatRoom extends DurableObject<Env> {
       this.clearTypingTimer(userId);
     }
 
-    ws.close(code, reason);
+    reciprocateClose(ws, code, reason);
   }
 
   webSocketError(ws: WebSocket, error: unknown): void {

@@ -14,6 +14,7 @@ import { insertChart, removeChart } from '../model/charts';
 import { copySelection, pasteInto } from '../model/clipboard';
 import { clampToGrid, isWholeColumns, isWholeRows, primaryRange } from '../model/selection';
 import type { SheetController } from '../model/sheet-controller';
+import { fitToData } from './autofit';
 
 const MOD = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 
@@ -49,10 +50,10 @@ export function GridContextMenu({ controller, onCreatePivot, children }: { contr
     }
   };
 
-  const paste = async () => {
+  const paste = async (valuesOnly = false) => {
     try {
       const text = await navigator.clipboard.readText();
-      pasteInto(controller, text, null);
+      pasteInto(controller, text, null, valuesOnly);
     } catch {
       toast.info(tm.pasteBlocked);
     }
@@ -95,6 +96,10 @@ export function GridContextMenu({ controller, onCreatePivot, children }: { contr
             {tm.paste}
             <ContextMenuShortcut>{MOD}V</ContextMenuShortcut>
           </ContextMenuItem>
+          <ContextMenuItem onSelect={() => void paste(true)}>
+            {tm.pasteValues}
+            <ContextMenuShortcut>{MOD}Shift+V</ContextMenuShortcut>
+          </ContextMenuItem>
           <ContextMenuSeparator />
           {!wholeCols && (
             <>
@@ -134,6 +139,7 @@ export function GridContextMenu({ controller, onCreatePivot, children }: { contr
               <ContextMenuItem onSelect={() => controller.resize('row', controller.selectedIndices('row'), null)}>
                 {tm.resizeRows}
               </ContextMenuItem>
+              <ContextMenuItem onSelect={() => fitToData(controller, 'row', controller.selectedIndices('row'))}>{tm.fitRows}</ContextMenuItem>
             </>
           )}
           {wholeCols && (
@@ -143,6 +149,7 @@ export function GridContextMenu({ controller, onCreatePivot, children }: { contr
               <ContextMenuItem onSelect={() => controller.resize('col', controller.selectedIndices('col'), null)}>
                 {tm.resizeColumns}
               </ContextMenuItem>
+              <ContextMenuItem onSelect={() => fitToData(controller, 'col', controller.selectedIndices('col'))}>{tm.fitColumns}</ContextMenuItem>
             </>
           )}
           <ContextMenuSeparator />

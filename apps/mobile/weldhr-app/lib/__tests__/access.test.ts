@@ -22,6 +22,16 @@ describe('resolveAccess', () => {
     expect(manager.approveExpenses).toBe(true);
   });
 
+  it('opens the team views per endpoint permission', () => {
+    const planner = resolveAccess({ permissions: ['employees:self', 'attendance:read'] }, false);
+    expect(planner.attendance).toBe(true);
+    expect(planner.leave).toBe(false);
+
+    const employee = resolveAccess({ permissions: ['employees:self'] }, false);
+    expect(employee.attendance).toBe(false);
+    expect(employee.leave).toBe(false);
+  });
+
   it('honours wildcards and denies', () => {
     const admin = resolveAccess({ permissions: ['*'] }, false);
     expect(admin).toMatchObject({ self: true, approveLeave: true, approveExpenses: true, directory: true, sickToday: true });

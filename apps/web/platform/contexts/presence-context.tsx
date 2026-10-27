@@ -1,14 +1,20 @@
 /**
  * Platform-Wide Presence Context
  *
- * Provides user presence data to the entire application.
- * Fetches initial statuses, subscribes to real-time updates via
- * @weldsuite/realtime WorkspaceHub, and auto-manages the current
- * user's online/offline state.
+ * What every member's status dot shows, from two inputs
+ * (`@weldsuite/realtime/presence`):
  *
- * Offline detection is handled server-side by the WorkspaceHub DO:
- * when the last WebSocket disconnects, it waits 5 seconds (grace period
- * for page refreshes) before broadcasting offline. No beforeunload needed.
+ *  - **Live presence** from the realtime WorkspaceHub: a `snapshot` when we
+ *    subscribe to `presence` (again on every reconnect), then
+ *    `connection_changed` events. The hub alone decides who is connected; it
+ *    notices a closed laptop or a dropped network by the missing heartbeat.
+ *    This tab tells it two things about itself: whether the user is idle (no
+ *    input in any tab of this browser for `IDLE_MS`) and whether they are in a
+ *    call. The hub folds all tabs and devices of a member together, so an idle
+ *    tab never marks someone away who is busy elsewhere.
+ *  - **Chosen statuses** (Busy, Do not disturb, Away, Appear offline, custom
+ *    text) from `GET /chat-status`, then `status_changed` / `status_cleared`
+ *    events. `setMyStatus` sets ours.
  */
 
 import React, {
@@ -17,13 +23,29 @@ import React, {
   useEffect,
   useState,
   useCallback,
-  useRef,
   useMemo,
+  useRef,
 } from 'react';
 import { useAuth, useOrganization } from '@clerk/clerk-react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useTopic, useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
+import { topicMatches } from '@weldsuite/realtime/topics';
+import {
+  PRESENCE_EVENTS,
+  PRESENCE_TOPIC,
+  effectivePresence,
+  type ChosenStatus,
+  type LivePresence,
+  type PresenceConnectionChange,
+  type PresenceSnapshot,
+  type PresenceStatusChange,
+} from '@weldsuite/realtime/presence';
+import type { WorkspaceEvent } from '@weldsuite/realtime';
 import type { PresenceStatus } from '@weldsuite/ui/components/status-dot';
+
+/** No input in any tab of this browser for this long marks the user idle. */
+const IDLE_MS = 5 * 60 * 1000;
+const ACTIVITY_THROTTLE_MS = 1000;
 
 export interface UserPresence {
   status: PresenceStatus;
@@ -31,32 +53,54 @@ export interface UserPresence {
   statusEmoji?: string;
 }
 
-interface ChatStatusRow {
-  userId: string;
-  status?: PresenceStatus;
+/** A member's chosen status as we last heard it. */
+interface ChosenEntry {
+  status: ChosenStatus;
   statusText?: string;
   statusEmoji?: string;
+  expiresAt: number | null;
+  /** Server time of the write; an older event or fetch never replaces a newer one. */
+  updatedAt: number;
 }
 
-interface PresenceRealtimeEvent {
-  event: string;
-  data: {
-    userId: string;
-    status?: PresenceStatus;
-    statusText?: string;
-    statusEmoji?: string;
-  };
+interface ChatStatusRow {
+  userId: string;
+  manualStatus?: ChosenStatus;
+  live?: LivePresence | null;
+  statusText?: string | null;
+  statusEmoji?: string | null;
+  statusExpiresAt?: string | null;
+  updatedAt?: string | null;
 }
 
 interface PresenceContextValue {
   presenceMap: Record<string, UserPresence>;
   myStatus: UserPresence | null;
   setMyStatus: (status: PresenceStatus, statusText?: string, statusEmoji?: string) => void;
+  /** Show us as busy while in a call; cleared on its own if the tab goes away. */
+  setInCall: (inCall: boolean) => void;
   getStatus: (userId: string) => UserPresence | undefined;
   isLoading: boolean;
 }
 
 const PresenceContext = createContext<PresenceContextValue | null>(null);
+
+const timeOf = (iso: string | null | undefined): number => (iso ? Date.parse(iso) || 0 : 0);
+
+function toEntry(change: PresenceStatusChange): ChosenEntry {
+  return {
+    status: change.status,
+    statusText: change.statusText || undefined,
+    statusEmoji: change.statusEmoji || undefined,
+    expiresAt: change.expiresAt ? timeOf(change.expiresAt) : null,
+    updatedAt: timeOf(change.updatedAt),
+  };
+}
+
+/** Keep whichever of two entries for a member was written last. */
+function newer(current: ChosenEntry | undefined, incoming: ChosenEntry): ChosenEntry {
+  return current && current.updatedAt > incoming.updatedAt ? current : incoming;
+}
 
 export function PresenceProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const { userId } = useAuth();
@@ -64,183 +108,116 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
   const { getClient } = useAppApiClient();
   const workspaceClient = useWorkspaceClientMaybe();
 
-  const [presenceMap, setPresenceMap] = useState<Record<string, UserPresence>>({});
+  const [chosen, setChosen] = useState<Record<string, ChosenEntry>>({});
+  const [live, setLive] = useState<Record<string, LivePresence>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const preAwayStatusRef = useRef<PresenceStatus | null>(null);
-  const hasSetOnlineRef = useRef(false);
-  /** Set by the idle-detection effect so other effects can register external
-   *  activity (e.g. a `status_changed` WS event from another device of ours)
-   *  with the shared idle clock. Null until the idle effect mounts. */
-  const crossDeviceActivityRef = useRef<((ts: number) => void) | null>(null);
-  /** True once the initial GET /chat-status has resolved for the current
-   *  workspace. The auto-online effect waits on this so it can decide
-   *  whether to overwrite an existing user-set status. */
-  const initialFetchDoneRef = useRef(false);
-  /** Bumped on workspace switch so dependent effects can re-run their gates. */
-  const [fetchEpoch, setFetchEpoch] = useState(0);
-  const awayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const presenceMapRef = useRef(presenceMap);
-  presenceMapRef.current = presenceMap;
+  /** Once the hub's snapshot arrived, live presence from a fetch is older news. */
+  const snapshotSeenRef = useRef(false);
 
   const workspaceId = organization?.id;
 
-  // Fetch initial statuses. Resets the auto-online gate on every workspace
-  // change so the new tenant's `chat_user_status` row is evaluated fresh.
-  useEffect(() => {
-    if (!workspaceId) return;
+  const fetchStatuses = useCallback(async () => {
+    try {
+      const client = await getClient();
+      const response = await client.get<{ data?: ChatStatusRow[] }>('/chat-status');
 
-    let cancelled = false;
-    hasSetOnlineRef.current = false;
-    initialFetchDoneRef.current = false;
-
-    const fetchStatuses = async () => {
-      try {
-        const client = await getClient();
-        const response = await client.get<{ data?: ChatStatusRow[] }>('/chat-status');
-        if (cancelled) return;
-
-        const map: Record<string, UserPresence> = {};
-        for (const s of response?.data ?? []) {
-          map[s.userId] = {
-            status: s.status || 'offline',
-            statusText: s.statusText || undefined,
-            statusEmoji: s.statusEmoji || undefined,
-          };
-        }
-        setPresenceMap(map);
-      } catch (err) {
-        console.error('[Presence] Failed to fetch statuses:', err);
-      } finally {
-        if (!cancelled) {
-          initialFetchDoneRef.current = true;
-          setIsLoading(false);
-          setFetchEpoch((n) => n + 1);
-        }
+      const fetchedChosen: Record<string, ChosenEntry> = {};
+      const fetchedLive: Record<string, LivePresence> = {};
+      for (const row of response?.data ?? []) {
+        fetchedChosen[row.userId] = {
+          status: row.manualStatus ?? 'online',
+          statusText: row.statusText || undefined,
+          statusEmoji: row.statusEmoji || undefined,
+          expiresAt: row.statusExpiresAt ? timeOf(row.statusExpiresAt) : null,
+          updatedAt: timeOf(row.updatedAt),
+        };
+        if (row.live) fetchedLive[row.userId] = row.live;
       }
-    };
 
-    void fetchStatuses();
-    return () => { cancelled = true; };
-  }, [workspaceId, getClient]);
-
-  // Subscribe to real-time status changes via WorkspaceHub
-  const handlePresenceEvent = useCallback((event: PresenceRealtimeEvent) => {
-    if (event.event === 'status_changed') {
-      const { userId: uid, status, statusText, statusEmoji } = event.data;
-      setPresenceMap((prev) => ({
-        ...prev,
-        [uid]: {
-          status: status || 'offline',
-          statusText: statusText || undefined,
-          statusEmoji: statusEmoji || undefined,
-        },
-      }));
-      // Cross-device coordination: if our OWN status was just set to a
-      // non-idle value, treat it as activity so this tab's idle clock
-      // doesn't immediately flap us back to `away`.
-      if (uid === userId && (status === 'online' || status === 'busy' || status === 'dnd')) {
-        crossDeviceActivityRef.current?.(Date.now());
-      }
-    } else if (event.event === 'status_cleared') {
-      const { userId: uid } = event.data;
-      setPresenceMap((prev) => {
-        const next = { ...prev };
-        delete next[uid];
+      setChosen((prev) => {
+        const next: Record<string, ChosenEntry> = {};
+        for (const [uid, entry] of Object.entries(fetchedChosen)) next[uid] = newer(prev[uid], entry);
         return next;
       });
+      if (!snapshotSeenRef.current) setLive(fetchedLive);
+    } catch (err) {
+      console.error('[Presence] Failed to fetch statuses:', err);
+    } finally {
+      setIsLoading(false);
     }
-  }, [userId]);
+  }, [getClient]);
 
-  useTopic('presence', handlePresenceEvent);
-
-  // Auto-set online once per workspace, AFTER the initial fetch resolves
-  // so we can respect an existing user-set status (`dnd`/`away`/`busy`).
-  // Offline is handled by the WorkspaceHub DO grace period — no beforeunload needed.
+  // Initial statuses, per workspace.
   useEffect(() => {
-    if (!userId || !workspaceId) return;
-    if (!initialFetchDoneRef.current) return;
-    if (hasSetOnlineRef.current) return;
+    if (!workspaceId) return;
+    snapshotSeenRef.current = false;
+    setChosen({});
+    setLive({});
+    void fetchStatuses();
+  }, [workspaceId, fetchStatuses]);
 
-    const existing = presenceMapRef.current[userId]?.status;
-    // Preserve a deliberate user-set status across refreshes / reconnects.
-    if (existing === 'busy' || existing === 'away' || existing === 'dnd') {
-      hasSetOnlineRef.current = true;
-      return;
-    }
-
-    hasSetOnlineRef.current = true;
-
-    // Optimistic: show 'online' immediately so we don't flash old status
-    setPresenceMap((prev) => ({
-      ...prev,
-      [userId]: { ...prev[userId], status: 'online' },
-    }));
-
-    const setOnline = async () => {
-      try {
-        const client = await getClient();
-        await client.put('/chat-status', { status: 'online' });
-      } catch (err) {
-        console.error('[Presence] Failed to set online:', err);
-        hasSetOnlineRef.current = false;
+  const handlePresenceEvent = useCallback((event: WorkspaceEvent) => {
+    switch (event.event) {
+      case PRESENCE_EVENTS.snapshot: {
+        snapshotSeenRef.current = true;
+        setLive({ ...(event.data as PresenceSnapshot).users });
+        break;
       }
-    };
+      case PRESENCE_EVENTS.connection: {
+        const { userId: uid, live: memberLive } = event.data as PresenceConnectionChange;
+        setLive((prev) => {
+          const next = { ...prev };
+          if (memberLive) next[uid] = memberLive;
+          else delete next[uid];
+          return next;
+        });
+        break;
+      }
+      case PRESENCE_EVENTS.status: {
+        const change = event.data as PresenceStatusChange;
+        // Events from before presence moved into the hub carry no write time
+        // and meant something else; the fetch has the truth for those.
+        if (!change.updatedAt) break;
+        const entry = toEntry(change);
+        setChosen((prev) => ({ ...prev, [change.userId]: newer(prev[change.userId], entry) }));
+        break;
+      }
+      case PRESENCE_EVENTS.cleared: {
+        const { userId: uid, updatedAt } = event.data as { userId: string; updatedAt?: string };
+        setChosen((prev) => {
+          if (!prev[uid] || prev[uid].updatedAt > timeOf(updatedAt)) return prev;
+          const next = { ...prev };
+          delete next[uid];
+          return next;
+        });
+        break;
+      }
+    }
+  }, []);
 
-    void setOnline();
-  }, [userId, workspaceId, getClient, fetchEpoch]);
+  useTopic(PRESENCE_TOPIC, handlePresenceEvent);
 
-  // Re-assert our current status whenever the realtime connection comes
-  // back from a `reconnecting` state. Covers the case where the WorkspaceHub
-  // grace period expired and persisted us `offline` while the network blip
-  // was in progress; on reconnect we tell the server what we should be.
+  // The replay log only goes back so far: when the hub says our cursor is too
+  // old, chosen statuses may have changed unseen. Live presence needs nothing,
+  // the resubscribe brings a fresh snapshot.
+  useEffect(() => {
+    if (!workspaceClient) return;
+    return workspaceClient.onResyncRequired((topics) => {
+      if (topics.some((topic) => topicMatches(topic, PRESENCE_TOPIC))) void fetchStatuses();
+    });
+  }, [workspaceClient, fetchStatuses]);
+
+  // Idle detection: the user is idle after IDLE_MS without input in ANY tab of
+  // this browser. Tabs share an activity clock over `BroadcastChannel`, so
+  // switching tabs never makes one of them idle. A hidden tab simply stops
+  // seeing input. Each tab reports to the hub; the hub only shows the member
+  // away once every tab and device of theirs is idle.
   useEffect(() => {
     if (!userId || !workspaceClient) return;
-    let prev = workspaceClient.connectionState;
-    const off = workspaceClient.onConnectionChange(async (state) => {
-      const wasReconnecting = prev === 'reconnecting';
-      prev = state;
-      if (state !== 'connected' || !wasReconnecting) return;
 
-      const current = presenceMapRef.current[userId];
-      // Default to `online` when we don't yet have local state.
-      const status: PresenceStatus = current?.status ?? 'online';
-      try {
-        const client = await getClient();
-        await client.put('/chat-status', {
-          status,
-          ...(current?.statusText ? { statusText: current.statusText } : {}),
-          ...(current?.statusEmoji ? { statusEmoji: current.statusEmoji } : {}),
-        });
-      } catch (err) {
-        console.error('[Presence] Failed to re-assert status on reconnect:', err);
-      }
-    });
-    return off;
-  }, [userId, workspaceClient, getClient]);
-
-  // Idle detection:
-  //   • Status drops to `away` after IDLE_MS of NO user activity in ANY tab
-  //     of THIS browser. Tabs in the same browser share an activity clock
-  //     over `BroadcastChannel`, so tab-switching no longer flaps presence
-  //     between `away` and `online`.
-  //   • Any local input/scroll OR a same-browser activity broadcast resets
-  //     the timer in every tab simultaneously.
-  //   • Visibility changes do NOT immediately mark away — a hidden tab
-  //     just stops generating local activity. If another tab is active,
-  //     its broadcasts keep this one out of `away`. If every tab is
-  //     hidden + idle, IDLE_MS expires and we go away.
-  //   • Cross-device coordination is best-effort: a `status_changed` WS
-  //     event for our own user bumps the activity clock too, so an active
-  //     device on another machine prevents this one from flapping us back
-  //     to `away` immediately after.
-  useEffect(() => {
-    if (!userId) return;
-
-    const IDLE_MS = 5 * 60 * 1000;
-    const ACTIVITY_THROTTLE_MS = 1000;
     let lastActivityAt = Date.now();
     let lastBroadcastAt = 0;
-    let isRestoring = false;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
     // Per-user channel so two users on the same machine (multi-account
     // shared device) don't reset each other's timers.
@@ -249,53 +226,13 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
         ? new BroadcastChannel(`weldsuite-presence-${userId}`)
         : null;
 
-    const goAway = async () => {
-      const current = presenceMapRef.current[userId]?.status;
-      // Only auto-away from a deliberate "available" state. Preserve user-
-      // chosen `busy`/`dnd` and skip when already offline or away.
-      if (current !== 'online') return;
-      preAwayStatusRef.current = current;
-      setPresenceMap((prev) => ({
-        ...prev,
-        [userId]: { ...prev[userId], status: 'away' },
-      }));
-      try {
-        const client = await getClient();
-        await client.put('/chat-status', { status: 'away' });
-      } catch {
-        // Ignore
-      }
-    };
-
-    const goBack = async () => {
-      if (isRestoring) return;
-      const current = presenceMapRef.current[userId]?.status;
-      if (current !== 'away') return;
-      const restoreStatus: PresenceStatus = preAwayStatusRef.current ?? 'online';
-      preAwayStatusRef.current = null;
-      isRestoring = true;
-      setPresenceMap((prev) => ({
-        ...prev,
-        [userId]: { ...prev[userId], status: restoreStatus },
-      }));
-      try {
-        const client = await getClient();
-        await client.put('/chat-status', { status: restoreStatus });
-      } catch {
-        // Ignore
-      } finally {
-        isRestoring = false;
-      }
-    };
-
     const scheduleIdleCheck = () => {
-      if (awayTimerRef.current) clearTimeout(awayTimerRef.current);
-      const elapsed = Date.now() - lastActivityAt;
-      const remaining = Math.max(1000, IDLE_MS - elapsed);
-      awayTimerRef.current = setTimeout(() => {
-        awayTimerRef.current = null;
+      if (idleTimer) clearTimeout(idleTimer);
+      const remaining = Math.max(1000, IDLE_MS - (Date.now() - lastActivityAt));
+      idleTimer = setTimeout(() => {
+        idleTimer = null;
         if (Date.now() - lastActivityAt >= IDLE_MS) {
-          void goAway();
+          workspaceClient.setPresence({ idle: true });
         } else {
           // Another tab broadcast activity since we scheduled — re-arm.
           scheduleIdleCheck();
@@ -303,22 +240,18 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
       }, remaining);
     };
 
-    /** Common path for local activity, peer broadcasts, and WS status pings. */
+    /** Common path for local activity and peer broadcasts. */
     const registerActivity = (ts: number, broadcast: boolean) => {
       if (ts > lastActivityAt) lastActivityAt = ts;
-      if (presenceMapRef.current[userId]?.status === 'away') {
-        void goBack();
-      }
+      workspaceClient.setPresence({ idle: false });
       scheduleIdleCheck();
-      if (broadcast && channel) {
-        // Throttle peer broadcasts — input events fire constantly.
-        if (ts - lastBroadcastAt >= ACTIVITY_THROTTLE_MS) {
-          lastBroadcastAt = ts;
-          try {
-            channel.postMessage({ type: 'activity', ts });
-          } catch {
-            // Channel may be closed during teardown.
-          }
+      // Throttle peer broadcasts — input events fire constantly.
+      if (broadcast && channel && ts - lastBroadcastAt >= ACTIVITY_THROTTLE_MS) {
+        lastBroadcastAt = ts;
+        try {
+          channel.postMessage({ type: 'activity', ts });
+        } catch {
+          // Channel may be closed during teardown.
         }
       }
     };
@@ -331,11 +264,7 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
 
     const onVisibility = () => {
       // Becoming visible counts as activity (user just touched the tab).
-      // Becoming hidden does nothing — we now rely solely on the global
-      // idle clock, so another active tab keeps us online.
-      if (document.visibilityState === 'visible') {
-        registerActivity(Date.now(), true);
-      }
+      if (document.visibilityState === 'visible') registerActivity(Date.now(), true);
     };
 
     const onChannelMessage = (e: MessageEvent) => {
@@ -358,9 +287,7 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
       document.addEventListener(ev, onLocalActivity, { passive: true });
     }
     document.addEventListener('visibilitychange', onVisibility);
-    if (channel) channel.addEventListener('message', onChannelMessage);
-
-    crossDeviceActivityRef.current = (ts: number) => registerActivity(ts, false);
+    channel?.addEventListener('message', onChannelMessage);
 
     scheduleIdleCheck();
 
@@ -373,37 +300,60 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
         channel.removeEventListener('message', onChannelMessage);
         channel.close();
       }
-      crossDeviceActivityRef.current = null;
-      if (awayTimerRef.current) {
-        clearTimeout(awayTimerRef.current);
-        awayTimerRef.current = null;
-      }
+      if (idleTimer) clearTimeout(idleTimer);
     };
-  }, [userId, getClient]);
+  }, [userId, workspaceClient]);
 
   const setMyStatus = useCallback(
     async (status: PresenceStatus, statusText?: string, statusEmoji?: string) => {
       if (!userId) return;
 
-      // Optimistic update
-      setPresenceMap((prev) => ({
+      // Optimistic, without claiming a write time: the server's echo replaces it.
+      setChosen((prev) => ({
         ...prev,
-        [userId]: { status, statusText, statusEmoji },
+        [userId]: { status, statusText, statusEmoji, expiresAt: null, updatedAt: prev[userId]?.updatedAt ?? 0 },
       }));
 
       try {
         const client = await getClient();
-        await client.put('/chat-status', {
+        const response = await client.put<{ data?: PresenceStatusChange }>('/chat-status', {
           status,
           statusText,
           statusEmoji,
         });
+        const change = response?.data;
+        if (change?.updatedAt) {
+          setChosen((prev) => ({ ...prev, [userId]: newer(prev[userId], toEntry(change)) }));
+        }
       } catch (err) {
         console.error('[Presence] Failed to set status:', err);
       }
     },
     [userId, getClient],
   );
+
+  const setInCall = useCallback(
+    (inCall: boolean) => workspaceClient?.setPresence({ inCall }),
+    [workspaceClient],
+  );
+
+  const presenceMap = useMemo(() => {
+    const now = Date.now();
+    const map: Record<string, UserPresence> = {};
+    for (const uid of new Set([...Object.keys(chosen), ...Object.keys(live)])) {
+      const entry = chosen[uid];
+      const expired = entry?.expiresAt != null && entry.expiresAt <= now;
+      // We are here ourselves, even before the hub's snapshot says so.
+      const memberLive = uid === userId ? (live[uid] ?? 'online') : live[uid];
+      map[uid] = {
+        status: effectivePresence(expired ? 'online' : entry?.status, memberLive),
+        statusText: expired ? undefined : entry?.statusText,
+        statusEmoji: expired ? undefined : entry?.statusEmoji,
+      };
+    }
+    if (userId && !map[userId]) map[userId] = { status: live[userId] ?? 'online' };
+    return map;
+  }, [chosen, live, userId]);
 
   const getStatus = useCallback(
     (uid: string): UserPresence | undefined => presenceMap[uid],
@@ -413,8 +363,8 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
   const myStatus = userId ? presenceMap[userId] ?? null : null;
 
   const value = useMemo<PresenceContextValue>(
-    () => ({ presenceMap, myStatus, setMyStatus, getStatus, isLoading }),
-    [presenceMap, myStatus, setMyStatus, getStatus, isLoading],
+    () => ({ presenceMap, myStatus, setMyStatus, setInCall, getStatus, isLoading }),
+    [presenceMap, myStatus, setMyStatus, setInCall, getStatus, isLoading],
   );
 
   return (

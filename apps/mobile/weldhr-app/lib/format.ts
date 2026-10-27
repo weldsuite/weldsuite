@@ -97,3 +97,42 @@ export function withCount(label: string, count: number): string {
 export function firstName(name: string | null | undefined): string {
   return (name ?? '').trim().split(/\s+/)[0] ?? '';
 }
+
+/** "7h 5m" for minutes, with the unit letters from the app's language ("7u 5m"). */
+export function formatHoursMinutes(minutes: number | null | undefined, pattern: string): string {
+  const total = Math.max(0, Math.round(minutes ?? 0));
+  return pattern.replace('{h}', String(Math.floor(total / 60))).replace('{m}', String(total % 60));
+}
+
+/** A running clock, "01:02:08", for someone who is clocked in. */
+export function formatTimer(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
+}
+
+/** "Sunday 25 October", the year only when it is not this year. */
+export function formatLongDay(iso: string, locale: string, now: Date = new Date()): string {
+  const date = parseIsoDate(iso);
+  if (!date) return iso;
+  return date
+    .toLocaleDateString(locale, {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+    })
+    .replace(',', '');
+}
+
+/** "25 Oct". */
+export function formatShortDate(iso: string, locale: string): string {
+  const date = parseIsoDate(iso);
+  if (!date) return iso;
+  return date.toLocaleDateString(locale, { day: 'numeric', month: 'short' }).replace('.', '');
+}
+
+/** "19 Oct – 25 Oct", both ends spelled out the way the week navigator shows them. */
+export function formatSpan(start: string, end: string, locale: string): string {
+  return start === end ? formatShortDate(start, locale) : `${formatShortDate(start, locale)} – ${formatShortDate(end, locale)}`;
+}

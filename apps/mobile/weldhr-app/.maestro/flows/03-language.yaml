@@ -3,17 +3,20 @@ name: Switching to Dutch translates the app, and back
 tags: [smoke]
 ---
 - runFlow: ../subflows/login.yaml
+# The settings are on the profile page, opened from the workspace menu on Home.
 - tapOn:
-    id: tab-me
+    id: home-workspace
+- tapOn: "Profile and settings"
 - scrollUntilVisible:
     element: "Nederlands"
 - tapOn: "Nederlands"
 - assertVisible: "Instellingen"
 - tapOn:
-    id: tab-home
-- assertVisible: "Verlof over|Te doen|Nog geen medewerkersdossier|Mijn HR is niet beschikbaar"
+    id: screen-back
+- assertVisible: "Mijn rooster|Nog geen medewerkersdossier|Mijn HR is niet beschikbaar"
 - tapOn:
-    id: tab-me
+    id: home-workspace
+- tapOn: "Profiel en instellingen"
 - scrollUntilVisible:
     element: "English"
 - tapOn: "English"

@@ -1,9 +1,10 @@
 /**
- * WeldHR — personeelsbeheer en het medewerkersportaal.
+ * WeldHR — personeelsbeheer en Mijn HR.
  *
  * Per onderdeel opgesplitst, zie en/weldhr.ts voor de indeling.
  */
 import { weldhrAdmin } from './weldhr-admin';
+import { weldhrAnnouncements } from './weldhr-announcements';
 import { weldhrDeclarations } from './weldhr-declarations';
 import { weldhrPayroll } from './weldhr-payroll';
 import { weldhrPeople } from './weldhr-people';
@@ -80,6 +81,17 @@ export const weldhr = {
       rejected: 'Afgewezen',
       cancelled: 'Geannuleerd',
     },
+    shiftRequest: {
+      pending: 'In afwachting',
+      approved: 'Goedgekeurd',
+      rejected: 'Afgewezen',
+      cancelled: 'Ingetrokken',
+    },
+    openShift: {
+      open: 'Open',
+      full: 'Vol',
+      cancelled: 'Ingetrokken',
+    },
     declaration: {
       pending: 'In afwachting',
       approved: 'Goedgekeurd',
@@ -137,11 +149,6 @@ export const weldhr = {
       employee: 'Medewerker',
       other: 'Overig',
     },
-    portalAccess: {
-      invited: 'Uitgenodigd',
-      active: 'Actief',
-      revoked: 'Ingetrokken',
-    },
     kpiUnit: {
       number: 'Getal',
       percent: 'Procent',
@@ -160,5 +167,6 @@ export const weldhr = {
   ...weldhrDeclarations,
   ...weldhrPayroll,
   ...weldhrAdmin,
+  ...weldhrAnnouncements,
   ...weldhrSelf,
 };

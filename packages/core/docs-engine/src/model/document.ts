@@ -12,6 +12,7 @@ import {
   DEFAULT_SECTION,
   HEADER_VARIANTS,
   cellStoryId,
+  currentComments,
   footnoteStoryId,
   headerStoryId,
   type Anchor,
@@ -34,7 +35,7 @@ export interface DocSnapshot {
   stories: Record<string, StoryContent>;
   tables: Record<string, TableData>;
   anchors: Anchor[];
-  /** Comments and replies, by id order (absent when there are none). */
+  /** Discussions, by id order (absent when there are none). */
   comments?: DocComment[];
 }
 
@@ -70,8 +71,11 @@ export class DocModel {
     for (const [id, l] of Object.entries(snapshot.lists)) doc.lists.set(id, l);
     for (const [id, t] of Object.entries(snapshot.tables)) doc.tables.set(id, structuredClone(t));
     for (const [id, c] of Object.entries(snapshot.stories)) doc.stories.set(id, Story.from(id, contentToPiece(c, doc.textStyles)));
-    for (const a of snapshot.anchors) doc.anchors.set(a.id, { ...a });
-    for (const c of snapshot.comments ?? []) doc.comments.set(c.id, structuredClone(c));
+    const comments = currentComments(snapshot.comments ?? []);
+    for (const c of comments) doc.comments.set(c.id, structuredClone(c));
+    // An older document's comment threads that were left out take their anchors with them.
+    const leftOut = new Set((snapshot.comments ?? []).map((c) => c.id).filter((id) => !doc.comments.has(id)));
+    for (const a of snapshot.anchors) if (a.kind !== 'comment' || !leftOut.has(a.id)) doc.anchors.set(a.id, { ...a });
     if (!doc.stories.has(BODY)) doc.stories.set(BODY, emptyStory(BODY, doc.textStyles));
     return doc;
   }

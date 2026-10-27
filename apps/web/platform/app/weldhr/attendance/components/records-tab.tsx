@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { CalendarClock, Check } from 'lucide-react';
+import { CalendarClock, Check, MapPin } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
@@ -39,6 +39,13 @@ interface CompanyOption {
   id: string;
   displayName?: string | null;
   name?: string | null;
+}
+
+/** Where a self-service clock-in/out happened (only recorded while a work location is required); one name when both match. */
+function clockLocations(record: HrAttendanceRecord) {
+  const clockIn = record.clockInLocationName ?? null;
+  const clockOut = record.clockOutLocationName ?? null;
+  return { clockIn, clockOut, summary: clockIn && clockOut && clockIn !== clockOut ? `${clockIn} → ${clockOut}` : clockIn ?? clockOut };
 }
 
 /** The list opens on the last seven days, as a regular (removable) date filter. */
@@ -163,15 +170,19 @@ export function RecordsTab() {
       id: 'employee',
       header: t('weldhr.attendance.records.table.employee'),
       width: HR_COL.main,
-      render: (r) => (
-        <div className="min-w-0">
-          <p className="truncate font-medium">{r.employeeName}</p>
-          {/* The times and worked hours, once the list is too narrow for their own columns. */}
-          <p className="truncate text-xs text-muted-foreground @4xl:hidden">
-            {formatTime(r.clockIn)} – {formatTime(r.clockOut)} · {formatMinutes(r.workedMinutes)}
-          </p>
-        </div>
-      ),
+      render: (r) => {
+        const { summary } = clockLocations(r);
+        return (
+          <div className="min-w-0">
+            <p className="truncate font-medium">{r.employeeName}</p>
+            {/* The times and worked hours, once the list is too narrow for their own columns. */}
+            <p className="truncate text-xs text-muted-foreground @4xl:hidden">
+              {formatTime(r.clockIn)} – {formatTime(r.clockOut)} · {formatMinutes(r.workedMinutes)}
+              {summary && <> · {summary}</>}
+            </p>
+          </div>
+        );
+      },
     },
     {
       id: 'client',
@@ -183,11 +194,28 @@ export function RecordsTab() {
       id: 'time',
       header: `${t('weldhr.attendance.records.table.clockIn')} – ${t('weldhr.attendance.records.table.clockOut')}`,
       width: cn(HR_COL.fixed, HR_COL.hideLg, 'w-[150px]'),
-      render: (r) => (
-        <span className={cn('block truncate tabular-nums', !r.clockIn && !r.clockOut && 'text-muted-foreground')}>
-          {formatTime(r.clockIn)} – {formatTime(r.clockOut)}
-        </span>
-      ),
+      render: (r) => {
+        const { clockIn, clockOut, summary } = clockLocations(r);
+        const hint = [
+          clockIn ? t('weldhr.attendance.records.location.clockIn', { name: clockIn }) : null,
+          clockOut ? t('weldhr.attendance.records.location.clockOut', { name: clockOut }) : null,
+        ]
+          .filter(Boolean)
+          .join('\n');
+        return (
+          <div className="min-w-0">
+            <span className={cn('block truncate tabular-nums', !r.clockIn && !r.clockOut && 'text-muted-foreground')}>
+              {formatTime(r.clockIn)} – {formatTime(r.clockOut)}
+            </span>
+            {summary && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground" title={hint}>
+                <MapPin className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="truncate">{summary}</span>
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: 'worked',

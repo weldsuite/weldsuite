@@ -18,8 +18,8 @@
  *     the last KEEP_LOG for clients catching up. The tenant DB row then
  *     records the new revision and an entity event reports the change.
  *   - Messages longer than a frame go as parts (`toFrames`/`FrameAssembler`).
- *   - Commenters (`canComment`) may only commit comment ops (comment-access.ts);
- *     someone a new comment mentions gets a notification (mentions.ts).
+ *   - Commenters (`canComment`) may only commit comment ops (comment-access.ts).
+ *     A comment's text, and its mentions, are in the sheet's WeldChat chat.
  *   - Versions: `saveVersion()` writes the live workbook to R2 for the
  *     versions route; `restoreVersion()` replaces the workbook with a saved
  *     one (see there) and tells every client with a `restored` message.
@@ -59,8 +59,7 @@ import {
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
 import { publishEntityEventRaw } from '@weldsuite/entity-events';
-import { createAndDeliverNotification } from '@weldsuite/notifications';
-import { fileRole, loadDriveAccessForUser, type DriveFileRef } from '@weldsuite/core-domain/drive-access';
+import type { DriveFileRef } from '@weldsuite/core-domain/drive-access';
 import { getTenantDbForWorkspace, type Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../types';
 import { getSheet, recordCheckpoint } from '../services/sheets';
@@ -69,8 +68,6 @@ import { buildRefresh } from '../services/data-sources/refresh';
 import { dataSourceEventData, dueDataSources, nextDueAt, recordRefresh, type DataSourceRecord } from '../services/data-sources/sources';
 import { readSnapshot, writeSnapshot } from './snapshot';
 import { isCommentersOp } from './comment-access';
-import { MentionTracker, plainBody, stampCommentAuthors, type NewMention } from './mentions';
-import { mayOpenProjectSheet } from '../routes/sheets/access';
 
 /** What the session route tells the room: which sheet it is, and who is coming in. */
 export interface Admission {
@@ -192,7 +189,6 @@ export class SheetRoom extends DurableObject<Env> {
   private room: RoomCore | null = null;
   private loading: Promise<RoomCore> | null = null;
   private meta: RoomMeta | null = null;
-  private mentions: MentionTracker | null = null;
   private readonly sockets = new Map<string, WebSocket>();
   private readonly assemblers = new Map<string, FrameAssembler>();
   /** Revision of the latest checkpoint in R2. */
@@ -405,10 +401,6 @@ export class SheetRoom extends DurableObject<Env> {
       if (batchId) this.dispatch(room, room.refuse(state.peer.clientId, batchId));
       return;
     }
-    // A comment's author name is whatever the client wrote; trust only the
-    // server-set peer name for comments the sender is committing as themselves.
-    if (msg.type === 'submit') stampCommentAuthors(msg.op, state.peer);
-
     const before = room.revision;
     let out: Outgoing[];
     try {
@@ -518,7 +510,6 @@ export class SheetRoom extends DurableObject<Env> {
     const base = stored ?? { revision: 0, workbook: fallbackWorkbook() };
     const room = RoomCore.restore(base.workbook, base.revision, await this.readLog(), this.roomOptions());
     this.checkpointed = base.revision;
-    this.mentions = new MentionTracker(room.engine);
     this.sockets.clear();
     for (const ws of this.ctx.getWebSockets()) {
       const state = socketState(ws);
@@ -559,54 +550,6 @@ export class SheetRoom extends DurableObject<Env> {
     }
     // Not awaited: the output gate keeps the ack from leaving before this is durable.
     this.ctx.storage.put(entries).catch((err) => console.error('[sheets-api/room] logging an op failed:', err));
-    this.noteMentions(c);
-  }
-
-  /** People a committed comment newly mentions get a notification, when its author is who committed it. */
-  private noteMentions(c: CommittedOp): void {
-    const found = this.mentions?.take(c.op) ?? [];
-    if (found.length === 0 || !this.meta) return;
-    const committer = this.sockets.get(c.clientId);
-    const userId = committer ? socketState(committer)?.peer.userId : undefined;
-    const own = found.filter((m) => m.comment.author.id === userId);
-    if (own.length) this.ctx.waitUntil(this.notify(this.meta, own));
-  }
-
-  private async notify(meta: RoomMeta, mentions: NewMention[]): Promise<void> {
-    try {
-      const db = await getTenantDbForWorkspace(this.env, meta.workspaceId);
-      const sheet = await getSheet(db, meta.sheetId);
-      if (!sheet) return;
-      for (const m of mentions) {
-        for (const userId of m.userIds) {
-          // Only people who can open the sheet: a mention is not a share. For a
-          // WeldFlow project's sheet, `fileRole` alone says `editor` for anyone
-          // (drive-access.ts leaves project files to their module), so the
-          // project's own membership rule decides, same as `findSheet` applies
-          // for the person opening it.
-          if (!fileRole(await loadDriveAccessForUser(db, userId), sheet.file)) continue;
-          if (sheet.projectId && !(await mayOpenProjectSheet(db, userId, sheet.projectId))) continue;
-          await createAndDeliverNotification({
-            db,
-            env: this.env,
-            workspaceId: meta.workspaceId,
-            userId,
-            title: `${m.comment.author.name} mentioned you in ${sheet.name}`,
-            body: plainBody(m.comment.body),
-            category: 'weldsheets',
-            notificationType: 'mention',
-            entityType: 'sheet',
-            entityId: sheet.id,
-            actionUrl: `/weldsheets/${sheet.id}?comment=${encodeURIComponent(m.comment.thread)}`,
-            severity: 'info',
-            actorType: 'user',
-            actorId: m.comment.author.id,
-          });
-        }
-      }
-    } catch (err) {
-      console.error('[sheets-api/room] mention notification failed:', err);
-    }
   }
 
   /** Commits an op the server made as an edit by `userId`, sending it to everyone in the sheet. */
@@ -706,7 +649,6 @@ export class SheetRoom extends DurableObject<Env> {
     }
     this.room = next;
     this.loading = Promise.resolve(next);
-    this.mentions = new MentionTracker(next.engine);
     this.checkpointed = revision;
     const restored = next.engine.toSnapshot();
     this.dispatch(next, [

@@ -1,6 +1,7 @@
 /**
  * Record chats on mobile: the chats attached to companies, people, tasks,
- * projects and domains (`chat_channels.type = 'entity'`). One place for each
+ * projects, domains, sheets and documents (`chat_channels.type = 'entity'`;
+ * a sheet's or a document's chat holds its comment threads). One place for each
  * type's labels and icon, used by the Home groups, the records screen and the
  * record chat header.
  *
@@ -9,7 +10,7 @@
  * one. Add a type here when chat-api gets a provider for it.
  */
 
-import { Briefcase, Building2, Globe, SquareCheck, User, type LucideIcon } from 'lucide-react-native';
+import { Briefcase, Building2, FileText, Globe, Sheet, SquareCheck, User, type LucideIcon } from 'lucide-react-native';
 
 import type { Translations } from '@/lib/i18n';
 import { isRecordChatType, type RecordChatType } from './rules';
@@ -22,6 +23,8 @@ const ICONS: Record<RecordChatType, LucideIcon> = {
   task: SquareCheck,
   project: Briefcase,
   domain: Globe,
+  sheet: Sheet,
+  doc: FileText,
 };
 
 /** The type's icon, or null for a type WeldChat does not list (legacy `contact`, …). */

@@ -1,14 +1,17 @@
 /**
  * WeldChat entity channel routes ("record chats") — flat /api/chat-entity-channels/* surface.
  *
- * Lets any business record (a company, person, task, project, domain) have its
- * own chat channel that appears in WeldChat for the people who follow it. The
- * channel is created lazily on the first message (or the first follow).
+ * Lets any business record (a company, person, task, project, domain, sheet,
+ * document) have its own chat channel that appears in WeldChat for the people
+ * who follow it. The channel is created lazily on the first message (or the
+ * first follow). A sheet's or a document's comment threads are threads in its
+ * chat (ADR CHAT-007).
  *
  *   GET    /                                    — record chats, cursor paginated (?type=&filter=&search=)
  *   GET    /summary                             — per type: followed / unread / mention counts
  *   PATCH  /:entityType/mute                    — mute/unmute every chat of this type the caller follows
  *   GET    /:entityType/:entityId/channel       — linked channel or null (no create)
+ *   GET    /:entityType/:entityId/comments      — the chat's comment threads (anchored messages + replies)
  *   POST   /:entityType/:entityId/messages      — get-or-create channel + post a message
  *   POST   /:entityType/:entityId/follow        — follow (get-or-create channel)
  *   DELETE /:entityType/:entityId/follow        — unfollow
@@ -32,7 +35,8 @@
 
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { zValidator } from '@hono/zod-validator';
-import { hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import { ensurePermissionsResolved, hasContextPermission, requirePermission } from '@weldsuite/permissions/server';
+import { agentViewerFor } from '@weldsuite/agent-domain/access';
 import {
   listEntityChannelsQuerySchema,
   muteRecordChatsSchema,
@@ -46,6 +50,7 @@ import {
   addFollowers,
   announceNewFollowers,
   canAccessEntity,
+  canPostInRecordChat,
   findEntityChannel,
   getEntityProvider,
   getOrCreateEntityChannel,
@@ -56,7 +61,9 @@ import {
   type PermissionCheck,
 } from '../../services/chat/entity-channels';
 import { listRecordChats, summarizeRecordChats } from '../../services/chat/entity-channels/record-chat-list';
+import { listRecordComments } from '../../services/chat/entity-channels/record-comments';
 import { ChatFeatureError, postChatMessage } from '../../services/chat/post-message';
+import { addMentionedAgents } from '../../services/chat/agent-members';
 
 type AppEnv = { Bindings: Env; Variables: Variables };
 type AppContext = Context<AppEnv>;
@@ -235,9 +242,32 @@ app.get('/:entityType/:entityId/channel', readPerm, async (c) => {
 });
 
 /**
+ * GET /:entityType/:entityId/comments — the record's comment threads: its
+ * chat (null before the first message) and the messages of the threads
+ * posted with `metadata.anchor`, replies included, oldest first. Read here
+ * rather than through `/api/channels/:id/messages` so the record's own app
+ * licenses it, like the rest of the record's chat.
+ */
+app.get('/:entityType/:entityId/comments', readPerm, async (c) => {
+  try {
+    const access = await resolveAccess(c);
+    if (access instanceof Response) return access;
+    const db = c.get('tenantDb');
+    const channel = await findEntityChannel(db, access.entityType, access.entityId);
+    const messages = channel ? await listRecordComments(db, channel.id) : [];
+    return success(c, { channel, messages });
+  } catch (err) {
+    console.error('[chat-api/chat-entity-channels] fetch comments failed:', err);
+    return error.internal(c, 'Failed to fetch comments');
+  }
+});
+
+/**
  * POST /:entityType/:entityId/messages — get-or-create the channel and post.
  * Posting follows the chat (postChatMessage), and a new channel's default
- * members follow it from the start.
+ * members follow it from the start. Agents the message mentions, and the
+ * author may use, join first so they answer it: a chat that does not exist
+ * yet has nobody to invite them into beforehand (ADR AGENT-014).
  */
 app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEntityMessageSchema), async (c) => {
   const orgId = c.get('orgId');
@@ -250,6 +280,11 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
   try {
     const access = await resolveAccess(c);
     if (access instanceof Response) return access;
+    // Checked before the chat is created: someone who may only read it never creates it by posting.
+    const ctx = { db, actingUserId: userId, entityId: access.entityId, can: callerCan(c) };
+    if (!(await canPostInRecordChat(access.provider, ctx))) {
+      return error.forbidden(c, 'You may read this chat but not write in it');
+    }
 
     const { channel, created, newFollowerIds } = await getOrCreateEntityChannel({
       db,
@@ -259,6 +294,14 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
       can: callerCan(c),
     });
     channelId = channel.id;
+
+    await addMentionedAgents(db, c.env, {
+      channelId: channel.id,
+      content: input.content,
+      mentions: input.mentions,
+      canUseAgents: await hasContextPermission(c, 'weldagent:use'),
+      viewer: async () => agentViewerFor(userId, await ensurePermissionsResolved(c)),
+    });
 
     const message = await postChatMessage(
       { db, env: c.env, orgId, channelId: channel.id, authorUserId: userId, waitUntil: waitUntilFor(c) },
@@ -271,6 +314,7 @@ app.post('/:entityType/:entityId/messages', writePerm, zValidator('json', sendEn
   } catch (err) {
     if (err instanceof ChatFeatureError) {
       if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+      if (err.status === 403) return error.forbidden(c, err.message);
       return error.badRequest(c, err.message);
     }
     console.error('[chat-api/chat-entity-channels] post message failed:', err);

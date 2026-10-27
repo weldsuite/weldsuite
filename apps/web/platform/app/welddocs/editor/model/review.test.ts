@@ -46,29 +46,41 @@ describe('suggesting mode', () => {
 });
 
 describe('comments', () => {
-  it('lets a commenter comment and reply without editing', () => {
+  it('lets a commenter comment without editing', () => {
     const ctl = make();
+    ctl.commentsAvailable = true;
     ctl.type('Hello world');
     ctl.setReadOnly(true);
     ctl.canComment = true;
     ctl.setSelection({ story: BODY, anchor: 6, head: 11 });
     ctl.startComment();
-    const thread = ctl.addComment({ body: 'Which world?', mentions: ['u2'] })!;
-    ctl.reply(thread, { body: 'This one' });
+    expect(ctl.draftComment()).toMatchObject({ quote: 'world' });
+    ctl.addComment('t_1');
     ctl.type('!');
     expect(ctl.doc.body.text()).toBe(`Hello world${PARA}`);
     const [t] = ctl.threads();
-    expect(t!.root).toMatchObject({ body: 'Which world?', quote: 'world', author: { id: 'u1', name: 'Ann' } });
-    expect(t!.replies.map((r) => r.body)).toEqual(['This one']);
-    ctl.setResolved(thread, true);
+    expect(t!.root).toMatchObject({ id: 't_1', quote: 'world', author: { id: 'u1', name: 'Ann' } });
+    expect(t!.at).toEqual({ story: BODY, from: 6, to: 11 });
+    expect(ctl.activeThread).toBe('t_1');
+    ctl.setResolved('t_1', true);
     expect(ctl.threads()[0]!.root.resolved).toBe(true);
+    ctl.deleteThread('t_1');
+    expect(ctl.threads()).toEqual([]);
   });
 
   it('keeps a viewer without comment rights out', () => {
     const ctl = make();
+    ctl.commentsAvailable = true;
     ctl.type('Hi');
     ctl.setReadOnly(true);
     ctl.canComment = false;
+    ctl.startComment();
+    expect(ctl.draft).toBeNull();
+  });
+
+  it('has no comments in a document kept in the browser', () => {
+    const ctl = make();
+    ctl.type('Hi');
     ctl.startComment();
     expect(ctl.draft).toBeNull();
   });

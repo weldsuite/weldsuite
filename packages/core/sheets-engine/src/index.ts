@@ -27,7 +27,7 @@ export type { FormulaLocale } from './formula/locale';
 export type { AstNode } from './formula/parser';
 export { tokenize } from './formula/lexer';
 export type { RefToken, Token } from './formula/lexer';
-export { collectRefs, printRef, translateFormula } from './formula/references';
+export { collectRefs, printRef, rewriteRefs, translateFormula } from './formula/references';
 export type { Axis } from './formula/references';
 export { functionNames, getFunction, registerFunctions } from './formula/functions';
 export type { EvalContext, EvalHost, FunctionSpec } from './formula/types';
@@ -95,7 +95,7 @@ export type { ZipErrorCode, ZipFile, ZipLimits, ZipReader } from '@weldsuite/zip
 
 export { CHART_PALETTE, CHART_TYPES, MAX_CHART_SERIES, MAX_CHART_SIZE, MIN_CHART_SIZE, anchorAfter, cloneChart, mapChartFormulas } from './model/charts';
 export type { Chart, ChartAnchor, ChartSeries, ChartType } from './model/charts';
-export { MAX_COMMENT_LENGTH, MAX_MENTIONS, cloneComment, cloneDataTable, commentAfter, isThreadStart } from './model/anchors';
+export { cloneComment, cloneDataTable, commentAfter, isCommentEntry } from './model/anchors';
 export type { DataTable, SheetComment } from './model/anchors';
 export { dataTableOp, findDataTable, readValues, valuesOp } from './ops/tables';
 export type { CellInput, DataTableWrite, ReadValues } from './ops/tables';

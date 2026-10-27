@@ -8,11 +8,14 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { HrSelfOverview, HrSelfProfile } from '@weldsuite/app-api-client/domains/weldhr';
+import type { HrGeoPointInput } from '@weldsuite/app-api-client/schemas/weldhr';
 import { useMyHrClock, useMyHrOverview } from '@/hooks/queries/use-weldhr-queries';
 import { MY_HR_PATHS, type MyHrPath } from '../../access';
 import { EmptyText, FieldGrid, KpiCard, KpiGrid, SectionCard } from '../../components/page-kit';
 import { useTimeFormat, type TimeFormat } from '@/app/weldcalendar/lib/calendar-format';
 import { ErrorBanner, errorMessage, formatDate, formatDateTime, formatTime } from '../../components/shared';
+import { GeolocationError, getDevicePosition, type GeolocationFailure } from '../../lib/geolocation';
+import { useMyHrSelf } from './my-hr-context';
 import { LeaveBalanceTiles } from './leave-balances';
 import { TabLoading } from './shared';
 import { UpcomingShiftsCard } from './shifts-card';
@@ -148,25 +151,48 @@ function KpiLink({ to, children }: Readonly<{ to: MyHrPath; children: ReactNode 
   );
 }
 
+const LOCATION_FAILURE_MESSAGE: Record<GeolocationFailure, string> = {
+  denied: 'weldhr.me.overview.clock.locationDenied',
+  unavailable: 'weldhr.me.overview.clock.locationUnavailable',
+  unsupported: 'weldhr.me.overview.clock.locationUnsupported',
+};
+
 function ClockCard({ clock }: Readonly<{ clock: HrSelfOverview['clock'] }>) {
   const t = useTranslations();
   const timeFormat = useTimeFormat();
   const clockMutation = useMyHrClock();
+  const { features } = useMyHrSelf();
+  const requiresLocation = features.clockInRequiresLocation === true;
+  const [locating, setLocating] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const busy = clockMutation.isPending || locating;
 
   async function toggle() {
     const action = clock.clockedIn ? 'out' : 'in';
     setFailure(null);
     try {
-      await clockMutation.mutateAsync({ action });
+      // The server checks the device is at one of the work locations; it needs the position to do so.
+      let location: HrGeoPointInput | undefined;
+      if (requiresLocation) {
+        setLocating(true);
+        try {
+          location = await getDevicePosition();
+        } finally {
+          setLocating(false);
+        }
+      }
+      await clockMutation.mutateAsync({ action, ...(location ? { location } : {}) });
       toast.success(t(action === 'in' ? 'weldhr.me.overview.clock.clockedInToast' : 'weldhr.me.overview.clock.clockedOutToast'));
     } catch (err) {
-      setFailure(errorMessage(err, t('weldhr.me.overview.clock.failed')));
+      // A refused position reads differently from a refusal by the server, which explains itself.
+      setFailure(
+        err instanceof GeolocationError ? t(LOCATION_FAILURE_MESSAGE[err.reason]) : errorMessage(err, t('weldhr.me.overview.clock.failed')),
+      );
     }
   }
 
   let icon = <LogIn className="mr-2 h-4 w-4" />;
-  if (clockMutation.isPending) icon = <Loader2 className="mr-2 h-4 w-4 animate-spin" />;
+  if (busy) icon = <Loader2 className="mr-2 h-4 w-4 animate-spin" />;
   else if (clock.clockedIn) icon = <LogOut className="mr-2 h-4 w-4" />;
 
   return (
@@ -174,15 +200,22 @@ function ClockCard({ clock }: Readonly<{ clock: HrSelfOverview['clock'] }>) {
       <div className="space-y-3">
         <ErrorBanner error={failure} onDismiss={() => setFailure(null)} />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm">
-            {clock.clockedIn && clock.since
-              ? t('weldhr.me.overview.clock.clockedInSince', { time: formatSince(clock.since, timeFormat) })
-              : t('weldhr.me.overview.clock.notClockedIn')}
-          </p>
+          <div className="space-y-0.5">
+            <p className="text-sm">
+              {clock.clockedIn && clock.since
+                ? t('weldhr.me.overview.clock.clockedInSince', { time: formatSince(clock.since, timeFormat) })
+                : t('weldhr.me.overview.clock.notClockedIn')}
+            </p>
+            {requiresLocation && (
+              <p className="text-xs text-muted-foreground">
+                {locating ? t('weldhr.me.overview.clock.locating') : t('weldhr.me.overview.clock.locationRequired')}
+              </p>
+            )}
+          </div>
           <Button
             variant={clock.clockedIn ? 'destructive' : 'default'}
             onClick={() => void toggle()}
-            disabled={clockMutation.isPending}
+            disabled={busy}
           >
             {icon}
             {clock.clockedIn ? t('weldhr.me.overview.clock.clockOut') : t('weldhr.me.overview.clock.clockIn')}

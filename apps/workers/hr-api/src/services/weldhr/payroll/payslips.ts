@@ -4,7 +4,7 @@
  * list.
  */
 
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { payslipLineKey, type PayslipView, type PayslipYtdView } from '@weldsuite/payroll-domain/payslip-pdf';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import type { HrMyPayslip, HrPayslip as PayslipDto, HrPayslipSummary } from '@weldsuite/app-api-client/domains/weldhr-payroll';
@@ -90,7 +90,7 @@ export async function listEmployeePayslips(db: Database, employeeId: string): Pr
   }));
 }
 
-/** The employee's own final payslips (My HR and the portal). */
+/** The employee's own final payslips (My HR). */
 export async function myPayslips(db: Database, employeeId: string): Promise<HrMyPayslip[]> {
   const rows = await db
     .select({ slip: s, employerName: schema.hrPayrollEmployers.name })
@@ -251,18 +251,13 @@ export async function payslipPdf(db: Database, row: PayslipRow, deps: PayrollDep
   return renderAndStorePayslip(db, row, deps);
 }
 
-/** Employees with an active portal access or a linked member, for the "payslip ready" email. */
+/** Employees linked to a workspace member (who can open My HR), for the "payslip ready" email. */
 export async function employeesToNotify(db: Database, employeeIds: string[]): Promise<Array<{ id: string; email: string; name: string }>> {
   if (employeeIds.length === 0) return [];
   const e = schema.hrEmployees;
   const rows = await db
-    .select({ id: e.id, email: e.email, firstName: e.firstName, lastName: e.lastName, preferredName: e.preferredName, userId: e.userId })
+    .select({ id: e.id, email: e.email, firstName: e.firstName, lastName: e.lastName, preferredName: e.preferredName })
     .from(e)
-    .where(and(inArray(e.id, employeeIds), isNull(e.deletedAt)));
-  const access = await db
-    .select({ employeeId: schema.hrPortalAccess.employeeId })
-    .from(schema.hrPortalAccess)
-    .where(and(inArray(schema.hrPortalAccess.employeeId, employeeIds), eq(schema.hrPortalAccess.status, 'active')));
-  const withPortal = new Set(access.map((a) => a.employeeId));
-  return rows.filter((r) => r.userId || withPortal.has(r.id)).map((r) => ({ id: r.id, email: r.email, name: displayNameOf(r) }));
+    .where(and(inArray(e.id, employeeIds), isNull(e.deletedAt), isNotNull(e.userId)));
+  return rows.map((r) => ({ id: r.id, email: r.email, name: displayNameOf(r) }));
 }

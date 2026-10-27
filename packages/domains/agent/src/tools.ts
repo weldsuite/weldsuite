@@ -775,13 +775,14 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         return { error: 'Target agent is not a member of this channel' };
       }
 
+      // Any status: a draft or paused agent still answers when mentioned.
       const [target] = await ctx.db
-        .select({ id: weldagentAgents.id, name: weldagentAgents.name, status: weldagentAgents.status })
+        .select({ id: weldagentAgents.id, name: weldagentAgents.name })
         .from(weldagentAgents)
         .where(and(eq(weldagentAgents.id, args.agentId), isNull(weldagentAgents.deletedAt)))
         .limit(1);
-      if (target?.status !== 'active') {
-        return { error: 'Target agent not found or not active' };
+      if (!target) {
+        return { error: 'Target agent not found' };
       }
 
       // Return a mention token the model should include; actual dispatch happens

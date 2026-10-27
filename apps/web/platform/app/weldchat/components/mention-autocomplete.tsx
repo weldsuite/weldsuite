@@ -3,7 +3,9 @@
  *
  * Two stacked sections, single keyboard model (Arrow keys walk both,
  * Enter selects, Escape dismisses):
- *  1. People  — workspace members + channel-agent members (existing)
+ *  1. People  — workspace members + channel-agent members, then agents the
+ *               viewer may bring in (picking one adds it to the channel first,
+ *               so it answers the mention)
  *  2. Records — federated search across all 13 entity types (NEW)
  *
  * Records section is gated on `query.length >= 2` to avoid noise when
@@ -13,7 +15,7 @@
  * branches on `kind` to insert the right inline token shape.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AtSign, Bot, Loader2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import {
@@ -27,6 +29,8 @@ import type { EntitySheetType } from '@/components/entity-sheet/types';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { Button } from '@weldsuite/ui/components/button';
+import { useCan } from '@weldsuite/permissions/react';
+import { useCanInviteAgents, useInvitableAgents, useInviteAgent } from './invite-agent-picker';
 
 export type MentionSelection =
   | { kind: 'user'; userId: string; name: string }
@@ -36,6 +40,11 @@ export type MentionSelection =
 interface MentionAutocompleteProps {
   query: string;
   channelId?: string;
+  /**
+   * No channel yet (a record chat's first message): offer every agent the
+   * viewer can use, and insert its mention directly; the message brings it in.
+   */
+  agentsJoinOnSend?: boolean;
   onSelect: (selection: MentionSelection) => void;
   onDismiss?: () => void;
 }
@@ -48,6 +57,8 @@ type PersonItem = {
   email?: string | null;
   isAgent?: boolean;
   agentIcon?: string | null;
+  /** An agent the viewer may use that is not in the channel yet. */
+  notInChannel?: boolean;
 };
 
 type EntityItem = {
@@ -63,6 +74,8 @@ type EveryoneItem = { kind: 'everyone' };
 type FlatItem = PersonItem | EntityItem | EveryoneItem;
 
 const PEOPLE_LIMIT = 5;
+/** Agents outside the channel shown before anything is typed. */
+const INVITABLE_AGENTS_IDLE_LIMIT = 3;
 
 // Overrides the Button base (justify-center, h-9, rounded-md, font-medium) so
 // rows read as a left-aligned list instead of centered buttons.
@@ -76,6 +89,7 @@ const LIST_SETTLE_MS = 300;
 export function MentionAutocomplete({
   query,
   channelId,
+  agentsJoinOnSend = false,
   onSelect,
   onDismiss,
 }: Readonly<MentionAutocompleteProps>) {
@@ -138,14 +152,55 @@ export function MentionAutocomplete({
     [members],
   );
 
+  const canInviteAgents = useCanInviteAgents(channelId);
+  const canUseAgents = useCan('weldagent:use');
+  const offerAgents = canInviteAgents || (agentsJoinOnSend && canUseAgents);
+  const invitableAgents = useInvitableAgents(channelId, offerAgents);
+  const inviteAgent = useInviteAgent(channelId || '');
+  const invitableSuggestions: PersonItem[] = useMemo(
+    () =>
+      invitableAgents.map((a) => ({
+        kind: 'user' as const,
+        userId: a.id,
+        name: a.name,
+        isAgent: true,
+        agentIcon: a.icon ?? null,
+        notInChannel: true,
+      })),
+    [invitableAgents],
+  );
+
   const filteredPeople = useMemo(() => {
-    const all: PersonItem[] = [...agentSuggestions, ...userSuggestions];
-    if (!trimmed) return all.slice(0, 8);
+    // Agents first: a chat has few of them, and below eight people they'd be
+    // scrolled out of sight.
+    if (!trimmed) {
+      return [
+        ...agentSuggestions,
+        ...invitableSuggestions.slice(0, INVITABLE_AGENTS_IDLE_LIMIT),
+        ...userSuggestions.slice(0, 8),
+      ];
+    }
     const q = trimmed.toLowerCase();
-    return all
+    return [...agentSuggestions, ...invitableSuggestions, ...userSuggestions]
       .filter((s) => s.name.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q))
       .slice(0, PEOPLE_LIMIT);
-  }, [agentSuggestions, userSuggestions, trimmed]);
+  }, [agentSuggestions, invitableSuggestions, userSuggestions, trimmed]);
+
+  // An agent from outside the channel joins it before its mention is inserted,
+  // so the message that mentions it is answered.
+  const choosePerson = useCallback(
+    (s: PersonItem) => {
+      const selection: MentionSelection = { kind: 'user', userId: s.userId, name: s.name };
+      if (!s.notInChannel || agentsJoinOnSend) {
+        onSelect(selection);
+        return;
+      }
+      void inviteAgent({ id: s.userId, name: s.name }).then((joined) => {
+        if (joined) onSelect(selection);
+      });
+    },
+    [onSelect, inviteAgent, agentsJoinOnSend],
+  );
 
   // -- Records section -----------------------------------------------------
   const groups = useMemo(() => searchData?.data ?? [], [searchData]);
@@ -188,9 +243,9 @@ export function MentionAutocomplete({
   useEffect(() => {
     listChangedAtRef.current = performance.now();
   }, [flatItems]);
+  const pointerSettled = () => performance.now() - listChangedAtRef.current >= LIST_SETTLE_MS;
   const pickWithPointer = (selection: MentionSelection) => {
-    if (performance.now() - listChangedAtRef.current < LIST_SETTLE_MS) return;
-    onSelect(selection);
+    if (pointerSettled()) onSelect(selection);
   };
 
   // -- Keyboard --------------------------------------------------------------
@@ -232,7 +287,7 @@ export function MentionAutocomplete({
         e.preventDefault();
         e.stopPropagation();
         if (item.kind === 'user') {
-          onSelect({ kind: 'user', userId: item.userId, name: item.name });
+          choosePerson(item);
         } else if (item.kind === 'entity') {
           onSelect({ kind: 'entity', type: item.type, id: item.id, title: item.title });
         } else {
@@ -243,7 +298,7 @@ export function MentionAutocomplete({
 
     document.addEventListener('keydown', handleKeyDown, true);
     return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [flatItems, activeIndex, onSelect, onDismiss]);
+  }, [flatItems, activeIndex, onSelect, onDismiss, choosePerson]);
 
   // -- Click outside to dismiss --------------------------------------------
   useEffect(() => {
@@ -306,7 +361,7 @@ export function MentionAutocomplete({
             if (s.isAgent) {
               trailing = (
                 <span className="text-muted-foreground text-[10px] uppercase tracking-wide">
-                  {t.weldchat.mentionAutocomplete.agent}
+                  {s.notInChannel ? t.weldchat.mentionAutocomplete.addToChat : t.weldchat.mentionAutocomplete.agent}
                 </span>
               );
             } else if (s.email) {
@@ -323,7 +378,7 @@ export function MentionAutocomplete({
                 onMouseEnter={() => setActiveIndex(idx)}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  pickWithPointer({ kind: 'user', userId: s.userId, name: s.name });
+                  if (pointerSettled()) choosePerson(s);
                 }}
               >
                 {s.isAgent ? (

@@ -13,10 +13,10 @@
  *   - cell formats (bold, italic, strikethrough, colours, font, alignment,
  *     wrapping, borders, number formats), column widths;
  *   - a dropdown column becomes a list rule over its cells;
- *   - a cell link becomes a HYPERLINK formula, rich text its plain text, and
- *     a cell note a comment thread by the file's owner.
+ *   - a cell link becomes a HYPERLINK formula, and rich text its plain text.
  *
- * Text rotation and merged cells of the old grid are not kept.
+ * Text rotation, merged cells and cell notes of the old grid are not kept (a
+ * comment's text lives in the sheet's WeldChat chat, ADR CHAT-007).
  */
 
 import {
@@ -31,7 +31,6 @@ import {
   type CellStyle,
   type DataValidation,
   type Scalar,
-  type SheetComment,
   type WorkbookSnapshot,
 } from '@weldsuite/sheets-engine';
 
@@ -84,13 +83,10 @@ function isModel(m: unknown): m is LegacyModel {
   return !!model && Array.isArray(model.sheets) && typeof model.columnsBySheet === 'object' && typeof model.rowsBySheet === 'object';
 }
 
-/**
- * The workbook an old model holds. `newTabId` names the tabs; notes become
- * comments by `owner`, dated `now`.
- */
+/** The workbook an old model holds. `newTabId` names the tabs. */
 export function convertLegacyModel(
   model: LegacyModel,
-  opts: { newTabId: () => string; owner: { id: string; name: string }; now: number; firstTabName: string },
+  opts: { newTabId: () => string; now: number; firstTabName: string },
 ): WorkbookSnapshot {
   const sheets = [...model.sheets].sort((a, b) => a.position - b.position);
   const used = new Set<string>();
@@ -99,7 +95,7 @@ export function convertLegacyModel(
   const engine = new Engine(workbook, { now: () => opts.now, random: () => 0.5, timezoneOffset: () => 0 });
   sheets.forEach((old, i) => {
     if (i > 0) applyOp(engine, { type: 'addSheet', sheetId: opts.newTabId(), name: uniqueTabName(old.name, used), index: i });
-    fillTab(engine, engine.workbook.sheets[i]!, model, old.id, opts);
+    fillTab(engine, engine.workbook.sheets[i]!, model, old.id);
   });
   return engine.toSnapshot();
 }
@@ -116,17 +112,10 @@ function uniqueTabName(name: string, used: Set<string>): string {
   return candidate;
 }
 
-function fillTab(
-  engine: Engine,
-  tab: Sheet,
-  model: LegacyModel,
-  oldId: string,
-  opts: { owner: { id: string; name: string }; now: number },
-): void {
+function fillTab(engine: Engine, tab: Sheet, model: LegacyModel, oldId: string): void {
   const columns = [...(model.columnsBySheet[oldId] ?? [])].sort((a, b) => a.position - b.position);
   const rows = [...(model.rowsBySheet[oldId] ?? [])].sort((a, b) => a.position - b.position);
   const cells: CellPatch[] = [];
-  const notes: { row: number; col: number; text: string }[] = [];
   const styled: { row: number; col: number; style: CellStyle }[] = [];
 
   rows.forEach((row, r) => {
@@ -137,8 +126,6 @@ function fillTab(
       if (content) cells.push([r, c, content]);
       const style = format && typeof format === 'object' ? styleOf(format) : null;
       if (style) styled.push({ row: r, col: c, style });
-      const note = data[`__note__${column.id}`];
-      if (typeof note === 'string' && note.trim()) notes.push({ row: r, col: c, text: note.trim() });
     });
   });
 
@@ -164,16 +151,6 @@ function fillTab(
     return [{ id: `dv_${tab.id}_${c}`, ranges: [range], criteria: { type: 'list', values: options }, strict: false, dropdown: true }];
   });
   if (lists.length) applyOp(engine, { type: 'patchValidations', sheetId: tab.id, set: lists });
-
-  const comments: SheetComment[] = notes.map((n, i) => ({
-    id: `cm_${tab.id}_${i}`,
-    thread: `cm_${tab.id}_${i}`,
-    author: { ...opts.owner },
-    createdAt: opts.now,
-    body: n.text.slice(0, 10_000),
-    cell: { row: n.row + 1, col: n.col },
-  }));
-  if (comments.length) applyOp(engine, { type: 'patchComments', sheetId: tab.id, set: comments });
 }
 
 /** A cell's content: its rich text's plain text, a link as HYPERLINK, a formula, or its value. */

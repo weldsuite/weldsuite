@@ -213,7 +213,7 @@ async function readPackage(zip: ZipReader, options: ReadDocxOptions): Promise<Do
     ...(comments.length ? { comments } : {}),
   };
   checkStories(stories);
-  const out: DocxImport = { snapshot: DocModel.fromSnapshot(raw).toSnapshot(), images, warnings: [...warnings].sort() };
+  const out: DocxImport = { snapshot: DocModel.fromSnapshot(raw).toSnapshot(), images, warnings: [...warnings].sort(), comments: threads.texts };
   const title = await readTitle(zip, relTarget(rootRels, REL.coreProps));
   if (title) out.title = title;
   return out;

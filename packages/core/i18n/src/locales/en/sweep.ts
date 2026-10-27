@@ -514,18 +514,22 @@ export const sweep = {
       "groupHidden": "{group} is hidden from your sidebar",
       "groups": {
         "company": "Companies",
+        "doc": "Documents",
         "domain": "Domains",
         "person": "People",
         "project": "Projects",
+        "sheet": "Spreadsheets",
         "task": "Tasks"
       },
       "hideGroup": "Hide this group",
       "muteAllFailed": "Couldn't update these chats",
       "open": {
         "company": "Open company",
+        "doc": "Open document",
         "domain": "Open domain",
         "person": "Open person",
         "project": "Open project",
+        "sheet": "Open spreadsheet",
         "task": "Open task"
       },
       "openInWeldChat": "Open in WeldChat",
@@ -574,9 +578,11 @@ export const sweep = {
       "title": "Record chats",
       "types": {
         "company": "Company",
+        "doc": "Document",
         "domain": "Domain",
         "person": "Person",
         "project": "Project",
+        "sheet": "Spreadsheet",
         "task": "Task"
       },
       "undo": "Undo",

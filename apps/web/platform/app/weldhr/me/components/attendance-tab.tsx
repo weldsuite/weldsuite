@@ -18,6 +18,7 @@ import {
   shiftIsoDate,
   todayIso,
 } from '../../components/shared';
+import { OpenShiftsCard } from './open-shifts-card';
 import { TabLoading } from './shared';
 import { UpcomingShiftsCard } from './shifts-card';
 
@@ -64,6 +65,8 @@ export function MyAttendanceTab() {
         </div>
         {!validRange && <p className="pb-2 text-sm text-destructive">{t('weldhr.me.attendance.invalidRange')}</p>}
       </div>
+
+      <OpenShiftsCard />
 
       <UpcomingShiftsCard
         shifts={data?.shifts ?? []}

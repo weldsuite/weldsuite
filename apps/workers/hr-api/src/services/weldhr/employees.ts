@@ -25,6 +25,7 @@ import type {
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { HrConflictError, HrNotFoundError, HrValidationError, assertDateOrder, companyNames, todayIso } from './shared';
+import { assertWorkLocations } from './work-locations';
 
 const t = schema.hrEmployees;
 
@@ -336,6 +337,56 @@ export async function listAvailableMembers(
   return rows.map((r) => ({ ...r, memberType: r.memberType === 'EMPLOYEE' ? 'EMPLOYEE' : 'INTERNAL' }));
 }
 
+/**
+ * Link employees whose invite has been accepted. HR can add someone while
+ * their invite is still pending (`createEmployee` without `userId`); accepting
+ * swaps the member's placeholder id for their Clerk id, and from then on the
+ * unlinked employee with the same email is theirs. Idempotent: pass `userId`
+ * (My HR) or `employeeId` (the profile page) to check just one of them.
+ * Returns what was linked, so the caller can publish the change.
+ */
+export async function linkAcceptedInvites(
+  db: Database,
+  scope: { userId?: string; employeeId?: string },
+): Promise<Array<{ employeeId: string; userId: string }>> {
+  const m = schema.workspaceMembers;
+  const conditions: SQL[] = [
+    isNull(t.userId),
+    isNull(t.deletedAt),
+    isNull(m.deletedAt),
+    eq(m.status, 'ACTIVE'),
+    inArray(m.memberType, EMPLOYABLE_MEMBER_TYPES),
+    sql`${m.userId} not like 'invited\\_%'`,
+    sql`${m.userId} not like 'pending\\_clerk\\_%'`,
+    sql`not exists (select 1 from hr_employees linked where linked.user_id = ${m.userId} and linked.deleted_at is null)`,
+  ];
+  if (scope.userId) conditions.push(eq(m.userId, scope.userId));
+  if (scope.employeeId) conditions.push(eq(t.id, scope.employeeId));
+
+  const candidates = await db
+    .select({ employeeId: t.id, userId: m.userId })
+    .from(t)
+    .innerJoin(m, sql`lower(${m.email}) = lower(${t.email})`)
+    .where(and(...conditions))
+    .limit(50);
+
+  const linked: Array<{ employeeId: string; userId: string }> = [];
+  const taken = new Set<string>();
+  for (const candidate of candidates) {
+    // Employee emails are unique, but one member must never end up on two rows.
+    if (taken.has(candidate.userId)) continue;
+    const [row] = await db
+      .update(t)
+      .set({ userId: candidate.userId, updatedAt: new Date() })
+      .where(and(eq(t.id, candidate.employeeId), isNull(t.userId)))
+      .returning({ id: t.id });
+    if (!row) continue;
+    taken.add(candidate.userId);
+    linked.push(candidate);
+  }
+  return linked;
+}
+
 /** The caller's own employee record, or null (not linked, deleted or terminated). Used by My HR. */
 export async function employeeForUser(db: Database, userId: string): Promise<HrEmployee | null> {
   const [row] = await db
@@ -389,6 +440,7 @@ export type EmployeeWriteInput = {
   location?: string | null;
   timezone?: string | null;
   weeklyHours?: number | null;
+  workLocationIds?: string[] | null;
   customFields?: Record<string, unknown>;
 };
 
@@ -414,24 +466,53 @@ async function prepareCustomFields(
 }
 
 /**
+ * The member behind a new employee who was given by email only: an active
+ * member with that email is linked right away; someone with a pending invite
+ * gets an unlinked employee that `linkAcceptedInvites` links once they accept.
+ * Anyone else has to be invited first, since every employee is a member.
+ */
+async function memberForNewEmployee(db: Database, email: string): Promise<string | null> {
+  const m = schema.workspaceMembers;
+  const rows = await db
+    .select({ userId: m.userId, status: m.status, memberType: m.memberType })
+    .from(m)
+    .where(and(sql`lower(${m.email}) = ${email.trim().toLowerCase()}`, isNull(m.deletedAt)));
+  const member = rows.find((r) => r.status === 'ACTIVE' && !isPlaceholderUserId(r.userId))
+    ?? rows.find((r) => r.status === 'PENDING');
+  if (!member) {
+    throw new HrValidationError('An employee must be a member of this workspace. Invite them first.');
+  }
+  if (!EMPLOYABLE_MEMBER_TYPES.includes(member.memberType)) {
+    throw new HrValidationError('External guests cannot be employees');
+  }
+  return member.status === 'ACTIVE' ? member.userId : null;
+}
+
+/** Invite placeholders stand in for a Clerk id until the invite is accepted. */
+function isPlaceholderUserId(userId: string): boolean {
+  return userId.startsWith('invited_') || userId.startsWith('pending_clerk_');
+}
+
+/**
  * Every employee is a member of this workspace: `userId` must be an active
  * INTERNAL or EMPLOYEE member who isn't linked to another employee yet.
- * (Rows from before this rule may still have no `userId`; they keep working
- * and can be linked later, see `updateEmployee`.)
+ * Without `userId`, the email decides (see `memberForNewEmployee`): HR can add
+ * someone the moment they're invited, and the link follows on acceptance.
  */
 export async function createEmployee(
   db: Database,
-  input: EmployeeWriteInput & { firstName: string; lastName: string; email: string; userId: string },
+  input: EmployeeWriteInput & { firstName: string; lastName: string; email: string },
   opts: { createdBy: string; sensitive?: HrEmployeeSensitive; keyring?: EncryptionKeyring },
 ): Promise<HrEmployee> {
-  if (!input.userId) {
-    throw new HrValidationError('An employee must be a member of this workspace. Invite them first.');
-  }
   assertDateOrder(input.startDate, input.endDate, 'Employment');
-  await requireActiveWorkspaceMember(db, input.userId);
-  await assertUserIdFree(db, input.userId);
   await assertEmailFree(db, input.email);
+  const userId = input.userId || (await memberForNewEmployee(db, input.email));
+  if (userId) {
+    await requireActiveWorkspaceMember(db, userId);
+    await assertUserIdFree(db, userId);
+  }
   await assertManager(db, input.managerId);
+  await assertWorkLocations(db, input.workLocationIds);
 
   const definitions = await prepareCustomFields(db, input.customFields);
 
@@ -444,6 +525,7 @@ export async function createEmployee(
     .values({
       id,
       ...input,
+      userId,
       email: input.email.trim(),
       employmentType: input.employmentType ?? 'full_time',
       status: input.status ?? 'onboarding',
@@ -508,6 +590,7 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
     await requireActiveWorkspaceMember(db, input.userId);
     await assertUserIdFree(db, input.userId, id);
   }
+  await assertWorkLocations(db, input.workLocationIds);
   const definitions = await prepareCustomFields(db, input.customFields);
 
   const [row] = await db
@@ -521,15 +604,11 @@ export async function updateEmployee(db: Database, id: string, input: EmployeeWr
   return row!;
 }
 
-/** Soft delete. Portal access is revoked in the same call so a deleted employee cannot sign in. */
+/** Soft delete. The workspace member stays; only their HR record goes. */
 export async function deleteEmployee(db: Database, id: string): Promise<void> {
   await requireEmployee(db, id);
   const now = new Date();
   await db.update(t).set({ deletedAt: now, updatedAt: now }).where(eq(t.id, id));
-  await db
-    .update(schema.hrPortalAccess)
-    .set({ status: 'revoked', updatedAt: now })
-    .where(eq(schema.hrPortalAccess.employeeId, id));
 }
 
 // ---------------------------------------------------------------------------
@@ -630,6 +709,40 @@ export function departmentAndDescendants(departments: Array<{ id: string; parent
     }
   }
   return out;
+}
+
+/**
+ * The employee's department and every department above it: what something
+ * aimed at a department (an announcement, an open shift) reaches them through.
+ * Empty for someone without a department.
+ */
+export async function departmentLineage(db: Database, departmentId: string | null): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!departmentId) return out;
+  const departments = await db.select({ id: d.id, parentId: d.parentId }).from(d).where(isNull(d.deletedAt));
+  const parentOf = new Map(departments.map((dept) => [dept.id, dept.parentId]));
+  let cursor: string | null | undefined = departmentId;
+  // Bounded walk: bad data may already hold a cycle.
+  while (cursor && !out.has(cursor) && out.size < 100) {
+    out.add(cursor);
+    cursor = parentOf.get(cursor);
+  }
+  return out;
+}
+
+/** Active employees in any of `departmentIds` or a department under one; every active employee for an empty list. */
+export async function employeesInDepartments(db: Database, departmentIds: string[]) {
+  const conditions: SQL[] = [isNull(t.deletedAt), sql`${t.status} <> 'terminated'`];
+  if (departmentIds.length) {
+    const departments = await db.select({ id: d.id, parentId: d.parentId }).from(d).where(isNull(d.deletedAt));
+    const reach = new Set<string>();
+    for (const root of departmentIds) for (const id of departmentAndDescendants(departments, root)) reach.add(id);
+    conditions.push(inArray(t.departmentId, [...reach]));
+  }
+  return db
+    .select({ id: t.id, userId: t.userId, firstName: t.firstName, lastName: t.lastName, preferredName: t.preferredName })
+    .from(t)
+    .where(and(...conditions));
 }
 
 export async function createDepartment(

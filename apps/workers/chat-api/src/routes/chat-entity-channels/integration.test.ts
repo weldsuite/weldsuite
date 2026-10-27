@@ -190,7 +190,9 @@ describe('record chat providers', () => {
     expect(getEntityProvider('task')?.requiredPermission).toBe('tasks:read');
     expect(getEntityProvider('project')?.requiredPermission).toBe('projects:read');
     expect(getEntityProvider('domain')?.requiredPermission).toBe('domains:read');
-    expect(listRecordChatProviders().map((p) => p.type)).toEqual(['company', 'person', 'task', 'project', 'domain']);
+    expect(getEntityProvider('sheet')?.requiredPermission).toBe('sheets:read');
+    expect(getEntityProvider('doc')?.requiredPermission).toBe('docs:read');
+    expect(listRecordChatProviders().map((p) => p.type)).toEqual(['company', 'person', 'task', 'project', 'domain', 'sheet', 'doc']);
   });
 
   it('keeps the legacy contact name readable but out of the record chat lists', () => {
@@ -319,6 +321,49 @@ describe('POST /:entityType/:entityId/messages · company and person', () => {
       .from(schema.chatChannelMembers)
       .where(and(eq(schema.chatChannelMembers.channelId, channelId), eq(schema.chatChannelMembers.userId, 'u_mn_admin')));
     expect(admin?.unreadMentionCount).toBe(1);
+  });
+
+  it('brings in the agents the message tags, when the poster may use them', async () => {
+    await seedMember('u_ag_poster');
+    const companyId = await seedCompany('Agent Tag BV', { ownerId: 'u_ag_poster' });
+    const usable = generateId('agt');
+    const hidden = generateId('agt');
+    await db.insert(schema.weldagentAgents).values([
+      // A draft agent still answers when tagged.
+      { id: usable, name: 'Account helper', status: 'draft', visibility: 'workspace' },
+      { id: hidden, name: 'Someone else\'s helper', status: 'active', visibility: 'private', ownerId: 'u_ag_other' },
+    ]);
+    const { json } = api('u_ag_poster', [...CRM, 'weldagent:use']);
+
+    const res = await json(`/company/${companyId}/messages`, 'POST', {
+      content: `<@${usable}> <@${hidden}> what did we agree on pricing?`,
+      mentions: [usable, hidden],
+    });
+    expect(res.status).toBe(201);
+    const channelId = ((await res.json()) as { data: { channel: { id: string } } }).data.channel.id;
+
+    const agents = await db
+      .select({ userId: schema.chatChannelMembers.userId })
+      .from(schema.chatChannelMembers)
+      .where(and(eq(schema.chatChannelMembers.channelId, channelId), eq(schema.chatChannelMembers.memberType, 'agent')));
+    expect(agents.map((a) => a.userId)).toEqual([usable]);
+  });
+
+  it('brings in no agent for a poster without weldagent:use', async () => {
+    await seedMember('u_ag_plain');
+    const companyId = await seedCompany('No Agents BV', { ownerId: 'u_ag_plain' });
+    const agentId = generateId('agt');
+    await db.insert(schema.weldagentAgents).values({ id: agentId, name: 'Helper', status: 'active', visibility: 'workspace' });
+    const { json } = api('u_ag_plain', CRM);
+
+    const res = await json(`/company/${companyId}/messages`, 'POST', { content: `<@${agentId}> hello` });
+    expect(res.status).toBe(201);
+    const channelId = ((await res.json()) as { data: { channel: { id: string } } }).data.channel.id;
+    const agents = await db
+      .select({ userId: schema.chatChannelMembers.userId })
+      .from(schema.chatChannelMembers)
+      .where(and(eq(schema.chatChannelMembers.channelId, channelId), eq(schema.chatChannelMembers.memberType, 'agent')));
+    expect(agents).toEqual([]);
   });
 
   it('refuses callers without the record permission or outside its owner scope', async () => {

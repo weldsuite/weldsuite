@@ -5,37 +5,52 @@ tags: [smoke]
 - runFlow: ../subflows/login.yaml
 # Home shows My HR, or says why there is none (no employee record / no access).
 - extendedWaitUntil:
-    visible: "Time off left|To do|No employee record yet|My HR is not available"
+    visible: "My schedule|No employee record yet|My HR is not available"
     timeout: 30000
-- tapOn:
-    id: tab-time-off
-# Either the request list, or why My HR is empty for this account.
-- assertVisible: "Requests|No requests yet|No employee record yet|My HR is not available"
-- tapOn:
-    id: tab-expenses
-- assertVisible: "Expenses"
 - runFlow:
     when:
       visible:
-        id: tab-pay
+        id: tab-schedule
     commands:
       - tapOn:
-          id: tab-pay
-      - assertVisible: "Net pay|No payslips yet"
+          id: tab-schedule
+      - assertVisible: "Week .*"
 - runFlow:
     when:
       visible:
-        id: tab-team
+        id: tab-absence
     commands:
       - tapOn:
-          id: tab-team
-      - assertVisible: "Approvals|Today|Directory"
+          id: tab-absence
+      # Either the overview, or why My HR is empty for this account.
+      - assertVisible: "Requests|No employee record yet|My HR is not available"
+- runFlow:
+    when:
+      visible:
+        id: tab-expenses
+    commands:
+      - tapOn:
+          id: tab-expenses
+      - assertVisible: "Expenses"
+- runFlow:
+    when:
+      visible:
+        id: tab-announcements
+    commands:
+      - tapOn:
+          id: tab-announcements
+      # Either the list, or the empty state.
+      - assertVisible: "Announcements|No announcements|No employee record yet|My HR is not available"
+# The profile and settings open from the workspace menu at the top of Home.
 - tapOn:
-    id: tab-me
+    id: tab-home
+- tapOn:
+    id: home-workspace
+- tapOn: "Profile and settings"
 - scrollUntilVisible:
     element:
       id: me-sign-out
 - assertVisible:
     id: me-sign-out
 - tapOn:
-    id: tab-home
+    id: screen-back

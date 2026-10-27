@@ -9,7 +9,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { EmojiPicker } from './emoji-picker';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { useSendMessage, useEditMessage, useWorkspaceMembers, useChannel } from '@/hooks/queries/use-weldchat-queries';
+import { useSendMessage, useEditMessage, useWorkspaceMembers, useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
 import { useCreateTask } from '@/hooks/queries/use-task-queries';
 import { useTypingPublisher } from '@/hooks/weldchat/use-weldchat-typing';
 import type { RoomClient } from '@weldsuite/realtime/client';
@@ -66,6 +66,12 @@ interface MessageInputProps {
     mentions: string[];
     attachments: MessageAttachment[];
   }) => Promise<void> | void;
+  /**
+   * There is no channel yet (a record chat's first message): the @ picker
+   * offers every agent the viewer can use, and the message that mentions one
+   * brings it into the chat it creates.
+   */
+  agentsJoinOnSend?: boolean;
 }
 
 /**
@@ -130,6 +136,7 @@ export function MessageInput({
   placeholder,
   client,
   onSubmitOverride,
+  agentsJoinOnSend,
 }: Readonly<MessageInputProps>) {
   const { t } = useI18n();
   const st = useTranslations();
@@ -186,6 +193,7 @@ export function MessageInput({
   const { mutateAsync: createTask } = useCreateTask();
   const { onKeystroke, onSend: onTypingSend } = useTypingPublisher(client ?? null);
   const { data: membersData } = useWorkspaceMembers();
+  const { data: channelMembersData } = useChannelMembers(channelId || '');
 
   // Images placed in the text, in the order they appear there.
   const inlineAttachments = useMemo(
@@ -221,8 +229,12 @@ export function MessageInput({
     for (const m of membersData?.data ?? []) {
       if (m.userId && m.name) map.set(m.userId, m.name);
     }
+    // Agents in this channel, so their mention chips read "@Name", not the id.
+    for (const m of channelMembersData?.data ?? []) {
+      if (m.memberType === 'agent' && m.userId && m.name) map.set(m.userId, m.name);
+    }
     membersMap.current = map;
-  }, [membersData]);
+  }, [membersData, channelMembersData]);
 
   // Auto-focus the input when the user opens or switches channels/threads
   useEffect(() => {
@@ -618,6 +630,8 @@ export function MessageInput({
     let token: string;
     if (selection.kind === 'user') {
       token = `<@${selection.userId}>`;
+      // Agents aren't in the workspace directory: label the chip with the picked name.
+      if (!membersMap.current.has(selection.userId)) membersMap.current.set(selection.userId, selection.name);
     } else if (selection.kind === 'entity') {
       token = encodeEntityToken(selection.type, selection.id, selection.title);
     } else {
@@ -1161,7 +1175,13 @@ export function MessageInput({
 
               {mentionQuery !== null && slashQuery === null && (
                 <div className="absolute bottom-full -left-[10px] -right-[10px] mb-6 z-50 [&>div]:static [&>div]:mb-0 [&>div]:rounded-xl">
-                  <MentionAutocomplete query={mentionQuery} channelId={channelId} onSelect={handleMentionSelect} onDismiss={() => setMentionQuery(null)} />
+                  <MentionAutocomplete
+                    query={mentionQuery}
+                    channelId={channelId}
+                    agentsJoinOnSend={agentsJoinOnSend}
+                    onSelect={handleMentionSelect}
+                    onDismiss={() => setMentionQuery(null)}
+                  />
                 </div>
               )}
 

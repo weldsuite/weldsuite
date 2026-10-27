@@ -78,6 +78,17 @@
         }
       ],
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "WeldHR uses your location to check you are at work when you clock in or out.",
+          "locationAlwaysAndWhenInUsePermission": false,
+          "locationAlwaysPermission": false,
+          "motionUsagePermission": false,
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
+      ],
+      [
         "expo-local-authentication",
         {
           "faceIDPermission": "WeldHR uses Face ID to keep your payslips and personal details private."

@@ -67,7 +67,6 @@ import {
   CalendarCheck,
   Plane,
   ClipboardCheck,
-  AppWindow,
   UserRound,
   Percent,
   ShieldCheck,
@@ -296,6 +295,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldhr.me.payroll, href: MY_HR_PATHS.payroll, icon: FileText, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.me.tasks, href: MY_HR_PATHS.tasks, icon: ListChecks, permission: 'employees:self' },
           { title: t.navigation.moduleSidebar.weldhr.me.reviews, href: MY_HR_PATHS.reviews, icon: Target, permission: 'employees:self' },
+          { title: t.navigation.moduleSidebar.weldhr.me.announcements, href: MY_HR_PATHS.announcements, icon: Megaphone, permission: 'employees:self' },
         ],
       },
       {
@@ -303,6 +303,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
         items: [
           { title: t.navigation.moduleSidebar.weldhr.dashboard, href: '/weldhr', icon: LayoutDashboard, permission: HR_DASHBOARD_PERMISSIONS },
           { title: t.navigation.moduleSidebar.weldhr.employees, href: '/weldhr/employees', icon: User, permission: 'employees:read' },
+          { title: t.navigation.moduleSidebar.weldhr.announcements, href: '/weldhr/announcements', icon: Megaphone, permission: 'announcements:read' },
         ],
       },
       {
@@ -333,7 +334,7 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
       {
         group: t.navigation.moduleSidebar.groups.settings,
         items: [
-          { title: t.navigation.moduleSidebar.weldhr.portal, href: '/weldhr/portal', icon: AppWindow, permission: 'employees:manage' },
+          { title: t.navigation.moduleSidebar.weldhr.settings, href: '/weldhr/settings', icon: Settings, permission: 'employees:manage' },
         ],
       },
     ],

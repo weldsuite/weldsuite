@@ -1,15 +1,18 @@
 /**
  * Service tests for employee ↔ workspace-member linking. Every new employee
- * is an active INTERNAL or EMPLOYEE member of the workspace.
+ * is an INTERNAL or EMPLOYEE member of the workspace, or about to be one: an
+ * employee added while their invite is pending is linked once they accept.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   createEmployee,
   createEmployeeFromMember,
   employeeForUser,
+  linkAcceptedInvites,
   listAvailableMembers,
   updateEmployee,
 } from './employees';
@@ -242,5 +245,56 @@ describe('employeeForUser', () => {
     await updateEmployee(db, own!.id, { status: 'terminated' });
     expect(await employeeForUser(db, 'user_erin')).toBeNull();
     expect(await employeeForUser(db, 'user_nobody')).toBeNull();
+  });
+});
+
+describe('createEmployee by email · invited people', () => {
+  beforeAll(async () => {
+    await db.insert(schema.workspaceMembers).values([
+      // Invited from WeldHR, not accepted yet.
+      { id: 'wm_ivy', userId: 'invited_ivy@example.com', name: 'Ivy Invited', email: 'ivy@example.com', status: 'PENDING', memberType: 'EMPLOYEE' },
+      { id: 'wm_jo', userId: 'user_jo', name: 'Jo Active', email: 'jo@example.com', status: 'ACTIVE', memberType: 'INTERNAL' },
+      { id: 'wm_kim', userId: 'invited_kim@example.com', name: 'Kim Guest', email: 'kim@example.com', status: 'PENDING', memberType: 'EXTERNAL_GUEST' },
+    ]);
+  });
+
+  it('adds someone whose invite is pending, unlinked', async () => {
+    const row = await createEmployee(db, { firstName: 'Ivy', lastName: 'Invited', email: 'IVY@example.com' }, { createdBy: 'user_hr' });
+    expect(row.userId).toBeNull();
+  });
+
+  it('links an active member with that email right away', async () => {
+    const row = await createEmployee(db, { firstName: 'Jo', lastName: 'Active', email: 'jo@example.com' }, { createdBy: 'user_hr' });
+    expect(row.userId).toBe('user_jo');
+  });
+
+  it('refuses people who are not (being) members, and guests', async () => {
+    await expect(
+      createEmployee(db, { firstName: 'Lee', lastName: 'Stranger', email: 'lee@example.com' }, { createdBy: 'user_hr' }),
+    ).rejects.toBeInstanceOf(HrValidationError);
+    await expect(
+      createEmployee(db, { firstName: 'Kim', lastName: 'Guest', email: 'kim@example.com' }, { createdBy: 'user_hr' }),
+    ).rejects.toBeInstanceOf(HrValidationError);
+  });
+
+  it('links the employee once the invite is accepted, and only once', async () => {
+    expect(await linkAcceptedInvites(db, { userId: 'user_ivy' })).toEqual([]);
+
+    // Accepting swaps the placeholder for the Clerk id on the same member row.
+    await db
+      .update(schema.workspaceMembers)
+      .set({ userId: 'user_ivy', status: 'ACTIVE' })
+      .where(eq(schema.workspaceMembers.id, 'wm_ivy'));
+
+    const linked = await linkAcceptedInvites(db, { userId: 'user_ivy' });
+    expect(linked).toHaveLength(1);
+    expect((await employeeForUser(db, 'user_ivy'))?.email).toBe('IVY@example.com');
+    expect(await linkAcceptedInvites(db, {})).toEqual([]);
+  });
+
+  it('never links a member who already has an employee', async () => {
+    // A legacy employee carrying Jo's email, while Jo is already linked above.
+    await db.insert(schema.hrEmployees).values({ id: 'hremp_legacy_jo', firstName: 'Jo', lastName: 'Old', email: 'jo@example.com' });
+    expect(await linkAcceptedInvites(db, { employeeId: 'hremp_legacy_jo' })).toEqual([]);
   });
 });

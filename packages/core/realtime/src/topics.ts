@@ -68,72 +68,9 @@ export function isPersonalHubKey(hubKey: string): boolean {
   return hubKey.startsWith(PERSONAL_HUB_PREFIX);
 }
 
-/**
- * WeldHR workforce portal hubs: `hrportal:<clerkOrgId>`.
- *
- * Portal users (employees, client contacts) are not workspace members, so they
- * never join the workspace's own hub — they would see every catalog topic and
- * show up in presence. Their own hub carries only the id-only "something
- * changed" signals app-api publishes for them, on these topics:
- *
- *   hrportal.workspace                 branding / settings / leave types changed
- *   hrportal.employee.<employeeId>     one employee's own records changed
- *   hrportal.client.<companyId>        data a client account can see changed
- *
- * Each connection may subscribe to `hrportal.workspace` plus exactly one of
- * the principal topics (enforced by the realtime worker's allow list).
- */
-export const HR_PORTAL_HUB_PREFIX = 'hrportal:';
-
-export function hrPortalHubKey(clerkOrgId: string): string {
-  return `${HR_PORTAL_HUB_PREFIX}${clerkOrgId}`;
-}
-
-export function isHrPortalHubKey(hubKey: string): boolean {
-  return hubKey.startsWith(HR_PORTAL_HUB_PREFIX);
-}
-
-export const hrPortalTopics = {
-  workspace: 'hrportal.workspace',
-  employee: (employeeId: string) => `hrportal.employee.${employeeId}`,
-  client: (companyId: string) => `hrportal.client.${companyId}`,
-} as const;
-
-/**
- * Single-use connect ticket for a portal WebSocket. app-api writes it to the
- * shared WORKSPACE_CACHE KV under `hrPortalTicketKvKey(sha256(ticket))` after
- * checking the portal session; the realtime worker reads and deletes it on
- * `/ws/hr-portal`. Only the hash is ever a key, so a KV listing leaks nothing
- * usable.
- */
-export interface HrPortalRealtimeTicket {
-  /** Clerk org id of the workspace — the hub is `hrPortalHubKey(orgId)`. */
-  orgId: string;
-  /** hr_portal_access row the session belongs to; becomes the connection's user id. */
-  accessId: string;
-  kind: 'employee' | 'client';
-  employeeId: string | null;
-  companyId: string | null;
-}
-
-export function hrPortalTicketKvKey(ticketHash: string): string {
-  return `hrportal:rt:${ticketHash}`;
-}
-
-/** The only topics a portal connection may subscribe to. */
-export function hrPortalAllowedTopics(ticket: HrPortalRealtimeTicket): string[] {
-  let own: string | null;
-  if (ticket.kind === 'employee') {
-    own = ticket.employeeId ? hrPortalTopics.employee(ticket.employeeId) : null;
-  } else {
-    own = ticket.companyId ? hrPortalTopics.client(ticket.companyId) : null;
-  }
-  return own ? [hrPortalTopics.workspace, own] : [hrPortalTopics.workspace];
-}
-
 /** Hubs with no workspace members behind them — presence stays in the DO, never in a tenant DB. */
 export function isMemberlessHubKey(hubKey: string): boolean {
-  return isPersonalHubKey(hubKey) || isHrPortalHubKey(hubKey);
+  return isPersonalHubKey(hubKey);
 }
 
 /**

@@ -236,7 +236,7 @@ describe('co-editing', () => {
           const id = `cm${rand(3)}`;
           const root = rand(2) === 0;
           return rand(5)
-            ? { type: 'patchComments', sheetId, set: [{ id: root ? id : `${id}r${rand(3)}`, thread: id, author: { id: `u${rand(2)}`, name: 'U' }, createdAt: 1, body: `c${rand(9)}`, ...(root ? { cell: { row: r, col }, resolved: !!rand(2) } : {}) }] }
+            ? { type: 'patchComments', sheetId, set: [{ id: root ? id : `${id}r${rand(3)}`, authorId: `u${rand(2)}`, createdAt: 1, ...(root ? { cell: { row: r, col }, resolved: !!rand(2) } : {}) }] }
             : { type: 'patchComments', sheetId, remove: [id] };
         }
         case 18:

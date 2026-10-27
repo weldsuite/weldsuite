@@ -48,6 +48,8 @@ export function LocalSheet({ sheetId }: { sheetId: string }) {
         formulaLocale: locale.formula,
         onOp: () => scheduleRef.current(),
         onInputRefused: (rule) => toast.error(rule.help ?? stringsRef.current.validation.refused),
+        // A comment's text lives in the sheet's WeldChat chat; a sheet kept in the browser has none.
+        comments: false,
       });
       setName(result.meta.name);
       setController(ctl);

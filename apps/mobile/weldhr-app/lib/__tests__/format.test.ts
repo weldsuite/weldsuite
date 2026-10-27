@@ -1,4 +1,4 @@
-import { firstName, formatDateRange, formatDays, formatDuration, formatMoney, parseAmount } from '../format';
+import { firstName, formatDateRange, formatDays, formatDuration, formatHoursMinutes, formatLongDay, formatMoney, formatSpan, formatTimer, parseAmount } from '../format';
 
 const NOW = new Date(2026, 9, 24);
 
@@ -50,5 +50,25 @@ describe('numbers', () => {
   it('takes the first word of a name', () => {
     expect(firstName('  Sam de Vries ')).toBe('Sam');
     expect(firstName(undefined)).toBe('');
+  });
+});
+
+describe('hours and clocks', () => {
+  it('writes minutes as hours and minutes', () => {
+    expect(formatHoursMinutes(420, '{h}h {m}m')).toBe('7h 0m');
+    expect(formatHoursMinutes(65, '{h}u {m}m')).toBe('1u 5m');
+    expect(formatHoursMinutes(null, '{h}h {m}m')).toBe('0h 0m');
+  });
+
+  it('runs a clock in hours, minutes and seconds', () => {
+    expect(formatTimer(8_000)).toBe('00:00:08');
+    expect(formatTimer(3_728_000)).toBe('01:02:08');
+    expect(formatTimer(-5)).toBe('00:00:00');
+  });
+
+  it('spells out a day and a span', () => {
+    expect(formatLongDay('2026-10-25', 'en-GB', NOW)).toBe('Sunday 25 October');
+    expect(formatSpan('2026-10-19', '2026-10-25', 'en-GB')).toBe('19 Oct – 25 Oct');
+    expect(formatSpan('2026-10-19', '2026-10-19', 'en-GB')).toBe('19 Oct');
   });
 });

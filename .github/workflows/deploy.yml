@@ -30,7 +30,6 @@ on:
       - 'apps/web/booking-portal/**'
       - 'apps/web/docs/**'
       - 'apps/web/helpdesk-widget/**'
-      - 'apps/web/hr-portal/**'
       - 'apps/web/meeting-portal/**'
       - 'apps/web/partner/**'
       - 'apps/workers/**'
@@ -1207,7 +1206,7 @@ jobs:
   # call. Env vars, domains and Root Directory stay on the Vercel project.
   #   production → Production target (the project's production domains)
   #   test       → Preview target with develop's branch env vars, then the
-  #                project's `develop` branch domains (e.g. team-test.weldsuite.org)
+  #                project's `develop` branch domains (e.g. partner-test.weldsuite.org)
   #                are pointed at the new deployment.
   vercel:
     name: Deploy ${{ matrix.app }} (${{ needs.prepare.outputs.cf_env }} Vercel)

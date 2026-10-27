@@ -37,11 +37,12 @@ import {
 } from '../../services/weldhr/employees';
 import { startChecklist } from '../../services/weldhr/lifecycle';
 import { recordHrAudit } from '../../services/weldhr/shared';
-import { actor, hrJson, clientIp, db, emit, param } from './helpers';
+import { actor, hrJson, clientIp, db, emit, linkInvitedEmployees, param } from './helpers';
 
 export const employeesRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 employeesRoutes.get('/', requirePermission('employees:read'), zValidator('query', listHrEmployeesQuerySchema), async (c) => {
+  await linkInvitedEmployees(c);
   const result = await listEmployees(db(c), c.req.valid('query'));
   return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
@@ -55,7 +56,9 @@ employeesRoutes.get(
 );
 
 employeesRoutes.get('/:employeeId', requirePermission('employees:read'), async (c) => {
-  return success(c, await getEmployeeDetail(db(c), param(c, 'employeeId')));
+  const employeeId = param(c, 'employeeId');
+  await linkInvitedEmployees(c, { employeeId });
+  return success(c, await getEmployeeDetail(db(c), employeeId));
 });
 
 employeesRoutes.post('/', requirePermission('employees:create'), hrJson(createHrEmployeeSchema), async (c) => {

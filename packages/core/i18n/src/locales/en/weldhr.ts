@@ -1,16 +1,18 @@
 /**
- * WeldHR — employee operations and the workforce portal.
+ * WeldHR — employee operations and My HR.
  *
  * Split per area so each screen group owns its own file:
  *   weldhr-people.ts       dashboard, employees
  *   weldhr-time.ts         attendance, shifts, leave
  *   weldhr-declarations.ts expense declarations
  *   weldhr-payroll.ts      payroll: pay runs, payslips, filings, settings, tax forms
- *   weldhr-admin.ts        settings and the workforce portal
+ *   weldhr-admin.ts        settings (departments, leave types, work locations, My HR self-service)
+ *   weldhr-announcements.ts announcements from HR to employees
  *   weldhr-self.ts         My HR, the employee self-service page
  * Shared labels (status chips, pickers, generic actions) live here.
  */
 import { weldhrAdmin } from './weldhr-admin';
+import { weldhrAnnouncements } from './weldhr-announcements';
 import { weldhrDeclarations } from './weldhr-declarations';
 import { weldhrPayroll } from './weldhr-payroll';
 import { weldhrPeople } from './weldhr-people';
@@ -87,6 +89,17 @@ export const weldhr = {
       rejected: 'Rejected',
       cancelled: 'Cancelled',
     },
+    shiftRequest: {
+      pending: 'Pending',
+      approved: 'Approved',
+      rejected: 'Declined',
+      cancelled: 'Withdrawn',
+    },
+    openShift: {
+      open: 'Open',
+      full: 'Full',
+      cancelled: 'Withdrawn',
+    },
     declaration: {
       pending: 'Pending',
       approved: 'Approved',
@@ -144,11 +157,6 @@ export const weldhr = {
       employee: 'Employee',
       other: 'Other',
     },
-    portalAccess: {
-      invited: 'Invited',
-      active: 'Active',
-      revoked: 'Revoked',
-    },
     kpiUnit: {
       number: 'Number',
       percent: 'Percent',
@@ -167,5 +175,6 @@ export const weldhr = {
   ...weldhrDeclarations,
   ...weldhrPayroll,
   ...weldhrAdmin,
+  ...weldhrAnnouncements,
   ...weldhrSelf,
 };

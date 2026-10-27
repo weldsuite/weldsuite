@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import type { HrSelfLeave } from '@weldsuite/app-api-client/domains/weldhr';
+import { Check } from 'lucide-react-native';
+import type { HrLeaveBalance, HrSelfLeave } from '@weldsuite/app-api-client/domains/weldhr';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { Select } from '@weldsuite/mobile-ui/components/Select';
 import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { DateField } from '@/components/DateField';
+import { LeaveTypeTile } from '@/components/HrRows';
+import { ListSkeleton } from '@/components/QueryBody';
 import { ErrorNote, Screen } from '@/components/Screen';
+import { tint } from '@/constants/brand';
+import { usePalette } from '@/hooks/use-palette';
 import { useLeave, useMe, useRequestLeave } from '@/hooks/use-weldhr-queries';
 import { nextWeekday, todayIso, weekdaysBetween } from '@/lib/dates';
 import { formatDays } from '@/lib/format';
@@ -32,15 +35,15 @@ export default function NewLeaveScreen() {
 
 function NewLeaveBody({ turnedOff, leave }: Readonly<{ turnedOff: boolean; leave: ReturnType<typeof useLeave> }>) {
   const { t } = useI18n();
-  if (leave.isPending) return <ActivityIndicator style={styles.loading} />;
+  if (leave.isPending) return <ListSkeleton count={3} />;
   if (turnedOff) return <Banner variant="info">{t.timeOff.turnedOff}</Banner>;
   if (leave.isError || !leave.data) return <ErrorNote message={t.common.somethingWrong} />;
   return <LeaveForm data={leave.data} />;
 }
 
 function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
-  const { colors } = useTheme();
-  const { t, format, plural, intlLocale } = useI18n();
+  const palette = usePalette();
+  const { t, plural } = useI18n();
   const router = useRouter();
   const toast = useToast();
   const request = useRequestLeave();
@@ -85,19 +88,12 @@ function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
 
   return (
     <View style={styles.form}>
-      <Select
-        label={t.leaveForm.type}
-        placeholder={t.leaveForm.typePlaceholder}
+      <TypePicker
+        types={types}
+        balances={startDate.slice(0, 4) === today.slice(0, 4) ? data.balances : []}
         value={typeId}
-        onValueChange={setTypeId}
-        options={types.map((option) => ({ label: option.name, value: option.id }))}
+        onChange={setTypeId}
       />
-      {balance?.remaining == null ? null : (
-        <Text style={[styles.hint, { color: colors.mutedForeground }]}>
-          {format(t.balance.left, { days: formatDays(balance.remaining, intlLocale) })} ·{' '}
-          {format(t.balance.ofAllowance, { days: formatDays(balance.allowance ?? 0, intlLocale) })}
-        </Text>
-      )}
 
       <View style={styles.dates}>
         <View style={styles.date}>
@@ -114,7 +110,7 @@ function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
           <DateField label={t.leaveForm.to} value={endDate} min={startDate} onChange={setEndDate} />
         </View>
       </View>
-      <Text style={[styles.hint, { color: colors.mutedForeground }]}>{plural(days, t.leaveForm.estimate)}</Text>
+      <Text style={[styles.hint, { color: palette.muted }]}>{plural(days, t.leaveForm.estimate)}</Text>
 
       <AllowanceBanner allowance={allowance} />
 
@@ -128,7 +124,7 @@ function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
       />
 
       {type ? (
-        <Text style={[styles.hint, { color: colors.mutedForeground }]}>
+        <Text style={[styles.hint, { color: palette.muted }]}>
           {type.requiresApproval ? t.leaveForm.needsApproval : t.leaveForm.autoApproved}
         </Text>
       ) : null}
@@ -148,6 +144,74 @@ function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
   );
 }
 
+/** Every leave type as a row with what is left of it, so the balance is in view while choosing. */
+function TypePicker({
+  types,
+  balances,
+  value,
+  onChange,
+}: Readonly<{
+  types: HrSelfLeave['types'];
+  balances: HrLeaveBalance[];
+  value: string | null;
+  onChange: (id: string) => void;
+}>) {
+  const palette = usePalette();
+  const { t, format, intlLocale } = useI18n();
+  return (
+    <View style={styles.field}>
+      <Text style={[styles.label, { color: palette.text }]}>{t.leaveForm.type}</Text>
+      <View style={[styles.types, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        {types.map((type, index) => {
+          const selected = type.id === value;
+          const balance = balances.find((b) => b.leaveTypeId === type.id);
+          let sub: string | null = null;
+          if (balance?.remaining != null) {
+            sub = `${format(t.balance.left, { days: formatDays(balance.remaining, intlLocale) })} · ${format(t.balance.ofAllowance, { days: formatDays(balance.allowance ?? 0, intlLocale) })}`;
+          } else if (balance) sub = t.balance.unlimited;
+          return (
+            <Pressable
+              key={type.id}
+              onPress={() => onChange(type.id)}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={type.name}
+              style={({ pressed }) => [
+                styles.type,
+                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
+                (pressed || selected) && { backgroundColor: selected ? tint(palette.accent, 0.07) : palette.tile },
+              ]}
+            >
+              <LeaveTypeTile color={type.color} />
+              <View style={styles.flex}>
+                <Text style={[styles.typeName, { color: palette.text }]} numberOfLines={1}>
+                  {type.name}
+                </Text>
+                {sub ? (
+                  <Text style={[styles.typeSub, { color: palette.muted }]} numberOfLines={1}>
+                    {sub}
+                  </Text>
+                ) : null}
+              </View>
+              <View
+                style={[
+                  styles.radio,
+                  {
+                    borderColor: selected ? palette.accent : palette.grabber,
+                    backgroundColor: selected ? palette.accent : 'transparent',
+                  },
+                ]}
+              >
+                {selected ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function AllowanceBanner({ allowance }: Readonly<{ allowance: AllowanceCheck }>) {
   const { t, format, intlLocale } = useI18n();
   if (allowance.kind !== 'over') return null;
@@ -160,8 +224,15 @@ function AllowanceBanner({ allowance }: Readonly<{ allowance: AllowanceCheck }>)
 }
 
 const styles = StyleSheet.create({
-  loading: { marginTop: 32 },
+  flex: { flex: 1 },
   form: { gap: 14 },
+  field: { gap: 8 },
+  label: { fontSize: 14, fontWeight: '500' },
+  types: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
+  type: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, paddingVertical: 12 },
+  typeName: { fontSize: 16, fontWeight: '600' },
+  typeSub: { fontSize: 14, marginTop: 1 },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   hint: { fontSize: 13, marginTop: -6 },
   dates: { flexDirection: 'row', gap: 12 },
   date: { flex: 1 },

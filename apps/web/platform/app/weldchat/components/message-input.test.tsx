@@ -30,7 +30,9 @@ vi.mock('@/hooks/queries/use-weldchat-queries', () => ({
   }),
   useChannel: () => ({ data: { data: mocks.channel } }),
   useChannelMembers: () => ({ data: { data: [] } }),
+  useInviteChannelAgents: () => ({ mutateAsync: vi.fn() }),
 }));
+vi.mock('@/hooks/queries/use-agent-queries', () => ({ useAgents: () => ({ data: [] }) }));
 vi.mock('@/hooks/queries/use-global-search-queries', () => ({
   useGlobalSearch: () => ({ data: { data: [] }, isFetching: false }),
 }));

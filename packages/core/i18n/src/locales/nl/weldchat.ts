@@ -601,6 +601,7 @@ export const weldchat = {
     unreadSeparator: 'Nieuwe berichten',
     messageItem: {
       forwardedFrom: 'Doorgestuurd van',
+      commentOn: 'Opmerking bij {place}',
       aDirectMessage: 'een direct bericht',
       reply: 'antwoord',
       replies: 'antwoorden',
@@ -811,9 +812,12 @@ export const weldchat = {
       twoTyping: '{name1} en {name2} zijn aan het typen...',
       multipleTyping: '{names} en {last} zijn aan het typen...',
       manyTyping: 'Meerdere mensen zijn aan het typen...',
+      agentWorking: '{name} is bezig...',
+      agentsWorking: '{names} zijn bezig...',
     },
     mentionAutocomplete: {
       agent: 'Agent',
+      addToChat: 'Toevoegen aan chat',
     },
     entityDetailPanel: {
       untitledTask: 'Taak zonder titel',
@@ -865,6 +869,10 @@ export const weldchat = {
       everyoneInChannel: 'Iedereen is al in dit kanaal',
       removeAgent: 'Agent verwijderen',
       removeFromChannel: 'Uit kanaal verwijderen',
+      searchAgents: 'Agents zoeken om toe te voegen...',
+      noAgentsToInvite: 'Geen agents om toe te voegen',
+      agentAdded: '{name} doet nu mee in deze chat',
+      addAgentFailed: '{name} kon niet aan deze chat worden toegevoegd',
     },
     messageList: {
       loadOlderMessages: 'Oudere berichten laden',

@@ -601,6 +601,7 @@ export const weldchat = {
     unreadSeparator: 'New messages',
     messageItem: {
       forwardedFrom: 'Forwarded from',
+      commentOn: 'Comment on {place}',
       aDirectMessage: 'a direct message',
       reply: 'reply',
       replies: 'replies',
@@ -811,9 +812,12 @@ export const weldchat = {
       twoTyping: '{name1} and {name2} are typing...',
       multipleTyping: '{names} and {last} are typing...',
       manyTyping: 'Multiple people are typing...',
+      agentWorking: '{name} is working...',
+      agentsWorking: '{names} are working...',
     },
     mentionAutocomplete: {
       agent: 'Agent',
+      addToChat: 'Add to chat',
     },
     entityDetailPanel: {
       untitledTask: 'Untitled task',
@@ -865,6 +869,10 @@ export const weldchat = {
       everyoneInChannel: 'Everyone is already in this channel',
       removeAgent: 'Remove agent',
       removeFromChannel: 'Remove from channel',
+      searchAgents: 'Search agents to add...',
+      noAgentsToInvite: 'No agents to add',
+      agentAdded: '{name} joined this chat',
+      addAgentFailed: 'Could not add {name} to this chat',
     },
     messageList: {
       loadOlderMessages: 'Load older messages',

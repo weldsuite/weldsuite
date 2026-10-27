@@ -14,7 +14,12 @@
  */
 
 export { createAndDeliverNotification, appCodesForCategory, EMAIL_DEFER_MINUTES } from './orchestrator';
-export { resolveEmailPresence, presenceFromStatus, type EmailPresence } from './presence';
+export {
+  resolveEmailPresence,
+  emailPresenceFor,
+  type EmailPresence,
+  type LivePresenceSource,
+} from './presence';
 // Exported for the deferred-email workflow, which sends the same mail on the
 // same `from` address minutes later — it must not grow its own copy.
 export { sendNotificationEmail, type SendNotificationEmailParams } from './channels/email';

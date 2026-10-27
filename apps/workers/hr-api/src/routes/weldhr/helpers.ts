@@ -9,10 +9,16 @@ import { publishEntityEvent, type ActionFor, type DataFor, type EntityType } fro
 import { error } from '@weldsuite/worker-kit/response';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env, Variables } from '../../types';
+import { linkAcceptedInvites } from '../../services/weldhr/employees';
 import { ensureDefaultTemplates } from '../../services/weldhr/lifecycle';
 import { ensureDefaultEvaluationForm, ensureDefaultKpis } from '../../services/weldhr/performance';
-import { notifyPortal } from '../../services/weldhr/portal-realtime';
-import { HrConflictError, HrNotFoundError, HrPayrollError, HrValidationError } from '../../services/weldhr/shared';
+import {
+  HrConflictError,
+  HrNotFoundError,
+  HrPayrollError,
+  HrValidationError,
+  recordHrAudit,
+} from '../../services/weldhr/shared';
 import { ensureDefaultLeaveTypes } from '../../services/weldhr/time';
 
 export type HrContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -55,10 +61,6 @@ type HrEntity = Extract<EntityType, `hr_${string}`>;
  * Publish a WeldHR entity event. Every catalog topic reaches every workspace
  * member over the WorkspaceHub, so the payload is ids and status only — never
  * names, notes, scores or sensitive fields.
- *
- * The same change is signalled to the workforce portal (the employee's own
- * topic and the client accounts they work on), so an approval in the back
- * office shows up in the portal without a reload.
  */
 export function emit<T extends HrEntity>(
   c: HrContext,
@@ -66,8 +68,6 @@ export function emit<T extends HrEntity>(
   action: ActionFor<T>,
   entityId: string,
   data: { employeeId?: string | null; status?: string | null; companyId?: string | null } = {},
-  /** Narrow who hears about it in the portal — see PortalSignal.portal / .client. */
-  audience: { portal?: boolean; client?: boolean } = {},
 ) {
   publishEntityEvent({
     c,
@@ -77,19 +77,28 @@ export function emit<T extends HrEntity>(
     // hr_* types have no curated payload interface, so DataFor<T> is a plain record.
     data: { id: entityId, ...data } as DataFor<T>,
   });
-  notifyPortal(c, {
-    entity: entityType,
-    action,
-    id: entityId,
-    employeeId: data.employeeId ?? (entityType === 'hr_employee' ? entityId : null),
-    companyId: data.companyId ?? null,
-    ...audience,
-  });
 }
 
-/** A workspace-wide portal change (branding, feature switches, leave types). */
-export function emitPortalConfig(c: HrContext, entity: string, id: string) {
-  notifyPortal(c, { entity, action: 'updated', id, workspaceWide: true });
+/**
+ * Link employees whose workspace invite has been accepted since HR added them
+ * (see `linkAcceptedInvites`), on the reads where it matters: My HR, the
+ * directory and an employee's profile. Each link is an `hr_employee` update
+ * and an audit entry, the same as linking a member by hand.
+ */
+export async function linkInvitedEmployees(c: HrContext, scope: { userId?: string; employeeId?: string } = {}) {
+  const database = db(c);
+  const linked = await linkAcceptedInvites(database, scope);
+  for (const { employeeId, userId } of linked) {
+    emit(c, 'hr_employee', 'updated', employeeId);
+    await recordHrAudit(database, {
+      actorId: actor(c),
+      action: 'employee.linked',
+      employeeId,
+      metadata: { userId, via: 'invite_accepted' },
+      ip: clientIp(c),
+    });
+  }
+  return linked;
 }
 
 // ---------------------------------------------------------------------------

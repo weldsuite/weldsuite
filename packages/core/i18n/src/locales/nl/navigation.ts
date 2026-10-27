@@ -55,6 +55,7 @@ export const navigation = {
     breadcrumbs: {
       absenteeism: 'Verzuim',
       adAccounts: 'Advertentieaccounts',
+      announcements: 'Mededelingen',
       attendance: 'Aanwezigheid',
       auditLog: 'Auditlog',
       campaigns: 'Campagnes',
@@ -92,7 +93,6 @@ export const navigation = {
       tasks: 'Taken',
       timeOff: 'Verlof & ziekte',
       vaults: 'Kluizen',
-      workforcePortal: 'Medewerkersportaal',
     },
     moduleSidebar: {
       groups: {
@@ -170,14 +170,16 @@ export const navigation = {
           payroll: 'Salaris',
           tasks: 'Taken',
           reviews: 'Beoordelingen & doelen',
+          announcements: 'Mededelingen',
         },
         dashboard: 'Dashboard',
         employees: 'Medewerkers',
+        announcements: 'Mededelingen',
         attendance: 'Aanwezigheid',
         absenteeism: 'Verzuim',
         leave: 'Verlof',
         declarations: 'Declaraties',
-        portal: 'Medewerkersportaal',
+        settings: 'Instellingen',
         payroll: 'Overzicht',
         payRuns: 'Loonruns',
         payrollEmployees: 'Medewerkers in loon',

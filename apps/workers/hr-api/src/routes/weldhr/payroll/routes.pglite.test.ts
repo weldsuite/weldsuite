@@ -1,7 +1,7 @@
 /**
  * The payroll routes end to end: the feature flag, permissions per action, the
- * run lifecycle with its events and portal signals, downloads as attachments,
- * structured errors, and the self-service endpoints for My HR and the portal.
+ * run lifecycle with its events, downloads as attachments, structured errors,
+ * and the self-service endpoints for My HR.
  */
 
 import { eq } from 'drizzle-orm';
@@ -10,11 +10,9 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
-import { sha256Hex } from '@weldsuite/commerce-domain/portal-tokens';
 import { createPayrollDb, resetPayrollTables } from '../../../test/payroll-db';
 import { TEST_KEYRING, VALID_IBAN, createTestEmployee, nlWorld, testDeps, type NlWorld } from '../../../test/payroll-fixtures';
 import type { Env, Variables } from '../../../types';
-import { publicHrPortalRoutes } from '../../public-hr-portal';
 import { weldhrRoutes } from '../index';
 
 let db: Database;
@@ -31,7 +29,7 @@ interface Harness {
   mails: Array<{ to: string; raw: string }>;
 }
 
-/** The weldhr and portal routers behind a stub auth that sets the identity, permissions and flags. */
+/** The weldhr router behind a stub auth that sets the identity, permissions and flags. */
 function harness(opts: { permissions: string[]; flags?: string[]; userId?: string; payrollDeps?: ReturnType<typeof testDeps>; notify?: boolean }): Harness {
   const events: Harness['events'] = [];
   const realtime: Harness['realtime'] = [];
@@ -63,7 +61,6 @@ function harness(opts: { permissions: string[]; flags?: string[]; userId?: strin
     await next();
   });
   app.route('/api/weldhr', weldhrRoutes);
-  app.route('/public/hr-portal', publicHrPortalRoutes);
 
   const env = {
     ENVIRONMENT: 'test',
@@ -144,15 +141,10 @@ describe('the weldhr-payroll flag', () => {
     expect((await h.request('/api/weldhr/payroll/runs', { method: 'POST', body: {} })).status).toBe(404);
   });
 
-  it('answers 404 on the employee endpoints of My HR and the portal without it', async () => {
+  it('answers 404 on the employee endpoints of My HR without it', async () => {
     const mine = harness({ permissions: ['employees:self'] });
     for (const path of ['payslips', 'annual-statements', 'payroll-details']) expect((await mine.request(`/api/weldhr/me/${path}`)).status, path).toBe(404);
     expect((await mine.request('/api/weldhr/me/tax-elections', { method: 'POST', body: {} })).status).toBe(404);
-    const portal = harness({ permissions: [] });
-    await openPortalSession(portal, world.eva.id);
-    for (const path of ['payslips', 'annual-statements', 'payroll-details']) {
-      expect((await portal.request(`/public/hr-portal/employee/${path}`, { headers: portalAuth })).status, path).toBe(404);
-    }
   });
 
   it('serves them with it', async () => {
@@ -200,7 +192,7 @@ describe('permissions', () => {
 });
 
 describe('the run lifecycle', () => {
-  it('creates, calculates, approves and pays a run; events carry ids and status only; the portal is signalled per employee', async () => {
+  it('creates, calculates, approves and pays a run; events carry ids and status only', async () => {
     const h = harness({ permissions: ['*'], flags: ['weldhr-payroll'] });
     const created = await json(await h.request('/api/weldhr/payroll/runs', { method: 'POST', body: { employerId: world.employerId, kind: 'regular', payScheduleId: world.scheduleId, periodStart: '2026-07-01' } }));
     expect(created.status).toBe(201);
@@ -228,10 +220,6 @@ describe('the run lifecycle', () => {
     for (const event of h.events.filter((e) => e.eventType.startsWith('hr_pay'))) {
       expect(Object.keys(event.data).every((k) => ['id', 'employeeId', 'status'].includes(k)), JSON.stringify(event.data)).toBe(true);
     }
-    // The portal hears about each payslip on the employee's own topic.
-    const signals = h.realtime.filter((r) => r.data.entity === 'hr_payslip');
-    expect(signals.map((s) => s.topic).sort()).toEqual([`hrportal.employee.${world.eva.id}`, `hrportal.employee.${world.hans.id}`].sort());
-    expect(signals.every((s) => s.event === 'published')).toBe(true);
 
     const paid = await json(await h.request(`/api/weldhr/payroll/runs/${runId}/mark-paid`, { method: 'POST', body: { paidOn: '2026-07-24' } }));
     expect(paid.data.status).toBe('paid');
@@ -461,67 +449,6 @@ describe('My HR', () => {
     const after = await json(await me.request('/api/weldhr/me/tax-elections', { method: 'POST', body: { kind: 'us_w4', effectiveFrom: '2026-01-01', signatureName: 'Pat Doe', data: { formYear: 2026, filingStatus: 'single', multipleJobs: false, dependentsAmount: 0, otherIncome: 0, deductions: 0, extraWithholding: 0, exempt: false } } }));
     expect(after.data.requiredElections.map((r: { kind: string }) => r.kind)).toEqual(['us_state_certificate']);
     expect(after.data.elections.map((e: { kind: string; state: string | null }) => [e.kind, e.state])).toEqual([['us_w4', null]]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// The workforce portal
-// ---------------------------------------------------------------------------
-
-const PORTAL_TOKEN = 'portal-token';
-const portalAuth = { Authorization: `Bearer ${PORTAL_TOKEN}` };
-
-async function openPortalSession(h: Harness, employeeId: string) {
-  await db.insert(schema.hrPortalSettings).values({ id: 'pst_1', isEnabled: true }).onConflictDoNothing();
-  await db.insert(schema.hrPortalAccess).values({ id: `acc_${employeeId}`, kind: 'employee', employeeId, email: 'eva@example.com', status: 'active' }).onConflictDoNothing();
-  h.kv.set(
-    `hrportal:sess:${await sha256Hex(PORTAL_TOKEN)}`,
-    JSON.stringify({ workspaceId: 'org_test', accessId: `acc_${employeeId}`, kind: 'employee', employeeId, companyId: null, personId: null, email: 'eva@example.com' }),
-  );
-}
-
-describe('the workforce portal', () => {
-  it('serves the same four features for the session\'s employee, signs as the portal and downloads as attachments', async () => {
-    const admin = harness({ permissions: ['*'], flags: ['weldhr-payroll'] });
-    const run = await json(await admin.request('/api/weldhr/payroll/runs', { method: 'POST', body: { employerId: world.employerId, kind: 'regular', payScheduleId: world.scheduleId, periodStart: '2026-07-01' } }));
-    await admin.request(`/api/weldhr/payroll/runs/${run.data.id}/calculate`, { method: 'POST', body: {} });
-    await admin.request(`/api/weldhr/payroll/runs/${run.data.id}/approve`, { method: 'POST', body: {} });
-
-    const portal = harness({ permissions: [], flags: ['weldhr-payroll'] });
-    await openPortalSession(portal, world.eva.id);
-    const base = '/public/hr-portal/employee';
-    const list = await json(await portal.request(`${base}/payslips`, { headers: portalAuth }));
-    expect(list.status).toBe(200);
-    expect(list.data).toHaveLength(1);
-    const pdf = await portal.request(`${base}/payslips/${list.data[0].id}/pdf`, { headers: portalAuth });
-    expect(pdf.headers.get('Content-Disposition')).toBe('attachment; filename="loonstrook-2026-07.pdf"');
-    const stmt = await portal.request(`${base}/annual-statements/2026?employerId=${world.employerId}`, { headers: portalAuth });
-    expect(stmt.headers.get('Content-Disposition')).toBe('attachment; filename="jaaropgaaf-2026.pdf"');
-    expect((await json(await portal.request(`${base}/annual-statements`, { headers: portalAuth }))).data).toHaveLength(1);
-
-    const signed = await json(await portal.request(`${base}/tax-elections`, { method: 'POST', headers: portalAuth, body: { kind: 'nl_loonheffingskorting', effectiveFrom: '2026-09-01', data: { applyCredit: true }, signatureName: 'Eva Alder' } }));
-    expect(signed.status).toBe(201);
-    expect(signed.data.elections).toHaveLength(1);
-    const [election] = await db.select().from(schema.hrTaxElections).where(eq(schema.hrTaxElections.signedBy, `portal:${world.eva.id}`));
-    expect(election).toMatchObject({ source: 'employee', signatureName: 'Eva Alder' });
-    const put = await json(await portal.request(`${base}/payroll-details`, { method: 'PUT', headers: portalAuth, body: { dateOfBirth: '1990-05-18' } }));
-    expect(put.data.paymentDetails.dateOfBirth).toBe('1990-05-18');
-    expect((await db.select().from(schema.hrAuditEvents)).some((a) => a.actorId === `portal:${world.eva.id}` && a.action === 'payroll.payment_details_updated')).toBe(true);
-
-    // A client session never reaches these.
-    expect((await portal.request(`${base}/payslips`)).status).toBe(401);
-  });
-
-  it('keeps one employee away from another\'s payslip', async () => {
-    const admin = harness({ permissions: ['*'], flags: ['weldhr-payroll'] });
-    const run = await json(await admin.request('/api/weldhr/payroll/runs', { method: 'POST', body: { employerId: world.employerId, kind: 'regular', payScheduleId: world.scheduleId, periodStart: '2026-07-01' } }));
-    await admin.request(`/api/weldhr/payroll/runs/${run.data.id}/calculate`, { method: 'POST', body: {} });
-    await admin.request(`/api/weldhr/payroll/runs/${run.data.id}/approve`, { method: 'POST', body: {} });
-    const [hansSlip] = await db.select().from(schema.hrPayslips).where(eq(schema.hrPayslips.employeeId, world.hans.id));
-
-    const portal = harness({ permissions: [], flags: ['weldhr-payroll'] });
-    await openPortalSession(portal, world.eva.id);
-    expect((await portal.request(`/public/hr-portal/employee/payslips/${hansSlip!.id}/pdf`, { headers: portalAuth })).status).toBe(404);
   });
 });
 

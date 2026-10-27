@@ -49,7 +49,7 @@ const ROOT_NS = `xmlns:w="${NS.w}" xmlns:r="${NS.r}" xmlns:wp="${NS.wp}" xmlns:a
 export async function writeDocx(doc: DocModel, options: WriteDocxOptions = {}): Promise<Uint8Array> {
   const snapshot = doc.toSnapshot();
   const media = await fetchImages(snapshot, options.images);
-  const writer = new DocxWriter(snapshot, media);
+  const writer = new DocxWriter(snapshot, media, options.comments);
   const files = writer.write(options.title, options.date ?? new Date());
   return writeZip(files, { date: options.date });
 }
@@ -138,6 +138,7 @@ class DocxWriter {
   constructor(
     private readonly snapshot: DocSnapshot,
     private readonly media: Map<string, Media>,
+    comments?: WriteDocxOptions['comments'],
   ) {
     this.ctx = {
       styles: snapshot.styles,
@@ -160,7 +161,7 @@ class DocxWriter {
       if (list) list.push(a);
       else this.bookmarks.set(a.story, [a]);
     }
-    this.review = new ReviewWriter(snapshot.comments ?? [], snapshot.anchors);
+    this.review = new ReviewWriter(snapshot.comments ?? [], snapshot.anchors, comments);
   }
 
   write(title: string | undefined, date: Date): { name: string; data: Uint8Array | string }[] {

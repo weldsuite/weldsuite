@@ -5,7 +5,7 @@
  * file's pictures go differs (WeldDrive storage, or inside the document).
  */
 
-import { DocxImportError, readDocx, type DocSnapshot, type DocxImportErrorCode, type DocxImportWarning, type ImageObject } from '@weldsuite/docs-engine';
+import { DocxImportError, readDocx, type DocSnapshot, type DocxCommentThread, type DocxImportErrorCode, type DocxImportWarning, type ImageObject } from '@weldsuite/docs-engine';
 import { getAppApiUrl } from '@/lib/api/public-env';
 import { documentFromText } from './store/doc-store';
 
@@ -27,6 +27,8 @@ export interface ImportedDocument {
   snapshot: DocSnapshot;
   /** What the file had that the document does not (for the "left out" note). */
   warnings: DocxImportWarning[];
+  /** What is said in the comment threads of the snapshot, for the document's chat. */
+  comments: DocxCommentThread[];
 }
 
 /** Stores a picture of an imported file; its address, or null to keep the picture inside the document. */
@@ -43,7 +45,7 @@ export async function readImport(fileName: string, bytes: Uint8Array, storeImage
   if (bytes.byteLength > IMPORT_MAX_BYTES) throw new DocxImportError('The file is too large to open', 'too_large');
   if (!/\.docx$/i.test(fileName)) {
     if (!canImportName(fileName)) throw new DocxImportError('This kind of file cannot be opened', 'unsupported');
-    return { name, snapshot: documentFromText(fileName, new TextDecoder().decode(bytes)), warnings: [] };
+    return { name, snapshot: documentFromText(fileName, new TextDecoder().decode(bytes)), warnings: [], comments: [] };
   }
   const read = await readDocx(bytes, { maxBytes: DOCX_MAX_EXPANDED });
   const srcs = new Map<string, string>();
@@ -52,7 +54,7 @@ export async function readImport(fileName: string, bytes: Uint8Array, storeImage
     srcs.set(image.src, stored ?? dataUrl(image.bytes, image.mime));
   }
   repointImages(read.snapshot, srcs);
-  return { name, snapshot: read.snapshot, warnings: read.warnings };
+  return { name, snapshot: read.snapshot, warnings: read.warnings, comments: read.comments };
 }
 
 /** Points every image object at its stored picture. */

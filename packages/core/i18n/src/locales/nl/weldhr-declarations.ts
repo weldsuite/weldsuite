@@ -51,7 +51,7 @@ export const weldhrDeclarations = {
     editLocked: 'Alleen een declaratie die nog in afwachting is, kan worden bewerkt.',
     empty: {
       title: 'Geen declaraties',
-      description: 'Onkosten die voor een medewerker zijn ingevoerd, of zijn ingediend via Mijn HR of het portaal, verschijnen hier.',
+      description: 'Onkosten die voor een medewerker zijn ingevoerd, of zijn ingediend via Mijn HR, verschijnen hier.',
     },
     form: {
       title: 'Nieuwe declaratie',

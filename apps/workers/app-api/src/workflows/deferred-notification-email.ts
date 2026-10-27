@@ -59,7 +59,12 @@ export class DeferredNotificationEmailWorkflow extends WorkflowEntrypoint<Env, D
         return;
       }
 
-      if ((await resolveEmailPresence(db, userId)) !== 'absent') {
+      const presence = await resolveEmailPresence(db, userId, {
+        realtime: this.env.REALTIME,
+        realtimeSecret: this.env.REALTIME_INTERNAL_SECRET,
+        workspaceId,
+      });
+      if (presence !== 'absent') {
         console.log(`[DeferredEmail] User ${userId} came back, skipping ${notificationId}`);
         await this.markNotEmailed(db, notificationId);
         return;

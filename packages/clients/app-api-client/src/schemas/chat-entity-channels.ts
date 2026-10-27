@@ -2,7 +2,8 @@ import { z } from 'zod';
 
 // ============================================================================
 // WeldChat entity channels ("record chats") — lets any business record
-// (company, person, task, project, domain) have its own chat channel. The
+// (company, person, task, project, domain, sheet, document) have its own chat
+// channel. The
 // channel is created lazily on the first message via
 // POST /:entityType/:entityId/messages (or on the first follow).
 //
@@ -26,7 +27,7 @@ export const sendEntityMessageSchema = z.object({
 export type SendEntityMessageInput = z.infer<typeof sendEntityMessageSchema>;
 
 /** Record chat types, in sidebar group order. */
-export const RECORD_CHAT_TYPES = ['company', 'person', 'task', 'project', 'domain'] as const;
+export const RECORD_CHAT_TYPES = ['company', 'person', 'task', 'project', 'domain', 'sheet', 'doc'] as const;
 export type RecordChatType = (typeof RECORD_CHAT_TYPES)[number];
 
 /**
@@ -48,6 +49,21 @@ export const listEntityChannelsQuerySchema = z.object({
 });
 
 export type ListEntityChannelsQuery = z.input<typeof listEntityChannelsQuerySchema>;
+
+/**
+ * Where a comment thread is in its record, on the thread's first message
+ * (`metadata.anchor`). The record keeps the thread under `id` (on a
+ * spreadsheet cell, a stretch of a document's text) and moves it as the
+ * record changes; `label` says where it was when written ("Sheet1!B7"),
+ * `quote` the text it is about. Replies are ordinary thread replies.
+ */
+export const recordCommentAnchorSchema = z.object({
+  id: z.string().min(1).max(64),
+  label: z.string().max(200).optional(),
+  quote: z.string().max(2000).optional(),
+});
+
+export type RecordCommentAnchor = z.infer<typeof recordCommentAnchorSchema>;
 
 /** PATCH /api/chat-entity-channels/:entityType/mute */
 export const muteRecordChatsSchema = z.object({

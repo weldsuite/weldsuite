@@ -13,7 +13,7 @@ import { insertToc } from '../../editing/toc';
 import { applyOp } from '../../ops/apply';
 import { isWellFormedOp } from '../../ops/shape';
 import { counterIds } from '../../test-support';
-import { DocxImportError, readDocx, writeDocx } from './index';
+import { DocxImportError, readDocx, writeDocx, type CommentText, type DocxCommentThread } from './index';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const DATE = new Date(Date.UTC(2026, 9, 25, 12));
@@ -487,32 +487,44 @@ function reviewedDoc(): DocModel {
     stories: { [BODY]: body },
     anchors: [{ id: 'c1', kind: 'comment', story: BODY, from, to: from + 'Second line'.length }],
     comments: [
-      { id: 'del1', thread: 'del1', author: ANN, createdAt: T1, body: '', suggestion: 'del1' },
-      { id: 'ins1', thread: 'ins1', author: BOB, createdAt: T2, body: '', suggestion: 'ins1' },
-      { id: 'ins2', thread: 'ins2', author: ANN, createdAt: T3, body: '', suggestion: 'ins2' },
-      { id: 'c1', thread: 'c1', author: ANN, createdAt: T1, body: 'Please check\nthe wording, @[Bob](u-bob)', mentions: ['u-bob'], resolved: true, quote: 'Second line' },
-      { id: 'r1', thread: 'c1', author: BOB, createdAt: T3, body: 'Done' },
+      { id: 'del1', author: ANN, createdAt: T1, suggestion: 'del1' },
+      { id: 'ins1', author: BOB, createdAt: T2, suggestion: 'ins1' },
+      { id: 'ins2', author: ANN, createdAt: T3, suggestion: 'ins2' },
+      { id: 'c1', author: ANN, createdAt: T1, resolved: true, quote: 'Second line' },
     ],
   });
 }
 
-/** Every discussion with what it is about: a suggestion's stretches of text, or a comment's text. */
-function reviewOf(snapshot: DocSnapshot): unknown[] {
+/** What is said in the reviewed document's comment thread: its text in the chat. */
+const SAID = (thread: string): CommentText[] =>
+  thread === 'c1'
+    ? [
+        { author: ANN.name, createdAt: T1, body: 'Please check\nthe wording, @Bob' },
+        { author: BOB.name, createdAt: T3, body: 'Done' },
+      ]
+    : [];
+
+/** Every discussion with what it is about (a suggestion's stretches of text, or a comment's text) and what is said in it. */
+function reviewOf(snapshot: DocSnapshot, said: DocxCommentThread[] = []): unknown[] {
   const doc = DocModel.fromSnapshot(snapshot);
+  const texts = new Map(said.map((t) => [t.thread, t.comments]));
   const textOf = (story: string, from: number, to: number) => doc.stories.get(story)!.text(from, to);
-  return threadsOf(doc).map((t) => ({
-    author: t.root.author.name,
-    createdAt: t.root.createdAt,
-    ...(t.root.suggestion
-      ? { suggestion: suggestionRanges(doc, t.root.suggestion).map((r) => `${r.kind}:${textOf(r.story, r.from, r.to)}`) }
-      : { on: t.at && textOf(t.at.story, t.at.from, t.at.to), body: t.root.body, resolved: !!t.root.resolved }),
-    replies: t.replies.map((r) => `${r.author.name}@${r.createdAt}: ${r.body}`),
-  }));
+  return threadsOf(doc).map((t) => {
+    const [first, ...replies] = texts.get(t.root.id) ?? [];
+    return {
+      author: t.root.author.name,
+      createdAt: t.root.createdAt,
+      ...(t.root.suggestion
+        ? { suggestion: suggestionRanges(doc, t.root.suggestion).map((r) => `${r.kind}:${textOf(r.story, r.from, r.to)}`) }
+        : { on: t.at && textOf(t.at.story, t.at.from, t.at.to), body: first?.body, resolved: !!t.root.resolved }),
+      replies: replies.map((r) => `${r.author}@${r.createdAt}: ${r.body}`),
+    };
+  });
 }
 
 describe('docx comments and suggestions', () => {
   it('writes suggestions as revisions and threads as comments', async () => {
-    const zip = openZip(await writeDocx(reviewedDoc(), { date: DATE }));
+    const zip = openZip(await writeDocx(reviewedDoc(), { date: DATE, comments: SAID }));
     for (const name of zip.names()) {
       if (!name.endsWith('.xml') && !name.endsWith('.rels')) continue;
       const xml = (await zip.readText(name))!;
@@ -547,12 +559,12 @@ describe('docx comments and suggestions', () => {
 
   it('reads back the suggestions and the discussion it wrote', async () => {
     const original = reviewedDoc();
-    const read = await readDocx(await writeDocx(original, { date: DATE }), { makeId: counterIds('r') });
+    const read = await readDocx(await writeDocx(original, { date: DATE, comments: SAID }), { makeId: counterIds('r') });
     const s = read.snapshot;
     expect(read.warnings).toEqual([]);
     expect(s.stories[BODY]!.text).toBe(original.body.text());
 
-    expect(reviewOf(s)).toEqual([
+    expect(reviewOf(s, read.comments)).toEqual([
       { author: 'Ann Lee', createdAt: T1, suggestion: ['delete:brave ', 'delete:￼'], replies: [] },
       { author: 'Bob', createdAt: T2, suggestion: ['insert:new', `insert:${PARA}`], replies: [] },
       {
@@ -576,7 +588,7 @@ describe('docx comments and suggestions', () => {
 
     // Word knows people by name: the name is the author's id too.
     expect(new Set(s.comments!.map((c) => c.author.id))).toEqual(new Set(['Ann Lee', 'Bob']));
-    expect(s.comments!.find((c) => c.thread === c.id && !c.suggestion)?.quote).toBe('Second line');
+    expect(s.comments!.find((c) => !c.suggestion)?.quote).toBe('Second line');
     expect(isWellFormedOp({ type: 'patchComments', set: s.comments })).toBe(true);
     expect(() => DocModel.fromSnapshot(s)).not.toThrow();
   });
@@ -631,7 +643,7 @@ describe('docx comments and suggestions', () => {
     // The comment with no place in the text is left out.
     expect(read.warnings).toEqual(['comments']);
     expect(s.stories[BODY]!.text).toBe(`Start added${PARA}removed moved stays moved${PARA}`);
-    expect(reviewOf(s)).toEqual([
+    expect(reviewOf(s, read.comments)).toEqual([
       {
         author: 'Carol',
         createdAt: Date.UTC(2026, 2, 4, 6),
@@ -649,7 +661,7 @@ describe('docx comments and suggestions', () => {
       { author: 'Eve', createdAt: 0, on: '', body: 'On a point', resolved: false, replies: [] },
     ]);
     // The point comment sits where its mark is: at the end of the second paragraph.
-    const point = s.anchors.find((a) => a.kind === 'comment' && s.comments!.find((c) => c.id === a.id)?.body === 'On a point')!;
+    const point = s.anchors.find((a) => a.kind === 'comment' && read.comments.find((t) => t.thread === a.id)?.comments[0]?.body === 'On a point')!;
     expect([point.from, point.to]).toEqual([s.stories[BODY]!.text.length - 1, s.stories[BODY]!.text.length - 1]);
     expect(isWellFormedOp({ type: 'patchComments', set: s.comments })).toBe(true);
   });

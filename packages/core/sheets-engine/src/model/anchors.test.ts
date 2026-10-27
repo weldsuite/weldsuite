@@ -19,11 +19,8 @@ function engine(): Engine {
 
 const comment = (over: Partial<SheetComment> = {}): SheetComment => ({
   id: 'c1',
-  thread: 'c1',
-  author: { id: 'u1', name: 'Ann' },
+  authorId: 'u1',
   createdAt: 1,
-  body: 'Check @[Bo](u2)',
-  mentions: ['u2'],
   cell: { row: 4, col: 2 },
   ...over,
 });
@@ -31,10 +28,10 @@ const comment = (over: Partial<SheetComment> = {}): SheetComment => ({
 const commentsOf = (e: Engine) => e.workbook.requireSheet(S).comments;
 
 describe('comments', () => {
-  it('adds, replies and resolves by id, and undoes exactly', () => {
+  it('adds and resolves threads by id, and undoes exactly', () => {
     const e = engine();
     const undo1 = applyOp(e, { type: 'patchComments', sheetId: S, set: [comment()] });
-    applyOp(e, { type: 'patchComments', sheetId: S, set: [comment({ id: 'c2', body: 'Done', mentions: undefined, cell: undefined })] });
+    applyOp(e, { type: 'patchComments', sheetId: S, set: [comment({ id: 'c2', cell: { row: 0, col: 0 } })] });
     expect(commentsOf(e).map((c) => c.id)).toEqual(['c1', 'c2']);
     const undoResolve = applyOp(e, { type: 'patchComments', sheetId: S, set: [comment({ resolved: true })] });
     expect(commentsOf(e)[0]!.resolved).toBe(true);
@@ -48,6 +45,15 @@ describe('comments', () => {
     expect(Engine.fromSnapshot(e.toSnapshot()).workbook.requireSheet(S).comments).toEqual([comment()]);
   });
 
+  it('loads without comments from before they moved to WeldChat', () => {
+    const e = engine();
+    applyOp(e, { type: 'patchComments', sheetId: S, set: [comment()] });
+    const snapshot = e.toSnapshot();
+    const old = { id: 'o1', thread: 'o1', author: { id: 'u1', name: 'Ann' }, createdAt: 1, body: 'Old', cell: { row: 0, col: 0 } };
+    snapshot.sheets[0]!.comments!.push(old as unknown as SheetComment);
+    expect(Engine.fromSnapshot(snapshot).workbook.requireSheet(S).comments).toEqual([comment()]);
+  });
+
   it('follows its cell, loses it when the cell is deleted, and gets it back on undo', () => {
     const e = engine();
     applyOp(e, { type: 'patchComments', sheetId: S, set: [comment()] });
@@ -55,31 +61,31 @@ describe('comments', () => {
     expect(commentsOf(e)[0]!.cell).toEqual({ row: 6, col: 2 });
     const undo = applyOp(e, { type: 'deleteDims', sheetId: S, sheetName: 'Sheet1', axis: 'col', at: 1, count: 3 });
     expect(commentsOf(e)[0]!.cell).toBeUndefined();
-    expect(commentsOf(e)[0]!.body).toBe('Check @[Bo](u2)');
+    expect(commentsOf(e)[0]!.id).toBe('c1');
     applyOp(e, undo);
     expect(commentsOf(e)[0]!.cell).toEqual({ row: 6, col: 2 });
   });
 
-  it('moves a concurrent comment past a row change, and keeps two replies made at once', () => {
+  it('moves a concurrent comment past a row change, and keeps two threads started at once', () => {
     const a: Op = { type: 'patchComments', sheetId: S, set: [comment()] };
     const insert: Op = { type: 'insertDims', sheetId: S, sheetName: 'Sheet1', axis: 'row', at: 2, count: 3 };
     expect(transform(a, insert, false)).toMatchObject({ set: [{ cell: { row: 7, col: 2 } }] });
     const del: Op = { type: 'deleteDims', sheetId: S, sheetName: 'Sheet1', axis: 'row', at: 4, count: 1 };
     expect((transform(a, del, false) as Extract<Op, { type: 'patchComments' }>).set![0]!.cell).toBeUndefined();
-    const r1: Op = { type: 'patchComments', sheetId: S, set: [comment({ id: 'r1', cell: undefined, mentions: undefined })] };
-    const r2: Op = { type: 'patchComments', sheetId: S, set: [comment({ id: 'r2', cell: undefined, mentions: undefined })] };
+    const r1: Op = { type: 'patchComments', sheetId: S, set: [comment({ id: 'r1' })] };
+    const r2: Op = { type: 'patchComments', sheetId: S, set: [comment({ id: 'r2' })] };
     expect(transform(r1, r2, false)).toEqual(r1);
   });
 
-  it('checks shape and bounds: only a first comment has a cell or a resolved state', () => {
+  it('checks shape and bounds', () => {
     const e = engine();
-    const ok: Op = { type: 'patchComments', sheetId: S, set: [comment()] };
+    const ok: Op = { type: 'patchComments', sheetId: S, set: [comment({ resolved: true })] };
     expect(isWellFormedOp(ok)).toBe(true);
     expect(validateOp(e.workbook, ok)).toBeNull();
-    expect(validateOp(e.workbook, { type: 'patchComments', sheetId: S, set: [comment({ id: 'x', resolved: true })] })).not.toBeNull();
     expect(validateOp(e.workbook, { type: 'patchComments', sheetId: S, set: [comment({ cell: { row: -1, col: 0 } })] })).not.toBeNull();
-    expect(validateOp(e.workbook, { type: 'patchComments', sheetId: S, set: [comment({ body: 'x'.repeat(10_001) })] })).not.toBeNull();
     expect(isWellFormedOp({ type: 'patchComments', sheetId: S, set: [{ id: 'c1' }] })).toBe(false);
+    // The old shape, with the text in the workbook, is refused.
+    expect(isWellFormedOp({ type: 'patchComments', sheetId: S, set: [{ id: 'c1', thread: 'c1', author: { id: 'u1', name: 'A' }, createdAt: 1, body: 'x' }] })).toBe(false);
   });
 });
 
