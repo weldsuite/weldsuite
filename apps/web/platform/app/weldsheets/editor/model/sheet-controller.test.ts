@@ -1,10 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
 import { applyOp, EN_LOCALE, MAX_ROWS, NL_LOCALE, type Op } from '@weldsuite/sheets-engine';
 import { copySelection, parseHtmlTable, parseTsv, pasteInto } from './clipboard';
-import { acceptsReference, functionPrefixAt, referenceText, refsInEdit, suggestFunctions } from './formula-edit';
+import {
+  acceptsReference,
+  applySuggestion,
+  argumentCounts,
+  callAt,
+  formulaSuggestions,
+  functionPrefixAt,
+  referenceText,
+  refsInEdit,
+  signatureTokens,
+  type SuggestionMatch,
+} from './formula-edit';
 import { handleEditKey, handleGridKey, type KeyInput } from './keyboard';
 import { cellSelection, wholeColumns, wholeRows } from './selection';
 import { adjustDecimals, SheetController } from './sheet-controller';
+
+const names = (match: SuggestionMatch | null) => match?.items.map((s) => s.name) ?? [];
 
 function make(locale: 'en' | 'nl' = 'en') {
   const onOp = vi.fn();
@@ -503,7 +516,52 @@ describe('formula editing helpers', () => {
     expect(functionPrefixAt('=SU', 3)).toEqual({ start: 1, prefix: 'SU' });
     expect(functionPrefixAt('=A1+xl', 6)).toEqual({ start: 4, prefix: 'xl' });
     expect(functionPrefixAt('=SUM(A1)', 8)).toBeNull();
-    expect(suggestFunctions('xloo')).toEqual(['XLOOKUP']);
+    expect(names(formulaSuggestions('=xloo', 5))).toEqual(['XLOOKUP']);
+  });
+
+  it('lists names that start with the text first, then names that contain it, defined names included', () => {
+    expect(names(formulaSuggestions('=lookup', 7))).toEqual(['LOOKUP', 'HLOOKUP', 'VLOOKUP', 'XLOOKUP']);
+    expect(names(formulaSuggestions('=SUM(ax', 7, ['Tax', 'Axis', 'Rates']))).toEqual(['Axis', 'MAX', 'MAXA', 'MAXIFS', 'Tax']);
+    expect(names(formulaSuggestions('=Rates', 6, ['Rates']))).toEqual([]);
+  });
+
+  it('puts a taken suggestion in place of the whole word, with one opening parenthesis', () => {
+    const match = formulaSuggestions('=A1+vlo', 7)!;
+    expect(applySuggestion('=A1+vlo', match, { kind: 'function', name: 'VLOOKUP' })).toEqual({ text: '=A1+VLOOKUP(', caret: 12 });
+    const inside = formulaSuggestions('=SU(A1)', 3)!;
+    expect(applySuggestion('=SU(A1)', inside, { kind: 'function', name: 'SUM' })).toEqual({ text: '=SUM(A1)', caret: 5 });
+    const name = formulaSuggestions('=ta', 3, ['Tax'])!;
+    expect(applySuggestion('=ta', name, { kind: 'name', name: 'Tax' })).toEqual({ text: '=Tax', caret: 4 });
+  });
+
+  it('finds the call and argument the caret is in', () => {
+    const en = { decimal: '.' } as const;
+    expect(callAt('=SUM(A1, B', 10, en)).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=IF(A1>0, ROUND(B1, 2', 21, en)).toEqual({ name: 'ROUND', start: 10, argIndex: 1 });
+    expect(callAt('=IF(A1>0, ROUND(B1, 2), ', 24, en)).toEqual({ name: 'IF', start: 1, argIndex: 2 });
+    expect(callAt('=SUM((A1+B1), ', 14, en)).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=CONCAT("a,b", {1,2}, ', 22, en)).toEqual({ name: 'CONCAT', start: 1, argIndex: 2 });
+    expect(callAt("=SUM('a,b'!A1, ", 15, en)).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=SUM(1,5; 2', 11, { decimal: ',' })).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=SUM(A1)', 8, en)).toBeNull();
+    expect(callAt('SUM(A1', 6, en)).toBeNull();
+  });
+
+  it('spells out the repeating arguments as more are typed', () => {
+    expect(signatureTokens('number1, [number2], …', 0)).toEqual({ tokens: ['number1', '[number2]', '…'], active: 0 });
+    expect(signatureTokens('number1, [number2], …', 3)).toEqual({ tokens: ['number1', '[number2]', '[number3]', '[number4]', '…'], active: 3 });
+    expect(signatureTokens('sum_range, criteria_range1, criteria1, [criteria_range2, criteria2], …', 5).tokens).toEqual([
+      'sum_range',
+      'criteria_range1',
+      'criteria1',
+      '[criteria_range2',
+      'criteria2]',
+      '[criteria_range3',
+      'criteria3]',
+      '…',
+    ]);
+    expect(signatureTokens('number, num_digits', 2)).toEqual({ tokens: ['number', 'num_digits'], active: -1 });
+    expect(argumentCounts('lookup_value, table_array, col_index_num, [range_lookup]')).toEqual({ required: 3, total: 4, repeats: false });
   });
 });
 
