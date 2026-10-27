@@ -124,6 +124,20 @@ describe('postAgentChatMessage', () => {
     expect(asker.count).toBe(1);
   });
 
+  it('sends the approvals it carries over realtime, so the live message shows its Approve / Reject card', async () => {
+    const approvals = [{ id: 'apr_1', label: 'Create task "Follow up"', status: 'pending' }];
+    await postAgentChatMessage(ctx(), { content: 'This needs your approval.', metadata: { approvals } });
+
+    const published = rtCalls.find((c) => c.method === 'chatMessage');
+    expect(published?.args[1]).toMatchObject({ metadata: { approvals } });
+  });
+
+  it('sends no metadata over realtime when the reply carries none', async () => {
+    await postAgentChatMessage(ctx(), { content: 'Done.' });
+    const published = rtCalls.find((c) => c.method === 'chatMessage');
+    expect(published?.args[1]).not.toHaveProperty('metadata');
+  });
+
   it('still says "mentioned you" when the reply names the person who asked', async () => {
     await postAgentChatMessage(ctx(), {
       content: 'Thanks <@member_1>, that is done.',

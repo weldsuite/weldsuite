@@ -930,7 +930,7 @@ export const common = {
       chat: {
         placeholder: 'Vraag WeldAgent wat je wilt…',
         emptyTitle: 'Waarmee kan ik helpen?',
-        emptyBody: 'Stel een vraag over je CRM, mail, taken of iets anders in je werkruimte.',
+        emptyBody: 'Stel een vraag over je taken, projecten, contacten of helpdesktickets.',
         thinking: 'Aan het denken…',
         send: 'Versturen',
         newChat: 'Nieuw gesprek',

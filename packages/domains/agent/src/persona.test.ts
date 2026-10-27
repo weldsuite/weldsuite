@@ -86,8 +86,21 @@ describe('the instructions', () => {
   it('says plainly what it cannot see and where to go instead, never to promise a later check', () => {
     const text = system(['tasks:read']);
     expect(text).toContain('notifications, the mail inbox, the calendar');
-    expect(text).toContain('open that app, or pick a workspace agent from the agent menu');
+    expect(text).toContain('a workspace agent from the agent menu');
     expect(text).toContain('Never promise to check later');
+  });
+
+  it('refuses in its own words, as "I", instead of echoing the rule', () => {
+    const text = system(['tasks:read']);
+    expect(text).toContain('speaking as "I" (never "You cannot …")');
+    expect(text).toContain('"I can\'t see your notifications here — open the bell at the top right."');
+    expect(text).not.toContain('say so in one sentence: you cannot see or do that from here');
+  });
+
+  it('answers "my open tasks" on its own terms, not as "today"', () => {
+    const text = system(['tasks:read']);
+    expect(text).toContain('"My open tasks": list_tasks with assignedToMe=true and includeDone=false, whatever the due date');
+    expect(text).toContain('say they have no open tasks assigned to them; do not talk about today');
   });
 
   it('keeps ids, tool names and field keys away from the user', () => {

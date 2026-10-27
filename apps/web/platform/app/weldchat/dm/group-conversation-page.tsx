@@ -8,7 +8,7 @@ import { useChannel, useMarkChannelAsRead, weldchatKeys, mergeMessageIntoCache, 
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
-import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import { useWeldChatMessagesRealtime, type WeldChatRealtimeMessage, type WeldChatRealtimeMessageUpdate } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { useMarkReadOnOpen } from '@/hooks/weldchat/use-mark-read-on-open';
@@ -65,7 +65,7 @@ export default function GroupConversationPage() {
     }
   }, [channelId, queryClient, markAsRead]);
 
-  const onMessageUpdated = useCallback((message: WeldChatRealtimeMessage) => {
+  const onMessageUpdated = useCallback((message: WeldChatRealtimeMessageUpdate) => {
     if (!channelId) return;
     updateMessageInCache(queryClient, channelId, message.id, message as unknown as Record<string, unknown>);
   }, [channelId, queryClient]);

@@ -45,6 +45,7 @@ import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
 import {
   useWeldChatMessagesRealtime,
   type WeldChatRealtimeMessage,
+  type WeldChatRealtimeMessageUpdate,
 } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
 import { MessageList } from '@/app/weldchat/components/message-list';
@@ -251,7 +252,7 @@ function EmbeddedDmChat({ targetUserId }: Readonly<{ targetUserId: string }>) {
     queryClient.invalidateQueries({ queryKey: weldchatKeys.dms() });
   }, [channelId, queryClient]);
 
-  const onMessageUpdated = useCallback((message: WeldChatRealtimeMessage) => {
+  const onMessageUpdated = useCallback((message: WeldChatRealtimeMessageUpdate) => {
     if (!channelId) return;
     updateMessageInCache(queryClient, channelId, message.id, message as unknown as Record<string, unknown>);
   }, [channelId, queryClient]);

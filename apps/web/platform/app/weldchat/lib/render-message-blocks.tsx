@@ -2,7 +2,7 @@
  * Block-level markdown for agent-authored WeldChat messages.
  *
  * Agents answer in markdown: paragraphs, `-` / `1.` lists (nested too), `#`
- * headings, fenced code and quotes. People write plain text in the composer, so
+ * headings, fenced code, quotes and `|` tables. People write plain text in the composer, so
  * only agent messages go through this; `renderMessageContent` keeps rendering
  * everything *inside* a block (mention chips, record chips, links, **bold**,
  * `code`), so an agent message reads exactly like any other one, with lists.
@@ -20,16 +20,23 @@ import {
   type InlineFileRenderer,
 } from './render-message-content';
 
+export type TableAlign = 'left' | 'center' | 'right' | null;
+
 export type MessageBlock =
   | { kind: 'paragraph'; text: string }
   | { kind: 'heading'; level: 1 | 2 | 3; text: string }
   | { kind: 'list'; ordered: boolean; start: number; items: MessageBlock[][] }
   | { kind: 'code'; text: string }
   | { kind: 'quote'; blocks: MessageBlock[] }
+  | { kind: 'table'; header: string[]; align: TableAlign[]; rows: string[][] }
   | { kind: 'rule' };
 
 /** Lists and quotes nest this deep; anything below is plain text. */
 const MAX_DEPTH = 4;
+
+/** A table wider or longer than this is cut there (the rest stays in the message text). */
+const MAX_TABLE_COLUMNS = 20;
+const MAX_TABLE_ROWS = 200;
 
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 /** The closing `#`s and surrounding space are trimmed by {@link headingText}. */
@@ -177,9 +184,72 @@ function readList(lines: string[], i: number, depth: number): BlockRead | null {
   return depth < MAX_DEPTH && matchItem(lines[i]) ? parseList(lines, i, depth) : null;
 }
 
+/** The cells of a `| a | b |` row (outer pipes optional, `\|` stays a literal pipe). */
+export function splitTableRow(line: string): string[] {
+  let text = line.trim();
+  if (text.startsWith('|')) text = text.slice(1);
+  if (text.endsWith('|') && !text.endsWith('\\|')) text = text.slice(0, -1);
+  const cells: string[] = [];
+  let cell = '';
+  for (let k = 0; k < text.length; k++) {
+    const ch = text[k];
+    if (ch === '\\' && text[k + 1] === '|') {
+      cell += '|';
+      k++;
+    } else if (ch === '|') {
+      cells.push(cell.trim());
+      cell = '';
+    } else {
+      cell += ch;
+    }
+  }
+  cells.push(cell.trim());
+  return cells;
+}
+
+/** `---`, `:--`, `--:` or `:-:`: a delimiter cell, read as its column's alignment. */
+function delimiterAlign(cell: string): TableAlign | undefined {
+  const left = cell.startsWith(':');
+  const right = cell.endsWith(':');
+  const dashes = cell.slice(left ? 1 : 0, right ? cell.length - 1 : cell.length);
+  if (dashes.length === 0 || dashes.replaceAll('-', '') !== '') return undefined;
+  if (left && right) return 'center';
+  if (right) return 'right';
+  return left ? 'left' : null;
+}
+
+/** The alignments of a delimiter row (`|---|:-:|`), or null when the line is not one. */
+function readDelimiterRow(line: string | undefined): TableAlign[] | null {
+  if (!line?.includes('-')) return null;
+  const align = splitTableRow(line).map(delimiterAlign);
+  return align.every((a) => a !== undefined) ? (align as TableAlign[]) : null;
+}
+
+/** A row cut or padded to the header's width. */
+function fitRow(cells: string[], width: number): string[] {
+  return Array.from({ length: width }, (_, k) => cells[k] ?? '');
+}
+
+/** A GitHub-style table: a header row, a delimiter row of dashes, then rows with `|`. */
+function readTable(lines: string[], i: number): BlockRead | null {
+  if (!lines[i].includes('|')) return null;
+  const align = readDelimiterRow(lines[i + 1]);
+  const header = splitTableRow(lines[i]);
+  if (!align || align.length !== header.length || header.length > MAX_TABLE_COLUMNS) return null;
+
+  const rows: string[][] = [];
+  let j = i + 2;
+  while (j < lines.length && lines[j].trim() !== '' && lines[j].includes('|') && rows.length < MAX_TABLE_ROWS) {
+    rows.push(fitRow(splitTableRow(lines[j]), header.length));
+    j++;
+  }
+  return { block: { kind: 'table', header, align, rows }, next: j };
+}
+
 const BLOCK_READERS: ReadonlyArray<(lines: string[], i: number, depth: number) => BlockRead | null> = [
   readFence,
   readHeading,
+  readTable,
   readRule,
   readQuote,
   readList,
@@ -224,8 +294,8 @@ function parseBlocks(lines: string[], depth: number): MessageBlock[] {
 
 /**
  * The block structure of a message body: paragraphs (separated by blank lines),
- * lists, headings, fenced code, quotes and rules. Never throws; text it does not
- * understand stays a paragraph.
+ * lists, headings, fenced code, quotes, tables and rules. Never throws; text it
+ * does not understand stays a paragraph.
  */
 export function parseMessageBlocks(text: string): MessageBlock[] {
   return parseBlocks(text.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n').map(expandTabs), 0);
@@ -261,8 +331,50 @@ function renderListItem(blocks: MessageBlock[], ctx: RenderContext, key: string)
   );
 }
 
+const ALIGN_CLASS: Record<'left' | 'center' | 'right', string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+};
+
+function alignClass(align: TableAlign | undefined): string {
+  return align ? ALIGN_CLASS[align] : 'text-left';
+}
+
+/** A table scrolls sideways inside the message instead of widening the chat. */
+function renderTable(block: Extract<MessageBlock, { kind: 'table' }>, ctx: RenderContext, key: string): ReactNode {
+  return (
+    <div key={key} className="max-w-full overflow-x-auto rounded-md border">
+      <table className="w-full border-collapse text-[13px]">
+        <thead className="bg-muted/60">
+          <tr>
+            {block.header.map((cell, c) => (
+              <th key={`${key}.h${c}`} className={cn('px-2.5 py-1 font-semibold', alignClass(block.align[c]))}>
+                {renderInline(cell, ctx)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {block.rows.map((row, r) => (
+            <tr key={`${key}.r${r}`}>
+              {row.map((cell, c) => (
+                <td key={`${key}.r${r}.${c}`} className={cn('border-t px-2.5 py-1 align-top', alignClass(block.align[c]))}>
+                  {renderInline(cell, ctx)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function renderBlock(block: MessageBlock, ctx: RenderContext, key: string): ReactNode {
   switch (block.kind) {
+    case 'table':
+      return renderTable(block, ctx, key);
     case 'paragraph':
       return (
         <p key={key} className="whitespace-pre-wrap">

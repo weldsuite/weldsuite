@@ -194,3 +194,48 @@ describe('renderMessageBlocks', () => {
     expect(html(long)).not.toContain('<ul');
   });
 });
+
+describe('tables', () => {
+  const table = [
+    'Open tasks:',
+    '| # | Task | Assigned to |',
+    '|---|:---|---:|',
+    '| 1 | **E2E task one** | No one |',
+    '| 2 | Mobile QA task | Maestro |',
+  ].join('\n');
+
+  it('reads a header, the delimiter row and the body rows, with alignment', () => {
+    expect(parseMessageBlocks(table)).toEqual([
+      { kind: 'paragraph', text: 'Open tasks:' },
+      {
+        kind: 'table',
+        header: ['#', 'Task', 'Assigned to'],
+        align: [null, 'left', 'right'],
+        rows: [
+          ['1', '**E2E task one**', 'No one'],
+          ['2', 'Mobile QA task', 'Maestro'],
+        ],
+      },
+    ]);
+  });
+
+  it('works without outer pipes, pads short rows and keeps an escaped pipe in a cell', () => {
+    expect(parseMessageBlocks(['a | b', '--- | ---', String.raw`x \| y`, '1 | 2'].join('\n'))).toEqual([
+      { kind: 'table', header: ['a', 'b'], align: [null, null], rows: [['x | y', ''], ['1', '2']] },
+    ]);
+  });
+
+  it('is not a table without a delimiter row, or when the delimiter does not match the header', () => {
+    expect(parseMessageBlocks('a | b\nc | d')).toEqual([{ kind: 'paragraph', text: 'a | b\nc | d' }]);
+    expect(parseMessageBlocks('| a | b |\n|---|')[0].kind).toBe('paragraph');
+  });
+
+  it('renders a scrollable table with inline formatting in its cells', () => {
+    const out = html(table);
+    expect(out).toContain('overflow-x-auto');
+    expect(structure(table)).toContain(
+      '<table><thead><tr><th>#</th><th>Task</th><th>Assigned to</th></tr></thead><tbody><tr><td>1</td><td><strong>E2E task one</strong></td><td>No one</td></tr>',
+    );
+    expect(out).not.toContain('|---|');
+  });
+});

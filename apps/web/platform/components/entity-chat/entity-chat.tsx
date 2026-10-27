@@ -15,7 +15,7 @@ import {
 } from '@/hooks/queries/use-weldchat-queries';
 import { useWeldChatRoom } from '@/hooks/weldchat/use-weldchat-room';
 import { useWeldChatMessagesRealtime } from '@/hooks/weldchat/use-weldchat-messages-realtime';
-import type { WeldChatRealtimeMessage } from '@/hooks/weldchat/use-weldchat-messages-realtime';
+import type { WeldChatRealtimeMessage, WeldChatRealtimeMessageUpdate } from '@/hooks/weldchat/use-weldchat-messages-realtime';
 import type { MessageItemMessage } from '@/app/weldchat/components/message-item';
 import { useWeldChatRealtime } from '@/hooks/weldchat/use-weldchat-realtime';
 import { useWeldChatPresence } from '@/hooks/weldchat/use-weldchat-presence';
@@ -257,7 +257,7 @@ function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
     onMessageCreated: (message: WeldChatRealtimeMessage) => {
       mergeMessageIntoCache(queryClient, channelId, message as unknown as ChatMessage);
     },
-    onMessageUpdated: (message: WeldChatRealtimeMessage) => {
+    onMessageUpdated: (message: WeldChatRealtimeMessageUpdate) => {
       updateMessageInCache(queryClient, channelId, message.id, message as unknown as Record<string, unknown>);
     },
     onMessageDeleted: (messageId: string) => {
