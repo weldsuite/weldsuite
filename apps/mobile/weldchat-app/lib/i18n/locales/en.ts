@@ -147,6 +147,8 @@ export const en = {
     typingOne: '{name} is typing…',
     typingTwo: '{name} and {other} are typing…',
     typingMany: '{name} and {count} others are typing…',
+    agentWorking: '{name} is working…',
+    agentBadge: 'Agent',
     someone: 'Someone',
     you: 'You',
     attachment: 'Attachment',

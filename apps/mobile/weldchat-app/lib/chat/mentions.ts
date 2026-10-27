@@ -14,6 +14,11 @@ export function mentionTokenRegex(): RegExp {
   return /<@([^>]+)>/g;
 }
 
+/** Whether an id names a WeldAgent workspace agent rather than a person. */
+export function isAgentId(id: string): boolean {
+  return id.startsWith('agt_');
+}
+
 export function hasMentionTokens(text: string): boolean {
   return MENTION_TOKEN_TEST.test(text);
 }

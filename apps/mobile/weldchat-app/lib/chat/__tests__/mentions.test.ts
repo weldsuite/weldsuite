@@ -1,6 +1,7 @@
 import {
   detectMentionQuery,
   insertMention,
+  isAgentId,
   mentionLabel,
   mentionsToPlainText,
 } from '../mentions';
@@ -38,5 +39,19 @@ describe('mention labels', () => {
 
   it('flattens tokens for one-line previews', () => {
     expect(mentionsToPlainText('<@user_1> do this asap', members)).toBe('@Rananjay do this asap');
+  });
+
+  it('resolves an agent mention once its name is merged into the map', () => {
+    const withAgent = new Map(members).set('agt_1', 'SupportBot');
+    expect(mentionLabel('agt_1', withAgent)).toBe('SupportBot');
+    expect(mentionsToPlainText('<@agt_1> can you help?', withAgent)).toBe('@SupportBot can you help?');
+  });
+});
+
+describe('isAgentId', () => {
+  it('recognizes WeldAgent ids and nothing else', () => {
+    expect(isAgentId('agt_123')).toBe(true);
+    expect(isAgentId('user_1')).toBe(false);
+    expect(isAgentId('')).toBe(false);
   });
 });

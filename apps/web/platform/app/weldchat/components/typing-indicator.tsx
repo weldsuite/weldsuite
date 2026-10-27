@@ -4,6 +4,8 @@ import { useWorkspaceMembers } from '@/hooks/queries/use-weldchat-queries';
 import type { RoomClient } from '@weldsuite/realtime/client';
 import { useI18n } from '@/lib/i18n/provider';
 
+const isAgentId = (userId: string) => userId.startsWith('agt_');
+
 interface TypingIndicatorProps {
   channelId: string;
   client?: RoomClient | null;
@@ -25,17 +27,28 @@ export function TypingIndicator({ client }: Readonly<TypingIndicatorProps>) {
 
   if (typingUsers.length === 0) return null;
 
-  const names = typingUsers.map((u) => memberMap.get(u.userId) || u.userName || t.weldchat.typingIndicator.someone);
-  let text: string;
+  const strings = t.weldchat.typingIndicator;
+  const nameOf = (u: { userId: string; userName?: string }) => memberMap.get(u.userId) || u.userName || strings.someone;
+  // Agents announce a background turn on the typing channel (`agt_*` ids):
+  // they are working on a reply, not typing one.
+  const names = typingUsers.filter((u) => !isAgentId(u.userId)).map(nameOf);
+  const agentNames = typingUsers.filter((u) => isAgentId(u.userId)).map(nameOf);
+  const parts: string[] = [];
   if (names.length === 1) {
-    text = t.weldchat.typingIndicator.isTyping.replace('{name}', names[0]);
+    parts.push(strings.isTyping.replace('{name}', names[0]));
   } else if (names.length === 2) {
-    text = t.weldchat.typingIndicator.twoTyping.replace('{name1}', names[0]).replace('{name2}', names[1]);
-  } else if (names.length <= 3) {
-    text = t.weldchat.typingIndicator.multipleTyping.replace('{names}', names.slice(0, -1).join(', ')).replace('{last}', names.at(-1)!);
-  } else {
-    text = t.weldchat.typingIndicator.manyTyping;
+    parts.push(strings.twoTyping.replace('{name1}', names[0]).replace('{name2}', names[1]));
+  } else if (names.length === 3) {
+    parts.push(strings.multipleTyping.replace('{names}', names.slice(0, -1).join(', ')).replace('{last}', names.at(-1)!));
+  } else if (names.length > 3) {
+    parts.push(strings.manyTyping);
   }
+  if (agentNames.length === 1) {
+    parts.push(strings.agentWorking.replace('{name}', agentNames[0]));
+  } else if (agentNames.length > 1) {
+    parts.push(strings.agentsWorking.replace('{names}', agentNames.join(', ')));
+  }
+  const text = parts.join(' · ');
 
   return (
     <div

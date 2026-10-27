@@ -142,6 +142,8 @@ export const nl: Translations = {
     typingOne: '{name} typt…',
     typingTwo: '{name} en {other} typen…',
     typingMany: '{name} en {count} anderen typen…',
+    agentWorking: '{name} is bezig…',
+    agentBadge: 'Agent',
     someone: 'Iemand',
     you: 'Jij',
     attachment: 'Bijlage',

@@ -1,8 +1,8 @@
-import { useMemo, useState, useRef, useEffect } from 'react';
-import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemoveChannelMember, useChannel, type ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
+import { useCallback, useMemo, useState, useRef, useEffect } from 'react';
+import { useChannelMembers, useWorkspaceMembers, useAddChannelMembers, useRemoveChannelMember, useRemoveChannelAgent, useChannel, type ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
-import { X, ShieldCheck, Crown, Plus, Search, UserMinus, UserPlus } from 'lucide-react';
+import { X, ShieldCheck, Crown, Plus, Search, UserMinus, UserPlus, Bot } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { StatusDot } from '@weldsuite/ui/components/status-dot';
@@ -10,6 +10,7 @@ import { usePresence } from '@/contexts/presence-context';
 import { useChatContext } from './chat-context';
 import { useUser } from '@clerk/clerk-react';
 import { InviteExternalUserModal } from './invite-external-user-modal';
+import { InviteAgentPicker, useCanInviteAgents } from './invite-agent-picker';
 import { useCan } from '@weldsuite/permissions/react';
 import { useI18n } from '@/lib/i18n/provider';
 
@@ -52,6 +53,10 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
   const { data: workspaceMembersData } = useWorkspaceMembers();
   const { mutate: addMembers } = useAddChannelMembers();
   const { mutate: removeMember } = useRemoveChannelMember();
+  const { mutate: removeAgent } = useRemoveChannelAgent();
+  const canInviteAgents = useCanInviteAgents(channelId);
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const closeAgentPicker = useCallback(() => setShowAgentPicker(false), []);
 
   const [showAddUI, setShowAddUI] = useState(false);
   const [inviteExternalOpen, setInviteExternalOpen] = useState(false);
@@ -132,6 +137,18 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                 <Plus className="h-4 w-4" />
               </Button>
             )}
+            {canInviteAgents && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => setShowAgentPicker((open) => !open)}
+                title={t.weldchat.memberList.inviteAgent}
+                data-testid="invite-agent-button"
+              >
+                <Bot className="h-4 w-4" />
+              </Button>
+            )}
             {canInviteExternal && (
               <Button
                 variant="ghost"
@@ -167,6 +184,18 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
               <Plus className="h-4 w-4" />
             </Button>
           )}
+          {canInviteAgents && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setShowAgentPicker((open) => !open)}
+              title={t.weldchat.memberList.inviteAgent}
+              data-testid="invite-agent-button"
+            >
+              <Bot className="h-4 w-4" />
+            </Button>
+          )}
           {canInviteExternal && (
             <Button
               variant="ghost"
@@ -179,6 +208,10 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
             </Button>
           )}
         </div>
+      )}
+
+      {showAgentPicker && canInviteAgents && (
+        <InviteAgentPicker channelId={channelId} onClose={closeAgentPicker} />
       )}
 
       {/* Add members UI */}
@@ -239,7 +272,7 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                 const isAgent = member.memberType === 'agent';
                 const userStatus = isAgent ? undefined : statuses[member.userId];
                 const canRemove = isAgent
-                  ? isPrivate
+                  ? canInviteAgents
                   : isPrivate && member.role !== 'owner' && member.userId !== user?.id;
                 const openProfile = () => {
                   if (isAgent) openAgentProfile(member.userId);
@@ -297,7 +330,11 @@ export function MemberListPanel({ channelId, embedded = false }: Readonly<Member
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6 opacity-0 group-hover/member:opacity-100 transition-opacity flex-shrink-0"
-                        onClick={(e) => { e.stopPropagation(); removeMember({ channelId, userId: member.userId }); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (isAgent) removeAgent({ channelId, agentId: member.userId });
+                          else removeMember({ channelId, userId: member.userId });
+                        }}
                         title={isAgent ? t.weldchat.memberList.removeAgent : t.weldchat.memberList.removeFromChannel}
                       >
                         <UserMinus className="h-3.5 w-3.5 text-muted-foreground" />

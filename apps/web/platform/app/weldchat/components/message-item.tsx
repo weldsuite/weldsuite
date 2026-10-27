@@ -204,6 +204,11 @@ export interface MessageItemMessage extends ChatMessage {
 }
 
 /** Minimal shape needed to render the "replying to" reference line. */
+/** A real avatar image, as opposed to an agent's emoji icon. */
+function isImageUrl(avatar: string | null | undefined): avatar is string {
+  return !!avatar && /^(https?:|data:|blob:|\/)/.test(avatar);
+}
+
 interface ReplyToMessagePreview {
   authorAvatar?: string | null;
   authorName?: string;
@@ -596,8 +601,13 @@ export function MessageItem({
           <div className="w-[22px] h-3 border-l-2 border-t-2 border-muted-foreground/40 rounded-tl-md" />
           <div className="flex items-center gap-1.5 -translate-y-[4px]">
             <Avatar className="h-4 w-4 !rounded-[5.5px]">
-              {replyToMessage.authorAvatar && <AvatarImage src={replyToMessage.authorAvatar} className="!rounded-[5.5px]" />}
-              <AvatarFallback className="text-[8px] !rounded-[5.5px]">{(replyToMessage.authorName || '?')[0]}</AvatarFallback>
+              {isImageUrl(replyToMessage.authorAvatar) && <AvatarImage src={replyToMessage.authorAvatar} className="!rounded-[5.5px]" />}
+              <AvatarFallback className="text-[8px] !rounded-[5.5px]">
+                {/* An agent's avatar is its emoji icon, not an image. */}
+                {replyToMessage.authorAvatar && !isImageUrl(replyToMessage.authorAvatar)
+                  ? replyToMessage.authorAvatar
+                  : (replyToMessage.authorName || '?')[0]}
+              </AvatarFallback>
             </Avatar>
             <span className="font-semibold text-foreground/70">{replyToMessage.authorName}</span>
             <span className="truncate max-w-[300px]">{messagePreviewText(replyToMessage.content ?? '', membersMap)}</span>

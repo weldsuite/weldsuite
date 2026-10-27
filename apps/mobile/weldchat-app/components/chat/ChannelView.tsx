@@ -28,7 +28,7 @@ import { scheduleOnRN } from 'react-native-worklets';
 import { Gesture, GestureDetector, FlatList } from 'react-native-gesture-handler';
 import { useRouter } from 'expo-router';
 
-import { Archive, Bell, BellOff, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X, type LucideIcon } from 'lucide-react-native';
+import { Archive, Bell, BellOff, Bot, ChevronDown, ChevronLeft, Clock, FileText, Hash, Infinity as InfinityIcon, Lock, MessageSquare, Pencil, Phone, PhoneMissed, Reply, Video, X, type LucideIcon } from 'lucide-react-native';
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import * as Haptics from 'expo-haptics';
 import { randomUUID } from 'expo-crypto';
@@ -73,6 +73,7 @@ import { appApi, appApiClient } from '@/services/app-api';
 import {
   detectMentionQuery,
   insertMention,
+  isAgentId,
   mentionsToPlainText,
 } from '@/lib/chat/mentions';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
@@ -106,6 +107,8 @@ interface Message {
   authorId: string;
   authorName: string;
   authorAvatar?: string;
+  /** 'agent' for a WeldAgent reply (authorAvatar is then its emoji icon, not a URL). */
+  authorType?: string | null;
   content: string;
   createdAt: string;
   editedAt?: string | null;
@@ -818,6 +821,18 @@ function MessageExtras({
 }
 
 function MessageAvatar({ item, styles }: Readonly<{ item: Message; styles: Styles }>) {
+  if (item.authorType === 'agent') {
+    // An agent's "avatar" is its emoji icon (plain text), never an image.
+    return (
+      <View style={styles.msgAvatar}>
+        {item.authorAvatar ? (
+          <Text style={styles.msgAvatarEmoji}>{item.authorAvatar}</Text>
+        ) : (
+          <Bot size={16} color="#fff" />
+        )}
+      </View>
+    );
+  }
   if (item.authorAvatar) {
     return <Image source={{ uri: item.authorAvatar }} style={styles.msgAvatarImg} />;
   }
@@ -1263,8 +1278,14 @@ function typingLabel(
   t: Translations,
   format: (template: string, values?: Record<string, unknown>) => string,
 ): string {
-  const name = membersMap.get(typingUsers[0]) ?? t.channel.someone;
-  if (typingUsers.length === 1) return format(t.channel.typingOne, { name });
+  const firstId = typingUsers[0];
+  const name = membersMap.get(firstId) ?? t.channel.someone;
+  if (typingUsers.length === 1) {
+    // An agent's "typing" event means it's working on a reply, not typing one.
+    return isAgentId(firstId)
+      ? format(t.channel.agentWorking, { name })
+      : format(t.channel.typingOne, { name });
+  }
   if (typingUsers.length === 2) {
     const other = membersMap.get(typingUsers[1]) ?? t.channel.someone.toLowerCase();
     return format(t.channel.typingTwo, { name, other });
@@ -1853,19 +1874,51 @@ export function ChannelView({
     void (async () => {
       try {
         const res = await appApi.chatMembers.list();
-        const map = new Map<string, string>();
         const statusMap = new Map<string, string>();
         for (const m of res.data ?? []) {
-          if (m.userId && m.name) map.set(m.userId, m.name);
           if (m.userId && m.status) statusMap.set(m.userId, m.status);
         }
-        setMembersMap(map);
+        // Merge, don't replace: the channel's agent names may have landed first.
+        setMembersMap((prev) => {
+          const map = new Map(prev);
+          for (const m of res.data ?? []) {
+            if (m.userId && m.name) map.set(m.userId, m.name);
+          }
+          return map;
+        });
         setMemberStatus(statusMap);
       } catch (err) {
         console.error(err);
       }
     })();
   }, []);
+
+  // Agent channel members resolve `<@agt_…>` mentions, message authorship and
+  // the typing indicator the same way the people roster does — merged into
+  // the same map rather than kept apart, since a mention token looks the same
+  // either way. Loaded from the members route: the channel detail's `members`
+  // carry neither `memberType` nor an agent's name. Reloaded when the member
+  // count moves, so an agent added while the chat is open is picked up.
+  const memberCount = channel?.memberCount;
+  useEffect(() => {
+    if (!channelId) return;
+    let cancelled = false;
+    appApi.channels
+      .members(channelId)
+      .then((res) => {
+        const agents = (res.data ?? []).filter((m) => m.memberType === 'agent' && m.userId && m.name);
+        if (cancelled || agents.length === 0) return;
+        setMembersMap((prev) => {
+          const next = new Map(prev);
+          for (const agent of agents) next.set(agent.userId, agent.name as string);
+          return next;
+        });
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, memberCount]);
 
   // Subscribe to realtime updates
   const { typingUsers, onKeystroke, onSend } = useChatRealtime(channelId, loadMessages);
@@ -2504,8 +2557,10 @@ export function ChannelView({
     setViewingImage(url);
   };
 
-  // Tapping a message's avatar or name opens that person's details.
-  const openAuthorProfile = (authorId: string) => {
+  // Tapping a message's avatar or name opens that person's details. A
+  // WeldAgent has no user profile — no-op instead.
+  const openAuthorProfile = (authorId: string, authorType?: string | null) => {
+    if (authorType === 'agent') return;
     Keyboard.dismiss();
     router.push({ pathname: '/user/[userId]', params: { userId: authorId } });
   };
@@ -2612,8 +2667,8 @@ export function ChannelView({
           {replyQuote}
           <View style={[styles.message, replyQuote ? styles.messageAfterQuote : null]}>
             <Pressable
-              onPress={() => openAuthorProfile(item.authorId)}
-              disabled={!item.authorId}
+              onPress={() => openAuthorProfile(item.authorId, item.authorType)}
+              disabled={!item.authorId || item.authorType === 'agent'}
               hitSlop={4}
               accessibilityRole="button"
               accessibilityLabel={item.authorName}
@@ -2624,11 +2679,20 @@ export function ChannelView({
               <View style={styles.msgHeader}>
                 <Text
                   style={styles.msgAuthor}
-                  onPress={item.authorId ? () => openAuthorProfile(item.authorId) : undefined}
+                  onPress={
+                    item.authorId && item.authorType !== 'agent'
+                      ? () => openAuthorProfile(item.authorId, item.authorType)
+                      : undefined
+                  }
                   suppressHighlighting
                 >
                   {item.authorName}
                 </Text>
+                {item.authorType === 'agent' && (
+                  <View style={styles.agentBadge}>
+                    <Text style={styles.agentBadgeText}>{t.channel.agentBadge}</Text>
+                  </View>
+                )}
                 <Text style={styles.msgTime}>
                   {new Date(item.createdAt).toLocaleTimeString(intlLocale, {
                     hour: '2-digit',
@@ -2914,6 +2978,7 @@ export function ChannelView({
       <MentionPicker
         query={mentionQuery ?? ''}
         visible={mentionQuery !== null && !showRecordingBar}
+        channelId={channelId}
         onSelect={(member) => {
           setInput((prev) => insertMention(prev, member.userId));
           setMentionQuery(null);
@@ -3297,9 +3362,15 @@ const makeStyles = (c: ThemeColors, topInset: number, bottomInset: number) =>
       backgroundColor: BRAND, justifyContent: 'center', alignItems: 'center', marginRight: 10, marginTop: 1,
     },
     msgAvatarText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+    msgAvatarEmoji: { fontSize: 15 },
     msgContent: { flex: 1 },
-    msgHeader: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 1 },
+    msgHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 1 },
     msgAuthor: { fontSize: 14.5, fontWeight: '600', color: c.text, marginRight: 8 },
+    agentBadge: {
+      backgroundColor: c.secondary, borderRadius: 4,
+      paddingHorizontal: 5, paddingVertical: 1, marginRight: 8,
+    },
+    agentBadgeText: { fontSize: 10, fontWeight: '600', color: c.muted, textTransform: 'uppercase' },
     msgTime: { fontSize: 12, color: c.muted },
     threadLink: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6, minHeight: 32, paddingVertical: 2 },
     threadText: { fontSize: 13, color: c.info, fontWeight: '500' },

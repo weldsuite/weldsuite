@@ -1127,6 +1127,43 @@ export function useRemoveChannelMember() {
   });
 }
 
+/**
+ * Bring workspace agents into a channel (`POST /channels/:channelId/agents`).
+ * Anyone in the channel who may use an agent can invite it; it then answers
+ * when @mentioned there. Resolves to the ids that actually joined.
+ */
+export function useInviteChannelAgents() {
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ channelId, agentIds }: { channelId: string; agentIds: string[] }) => {
+      const client = await getClient();
+      const res = await client.post<{ data: { addedAgentIds: string[] } }>(`/channels/${channelId}/agents`, {
+        agentIds,
+      });
+      return res.data.addedAgentIds;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.members(variables.channelId) });
+    },
+  });
+}
+
+/** Take an agent out of a channel (`DELETE /channels/:channelId/agents/:agentId`). */
+export function useRemoveChannelAgent() {
+  const queryClient = useQueryClient();
+  const { getClient } = useAppApiClient();
+  return useMutation({
+    mutationFn: async ({ channelId, agentId }: { channelId: string; agentId: string }) => {
+      const client = await getClient();
+      return client.delete<unknown>(`/channels/${channelId}/agents/${agentId}`);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: weldchatKeys.members(variables.channelId) });
+    },
+  });
+}
+
 // Removed with the api-worker phase-out: useJoinChannel / useLeaveChannel.
 // Both were unexported and unreferenced. The endpoints they wrapped were ported
 // and still exist — `POST /api/channels/:channelId/members/join` and
