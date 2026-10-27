@@ -1336,6 +1336,18 @@ export {
 } from './reach-routes';
 // WeldSign: signing-link tokens -> workspace, envelope and recipient.
 export { signLinkRegistry, type SignLink, type NewSignLink } from './weldsign-links';
+// WeldPanel: project tokens and secret keys -> workspace and project, and monthly usage.
+export {
+  panelProjectRegistry,
+  panelKeyRegistry,
+  panelUsageMonthly,
+  type PanelProjectRegistryRow,
+  type NewPanelProjectRegistryRow,
+  type PanelKey,
+  type NewPanelKey,
+  type PanelUsageMonth,
+  type NewPanelUsageMonth,
+} from './weldpanel-registry';
 // WeldReach warmup network: the cross-workspace mailbox pool and its messages.
 export {
   reachWarmupMailboxes,

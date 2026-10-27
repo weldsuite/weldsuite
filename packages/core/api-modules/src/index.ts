@@ -43,7 +43,8 @@ export type ApiModuleId =
   | 'reach'
   | 'sheets'
   | 'sign'
-  | 'docs';
+  | 'docs'
+  | 'panel';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -428,6 +429,10 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('sign', 8823, ['weldsign'], ['/api/sign']),
   // WeldDocs. Its worker is docs-api (with the DocRoom Durable Object).
   mod('docs', 8824, ['welddocs'], ['/api/docs']),
+  // WeldPanel (product analytics and session recordings,
+  // docs/plans/weldpanel.md). Tracked sites never call this worker: they send
+  // to the public collector apps/workers/panel-ingest on its own host.
+  mod('panel', 8825, ['weldpanel'], ['/api/panel']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));

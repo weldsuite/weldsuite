@@ -94,6 +94,7 @@ import {
   Signature,
   LayoutTemplate,
   Shuffle,
+  ChartSpline,
 } from 'lucide-react';
 import type { MenuGroupProps, AppLogo } from '@/components/app-sidebar-layout';
 import { HR_DASHBOARD_PERMISSIONS, MY_HR_GROUP_KEY, MY_HR_PATHS } from '@/app/weldhr/access';
@@ -239,6 +240,19 @@ export const MODULE_CONFIGS: Record<string, ModuleSidebarConfig> = {
           { title: t.navigation.moduleSidebar.weldsign.envelopes, href: '/weldsign', icon: Signature, permission: 'sign_envelopes:read' },
           { title: t.navigation.moduleSidebar.weldsign.templates, href: '/weldsign/templates', icon: LayoutTemplate, permission: 'sign_templates:read' },
         ],
+      },
+    ],
+  },
+  // WeldPanel (product analytics and session recordings). Insights, funnels,
+  // recordings and the rest join the menu phase by phase (docs/plans/weldpanel.md).
+  weldpanel: {
+    appName: 'WeldPanel',
+    appIcon: ChartSpline,
+    appLogo: getAppLogoConfig('weldpanel'),
+    getMenuItems: (t) => [
+      {
+        group: t.navigation.moduleSidebar.groups.general,
+        items: [{ title: t.navigation.moduleSidebar.weldpanel.overview, href: '/weldpanel', icon: ChartSpline, permission: 'panel_projects:read' }],
       },
     ],
   },

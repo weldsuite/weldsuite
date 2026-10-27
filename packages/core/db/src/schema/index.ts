@@ -410,5 +410,8 @@ export * from './reach';
 // WeldSign (electronic signatures)
 export * from './weldsign';
 
+// WeldPanel (product analytics and session recordings; config and saved objects only)
+export * from './weldpanel';
+
 // Note: Master database schemas are in ./master.ts
 // Import them separately: import * as masterSchema from './schema/master'
