@@ -92,11 +92,33 @@ The chatting user being Owner does **not** widen what the agent can do.
 ## Runtime
 
 - Executor: `packages/domains/agent/src/executor.ts` (Managed Agents sessions; platform tools run as custom tools in agent-api)
-- Tools: `packages/domains/agent/src/tools.ts` (ask_user, setup, skills, memory, routines, people, tickets, tasks, chat, browser)
+- Tools: `packages/domains/agent/src/tools.ts` (ask_user, setup, skills, memory, routines, people, tickets, tasks, projects, chat, browser)
 - Browser Run: `apps/workers/agent-runtime`
 - Event dispatch: `registerWeldAgentEventRunner` in `@weldsuite/entity-events` → `dispatchWeldAgentsForEvent`
 - Room dispatch: `services/chat/agent-mention-dispatch.ts`
-- Activation extracts `eventSubscriptions` from instructions (`subscriptions.ts`)
+- `eventSubscriptions` (`subscriptions.ts`): the triggers the user asked for, passed to
+  `save_agent_setup` (`triggers`, validated against the entity-events catalog, flagged with
+  `agent.explicit_triggers` in `enabledTools` so Activate keeps them), else a conservative
+  reading of the instructions: negated sentences ("do not create new tasks") and things done
+  only when asked ("when the user asks, create a new person") are never triggers. Chat-only is `['manual']`.
+- The `GET /agents/:id` response carries `toolPermissions`: every permission key some platform tool
+  needs, so the Access tab can tell a grant that gives the agent no tool.
+
+## Default WeldAgent (no workspace agent)
+
+`/api/ai/chat` and `/chat/stream` without an `agentId` (and no-agent conversations) run on the gateway's free
+copilot model with read-only tools (`persona.ts`: people, tickets, tasks, projects), several model
+requests per reply, billed for all of them. The tools a person gets follow **their own** permissions
+(never an agent's grants) and stay inside their row-level scope: people they own unless they hold
+`people:scope:all`, projects they manage or belong to unless `projects:scope:all`.
+
+## Approvals
+
+A high-risk tool call parks an approval instead of running. The stored step carries
+`pendingApproval`, `approvalId` and a human `label` ("Create task "X""); the model is told it is held, without
+the id. In a WeldChat room the agent's reply carries `metadata.approvals: [{ id, label, status }]` for inline
+Approve / Reject (`POST /weldagent/approvals/:id/decide`; the status follows the decision), and the owner and
+the person who asked are notified.
 
 ## Asking the user (`ask_user`)
 

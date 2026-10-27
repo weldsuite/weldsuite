@@ -6,6 +6,7 @@
   "private": true,
   "exports": {
     "./access": "./src/access.ts",
+    "./approval-labels": "./src/approval-labels.ts",
     "./actor-permissions": "./src/actor-permissions.ts",
     "./agent-mention-dispatch": "./src/agent-mention-dispatch.ts",
     "./agents": "./src/agents.ts",
@@ -18,6 +19,7 @@
     "./main-chat": "./src/main-chat.ts",
     "./managed-agents": "./src/managed-agents.ts",
     "./parity": "./src/parity.ts",
+    "./persona": "./src/persona.ts",
     "./routine-delivery": "./src/routine-delivery.ts",
     "./routine-index": "./src/routine-index.ts",
     "./run": "./src/run.ts",

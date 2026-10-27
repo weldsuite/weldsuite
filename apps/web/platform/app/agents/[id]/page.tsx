@@ -14,6 +14,7 @@ import { useAgentRoutines } from '@/hooks/queries/use-agent-parity-queries';
 import { AgentAvatar } from '../components/agent-avatar';
 import { agentNeedsSetup } from '../components/agent-state';
 import { AgentChat } from '../components/chat/agent-chat';
+import { ChatSkeleton } from '../components/chat/chat-skeleton';
 import { errorMessage } from '../components/chat/labels';
 import { AgentSettingsSheet, SETTINGS_TABS, type SettingsTab } from '../components/settings/agent-settings-sheet';
 import { formatNextRun } from '../components/routine-schedule';
@@ -98,12 +99,21 @@ export default function AgentDetailPage() {
     if (isSettingsTab(linkedTab)) setSettingsTab(linkedTab);
   }, [id, linkedTab]);
 
-  if (isLoading) {
+  // Another agent's page is opening: show its loading state, never the previous agent's chat.
+  if (isLoading || (agent && agent.id !== id)) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="flex h-full w-full flex-col bg-background" key={id}>
         <div className="flex h-14 items-center gap-3 border-b px-4">
           <Skeleton className="h-9 w-9 rounded-xl" />
-          <Skeleton className="h-4 w-40" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-3 w-56" />
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="mx-auto w-full max-w-3xl px-4 sm:px-6">
+            <ChatSkeleton />
+          </div>
         </div>
       </div>
     );

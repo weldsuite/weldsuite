@@ -41,10 +41,10 @@ import {
   type AgentViewer,
 } from '@weldsuite/agent-domain/access';
 import { getOrCreateMainConversation, serializeConversationSummary } from '@weldsuite/agent-domain/main-chat';
-import { extractEventSubscriptions } from '@weldsuite/agent-domain/subscriptions';
+import { extractEventSubscriptions, hasExplicitTriggers } from '@weldsuite/agent-domain/subscriptions';
 import { executeAgentRun } from '@weldsuite/agent-domain/run';
 import { archiveManagedAgent } from '@weldsuite/agent-domain/managed-agents';
-import { listToolCatalog, resolveAgentTools } from '@weldsuite/agent-domain/tools';
+import { listToolCatalog, listToolPermissions, resolveAgentTools } from '@weldsuite/agent-domain/tools';
 import { InsufficientAiCreditsError } from '@weldsuite/core-domain/ai-billing';
 import { reindexAgentRoutines, routineIndexSync } from '@weldsuite/agent-domain/routine-index';
 import { grantableAgentPermissions, granterHolds } from '@weldsuite/agent-domain/grants';
@@ -168,7 +168,13 @@ app.get('/:id', requirePermission('weldagent:read'), async (c) => {
     requiredPermissions: t.requiredPermissions,
   }));
   const memberIds = await listAgentMemberIds(c.get('tenantDb'), agent.id);
-  return success(c, { ...withCapabilities(agent, viewer), memberIds, availableTools: tools });
+  return success(c, {
+    ...withCapabilities(agent, viewer),
+    memberIds,
+    availableTools: tools,
+    // Permission keys some platform tool needs: a grant outside this list gives the agent no data tool.
+    toolPermissions: listToolPermissions(),
+  });
 });
 
 /** PATCH /agents/:id */
@@ -291,14 +297,19 @@ app.delete('/:id', requirePermission('weldagent:delete', 'weldagent:manage'), as
   return noContent(c);
 });
 
-/** POST /agents/:id/activate — set active and extract event subscriptions from instructions. */
+/**
+ * POST /agents/:id/activate — set active and settle its event subscriptions: the
+ * explicit triggers saved in setup when there are any, else a reading of the instructions.
+ */
 app.post('/:id/activate', requirePermission('weldagent:update', 'weldagent:manage'), async (c) => {
   const db = c.get('tenantDb');
   const resolved = await resolveAgent(c, c.req.param('id'), 'edit');
   if ('response' in resolved) return resolved.response;
   const id = resolved.agent.id;
 
-  const subscriptions = extractEventSubscriptions(resolved.agent.systemPrompt);
+  const subscriptions = hasExplicitTriggers(resolved.agent.enabledTools)
+    ? resolved.agent.eventSubscriptions
+    : extractEventSubscriptions(resolved.agent.systemPrompt);
   const agent = await updateAgent(db, id, {
     status: 'active',
     eventSubscriptions: subscriptions,

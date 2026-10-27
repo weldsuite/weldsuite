@@ -5,12 +5,7 @@
 
 import { createAndDeliverNotification } from '../orchestrator';
 import type { Database, NotificationEnv } from '../types';
-
-function preview(text: string, max = 180): string {
-  const clean = text.replace(/\s+/g, ' ').trim();
-  if (clean.length <= max) return clean;
-  return `${clean.slice(0, max - 1)}…`;
-}
+import { notificationPreview as preview } from './preview';
 
 interface WeldAgentReplyParams<Env extends NotificationEnv> {
   db: Database;
@@ -43,21 +38,25 @@ interface WeldAgentApprovalParams<Env extends NotificationEnv> {
   agentId: string;
   agentName: string;
   approvalId: string;
-  toolName: string;
+  /** What the action would do, in words ("Create task "Follow up""). */
+  label: string;
 }
 
-/** An agent is waiting for its owner to approve an action. */
+/**
+ * An agent is waiting for someone to approve an action: its owner, or the
+ * person who asked for it in a room, where they would not see it in a chat.
+ */
 export async function sendWeldAgentApprovalNotification<Env extends NotificationEnv>(
   params: WeldAgentApprovalParams<Env>,
 ): Promise<string | null> {
-  const { db, env, workspaceId, userId, agentId, agentName, approvalId, toolName } = params;
+  const { db, env, workspaceId, userId, agentId, agentName, approvalId, label } = params;
   return createAndDeliverNotification({
     db,
     env,
     workspaceId,
     userId,
-    title: `${agentName} needs your approval`,
-    body: `It wants to run "${toolName}". Tap to approve or reject.`,
+    title: `${agentName} needs your approval: ${label}`,
+    body: 'Tap to approve or reject.',
     category: 'weldagent',
     notificationType: 'weldagent_approval',
     entityType: 'weldagent_agent',

@@ -137,3 +137,26 @@ export interface WorkspaceAgentToolCatalogItem {
   description: string;
   requiredPermissions: string[];
 }
+
+/** `GET /weldagent/agents/:id`: the agent plus what the Access tab needs. */
+export interface WorkspaceAgentDetail extends WorkspaceAgent {
+  /** The tools this agent can run right now (its grants and enabled tools applied). */
+  availableTools?: WorkspaceAgentToolCatalogItem[];
+  /**
+   * Every permission key some platform tool needs (e.g. `"projects:read"`).
+   * A grant that is not in this list gives the agent no platform tool.
+   */
+  toolPermissions?: string[];
+}
+
+/**
+ * An action an agent parked for approval, as carried on the agent's reply in a
+ * WeldChat room (`metadata.approvals` of the channel message). Decide it with
+ * `POST /weldagent/approvals/:id/decide`; the status follows the decision.
+ */
+export interface AgentChannelApproval {
+  id: string;
+  /** What it would do, in words ("Create task "QA agent chat task""). */
+  label: string;
+  status: 'pending' | 'approved' | 'rejected';
+}

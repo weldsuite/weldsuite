@@ -182,5 +182,10 @@ export function useWeldAgentChat({
     setIsSending(false);
   }, []);
 
-  return { messages, sendMessage, retry, reset, isSending, error };
+  /** Interrupt a reply that is still streaming, keeping what arrived so far. */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  return { messages, sendMessage, retry, reset, stop, isSending, error };
 }

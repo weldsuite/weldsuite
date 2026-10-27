@@ -27,6 +27,7 @@ import {
 } from '@weldsuite/permissions/server';
 import {
   billedModelId,
+  createTextStreamResponse,
   generateText,
   streamText,
   isGatewayConfigured,
@@ -50,6 +51,15 @@ import { getAgent } from '@weldsuite/agent-domain/agents';
 import { canAccessAgent } from '@weldsuite/agent-domain/access';
 import { agentViewer } from '../../services/weldagent/viewer';
 import { streamAgentChat, runAgentOnce } from '@weldsuite/agent-domain/executor';
+import {
+  buildPersonaCall,
+  createPersonaTextTransform,
+  personaPermissionKeys,
+  personaReplyText,
+  sumStepUsage,
+  type PermissionCheck,
+  type PersonaCall,
+} from '@weldsuite/agent-domain/persona';
 import { isWorkspaceAgentModel } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -87,14 +97,6 @@ const chatSchema = z.object({
   /** When set, load a workspace agent and run with its tools + instructions. */
   agentId: z.string().min(1).max(30).optional(),
 });
-
-/** Base persona for the WeldAgent chat panel. Extra `system` context is appended. */
-const WELDAGENT_SYSTEM =
-  'You are WeldAgent, the AI assistant built into the WeldSuite business platform. ' +
-  'You help the user with their CRM, mail, projects, tasks, helpdesk, commerce and ' +
-  'accounting work. Be concise, direct and practical. Use plain text — no markdown ' +
-  'headings — and keep answers short unless the user asks for detail. If you are not ' +
-  'sure about something in the user\'s workspace, say so rather than inventing data.';
 
 /**
  * POST /generate — generate text via the AI gateway.
@@ -217,9 +219,30 @@ function splitChatMessages(messages: ChatInput['messages'], system: string | und
   return { extraSystem, chatMessages };
 }
 
-/** The WeldAgent persona, extended with any extra system context. */
-function buildSystemPrompt(extraSystem: string): string {
-  return extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
+/**
+ * What the default WeldAgent may read for the person chatting: the permission
+ * keys its tools need, checked deny-aware like any route, never an agent's grants.
+ */
+async function personaPermissionCheck(c: AppContext): Promise<PermissionCheck> {
+  const held = new Set<string>();
+  await Promise.all(
+    personaPermissionKeys().map(async (key) => {
+      if (await hasContextPermission(c, key)) held.add(key);
+    }),
+  );
+  return (key) => held.has(key);
+}
+
+/** The default WeldAgent's instructions and read-only tools for this caller. */
+async function preparePersona(c: AppContext, chat: ChatParts): Promise<PersonaCall> {
+  return buildPersonaCall({
+    db: c.get('tenantDb'),
+    workspaceId: c.get('workspaceId'),
+    userId: c.get('userId'),
+    env: c.env,
+    holds: await personaPermissionCheck(c),
+    extraSystem: chat.extraSystem || undefined,
+  });
 }
 
 /** Ops credit state from one edge-cached KV read; empty = fee order. */
@@ -323,12 +346,12 @@ async function chatWithPersona(
   chat: ChatParts,
 ) {
   const modelId = input.model ?? recommended.copilot.free;
-  const systemPrompt = buildSystemPrompt(chat.extraSystem);
 
   try {
     await assertAiCredits(metering);
 
     const credits = await loadCreditStates(c);
+    const persona = await preparePersona(c, chat);
 
     let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;
     const { value: result } = await runWithFallback(
@@ -348,8 +371,11 @@ async function chatWithPersona(
       ({ model: resolved }) =>
         generateText({
           model: resolved,
-          system: systemPrompt,
+          system: persona.system,
           messages: chat.chatMessages,
+          // Read-only lookups, then the answer: a few model requests per reply.
+          tools: persona.tools,
+          stopWhen: persona.stopWhen,
           temperature: input.temperature,
           maxOutputTokens: input.maxTokens,
           maxRetries: 1,
@@ -357,6 +383,8 @@ async function chatWithPersona(
     );
 
     const servedModelId = billedModelId(modelId, result);
+    // `result.usage` adds up every model request of the reply (AI SDK 7), so a
+    // reply with lookups is charged for all of them.
     const creditsUsed = await chargeAiUsage(metering, {
       modelId: servedModelId,
       usage: result.usage,
@@ -367,7 +395,7 @@ async function chatWithPersona(
     });
 
     return success(c, {
-      text: result.text,
+      text: personaReplyText(result.text),
       model: servedModelId,
       finishReason: result.finishReason,
       usage: result.usage,
@@ -443,45 +471,53 @@ async function streamWithPersona(
   chat: ChatParts,
 ) {
   const modelId = input.model ?? recommended.copilot.free;
-  const systemPrompt = buildSystemPrompt(chat.extraSystem);
 
   try {
     const credits = await loadCreditStates(c);
     const attempt = pickGateway(c.env, { modelId, credits });
+    const persona = await preparePersona(c, chat);
+
+    const charge = (servedModelId: string, usage: Parameters<typeof providerCostUsd>[1]) => {
+      // Zero when service credit covered the attempt; else the served model's factor (BYOK = 1).
+      const costFactor = attempt.costFactor === 0 ? 0 : gatewayCostFactor(attempt.ai.config, servedModelId);
+      const cost = providerCostUsd(servedModelId, usage) * costFactor;
+      c.executionCtx.waitUntil(
+        chargeAiUsage(metering, {
+          modelId: servedModelId,
+          usage,
+          op: 'chat',
+          gateway: attempt.gateway as Gateway,
+          providerCostUsd: cost,
+          coveredByServiceCredit: false,
+        }).catch((chargeErr) => {
+          console.error('[ai/chat/stream] credit charge failed (untracked):', chargeErr);
+        }),
+      );
+    };
 
     const result = streamText({
       model: attempt.model,
-      system: systemPrompt,
+      system: persona.system,
       messages: chat.chatMessages,
+      // Read-only lookups, then the answer: a few model requests per reply.
+      tools: persona.tools,
+      stopWhen: persona.stopWhen,
       temperature: input.temperature,
       maxOutputTokens: input.maxTokens,
       maxRetries: 1,
       onError: ({ error: streamErr }) => {
         console.error('[ai/chat/stream] model error:', streamErr);
       },
-      onFinish: (event) => {
-        const { usage } = event;
-        // A refused third-party model streams from the fallback model instead.
-        const servedModelId = billedModelId(modelId, event);
-        // Zero when service credit covered the attempt; else the served model's factor (BYOK = 1).
-        const costFactor = attempt.costFactor === 0 ? 0 : gatewayCostFactor(attempt.ai.config, servedModelId);
-        const cost = providerCostUsd(servedModelId, usage) * costFactor;
-        c.executionCtx.waitUntil(
-          chargeAiUsage(metering, {
-            modelId: servedModelId,
-            usage,
-            op: 'chat',
-            gateway: attempt.gateway as Gateway,
-            providerCostUsd: cost,
-            coveredByServiceCredit: false,
-          }).catch((chargeErr) => {
-            console.error('[ai/chat/stream] credit charge failed (untracked):', chargeErr);
-          }),
-        );
+      // `event.usage` adds up every model request of the reply (AI SDK 7). A
+      // refused third-party model streams from the fallback model instead.
+      onFinish: (event) => charge(billedModelId(modelId, event), event.usage),
+      // The client left mid-reply: still bill the model requests that ran.
+      onAbort: ({ steps }) => {
+        if (steps.length > 0) charge(modelId, sumStepUsage(steps));
       },
     });
 
-    return result.toTextStreamResponse();
+    return createTextStreamResponse({ stream: result.fullStream.pipeThrough(createPersonaTextTransform()) });
   } catch (err) {
     return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
   }
@@ -490,7 +526,8 @@ async function streamWithPersona(
 /**
  * POST /chat/stream — the streaming twin of /chat.
  *
- * Returns a `text/plain` token stream (AI SDK `toTextStreamResponse`) the client
+ * Returns a `text/plain` token stream (the AI SDK's text stream response, with
+ * the text of each lookup step set apart by a blank line) the client
  * appends to the assistant message as it arrives. Credits are hard-gated BEFORE
  * the stream opens (402 when empty); the actual token charge happens in
  * `onFinish` via `waitUntil`, once usage is known. Streaming uses `pickGateway`

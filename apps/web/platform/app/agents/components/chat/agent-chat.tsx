@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, Clock } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CalendarClock, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { getTranslations } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import {
   useCompleteConversationTurn,
   useLoadOlderMessages,
@@ -12,7 +13,12 @@ import {
   weldagentKeys,
   type WeldAgentMessage,
 } from '@/hooks/queries/use-weldagent-queries';
-import { useAgentApprovals } from '@/hooks/queries/use-agent-parity-queries';
+import { agentKeys } from '@/hooks/queries/use-agent-queries';
+import {
+  agentParityKeys,
+  useAgentApprovals,
+  useDecidedApprovals,
+} from '@/hooks/queries/use-agent-parity-queries';
 import { AgentChatInput } from '@/components/weldagent/agent-chat-input';
 import {
   AssistantMessage,
@@ -23,11 +29,13 @@ import {
 } from '@/components/weldagent/chat/chat-message';
 import { QuestionCard } from '@/components/weldagent/chat/question-card';
 import { ApprovalBar } from './approval-bar';
+import { approvalStateOf, type ApprovalState } from './approval-state';
+import { ChatSkeleton } from './chat-skeleton';
 import { DelegationSteps } from './delegation-steps';
 import { RoutineNotice } from './routine-notice';
 import { browserTimezone } from '../routine-schedule';
 import { SetupWelcome } from './setup-welcome';
-import { buildThread, mergeMessages, openQuestion, type ThreadItem } from './thread';
+import { agentChangesIn, buildThread, mergeMessages, openQuestion, type ThreadItem } from './thread';
 import { errorMessage } from './labels';
 
 /** Background turns run in a durable workflow (10 min step budget). */
@@ -36,6 +44,10 @@ const REPLY_TIMEOUT_MS = 10 * 60_000;
 const STILL_WORKING_AFTER_MS = 30_000;
 /** Messages per page: the latest page loads first, older ones on request. */
 const PAGE_SIZE = 100;
+/** While a reply is on its way the agent may park an action: look for it often. */
+const APPROVALS_POLL_WHILE_WAITING_MS = 3_000;
+/** A freshly opened chat holds the newest message in view for this long while it settles. */
+const OPEN_PIN_MS = 1_500;
 
 interface AgentChatProps {
   agentId: string;
@@ -47,9 +59,26 @@ interface AgentChatProps {
   onOpenRoutines: () => void;
 }
 
+/** One line under a reply for each action the agent parked for approval. */
+function ApprovalNote({ state, toolName }: Readonly<{ state: ApprovalState; toolName: string }>) {
+  const t = getTranslations('common').agents.detail.approvals;
+  const look = {
+    waiting: { Icon: Clock, text: t.waiting, tone: '' },
+    approved: { Icon: CheckCircle2, text: t.approvedAction, tone: 'text-emerald-600' },
+    rejected: { Icon: XCircle, text: t.rejectedAction, tone: 'text-destructive' },
+    handled: { Icon: Clock, text: t.handled, tone: '' },
+  }[state];
+  return (
+    <p className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+      <look.Icon className={cn('h-3.5 w-3.5 shrink-0', look.tone)} />
+      {look.text.replace('{action}', humanizeToolName(toolName).toLowerCase())}
+    </p>
+  );
+}
+
 function AssistantTurn({
   item,
-  pendingApprovalIds,
+  approvalState,
   questionActive,
   onAnswer,
   onOpenRoutines,
@@ -58,7 +87,7 @@ function AssistantTurn({
   item: Extract<ThreadItem, { kind: 'assistant' }>;
   /** The answer being sent for this turn's open question. */
   pendingAnswer: string | null;
-  pendingApprovalIds: Set<string>;
+  approvalState: (approvalId: string, askedAt: string) => ApprovalState;
   questionActive: boolean;
   onAnswer: (text: string) => void;
   onOpenRoutines: () => void;
@@ -75,13 +104,11 @@ function AssistantTurn({
       <DelegationSteps delegations={item.delegations} />
       <AssistantMessage content={item.content} />
       {item.approvals.map((approval) => (
-        <p key={approval.approvalId} className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
-          <Clock className="h-3.5 w-3.5 shrink-0" />
-          {(pendingApprovalIds.has(approval.approvalId) ? t.approvals.waiting : t.approvals.handled).replace(
-            '{action}',
-            humanizeToolName(approval.toolName).toLowerCase(),
-          )}
-        </p>
+        <ApprovalNote
+          key={approval.approvalId}
+          state={approvalState(approval.approvalId, item.createdAt)}
+          toolName={approval.toolName}
+        />
       ))}
       {item.routines.map((routine) => (
         <RoutineNotice key={routine.routineId} routine={routine} onManage={onOpenRoutines} />
@@ -111,7 +138,6 @@ export function AgentChat({
   const qc = useQueryClient();
   const completeTurn = useCompleteConversationTurn();
   const loadOlderPage = useLoadOlderMessages();
-  const { data: pendingApprovals = [] } = useAgentApprovals(agentId);
 
   const [input, setInput] = useState('');
   const [pendingUser, setPendingUser] = useState<string | null>(null);
@@ -126,7 +152,17 @@ export function AgentChat({
   const [older, setOlder] = useState<WeldAgentMessage[]>([]);
   const [olderExhausted, setOlderExhausted] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const scrollEndRef = useRef<HTMLDivElement>(null);
+  /** A send is under way: a second click or Enter before the screen updates must not send twice. */
+  const sendingRef = useRef(false);
+  /** The newest reply already acted on; undefined until the history first loads. */
+  const handledReplyRef = useRef<string | null | undefined>(undefined);
+
+  const { data: pendingApprovals = [] } = useAgentApprovals(agentId, {
+    refetchInterval: awaitingAfterId ? APPROVALS_POLL_WHILE_WAITING_MS : undefined,
+  });
 
   // Another agent's chat: drop this one's in-flight state and history pages.
   useEffect(() => {
@@ -136,6 +172,7 @@ export function AgentChat({
     setError(null);
     setOlder([]);
     setOlderExhausted(false);
+    handledReplyRef.current = undefined;
   }, [conversationId]);
 
   const { data: latest = [], isLoading } = useWeldAgentConversationMessages(conversationId, PAGE_SIZE, {
@@ -169,9 +206,38 @@ export function AgentChat({
   const lastId = thread[thread.length - 1]?.id;
   const pendingApprovalIds = useMemo(() => new Set(pendingApprovals.map((a) => a.id)), [pendingApprovals]);
 
-  const refreshAgent = useCallback(() => {
-    if (needsSetup) void qc.invalidateQueries({ queryKey: ['workspace-agents'] });
-  }, [needsSetup, qc]);
+  // Approvals the thread mentions that are no longer pending: how did they end?
+  const showsSettledApproval = thread.some(
+    (item) => item.kind === 'assistant' && item.approvals.some((a) => !pendingApprovalIds.has(a.approvalId)),
+  );
+  const { data: decidedApprovals } = useDecidedApprovals(agentId, showsSettledApproval);
+  const approvalState = useCallback(
+    (approvalId: string, askedAt: string) =>
+      approvalStateOf(approvalId, pendingApprovalIds, decidedApprovals, askedAt),
+    [pendingApprovalIds, decidedApprovals],
+  );
+
+  // A reply landed (from this turn, a routine, or another tab): the agent may
+  // have parked an action for approval or edited itself (setup, routines,
+  // skills, memory), so refresh what the screen shows about it.
+  const newestReply = useMemo(() => [...messages].reverse().find((m) => m.role === 'assistant'), [messages]);
+  useEffect(() => {
+    if (!conversationId || isLoading) return;
+    const id = newestReply?.id ?? null;
+    if (handledReplyRef.current === undefined) {
+      // The history that was already there when the chat opened is not news.
+      handledReplyRef.current = id;
+      return;
+    }
+    if (handledReplyRef.current === id || !newestReply) return;
+    handledReplyRef.current = id;
+    void qc.invalidateQueries({ queryKey: agentParityKeys.approvals(agentId) });
+    const changes = agentChangesIn(newestReply);
+    if (needsSetup || changes.agent) void qc.invalidateQueries({ queryKey: agentKeys.all });
+    if (changes.routines) void qc.invalidateQueries({ queryKey: agentParityKeys.routines(agentId) });
+    if (changes.skills) void qc.invalidateQueries({ queryKey: agentParityKeys.skills(agentId) });
+    if (changes.memories) void qc.invalidateQueries({ queryKey: agentParityKeys.memories(agentId) });
+  }, [agentId, conversationId, isLoading, needsSetup, newestReply, qc]);
 
   // The cloud reply landed: drop the optimistic bubble and stop polling.
   useEffect(() => {
@@ -188,8 +254,7 @@ export function AgentChat({
       );
     if (!reply) return;
     setAwaitingAfterId(null);
-    refreshAgent();
-  }, [messages, awaitingAfterId, refreshAgent]);
+  }, [messages, awaitingAfterId]);
 
   // Never leave the typing indicator stuck if the reply never lands.
   useEffect(() => {
@@ -212,6 +277,37 @@ export function AgentChat({
 
   const isWaiting = Boolean(awaitingAfterId) || completeTurn.isPending;
   const busy = isWaiting || !conversationId;
+  const loadingChat = !conversationId || (isLoading && messages.length === 0);
+
+  // Open at the newest message, and hold it there while the thread settles
+  // (markdown and late history change its height) unless the reader scrolls.
+  const hasThread = thread.length > 0;
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    const content = contentRef.current;
+    if (!hasThread || !scroller || !content) return;
+    let pinned = true;
+    const toBottom = () => {
+      if (pinned) scroller.scrollTop = scroller.scrollHeight;
+    };
+    const release = () => {
+      pinned = false;
+    };
+    toBottom();
+    const observer = new ResizeObserver(toBottom);
+    observer.observe(content);
+    scroller.addEventListener('wheel', release, { passive: true });
+    scroller.addEventListener('touchstart', release, { passive: true });
+    scroller.addEventListener('pointerdown', release);
+    const timer = window.setTimeout(release, OPEN_PIN_MS);
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+      scroller.removeEventListener('wheel', release);
+      scroller.removeEventListener('touchstart', release);
+      scroller.removeEventListener('pointerdown', release);
+    };
+  }, [hasThread]);
 
   // Follow the newest message (not older pages loaded above it).
   useEffect(() => {
@@ -222,7 +318,8 @@ export function AgentChat({
     async (raw: string) => {
       const content = raw.trim();
       const id = conversationId;
-      if (!content || busy || !id) return;
+      if (!content || busy || !id || sendingRef.current) return;
+      sendingRef.current = true;
       setError(null);
       setInput('');
       setPendingUser(content);
@@ -243,14 +340,15 @@ export function AgentChat({
         }
         setPendingUser(null);
         await qc.invalidateQueries({ queryKey: weldagentKeys.conversationMessages(id) });
-        refreshAgent();
       } catch (err) {
         setPendingUser(null);
         setAwaitingAfterId(null);
         setError(errorMessage(err, t.chat.sendFailed));
+      } finally {
+        sendingRef.current = false;
       }
     },
-    [agentId, busy, completeTurn, conversationId, needsSetup, qc, refreshAgent, t.chat.sendFailed],
+    [agentId, busy, completeTurn, conversationId, needsSetup, qc, t.chat.sendFailed],
   );
 
   const empty = thread.length === 0 && !pendingUser && Boolean(conversationId) && !isLoading;
@@ -261,8 +359,9 @@ export function AgentChat({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col px-4 sm:px-6">
+          {loadingChat && <ChatSkeleton />}
           {empty && needsSetup && <SetupWelcome disabled={busy} onPick={(text) => void send(text)} />}
           {empty && !needsSetup && (
             <div className="flex flex-1 flex-col items-center justify-center gap-1.5 py-16 text-center">
@@ -270,8 +369,8 @@ export function AgentChat({
               <p className="text-sm text-muted-foreground">{t.chat.emptyHint.replace('{name}', agentName)}</p>
             </div>
           )}
-          {!empty && (
-            <div className="space-y-6 py-6">
+          {!empty && !loadingChat && (
+            <div ref={contentRef} className="space-y-6 py-6">
               {hasOlder && (
                 <div className="flex justify-center">
                   <Button
@@ -291,7 +390,7 @@ export function AgentChat({
                     <AssistantTurn
                       key={item.id}
                       item={item}
-                      pendingApprovalIds={pendingApprovalIds}
+                      approvalState={approvalState}
                       questionActive={!busy}
                       onAnswer={(text) => void send(text)}
                       onOpenRoutines={onOpenRoutines}

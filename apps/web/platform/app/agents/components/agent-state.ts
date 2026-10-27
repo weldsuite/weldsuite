@@ -16,3 +16,10 @@ export function resolveModelId(value: string | null | undefined): WorkspaceAgent
 
 /** Sandbox (bash, files, code) and web (search, fetch, browser) run at Anthropic. */
 export const BUILTIN_GRANTS = { sandbox: 'computer:use', web: 'browser:use' } as const;
+
+export type AgentBadge = 'setup' | 'active' | 'paused' | 'draft';
+
+/** The status an agent shows on its card: an agent without instructions is still being set up. */
+export function agentBadge(agent: { status: 'draft' | 'active' | 'paused'; systemPrompt?: string | null }): AgentBadge {
+  return agentNeedsSetup(agent) ? 'setup' : agent.status;
+}

@@ -1,18 +1,28 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { Crown, Plus, ShieldCheck, UserMinus, Users } from 'lucide-react';
+import { Bot, Crown, MoreHorizontal, Plus, ShieldCheck, UserMinus, UserRound, Users } from 'lucide-react';
+import { toast } from 'sonner';
 import { useUser } from '@clerk/clerk-react';
 import { useCan } from '@weldsuite/permissions/react';
 import {
   useChannel,
   useChannelMembers,
+  useRemoveChannelAgent,
   useRemoveChannelMember,
   type ChatChannelMember,
 } from '@/hooks/queries/use-weldchat-queries';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@weldsuite/ui/components/dropdown-menu';
 import { StatusDot } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useChatContext } from '@/app/weldchat/components/chat-context';
+import { InviteAgentPicker, useCanInviteAgents } from '@/app/weldchat/components/invite-agent-picker';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import {
@@ -68,6 +78,8 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
   const { data: channelData } = useChannel(channelId);
   const { presenceMap } = usePresence();
   const { mutate: removeMember } = useRemoveChannelMember();
+  const { mutateAsync: removeAgent } = useRemoveChannelAgent();
+  const canInviteAgents = useCanInviteAgents(channelId);
   const { openUserProfile, openAgentProfile } = useChatContext();
 
   const channel = channelData?.data;
@@ -75,6 +87,9 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
   const canInviteExternal = useCan('team:invite_external');
 
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [showAgentPicker, setShowAgentPicker] = useState(false);
+  const closeAgentPicker = useCallback(() => setShowAgentPicker(false), []);
+  const [agentToRemove, setAgentToRemove] = useState<{ id: string; name: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>([]);
 
@@ -185,14 +200,13 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
   }, [filteredItems, st]);
 
   const guestStrings = t.weldchat?.guest;
+  const memberStrings = t.weldchat.memberList;
 
   const renderRow = useCallback(
     (r: PeopleRow) => {
       const isAgent = r.memberType === 'agent';
       const isOffline = r.presence === 'offline';
-      const canRemove = isAgent
-        ? isPrivate
-        : isPrivate && r.role !== 'owner' && r.userId !== user?.id;
+      const canRemove = !isAgent && isPrivate && r.role !== 'owner' && r.userId !== user?.id;
       const handleOpen = () => {
         if (isAgent) openAgentProfile(r.userId);
         else openUserProfile(r.userId);
@@ -259,6 +273,40 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
               </p>
             )}
           </div>
+          {isAgent && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  data-testid="chat-agent-menu"
+                  className="h-6 w-6 flex-shrink-0 transition-opacity max-md:opacity-100 md:opacity-0 md:group-hover/member:opacity-100 md:focus-visible:opacity-100 md:data-[state=open]:opacity-100"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={memberStrings.agentActions}
+                  title={memberStrings.agentActions}
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              {/* The menu is portaled, but React still bubbles its clicks to the row. */}
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                <DropdownMenuItem onSelect={() => openAgentProfile(r.userId)}>
+                  <UserRound />
+                  {memberStrings.viewAgentProfile}
+                </DropdownMenuItem>
+                {canInviteAgents && (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    data-testid="chat-agent-remove"
+                    onSelect={() => setAgentToRemove({ id: r.userId, name: r.name })}
+                  >
+                    <UserMinus />
+                    {memberStrings.removeAgentConfirm}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {canRemove && (
             <Button
               variant="ghost"
@@ -268,7 +316,7 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
                 e.stopPropagation();
                 removeMember({ channelId, userId: r.userId });
               }}
-              title={isAgent ? st('sweep.entities.removeAgent') : st('sweep.entities.removeFromChannel')}
+              title={st('sweep.entities.removeFromChannel')}
             >
               <UserMinus className="h-3.5 w-3.5 text-muted-foreground" />
             </Button>
@@ -278,7 +326,7 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
     },
     [
       channelId, isPrivate, openAgentProfile, openUserProfile, presenceMap,
-      removeMember, user?.id, guestStrings, st,
+      removeMember, user?.id, guestStrings, st, memberStrings, canInviteAgents,
     ],
   );
 
@@ -288,6 +336,18 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
   // already join — so the button would open an empty dialog. (Its Agents tab
   // was removed along with the rest of the add-an-agent surfaces.)
   const canInvite = isPrivate || canInviteExternal;
+
+  const confirmRemoveAgent = async () => {
+    if (!agentToRemove) return;
+    const { id, name } = agentToRemove;
+    try {
+      await removeAgent({ channelId, agentId: id });
+      toast.success(memberStrings.agentRemoved.replace('{name}', name));
+    } catch {
+      toast.error(memberStrings.removeAgentFailed.replace('{name}', name));
+    }
+    setAgentToRemove(null);
+  };
   const actionButtons = canInvite ? (
     <Button size="sm" className="h-8 gap-1.5" onClick={() => setInviteOpen(true)}>
       <Plus className="h-3.5 w-3.5" />
@@ -297,6 +357,24 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
 
   return (
     <div className="flex flex-col h-full">
+      {canInviteAgents && (
+        <>
+          <div className="flex-shrink-0 border-b px-3 py-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 w-full justify-start gap-2 text-muted-foreground hover:text-foreground"
+              onClick={() => setShowAgentPicker((open) => !open)}
+              aria-expanded={showAgentPicker}
+              data-testid="invite-agent-button"
+            >
+              <Bot className="h-3.5 w-3.5" />
+              {memberStrings.inviteAgent}
+            </Button>
+          </div>
+          {showAgentPicker && <InviteAgentPicker channelId={channelId} onClose={closeAgentPicker} />}
+        </>
+      )}
       <div className="flex-1 min-h-0 overflow-y-auto relative">
         {!isLoading && filteredItems.length === 0 && (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-4 text-muted-foreground pointer-events-none z-10">
@@ -331,6 +409,19 @@ export function ChannelPeopleTab({ channelId }: Readonly<ChannelPeopleTabProps>)
         channelId={channelId}
         open={inviteOpen}
         onOpenChange={setInviteOpen}
+      />
+
+      <ConfirmDialog
+        open={agentToRemove !== null}
+        onOpenChange={(open) => {
+          if (!open) setAgentToRemove(null);
+        }}
+        title={memberStrings.removeAgentTitle.replace('{name}', agentToRemove?.name ?? '')}
+        description={memberStrings.removeAgentDescription.replace('{name}', agentToRemove?.name ?? '')}
+        confirmLabel={memberStrings.removeAgentConfirm}
+        cancelLabel={st('common.actions.cancel')}
+        variant="destructive"
+        onConfirm={confirmRemoveAgent}
       />
     </div>
   );

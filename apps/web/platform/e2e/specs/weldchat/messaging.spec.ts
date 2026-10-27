@@ -126,11 +126,28 @@ test.describe('WeldChat · live messaging (seed-gated)', () => {
     await expect(page.getByTestId('chat-message-list')).toBeVisible({ timeout: 15_000 });
 
     // Clicking the channel name in the header opens the channel panel on the
-    // People tab, which renders the MemberListPanel.
+    // People tab (ChannelPeopleTab), which lists the members.
     await page.getByTestId('chat-channel-name').click();
     await expect(
       page.getByTestId('chat-member-row').first(),
     ).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('the People tab lets someone who may use agents invite one', async ({ page, api }) => {
+    // Skipped: A resolvable channel member is seeded from the test user's id (TEST_USER_ID).
+    test.skip(!TEST_USER_ID, 'TEST_USER_ID not set — cannot seed a resolvable member');
+    const channel = await api.seedChatChannel({ name: `E2E Agents ${Date.now().toString(36)}` });
+    channelId = channel.id;
+    await api.seedChatChannelMember({ channelId: channel.id, userId: TEST_USER_ID!, role: 'owner' });
+
+    await page.goto(`/weldchat/${channel.id}`);
+    await expect(page.getByTestId('chat-message-list')).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId('chat-channel-name').click();
+    const inviteAgent = page.getByTestId('invite-agent-button');
+    await expect(inviteAgent).toBeVisible({ timeout: 10_000 });
+    await inviteAgent.click();
+    await expect(page.getByTestId('invite-agent-picker')).toBeVisible();
   });
 
   test('navigating to /weldchat redirects to a channel', async ({ page, api }) => {

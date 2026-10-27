@@ -12,6 +12,7 @@ import {
   type AgentApproval,
 } from '@/hooks/queries/use-agent-parity-queries';
 import { humanizeToolName } from '@/components/weldagent/chat/chat-message';
+import { humanizeKey } from './labels';
 
 function argValue(value: unknown): string {
   if (value == null) return '—';
@@ -79,8 +80,8 @@ function ApprovalRow({
         <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-lg bg-muted/50 px-3 py-2 text-xs">
           {entries.map(([key, value]) => (
             <div key={key} className="contents">
-              <dt className="text-muted-foreground">{key}</dt>
-              <dd className="min-w-0 break-words font-mono text-foreground">{argValue(value)}</dd>
+              <dt className="text-muted-foreground">{humanizeKey(key)}</dt>
+              <dd className="min-w-0 break-words text-foreground">{argValue(value)}</dd>
             </div>
           ))}
         </dl>

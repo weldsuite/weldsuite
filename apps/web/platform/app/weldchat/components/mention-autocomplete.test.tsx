@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 
 const agents = vi.hoisted(() => ({
   canUse: false,
@@ -29,7 +29,7 @@ vi.mock('@/lib/i18n/provider', () => ({
   useI18n: () => ({
     t: {
       weldchat: {
-        mentionAutocomplete: { agent: 'Agent', addToChat: 'Add to chat' },
+        mentionAutocomplete: { agent: 'Agent', addToChat: 'Add to chat', agentsHeading: 'Agents' },
         memberList: { agentAdded: '{name} joined', addAgentFailed: 'Could not add {name}' },
       },
     },
@@ -108,7 +108,13 @@ describe('MentionAutocomplete keyboard', () => {
 });
 
 describe('MentionAutocomplete pointer', () => {
-  it('ignores a click on a row that just appeared or moved, then accepts one once the list settles', () => {
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('holds back a click on a row that just appeared or moved, and accepts one once the list settles', () => {
     const now = vi.spyOn(performance, 'now').mockReturnValue(1_000);
     const { getByText, onSelect } = setup();
 
@@ -119,7 +125,65 @@ describe('MentionAutocomplete pointer', () => {
     now.mockReturnValue(1_500);
     fireEvent.mouseDown(getByText('Gerda'));
     expect(onSelect).toHaveBeenCalledWith({ kind: 'user', userId: 'user_2', name: 'Gerda' });
-    now.mockRestore();
+  });
+
+  it('a held-back click leaves the popup open and picks the row once the list settles', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    const { getByText, onSelect, onDismiss } = setup();
+
+    fireEvent.mouseEnter(getByText('Gerda'));
+    fireEvent.mouseDown(getByText('Gerda'));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(getByText('Gerda')).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'user', userId: 'user_2', name: 'Gerda' });
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it('drops a held-back click when the pointer moves to another row', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    const { getByText, onSelect } = setup();
+
+    fireEvent.mouseDown(getByText('Gerda'));
+    fireEvent.mouseEnter(getByText('Gert'));
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('drops a held-back click when the pointer leaves the row', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    const { getByText, onSelect } = setup();
+
+    fireEvent.mouseDown(getByText('Gerda'));
+    fireEvent.mouseLeave(getByText('Gerda'));
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('a click outside the popup dismisses it, but a click on a node a re-render removed does not', () => {
+    const { onDismiss } = setup();
+
+    const gone = document.createElement('div');
+    fireEvent.mouseDown(gone); // never attached: not a click anywhere
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    const outside = document.createElement('div');
+    document.body.appendChild(outside);
+    fireEvent.mouseDown(outside);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    outside.remove();
   });
 });
 
@@ -159,6 +223,26 @@ describe('MentionAutocomplete agents', () => {
     await waitFor(() => expect(agents.invite).toHaveBeenCalled());
     await Promise.resolve();
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('gives agents their own heading above the people', () => {
+    const { getByText, getAllByRole } = setup();
+    expect(getByText('Agents')).toBeTruthy();
+    expect(getByText('sweep.weldchat.mentionAutocomplete.people')).toBeTruthy();
+
+    // Agent rows sit between the two headings, people after the second.
+    const text = document.body.textContent ?? '';
+    expect(text.indexOf('Agents')).toBeLessThan(text.indexOf('Gerty Bot'));
+    expect(text.indexOf('Germaine Researcher')).toBeLessThan(text.indexOf('sweep.weldchat.mentionAutocomplete.people'));
+    expect(text.indexOf('sweep.weldchat.mentionAutocomplete.people')).toBeLessThan(text.indexOf('Gerda'));
+    expect(getAllByRole('button').length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('has no Agents heading when there are no agents to show', () => {
+    agents.inChannel = [];
+    agents.canUse = false;
+    const { queryByText } = setup();
+    expect(queryByText('Agents')).toBeNull();
   });
 
   it('lists agents before people when nothing is typed yet', () => {
