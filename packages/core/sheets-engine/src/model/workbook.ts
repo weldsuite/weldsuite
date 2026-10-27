@@ -19,7 +19,7 @@ import {
   type DataValidation,
   type SheetFilter,
 } from './rules';
-import { cloneComment, cloneDataTable, type DataTable, type SheetComment } from './anchors';
+import { cloneComment, cloneDataTable, isCommentEntry, type DataTable, type SheetComment } from './anchors';
 import { cloneChart, type Chart } from './charts';
 
 export const DEFAULT_ROW_HEIGHT = 21;
@@ -51,7 +51,7 @@ export class Sheet {
   validations: DataValidation[] = [];
   /** In drawing order: a later chart is drawn over an earlier one. */
   charts: Chart[] = [];
-  /** Comment threads: first comments (holding the cell) and replies. */
+  /** Comment threads: where each is and whether it is resolved (the discussion is in WeldChat). */
   comments: SheetComment[] = [];
   /** The blocks connected tables of WeldSuite data last filled. */
   dataTables: DataTable[] = [];
@@ -159,7 +159,7 @@ export function sheetFromJSON(s: SheetSnapshot): Sheet {
   sheet.conditionalFormats = (s.conditionalFormats ?? []).map(cloneFormat);
   sheet.validations = (s.validations ?? []).map(cloneValidation);
   sheet.charts = (s.charts ?? []).map(cloneChart);
-  sheet.comments = (s.comments ?? []).map(cloneComment);
+  sheet.comments = (s.comments ?? []).filter(isCommentEntry).map(cloneComment);
   sheet.dataTables = (s.dataTables ?? []).map(cloneDataTable);
   return sheet;
 }

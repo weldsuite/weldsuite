@@ -126,7 +126,7 @@ export function Toolbar({ controller }: { controller: DocController }) {
         <ImagePlus />
       </IconButton>
       <TableButton controller={controller} label={tt.table} disabled={ro} />
-      <IconButton label={`${tr.addComment} (${MOD_LABEL}+Alt+M)`} onClick={() => controller.startComment()} disabled={ro && !controller.canComment}>
+      <IconButton label={`${tr.addComment} (${MOD_LABEL}+Alt+M)`} onClick={() => controller.startComment()} disabled={!controller.commentsAvailable || (ro && !controller.canComment)}>
         <MessageSquarePlus />
       </IconButton>
       <Divider />

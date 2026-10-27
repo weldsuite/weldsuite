@@ -314,10 +314,8 @@ async function legacyWorkbook(
         return null;
       })
     : null;
-  const owner = file.file.uploadedById ?? params.userId;
   return convertLegacyModel(model ?? { sheets: [], columnsBySheet: {}, rowsBySheet: {} }, {
     newTabId,
-    owner: { id: owner, name: (await memberProfile(c.get('tenantDb'), owner)).name ?? 'Unknown' },
     now: Date.now(),
     firstTabName: params.firstTabName,
   });

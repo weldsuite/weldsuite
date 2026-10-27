@@ -45,5 +45,7 @@ export function useRecordChatGroups(
     task: useFollowedRecordChats('task', summaryOf('task'), enabled),
     project: useFollowedRecordChats('project', summaryOf('project'), enabled),
     domain: useFollowedRecordChats('domain', summaryOf('domain'), enabled),
+    sheet: useFollowedRecordChats('sheet', summaryOf('sheet'), enabled),
+    doc: useFollowedRecordChats('doc', summaryOf('doc'), enabled),
   };
 }

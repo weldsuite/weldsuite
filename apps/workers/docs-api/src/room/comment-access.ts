@@ -2,37 +2,35 @@
  * What a commenter may change: someone who can view a document and holds
  * `docs:comment`, but cannot edit it (docs/plans/welddocs.md, Access).
  *
- * Comments live inside the document and travel as ops, so the room checks a
- * commenter's ops one by one, as they would be applied (transformed and
- * validated) against the document before them. A batch passes only if every
- * op in it does:
+ * What is said in a discussion lives in the document's WeldChat chat (ADR
+ * CHAT-007); the document holds each discussion's entry (who started it,
+ * whether it is resolved) and its anchor on the text, and those travel as
+ * ops. The room checks a commenter's ops one by one, as they would be
+ * applied (transformed and validated) against the document before them. A
+ * batch passes only if every op in it does:
  *
- *   - `patchComments` that sets or removes only comments whose author is the
- *     commenter (a new comment, a reply, an edit of their own), or that only
- *     flips `resolved` on a discussion's first comment, whoever wrote it;
+ *   - `patchComments` that sets or removes only discussions the commenter
+ *     started (a new one, or theirs), or that only flips `resolved` on a
+ *     discussion, whoever started it;
  *   - `patchAnchors` that sets or removes only comment anchors of
- *     discussions the commenter started (their own first comment, already in
- *     the document or set by the same batch).
+ *     discussions the commenter started (already in the document or set by
+ *     the same batch).
  *
- * Anything else (text, formatting, someone else's comment, a bookmark) is
- * refused like a viewer's edit.
+ * Anything else (text, formatting, someone else's discussion, a suggestion's
+ * thread, a bookmark) is refused like a viewer's edit.
  */
 
 import { unbatch, type Anchor, type DocComment, type DocModel, type Op, type OpOf } from '@weldsuite/docs-engine';
 
 export function isCommentersOp(op: Op, userId: string, doc: DocModel): boolean {
   const ops = unbatch(op);
-  // Discussions this batch starts: their anchor may come before or after the comment.
+  // Discussions this batch starts: their anchor may come before or after the entry.
   const started = new Set<string>();
   for (const o of ops) {
     if (o.type !== 'patchComments') continue;
-    for (const c of o.set ?? []) if (c.thread === c.id && c.author.id === userId) started.add(c.id);
+    for (const c of o.set ?? []) if (c.author.id === userId && !doc.comments.has(c.id)) started.add(c.id);
   }
-  const ownsThread = (id: string) => {
-    if (started.has(id)) return true;
-    const root = doc.comments.get(id);
-    return !!root && root.thread === root.id && root.author.id === userId;
-  };
+  const ownsThread = (id: string) => started.has(id) || doc.comments.get(id)?.author.id === userId;
   return ops.every((o) => {
     if (o.type === 'patchComments') return commentsAllowed(o, userId, doc);
     if (o.type === 'patchAnchors') return anchorsAllowed(o, doc, ownsThread);
@@ -49,7 +47,7 @@ function commentsAllowed(op: OpOf<'patchComments'>, userId: string, doc: DocMode
 }
 
 function maySet(next: DocComment, old: DocComment | undefined, userId: string): boolean {
-  if (old && old.thread === old.id && sameExceptResolved(old, next)) return true;
+  if (old && sameExceptResolved(old, next)) return true;
   if (next.author.id !== userId || (old && old.author.id !== userId)) return false;
   // Tying a discussion to a suggestion is part of suggesting, not commenting.
   return next.suggestion === old?.suggestion;

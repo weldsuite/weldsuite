@@ -155,12 +155,8 @@ const isChart = shape({
 
 const isComment = shape({
   id: isStr,
-  thread: isStr,
-  author: shape({ id: isStr, name: isStr }),
+  authorId: isStr,
   createdAt: isNum,
-  editedAt: optional(isNum),
-  body: isStr,
-  mentions: optional(arrayOf(isStr)),
   resolved: optional(isBool),
   cell: optional(shape({ row: isInt, col: isInt })),
 });

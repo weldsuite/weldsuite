@@ -5,6 +5,7 @@ import { useWorkspaceId } from '@/contexts/workspace-context';
 import { useAppApi } from '@/lib/api/use-app-api';
 import type { DocSnapshot, DocxImportWarning } from '@weldsuite/docs-engine';
 import { readImport, type StoreImage } from '../files';
+import { postImportedComments, withoutCommentThreads } from '../comment-texts';
 import { ApiDocDirectory } from './api-doc-directory';
 import { LocalDocStore, type DocDirectory, type DocMeta } from './doc-store';
 
@@ -74,7 +75,13 @@ export function useDocMutations() {
   const importFile = useMutation({
     mutationFn: async ({ fileName, bytes, storeImage }: { fileName: string; bytes: Uint8Array; storeImage?: StoreImage }): Promise<{ meta: DocMeta; warnings: DocxImportWarning[] }> => {
       const read = await readImport(fileName, bytes, storeImage);
-      return { meta: await directory!.create(read.name, read.snapshot), warnings: read.warnings };
+      // A comment's text goes to the document's chat; a document kept in the browser has none.
+      const chat = directory instanceof ApiDocDirectory;
+      const meta = await directory!.create(read.name, chat ? read.snapshot : withoutCommentThreads(read.snapshot));
+      const warnings = new Set(read.warnings);
+      if (read.comments.length && !chat) warnings.add('comments');
+      if (read.comments.length && chat) await postImportedComments(meta.id, read.snapshot, read.comments).catch(() => warnings.add('comments'));
+      return { meta, warnings: [...warnings].sort() };
     },
     onSuccess: invalidate,
   });

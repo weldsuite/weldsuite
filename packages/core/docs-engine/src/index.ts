@@ -154,10 +154,8 @@ export * from './files/docx';
 export * from './files/pdf';
 export {
   addComment,
-  deleteComment,
-  editComment,
+  deleteThread,
   markInserted,
-  replyToThread,
   resolveSuggestion,
   setResolved,
   suggestDelete,
@@ -168,4 +166,4 @@ export {
   suggestionRanges,
   threadsOf,
 } from './editing/review';
-export type { CommentInput, Reviewer, SuggestionRange, Thread } from './editing/review';
+export type { Reviewer, SuggestionRange, Thread } from './editing/review';

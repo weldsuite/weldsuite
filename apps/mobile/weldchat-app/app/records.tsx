@@ -63,6 +63,8 @@ const TYPE_SYMBOLS = {
   task: 'checkmark.square',
   project: 'briefcase',
   domain: 'globe',
+  sheet: 'tablecells',
+  doc: 'doc.text',
 } as const satisfies Record<RecordChatType, string>;
 
 function useDebounced<T>(value: T, ms: number): T {

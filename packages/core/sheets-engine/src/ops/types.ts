@@ -65,7 +65,7 @@ export type Op =
   | { type: 'patchValidations'; sheetId: string; set?: DataValidation[]; remove?: string[] }
   /** Adds or replaces (`set`) and removes charts, by id; `set` charts not yet there go on top. */
   | { type: 'patchCharts'; sheetId: string; set?: Chart[]; remove?: string[] }
-  /** Adds or replaces (`set`) and removes comments (first comments and replies), by id. */
+  /** Adds or replaces (`set`) and removes comment threads, by id. */
   | { type: 'patchComments'; sheetId: string; set?: SheetComment[]; remove?: string[] }
   /** Places (`set`) and removes connected tables' blocks, by data source id. */
   | { type: 'patchDataTables'; sheetId: string; set?: DataTable[]; remove?: string[] }

@@ -30,7 +30,13 @@ import {
   getChannelFeatureFlags,
 } from './channel-features';
 import { isCrmEntityChannel, logEntityChannelMessageActivity } from './entity-activity';
-import { announceNewFollowers, followRecordChatOnPost } from './entity-channels';
+import {
+  announceNewFollowers,
+  canPostInRecordChat,
+  followRecordChatOnPost,
+  getEntityProvider,
+  userPermissionCheck,
+} from './entity-channels';
 
 /** Thrown when a channel feature flag / slow-mode check rejects the send. */
 export class ChatFeatureError extends Error {
@@ -156,9 +162,32 @@ async function assertChannelAllowsSend(
   if (input.parentId) {
     await assertThreadParentInChannel(db, channelId, input.parentId);
   }
+  await assertMayWriteInRecordChat(db, channelId, authorUserId);
   const slowModeError = await checkSlowMode(db, channelId, authorUserId, flags.slowModeSeconds);
   if (slowModeError) {
     throw new ChatFeatureError(slowModeError);
+  }
+}
+
+/**
+ * A record chat may take more than reading it to write in: a sheet's or a
+ * document's chat holds its comments (ADR CHAT-007). Checked here so every
+ * way of posting (the record's route, `/api/channels`, `/api/chat-messages`)
+ * holds to it. The author's permissions come from the tenant DB.
+ */
+async function assertMayWriteInRecordChat(db: Database, channelId: string, authorUserId: string): Promise<void> {
+  const { chatChannels } = schema;
+  const [channel] = await db
+    .select({ type: chatChannels.type, entityType: chatChannels.entityType, entityId: chatChannels.entityId })
+    .from(chatChannels)
+    .where(eq(chatChannels.id, channelId))
+    .limit(1);
+  if (channel?.type !== 'entity' || !channel.entityType || !channel.entityId) return;
+  const provider = getEntityProvider(channel.entityType);
+  if (!provider?.canPost) return;
+  const ctx = { db, actingUserId: authorUserId, entityId: channel.entityId, can: userPermissionCheck(db, authorUserId) };
+  if (!(await canPostInRecordChat(provider, ctx))) {
+    throw new ChatFeatureError('You may read this chat but not write in it', 403);
   }
 }
 

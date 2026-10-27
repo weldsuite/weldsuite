@@ -438,6 +438,8 @@ export const nl: Translations = {
       task: 'Taken',
       project: 'Projecten',
       domain: 'Domeinen',
+      sheet: 'Spreadsheets',
+      doc: 'Documenten',
     },
     types: {
       company: 'Bedrijf',
@@ -445,6 +447,8 @@ export const nl: Translations = {
       task: 'Taak',
       project: 'Project',
       domain: 'Domein',
+      sheet: 'Spreadsheet',
+      doc: 'Document',
     },
     allTypes: 'Alle recordchats',
     chooseType: 'Kies een soort record',

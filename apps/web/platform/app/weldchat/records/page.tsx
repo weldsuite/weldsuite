@@ -136,6 +136,8 @@ export default function RecordChatsPage() {
   const { mutate: unfollow } = useUnfollowRecordChat();
   const { mutate: muteChannel } = useMuteChannel();
   const { open: openObjectPanel } = useObjectPanel();
+  // A sheet's or a document's chat opens its page.
+  const push = useCallback((href: string) => void navigate({ to: href }), [navigate]);
   const { isGroupHidden, setGroupHidden } = useGroupHidden();
 
   /** Changes the type tab or filter in the URL; the defaults are left out. */
@@ -368,7 +370,7 @@ export default function RecordChatsPage() {
                   </DropdownMenuItem>
                 )}
                 {info && chat.entityId && (
-                  <DropdownMenuItem onClick={() => openRecordPanel(openObjectPanel, info.type, chat.entityId)}>
+                  <DropdownMenuItem onClick={() => openRecordPanel(openObjectPanel, info.type, chat.entityId, push)}>
                     <ExternalLink className="mr-0.5 h-4 w-4" />
                     {st(info.openLabelKey)}
                   </DropdownMenuItem>
@@ -379,7 +381,7 @@ export default function RecordChatsPage() {
         </div>
       );
     },
-    [memberNames, showType, showFollow, openChat, setFollowing, muteChannel, openObjectPanel, st],
+    [memberNames, showType, showFollow, openChat, setFollowing, muteChannel, openObjectPanel, push, st],
   );
 
   const emptyKeys = recordChatsEmptyKeys(filter);

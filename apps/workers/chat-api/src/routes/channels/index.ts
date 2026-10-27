@@ -656,6 +656,7 @@ app.post(
     } catch (err) {
       if (err instanceof ChatFeatureError) {
         if (err.status === 404) return error.notFound(c, 'Channel', channelId);
+        if (err.status === 403) return error.forbidden(c, err.message);
         return error.badRequest(c, err.message);
       }
       console.error('[app-api/channels] send message failed:', err);

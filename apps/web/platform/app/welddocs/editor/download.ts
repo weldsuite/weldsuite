@@ -1,4 +1,4 @@
-import { BODY, exportPdf, toHtmlDocument, toMarkdown, toPlainText, writeDocx, type DocModel, type WriteSource } from '@weldsuite/docs-engine';
+import { BODY, exportPdf, toHtmlDocument, toMarkdown, toPlainText, writeDocx, type CommentText, type DocModel, type WriteSource } from '@weldsuite/docs-engine';
 
 export type DownloadFormat = 'html' | 'markdown' | 'text' | 'docx' | 'pdf';
 
@@ -18,6 +18,8 @@ export interface ExportOptions {
   /** Picture bytes for .docx and PDF (without it they are left out). */
   images?: ImageSource;
   locale?: string;
+  /** What is said in each comment thread, for .docx (without it comments are left out). */
+  comments?: (thread: string) => readonly CommentText[];
 }
 
 export interface ExportedFile {
@@ -45,7 +47,7 @@ export async function exportFile(doc: DocModel, name: string, format: DownloadFo
     return got;
   };
   if (format === 'docx') {
-    const bytes = await writeDocx(doc, { title: name, images: async (src) => (src.startsWith('data:') ? dataUrlBytes(src) : images(src)) });
+    const bytes = await writeDocx(doc, { title: name, images: async (src) => (src.startsWith('data:') ? dataUrlBytes(src) : images(src)), comments: options.comments });
     return { blob: new Blob([bytes as BlobPart], { type: DOCX_MIME }), filename: `${safeName(name)}.docx`, missingImages: missing };
   }
   const bytes = await exportPdf(doc, { title: name, locale: options.locale, images });

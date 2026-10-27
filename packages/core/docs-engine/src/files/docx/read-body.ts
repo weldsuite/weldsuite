@@ -103,7 +103,7 @@ function revisionSuggestion(ctx: ReadContext, el: XmlElement): Suggestion {
   if (known) return { id: known, kind };
   const id = ctx.makeId();
   if (word !== undefined) ctx.revisions.set(word, id);
-  ctx.suggestionThreads.push({ id, thread: id, author: authorOf(el.attrs.author), createdAt: readWordDate(el.attrs.date), body: '', suggestion: id });
+  ctx.suggestionThreads.push({ id, author: authorOf(el.attrs.author), createdAt: readWordDate(el.attrs.date), suggestion: id });
   return { id, kind };
 }
 

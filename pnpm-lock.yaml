@@ -8516,6 +8516,9 @@ importers:
       '@weldsuite/core-api-client':
         specifier: workspace:*
         version: link:../../clients/core-api-client
+      '@weldsuite/core-domain':
+        specifier: workspace:*
+        version: link:../core
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db

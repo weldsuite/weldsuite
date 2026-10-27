@@ -267,29 +267,53 @@ export interface Anchor {
 }
 
 /**
- * One comment of a discussion: a thread's first comment (`thread === id`)
- * or a reply. Each is its own entry, so two people replying at once both
- * keep their reply. A thread's place in the text is the comment anchor with
- * the thread's id; a suggestion's thread has `suggestion` set instead.
+ * A discussion: a comment thread on a stretch of text (the comment anchor
+ * with the same id), or a suggestion's thread (`suggestion` set instead).
+ * What is said in it (the first comment, replies, mentions, reactions) is a
+ * thread in the document's WeldChat chat whose messages carry this id as
+ * `metadata.anchor.id` (ADR CHAT-007); the document keeps who started it,
+ * whether it is resolved and what it is about.
  */
 export interface DocComment {
   id: string;
-  /** The id of the thread's first comment. */
-  thread: string;
+  /** Who started it: a suggestion's author, and as a commenter the only one who may move or remove it. */
   author: { id: string; name: string };
   /** Epoch ms. */
   createdAt: number;
-  editedAt?: number;
-  /** Plain text; a mention is written `@[Name](userId)`. */
-  body: string;
-  /** People mentioned in `body` (user ids), to notify. */
-  mentions?: string[];
-  /** First comment only: the discussion is done. */
+  /** The discussion is done. */
   resolved?: boolean;
-  /** First comment only: the suggestion (its id on the text) this thread belongs to. */
+  /** The suggestion (its id on the text) this thread belongs to. */
   suggestion?: string;
-  /** First comment only: the text commented on, as it was. */
+  /** The text commented on, as it was. */
   quote?: string;
+}
+
+/** A comment as documents stored it before the text moved to WeldChat: one entry per comment, with its thread's id. */
+export function isLegacyComment(v: unknown): boolean {
+  return typeof v === 'object' && v !== null && 'thread' in v;
+}
+
+/**
+ * The discussions of a stored document. One from before comments moved to
+ * WeldChat holds each comment's text, replies as entries of their own: its
+ * comment threads are left out, and a suggestion's thread keeps who
+ * suggested it.
+ */
+export function currentComments(stored: readonly unknown[]): DocComment[] {
+  const out: DocComment[] = [];
+  for (const raw of stored) {
+    if (!isLegacyComment(raw)) {
+      out.push(raw as DocComment);
+      continue;
+    }
+    const c = raw as { id?: unknown; thread?: unknown; author?: { id?: unknown; name?: unknown }; createdAt?: unknown; resolved?: unknown; suggestion?: unknown };
+    if (typeof c.id !== 'string' || c.thread !== c.id || typeof c.suggestion !== 'string') continue;
+    if (typeof c.author?.id !== 'string' || typeof c.author.name !== 'string') continue;
+    const kept: DocComment = { id: c.id, author: { id: c.author.id, name: c.author.name }, createdAt: typeof c.createdAt === 'number' ? c.createdAt : 0, suggestion: c.suggestion };
+    if (c.resolved === true) kept.resolved = true;
+    out.push(kept);
+  }
+  return out;
 }
 
 export interface DocProps {

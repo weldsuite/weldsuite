@@ -1,8 +1,8 @@
 /**
  * App-API record chats domain client — flat `/api/chat-entity-channels/*`.
  *
- * Record chats are the chats attached to companies, people, tasks, projects
- * and domains (`chat_channels.type = 'entity'`). Following one = having a
+ * Record chats are the chats attached to companies, people, tasks, projects,
+ * domains, sheets and documents (`chat_channels.type = 'entity'`). Following one = having a
  * membership row. Mirrors
  * apps/workers/chat-api/src/routes/chat-entity-channels/index.ts.
  */
@@ -30,6 +30,29 @@ export interface FollowRecordChatResponse {
   following: true;
   /** The chat did not exist yet; following created it. */
   createdChannel: boolean;
+}
+
+/** A chat message as `GET …/comments` returns it (the `chat_messages` row). */
+export interface RecordCommentMessage {
+  id: string;
+  channelId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar: string | null;
+  content: string;
+  parentId: string | null;
+  isEdited: boolean;
+  reactions: Record<string, string[]> | null;
+  mentions: string[] | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** `GET …/comments`: the record's chat (null before its first message) and its comment threads' messages, oldest first. */
+export interface RecordComments {
+  channel: ChannelRow | null;
+  messages: RecordCommentMessage[];
 }
 
 export interface SendRecordChatMessageResponse {
@@ -74,6 +97,14 @@ export function createChatEntityChannelsApi(api: ClientApi) {
     /** The record's own fields as its type's provider shows them (a task's `projectId`, …), or null. */
     getDetail(entityType: string, entityId: string): Promise<DataResponse<Record<string, unknown> | null>> {
       return api.get<DataResponse<Record<string, unknown> | null>>(`${recordPath(entityType, entityId)}/detail`);
+    },
+
+    /**
+     * The record's comment threads: the messages of its chat posted with
+     * `metadata.anchor`, and every reply in their threads.
+     */
+    getComments(entityType: string, entityId: string): Promise<DataResponse<RecordComments>> {
+      return api.get<DataResponse<RecordComments>>(`${recordPath(entityType, entityId)}/comments`);
     },
 
     /** Post in a record's chat, creating the chat on the first message. Posting follows it. */

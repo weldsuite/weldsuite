@@ -245,7 +245,7 @@ describe('DocRoom', () => {
 
     const local = DocModel.create();
     applyOp(local, typeAt(0, 'Some text'));
-    const comment = (by: string) => addComment(local, caretAt('body', 1), { id: by, name: by }, { body: `from ${by}` }, () => `c_${by}`, 1).op;
+    const comment = (by: string) => addComment(local, caretAt('body', 1), { id: by, name: by }, () => `c_${by}`, 1).op;
 
     // Their own discussion goes in.
     await send(room, cara, { type: 'submit', batchId: 'c:1', baseRevision: 1, op: comment('cara') });

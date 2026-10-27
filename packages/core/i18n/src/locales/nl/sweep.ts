@@ -514,18 +514,22 @@ export const sweep = {
       "groupHidden": "{group} is verborgen in je zijbalk",
       "groups": {
         "company": "Bedrijven",
+        "doc": "Documenten",
         "domain": "Domeinen",
         "person": "Personen",
         "project": "Projecten",
+        "sheet": "Spreadsheets",
         "task": "Taken"
       },
       "hideGroup": "Deze groep verbergen",
       "muteAllFailed": "Deze chats konden niet worden bijgewerkt",
       "open": {
         "company": "Bedrijf openen",
+        "doc": "Document openen",
         "domain": "Domein openen",
         "person": "Persoon openen",
         "project": "Project openen",
+        "sheet": "Spreadsheet openen",
         "task": "Taak openen"
       },
       "openInWeldChat": "Openen in WeldChat",
@@ -574,9 +578,11 @@ export const sweep = {
       "title": "Recordchats",
       "types": {
         "company": "Bedrijf",
+        "doc": "Document",
         "domain": "Domein",
         "person": "Persoon",
         "project": "Project",
+        "sheet": "Spreadsheet",
         "task": "Taak"
       },
       "undo": "Ongedaan maken",

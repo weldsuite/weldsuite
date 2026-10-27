@@ -452,6 +452,8 @@ export const en = {
       task: 'Tasks',
       project: 'Projects',
       domain: 'Domains',
+      sheet: 'Spreadsheets',
+      doc: 'Documents',
     },
     types: {
       company: 'Company',
@@ -459,6 +461,8 @@ export const en = {
       task: 'Task',
       project: 'Project',
       domain: 'Domain',
+      sheet: 'Spreadsheet',
+      doc: 'Document',
     },
     // The records screen's title menu: every type, or one.
     allTypes: 'All record chats',

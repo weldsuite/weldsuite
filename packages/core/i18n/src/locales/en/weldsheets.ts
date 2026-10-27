@@ -464,6 +464,10 @@ export const weldsheets = {
     save: 'Save',
     cancel: 'Cancel',
     noMatch: 'No one found',
+    failed: 'Your comment could not be saved. Try again in a moment.',
+    loadFailed: 'The comments could not be loaded.',
+    loading: 'Loading…',
+    missing: 'What was said here has been deleted.',
   },
 
   versions: {

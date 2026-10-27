@@ -57,7 +57,7 @@ import { getTranslations } from '@/lib/i18n';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { usePathname } from '@/lib/router';
+import { usePathname, useRouter } from '@/lib/router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { toast } from 'sonner';
@@ -623,6 +623,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
   const { mutate: unfollowRecordChat } = useUnfollowRecordChat();
   const { mutate: muteRecordChatsByType } = useMuteRecordChatsByType();
   const { open: openObjectPanel } = useObjectPanel();
+  const { push: pushRoute } = useRouter();
   // "Hide this group" and its Undo; the record chats page shows the group again.
   const { setGroupHidden } = useGroupHidden();
 
@@ -981,7 +982,7 @@ export function useWeldchatSidebarItems(isActive: boolean): {
           { entityType: type, entityId: chat.entityId, channelId: chat.id },
           { onError: () => toast.error(st('sweep.weldchat.recordChats.unfollowFailed')) },
         ),
-      openRecord: (chat) => openRecordPanel(openObjectPanel, type, chat.entityId),
+      openRecord: (chat) => openRecordPanel(openObjectPanel, type, chat.entityId, pushRoute),
       openGroupSettings,
       activeCallChannels,
       joinCall,

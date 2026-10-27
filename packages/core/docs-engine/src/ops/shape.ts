@@ -294,17 +294,13 @@ const ANCHOR = obj(
 const COMMENT = obj(
   {
     id: str(),
-    thread: str(),
     author: obj({ id: str(), name: str(200, 0) }, ['id', 'name']),
     createdAt: int(0),
-    editedAt: int(0),
-    body: str(20_000, 0),
-    mentions: arrayOf(str(), 100),
     resolved: bool,
     suggestion: str(),
     quote: str(2000, 0),
   },
-  ['id', 'thread', 'author', 'createdAt', 'body'],
+  ['id', 'author', 'createdAt'],
 );
 
 const DOC_PROPS_PATCH = patchOf({ section: SECTION, pageless: bool, tabInterval: num(1, 500) });
