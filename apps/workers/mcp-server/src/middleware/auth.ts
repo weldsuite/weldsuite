@@ -1,5 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { createClerkClient } from '@clerk/backend';
+import { verifyClerkToken } from '@clerk/mcp-tools/server';
+import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { eq, and, isNull } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { drizzle as drizzleNeonHttp } from 'drizzle-orm/neon-http';
@@ -224,13 +226,21 @@ export async function getWorkspaceForOrg(
 }
 
 type VerifiedToken =
-  | { ok: true; tokenId: string; userId: string; clientId: string | null }
+  | { ok: true; tokenId: string; userId: string; authInfo: AuthInfo }
   | { ok: false; message: string; diagnostic: string };
 
-/** Verify the request's bearer token with Clerk; never throws. */
-async function verifyClerkToken(
+/**
+ * Verify the request's bearer token with Clerk and turn it into the MCP SDK's
+ * `AuthInfo` with Clerk's `verifyClerkToken` (`@clerk/mcp-tools`); never throws.
+ *
+ * The `AuthInfo` goes to the transport, so every tool handler sees the caller
+ * as `extra.authInfo`. Clerk's `submit_feedback` tool reads it there: an
+ * `AuthInfo` Clerk built is what puts the user and OAuth client on a report.
+ */
+async function authenticateOAuthToken(
   env: HonoEnv['Bindings'],
   request: Request,
+  token: string,
 ): Promise<VerifiedToken> {
   try {
     const clerk = createClerkClient({
@@ -259,7 +269,18 @@ async function verifyClerkToken(
       };
     }
 
-    return { ok: true, tokenId: auth.id, userId: auth.userId, clientId: auth.clientId };
+    // Clerk's converter refuses, logging which, a token without a client,
+    // scopes or user: none of those can be attributed to a member.
+    const authInfo = verifyClerkToken(auth, token);
+    if (!authInfo) {
+      return {
+        ok: false,
+        message: 'Invalid or expired access token.',
+        diagnostic: `token ${auth.id} verified by Clerk but has no client, scopes or user`,
+      };
+    }
+
+    return { ok: true, tokenId: auth.id, userId: auth.userId, authInfo };
   } catch (error) {
     console.error('[MCP Auth] Token verification threw:', error);
     return {
@@ -397,9 +418,10 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   }
   const token = authHeader.slice(7).trim();
 
-  const verified = await verifyClerkToken(c.env, c.req.raw);
+  const verified = await authenticateOAuthToken(c.env, c.req.raw, token);
   if (!verified.ok) return unauthorized(verified.message, verified.diagnostic);
-  const { tokenId, userId, clientId } = verified;
+  const { tokenId, userId, authInfo } = verified;
+  const clientId = authInfo.clientId;
 
   // Clerk drops the org from the typed auth object, so recover it ourselves.
   //
@@ -522,5 +544,6 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   };
 
   c.set('session', session);
+  c.set('mcpAuth', authInfo);
   await next();
 };

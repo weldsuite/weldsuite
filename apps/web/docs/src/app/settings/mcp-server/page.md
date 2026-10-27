@@ -92,6 +92,14 @@ See [Team and permissions](/settings/team-and-permissions) for how roles are ass
 
 ---
 
+## Problem reports
+
+When the assistant can't do what you asked with the WeldSuite tools, or a tool fails or is unclear, it can send a short problem report to the WeldSuite team so we can fix it. It sends at most one per task, and it doesn't ask you first.
+
+A report says what the assistant was trying to do, what went wrong and which tool was involved. It also records your user ID and which assistant sent it. Assistants are told to leave out passwords, keys and personal details, and recognised credentials are removed before a report is stored. Reports are kept by Clerk, the sign-in provider WeldSuite already uses, and only the WeldSuite team reads them. They never show up in your workspace.
+
+---
+
 ## Usage limits
 
 Requests are limited per workspace, per minute, so one busy assistant cannot slow down the rest of your team. If you hit the limit, the assistant reports a rate-limit message and how long to wait — usually less than a minute. Higher plans get more headroom.

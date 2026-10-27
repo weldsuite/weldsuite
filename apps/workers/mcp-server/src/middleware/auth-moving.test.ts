@@ -15,7 +15,14 @@ vi.mock('@clerk/backend', () => ({
   createClerkClient: () => ({
     authenticateRequest: async () => ({
       reason: null,
-      toAuth: () => ({ isAuthenticated: true, id: 'oat_1', userId: 'user_1', clientId: null, tokenType: 'oauth_token' }),
+      toAuth: () => ({
+        isAuthenticated: true,
+        id: 'oat_1',
+        userId: 'user_1',
+        clientId: 'client_1',
+        scopes: ['user:org:read'],
+        tokenType: 'oauth_token',
+      }),
     }),
   }),
 }));
