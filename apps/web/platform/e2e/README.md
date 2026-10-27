@@ -101,6 +101,15 @@ The `webServer` block in `playwright.config.ts` starts `pnpm dev` automatically 
 
 `deploy.yml` runs the same suite as part of the `tests` job that gates production deploys. Worker deploys and migrations both `needs: tests`, so a red Playwright run blocks the deploy.
 
+## Email addresses in specs
+
+The Clerk test instance runs with **Test mode** on. Pick the address by what the spec needs from Clerk:
+
+- **Sign up or verify with a code**: use a `+clerk_test` address and type the fixed code `424242`. Clerk sends no email at all to these addresses (no codes, sign-in links, invitations or new-device notices), so no inbox is needed. The subaddress must be exactly `+clerk_test`, so put a per-run suffix before the `+`: `weldsuite-e2e-${stamp}+clerk_test@example.com`, not `weldsuite-e2e+clerk_test_${stamp}@…`. An address that isn't a test address gets real mail, and `example.com` bounces it.
+- **Read an email Clerk sends** (follow a sign-in or verification link, accept an invitation): use an address without `+clerk_test` on an inbox the spec can read. Clerk delivers these as usual, and they count toward the development instance's email limit. For a +clerk_test address the email is only recorded and fires the `email.created` webhook with `delivered_by_clerk: false`, so waiting for it in an inbox times out.
+
+No spec reads a Clerk email today. `onboarding.spec.ts` is the only one that uses a `+clerk_test` address.
+
 ## What the suite covers
 
 | Group | Files | Description |

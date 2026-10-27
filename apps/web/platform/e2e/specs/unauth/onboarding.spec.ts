@@ -17,8 +17,10 @@
  * Prerequisites:
  *   - `.env.test` must have TEST_API_URL, TEST_FIXTURES_TOKEN, TEST_WORKSPACE_ID
  *     (so teardown can authenticate). The spec skips if any are absent.
- *   - The Clerk instance must be a TEST instance so the +clerk_test email trick
- *     and the fixed OTP 424242 work.
+ *   - The Clerk instance must be a TEST instance (Test mode on) so the
+ *     +clerk_test email trick and the fixed OTP 424242 work. In Test mode Clerk
+ *     sends no email at all to a +clerk_test address, so this spec never needs
+ *     an inbox.
  *   - CLERK_SECRET_KEY + VITE_CLERK_PUBLISHABLE_KEY must point at the test instance.
  */
 
@@ -31,9 +33,11 @@ import { setupClerkTestingToken } from '@clerk/testing/playwright';
 // ---------------------------------------------------------------------------
 
 const stamp = Date.now();
-// The +clerk_test subaddress tells the Clerk test instance to accept OTP 424242
-// instead of sending a real email.
-const email = `weldsuite-e2e+clerk_test_${stamp}@example.com`;
+// A +clerk_test address verifies with OTP 424242, and in Test mode Clerk sends
+// it no email of any kind (codes, links, invitations, notices). The subaddress
+// must be exactly `+clerk_test`, so the per-run stamp goes before the `+`:
+// anything else is a real address that Clerk mails, and example.com bounces.
+const email = `weldsuite-e2e-${stamp}+clerk_test@example.com`;
 // Password meets: 8+ chars, uppercase, lowercase, digit.
 const password = `E2eTest!${stamp}`;
 const orgName = `E2E Onboarding ${stamp}`;
