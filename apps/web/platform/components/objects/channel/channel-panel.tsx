@@ -1,8 +1,9 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Hash, Lock } from 'lucide-react';
 import { EntityDetailView } from '@weldsuite/ui/components/entity-detail-view';
 import {
   ObjectPanelTabs,
+  useObjectPanel,
   useObjectPanelShell,
   useObjectPanelTabConfig,
   type ObjectPanelComponentProps,
@@ -14,6 +15,7 @@ import {
   useBookmarks,
   type ChatMessage,
 } from '@/hooks/queries/use-weldchat-queries';
+import { AgentProfilePanel } from '@/app/weldchat/components/agent-profile-panel';
 import { BookmarksPanel } from '@/app/weldchat/components/bookmarks-panel';
 import {
   ChatContext,
@@ -148,7 +150,7 @@ export function ChannelPanel(props: Readonly<ObjectPanelComponentProps>) {
   }, [initialTab]);
   const [activeTab, setActiveTab] = useState<ChannelTab['id']>(initial);
 
-  // The embedded panels (MemberListPanel, ChatFiltersPanel, …) call
+  // The embedded panels (ChannelPeopleTab, BookmarksPanel, …) call
   // `useChatContext()` because they were built for the chat layout's right
   // rail. When mounted via the global `ObjectPanelHost`, that provider is
   // gone — so we supply a local context scoped to this channel. Inherit
@@ -162,6 +164,14 @@ export function ChannelPanel(props: Readonly<ObjectPanelComponentProps>) {
   const [localEditingMessage, setLocalEditingMessage] = useState<EditingMessage | null>(null);
   const [localProfileUserId, setLocalProfileUserId] = useState<string | null>(null);
   const [localAgentProfileId, setLocalAgentProfileId] = useState<string | null>(null);
+  const { open: openObjectPanel } = useObjectPanel();
+  // Outside the WeldChat layout (a channel link opened from another module) there is no
+  // chat shell to show a profile, so people open as a panel on top of this one and
+  // agents in their own profile panel, rendered below.
+  const openPersonPanel = useCallback(
+    (userId: string) => openObjectPanel({ type: 'team-member', id: userId, stack: true }),
+    [openObjectPanel],
+  );
 
   const ctxValue = useMemo<ChatContextValue>(() => ({
     activeChannelId: parent?.activeChannelId ?? id,
@@ -181,13 +191,13 @@ export function ChannelPanel(props: Readonly<ObjectPanelComponentProps>) {
     filters: parent?.filters ?? localFilters,
     setFilters: parent?.setFilters ?? setLocalFilters,
     selectedProfileUserId: parent?.selectedProfileUserId ?? localProfileUserId,
-    openUserProfile: parent?.openUserProfile ?? setLocalProfileUserId,
+    openUserProfile: parent?.openUserProfile ?? openPersonPanel,
     closeUserProfile: parent?.closeUserProfile ?? (() => setLocalProfileUserId(null)),
     selectedAgentProfileId: parent?.selectedAgentProfileId ?? localAgentProfileId,
     openAgentProfile: parent?.openAgentProfile ?? setLocalAgentProfileId,
     closeAgentProfile: parent?.closeAgentProfile ?? (() => setLocalAgentProfileId(null)),
   }), [
-    parent, id, onClose,
+    parent, id, onClose, openPersonPanel,
     localFilters, localReplyTo, localEditingMessage, localProfileUserId, localAgentProfileId,
   ]);
 
@@ -214,6 +224,9 @@ export function ChannelPanel(props: Readonly<ObjectPanelComponentProps>) {
         {activeTab === 'attachments' && <ChannelAttachmentsTab channelId={id} messages={flatMessages} />}
         {activeTab === 'bookmarks' && <BookmarksPanel embedded />}
       </EntityDetailView>
+      {!parent && localAgentProfileId && (
+        <AgentProfilePanel agentId={localAgentProfileId} isOpen onClose={() => setLocalAgentProfileId(null)} />
+      )}
     </ChatContext.Provider>
   );
 }

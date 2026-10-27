@@ -119,6 +119,15 @@ export interface EntityDetailViewProps {
    * above it can use the otherwise empty space. Ignored in fullscreen mode.
    */
   sidebarFitContent?: boolean;
+  /**
+   * Panel mode: let the bottom sidebar take whatever height the details above it
+   * do not need, never less than its default size. Use while the sidebar is a
+   * conversation that has messages: on a tall panel with a short details list the
+   * chat grows into the empty space instead of staying a small fixed box under it.
+   * Dragging the handle still fixes the height. Ignored in fullscreen mode, and
+   * when `sidebarFitContent` is set.
+   */
+  sidebarFill?: boolean;
 
   /**
    * Panel mode: draw the horizontal divider line above the bottom sidebar.
@@ -414,7 +423,13 @@ type LayoutProps = Omit<EntityDetailViewProps, RootOnlyProps> & HeaderRenderProp
 /** The inline fullscreen layout has no panel geometry and no collapsible bottom sidebar. */
 type InlineFullscreenLayoutProps = Omit<
   LayoutProps,
-  "width" | "topOffset" | "leftOffset" | "zIndex" | "sidebarDefaultCollapsed" | "sidebarFitContent"
+  | "width"
+  | "topOffset"
+  | "leftOffset"
+  | "zIndex"
+  | "sidebarDefaultCollapsed"
+  | "sidebarFitContent"
+  | "sidebarFill"
 >;
 
 /* ---------------------------------------------------------------- */
@@ -456,6 +471,7 @@ function AnimatedShell({
   sidebarDefaultCollapsed = false,
   sidebarDivider = true,
   sidebarFitContent = false,
+  sidebarFill = false,
   sidebarLocked = false,
   loading,
   className,
@@ -543,6 +559,7 @@ function AnimatedShell({
           sidebarDefaultCollapsed={sidebarDefaultCollapsed}
           sidebarDivider={sidebarDivider}
           sidebarFitContent={sidebarFitContent}
+          sidebarFill={sidebarFill}
         >
           {children}
         </PanelBody>
@@ -613,8 +630,21 @@ interface PanelBodyProps {
   sidebarDefaultCollapsed: boolean;
   sidebarDivider: boolean;
   sidebarFitContent: boolean;
+  sidebarFill: boolean;
   loading?: boolean;
   contentClassName?: string;
+}
+
+/** The bottom region's sizing: hug the content, grow into the free space, or a set height. */
+function sidebarStyle(
+  fitContent: boolean,
+  fill: boolean,
+  collapsed: boolean,
+  openHeight: number | string,
+): React.CSSProperties {
+  if (fitContent && !collapsed) return { maxHeight: openHeight };
+  if (fill) return { flex: "1 1 0%", minHeight: openHeight };
+  return { height: collapsed ? 8 : openHeight };
 }
 
 function PanelBody({
@@ -630,6 +660,7 @@ function PanelBody({
   sidebarDefaultCollapsed,
   sidebarDivider,
   sidebarFitContent,
+  sidebarFill,
   loading,
   contentClassName,
 }: Readonly<PanelBodyProps>) {
@@ -756,6 +787,9 @@ function PanelBody({
   const openSidebarHeight = userSized
     ? sidebarHeight
     : `min(${sidebarHeight}px, ${DEFAULT_SIDEBAR_MAX_SHARE}%)`;
+  // `sidebarFill`: until the user sizes it, the bottom region takes the space the
+  // details leave over (at least its default size) and the details hug their content.
+  const fillSidebar = sidebarFill && !sidebarFitContent && !userSized && !collapsed;
 
   return (
     <>
@@ -773,7 +807,8 @@ function PanelBody({
           the way down to the input field. */}
       <div
         className={cn(
-          "flex-1 min-h-0 overflow-y-auto overflow-x-hidden transition-opacity duration-200",
+          "min-h-0 overflow-y-auto overflow-x-hidden transition-opacity duration-200",
+          fillSidebar ? "flex-initial" : "flex-1",
           loading ? "opacity-0" : "opacity-100",
           contentClassName,
         )}
@@ -796,11 +831,7 @@ function PanelBody({
           // `sidebarFitContent`: hug the content (the composer alone) up to the
           // open height, so the details above can use the space a fixed
           // height would leave empty.
-          style={
-            sidebarFitContent && !collapsed
-              ? { maxHeight: openSidebarHeight }
-              : { height: collapsed ? 8 : openSidebarHeight }
-          }
+          style={sidebarStyle(sidebarFitContent, fillSidebar, collapsed, openSidebarHeight)}
         >
           {!collapsed && (
             <div className={cn("min-h-0 overflow-hidden", !sidebarFitContent && "flex-1")}>{sidebar}</div>

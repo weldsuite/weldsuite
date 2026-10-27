@@ -11,7 +11,11 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
-import { sendChatMentionNotification } from '@weldsuite/notifications';
+import {
+  sendChatAgentReplyNotification,
+  sendChatMentionNotification,
+  stripMarkdown,
+} from '@weldsuite/notifications';
 import type { NotificationEnv } from '@weldsuite/notifications/types';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
@@ -140,12 +144,14 @@ function isPersonMention(id: string): boolean {
 /**
  * Unread-mention counter, realtime ping and notification for each person the
  * reply mentions or is for. Room members only; failures are logged, never thrown.
+ * People the reply is only for (`replyTo`: they asked, nobody wrote their
+ * name) hear "<agent> replied to you"; people it names hear "mentioned you".
  */
 async function notifyMentionedPeople(
   rt: RealtimePublisher | null,
   ctx: PostAgentChatMessageContext,
   members: RoomMember[],
-  message: { messageId: string; preview: string; mentions: string[] },
+  message: { messageId: string; preview: string; mentions: string[]; replyTo: ReadonlySet<string> },
 ): Promise<void> {
   const { db, env, orgId, channelId, agentId, agentName } = ctx;
   const { chatChannelMembers } = schema;
@@ -175,17 +181,31 @@ async function notifyMentionedPeople(
         console.error('[chat-domain] agent mention realtime publish failed:', e);
       }
       try {
-        await sendChatMentionNotification({
-          db: db as never,
-          env,
-          workspaceId: orgId,
-          mentionedUserId: userId,
-          authorUserId: agentId,
-          authorName: agentName,
-          channelId,
-          messageId: message.messageId,
-          preview: message.preview,
-        });
+        if (message.replyTo.has(userId)) {
+          await sendChatAgentReplyNotification({
+            db: db as never,
+            env,
+            workspaceId: orgId,
+            recipientUserId: userId,
+            agentId,
+            agentName,
+            channelId,
+            messageId: message.messageId,
+            preview: message.preview,
+          });
+        } else {
+          await sendChatMentionNotification({
+            db: db as never,
+            env,
+            workspaceId: orgId,
+            mentionedUserId: userId,
+            authorUserId: agentId,
+            authorName: agentName,
+            channelId,
+            messageId: message.messageId,
+            preview: message.preview,
+          });
+        }
       } catch (e) {
         console.error('[chat-domain] agent mention notification failed:', e);
       }
@@ -241,10 +261,13 @@ export async function postAgentChatMessage(
   const id = generateId('msg');
   const now = new Date();
   const hop = input.hop ?? 0;
+  const namedMentions = extractChatMentions(input.content, input.mentions ?? []);
   const allMentions = extractChatMentions(input.content, [
     ...(input.mentions ?? []),
     ...(input.notifyUserIds ?? []),
   ]);
+  // Asked, but not named: these hear "replied to you", not "mentioned you".
+  const replyTo = new Set((input.notifyUserIds ?? []).filter((userId) => !namedMentions.includes(userId)));
 
   await db.insert(chatMessages).values({
     id,
@@ -267,7 +290,8 @@ export async function postAgentChatMessage(
     updatedAt: now,
   });
 
-  const preview = await buildMessagePreview(db, input.content);
+  // Agents write markdown; the room list and notifications show plain text.
+  const preview = await buildMessagePreview(db, stripMarkdown(input.content));
   await db
     .update(chatChannels)
     .set({
@@ -300,7 +324,7 @@ export async function postAgentChatMessage(
       replyTo: input.replyTo ?? undefined,
     });
   }
-  await notifyMentionedPeople(rt, ctx, members, { messageId: id, preview, mentions: allMentions });
+  await notifyMentionedPeople(rt, ctx, members, { messageId: id, preview, mentions: allMentions, replyTo });
 
   return message;
 }

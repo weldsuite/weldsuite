@@ -7,16 +7,32 @@
  */
 
 import { z } from 'zod';
-import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, ilike, inArray, isNull, lt, lte, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import { hasAppPermission, hasPermission } from '@weldsuite/permissions';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
 import { listPeople, createPerson, getPerson, isValidWorkspaceMember } from '@weldsuite/crm-domain/people';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
+import { getWorkspaceTimezone } from '@weldsuite/flow-domain/day-boundaries';
 import { ASK_USER_TOOL_NAME, agentQuestionSchema } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 import { reindexAgentRoutines, routineIndexSync } from './routine-index';
 import { SHEET_TOOLS } from './sheets-tools';
+import { PROJECT_TOOLS } from './projects-tools';
+import {
+  CLOSED_TASK_STATUSES,
+  accessibleProjectIds,
+  dueCutoff,
+  memberNames,
+  projectNames,
+  taskAssigneeIds,
+} from './read-helpers';
+import {
+  extractEventSubscriptions,
+  hasExplicitTriggers,
+  normalizeExplicitTriggers,
+  withExplicitTriggersFlag,
+} from './subscriptions';
 import type { Database } from '@weldsuite/worker-kit/db';
 
 export type AgentDb = Database;
@@ -45,6 +61,21 @@ export interface ToolContext {
   actorCanEdit?: boolean;
   agentHop?: number;
   maxAgentHops?: number;
+  /**
+   * Row-level boundary of the person the tools act for. Set where they run on
+   * a person's own behalf (the default WeldAgent), so a read tool never shows
+   * what that person could not open themselves. Unset for workspace agents,
+   * whose grants alone decide.
+   */
+  rowScope?: ToolRowScope;
+}
+
+export interface ToolRowScope {
+  userId: string;
+  /** Holds `people:scope:all`; otherwise only the people they own are visible. */
+  allPeople: boolean;
+  /** Holds `projects:scope:all`; otherwise only projects they manage or belong to are visible. */
+  allProjects: boolean;
 }
 
 /**
@@ -90,11 +121,38 @@ async function emitAgentEntityEvent(
       entityType,
       action: 'created',
       entityId,
-      data: { ...data, triggeredByAgentId: ctx.agentId },
+      data: { ...data, createdBy: ctx.actorUserId, triggeredByAgentId: ctx.agentId },
     });
   } catch (err) {
     console.warn(`[weldagent/tools] ${entityType}.created event failed:`, err);
   }
+}
+
+/** The owner a people read is limited to: the person the tools act for, unless they may see everyone's. */
+function peopleOwnerScope(ctx: ToolContext): string | undefined {
+  return ctx.rowScope && !ctx.rowScope.allPeople ? ctx.rowScope.userId : undefined;
+}
+
+/** A task assigned to `userId`, as its primary assignee or one of several. */
+function assignedTo(userId: string): SQL {
+  const { tasks: t } = schema;
+  return or(eq(t.assigneeId, userId), sql`${t.assigneeIds}::jsonb @> ${JSON.stringify([userId])}::jsonb`)!;
+}
+
+/**
+ * The row boundary of a task read: without `projects:scope:all`, tasks of the
+ * projects the person manages or belongs to, tasks assigned to them (My Tasks
+ * shows those whatever the project), and personal tasks they reported.
+ * Undefined: no boundary.
+ */
+async function taskRowScope(ctx: ToolContext): Promise<SQL | undefined> {
+  if (!ctx.rowScope || ctx.rowScope.allProjects) return undefined;
+  const { tasks: t } = schema;
+  const { userId } = ctx.rowScope;
+  const projectIds = await accessibleProjectIds(ctx.db, userId);
+  const own: SQL[] = [assignedTo(userId), and(isNull(t.projectId), eq(t.reporterId, userId))!];
+  if (projectIds.length > 0) own.unshift(inArray(t.projectId, projectIds));
+  return or(...own);
 }
 
 /** `length` random base36 characters from the Web Crypto RNG. */
@@ -152,9 +210,28 @@ const createTicketParams = z.object({
 });
 
 const listTasksParams = z.object({
-  search: z.string().max(200).optional(),
-  status: z.string().max(30).optional(),
-  projectId: z.string().max(30).optional(),
+  search: z.string().max(200).optional().describe('Part of the task title'),
+  status: z.string().max(30).optional().describe('One exact status, such as todo, in_progress or done'),
+  projectId: z.string().max(30).optional().describe('Only tasks of this project (id from list_projects)'),
+  assignedToMe: z
+    .boolean()
+    .optional()
+    .describe('true: only tasks assigned to the person you are working for ("my tasks")'),
+  dueOnOrBefore: z
+    .string()
+    .max(40)
+    .optional()
+    .describe(
+      'ISO date such as 2026-10-27 (that whole day counts) or a date-time. Finds tasks due then or earlier, ' +
+        'so overdue tasks are included. Tasks without a due date are left out.',
+    ),
+  includeDone: z
+    .boolean()
+    .optional()
+    .describe(
+      'false leaves out finished tasks (done or cancelled). Use false for "open", "to do", "due" or "overdue" questions. ' +
+        'Omitted: tasks of every status.',
+    ),
   limit: z.number().int().min(1).max(50).optional(),
 });
 
@@ -217,6 +294,16 @@ const saveAgentSetupParams = z.object({
     .describe(
       'Set true ONLY if the user explicitly asked to activate / go live. Otherwise omit or set false: the agent keeps its current status (a draft stays a draft, an active agent stays active).',
     ),
+  triggers: z
+    .array(z.string().min(3).max(100))
+    .max(20)
+    .optional()
+    .describe(
+      'Events that should start this agent by themselves, as entity.event keys (e.g. "ticket.created", "person.created", "project_task.completed"). ' +
+        'Pass ONLY triggers the user explicitly asked for ("when a new ticket arrives, triage it"). ' +
+        'For an agent that only works when someone asks it in chat, omit this or pass an empty list. ' +
+        'Omitted: no event is guessed from your instructions unless they clearly describe one.',
+    ),
 });
 
 const updateRoutineParams = z.object({
@@ -247,14 +334,14 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     description:
       'Save purpose + routines + display name AFTER interviewing the user. ' +
       'Do not call this after only a preset click — you must have clarified routines first. ' +
-      'Never claim you are active unless activate=true and the user asked for that.',
+      'Never claim you are active unless activate=true and the user asked for that. ' +
+      'Only pass triggers the user asked for (events that should start you by themselves); an agent that works when asked in chat has none.',
     requiredPermissions: [],
     parameters: saveAgentSetupParams,
     async execute(ctx, raw) {
       if (ctx.actorCanEdit === false) return NOT_EDITOR;
       const args = saveAgentSetupParams.parse(raw);
       const { updateAgent, getAgent } = await import('./agents');
-      const { extractEventSubscriptions } = await import('./subscriptions');
 
       const existing = await getAgent(ctx.db, ctx.agentId);
       if (!existing) return { error: 'Agent not found' };
@@ -272,7 +359,15 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         };
       }
 
-      const eventSubscriptions = extractEventSubscriptions(prompt);
+      // What the user asked for beats a reading of the prompt: triggers passed
+      // here are used as given (an empty list: chat only), and stay when a
+      // later save does not repeat them.
+      const explicit = args.triggers ? normalizeExplicitTriggers(args.triggers) : null;
+      const eventSubscriptions = explicit
+        ? explicit.subscriptions
+        : hasExplicitTriggers(existing.enabledTools)
+          ? existing.eventSubscriptions
+          : extractEventSubscriptions(prompt);
       const nextName = args.name.trim();
       const { splitGrantable } = await import('./grants');
       const { granted, refused } = splitGrantable(args.permissions ?? [], {
@@ -285,6 +380,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         description: args.description?.trim() || existing.description,
         permissions,
         eventSubscriptions,
+        ...(explicit ? { enabledTools: withExplicitTriggersFlag(existing.enabledTools) } : {}),
         // Saving only turns an agent on, never off: re-saving the setup of a
         // live agent from its chat must not pause it and stop its routines.
         ...(args.activate ? { status: 'active' as const } : {}),
@@ -299,6 +395,13 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
         status: updated.status,
         description: updated.description,
         eventSubscriptions: updated.eventSubscriptions,
+        ...(explicit && explicit.invalid.length > 0
+          ? {
+              unknownTriggers: explicit.invalid,
+              unknownTriggersHint:
+                'These triggers are not events WeldSuite knows, so they were not saved. Tell the user and ask what should start you.',
+            }
+          : {}),
         grantedPermissions: granted,
         ...(refused.length > 0
           ? {
@@ -533,10 +636,14 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     parameters: listPeopleParams,
     async execute(ctx, raw) {
       const args = listPeopleParams.parse(raw);
-      const result = await listPeople(ctx.db, {
-        search: args.search,
-        limit: args.limit ?? 20,
-      });
+      const result = await listPeople(
+        ctx.db,
+        {
+          search: args.search,
+          limit: args.limit ?? 20,
+        },
+        peopleOwnerScope(ctx),
+      );
       return {
         totalCount: result.totalCount,
         people: result.data.map((p) => ({
@@ -557,7 +664,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
     parameters: getPersonParams,
     async execute(ctx, raw) {
       const args = getPersonParams.parse(raw);
-      const person = await getPerson(ctx.db, args.id);
+      const person = await getPerson(ctx.db, args.id, peopleOwnerScope(ctx));
       if (!person) return { error: 'Person not found' };
       return {
         id: person.id,
@@ -672,31 +779,74 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
   {
     id: 'tasks.list',
     name: 'list_tasks',
-    description: 'List project tasks, optionally filtered by status, project, or search.',
+    description:
+      'List WeldFlow tasks with their project, assignees and due date, optionally filtered by status, project, ' +
+      'assignee, due date or search. totalCount is how many tasks match, whatever the limit. ' +
+      '"My tasks": assignedToMe. "Due today" or "overdue": dueOnOrBefore with includeDone=false.',
     requiredPermissions: ['tasks:read'],
     parameters: listTasksParams,
     async execute(ctx, raw) {
       const args = listTasksParams.parse(raw);
       const { tasks: t } = schema;
       const limit = args.limit ?? 20;
-      const conditions = [isNull(t.deletedAt)];
+      const conditions: SQL[] = [
+        isNull(t.deletedAt),
+        // Tasks of a deleted project are gone with it.
+        sql`NOT EXISTS (SELECT 1 FROM ${schema.projects} WHERE ${schema.projects.id} = ${t.projectId} AND ${schema.projects.deletedAt} IS NOT NULL)`,
+      ];
       if (args.status) conditions.push(eq(t.status, args.status));
+      else if (args.includeDone === false) conditions.push(notInArray(t.status, [...CLOSED_TASK_STATUSES]));
       if (args.projectId) conditions.push(eq(t.projectId, args.projectId));
       if (args.search) conditions.push(ilike(t.title, `%${args.search}%`));
-      const rows = await ctx.db
-        .select({
-          id: t.id,
-          title: t.title,
-          status: t.status,
-          priority: t.priority,
-          projectId: t.projectId,
-          dueDate: t.dueDate,
-        })
-        .from(t)
-        .where(and(...conditions))
-        .orderBy(desc(t.createdAt))
-        .limit(limit);
-      return { tasks: rows };
+      if (args.assignedToMe) conditions.push(assignedTo(ctx.actorUserId));
+      if (args.dueOnOrBefore) {
+        const cutoff = dueCutoff(args.dueOnOrBefore, ctx.userTimezone ?? (await getWorkspaceTimezone(ctx.db)));
+        if (!cutoff) return { error: 'dueOnOrBefore must be an ISO date such as 2026-10-27.' };
+        conditions.push(cutoff.inclusive ? lte(t.dueDate, cutoff.at) : lt(t.dueDate, cutoff.at));
+      }
+      const scope = await taskRowScope(ctx);
+      if (scope) conditions.push(scope);
+      const where = and(...conditions);
+
+      const [rows, [{ total }]] = await Promise.all([
+        ctx.db
+          .select({
+            id: t.id,
+            number: t.number,
+            title: t.title,
+            status: t.status,
+            priority: t.priority,
+            projectId: t.projectId,
+            assigneeId: t.assigneeId,
+            assigneeIds: t.assigneeIds,
+            dueDate: t.dueDate,
+          })
+          .from(t)
+          .where(where)
+          // Tasks due soonest come first when the question is about due dates.
+          .orderBy(...(args.dueOnOrBefore ? [asc(t.dueDate), desc(t.createdAt)] : [desc(t.createdAt)]))
+          .limit(limit),
+        ctx.db.select({ total: sql<number>`count(*)::int` }).from(t).where(where),
+      ]);
+      const [projects, members] = await Promise.all([
+        projectNames(ctx.db, rows.map((row) => row.projectId)),
+        memberNames(ctx.db, rows.flatMap((row) => taskAssigneeIds(row))),
+      ]);
+      return {
+        totalCount: Number(total),
+        tasks: rows.map((row) => ({
+          id: row.id,
+          number: row.number,
+          title: row.title,
+          status: row.status,
+          priority: row.priority,
+          projectId: row.projectId,
+          projectName: row.projectId ? (projects.get(row.projectId) ?? null) : null,
+          assigneeIds: taskAssigneeIds(row),
+          assignees: taskAssigneeIds(row).flatMap((id) => members.get(id) ?? []),
+          dueDate: row.dueDate ? row.dueDate.toISOString() : null,
+        })),
+      };
     },
   },
   {
@@ -734,6 +884,7 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       return { id, title: args.title, status: args.status ?? 'todo' };
     },
   },
+  ...PROJECT_TOOLS,
   ...SHEET_TOOLS,
   {
     id: 'chat.message_agent',
@@ -965,6 +1116,17 @@ export function listToolCatalog(): Array<{
     description,
     requiredPermissions,
   }));
+}
+
+/**
+ * Every permission key some platform tool needs (the registry's
+ * `requiredPermissions`, sheets included, none empty). A grant outside this
+ * list gives the agent no platform tool, which the Access tab can say.
+ */
+export function listToolPermissions(): string[] {
+  return [...new Set(PLATFORM_TOOLS.flatMap((tool) => tool.requiredPermissions))].filter(
+    (permission) => permission.length > 0,
+  );
 }
 
 const TOOL_IDS = new Set(PLATFORM_TOOLS.map((t) => t.id));

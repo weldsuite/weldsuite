@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAtom } from 'jotai';
 import { Check, ChevronDown, SquarePen, X } from 'lucide-react';
 import { splitQuestionMarkers } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 import { Button } from '@weldsuite/ui/components/button';
@@ -10,10 +11,12 @@ import {
   DropdownMenuTrigger,
 } from '@weldsuite/ui/components/dropdown-menu';
 import { FloatingDrawer } from '@/components/layout/floating-drawer';
-import { AgentChatInput, AgentSuggestions, DEFAULT_AGENT_SUGGESTIONS } from './agent-chat-input';
+import { AgentChatInput, AgentSuggestions, getDefaultAgentSuggestions } from './agent-chat-input';
 import { AssistantMessage, TypingIndicator, UserMessage } from './chat/chat-message';
 import { QuestionCard } from './chat/question-card';
+import { messagesToRemember, panelSessionAtom } from './panel-session';
 import { getTranslations } from '@/lib/i18n';
+import { usePathname } from '@/lib/router';
 import { cn } from '@/lib/utils';
 import { useWeldAgentChat, type ChatMessage } from '@/hooks/queries/use-ai-chat';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
@@ -80,15 +83,40 @@ export function WeldAgentPanel({
   onPrefillConsumed,
 }: Readonly<WeldAgentPanelProps>) {
   const t = getTranslations('common').ai.chat;
-  const { data: agents = [] } = useAgents();
+  const pathname = usePathname();
+  const { data: agents = [], isSuccess: agentsLoaded } = useAgents();
   const { data: betaAppCodes } = useBetaAppCodes();
-  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
-  const selectedAgent = agents.find((a) => a.id === selectedAgentId) ?? null;
+  // The agent and the conversation outlive the panel: it unmounts on close.
+  const [session, setSession] = useAtom(panelSessionAtom);
+  const selectedAgent = agents.find((a) => a.id === session.agentId) ?? null;
+  // An agent that was deleted (or is no longer visible) falls back to WeldAgent.
+  const selectedAgentId = selectedAgent || !agentsLoaded ? session.agentId : '';
+  const [restored] = useState(() => session.messages);
 
-  const { messages, sendMessage, retry, reset, isSending, error } = useWeldAgentChat({
+  const { messages, sendMessage, retry, reset, stop, isSending, error } = useWeldAgentChat({
     system: entityContext?.customSystemPrompt,
     agentId: selectedAgentId || null,
+    initialMessages: restored,
   });
+
+  // Remember the conversation, so a reopened panel picks it up: once a reply
+  // has finished, and again when the panel closes (which ends a reply that is
+  // still streaming in, keeping what arrived).
+  const latestMessages = useRef(messages);
+  latestMessages.current = messages;
+  useEffect(() => {
+    if (isSending) return;
+    const remembered = messagesToRemember(messages);
+    setSession((prev) => (prev.messages === remembered ? prev : { ...prev, messages: remembered }));
+  }, [messages, isSending, setSession]);
+  useEffect(
+    () => () => {
+      stop();
+      const remembered = messagesToRemember(latestMessages.current);
+      setSession((prev) => ({ ...prev, messages: remembered }));
+    },
+    [stop, setSession],
+  );
 
   const [input, setInput] = useState('');
   const scrollEndRef = useRef<HTMLDivElement>(null);
@@ -124,14 +152,21 @@ export function WeldAgentPanel({
   );
 
   const switchAgent = (id: string) => {
-    setSelectedAgentId(id);
+    setSession({ agentId: id, messages: [] });
     reset();
     setInput('');
   };
 
   const isEmpty = messages.length === 0;
   const contextSuggestions = entityContext?.suggestedPrompts?.slice(0, 3) ?? [];
-  const suggestions = contextSuggestions.length > 0 ? contextSuggestions : DEFAULT_AGENT_SUGGESTIONS;
+  const suggestions = contextSuggestions.length > 0 ? contextSuggestions : getDefaultAgentSuggestions();
+  // The generic chips are for the general assistant, and the Home page already
+  // shows the same ones right next to the panel.
+  const onHome = pathname === '/' || pathname === '';
+  const showSuggestions = isEmpty && !input.trim() && !selectedAgent && !onHome;
+  const emptyBody = selectedAgent
+    ? selectedAgent.description?.trim() || t.agentEmptyBody.replace('{name}', selectedAgent.name)
+    : t.emptyBody;
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
 
   return (
@@ -159,7 +194,7 @@ export function WeldAgentPanel({
               <DropdownMenuContent align="start" className="w-64">
                 <DropdownMenuItem onSelect={() => switchAgent('')} className="flex items-center justify-between">
                   <span>{t.generalAgent}</span>
-                  {!selectedAgentId && <Check className="h-3.5 w-3.5" />}
+                  {!selectedAgent && <Check className="h-3.5 w-3.5" />}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {agents.map((a) => (
@@ -169,7 +204,7 @@ export function WeldAgentPanel({
                     className="flex items-center justify-between gap-2"
                   >
                     <span className="min-w-0 truncate">{a.name}</span>
-                    {a.id === selectedAgentId ? (
+                    {a.id === selectedAgent?.id ? (
                       <Check className="h-3.5 w-3.5 shrink-0" />
                     ) : (
                       a.status !== 'active' && (
@@ -211,7 +246,7 @@ export function WeldAgentPanel({
         {isEmpty ? (
           <div className="flex h-full flex-col justify-end pb-2">
             <p className="text-base font-medium">{t.emptyTitle}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t.emptyBody}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{emptyBody}</p>
           </div>
         ) : (
           <div className="flex flex-col gap-5">
@@ -241,7 +276,7 @@ export function WeldAgentPanel({
         </div>
       )}
 
-      {isEmpty && !input.trim() && (
+      {showSuggestions && (
         <div className="flex-shrink-0 px-3 pb-2">
           <AgentSuggestions suggestions={suggestions} onSelect={submit} />
         </div>

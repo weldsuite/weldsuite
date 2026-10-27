@@ -70,6 +70,79 @@ describe('weldagent agents routes', () => {
     expect(paused.data.status).toBe('paused');
   });
 
+  it('activating a chat-only agent leaves it manual, and keeps the triggers saved in setup', async () => {
+    const { request } = createTestApp('/api/weldagent/agents', weldagentAgentsRoutes, {
+      context: {
+        permissions: permissions('weldagent:read', 'weldagent:create', 'weldagent:update', 'weldagent:manage'),
+        tenantDb: db,
+      },
+    });
+    const create = async (name: string, systemPrompt: string) => {
+      const res = await request('/api/weldagent/agents', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, systemPrompt }),
+      });
+      return ((await res.json()) as { data: { id: string } }).data.id;
+    };
+    const activate = async (id: string) => {
+      const res = await request(`/api/weldagent/agents/${id}/activate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      return ((await res.json()) as { data: { status: string; eventSubscriptions: string[] } }).data;
+    };
+
+    const chatOnly = await create(
+      'Chat only',
+      'You have no schedules or automatic triggers. Do not create new tasks unless asked. Never open new tickets yourself. When the user asks in chat, create a new person in the CRM.',
+    );
+    expect(await activate(chatOnly)).toMatchObject({ status: 'active', eventSubscriptions: ['manual'] });
+
+    // Subscriptions the setup saved explicitly survive Activate (the prompt alone would not give them).
+    const explicit = await create('Explicit', 'Work through the support ticket queue.');
+    const { PLATFORM_TOOLS } = await import('@weldsuite/agent-domain/tools');
+    const saveSetup = PLATFORM_TOOLS.find((tool) => tool.id === 'agent.save_setup')!;
+    await saveSetup.execute(
+      { db, agentId: explicit, actorUserId: 'user_1', workspaceId: 'org_1', actorPermissions: [] },
+      { name: 'Queue', systemPrompt: 'Work through the support ticket queue.', triggers: ['ticket.created'] },
+    );
+    expect(await activate(explicit)).toMatchObject({ status: 'active', eventSubscriptions: ['ticket.created'] });
+  });
+
+  it('lists which permission keys give an agent a tool, so the Access tab can tell a grant with none', async () => {
+    const { request } = createTestApp('/api/weldagent/agents', weldagentAgentsRoutes, {
+      context: { permissions: permissions('weldagent:read', 'weldagent:create', 'weldagent:manage'), tenantDb: db },
+    });
+    const created = await request('/api/weldagent/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'Access test' }),
+    });
+    const { id } = ((await created.json()) as { data: { id: string } }).data;
+
+    const res = await request(`/api/weldagent/agents/${id}`);
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { toolPermissions: string[] } };
+    expect(data.toolPermissions).toEqual(
+      expect.arrayContaining([
+        'people:read',
+        'people:create',
+        'tickets:read',
+        'tickets:create',
+        'tasks:read',
+        'tasks:create',
+        'projects:read',
+        'sheets:read',
+        'sheets:update',
+        'browser:use',
+      ]),
+    );
+    expect(new Set(data.toolPermissions).size).toBe(data.toolPermissions.length);
+    expect(data.toolPermissions).not.toContain('');
+  });
+
   it('refuses to grant an agent permissions the caller lacks', async () => {
     const { request } = createTestApp('/api/weldagent/agents', weldagentAgentsRoutes, {
       context: {

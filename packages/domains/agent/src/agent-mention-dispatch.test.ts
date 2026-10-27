@@ -5,9 +5,15 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const notified: string[] = [];
 vi.mock('@weldsuite/notifications', () => ({
+  stripMarkdown: (text: string) => text,
   sendChatMentionNotification: vi.fn(async (params: { mentionedUserId: string }) => {
     notified.push(params.mentionedUserId);
     return 'notif_1';
+  }),
+  // The asker hears "replied to you"; either way the same person is told.
+  sendChatAgentReplyNotification: vi.fn(async (params: { recipientUserId: string }) => {
+    notified.push(params.recipientUserId);
+    return 'notif_2';
   }),
 }));
 
@@ -130,6 +136,50 @@ describe('dispatchAgentMentions', () => {
 
     const [run] = await db.select().from(schema.weldagentAgentRuns).where(eq(schema.weldagentAgentRuns.agentId, 'agt_a'));
     expect(run.status).toBe('completed');
+  });
+
+  it('carries the actions the agent parked for approval on its reply, for Approve / Reject in the room', async () => {
+    runAgentOnce.mockResolvedValueOnce({
+      ...reply('I have asked for your approval.'),
+      toolInvocations: [
+        { toolName: 'list_people', state: 'result', args: {}, result: { people: [] } },
+        {
+          toolName: 'create_task',
+          state: 'result',
+          args: { title: 'QA agent chat task' },
+          result: { pendingApproval: true, approvalId: 'apr_room_1', label: 'Create task "QA agent chat task"', message: 'Waiting' },
+        },
+      ],
+    });
+    const ask = await post('<@agt_a> create a task called QA agent chat task');
+    await dispatch(ask, '<@agt_a> create a task called QA agent chat task', ['agt_a']);
+
+    const answer = (await agentReplies('agt_a')).find((m) => m.content === 'I have asked for your approval.')!;
+    expect((answer.metadata as { approvals?: unknown }).approvals).toEqual([
+      { id: 'apr_room_1', label: 'Create task "QA agent chat task"', status: 'pending' },
+    ]);
+  });
+
+  it('still posts a reply when the agent only parked an action and wrote no text', async () => {
+    runAgentOnce.mockResolvedValueOnce({
+      ...reply(''),
+      toolInvocations: [
+        {
+          toolName: 'create_person',
+          state: 'result',
+          args: { firstName: 'QA' },
+          result: { pendingApproval: true, approvalId: 'apr_room_2', label: 'Create person "QA"' },
+        },
+      ],
+    });
+    const ask = await post('<@agt_a> add QA as a person');
+    await dispatch(ask, '<@agt_a> add QA as a person', ['agt_a']);
+
+    const answers = await agentReplies('agt_a');
+    const answer = answers.find((m) => m.content.includes('Create person "QA"'))!;
+    expect(answer.content).toBe('This needs your approval before I can do it: Create person "QA".');
+    expect((answer.metadata as { approvals: Array<{ id: string }> }).approvals.map((a) => a.id)).toEqual(['apr_room_2']);
+    await db.delete(schema.chatMessages).where(eq(schema.chatMessages.id, answer.id));
   });
 
   it('answers with what went wrong when the turn fails', async () => {

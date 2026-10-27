@@ -3,12 +3,12 @@ import { Bot, X, ExternalLink, CheckCircle2, XCircle, Loader2, Timer } from 'luc
 import { Link } from '@tanstack/react-router';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
-import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { useAgent } from '@/hooks/queries/use-agent-queries';
 import type { AgentRun } from '@/hooks/queries/use-agent-queries';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
+import { runSummaryText } from '../lib/run-summary';
 
 export interface AgentProfilePanelProps {
   agentId: string;
@@ -19,6 +19,9 @@ export interface AgentProfilePanelProps {
 }
 
 /** Matches TeamMemberDetailsPanel's collapsed width so the layout stays consistent. */
+/** Settings stored in `enabledTools` that are not tools (auto-review, explicit setup triggers). */
+const AGENT_SETTING_FLAGS: ReadonlySet<string> = new Set(['agent.auto_review', 'agent.explicit_triggers']);
+
 const PANEL_WIDTH = '480px';
 const PANEL_WIDTH_NUM = 480;
 
@@ -108,7 +111,8 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: R
     };
   const statusLabel = statusLabels[agent?.status ?? ''] ?? statusConfig.label;
 
-  const enabledTools = agent?.enabledTools ?? [];
+  // `enabledTools` also carries settings flags, which are not tools.
+  const enabledTools = (agent?.enabledTools ?? []).filter((tool: string) => !AGENT_SETTING_FLAGS.has(tool));
   const recentRuns = agent?.recentRuns ?? [];
 
   const renderBody = () => {
@@ -128,31 +132,34 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: R
       );
     }
     return (
-      <ScrollArea className="flex-1">
+      // A plain scroll box, not Radix ScrollArea: its viewport wraps the content in a
+      // `display: table` element that grows to the longest unbroken line, which pushed
+      // the About text, run summaries and stat boxes far off the right edge.
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <div className="px-4 py-5 space-y-6">
           {agent.description && (
             <section>
               <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
                 {t.weldchat.agentProfilePanel.about}
               </p>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <p className="text-sm text-muted-foreground leading-relaxed break-words">
                 {agent.description}
               </p>
             </section>
           )}
 
           <section className="grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-lg border p-3">
+            <div className="min-w-0 rounded-lg border p-3">
               <div className="text-lg font-semibold">{agent.totalRuns ?? 0}</div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.runs}</div>
             </div>
-            <div className="rounded-lg border p-3">
+            <div className="min-w-0 rounded-lg border p-3">
               <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
                 {agent.successfulRuns ?? 0}
               </div>
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.weldchat.agentProfilePanel.ok}</div>
             </div>
-            <div className="rounded-lg border p-3">
+            <div className="min-w-0 rounded-lg border p-3">
               <div className="text-lg font-semibold text-red-600 dark:text-red-400">
                 {agent.failedRuns ?? 0}
               </div>
@@ -185,11 +192,13 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: R
                   const cfg = RUN_STATUS_ICON[run.status] ?? RUN_STATUS_ICON.failed;
                   const Icon = cfg.icon;
                   const runLabel = runStatusLabels[run.status] ?? cfg.label;
+                  // Summaries are markdown: show them as plain text, one line, clipped to the panel.
+                  const runText = runSummaryText(run.result?.summary) || run.triggerType || runLabel;
                   return (
-                    <div key={run.id} className="flex items-center gap-2 text-xs">
+                    <div key={run.id} className="flex min-w-0 items-center gap-2 text-xs">
                       <Icon className={cn('h-3.5 w-3.5 shrink-0', cfg.className)} />
-                      <span className="flex-1 truncate">
-                        {run.result?.summary ?? run.triggerType ?? runLabel}
+                      <span className="min-w-0 flex-1 truncate" title={runText}>
+                        {runText}
                       </span>
                       <span className="text-muted-foreground text-[10px] shrink-0">
                         {formatDuration(run.durationMs)}
@@ -204,7 +213,7 @@ export function AgentProfilePanel({ agentId, isOpen, onClose, skipAnimation }: R
             </section>
           )}
         </div>
-      </ScrollArea>
+      </div>
     );
   };
 

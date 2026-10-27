@@ -16,6 +16,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { WeldAgentEnv as Env } from './env';
 import { runAgentOnce } from './executor';
+import { approvalsNotice, pendingApprovalsOf } from './approval-labels';
 import { explicitToolAllowList } from './tools';
 import { resolveActorPermissions } from './actor-permissions';
 import { createAgentRun, completeAgentRun, markRunRunning } from './agents';
@@ -433,8 +434,11 @@ async function replyAsAgent(params: {
   }
   await stopWorking();
 
-  const text = (result.text || '').trim();
-  const posted = text ? await post(text, {}) : null;
+  // Actions the agent parked for approval ride on its reply, so the room can
+  // show Approve / Reject under it; with nothing else to say, it says that.
+  const approvals = pendingApprovalsOf(result.toolInvocations);
+  const text = (result.text || '').trim() || (approvals.length > 0 ? approvalsNotice(approvals) : '');
+  const posted = text ? await post(text, approvals.length > 0 ? { approvals } : {}) : null;
   await completeAgentRun(db, {
     runId,
     agentId: agent.id,

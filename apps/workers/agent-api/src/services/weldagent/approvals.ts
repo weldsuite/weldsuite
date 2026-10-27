@@ -7,13 +7,14 @@
  * conversation the request came from.
  */
 
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { getAgent, type AgentDb } from '@weldsuite/agent-domain/agents';
 import { APPROVAL_OUTCOME_KIND, persistAssistantMessage } from '@weldsuite/agent-domain/complete-turn';
 import type { StoredToolInvocation } from '@weldsuite/agent-domain/executor';
 import { effectiveAgentPermissions, findAgentToolByName } from '@weldsuite/agent-domain/tools';
+import { approvedOutcome, failedOutcome, rejectedOutcome } from '@weldsuite/agent-domain/approval-labels';
 
 export interface ApprovalExecution {
   ran: boolean;
@@ -53,13 +54,38 @@ async function resolveOrigin(db: AgentDb, id: string | null): Promise<ApprovalOr
   return channel ? { kind: 'channel', id } : { kind: 'none' };
 }
 
-function describeResult(result: unknown): string {
-  if (!result || typeof result !== 'object') return '';
-  const r = result as Record<string, unknown>;
-  const label = [r.name, r.fullName, r.title, r.subject, r.ticketNumber].find(
-    (v): v is string => typeof v === 'string' && v.length > 0,
-  );
-  return label ? ` (${label})` : '';
+/**
+ * The agent's reply that carried this approval in a room (`metadata.approvals`)
+ * learns the decision, so its Approve / Reject buttons go away. Never throws.
+ */
+async function markChannelApprovalDecided(
+  db: AgentDb,
+  channelId: string,
+  approvalId: string,
+  status: 'approved' | 'rejected',
+): Promise<void> {
+  try {
+    const { chatMessages: m } = schema;
+    const [row] = await db
+      .select({ id: m.id, metadata: m.metadata })
+      .from(m)
+      .where(
+        and(
+          eq(m.channelId, channelId),
+          sql`${m.metadata} @> ${JSON.stringify({ approvals: [{ id: approvalId }] })}::jsonb`,
+        ),
+      )
+      .limit(1);
+    if (!row) return;
+    const metadata = (row.metadata ?? {}) as { approvals?: Array<Record<string, unknown>> };
+    const approvals = (metadata.approvals ?? []).map((entry) => (entry.id === approvalId ? { ...entry, status } : entry));
+    await db
+      .update(m)
+      .set({ metadata: { ...metadata, approvals }, updatedAt: new Date() })
+      .where(eq(m.id, row.id));
+  } catch (err) {
+    console.error('[weldagent/approvals] updating the room message failed:', err);
+  }
 }
 
 export async function executeDecidedApproval(params: {
@@ -105,8 +131,12 @@ export async function executeDecidedApproval(params: {
     }
   };
 
+  if (origin.kind === 'channel' && (approval.status === 'approved' || approval.status === 'rejected')) {
+    await markChannelApprovalDecided(db, origin.id, approval.id, approval.status);
+  }
+
   if (approval.status !== 'approved') {
-    await report(`The "${approval.toolName}" action was rejected, so I did not run it.`);
+    await report(rejectedOutcome(approval.toolName, approval.args));
     return { ran: false, ok: true };
   }
 
@@ -118,9 +148,8 @@ export async function executeDecidedApproval(params: {
     approval.toolName,
   );
   if (!tool) {
-    const error =
-      `"${approval.toolName}" is no longer available to this agent, or you lack the permission it needs.`;
-    await report(`Approved, but I could not run it: ${error}`);
+    const error = 'This action is no longer available to this agent, or you lack the permission it needs.';
+    await report(failedOutcome(approval.toolName, approval.args, error));
     return { ran: false, ok: false, error };
   }
 
@@ -153,8 +182,8 @@ export async function executeDecidedApproval(params: {
 
   await report(
     execution.ok
-      ? `Approved and done: ran "${tool.name}"${describeResult(execution.result)}.`
-      : `Approved, but "${tool.name}" failed: ${execution.error}`,
+      ? approvedOutcome(tool.name, approval.args, execution.result)
+      : failedOutcome(tool.name, approval.args, execution.error ?? 'it failed'),
     invocation,
   );
   return execution;

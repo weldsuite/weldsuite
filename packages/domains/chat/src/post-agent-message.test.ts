@@ -5,7 +5,10 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 // Only the fields a test asserts on are captured, never the live db/env handles.
 const notified: Array<{ mentionedUserId: unknown; authorUserId: unknown; authorName: unknown }> = [];
+const repliedTo: Array<{ recipientUserId: unknown; agentName: unknown; preview: unknown }> = [];
 vi.mock('@weldsuite/notifications', () => ({
+  // The real one is tested in @weldsuite/notifications; here it only marks that the text went through it.
+  stripMarkdown: (text: string) => text.split('**').join(''),
   sendChatMentionNotification: vi.fn(
     async (params: { mentionedUserId: unknown; authorUserId: unknown; authorName: unknown }) => {
       notified.push({
@@ -14,6 +17,16 @@ vi.mock('@weldsuite/notifications', () => ({
         authorName: params.authorName,
       });
       return 'notif_1';
+    },
+  ),
+  sendChatAgentReplyNotification: vi.fn(
+    async (params: { recipientUserId: unknown; agentName: unknown; preview: unknown }) => {
+      repliedTo.push({
+        recipientUserId: params.recipientUserId,
+        agentName: params.agentName,
+        preview: params.preview,
+      });
+      return 'notif_2';
     },
   ),
 }));
@@ -80,6 +93,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   notified.length = 0;
+  repliedTo.length = 0;
   rtCalls.length = 0;
 });
 
@@ -98,12 +112,38 @@ describe('postAgentChatMessage', () => {
     const published = rtCalls.find((c) => c.method === 'chatMessage');
     expect(published?.args[1]).toMatchObject({ authorType: 'agent', replyTo });
 
-    expect(notified).toEqual([{ mentionedUserId: 'member_1', authorUserId: 'agt_helper', authorName: 'Helper' }]);
+    // The asker is told it is a reply to them, not that they were mentioned.
+    expect(notified).toEqual([]);
+    expect(repliedTo).toEqual([
+      { recipientUserId: 'member_1', agentName: 'Helper', preview: 'There are 3 open tickets.' },
+    ]);
     const [asker] = await db
       .select({ count: schema.chatChannelMembers.unreadMentionCount })
       .from(schema.chatChannelMembers)
       .where(eq(schema.chatChannelMembers.id, 'cmb_1'));
     expect(asker.count).toBe(1);
+  });
+
+  it('still says "mentioned you" when the reply names the person who asked', async () => {
+    await postAgentChatMessage(ctx(), {
+      content: 'Thanks <@member_1>, that is done.',
+      notifyUserIds: ['member_1'],
+    });
+    expect(notified.map((n) => n.mentionedUserId)).toEqual(['member_1']);
+    expect(repliedTo).toEqual([]);
+  });
+
+  it('shows plain text, not markdown, in the preview it notifies with', async () => {
+    await postAgentChatMessage(ctx(), {
+      content: "I'm set up as **CRM QA Assistant**",
+      notifyUserIds: ['member_1'],
+    });
+    expect(repliedTo[0].preview).toBe("I'm set up as CRM QA Assistant");
+    const [channel] = await db
+      .select({ preview: schema.chatChannels.lastMessagePreview })
+      .from(schema.chatChannels)
+      .where(eq(schema.chatChannels.id, 'chan_agents'));
+    expect(channel.preview).toBe("I'm set up as CRM QA Assistant");
   });
 
   it('notifies people it mentions, but never someone outside the room', async () => {

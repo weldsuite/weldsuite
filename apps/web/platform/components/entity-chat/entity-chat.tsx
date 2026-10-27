@@ -194,8 +194,10 @@ function FirstMessageComposer({
   });
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex-1 overflow-y-auto">
+    // `flex-1 min-h-0`, not `h-full`: it fills the column its parent lays out (the
+    // parent is always a flex column here), however short that column is.
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col min-h-full py-4 space-y-1">
           <div className="flex-1" />
           {pending.map((msg) => (
@@ -266,7 +268,7 @@ function EmbeddedChannelChat({ channelId }: Readonly<{ channelId: string }>) {
   useWeldChatPresence(client);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <MessageList channelId={channelId} client={client} />
       <MessageInput channelId={channelId} client={client} placeholder={t('sweep.weldchat.entityChat.messagePlaceholder')} />
     </div>

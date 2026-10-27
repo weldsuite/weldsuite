@@ -55,8 +55,10 @@ export {
   helpdeskPreview,
   type HelpdeskEntityKind,
 } from './helpers/helpdesk';
+export { notificationPreview, stripMarkdown } from './helpers/preview';
 export {
   sendChatMentionNotification,
+  sendChatAgentReplyNotification,
   sendChatThreadReplyNotification,
   sendChatDmNotification,
   sendMissedCallNotification,

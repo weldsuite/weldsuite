@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WeldAgentMessage } from '@/hooks/queries/use-weldagent-queries';
-import { buildThread, mergeMessages, openQuestion } from './thread';
+import { agentChangesIn, buildThread, mergeMessages, openQuestion, readInvocations } from './thread';
 
 const question = { question: 'When should I act?', options: [{ label: 'Daily' }, { label: 'On new tickets' }] };
 
@@ -106,6 +106,71 @@ describe('buildThread', () => {
         { agent: 'Researcher', task: 'Find invoices', report: null },
         { agent: 'Writer', task: 'Draft a mail', report: 'Drafted.' },
       ],
+    });
+  });
+});
+
+describe('readInvocations', () => {
+  it('folds a call and its outcome into one entry', () => {
+    const entries = readInvocations([
+      { toolName: 'list_people', state: 'call', args: {} },
+      { toolName: 'list_people', state: 'result', args: {}, result: [] },
+      { toolName: 'create_task', state: 'call', args: {} },
+      { toolName: 'create_task', state: 'error', args: {}, result: { error: 'nope' } },
+      { toolName: 'list_tickets', state: 'call', args: {} },
+    ]);
+    expect(entries.map((e) => [e.toolName, e.state])).toEqual([
+      ['list_people', 'result'],
+      ['create_task', 'error'],
+    ]);
+  });
+
+  it('does not count a rejected second question as a failed tool', () => {
+    const [reply] = buildThread([
+      message('a1', 'assistant', 'One question.', [
+        { toolName: 'ask_user', state: 'call', args: question },
+        { toolName: 'ask_user', state: 'result', args: question, result: { ok: true } },
+        {
+          toolName: 'ask_user',
+          state: 'error',
+          args: { question: 'And another?', options: question.options },
+          result: { error: 'You already asked a question this turn' },
+        },
+      ]),
+    ]);
+    expect(reply).toMatchObject({ kind: 'assistant', steps: [], questions: [{ question, answer: null }] });
+  });
+
+  it('still reports a question that failed outright', () => {
+    const [reply] = buildThread([
+      message('a1', 'assistant', 'Hm', [
+        { toolName: 'ask_user', state: 'error', args: {}, result: { error: 'Invalid question' } },
+      ]),
+    ]);
+    expect(reply).toMatchObject({ steps: [{ name: 'ask_user', failed: true }] });
+  });
+});
+
+describe('agentChangesIn', () => {
+  it('spots the edits an agent made to itself', () => {
+    const reply = message('a1', 'assistant', 'Saved.', [
+      { toolName: 'save_agent_setup', state: 'result', args: {}, result: { ok: true } },
+      { toolName: 'create_routine', state: 'result', args: {}, result: { ok: true, routineId: 'rtn_1' } },
+      { toolName: 'remember', state: 'result', args: {}, result: { ok: true } },
+    ]);
+    expect(agentChangesIn(reply)).toEqual({ agent: true, routines: true, skills: false, memories: true });
+  });
+
+  it('ignores failed calls and user messages', () => {
+    const failedSave = message('a1', 'assistant', 'Oops', [
+      { toolName: 'save_agent_setup', state: 'error', args: {}, result: { error: 'no' } },
+    ]);
+    expect(agentChangesIn(failedSave)).toEqual({ agent: false, routines: false, skills: false, memories: false });
+    expect(agentChangesIn(message('u1', 'user', 'hi'))).toEqual({
+      agent: false,
+      routines: false,
+      skills: false,
+      memories: false,
     });
   });
 });

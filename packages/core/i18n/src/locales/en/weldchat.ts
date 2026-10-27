@@ -818,6 +818,7 @@ export const weldchat = {
     mentionAutocomplete: {
       agent: 'Agent',
       addToChat: 'Add to chat',
+      agentsHeading: 'Agents',
     },
     entityDetailPanel: {
       untitledTask: 'Untitled task',
@@ -873,6 +874,24 @@ export const weldchat = {
       noAgentsToInvite: 'No agents to add',
       agentAdded: '{name} joined this chat',
       addAgentFailed: 'Could not add {name} to this chat',
+      viewAgentProfile: 'View agent profile',
+      agentActions: 'Agent actions',
+      removeAgentTitle: 'Remove {name} from this chat?',
+      removeAgentDescription: '{name} stops answering when someone mentions it here. You can add it back at any time.',
+      removeAgentConfirm: 'Remove agent',
+      agentRemoved: '{name} was removed from this chat',
+      removeAgentFailed: 'Could not remove {name} from this chat',
+    },
+    approvalCard: {
+      waitingFor: 'Waiting for approval: {label}',
+      approve: 'Approve',
+      reject: 'Reject',
+      approved: 'Approved: {label}',
+      rejected: 'Rejected: {label}',
+      alreadyHandled: 'Already handled: {label}',
+      decideFailed: 'Could not send your decision. Try again.',
+      notAllowed: "Only the agent's owner or the person who asked can decide this.",
+      actionFailed: 'Approved, but the action failed: {error}',
     },
     messageList: {
       loadOlderMessages: 'Load older messages',

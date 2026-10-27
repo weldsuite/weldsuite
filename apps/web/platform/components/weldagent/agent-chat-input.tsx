@@ -3,7 +3,15 @@ import { ArrowUp, CornerDownRight, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
 
-export const DEFAULT_AGENT_SUGGESTIONS = ["What's new today?", 'Show my notifications', 'Summarize my inbox'];
+/**
+ * The empty-state chips of the general assistant. Each one needs data the
+ * assistant can read with the user's own permissions (tasks, projects, people,
+ * tickets), so a chip never leads to "I can't see that".
+ */
+export function getDefaultAgentSuggestions(): string[] {
+  const s = getTranslations('common').ai.chat.suggestions;
+  return [s.today, s.tasks, s.crm];
+}
 
 interface AgentChatInputProps {
   value: string;
@@ -102,10 +110,11 @@ interface AgentSuggestionsProps {
   onSelect: (suggestion: string) => void;
 }
 
-export function AgentSuggestions({ suggestions = DEFAULT_AGENT_SUGGESTIONS, onSelect }: Readonly<AgentSuggestionsProps>) {
+export function AgentSuggestions({ suggestions, onSelect }: Readonly<AgentSuggestionsProps>) {
+  const items = suggestions ?? getDefaultAgentSuggestions();
   return (
     <div className="space-y-0.5">
-      {suggestions.map((suggestion) => (
+      {items.map((suggestion) => (
         <button
           key={suggestion}
           type="button"

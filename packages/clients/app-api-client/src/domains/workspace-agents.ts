@@ -12,6 +12,7 @@ import type {
   UpdateWorkspaceAgentAccessInput,
   UpdateWorkspaceAgentSubagentsInput,
   WorkspaceAgent,
+  WorkspaceAgentDetail,
   WorkspaceAgentRun,
   WorkspaceAgentToolCatalogItem,
 } from '../schemas/workspace-agents';
@@ -24,7 +25,7 @@ export function createWorkspaceAgentsApi(api: ClientApi) {
       );
     },
 
-    get(id: string): Promise<DataResponse<WorkspaceAgent & { availableTools?: WorkspaceAgentToolCatalogItem[] }>> {
+    get(id: string): Promise<DataResponse<WorkspaceAgentDetail>> {
       return api.get(`/weldagent/agents/${id}`);
     },
 

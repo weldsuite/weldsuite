@@ -6,6 +6,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { agentKeys, useWatchAgentRuns } from './use-agent-queries';
 import type {
   CreateRoutineInput,
   UpdateRoutineInput,
@@ -81,15 +82,44 @@ export function useAgentRoutines(agentId: string) {
   });
 }
 
-/** Pending approvals for an agent. Polls so chat + Configure stay in sync. */
+/** How often the pending approvals are re-read while the agent chat is open. */
+export const APPROVALS_POLL_MS = 8_000;
+
+/**
+ * Pending approvals for an agent. Polls so chat + Configure stay in sync (a
+ * hidden tab pauses it, and refetches when it comes back to the front).
+ */
 export function useAgentApprovals(agentId: string, opts?: { refetchInterval?: number | false }) {
   const { weldAgentParity } = useAppApi();
   return useQuery({
-    queryKey: agentParityKeys.approvals(agentId),
+    queryKey: [...agentParityKeys.approvals(agentId), 'pending'] as const,
     queryFn: async () =>
       ((await weldAgentParity.listApprovals({ agentId, status: 'pending' })).data ?? []) as AgentApproval[],
     enabled: !!agentId,
-    refetchInterval: opts?.refetchInterval ?? 15_000,
+    refetchInterval: opts?.refetchInterval ?? APPROVALS_POLL_MS,
+    refetchOnWindowFocus: true,
+  });
+}
+
+export type DecidedApprovals = Record<string, 'approved' | 'rejected'>;
+
+/**
+ * How the approvals that are no longer pending were decided, by approval id.
+ * Only read once a chat shows an approval that is not pending.
+ */
+export function useDecidedApprovals(agentId: string, enabled: boolean) {
+  const { weldAgentParity } = useAppApi();
+  return useQuery({
+    queryKey: [...agentParityKeys.approvals(agentId), 'decided'] as const,
+    queryFn: async (): Promise<DecidedApprovals> => {
+      const decided: DecidedApprovals = {};
+      for (const status of ['approved', 'rejected'] as const) {
+        const rows = ((await weldAgentParity.listApprovals({ agentId, status })).data ?? []) as AgentApproval[];
+        for (const row of rows) decided[row.id] = status;
+      }
+      return decided;
+    },
+    enabled: !!agentId && enabled,
   });
 }
 
@@ -157,13 +187,16 @@ export function useDeleteAgentRoutine(agentId: string) {
 export function useTestAgentRoutine(agentId: string) {
   const { weldAgentParity } = useAppApi();
   const qc = useQueryClient();
+  const watchRuns = useWatchAgentRuns();
   return useMutation({
     /** Queues a durable test run; the outcome shows up in the agent's activity. */
     mutationFn: async (id: string) =>
       (await weldAgentParity.testRoutine(id)).data as { queued?: boolean; runId?: string },
     onSuccess: () => {
+      // The test is a durable job: its run joins the Activity list a moment later.
+      watchRuns(agentId);
       void qc.invalidateQueries({ queryKey: agentParityKeys.routines(agentId) });
-      void qc.invalidateQueries({ queryKey: ['workspace-agents'] });
+      void qc.invalidateQueries({ queryKey: agentKeys.all });
     },
   });
 }

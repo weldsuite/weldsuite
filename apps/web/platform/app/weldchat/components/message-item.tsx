@@ -30,6 +30,8 @@ import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import { useChatContext } from './chat-context';
 import { messagePreviewText, renderMessageContent, type InlineFileRenderer } from '../lib/render-message-content';
+import { renderMessageBlocks } from '../lib/render-message-blocks';
+import { MessageApprovals } from './message-approvals';
 import { fileTokenIds } from '../lib/render-tokens';
 import { isSystemNotice, matchSystemNotice } from '../lib/system-notice';
 import { formatCallDuration, type CallSummary } from '../lib/call-history';
@@ -47,6 +49,7 @@ const NO_FILES: MessageFile[] = [];
  * (`<@file:id>`, an image pasted mid-sentence), plus the files it doesn't
  * place, for the gallery under the text. Memoised: parsing is not free, so it
  * runs once per content/attachments/member-map change, not on every row render.
+ * `markdown` (agent messages) also renders lists, headings and paragraphs.
  */
 function useMessageBody(
   content: string | null | undefined,
@@ -54,6 +57,7 @@ function useMessageBody(
   membersMap: Map<string, string> | undefined,
   channelId: string,
   messageId: string,
+  markdown = false,
 ): { body: ReactNode; gallery: MessageFile[] } {
   return useMemo(() => {
     const byId = new Map(attachments.map((att) => [att.id, att]));
@@ -69,11 +73,12 @@ function useMessageBody(
       },
     };
     const placed = new Set(content ? fileTokenIds(content) : []);
+    const render = markdown ? renderMessageBlocks : renderMessageContent;
     return {
-      body: content ? renderMessageContent(content, membersMap, files) : null,
+      body: content ? render(content, membersMap, files) : null,
       gallery: attachments.filter((att) => !placed.has(att.id)),
     };
-  }, [content, attachments, membersMap, channelId, messageId]);
+  }, [content, attachments, membersMap, channelId, messageId, markdown]);
 }
 
 /** Live timer that counts up from a start time */
@@ -549,6 +554,8 @@ export function MessageItem({
     membersMap,
     resolvedChannelId,
     message.id,
+    // Agents answer in markdown; people type plain text.
+    message.authorType === 'agent',
   );
   const isMentioned =
     userId &&
@@ -688,6 +695,9 @@ export function MessageItem({
             );
           })()
         )}
+
+        {/* Actions the agent is waiting on a person to approve */}
+        <MessageApprovals message={message} />
 
         {/* Forwarded message snapshot */}
         {message.forwardedFrom && (

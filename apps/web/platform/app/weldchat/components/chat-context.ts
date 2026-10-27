@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react';
 
-export type RightPanel = 'thread' | 'members' | 'pinned' | 'bookmarks' | 'filters' | null;
+export type RightPanel = 'thread' | 'pinned' | 'bookmarks' | 'filters' | null;
 export type FilterType = 'all' | 'messages' | 'files' | 'images' | 'links';
 
 export interface ChatFilters {
