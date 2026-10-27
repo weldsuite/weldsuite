@@ -162,9 +162,8 @@ export class WorkspaceHub extends DurableObject<Env> {
 
     if (url.pathname === '/presence' && request.method === 'GET') {
       const userIds = url.searchParams.getAll('userId');
-      const users = (await this.tracksPresence())
-        ? await this.livePresence(userIds.length > 0 ? new Set(userIds) : undefined)
-        : {};
+      const only = userIds.length > 0 ? new Set(userIds) : undefined;
+      const users = (await this.tracksPresence()) ? await this.livePresence(only) : {};
       return Response.json({ users } satisfies PresenceSnapshot);
     }
 
