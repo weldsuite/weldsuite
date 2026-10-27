@@ -160,6 +160,7 @@ export const navigation = {
       },
       weldpanel: {
         overview: 'Overview',
+        projects: 'Projects',
       },
       welddocs: {
         documents: 'Documents',

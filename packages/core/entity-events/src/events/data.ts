@@ -540,6 +540,17 @@ export interface SignTemplateEventData {
   title?: string;
 }
 
+/**
+ * A WeldPanel project: id, name, kind and status. The project token and its
+ * settings stay off the bus.
+ */
+export interface PanelProjectEventData {
+  id: string;
+  name?: string;
+  kind?: string;
+  status?: string;
+}
+
 export interface DocEventData {
   id: string;
   /** The drive file (files.id) this document is backed by. */
@@ -702,6 +713,9 @@ export interface EntityEventData {
   // WeldSign
   sign_envelope: SignEnvelopeEventData;
   sign_template: SignTemplateEventData;
+
+  // WeldPanel
+  panel_project: PanelProjectEventData;
 
   // Calendar + meetings
   calendar_event: CalendarEventEventData;

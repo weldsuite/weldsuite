@@ -31,6 +31,7 @@ import { HR_ENTITY_EVENTS } from './hr';
 import { REACH_ENTITY_EVENTS } from './reach';
 import { SHEETS_ENTITY_EVENTS } from './sheets';
 import { SIGN_ENTITY_EVENTS } from './sign';
+import { PANEL_ENTITY_EVENTS } from './panel';
 
 const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['crm', CRM_ENTITY_EVENTS],
@@ -55,6 +56,7 @@ const MODULE_CATALOGS: Array<[string, Record<string, readonly string[]>]> = [
   ['reach', REACH_ENTITY_EVENTS],
   ['sheets', SHEETS_ENTITY_EVENTS],
   ['sign', SIGN_ENTITY_EVENTS],
+  ['panel', PANEL_ENTITY_EVENTS],
 ];
 
 describe('ENTITY_EVENTS catalog', () => {

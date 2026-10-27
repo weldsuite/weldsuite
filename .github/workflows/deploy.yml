@@ -378,6 +378,8 @@ jobs:
               - 'packages/core/ai/**'
             panel-ingest:
               - 'apps/workers/panel-ingest/**'
+              - 'packages/domains/panel/**'
+              - 'packages/sdk/panel-sdk/**'
 
       - name: Resolve change flags
         id: changes

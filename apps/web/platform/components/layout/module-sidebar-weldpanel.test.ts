@@ -10,18 +10,22 @@ describe('WeldPanel module registration', () => {
 
   it('is recognised as a module from its URL', () => {
     expect(getModuleKey('/weldpanel')).toBe('weldpanel');
-    expect(getModuleKey('/weldpanel/recordings')).toBe('weldpanel');
+    expect(getModuleKey('/weldpanel/projects')).toBe('weldpanel');
+    expect(getModuleKey('/weldpanel/projects/wpp_1')).toBe('weldpanel');
   });
 
-  it('lists the overview, gated on panel_projects:read', () => {
+  it('lists the overview and the projects, both gated on panel_projects:read', () => {
     const items = config.getMenuItems(en).flatMap((group) => group.items);
-    expect(items.map((item) => [item.href, item.permission])).toEqual([['/weldpanel', 'panel_projects:read']]);
+    expect(items.map((item) => [item.href, item.permission])).toEqual([
+      ['/weldpanel', 'panel_projects:read'],
+      ['/weldpanel/projects', 'panel_projects:read'],
+    ]);
   });
 
   it('translates the section names', () => {
     const titles = (language: typeof en) => config.getMenuItems(language).flatMap((group) => group.items.map((item) => item.title));
-    expect(titles(en)).toEqual(['Overview']);
-    expect(titles(nl as unknown as typeof en)).toEqual(['Overzicht']);
+    expect(titles(en)).toEqual(['Overview', 'Projects']);
+    expect(titles(nl as unknown as typeof en)).toEqual(['Overzicht', 'Projecten']);
   });
 
   it('has an icon and its permission objects', () => {
