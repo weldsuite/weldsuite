@@ -935,7 +935,8 @@ app.post(
 
 /**
  * DELETE /:channelId/agents/:agentId — take an agent out of a room. Same door
- * as inviting one: anyone in the room who can use agents.
+ * as inviting one: anyone in the room who can use agents, for an agent they
+ * can use themselves.
  */
 app.delete('/:channelId/agents/:agentId', requirePermission('weldagent:use'), async (c) => {
   const db = c.get('tenantDb');
@@ -945,6 +946,11 @@ app.delete('/:channelId/agents/:agentId', requirePermission('weldagent:use'), as
 
   const room = await resolveAgentRoom(c, channelId);
   if (room instanceof Response) return room;
+
+  const viewer = agentViewerFor(c.get('userId'), await ensurePermissionsResolved(c));
+  if ((await inaccessibleAgentIds(db, [agentId], viewer)).length > 0) {
+    return error.forbidden(c, 'You do not have access to this agent');
+  }
 
   try {
     const { removed } = await removeChannelMemberByUserId(db, channelId, agentId);

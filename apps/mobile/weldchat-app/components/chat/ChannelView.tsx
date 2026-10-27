@@ -1896,17 +1896,29 @@ export function ChannelView({
   // Agent channel members resolve `<@agt_…>` mentions, message authorship and
   // the typing indicator the same way the people roster does — merged into
   // the same map rather than kept apart, since a mention token looks the same
-  // either way.
+  // either way. Loaded from the members route: the channel detail's `members`
+  // carry neither `memberType` nor an agent's name. Reloaded when the member
+  // count moves, so an agent added while the chat is open is picked up.
+  const memberCount = channel?.memberCount;
   useEffect(() => {
-    const agentMembers = (channel?.members ?? []) as { userId?: string; name?: string | null; memberType?: string | null }[];
-    const agents = agentMembers.filter((m) => m.memberType === 'agent' && m.userId && m.name);
-    if (agents.length === 0) return;
-    setMembersMap((prev) => {
-      const next = new Map(prev);
-      for (const a of agents) next.set(a.userId as string, a.name as string);
-      return next;
-    });
-  }, [channel]);
+    if (!channelId) return;
+    let cancelled = false;
+    appApi.channels
+      .members(channelId)
+      .then((res) => {
+        const agents = (res.data ?? []).filter((m) => m.memberType === 'agent' && m.userId && m.name);
+        if (cancelled || agents.length === 0) return;
+        setMembersMap((prev) => {
+          const next = new Map(prev);
+          for (const agent of agents) next.set(agent.userId, agent.name as string);
+          return next;
+        });
+      })
+      .catch(console.error);
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, memberCount]);
 
   // Subscribe to realtime updates
   const { typingUsers, onKeystroke, onSend } = useChatRealtime(channelId, loadMessages);

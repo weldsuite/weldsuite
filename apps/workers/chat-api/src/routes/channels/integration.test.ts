@@ -617,6 +617,21 @@ describe('/api/channels · pglite integration', () => {
       expect((await invite(asMember(['channels:read']), channelId, [openAgent])).status).toBe(403);
     });
 
+    it('DELETE /:channelId/agents/:agentId refuses an agent the caller cannot use', async () => {
+      const channelId = await room('private');
+      await db.insert(schema.chatChannelMembers).values({
+        id: generateId('cmb'), channelId, userId: hiddenAgent, memberType: 'agent', role: 'member',
+        createdAt: now, joinedAt: now,
+      });
+      const res = await asMember()(`/api/channels/${channelId}/agents/${hiddenAgent}`, { method: 'DELETE' });
+      expect(res.status).toBe(403);
+      const [row] = await db
+        .select({ id: schema.chatChannelMembers.id })
+        .from(schema.chatChannelMembers)
+        .where(and(eq(schema.chatChannelMembers.channelId, channelId), eq(schema.chatChannelMembers.userId, hiddenAgent)));
+      expect(row).toBeDefined();
+    });
+
     it('DELETE /:channelId/agents/:agentId only removes agents', async () => {
       const channelId = await room('private');
       const res = await asMember()(`/api/channels/${channelId}/agents/${member}`, { method: 'DELETE' });
