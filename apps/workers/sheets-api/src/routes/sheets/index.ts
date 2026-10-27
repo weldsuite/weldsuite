@@ -105,6 +105,7 @@ async function editableFolder(c: Ctx, folderId: string | null): Promise<string |
 export async function saveNewSheet(
   c: Ctx,
   params: {
+    /** The Clerk org id: the R2 prefix of the checkpoint (workspace-id plan). */
     workspaceId: string;
     userId: string;
     name: string;
@@ -146,10 +147,10 @@ async function writableProject(c: Ctx, projectId: string): Promise<string | Resp
 }
 
 /** The workbook a copy starts from: another sheet as its room holds it now, without its connected tables. */
-async function copyOf(c: Ctx, workspaceId: string, sourceId: string): Promise<WorkbookSnapshot | Response> {
+async function copyOf(c: Ctx, clerkOrgId: string, sourceId: string): Promise<WorkbookSnapshot | Response> {
   const found = await findSheet(c, sourceId);
   if (found instanceof Response) return found;
-  const live = await roomFor(c, workspaceId, found.sheet).snapshot(roomMeta(found.sheet, workspaceId));
+  const live = await roomFor(c, clerkOrgId, found.sheet).snapshot(roomMeta(found.sheet, clerkOrgId));
   const workbook = JSON.parse(live.json) as WorkbookSnapshot;
   // Connected tables belong to the sheet they were connected to.
   return { ...workbook, sheets: workbook.sheets.map(({ dataTables: _tables, ...tab }) => tab) };
@@ -157,9 +158,10 @@ async function copyOf(c: Ctx, workspaceId: string, sourceId: string): Promise<Wo
 
 app.post('/', requirePermission('sheets:create'), zValidator('json', createSheetSchema), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  // Room names and R2 keys stay on the Clerk org id: renaming would split live sessions (workspace-id plan).
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const { name, folderId = null, firstTabName, projectId, copyFromSheetId } = c.req.valid('json');
   const project = projectId ? await writableProject(c, projectId) : null;
   if (project instanceof Response) return project;
@@ -168,7 +170,7 @@ app.post('/', requirePermission('sheets:create'), zValidator('json', createSheet
 
   let workbook: WorkbookSnapshot;
   if (copyFromSheetId) {
-    const copied = await copyOf(c, workspaceId, copyFromSheetId);
+    const copied = await copyOf(c, clerkOrgId, copyFromSheetId);
     if (copied instanceof Response) return copied;
     workbook = copied;
   } else {
@@ -176,7 +178,7 @@ app.post('/', requirePermission('sheets:create'), zValidator('json', createSheet
     empty.sheets.push(new Sheet(newTabId(), firstTabName ?? 'Sheet1'));
     workbook = empty.toJSON();
   }
-  const sheet = await saveNewSheet(c, { workspaceId, userId, name, folderId: folder, workbook, projectId: project });
+  const sheet = await saveNewSheet(c, { workspaceId: clerkOrgId, userId, name, folderId: folder, workbook, projectId: project });
   return success(c, toSummary(sheet, 'owner', await mayUpdate(c)), 201);
 });
 
@@ -249,7 +251,7 @@ async function driveSource(c: Ctx, input: ImportDriveFileInput): Promise<ImportS
   if (file.weldsheetId) return error.badRequest(c, 'This file is already a spreadsheet', { reason: 'unsupported' satisfies SheetImportFailure });
   if (file.size > SHEET_IMPORT_MAX_BYTES) return tooLarge(c);
   // A row's key came from a client: never let it reach another workspace's objects.
-  if (!file.key || !isWorkspaceObjectKey(file.key, c.get('workspaceId'))) return error.notFound(c, 'File content', input.fileId);
+  if (!file.key || !isWorkspaceObjectKey(file.key, c.get('clerkOrgId'))) return error.notFound(c, 'File content', input.fileId);
   const object = await getStoredObject(c.env, file.key);
   if (!object) return error.notFound(c, 'File content', input.fileId);
   const asked = input.folderId !== undefined;
@@ -272,9 +274,9 @@ async function importFolder(c: Ctx, source: ImportSource): Promise<string | null
 
 app.post('/import', requirePermission('sheets:create'), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   if (Number(c.req.header('content-length')) > SHEET_IMPORT_MAX_BYTES + MULTIPART_SLACK) return tooLarge(c);
   const source = await importSource(c);
   if (source instanceof Response) return source;
@@ -294,7 +296,7 @@ app.post('/import', requirePermission('sheets:create'), async (c) => {
     return error.badRequest(c, err.message, { reason: err.code satisfies SheetImportFailure });
   }
   const name = (source.name || source.fileName.replace(/\.[^.]+$/, '')).trim().slice(0, 255) || 'Untitled spreadsheet';
-  const sheet = await saveNewSheet(c, { workspaceId, userId, name, folderId, workbook: result.workbook });
+  const sheet = await saveNewSheet(c, { workspaceId: clerkOrgId, userId, name, folderId, workbook: result.workbook });
   return success(c, { sheet: toSummary(sheet, 'owner', await mayUpdate(c)), warnings: result.warnings } satisfies SheetImportResult, 201);
 });
 
@@ -302,10 +304,10 @@ app.post('/import', requirePermission('sheets:create'), async (c) => {
 async function legacyWorkbook(
   c: Ctx,
   file: NonNullable<Awaited<ReturnType<typeof getDriveFile>>>,
-  params: { workspaceId: string; userId: string; firstTabName: string },
+  params: { clerkOrgId: string; userId: string; firstTabName: string },
 ): Promise<WorkbookSnapshot> {
   // A row's key came from a client: never let it reach another workspace's objects.
-  const object = file.key && isWorkspaceObjectKey(file.key, params.workspaceId) ? await getStoredObject(c.env, file.key) : null;
+  const object = file.key && isWorkspaceObjectKey(file.key, params.clerkOrgId) ? await getStoredObject(c.env, file.key) : null;
   const bytes = object ? new Uint8Array(await object.arrayBuffer()) : null;
   // An unreadable file opens empty (its bytes stay in storage); one too big to open is refused.
   const model = bytes
@@ -330,9 +332,9 @@ async function legacyWorkbook(
  */
 app.post('/convert', requirePermission('sheets:read'), zValidator('json', convertProjectSheetSchema), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const { fileId, firstTabName } = c.req.valid('json');
   const db = c.get('tenantDb');
   const file = await getDriveFile(db, fileId);
@@ -347,18 +349,18 @@ app.post('/convert', requirePermission('sheets:read'), zValidator('json', conver
 
   let workbook: WorkbookSnapshot;
   try {
-    workbook = await legacyWorkbook(c, file, { workspaceId, userId, firstTabName: firstTabName ?? 'Sheet1' });
+    workbook = await legacyWorkbook(c, file, { clerkOrgId, userId, firstTabName: firstTabName ?? 'Sheet1' });
   } catch (err) {
     if (!(err instanceof ImportError)) throw err;
     return error.badRequest(c, err.message, { reason: err.code satisfies SheetImportFailure });
   }
   const sheetId = generateId('sht');
-  const size = await writeSnapshot(c.env.PRIVATE_STORAGE, snapshotKeyFor(workspaceId, sheetId), { revision: 0, workbook });
+  const size = await writeSnapshot(c.env.PRIVATE_STORAGE, snapshotKeyFor(clerkOrgId, sheetId), { revision: 0, workbook });
   const name = file.name.replace(/\.xlsx$/i, '').trim().slice(0, 255) || 'Untitled spreadsheet';
-  const sheet = await adoptFileAsSheet(db, { fileId, sheetId, workspaceId, name, snapshotSize: size, userId, oldKey: file.key });
+  const sheet = await adoptFileAsSheet(db, { fileId, sheetId, workspaceId: clerkOrgId, name, snapshotSize: size, userId, oldKey: file.key });
   if (!sheet) {
     // Someone else converted it meanwhile: theirs it is.
-    await c.env.PRIVATE_STORAGE.delete(snapshotKeyFor(workspaceId, sheetId));
+    await c.env.PRIVATE_STORAGE.delete(snapshotKeyFor(clerkOrgId, sheetId));
     const winner = await getDriveFile(db, fileId);
     const existing = winner?.weldsheetId ? await getSheet(db, winner.weldsheetId) : null;
     return existing ? success(c, toSummary(existing, role, mayEdit)) : error.notFound(c, 'Project sheet', fileId);
@@ -375,13 +377,13 @@ app.post('/convert', requirePermission('sheets:read'), zValidator('json', conver
 });
 
 app.get('/:id/export', requirePermission('sheets:read'), zValidator('query', exportSheetQuerySchema), async (c) => {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.orgRequired(c);
+  const clerkOrgId = c.get('clerkOrgId');
+  if (!clerkOrgId) return error.orgRequired(c);
   const found = await findSheet(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const { sheet } = found;
   const { format, tab, locale } = c.req.valid('query');
-  const file = await roomFor(c, workspaceId, sheet).exportFile(roomMeta(sheet, workspaceId), { format, tab, locale });
+  const file = await roomFor(c, clerkOrgId, sheet).exportFile(roomMeta(sheet, clerkOrgId), { format, tab, locale });
   if (!file) return error.notFound(c, 'Tab', tab);
   const fileName = file.tabName === null ? `${sheet.name}.${format}` : `${sheet.name} - ${file.tabName}.${format}`;
   return new Response(file.bytes, {
@@ -450,9 +452,9 @@ app.delete('/:id', requirePermission('sheets:delete'), async (c) => {
 
 app.post('/:id/session', requirePermission('sheets:read'), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const found = await findSheet(c, c.req.param('id'));
   if (found instanceof Response) return found;
   const { sheet, role } = found;
@@ -460,8 +462,8 @@ app.post('/:id/session', requirePermission('sheets:read'), async (c) => {
   const mode = await sessionMode(c, role);
   const profile = await memberProfile(c.get('tenantDb'), userId);
   const color = colorFor(userId);
-  const ticket = await roomFor(c, workspaceId, sheet).admit({
-    ...roomMeta(sheet, workspaceId),
+  const ticket = await roomFor(c, clerkOrgId, sheet).admit({
+    ...roomMeta(sheet, clerkOrgId),
     userId,
     name: profile.name ?? 'Unknown',
     picture: profile.picture,

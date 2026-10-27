@@ -5,7 +5,7 @@ import { hasContextPermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { DataFor } from '@weldsuite/entity-events/events';
 import { error } from '@weldsuite/worker-kit/response';
-import { getMasterDb, getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
 import type { SignEnvelope } from '@weldsuite/db/schema';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
@@ -42,11 +42,11 @@ export async function accessOf(c: Ctx, viewer?: SignViewer): Promise<DetailAcces
 }
 
 /** What sending and the lifecycle need: the tenant and master DBs and both workspace ids. */
-export async function sendContextOf(c: Ctx): Promise<SendContext> {
-  const orgId = c.get('workspaceId');
-  if (!orgId) throw invalid('No workspace selected');
-  const workspace = await getWorkspaceForOrg(c.env, orgId);
-  return { env: c.env, db: c.get('tenantDb'), master: getMasterDb(c.env), clerkOrgId: orgId, workspaceId: workspace.id };
+export function sendContextOf(c: Ctx): SendContext {
+  const clerkOrgId = c.get('clerkOrgId');
+  const workspaceId = c.get('workspaceId');
+  if (!clerkOrgId || !workspaceId) throw invalid('No workspace selected');
+  return { env: c.env, db: c.get('tenantDb'), master: getMasterDb(c.env), clerkOrgId, workspaceId };
 }
 
 /** The member acting, as recorded on the evidence trail. */

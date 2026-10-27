@@ -134,7 +134,7 @@ describe('/api/desk/conversations search, customer filter and attachments · pgl
 
   const appFor = (...keys: string[]) =>
     createTestApp('/api/desk/conversations', deskConversationsRoutes, {
-      context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'org_search' },
+      context: { permissions: permissions(...keys), tenantDb: db, clerkOrgId: 'org_search' },
       env: { STORAGE, R2_PUBLIC_URL },
     });
 

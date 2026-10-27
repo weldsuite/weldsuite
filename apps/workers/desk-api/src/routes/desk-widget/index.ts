@@ -19,7 +19,7 @@ import { isDeskSchemaMissing } from '@weldsuite/db/lib/desk';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getMasterDb, getWorkspaceForOrg, masterSchema, schema } from '@weldsuite/worker-kit/db';
+import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const widgets = schema.deskWidgetSettings;
@@ -40,7 +40,6 @@ app.get('/', requirePermission('settings:read'), async (c) => {
 
 app.post('/', requirePermission('settings:update'), zValidator('json', createDeskWidgetSchema), async (c) => {
   const db = c.get('tenantDb');
-  const clerkOrgId = c.get('workspaceId');
   const data = c.req.valid('json');
   const id = generateId('dwgt');
   const widgetId = generateId('widget');
@@ -63,12 +62,11 @@ app.post('/', requirePermission('settings:update'), zValidator('json', createDes
       .returning();
 
     try {
-      const { id: internalWorkspaceId } = await getWorkspaceForOrg(c.env, clerkOrgId);
       const masterDb = getMasterDb(c.env);
       await masterDb.insert(masterSchema.widgetRegistry).values({
         id: generateId('wr'),
         widgetId,
-        workspaceId: internalWorkspaceId,
+        workspaceId: c.get('workspaceId'),
         widgetName,
         isActive: true,
         createdAt: now,

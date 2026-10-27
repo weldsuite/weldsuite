@@ -93,7 +93,11 @@ export function eventData(sheet: SheetRecord): DataFor<'sheet'> {
   return { id: sheet.id, fileId: sheet.fileId, name: sheet.name, updatedById: sheet.updatedById };
 }
 
-/** The room for a sheet: one Durable Object per sheet, named by workspace and id. */
+/**
+ * The room for a sheet: one Durable Object per sheet, named by workspace and id.
+ * `workspaceId` is the Clerk org id: the room name and the R2 prefix still use it
+ * (a rename would split live sessions; workspace-id plan).
+ */
 export function roomFor(c: Ctx, workspaceId: string, sheet: SheetRecord) {
   return c.env.SHEET_ROOM.get(c.env.SHEET_ROOM.idFromName(`${workspaceId}:${sheet.id}`));
 }

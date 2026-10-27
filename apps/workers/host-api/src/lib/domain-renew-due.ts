@@ -19,5 +19,5 @@ const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 export const markDomainRenewDue: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (c, next) => {
   await next();
   if (READ_METHODS.has(c.req.method) || !c.res.ok) return;
-  await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'domain_renew', c.get('workspaceId'));
+  await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'domain_renew', c.get('clerkOrgId'));
 };

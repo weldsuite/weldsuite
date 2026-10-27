@@ -98,7 +98,7 @@ function ownedBy(conversation: DeskConversation, visitorId: string): boolean {
 conversationsRoutes.post('/identify', zValidator('json', identifySchema), async (c) => {
   const db = c.get('tenantDb');
   const widgetId = c.get('widgetId');
-  const orgId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const data = c.req.valid('json');
   try {
     const visitor = await upsertDeskVisitor(db, {
@@ -141,7 +141,7 @@ conversationsRoutes.get('/', zValidator('query', visitorQuerySchema), async (c) 
 conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
   const db = c.get('tenantDb');
   const widgetId = c.get('widgetId');
-  const orgId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const data = c.req.valid('json');
   try {
     const visitor = await upsertDeskVisitor(db, {
@@ -223,7 +223,7 @@ conversationsRoutes.get('/:id', zValidator('query', visitorQuerySchema), async (
 
 conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async (c) => {
   const db = c.get('tenantDb');
-  const orgId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
@@ -296,7 +296,7 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
 /** The visitor's CSAT answer for a conversation the team closed. */
 conversationsRoutes.post('/:id/rating', zValidator('json', rateSchema), async (c) => {
   const db = c.get('tenantDb');
-  const orgId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {

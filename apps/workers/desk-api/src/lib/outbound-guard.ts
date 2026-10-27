@@ -13,7 +13,7 @@ import { logSafe } from '@weldsuite/worker-kit/log-safe';
 
 /** Who a reply is sent for, and where the guard's bookkeeping may run after the response. */
 export interface DeskOutboundContext {
-  /** Clerk org id of the workspace (`c.get('workspaceId')` in the kit). */
+  /** Clerk org id of the workspace (`c.get('clerkOrgId')` in the kit). */
   clerkOrgId: string;
   /** Lets the guard count the send after the response; omitted when already inside a `waitUntil`. */
   waitUntil?: (promise: Promise<unknown>) => void;

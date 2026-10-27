@@ -79,7 +79,7 @@ app.post(
         new Date(until),
       );
       // Tell the snooze sweep when to look at this workspace (D1 due index).
-      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('workspaceId'), new Date(until));
+      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('clerkOrgId'), new Date(until));
       return success(c, result);
     } catch (err) {
       if (err instanceof MailSnoozeError) return mapSnoozeError(c, err);
@@ -125,7 +125,7 @@ app.post(
         messageId,
         new Date(until),
       );
-      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('workspaceId'), new Date(until));
+      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('clerkOrgId'), new Date(until));
       return success(c, result);
     } catch (err) {
       if (err instanceof MailSnoozeError) return mapSnoozeError(c, err);

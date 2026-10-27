@@ -20,7 +20,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 
 const { projectFiles, projects } = schema;
 
-/** Matches the harness default `workspaceId`. */
+/** Matches the harness default `clerkOrgId` (its `orgId`); upload keys carry the Clerk org id. */
 const WORKSPACE_ID = 'org_test_default';
 const DRIVE_KEY = `workspaces/${WORKSPACE_ID}/drive/general/1_secret.pdf`;
 

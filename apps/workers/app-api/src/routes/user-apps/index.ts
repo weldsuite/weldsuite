@@ -31,7 +31,7 @@ import type { UserApp } from '@weldsuite/db/schema/master';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getMasterDb, getWorkspaceForOrg, masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { getMasterDb, masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import {
   adoptOfficialSystemInstallsForTenant,
   sweepAdoptSystemInstallsForApp,
@@ -89,22 +89,8 @@ const wsApps = schema.workspaceInstalledApps;
 const MAX_BUNDLE_FILES = 500;
 const MAX_BUNDLE_BYTES = 50 * 1024 * 1024; // 50MB
 
-/**
- * Resolve the internal `workspaces.id` (`ws_…`) used as `ownerWorkspaceId`
- * on master user-apps rows.
- *
- * `workspaceDbMiddleware` historically sets `c.workspaceId` to the Clerk org
- * id (`org_…`). The CLI / external-api always write the internal workspace id,
- * so portal list/create must resolve or the developer portal looks empty while
- * `weld app list` still works.
- */
-async function ownerWorkspaceId(env: Env, raw: string): Promise<string> {
-  if (raw.startsWith('org_')) {
-    const { id } = await getWorkspaceForOrg(env, raw);
-    return id;
-  }
-  return raw;
-}
+// `c.get('workspaceId')` is `workspaces.id`, which is what master user-apps rows
+// (`ownerWorkspaceId`) hold, the same id the CLI / external-api write.
 
 /** Load an app owned by the calling workspace (soft-deleted excluded). */
 async function getOwnedApp(
@@ -154,7 +140,7 @@ async function invalidateAssetCache(c: { env: Env }, code: string): Promise<void
 
 app.get('/', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const q = c.req.query();
   const parsedLimit = q.limit ? Number.parseInt(q.limit, 10) : 25;
   const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 25;
@@ -203,7 +189,7 @@ app.get('/', requirePermission('weldapps:read'), async (c) => {
 
 app.post('/', requirePermission('weldapps:develop'), zValidator('json', createUserAppSchema), async (c) => {
   const master = getMasterDb(c.env);
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const data = c.req.valid('json');
 
@@ -273,7 +259,7 @@ const storeVisibilityWhere = (workspaceId: string) =>
 app.get('/store', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
 
   try {
     await adoptOfficialSystemInstallsForTenant({
@@ -329,7 +315,7 @@ app.get('/store', requirePermission('weldapps:read'), async (c) => {
 app.get('/store/:code', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const code = c.req.param('code');
 
   try {
@@ -369,7 +355,7 @@ app.get('/store/:code', requirePermission('weldapps:read'), async (c) => {
 app.get('/installed', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
 
   try {
     // Convert first-party installs to hosted WeldApps when an official
@@ -426,7 +412,7 @@ app.get('/installed', requirePermission('weldapps:read'), async (c) => {
 
 app.get('/developer-account', requirePermission('weldapps:develop'), async (c) => {
   const master = getMasterDb(c.env);
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   try {
     const [row] = await master
       .select()
@@ -447,7 +433,7 @@ app.get('/developer-account', requirePermission('weldapps:develop'), async (c) =
 app.post('/code/:code/session-token', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const code = c.req.param('code');
 
   try {
@@ -486,7 +472,7 @@ app.post('/code/:code/session-token', requirePermission('weldapps:read'), async 
 
 app.post('/code/:code/bundle-url', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const code = c.req.param('code');
 
   try {
@@ -572,7 +558,7 @@ app.all('/code/:code/gateway/*', requirePermission('weldapps:read'), async (c) =
 
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const headers = pickRequestHeaders(c.req.raw.headers);
   const pathAndQuery = `${path}${url.search}`;
 
@@ -611,7 +597,7 @@ app.all('/code/:code/gateway/*', requirePermission('weldapps:read'), async (c) =
 app.get('/code/:code/dev-session', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   try {
-    const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     const session = await resolveViewerDevSession(master, {
       code: c.req.param('code'),
       workspaceId,
@@ -631,7 +617,7 @@ app.put(
   zValidator('json', upsertUserAppDevSessionSchema),
   async (c) => {
     const master = getMasterDb(c.env);
-    const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     const { url } = c.req.valid('json');
     const code = c.req.param('code');
     try {
@@ -661,7 +647,7 @@ app.delete('/code/:code/dev-session', requirePermission('weldapps:develop'), asy
   const master = getMasterDb(c.env);
   const code = c.req.param('code');
   try {
-    const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     const appRow = await getOwnedAppByCode(master, code, workspaceId);
     if (!appRow) return error.notFound(c, 'App', code);
     await deleteDevSession(master, {
@@ -684,7 +670,7 @@ app.get('/:id', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const id = c.req.param('id');
   try {
-    const appRow = await getOwnedApp(master, id, await ownerWorkspaceId(c.env, c.get('workspaceId')));
+    const appRow = await getOwnedApp(master, id, c.get('workspaceId'));
     if (!appRow) return error.notFound(c, 'App', id);
     return success(c, appRow);
   } catch (err) {
@@ -702,7 +688,7 @@ app.patch('/:id', requirePermission('weldapps:develop'), zValidator('json', upda
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const appRow = await getOwnedApp(master, id, await ownerWorkspaceId(c.env, c.get('workspaceId')));
+    const appRow = await getOwnedApp(master, id, c.get('workspaceId'));
     if (!appRow) return error.notFound(c, 'App', id);
 
     const update: Partial<typeof uApps.$inferInsert> = { updatedAt: new Date() };
@@ -743,7 +729,7 @@ app.patch('/:id', requirePermission('weldapps:develop'), zValidator('json', upda
 app.delete('/:id', requirePermission('weldapps:develop'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
   try {
     const appRow = await getOwnedApp(master, id, workspaceId);
@@ -804,7 +790,7 @@ app.get('/:id/versions', requirePermission('weldapps:read'), async (c) => {
   const master = getMasterDb(c.env);
   const id = c.req.param('id');
   try {
-    const appRow = await getOwnedApp(master, id, await ownerWorkspaceId(c.env, c.get('workspaceId')));
+    const appRow = await getOwnedApp(master, id, c.get('workspaceId'));
     if (!appRow) return error.notFound(c, 'App', id);
     const rows = await master
       .select()
@@ -921,7 +907,7 @@ async function mirrorOwnerInstallScopes(
 app.post('/:id/versions', requirePermission('weldapps:develop'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const id = c.req.param('id');
 
@@ -1016,7 +1002,7 @@ app.post('/:id/submit', requirePermission('weldapps:publish'), zValidator('json'
   const id = c.req.param('id');
   const { notes } = c.req.valid('json');
   try {
-    const appRow = await getOwnedApp(master, id, await ownerWorkspaceId(c.env, c.get('workspaceId')));
+    const appRow = await getOwnedApp(master, id, c.get('workspaceId'));
     if (!appRow) return error.notFound(c, 'App', id);
 
     const [version] = await master
@@ -1181,7 +1167,7 @@ app.post('/:id/review', zValidator('json', reviewUserAppSchema), async (c) => {
 app.post('/:id/install', requirePermission('weldapps:manage'), zValidator('json', installUserAppSchema), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const userId = c.get('userId');
   const id = c.req.param('id');
   const { grantedScopes } = c.req.valid('json');
@@ -1338,7 +1324,7 @@ app.post('/:id/install', requirePermission('weldapps:manage'), zValidator('json'
 app.delete('/:id/install', requirePermission('weldapps:manage'), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
 
   try {
@@ -1406,7 +1392,7 @@ app.delete('/:id/install', requirePermission('weldapps:manage'), async (c) => {
 app.post('/:id/consent', requirePermission('weldapps:manage'), zValidator('json', consentUserAppScopesSchema), async (c) => {
   const master = getMasterDb(c.env);
   const db = c.get('tenantDb');
-  const workspaceId = await ownerWorkspaceId(c.env, c.get('workspaceId'));
+  const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
   const { approvedScopes } = c.req.valid('json');
 
@@ -1470,7 +1456,7 @@ app.post('/:id/oauth-client', requirePermission('weldapps:develop'), async (c) =
   const master = getMasterDb(c.env);
   const id = c.req.param('id');
   try {
-    const appRow = await getOwnedApp(master, id, await ownerWorkspaceId(c.env, c.get('workspaceId')));
+    const appRow = await getOwnedApp(master, id, c.get('workspaceId'));
     if (!appRow) return error.notFound(c, 'App', id);
 
     const clientSecret = `wacs_${randomHex(20)}`;
@@ -1526,7 +1512,7 @@ app.get('/:id/oauth-client', requirePermission('weldapps:develop'), async (c) =>
   const master = getMasterDb(c.env);
   const id = c.req.param('id');
   try {
-    const appRow = await getOwnedApp(master, id, await ownerWorkspaceId(c.env, c.get('workspaceId')));
+    const appRow = await getOwnedApp(master, id, c.get('workspaceId'));
     if (!appRow) return error.notFound(c, 'App', id);
     const [client] = await master
       .select({ clientId: uOauthClients.clientId, createdAt: uOauthClients.createdAt })

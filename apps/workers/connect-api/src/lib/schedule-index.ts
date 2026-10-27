@@ -18,6 +18,7 @@
 
 export interface ScheduleIndexSync {
   d1?: D1Database;
+  /** The Clerk org id: `schedule_index.workspace_id` holds it until phase 3 (workspace-id plan). */
   workspaceId?: string;
 }
 

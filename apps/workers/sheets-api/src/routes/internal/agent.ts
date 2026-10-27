@@ -60,13 +60,15 @@ const rangeRequest = z.object({ tab: z.string().max(200).optional(), range: z.st
 app.use('/:workspaceId/*', async (c, next) => {
   const userId = c.req.header('x-weld-user');
   if (!userId) return error.unauthorized(c);
-  const workspaceId = c.req.param('workspaceId');
-  c.set('workspaceId', workspaceId);
+  // The agent passes the workspace's Clerk org id; either id resolves.
+  const workspaceRef = c.req.param('workspaceId');
   c.set('userId', userId);
   // Same as workspaceDbMiddleware (the public routes' path here): the tenant
   // DB plus the workspace's read-only state, so a lapsed workspace cannot be
   // written to through the agent either.
-  const { db, readOnly, readOnlyReason } = await getWorkspaceContextForOrg(c.env, workspaceId);
+  const { id, clerkOrgId, db, readOnly, readOnlyReason } = await getWorkspaceContextForOrg(c.env, workspaceRef);
+  c.set('workspaceId', id);
+  c.set('clerkOrgId', clerkOrgId ?? workspaceRef);
   c.set('tenantDb', db);
   c.set('readOnly', readOnly);
   c.set('readOnlyReason', readOnlyReason);
@@ -92,7 +94,8 @@ app.post('/:workspaceId/sheets/create', zValidator('json', z.object({ name: z.st
   if (!(await hasContextPermission(c, 'sheets:create'))) return error.forbidden(c);
   const refused = readOnlyRefusal(c);
   if (refused) return refused;
-  const workspaceId = c.get('workspaceId')!;
+  // Room names and R2 keys stay on the Clerk org id: renaming would split live sessions (workspace-id plan).
+  const clerkOrgId = c.get('clerkOrgId')!;
   const userId = c.get('userId')!;
   const input = c.req.valid('json');
   const workbook = new Workbook();
@@ -101,7 +104,7 @@ app.post('/:workspaceId/sheets/create', zValidator('json', z.object({ name: z.st
   const engine = new Engine(workbook);
   // The first checkpoint holds the values, calculated like any edit.
   if (input.values?.length) applyOp(engine, valuesOp(tab.id, { row: 0, col: 0 }, input.values));
-  const sheet = await saveNewSheet(c, { workspaceId, userId, name: input.name, folderId: null, workbook: engine.toSnapshot() });
+  const sheet = await saveNewSheet(c, { workspaceId: clerkOrgId, userId, name: input.name, folderId: null, workbook: engine.toSnapshot() });
   return success(c, { id: sheet.id, name: sheet.name, tabId: tab.id, url: `/weldsheets/${sheet.id}` }, 201);
 });
 
@@ -109,7 +112,7 @@ app.post('/:workspaceId/sheets/:id/tabs', async (c) => {
   if (!(await hasContextPermission(c, 'sheets:read'))) return error.forbidden(c);
   const found = await findSheet(c, c.req.param('id'));
   if (found instanceof Response) return found;
-  const tabs = await roomFor(c, c.get('workspaceId')!, found.sheet).tabs(roomMeta(found.sheet, c.get('workspaceId')!));
+  const tabs = await roomFor(c, c.get('clerkOrgId')!, found.sheet).tabs(roomMeta(found.sheet, c.get('clerkOrgId')!));
   return success(c, { id: found.sheet.id, name: found.sheet.name, tabs });
 });
 
@@ -117,7 +120,7 @@ app.post('/:workspaceId/sheets/:id/read', zValidator('json', rangeRequest), asyn
   if (!(await hasContextPermission(c, 'sheets:read'))) return error.forbidden(c);
   const found = await findSheet(c, c.req.param('id'));
   if (found instanceof Response) return found;
-  const result = await roomFor(c, c.get('workspaceId')!, found.sheet).readRange(roomMeta(found.sheet, c.get('workspaceId')!), c.req.valid('json'));
+  const result = await roomFor(c, c.get('clerkOrgId')!, found.sheet).readRange(roomMeta(found.sheet, c.get('clerkOrgId')!), c.req.valid('json'));
   return result.ok ? success(c, result) : error.badRequest(c, result.error);
 });
 
@@ -127,8 +130,8 @@ app.post('/:workspaceId/sheets/:id/write', zValidator('json', rangeRequest.exten
   const refused = readOnlyRefusal(c);
   if (refused) return refused;
   if (!(await mayEditSheet(c, found.role))) return error.forbidden(c, 'You can view this spreadsheet but not change it');
-  const workspaceId = c.get('workspaceId')!;
-  const result = await roomFor(c, workspaceId, found.sheet).writeRange(roomMeta(found.sheet, workspaceId), {
+  const clerkOrgId = c.get('clerkOrgId')!;
+  const result = await roomFor(c, clerkOrgId, found.sheet).writeRange(roomMeta(found.sheet, clerkOrgId), {
     ...c.req.valid('json'),
     userId: c.get('userId')!,
   });

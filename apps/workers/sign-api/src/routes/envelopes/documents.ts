@@ -27,15 +27,16 @@ export function createDocumentsRoutes(scope: DraftScope) {
 
   app.post('/', requirePermission(scope.update), (c) =>
     handle(c, async () => {
-      const workspaceId = c.get('workspaceId');
-      if (!workspaceId) return error.orgRequired(c);
+      // The PDF is stored under workspaces/<org>/…, keyed by the Clerk org id.
+      const orgId = c.get('clerkOrgId');
+      if (!orgId) return error.orgRequired(c);
       const db = c.get('tenantDb');
       const envelope = await scope.loadEditable(c);
       const body = await c.req.parseBody();
       const file = body.file;
       if (!(file instanceof File)) throw invalid('Send the PDF as a multipart "file" field');
       const doc = await addDocument(db, c.env.PRIVATE_STORAGE, {
-        workspaceId,
+        workspaceId: orgId,
         envelope,
         fileName: file.name,
         bytes: new Uint8Array(await file.arrayBuffer()),
@@ -50,9 +51,9 @@ export function createDocumentsRoutes(scope: DraftScope) {
   // edits or a delete in Drive never change what is signed.
   app.post('/from-drive', requirePermission(scope.update), requirePermission('files:read'), zValidator('json', addDocumentFromDriveSchema), (c) =>
     handle(c, async () => {
-      const workspaceId = c.get('workspaceId');
+      const orgId = c.get('clerkOrgId');
       const userId = c.get('userId');
-      if (!workspaceId) return error.orgRequired(c);
+      if (!orgId) return error.orgRequired(c);
       if (!userId) return error.unauthorized(c);
       const db = c.get('tenantDb');
       const envelope = await scope.loadEditable(c);
@@ -60,7 +61,7 @@ export function createDocumentsRoutes(scope: DraftScope) {
       const file = await visibleDriveFile(db, userId, fileId);
       const key = file ? file.fileKey || file.storagePath : null;
       // A row's key is client-supplied: only ever read this workspace's objects.
-      if (!file || !key || !isWorkspaceObjectKey(key, workspaceId)) throw notFound('File', fileId);
+      if (!file || !key || !isWorkspaceObjectKey(key, orgId)) throw notFound('File', fileId);
       if (file.mimeType !== 'application/pdf' && !file.fileName.toLowerCase().endsWith('.pdf')) throw invalid('Only PDF files can be signed');
       // Drive files have no request-body cap: refuse a big one before it is read into memory.
       const tooBig = invalid(`A PDF can be at most ${SIGN_LIMITS.maxDocumentBytes / (1024 * 1024)} MB`);
@@ -69,7 +70,7 @@ export function createDocumentsRoutes(scope: DraftScope) {
       if (!object) throw notFound('File', fileId);
       if (object.size > SIGN_LIMITS.maxDocumentBytes) throw tooBig;
       const doc = await addDocument(db, c.env.PRIVATE_STORAGE, {
-        workspaceId,
+        workspaceId: orgId,
         envelope,
         fileName: file.fileName,
         bytes: new Uint8Array(await object.arrayBuffer()),

@@ -27,6 +27,7 @@ export interface Env extends KitEnv {
    *  workflow names — app-api's old `execute-sequence-v2*` names keep
    *  draining (docs/plans/app-api-module-split.md). */
   EXECUTE_SEQUENCE?: Workflow<{
+    /** Clerk org id (the workflow's realtime and tenant lookups key on it). */
     workspaceId: string;
     userId: string;
     sequenceId: string;

@@ -300,12 +300,12 @@ function mailEventFromRow(row: CalendarEventRow): CalendarMailEvent {
  * Queue attendee mail. Workspace members are looked up first: they get a link
  * into the authenticated calendar, external guests (no account) do not. The
  * batch is counted against the workspace by the outbound guard (see
- * `sendCalendarEventEmails`); the kit's `workspaceId` is the Clerk org id.
+ * `sendCalendarEventEmails`); keyed by the Clerk org id (`clerkOrgId`).
  */
 function queueMail(c: EventContext, opts: Omit<SendOptions, 'outbound'>): void {
   if (!workerTransport(c.env) || opts.attendees.length === 0) return;
   const db = c.get('tenantDb');
-  const outbound = { db, clerkOrgId: c.get('workspaceId') };
+  const outbound = { db, clerkOrgId: c.get('clerkOrgId') };
   c.executionCtx.waitUntil(
     (async () => {
       const [memberEmails, workspaceLanguage] = await Promise.all([
@@ -1022,7 +1022,7 @@ app.post('/:id/unpin', requirePermission('events:update'), async (c) => {
 
     await unpinEvent(db, existing);
     // Back under the auto-scheduler: point the nightly re-plan at it (D1 due index).
-    await syncWorkspaceDue(c.env.SCHEDULE_INDEX, 'calendar_replan', c.get('workspaceId'), () =>
+    await syncWorkspaceDue(c.env.SCHEDULE_INDEX, 'calendar_replan', c.get('clerkOrgId'), () =>
       nextAutoScheduledReplanAt(db),
     );
 

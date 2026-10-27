@@ -380,7 +380,7 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 
     const unitAmountCents = majorToCents(priced.monthlyPrice);
     const setupAmountCents = majorToCents(priced.setupPrice);
-    const clerkOrgId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const origin = c.req.header('origin') ?? 'https://app.weldsuite.org';
 
     const authHeader = c.req.header('Authorization');
@@ -450,7 +450,7 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
 
   try {
     const db = c.get('tenantDb');
-    const clerkOrgId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const { voipPhoneNumbers } = schema;
 
     const connectionId = c.env.TELNYX_CONNECTION_ID;
@@ -686,7 +686,7 @@ app.post(
     const data = c.req.valid('json');
     try {
       const db = c.get('tenantDb');
-      const clerkOrgId = c.get('workspaceId');
+      const clerkOrgId = c.get('clerkOrgId');
       const { voipPhoneNumbers } = schema;
       const [phone] = await db
         .select()

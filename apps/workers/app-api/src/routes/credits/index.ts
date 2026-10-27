@@ -2,10 +2,8 @@
  * Credits routes — /api/credits/* surface for the unified credits system.
  * Ported from apps/api-worker/src/routes/credits/index.ts.
  *
- * All credit data lives in the MASTER database, scoped by the internal
- * `workspaceId`. The `/api/*` middleware sets `c.get('workspaceId')` to the
- * Clerk org id, so each handler resolves the internal workspace id from the
- * master `workspaces` table first.
+ * All credit data lives in the MASTER database, scoped by `workspaces.id`,
+ * which is what the `/api/*` middleware puts in `c.get('workspaceId')`.
  *
  * Response shape preserved as `{ success, data }` to match the existing
  * api-worker contract its platform consumers still expect. No object-level
@@ -40,31 +38,15 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { LOW_BALANCE_THRESHOLD } from '@weldsuite/credits';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type { Env, Variables } from '../../types';
-import { getMasterDb, masterSchema, type MasterDatabase } from '@weldsuite/worker-kit/db';
+import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import { getOrCreateWorkspaceCredits, createCreditTopupCheckout } from '../../services/credits';
 import { success, error as apiError } from '@weldsuite/worker-kit/response';
 import { creditTopupCheckoutSchema } from '@weldsuite/app-api-client/schemas/credits';
 import { blockPartnerManaged } from '../../middleware/partner-managed';
-import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { creditTransactions, creditPackages, workspaces, plans } = masterSchema;
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
-
-/**
- * Resolve the internal workspace id from `c.get('workspaceId')`, which is the
- * Clerk org id today and `workspaces.id` after phase 2 of
- * docs/plans/workspace-id-standardization.md. Credit data is keyed by the
- * internal id.
- */
-async function resolveWorkspaceId(masterDb: MasterDatabase, ref: string): Promise<string | null> {
-  const [row] = await masterDb
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(matchWorkspaceRef(ref))
-    .limit(1);
-  return row?.id ?? null;
-}
 
 function getDaysRemaining(periodEnd: Date): number {
   const now = new Date();
@@ -91,7 +73,7 @@ const DEFAULT_CREDIT_RATES = {
 app.get('/balance', async (c) => {
   try {
     const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
 
     const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
@@ -148,7 +130,7 @@ app.get('/transactions', zValidator('query', transactionsQuerySchema), async (c)
 
   try {
     const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
 
     const conditions = [eq(creditTransactions.workspaceId, workspaceId)];
@@ -196,7 +178,7 @@ app.post('/check', zValidator('json', checkAvailabilitySchema), async (c) => {
 
   try {
     const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
 
     const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
@@ -258,7 +240,7 @@ app.get('/packages', async (c) => {
 app.get('/rates', async (c) => {
   try {
     const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
 
     const [workspace] = await masterDb
@@ -293,7 +275,7 @@ app.get('/rates', async (c) => {
 app.get('/usage', async (c) => {
   try {
     const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
 
     const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);
@@ -347,7 +329,7 @@ app.get('/usage', async (c) => {
 app.get('/subscription', async (c) => {
   try {
     const masterDb = getMasterDb(c.env);
-    const workspaceId = await resolveWorkspaceId(masterDb, c.get('workspaceId'));
+    const workspaceId = c.get('workspaceId');
     if (!workspaceId) return c.json({ error: 'org_required', message: 'Organization context required' }, 403);
 
     const credits = await getOrCreateWorkspaceCredits(masterDb, workspaceId);

@@ -77,10 +77,11 @@ app.get('/', requirePermission('posts:read'), async (c) => {
  */
 app.post('/connect', requirePermission('posts:update'), zValidator('json', connectSchema), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  // The PostPeer profile name and the settings row that stores its id are keyed by the Clerk org id.
+  const orgId = c.get('clerkOrgId');
   const { platform, redirectUri } = c.req.valid('json');
   try {
-    const result = await getConnectUrl(db, socialContext(c.env), workspaceId, platform, redirectUri);
+    const result = await getConnectUrl(db, socialContext(c.env), orgId, platform, redirectUri);
     return success(c, result);
   } catch (err) {
     if (err instanceof PostPeerNotConfiguredError) {
@@ -97,10 +98,10 @@ app.post('/connect', requirePermission('posts:update'), zValidator('json', conne
  */
 app.post('/sync', requirePermission('posts:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const userId = c.get('userId');
   try {
-    const result = await syncAccounts(db, socialContext(c.env), workspaceId, userId);
+    const result = await syncAccounts(db, socialContext(c.env), orgId, userId);
     return success(c, result);
   } catch (err) {
     if (err instanceof PostPeerNotConfiguredError) {

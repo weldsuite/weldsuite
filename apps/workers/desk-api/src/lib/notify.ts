@@ -38,7 +38,8 @@ export function notifyAssigned(c: DeskContext, params: NotifyAssignedParams): vo
     sendTicketAssignedNotification({
       db: c.get('tenantDb'),
       env: c.env,
-      workspaceId: c.get('workspaceId'),
+      // The notification helpers key realtime topics and email links by the Clerk org id.
+      workspaceId: c.get('clerkOrgId'),
       assigneeId,
       assignedByUserId,
       kind,

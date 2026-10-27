@@ -268,7 +268,7 @@ export interface SendTestWebhookResult {
 export async function sendTestWebhook(
   db: Database,
   id: string,
-  workspaceId: string,
+  clerkOrgId: string,
 ): Promise<SendTestWebhookResult | null> {
   const webhook = await getExternalWebhookRow(db, id);
   if (!webhook) return null;
@@ -279,7 +279,8 @@ export async function sendTestWebhook(
     webhook,
     eventId: testEventId,
     eventType: 'webhook.test',
-    workspaceId,
+    // Same value a real entity event carries as `workspaceId` (the Clerk org id).
+    workspaceId: clerkOrgId,
     data: {
       message: 'This is a test event from WeldSuite.',
       webhookId: webhook.id,

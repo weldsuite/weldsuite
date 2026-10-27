@@ -25,7 +25,7 @@ vi.mock('@weldsuite/worker-kit/db', async () => {
   };
 });
 
-const ORG = 'org_test_default'; // the harness's workspaceId
+const ORG = 'org_test_default'; // the harness's clerkOrgId (its orgId)
 const OWN_KEY = `workspaces/${ORG}/accounting/1_abc/receipt.png`;
 const FOREIGN_KEY = 'workspaces/org_other/accounting/1_abc/receipt.png';
 

@@ -35,6 +35,8 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.post('/', zValidator('json', searchInputSchema), async (c) => {
   const db = c.get('tenantDb');
   const workspaceId = c.get('workspaceId') ?? '';
+  // KV keys (parse cache, reindex lock) stay under the Clerk org id (workspace-id plan).
+  const orgId = c.get('clerkOrgId') ?? '';
 
   // Resolve permissions inline — search has no requirePermission() gate (any
   // authenticated user can call it; results are filtered per-type below).
@@ -66,7 +68,7 @@ app.post('/', zValidator('json', searchInputSchema), async (c) => {
     // trip on every keystroke — including the short prefixes and identifiers
     // the tiering exists to keep fast.
     const parsed = await understandQuery(c.env, input.q, {
-      workspaceId,
+      workspaceId: orgId,
       resolveMetering: () =>
         resolveAiMetering(c.env, c.get('workspaceId') ?? '', c.get('userId') ?? ''),
     });
@@ -138,7 +140,7 @@ app.post(
 
     // Advisory lease: two admins walking the same corpus stay correct thanks to
     // the content hash, but each pays for the first pass of embeddings.
-    const lease = await acquireReindexLease(c.env, c.get('workspaceId') ?? '');
+    const lease = await acquireReindexLease(c.env, c.get('clerkOrgId') ?? '');
     if (!lease.acquired) {
       return c.json(
         {

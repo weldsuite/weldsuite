@@ -70,8 +70,8 @@ app.post(
     const projectId = c.req.param('projectId');
     const userId = c.get('userId');
     if (!userId) return error.unauthorized(c);
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
-    if (!workspaceId) return error.orgRequired(c);
+    const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
+    if (!clerkOrgId) return error.orgRequired(c);
     if (!(await canWriteProject(c, projectId))) {
       return error.forbidden(c, 'You do not have write access to this project');
     }
@@ -88,7 +88,7 @@ app.post(
     const { name } = c.req.valid('json');
     const fileName = name.endsWith('.docx') ? name : `${name}.docx`;
     const sanitized = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-    const fileKey = `workspaces/${workspaceId}/documents/${projectId}/${Date.now()}_${sanitized}`;
+    const fileKey = `workspaces/${clerkOrgId}/documents/${projectId}/${Date.now()}_${sanitized}`;
     const r2PublicUrl = c.env.R2_PUBLIC_URL || 'https://weldsuite-storage-test.weldsuite.org';
     const publicUrl = `${r2PublicUrl}/${fileKey}`;
 

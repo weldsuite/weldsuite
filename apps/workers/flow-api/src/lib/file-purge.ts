@@ -34,6 +34,6 @@ export function markFilePurgeDue(
 ): void {
   if (!c.env.SCHEDULE_INDEX) return;
   c.executionCtx.waitUntil(
-    markWorkspaceDue(c.env.SCHEDULE_INDEX, 'file_purge', c.get('workspaceId'), purgeDueAt(deletedAt)),
+    markWorkspaceDue(c.env.SCHEDULE_INDEX, 'file_purge', c.get('clerkOrgId'), purgeDueAt(deletedAt)),
   );
 }

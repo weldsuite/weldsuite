@@ -228,7 +228,7 @@ app.post(
           endDate: data.endDate,
         },
         c.get('userId'),
-        { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('workspaceId') },
+        { d1: c.env.SCHEDULE_INDEX, workspaceId: c.get('clerkOrgId') },
       );
       if ('error' in created) return error.notFound(c, 'Workflow', data.workflowId);
       const scheduleId = created.id;

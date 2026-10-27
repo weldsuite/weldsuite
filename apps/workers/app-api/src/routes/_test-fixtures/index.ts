@@ -39,6 +39,7 @@ const TEST_MARKER = '[E2E_TEST]';
 type Variables = {
   tenantDb: Database;
   workspaceId: string;
+  clerkOrgId: string;
 };
 
 export const testFixturesRoutes = new Hono<{
@@ -50,7 +51,8 @@ testFixturesRoutes.use('*', testFixturesGuard());
 
 testFixturesRoutes.get('/ping', (c) =>
   success(c, {
-    workspaceId: c.get('workspaceId'),
+    // R6: the E2E specs got the Clerk org id here (TEST_WORKSPACE_ID); keep it.
+    workspaceId: c.get('clerkOrgId'),
     environment: c.env.ENVIRONMENT,
     marker: TEST_MARKER,
   }),
@@ -1254,7 +1256,8 @@ testFixturesRoutes.post(
   zValidator('json', fixtureSendBody),
   async (c) => {
     const db = c.get('tenantDb');
-    const orgId = c.get('workspaceId');
+    // mail-domain keys attachment objects and resolves the outbound subject by the Clerk org id.
+    const orgId = c.get('clerkOrgId');
     const body = c.req.valid('json');
     const userId = body.userId ?? 'e2e-user';
 
@@ -1305,7 +1308,7 @@ testFixturesRoutes.post(
   zValidator('json', fixtureReplyBody),
   async (c) => {
     const db = c.get('tenantDb');
-    const orgId = c.get('workspaceId');
+    const orgId = c.get('clerkOrgId');
     const body = c.req.valid('json');
     const userId = body.userId ?? 'e2e-user';
 
@@ -1344,7 +1347,7 @@ testFixturesRoutes.post(
   zValidator('json', fixtureForwardBody),
   async (c) => {
     const db = c.get('tenantDb');
-    const orgId = c.get('workspaceId');
+    const orgId = c.get('clerkOrgId');
     const body = c.req.valid('json');
     const userId = body.userId ?? 'e2e-user';
 
@@ -2371,14 +2374,15 @@ testFixturesRoutes.post(
     const { clerkOrgId } = c.req.valid('json');
 
     // Safety refusal: never tear down the shared E2E workspace. The guard
-    // injects X-Test-Workspace-Id as `workspaceId`, but compare against the
+    // resolves X-Test-Workspace-Id into the context (`clerkOrgId` is the org
+    // id, the body's `clerkOrgId` is compared with it), but compare against the
     // configured TEST_WORKSPACE_ID too in case a caller targets it directly.
     const sharedWorkspaceId = (
       c.env as Env & { TEST_WORKSPACE_ID?: string }
     ).TEST_WORKSPACE_ID;
     if (
       clerkOrgId === sharedWorkspaceId ||
-      clerkOrgId === c.get('workspaceId')
+      clerkOrgId === c.get('clerkOrgId')
     ) {
       return error.badRequest(
         c,

@@ -150,9 +150,10 @@ app.put('/avatar', requirePermission('general:read'), zValidator('json', avatarS
     // Key is derived from the authenticated user + workspace, never from the
     // client-supplied fileName, so a caller cannot traverse or overwrite
     // another user's object.
-    const workspaceId = c.get('workspaceId');
+    // R2 keys stay under the Clerk org id until phase 3 (workspace-id plan).
+    const orgId = c.get('clerkOrgId');
     const userId = c.get('userId');
-    const fileKey = `workspaces/${workspaceId}/avatars/${userId}_${Date.now()}.${ext}`;
+    const fileKey = `workspaces/${orgId}/avatars/${userId}_${Date.now()}.${ext}`;
 
     await c.env.STORAGE.put(fileKey, bytes, { httpMetadata: { contentType: mime } });
 

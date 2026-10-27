@@ -82,7 +82,7 @@ app.post('/:id/restore', requirePermission('workflows:update'), async (c) => {
     const data = { name: snapshot.name, triggers: snapshot.triggers, steps: snapshot.steps, settings: snapshot.settings };
     const result = await workflowsService.updateWorkflow(db, snapshot.workflowId, data, scheduleSyncFor(c), webhookSyncFor(c));
     if (!result) return error.notFound(c, 'Workflow', snapshot.workflowId);
-    await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
+    await syncWorkflowPollIndex(c.env, db, c.get('clerkOrgId'));
 
     const after = await workflowsService.getWorkflow(db, snapshot.workflowId);
     const newVersion = await versions.snapshotWorkflowVersion(db, {

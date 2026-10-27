@@ -49,7 +49,7 @@ app.get('/addresses', requirePermission('settings:read'), async (c) => {
       .from(masterSchema.mailAccountRegistry)
       .where(
         and(
-          eq(masterSchema.mailAccountRegistry.workspaceId, c.get('internalWorkspaceId')!),
+          eq(masterSchema.mailAccountRegistry.workspaceId, c.get('workspaceId')),
           like(masterSchema.mailAccountRegistry.accountId, 'helpdesk_%'),
         ),
       );
@@ -159,7 +159,7 @@ app.post('/addresses', requirePermission('settings:create'), zValidator('json', 
         await masterDb.insert(masterSchema.mailAccountRegistry).values({
           id: generateId('mreg'),
           email: emailLower,
-          workspaceId: c.get('internalWorkspaceId')!,
+          workspaceId: c.get('workspaceId'),
           accountId: helpdeskAccountId,
           isActive: true,
         } as unknown as typeof masterSchema.mailAccountRegistry.$inferInsert);
@@ -192,7 +192,7 @@ app.post('/addresses', requirePermission('settings:create'), zValidator('json', 
     await masterDb.insert(masterSchema.mailAccountRegistry).values({
       id: registryId,
       email: emailLower,
-      workspaceId: c.get('internalWorkspaceId')!,
+      workspaceId: c.get('workspaceId'),
       accountId: helpdeskAccountId,
       isActive: true,
     } as unknown as typeof masterSchema.mailAccountRegistry.$inferInsert);
@@ -220,7 +220,7 @@ app.delete('/addresses/:id', requirePermission('settings:delete'), async (c) => 
     const [registryEntry] = await masterDb
       .select({ id: masterSchema.mailAccountRegistry.id, workspaceId: masterSchema.mailAccountRegistry.workspaceId })
       .from(masterSchema.mailAccountRegistry)
-      .where(and(eq(masterSchema.mailAccountRegistry.id, addressId), eq(masterSchema.mailAccountRegistry.workspaceId, c.get('internalWorkspaceId')!), like(masterSchema.mailAccountRegistry.accountId, 'helpdesk_%')))
+      .where(and(eq(masterSchema.mailAccountRegistry.id, addressId), eq(masterSchema.mailAccountRegistry.workspaceId, c.get('workspaceId')), like(masterSchema.mailAccountRegistry.accountId, 'helpdesk_%')))
       .limit(1);
     if (registryEntry) {
       await masterDb.update(masterSchema.mailAccountRegistry).set({ isActive: false, updatedAt: new Date() }).where(eq(masterSchema.mailAccountRegistry.id, addressId));

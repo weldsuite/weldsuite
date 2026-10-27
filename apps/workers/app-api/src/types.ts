@@ -339,7 +339,10 @@ export type Variables = {
   orgId: string | null;
   sessionId: string;
   tenantDb: Database;
+  /** `workspaces.id` (`ws_…`) of the workspace the request acts in (ADR SEC-011). */
   workspaceId: string;
+  /** The workspace's Clerk org id: for Clerk calls and the stores still keyed by it. */
+  clerkOrgId: string;
   userPermissions?: ResolvedPermissions;
   /** Canonical app code from the X-Weld-App header (appContextMiddleware);
    *  requirePermission evaluates app-scoped keys against it. */

@@ -67,8 +67,9 @@ function clerkOf(c: AppContext): SsoClerkClient {
   return createClerkClient({ secretKey: c.env.CLERK_SECRET_KEY });
 }
 
+/** `loadSsoContext` looks the workspace up by `workspaces.clerk_org_id`. */
 function orgIdOf(c: AppContext): string {
-  return c.get('workspaceId');
+  return c.get('clerkOrgId');
 }
 
 function fail(c: AppContext, err: unknown) {

@@ -126,10 +126,10 @@ app.post('/', requirePermission('posts:create'), zValidator('json', createSocial
  */
 app.post('/:id/publish', requirePermission('posts:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   try {
-    const result = await publishPost(db, socialContext(c.env), workspaceId, id, { now: true });
+    const result = await publishPost(db, socialContext(c.env), orgId, id, { now: true });
     publishEntityEvent({
       c,
       entityType: 'social_post',
@@ -162,14 +162,14 @@ app.post('/:id/publish', requirePermission('posts:update'), async (c) => {
  */
 app.post('/:id/schedule', requirePermission('posts:update'), zValidator('json', scheduleSchema), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   const { scheduledAt, timezone } = c.req.valid('json');
   try {
     // publishPost persists scheduledAt/timezone atomically as part of claiming
     // the publishing slot, so the stored time always matches what is submitted
     // to PostPeer even under concurrent requests.
-    const result = await publishPost(db, socialContext(c.env), workspaceId, id, { now: false, scheduledAt, timezone });
+    const result = await publishPost(db, socialContext(c.env), orgId, id, { now: false, scheduledAt, timezone });
     publishEntityEvent({
       c,
       entityType: 'social_post',
@@ -203,14 +203,14 @@ app.post('/:id/schedule', requirePermission('posts:update'), zValidator('json', 
  */
 app.post('/:id/reschedule', requirePermission('posts:update'), zValidator('json', scheduleSchema), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   const { scheduledAt, timezone } = c.req.valid('json');
   try {
     // scheduledAt/timezone are persisted atomically inside publishPost (with the
     // publishing-slot claim), so a concurrent reschedule can't desync the stored
     // time from the time submitted to PostPeer.
-    const result = await publishPost(db, socialContext(c.env), workspaceId, id, { now: false, scheduledAt, timezone });
+    const result = await publishPost(db, socialContext(c.env), orgId, id, { now: false, scheduledAt, timezone });
     publishEntityEvent({
       c,
       entityType: 'social_post',
@@ -244,14 +244,14 @@ app.post('/:id/reschedule', requirePermission('posts:update'), zValidator('json'
  */
 app.post('/:id/cancel', requirePermission('posts:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   try {
     // cancelPost removes the live PostPeer scheduled post (if any) so it can't
     // still fire after the user cancels, and refunds the charged credits. If the
     // upstream delete fails it throws and the post stays `scheduled` — see
     // SocialCancelUpstreamError.
-    const cancelled = await cancelPost(db, socialContext(c.env), workspaceId, id);
+    const cancelled = await cancelPost(db, socialContext(c.env), orgId, id);
     if (!cancelled) return error.notFound(c, 'Social post', id);
     publishEntityEvent({
       c,
@@ -309,14 +309,14 @@ app.patch('/:id', requirePermission('posts:update'), zValidator('json', updateSo
 
 app.delete('/:id', requirePermission('posts:delete'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   try {
     const [existing] = await db.select().from(t).where(and(eq(t.id, id), isNull(t.deletedAt))).limit(1);
     if (!existing) return error.notFound(c, 'Social post', id);
     // Stop the PostPeer delivery first — a soft delete alone leaves a scheduled
     // post live upstream, so it still fires on the real account.
-    await cancelDeliveryBeforeDelete(db, socialContext(c.env), workspaceId, id);
+    await cancelDeliveryBeforeDelete(db, socialContext(c.env), orgId, id);
     await db.update(t).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(t.id, id));
     publishEntityEvent({
       c,

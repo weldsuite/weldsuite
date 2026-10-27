@@ -75,6 +75,7 @@ async function resolveTenant(c: AppContext): Promise<boolean> {
     if (workspace.suspended) return false;
     c.set('tenantDb', workspace.db);
     c.set('workspaceId', workspace.id);
+    c.set('clerkOrgId', orgId);
     c.set('orgId', orgId);
     c.set('userId', 'system');
     return true;

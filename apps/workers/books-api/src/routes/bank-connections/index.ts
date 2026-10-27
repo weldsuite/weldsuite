@@ -257,7 +257,9 @@ app.post('/link-session', requirePermission('banking:create'), requireSecondFact
       providerId: body.provider,
       mode: body.mode,
       connectionId: body.connectionId,
-      workspaceId: c.get('workspaceId'),
+      // Plaid's `client_user_id` and Stripe's account-holder customer are keyed by
+      // this id: changing it would orphan the workspace's existing holders.
+      workspaceId: c.get('clerkOrgId'),
       redirectUrl: body.redirectUrl,
       institution: body.institution,
       psuType: body.psuType,

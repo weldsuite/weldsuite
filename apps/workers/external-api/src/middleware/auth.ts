@@ -483,14 +483,15 @@ export const authMiddleware: MiddlewareHandler<HonoEnv> = async (c, next) => {
   }
 
   c.set('apiSession', session);
-  // The top-level context vars that `publishEntityEvent` reads. `workspaceId`
-  // is the Clerk org id, not the master `workspaces.id`: entity-event
-  // subscribers (audit log, workflows, realtime) resolve the tenant DB by org
-  // id, so an event stamped with the master id never reaches the audit log.
-  // An older cached session has no org id, and then it is looked up.
+  // The top-level context vars that `publishEntityEvent` reads: `workspaceId`
+  // is the master `workspaces.id` (ADR SEC-011), `clerkOrgId` the org id that
+  // events still carry until their consumers move (phase 2b of
+  // docs/plans/workspace-id-standardization.md). An older cached session has
+  // no org id, and then it is looked up.
   const clerkOrgId =
     session.clerkOrgId !== undefined ? session.clerkOrgId : await resolveClerkOrgId(c.env, session.workspaceId);
-  c.set('workspaceId', clerkOrgId ?? session.workspaceId);
+  c.set('workspaceId', session.workspaceId);
+  if (clerkOrgId) c.set('clerkOrgId', clerkOrgId);
   // Workspace keys have no user, so fall back to the key id as the actor.
   c.set('userId', session.userId ?? session.keyId);
   await next();

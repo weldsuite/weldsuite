@@ -284,7 +284,9 @@ function buildAgentRunArgs(
   const { agent, resolved } = loaded;
   return {
     env: c.env,
-    workspaceId: c.get('workspaceId'),
+    // The agent runtime keeps the Clerk org id (Anthropic metadata, sandbox id, job
+    // params); resolveAiMetering inside it accepts either id (workspace-id plan).
+    workspaceId: c.get('clerkOrgId'),
     actorUserId: c.get('userId'),
     agent: {
       id: agent.id,
@@ -304,7 +306,7 @@ function buildAgentRunArgs(
       db: c.get('tenantDb'),
       agentId: agent.id,
       actorUserId: c.get('userId'),
-      workspaceId: c.get('workspaceId'),
+      workspaceId: c.get('clerkOrgId'),
       env: c.env,
     },
     messages: chat.chatMessages,

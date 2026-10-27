@@ -91,6 +91,9 @@ function pathParam(c: PasswordsContext, name: string): string {
   return value;
 }
 
+// weldpass_vaults.workspace_id holds the Clerk org id, so every vault lookup in
+// this file passes `clerkOrgId`; phase 3 drops the column (workspace-id plan).
+
 /** The `:vaultId` in the path, resolved for this caller. */
 async function vaultFor(c: PasswordsContext) {
   const db = c.get('tenantDb');
@@ -98,7 +101,7 @@ async function vaultFor(c: PasswordsContext) {
   const canManageAll = await hasContextPermission(c, 'passwords:manage');
   const access = await requireVaultAccess(
     db,
-    c.get('workspaceId'),
+    c.get('clerkOrgId'),
     userId,
     pathParam(c, 'vaultId'),
     { canManageAll },
@@ -108,7 +111,7 @@ async function vaultFor(c: PasswordsContext) {
 
 /** The ids of the vaults whose items the caller may read — membership only. */
 async function readableVaultIds(c: PasswordsContext): Promise<string[]> {
-  const vaults = await listVaults(c.get('tenantDb'), c.get('workspaceId'), c.get('userId'));
+  const vaults = await listVaults(c.get('tenantDb'), c.get('clerkOrgId'), c.get('userId'));
   return vaults.map((vault) => vault.id);
 }
 
@@ -118,12 +121,12 @@ async function readableVaultIds(c: PasswordsContext): Promise<string[]> {
 
 app.get('/vaults', requirePermission('passwords:use'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   const userId = c.get('userId');
 
-  await ensurePersonalVault(db, workspaceId, keyring(c), userId);
+  await ensurePersonalVault(db, clerkOrgId, keyring(c), userId);
   const canManageAll = await hasContextPermission(c, 'passwords:manage');
-  return success(c, await listVaults(db, workspaceId, userId, { canManageAll }));
+  return success(c, await listVaults(db, clerkOrgId, userId, { canManageAll }));
 });
 
 app.post(
@@ -135,7 +138,7 @@ app.post(
     const userId = c.get('userId');
     const body = c.req.valid('json');
 
-    const vault = await createSharedVault(db, c.get('workspaceId'), keyring(c), {
+    const vault = await createSharedVault(db, c.get('clerkOrgId'), keyring(c), {
       name: body.name,
       description: body.description ?? null,
       createdBy: userId,
@@ -567,7 +570,7 @@ app.post(
 
     // Resolved without `passwords:manage`: moving into a vault is writing to
     // it, which takes membership like any other write.
-    const target = await requireVaultAccess(db, c.get('workspaceId'), userId, targetVaultId);
+    const target = await requireVaultAccess(db, c.get('clerkOrgId'), userId, targetVaultId);
     assertVaultRole(target, 'editor');
 
     const { source, moved } = await moveItem(

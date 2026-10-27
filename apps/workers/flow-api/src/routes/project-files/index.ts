@@ -235,8 +235,9 @@ app.post('/', requirePermission('files:create'), zValidator('json', createProjec
     // Only known columns reach the row, and a storage key only when the upload
     // flow issued it for this project (the bucket is shared across workspaces).
     const columns = pickWritableFileColumns(data);
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
-    if (!(await areStorageKeysAcceptable(db, columns, { workspaceId, projectId }))) {
+    // Upload keys are `workspaces/<Clerk org id>/…`, so the scope carries the org id.
+    const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
+    if (!(await areStorageKeysAcceptable(db, columns, { workspaceId: clerkOrgId, projectId }))) {
       return error.badRequest(c, STORAGE_KEY_REJECTED);
     }
 
@@ -340,8 +341,8 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updatePr
     // it for this project and no other file points at it. Without this a caller
     // could aim the row at any object in the shared bucket and have the replace
     // cleanup below delete it.
-    const workspaceId = c.get('workspaceId') || c.get('orgId');
-    const keyScope = { workspaceId, projectId: existing.projectId };
+    const clerkOrgId = c.get('clerkOrgId') || c.get('orgId');
+    const keyScope = { workspaceId: clerkOrgId, projectId: existing.projectId };
     if (!(await areStorageKeysAcceptable(db, update, { ...keyScope, existing }))) {
       return error.badRequest(c, STORAGE_KEY_REJECTED);
     }

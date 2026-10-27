@@ -305,9 +305,9 @@ async function sendCancellationMails(c: CalendarContext, events: CalendarEventRo
         kind: 'cancel',
         organizer,
         attendees: event.attendees ?? [],
-        // Counted against the workspace by the outbound guard; the kit's
-        // `workspaceId` is the Clerk org id.
-        outbound: { db, clerkOrgId: c.get('workspaceId') },
+        // Counted against the workspace by the outbound guard, which is keyed by the
+        // Clerk org id.
+        outbound: { db, clerkOrgId: c.get('clerkOrgId') },
         sequence: 3,
         memberEmails,
         workspaceLanguage,

@@ -111,7 +111,7 @@ app.post(
     if (isTelnyxConfigured(c.env)) {
       try {
         const extraTools = await crmLookupExtraTools(c.env, {
-          org: c.get('workspaceId'),
+          org: c.get('clerkOrgId'),
           aid: id,
         });
         const created = await telnyxCreateAssistant(c.env, {
@@ -182,7 +182,7 @@ app.patch(
     if (isTelnyxConfigured(c.env)) {
       try {
         const extraTools = await crmLookupExtraTools(c.env, {
-          org: c.get('workspaceId'),
+          org: c.get('clerkOrgId'),
           aid: id,
         });
         const payload = {
@@ -347,7 +347,8 @@ app.post(
     }
 
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    // client_state carries the Clerk org id: the Telnyx webhook resolves the tenant from it.
+    const orgId = c.get('clerkOrgId');
     const [call] = await db
       .select()
       .from(schema.voipCalls)
@@ -357,7 +358,7 @@ app.post(
 
     const clientState = encodeClientState({
       callId: call.id,
-      workspaceId,
+      workspaceId: orgId,
       ...(call.deskConversationId ? { deskConversationId: call.deskConversationId } : {}),
     });
 
