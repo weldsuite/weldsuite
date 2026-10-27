@@ -864,7 +864,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels 
   const addRows = (e: React.FormEvent) => {
     e.preventDefault();
     const count = Number.parseInt(addRowsCount, 10);
-    if (!(count > 0)) {
+    if (Number.isNaN(count) || count <= 0) {
       setAddRowsCount(ADD_ROWS_DEFAULT);
       return;
     }

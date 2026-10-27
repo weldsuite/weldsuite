@@ -159,18 +159,23 @@ function tableSpan(range: Range, cols: Segment[]): [number, number] | null {
  * record banded. A cell's own fill draws over them.
  */
 function drawTableBands(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
-  const { theme } = state;
   for (const { range } of state.controller.sheet.dataTables) {
     const span = tableSpan(range, cols);
     if (!span) continue;
     for (const r of rows) {
-      if (r.index < range.r1 || r.index > range.r2) continue;
-      const fill = r.index === range.r1 ? theme.tableHeader : (r.index - range.r1) % 2 === 0 ? theme.tableBand : null;
+      const fill = tableRowFill(state.theme, range, r.index);
       if (!fill) continue;
       ctx.fillStyle = fill;
       ctx.fillRect(span[0], r.start, span[1] - span[0], r.size);
     }
   }
+}
+
+/** A connected table's fill for one row: its header's, a banded record's, or none. */
+function tableRowFill(theme: GridTheme, range: Range, row: number): string | null {
+  if (row < range.r1 || row > range.r2) return null;
+  if (row === range.r1) return theme.tableHeader;
+  return (row - range.r1) % 2 === 0 ? theme.tableBand : null;
 }
 
 /** A line under each connected table's header row. */

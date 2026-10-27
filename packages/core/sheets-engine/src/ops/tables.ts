@@ -10,7 +10,7 @@ import { MAX_COLS, MAX_ROWS, type Range } from '../address';
 import type { Engine } from '../calc/engine';
 import type { SheetFilter } from '../model/rules';
 import type { StylePatch } from '../model/styles';
-import { DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT } from '../model/workbook';
+import { DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT, type Sheet } from '../model/workbook';
 import { isError, type Scalar } from '../values';
 import type { CellPatch, Op } from './types';
 
@@ -42,31 +42,64 @@ export interface DataTableWrite {
  * with its header row frozen and filtered. A string says why it cannot be written.
  */
 export function dataTableOp(engine: Engine, write: DataTableWrite): Op | string {
-  const placed = findDataTable(engine, write.id);
-  const fresh = !placed && write.at && 'newSheet' in write.at ? write.at.newSheet : null;
-  const cell = !placed && write.at && 'sheetId' in write.at ? write.at : null;
-  const sheetId = placed?.sheetId ?? fresh?.id ?? cell?.sheetId;
-  const sheet = sheetId ? engine.workbook.getSheet(sheetId) : undefined;
-  if (!sheetId || (!sheet && !fresh) || (sheet && fresh)) return 'The table has no place in the workbook';
-  const top = placed ? placed.range.r1 : (cell?.row ?? 0);
-  const left = placed ? placed.range.c1 : (cell?.col ?? 0);
+  const place = placeTable(engine, write);
+  if (!place) return 'The table has no place in the workbook';
+  const { sheetId, sheet, top, left } = place;
   const width = Math.max(1, write.header.length);
   if (top + write.rows.length >= MAX_ROWS || left + width > MAX_COLS) return 'The table does not fit on the sheet';
   const range: Range = { r1: top, c1: left, r2: top + write.rows.length, c2: left + width - 1 };
 
   const ops: Op[] = [];
-  if (fresh) {
+  if (place.fresh) {
     ops.push(
-      { type: 'addSheet', sheetId, name: tableSheetName(engine, fresh.name), index: engine.workbook.sheets.length },
+      { type: 'addSheet', sheetId, name: tableSheetName(engine, place.fresh.name), index: engine.workbook.sheets.length },
       { type: 'setFreeze', sheetId, rows: 1, cols: 0 },
     );
   }
+  const grow = gridGrowth(sheet, range);
+  if (grow) ops.push({ type: 'setGridSize', sheetId, ...grow });
+  ops.push({ type: 'setCells', sheetId, cells: tableCells(write, range, place.old) }, ...tableFormats(write, sheetId, range));
+  const filter = sheet ? followingFilter(sheet.filter, place.old, range) : { range, columns: [] };
+  if (filter) ops.push({ type: 'setFilter', sheetId, filter });
+  ops.push({ type: 'patchDataTables', sheetId, set: [{ id: write.id, range }] });
+  return { type: 'batch', ops };
+}
+
+/**
+ * Where a table's block starts: where it is, at its `at` cell, or at A1 of
+ * the new tab it asks for (`sheet` null; `fresh` set). Null when it has no place.
+ */
+function placeTable(
+  engine: Engine,
+  write: DataTableWrite,
+): { sheetId: string; sheet: Sheet | null; fresh: { id: string; name: string } | null; top: number; left: number; old: Range | null } | null {
+  const placed = findDataTable(engine, write.id);
+  if (placed) {
+    const sheet = engine.workbook.requireSheet(placed.sheetId);
+    return { sheetId: placed.sheetId, sheet, fresh: null, top: placed.range.r1, left: placed.range.c1, old: placed.range };
+  }
+  const at = write.at;
+  if (!at) return null;
+  if ('newSheet' in at) {
+    if (engine.workbook.getSheet(at.newSheet.id)) return null;
+    return { sheetId: at.newSheet.id, sheet: null, fresh: at.newSheet, top: 0, left: 0, old: null };
+  }
+  const sheet = engine.workbook.getSheet(at.sheetId);
+  return sheet ? { sheetId: at.sheetId, sheet, fresh: null, top: at.row, left: at.col, old: null } : null;
+}
+
+/** The grid size that holds `range` when the sheet (a new tab: the default size) is too small for it; null when it fits. */
+function gridGrowth(sheet: Sheet | null, range: Range): { rowCount: number; colCount: number } | null {
   const rowCount = sheet?.rowCount ?? DEFAULT_ROW_COUNT;
   const colCount = sheet?.colCount ?? DEFAULT_COL_COUNT;
-  if (range.r2 >= rowCount || range.c2 >= colCount) {
-    ops.push({ type: 'setGridSize', sheetId, rowCount: Math.max(rowCount, range.r2 + 1), colCount: Math.max(colCount, range.c2 + 1) });
-  }
+  if (range.r2 < rowCount && range.c2 < colCount) return null;
+  return { rowCount: Math.max(rowCount, range.r2 + 1), colCount: Math.max(colCount, range.c2 + 1) };
+}
 
+/** The table's header and records over `range`, and what the previous refresh wrote outside it (`old`) cleared. */
+function tableCells(write: DataTableWrite, range: Range, old: Range | null): CellPatch[] {
+  const { r1: top, c1: left } = range;
+  const width = range.c2 - left + 1;
   const cells: CellPatch[] = [];
   write.header.forEach((title, j) => cells.push([top, left + j, title ? { v: title } : null]));
   write.rows.forEach((row, i) => {
@@ -75,30 +108,28 @@ export function dataTableOp(engine: Engine, write: DataTableWrite): Op | string 
       cells.push([top + 1 + i, left + j, v === null || v === '' ? null : { v }]);
     }
   });
-  // What the previous refresh wrote outside the new block.
-  if (placed) {
-    const old = placed.range;
-    for (let r = old.r1; r <= old.r2; r++) {
-      for (let c = old.c1; c <= old.c2; c++) {
-        if (r > range.r2 || c > range.c2) cells.push([r, c, null]);
-      }
+  if (!old) return cells;
+  for (let r = old.r1; r <= old.r2; r++) {
+    for (let c = old.c1; c <= old.c2; c++) {
+      if (r > range.r2 || c > range.c2) cells.push([r, c, null]);
     }
   }
+  return cells;
+}
 
-  ops.push({ type: 'setCells', sheetId, cells });
-  ops.push({ type: 'formatRanges', sheetId, ranges: [{ r1: top, c1: left, r2: top, c2: range.c2 }], patch: { bold: true } satisfies StylePatch });
+/** A bold header row, and each column's number format over its records. */
+function tableFormats(write: DataTableWrite, sheetId: string, range: Range): Op[] {
+  const { r1: top, c1: left } = range;
+  const ops: Op[] = [{ type: 'formatRanges', sheetId, ranges: [{ r1: top, c1: left, r2: top, c2: range.c2 }], patch: { bold: true } satisfies StylePatch }];
   (write.formats ?? []).forEach((numFmt, j) => {
-    if (!numFmt || write.rows.length === 0 || j >= width) return;
+    if (!numFmt || write.rows.length === 0 || left + j > range.c2) return;
     ops.push({ type: 'formatRanges', sheetId, ranges: [{ r1: top + 1, c1: left + j, r2: range.r2, c2: left + j }], patch: { numFmt } });
   });
-  const filter = fresh ? { range, columns: [] } : followingFilter(sheet!.filter, placed?.range, range);
-  if (filter) ops.push({ type: 'setFilter', sheetId, filter });
-  ops.push({ type: 'patchDataTables', sheetId, set: [{ id: write.id, range }] });
-  return { type: 'batch', ops };
+  return ops;
 }
 
 /** A filter on the old block's header row, moved to the new block (columns past its width dropped); null when there is none. */
-function followingFilter(filter: SheetFilter | null, old: Range | undefined, range: Range): SheetFilter | null {
+function followingFilter(filter: SheetFilter | null, old: Range | null, range: Range): SheetFilter | null {
   if (!filter || !old || filter.range.r1 !== old.r1 || filter.range.c1 !== old.c1 || filter.range.c2 !== old.c2) return null;
   if (filter.range.r2 === range.r2 && filter.range.c2 === range.c2) return null;
   return { range: { ...range }, columns: filter.columns.filter((c) => c.col <= range.c2) };
