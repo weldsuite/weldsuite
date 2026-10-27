@@ -17,6 +17,7 @@
   "dependencies": {
     "@weldsuite/db": "workspace:*",
     "@weldsuite/emails": "workspace:*",
+    "@weldsuite/realtime": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "nanoid": "^5.1.16"
   },

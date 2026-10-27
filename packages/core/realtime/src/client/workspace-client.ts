@@ -5,6 +5,7 @@ import type {
   WorkspaceServerMessage,
 } from '../types';
 import { topicMatches, isBarePersonalTopic } from '../topics';
+import type { ConnectionPresence } from '../presence';
 
 /**
  * Pluggable persistent storage for the last-seen `eventId` cursor. Web uses
@@ -62,6 +63,8 @@ export class WorkspaceClient {
   private intentionalClose = false;
   /** In-memory mirror of the persisted cursor — last `eventId` we observed. */
   private lastEventId: string | null = null;
+  /** This client's live presence, re-sent on every (re)connect. */
+  private presence: ConnectionPresence = { idle: false, inCall: false };
 
   constructor(private readonly config: WorkspaceClientConfig) {}
 
@@ -121,6 +124,7 @@ export class WorkspaceClient {
               this.reconnectAttempt = 0;
               this.setState('connected');
               this.resubscribe();
+              this.sendPresence();
               resolve();
             }
           } catch {
@@ -141,10 +145,14 @@ export class WorkspaceClient {
         });
       });
 
-      // Set up permanent listeners after connection established
-      this.ws!.addEventListener('message', (ev) => this.handleMessage(ev));
-      this.ws!.addEventListener('close', () => this.handleClose());
-      this.ws!.addEventListener('error', () => this.handleClose());
+      // Set up permanent listeners after connection established. `error` and
+      // `close` both fire for one failure, and a socket replaced by
+      // `reconnect()` still closes later: only the current socket may trigger
+      // a reconnect, once, or a second socket opens next to the first.
+      const live = this.ws!;
+      live.addEventListener('message', (ev) => this.handleMessage(ev));
+      live.addEventListener('close', () => this.handleClose(live));
+      live.addEventListener('error', () => this.handleClose(live));
 
       this.startHeartbeat();
     } catch {
@@ -287,6 +295,19 @@ export class WorkspaceClient {
     return this.lastEventId;
   }
 
+  /**
+   * Report this client's live presence to the WorkspaceHub: whether the user
+   * is idle here, and whether they are in a call. The hub folds every
+   * connection of the user into one status, so an idle tab never marks someone
+   * away while another tab or device is in use. Kept across reconnects.
+   */
+  setPresence(update: Partial<ConnectionPresence>): void {
+    const next = { ...this.presence, ...update };
+    if (next.idle === this.presence.idle && next.inCall === this.presence.inCall) return;
+    this.presence = next;
+    this.send({ type: 'presence', idle: next.idle, inCall: next.inCall });
+  }
+
   // ---- Internal ----
 
   private send(msg: WorkspaceClientMessage): void {
@@ -344,7 +365,14 @@ export class WorkspaceClient {
     }
   }
 
-  private handleClose(): void {
+  /** After (re)connecting: the hub starts a connection active and not in a call, so only a difference needs sending. */
+  private sendPresence(): void {
+    if (!this.presence.idle && !this.presence.inCall) return;
+    this.send({ type: 'presence', idle: this.presence.idle, inCall: this.presence.inCall });
+  }
+
+  private handleClose(ws: WebSocket): void {
+    if (ws !== this.ws) return;
     this.ws = null;
     this.stopHeartbeat();
     if (!this.intentionalClose) {
@@ -378,7 +406,7 @@ export class WorkspaceClient {
   }
 
   private scheduleReconnect(): void {
-    if (this.intentionalClose) return;
+    if (this.intentionalClose || this.reconnectTimer) return;
     this.setState('reconnecting');
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempt), 30000);
     this.reconnectAttempt++;

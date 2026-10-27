@@ -5,8 +5,16 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
-// User presence status
-export type ChatUserPresenceStatus = 'online' | 'busy' | 'away' | 'dnd' | 'offline';
+/**
+ * The status a member chose. Live presence (connected, idle, in a call) is
+ * not stored: the realtime WorkspaceHub keeps it. Read and write `status`
+ * through `chosenStatusFromStored` / `storedStatusFor` in
+ * `@weldsuite/realtime/presence`: older rows still hold the `online`,
+ * `offline` and `away` the previous presence writers left, which mean
+ * "automatic", so a chosen Away and Appear offline are stored as
+ * `away_manual` and `invisible`.
+ */
+export type ChatUserPresenceStatus = 'online' | 'busy' | 'dnd' | 'away_manual' | 'invisible';
 
 export const chatUserStatus = pgTable('chat_user_status', {
   // BaseEntity fields

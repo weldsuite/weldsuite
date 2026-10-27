@@ -1,4 +1,5 @@
 import type { Attachment, CallSupersededEvent } from '../types';
+import type { LivePresence, PresenceSnapshot } from '../presence';
 import { personalHubKey } from '../topics';
 import { REALTIME_INTERNAL_SECRET_HEADER } from './internal-auth';
 
@@ -169,6 +170,29 @@ export class RealtimePublisher {
       notification,
       clerkUserId,
     );
+  }
+
+  /**
+   * Live presence of a workspace's members, straight from its WorkspaceHub:
+   * every member with a connection open (`online`, `away` or `busy`). Anyone
+   * missing is offline. Pass `userIds` to ask about a few members only.
+   * Throws when the hub cannot be reached, so a caller can tell "nobody is
+   * connected" from "unknown".
+   */
+  async getPresence(workspaceId: string, userIds?: string[]): Promise<Record<string, LivePresence>> {
+    const url = new URL('https://internal/internal/presence');
+    url.searchParams.set('workspaceId', workspaceId);
+    for (const id of userIds ?? []) url.searchParams.append('userId', id);
+
+    const headers: Record<string, string> = {};
+    if (this.internalSecret) headers[REALTIME_INTERNAL_SECRET_HEADER] = this.internalSecret;
+
+    const res = await this.binding.fetch(url.toString(), { method: 'GET', headers });
+    if (!res.ok) {
+      throw new Error(`[realtime presence] ${res.status} ${res.statusText}`);
+    }
+    const body = (await res.json()) as Partial<PresenceSnapshot>;
+    return body.users ?? {};
   }
 
   async helpdeskEvent(workspaceId: string, event: string, data: unknown) {

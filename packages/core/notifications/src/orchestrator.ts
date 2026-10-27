@@ -437,7 +437,13 @@ export async function createAndDeliverNotification<Env extends NotificationEnv>(
   // about something already on their screen, so resolve this BEFORE the insert
   // — `deliveredEmail` on the row has to describe what actually happens, and
   // the deferred path decides that here rather than minutes later.
-  const emailPresence = channels.email ? await resolveEmailPresence(db, userId) : 'suppress';
+  const emailPresence = channels.email
+    ? await resolveEmailPresence(db, userId, {
+        realtime: env.REALTIME,
+        realtimeSecret: env.REALTIME_INTERNAL_SECRET,
+        workspaceId: params.workspaceId,
+      })
+    : 'suppress';
   const willEmail = channels.email && emailPresence === 'absent';
 
   if (!channels.inApp && !willEmail && !channels.push) {

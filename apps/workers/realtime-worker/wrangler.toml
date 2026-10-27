@@ -28,8 +28,8 @@ head_sampling_rate = 1
 #                        the x-internal-secret header, service-binding callers
 #                        included; without it every publish answers 403. The same
 #                        value is set on every publishing worker and app.
-# - DATABASE_URL_MASTER: Neon master DB connection string (used by WorkspaceHub
-#                        presence alarm to persist offline to tenant DBs).
+# - DATABASE_URL_MASTER: Neon master DB connection string (used by the room
+#                        access gates to reach tenant DBs, and to map workspace ids to hubs).
 # - NEON_API_KEY: Neon API key — used to resolve tenant DB URLs on cache miss.
 # - DATABASE_ENCRYPTION_KEY: (optional) AES-256-GCM hex key for decrypting stored tenant DB URIs.
 
@@ -46,8 +46,8 @@ bindings = [
   { name = "SUPPORT_ROOM", class_name = "SupportRoom" },
 ]
 
-# Shared KV namespace (same ID as api-worker) — used by the WorkspaceHub
-# presence alarm to resolve tenant DB URLs from workspace (Clerk org) IDs.
+# Shared KV namespace (same ID as api-worker) — used by the room
+# access gates to resolve tenant DB URLs from workspace (Clerk org) IDs.
 [[kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"

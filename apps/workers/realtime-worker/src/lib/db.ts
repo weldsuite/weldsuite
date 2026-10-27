@@ -1,8 +1,8 @@
 /**
  * Database helpers for the realtime worker.
  *
- * Used by WorkspaceHub's presence alarm to persist `offline` to the
- * tenant `chat_user_status` table when a user's grace period expires.
+ * Used by the access gates in `src/index.ts` (channel, conversation and
+ * project rooms) and to map a workspace id onto its WorkspaceHub.
  *
  * Uses Neon HTTP driver (stateless, no TCP) for both master and tenant.
  * The master DB is looked up by connection string (`DATABASE_URL_MASTER`).
@@ -146,90 +146,4 @@ export async function workspaceHubKey(env: DbEnv, ref: string): Promise<string> 
     await env.WORKSPACE_CACHE.put(cacheKey, hubKey, { expirationTtl: HUB_KEY_TTL_SECONDS });
   }
   return hubKey;
-}
-
-/**
- * Upsert a user's `chat_user_status` row to `offline`.
- * Mirrors the helper in api-worker/routes/chat/status.ts so presence state
- * stays consistent across both write paths.
- */
-export async function setUserOffline(db: TenantDatabase, userId: string): Promise<void> {
-  const { chatUserStatus } = schema;
-  const now = new Date();
-
-  const [existing] = await db
-    .select({ id: chatUserStatus.id })
-    .from(chatUserStatus)
-    .where(eq(chatUserStatus.userId, userId))
-    .limit(1);
-
-  if (existing) {
-    await db
-      .update(chatUserStatus)
-      .set({ status: 'offline', updatedAt: now })
-      .where(eq(chatUserStatus.userId, userId));
-  } else {
-    await db.insert(chatUserStatus).values({
-      id: generateStatusId(),
-      userId,
-      status: 'offline',
-      updatedAt: now,
-    });
-  }
-}
-
-/**
- * Restore a user's `chat_user_status` to `online` IFF the row currently
- * says `offline`. Returns true if a row was updated, false otherwise.
- *
- * Called by WorkspaceHub on reconnect after the DO itself had previously
- * persisted the user offline via the grace-period alarm. Skipping rows
- * that are already non-offline preserves user-set `dnd`/`away`/`busy`
- * statuses that were written through the API while the user was online.
- */
-export async function setUserOnlineIfOffline(
-  db: TenantDatabase,
-  userId: string,
-): Promise<boolean> {
-  const { chatUserStatus } = schema;
-  const now = new Date();
-
-  const [existing] = await db
-    .select({ id: chatUserStatus.id, status: chatUserStatus.status })
-    .from(chatUserStatus)
-    .where(eq(chatUserStatus.userId, userId))
-    .limit(1);
-
-  if (!existing) {
-    await db.insert(chatUserStatus).values({
-      id: generateStatusId(),
-      userId,
-      status: 'online',
-      updatedAt: now,
-    });
-    return true;
-  }
-
-  if (existing.status === 'offline') {
-    await db
-      .update(chatUserStatus)
-      .set({ status: 'online', updatedAt: now })
-      .where(eq(chatUserStatus.userId, userId));
-    return true;
-  }
-
-  return false;
-}
-
-/** Cryptographically secure base-36 string of exactly `length` characters. */
-function randomBase36(length: number): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
-}
-
-/** Matches the `cus_<ts><rand>` shape produced by api-worker's generateId. */
-function generateStatusId(): string {
-  const timestamp = Date.now().toString(36);
-  const random = randomBase36(8);
-  return `cus_${timestamp}${random}`;
 }
