@@ -2,9 +2,9 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import type { HonoEnv } from './lib/api-types';
 import { createMcpServer } from './lib/mcp-server';
+import { serveMcpRequest } from './lib/mcp-transport';
 import { authMiddleware } from './middleware/auth';
 import { rateLimitMiddleware } from './middleware/rate-limit';
 import {
@@ -41,15 +41,16 @@ app.options(PROTECTED_RESOURCE_PATH, (c) => c.body(null, 204, metadataCorsHeader
 app.options(AUTHORIZATION_SERVER_PATH, (c) => c.body(null, 204, metadataCorsHeaders));
 
 // Served on both the bare path and `/mcp` suffix: clients differ on whether
-// they append the resource path when looking the document up.
+// they append the resource path when looking the document up. Each answers
+// for its own resource (`resourcePath`).
 // `protectedResourceMetadata` decodes the publishable key to derive the Clerk
 // issuer, so a malformed key throws. Catch it: this is the first step of the
 // OAuth bootstrap, and an unstructured 500 here leaves clients with no way to
 // discover the authorization server.
-const protectedResource = (c: Context<HonoEnv>) => {
+const protectedResource = (c: Context<HonoEnv>, resourcePath: string) => {
   try {
     return c.json(
-      protectedResourceMetadata(c.env.MCP_SERVER_URL, c.env.CLERK_PUBLISHABLE_KEY),
+      protectedResourceMetadata(c.env.MCP_SERVER_URL, c.env.CLERK_PUBLISHABLE_KEY, resourcePath),
       200,
       metadataCorsHeaders,
     );
@@ -63,8 +64,8 @@ const protectedResource = (c: Context<HonoEnv>) => {
   }
 };
 
-app.get(PROTECTED_RESOURCE_PATH, protectedResource);
-app.get(`${PROTECTED_RESOURCE_PATH}/mcp`, protectedResource);
+app.get(PROTECTED_RESOURCE_PATH, (c) => protectedResource(c, ''));
+app.get(`${PROTECTED_RESOURCE_PATH}/mcp`, (c) => protectedResource(c, '/mcp'));
 
 app.get(AUTHORIZATION_SERVER_PATH, async (c) => {
   try {
@@ -82,42 +83,8 @@ app.get(AUTHORIZATION_SERVER_PATH, async (c) => {
 
 // MCP endpoint — handles all MCP protocol messages
 app.all('/mcp', authMiddleware, rateLimitMiddleware, async (c) => {
-  const session = c.get('session');
-  const server = await createMcpServer(session, c.env, c.executionCtx);
-
-  // Stateless transport: no session ID, each request is independent
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-
-  await server.connect(transport);
-
-  // Parse body to check if this is a non-initialize request.
-  // In stateless mode each HTTP request creates a fresh server, but only
-  // the first request from a client is `initialize`. Subsequent requests
-  // (tools/list, tools/call) hit an un-initialized server and get rejected.
-  // Pre-set the initialized flag so non-initialize requests work.
-  let parsedBody: unknown;
-  if (c.req.method === 'POST') {
-    parsedBody = await c.req.json();
-    const method = Array.isArray(parsedBody)
-      ? (parsedBody as any[])[0]?.method
-      : (parsedBody as any)?.method;
-    if (method !== 'initialize') {
-      // Mark the underlying protocol server as initialized
-      (server.server as any)._initialized = true;
-      (server.server as any)._clientCapabilities = {};
-      (server.server as any)._clientVersion = '2025-03-26';
-    }
-  }
-
-  const response = await transport.handleRequest(c.req.raw, { parsedBody });
-
-  // Clean up transport (don't close the server — it's per-request anyway)
-  await transport.close();
-
-  return response;
+  const server = await createMcpServer(c.get('session'), c.env, c.executionCtx);
+  return serveMcpRequest(server, c.req.raw, c.get('mcpAuth'));
 });
 
 // 404 for everything else

@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { SUBMIT_FEEDBACK_TOOL_NAME, submitFeedbackTool } from '@clerk/mcp-tools/feedback';
 import type { McpSession } from './api-types';
 import type { Env } from '../types/env';
 import { canUseScope, type Grants } from './permissions';
@@ -20,6 +21,9 @@ const USER_APPS_SCOPE = 'user-apps:manage';
 
 /** Scope gating WeldObjects (user-defined custom object) agent tools. */
 const CUSTOM_OBJECTS_SCOPE = 'custom-objects:read';
+
+/** Reported on `initialize` and on every `submit_feedback` report. */
+const SERVER_VERSION = '1.0.0';
 
 /** The session's grants and member denies, for tool visibility checks. */
 function grantsOf(session: McpSession): Grants {
@@ -70,7 +74,14 @@ Making changes:
   quote as accepted" — not by echoing the returned payload.
 - Tools are limited to the permissions of the signed-in user. A refusal means
   their role lacks that permission, not that the record is missing; say so
-  rather than retrying.`;
+  rather than retrying.
+
+Reporting problems:
+
+- When no tool can do what the user needs, a tool fails or returns something
+  wrong, or a tool is confusing, report it once per task with submit_feedback.
+  The report goes to the WeldSuite team, not into the workspace, so it is the
+  one call that needs no confirmation. Leave out secrets and personal data.`;
 
 /**
  * First free name for a dynamically registered tool: `base`, else `base_2`,
@@ -105,7 +116,7 @@ export async function createMcpServer(
   const server = new McpServer(
     {
       name: 'WeldSuite',
-      version: '1.0.0',
+      version: SERVER_VERSION,
     },
     {
       capabilities: {
@@ -132,6 +143,25 @@ export async function createMcpServer(
         return toolError(message);
       }
     });
+  }
+
+  // Agent feedback (Clerk's `submit_feedback`): an agent that finds a tool
+  // missing, broken or confusing reports it. Reports are stored on the Clerk
+  // instance that owns CLERK_SECRET_KEY (development and production apart) and
+  // read with Clerk's MCP server (`list_application_feedback`). The user and
+  // OAuth client come from the Clerk-built `authInfo` the transport passes in.
+  // No scope: any member may report. Registered before the dynamic tools so
+  // a WeldApp or WeldObjects tool cannot take the name. The source name is left
+  // to Clerk's default, the request host, which keeps local `wrangler dev`
+  // reports apart from mcp-test ones on the shared development instance.
+  if (env.CLERK_SECRET_KEY) {
+    server.registerTool(
+      ...submitFeedbackTool({
+        secretKey: env.CLERK_SECRET_KEY,
+        server: { version: SERVER_VERSION },
+      }),
+    );
+    registeredNames.add(SUBMIT_FEEDBACK_TOOL_NAME);
   }
 
   // Register user-created WeldApp agent tools (dynamic, scope-gated).
