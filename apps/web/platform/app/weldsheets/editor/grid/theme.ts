@@ -11,6 +11,10 @@ export interface GridTheme {
   selectionBorder: string;
   selectionFill: string;
   freezeLine: string;
+  /** Connected tables: the header row, every other record and the line under the header. */
+  tableHeader: string;
+  tableBand: string;
+  tableLine: string;
   dark: boolean;
 }
 
@@ -34,6 +38,9 @@ export function readGridTheme(el: Element): GridTheme {
     selectionBorder: accent,
     selectionFill: dark ? 'rgba(112, 159, 245, 0.16)' : 'rgba(26, 115, 232, 0.10)',
     freezeLine: dark ? '#4a4f57' : '#c4c7c5',
+    tableHeader: dark ? 'rgba(112, 159, 245, 0.22)' : 'rgba(26, 115, 232, 0.14)',
+    tableBand: dark ? 'rgba(255, 255, 255, 0.035)' : 'rgba(0, 0, 0, 0.028)',
+    tableLine: accent,
     dark,
   };
 }

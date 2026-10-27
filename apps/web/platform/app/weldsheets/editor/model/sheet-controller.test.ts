@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyOp, EN_LOCALE, NL_LOCALE, type Op } from '@weldsuite/sheets-engine';
+import { applyOp, EN_LOCALE, MAX_ROWS, NL_LOCALE, type Op } from '@weldsuite/sheets-engine';
 import { copySelection, parseHtmlTable, parseTsv, pasteInto } from './clipboard';
 import { acceptsReference, functionPrefixAt, referenceText, refsInEdit, suggestFunctions } from './formula-edit';
 import { handleEditKey, handleGridKey, type KeyInput } from './keyboard';
@@ -370,6 +370,114 @@ describe('clipboard', () => {
     pasteInto(ctl, payload.text, null);
     expect(value(ctl, 0, 0)).toBeNull();
     expect(value(ctl, 3, 3)).toBe('moved');
+  });
+
+  it('grows the sheet to fit a paste past its last row and column, undone with it', () => {
+    const { ctl, onOp } = make();
+    const { rowCount, colCount } = ctl.sheet;
+    ctl.select(cellSelection(rowCount - 1, colCount - 1));
+    pasteInto(ctl, 'a\tb\nc\td\ne\tf\n', null);
+    expect(ctl.sheet.rowCount).toBe(rowCount + 2);
+    expect(ctl.sheet.colCount).toBe(colCount + 1);
+    expect(value(ctl, rowCount + 1, colCount)).toBe('f');
+    expect(onOp).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'batch' }));
+    ctl.undo();
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+    expect(ctl.sheet.colCount).toBe(colCount);
+  });
+
+  it('grows the sheet for a copy pasted inside WeldSheets past its last row', () => {
+    const { ctl } = make();
+    const rowCount = ctl.sheet.rowCount;
+    ctl.setInput(0, 0, '1');
+    ctl.setInput(1, 0, '=A1+1');
+    ctl.select({ ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    const payload = copySelection(ctl);
+    ctl.select(cellSelection(rowCount - 1, 0));
+    pasteInto(ctl, payload.text, payload.html);
+    expect(ctl.sheet.rowCount).toBe(rowCount + 1);
+    expect(ctl.engine.getCell(ctl.activeSheetId, rowCount, 0)?.f).toBe(`A${rowCount}+1`);
+  });
+
+  it('leaves the grid size alone for a paste that fits', () => {
+    const { ctl, onOp } = make();
+    const rowCount = ctl.sheet.rowCount;
+    pasteInto(ctl, 'a\tb\n', null);
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+    expect(onOp).toHaveBeenLastCalledWith(expect.not.objectContaining({ ops: [expect.objectContaining({ type: 'setGridSize' })] }));
+  });
+});
+
+describe('adding rows at the bottom', () => {
+  it('adds empty rows after the last one, undoably', () => {
+    const { ctl, onOp } = make();
+    const rowCount = ctl.sheet.rowCount;
+    ctl.addRows(1000);
+    expect(ctl.sheet.rowCount).toBe(rowCount + 1000);
+    expect(onOp).toHaveBeenLastCalledWith({ type: 'setGridSize', sheetId: ctl.activeSheetId, rowCount: rowCount + 1000 });
+    ctl.setInput(rowCount + 999, 0, 'last');
+    expect(value(ctl, rowCount + 999, 0)).toBe('last');
+    ctl.undo();
+    ctl.undo();
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+  });
+
+  it('stops at the sheet maximum and ignores nothing to add', () => {
+    const { ctl, onOp } = make();
+    ctl.addRows(0);
+    expect(onOp).not.toHaveBeenCalled();
+    ctl.addRows(10_000_000);
+    expect(ctl.sheet.rowCount).toBe(MAX_ROWS);
+    onOp.mockClear();
+    ctl.addRows(1);
+    expect(onOp).not.toHaveBeenCalled();
+  });
+
+  it('does nothing on a read-only sheet', () => {
+    const { ctl } = make();
+    const rowCount = ctl.sheet.rowCount;
+    ctl.setReadOnly(true);
+    ctl.addRows(1000);
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+  });
+});
+
+describe('connected tables on the grid', () => {
+  function withTable() {
+    const made = make();
+    const range = { r1: 2, c1: 1, r2: 5, c2: 3 };
+    applyOp(made.ctl.engine, { type: 'patchDataTables', sheetId: made.ctl.activeSheetId, set: [{ id: 'ds1', range }] });
+    return { ...made, range };
+  }
+
+  it('finds the table a cell is in and selects all of it', () => {
+    const { ctl, range } = withTable();
+    expect(ctl.dataTableAt(3, 2)?.id).toBe('ds1');
+    expect(ctl.dataTableAt(6, 2)).toBeUndefined();
+    ctl.selectDataTable('ds1');
+    expect(ctl.selection.ranges).toEqual([range]);
+    expect(ctl.selection.active).toEqual({ row: 2, col: 1 });
+  });
+
+  it('hands a table action to the data panel once, and opens it', () => {
+    const { ctl } = withTable();
+    ctl.requestTableAction('ds1', 'refresh');
+    expect(ctl.panel).toBe('data');
+    expect(ctl.takeTableRequest()).toEqual({ id: 'ds1', action: 'refresh' });
+    expect(ctl.takeTableRequest()).toBeNull();
+    ctl.setReadOnly(true);
+    ctl.requestTableAction('ds1', 'disconnect');
+    expect(ctl.tableRequest).toBeNull();
+  });
+
+  it('puts the sheet filter on the table header and takes it off again', () => {
+    const { ctl, range } = withTable();
+    ctl.toggleTableFilter('ds1');
+    expect(ctl.sheet.filter).toEqual({ range, columns: [] });
+    expect(ctl.tableFiltered('ds1')).toBe(true);
+    ctl.toggleTableFilter('ds1');
+    expect(ctl.sheet.filter).toBeNull();
+    expect(ctl.tableFiltered('ds1')).toBe(false);
   });
 });
 

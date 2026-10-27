@@ -8,16 +8,24 @@
 
 import { MAX_COLS, MAX_ROWS, type Range } from '../address';
 import type { Engine } from '../calc/engine';
+import type { SheetFilter } from '../model/rules';
 import type { StylePatch } from '../model/styles';
+import { DEFAULT_COL_COUNT, DEFAULT_ROW_COUNT } from '../model/workbook';
 import { isError, type Scalar } from '../values';
 import type { CellPatch, Op } from './types';
+
+/**
+ * Where a connected table not yet in the workbook goes: its top-left cell on
+ * a tab, or a new tab of its own (named after `name`, numbered when taken).
+ */
+export type DataTablePlace = { sheetId: string; row: number; col: number } | { newSheet: { id: string; name: string } };
 
 /** What a connected table's refresh writes. */
 export interface DataTableWrite {
   /** The data source's id (the table's id in the sheet's `dataTables`). */
   id: string;
-  /** Where a table not yet in the workbook goes: its top-left cell. Ignored once it has a block. */
-  at?: { sheetId: string; row: number; col: number };
+  /** Where a table not yet in the workbook goes. Ignored once it has a block. */
+  at?: DataTablePlace;
   /** Column titles, written bold in the block's first row. */
   header: string[];
   /** Records, one array per row, as wide as `header`. */
@@ -29,18 +37,35 @@ export interface DataTableWrite {
 /**
  * The op that writes a connected table: its header and records from the
  * block's top-left cell, what the old block held beyond the new one cleared,
- * and the block recorded. A string says why it cannot be written.
+ * and the block recorded. The sheet grows to hold the block, and a filter on
+ * the table's header follows it. A table placed on a new tab gets that tab,
+ * with its header row frozen and filtered. A string says why it cannot be written.
  */
 export function dataTableOp(engine: Engine, write: DataTableWrite): Op | string {
   const placed = findDataTable(engine, write.id);
-  const sheetId = placed?.sheetId ?? write.at?.sheetId;
+  const fresh = !placed && write.at && 'newSheet' in write.at ? write.at.newSheet : null;
+  const cell = !placed && write.at && 'sheetId' in write.at ? write.at : null;
+  const sheetId = placed?.sheetId ?? fresh?.id ?? cell?.sheetId;
   const sheet = sheetId ? engine.workbook.getSheet(sheetId) : undefined;
-  if (!sheetId || !sheet) return 'The table has no place in the workbook';
-  const top = placed ? placed.range.r1 : write.at!.row;
-  const left = placed ? placed.range.c1 : write.at!.col;
+  if (!sheetId || (!sheet && !fresh) || (sheet && fresh)) return 'The table has no place in the workbook';
+  const top = placed ? placed.range.r1 : (cell?.row ?? 0);
+  const left = placed ? placed.range.c1 : (cell?.col ?? 0);
   const width = Math.max(1, write.header.length);
   if (top + write.rows.length >= MAX_ROWS || left + width > MAX_COLS) return 'The table does not fit on the sheet';
   const range: Range = { r1: top, c1: left, r2: top + write.rows.length, c2: left + width - 1 };
+
+  const ops: Op[] = [];
+  if (fresh) {
+    ops.push(
+      { type: 'addSheet', sheetId, name: tableSheetName(engine, fresh.name), index: engine.workbook.sheets.length },
+      { type: 'setFreeze', sheetId, rows: 1, cols: 0 },
+    );
+  }
+  const rowCount = sheet?.rowCount ?? DEFAULT_ROW_COUNT;
+  const colCount = sheet?.colCount ?? DEFAULT_COL_COUNT;
+  if (range.r2 >= rowCount || range.c2 >= colCount) {
+    ops.push({ type: 'setGridSize', sheetId, rowCount: Math.max(rowCount, range.r2 + 1), colCount: Math.max(colCount, range.c2 + 1) });
+  }
 
   const cells: CellPatch[] = [];
   write.header.forEach((title, j) => cells.push([top, left + j, title ? { v: title } : null]));
@@ -60,14 +85,31 @@ export function dataTableOp(engine: Engine, write: DataTableWrite): Op | string 
     }
   }
 
-  const ops: Op[] = [{ type: 'setCells', sheetId, cells }];
+  ops.push({ type: 'setCells', sheetId, cells });
   ops.push({ type: 'formatRanges', sheetId, ranges: [{ r1: top, c1: left, r2: top, c2: range.c2 }], patch: { bold: true } satisfies StylePatch });
   (write.formats ?? []).forEach((numFmt, j) => {
     if (!numFmt || write.rows.length === 0 || j >= width) return;
     ops.push({ type: 'formatRanges', sheetId, ranges: [{ r1: top + 1, c1: left + j, r2: range.r2, c2: left + j }], patch: { numFmt } });
   });
+  const filter = fresh ? { range, columns: [] } : followingFilter(sheet!.filter, placed?.range, range);
+  if (filter) ops.push({ type: 'setFilter', sheetId, filter });
   ops.push({ type: 'patchDataTables', sheetId, set: [{ id: write.id, range }] });
   return { type: 'batch', ops };
+}
+
+/** A filter on the old block's header row, moved to the new block (columns past its width dropped); null when there is none. */
+function followingFilter(filter: SheetFilter | null, old: Range | undefined, range: Range): SheetFilter | null {
+  if (!filter || !old || filter.range.r1 !== old.r1 || filter.range.c1 !== old.c1 || filter.range.c2 !== old.c2) return null;
+  if (filter.range.r2 === range.r2 && filter.range.c2 === range.c2) return null;
+  return { range: { ...range }, columns: filter.columns.filter((c) => c.col <= range.c2) };
+}
+
+/** The name of a connected table's own tab: `base` without the characters a tab name cannot hold, numbered when taken. */
+function tableSheetName(engine: Engine, base: string): string {
+  const name = base.replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 90) || 'Table';
+  const taken = (n: string) => !!engine.workbook.getSheetByName(n);
+  if (!taken(name)) return name;
+  for (let i = 2; ; i++) if (!taken(`${name} ${i}`)) return `${name} ${i}`;
 }
 
 /** Where a connected table is: its sheet and the block it last filled. */

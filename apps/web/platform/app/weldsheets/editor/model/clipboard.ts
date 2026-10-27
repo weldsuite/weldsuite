@@ -1,5 +1,7 @@
 import {
   delocalizeFormula,
+  MAX_COLS,
+  MAX_ROWS,
   parseInput,
   rewriteRefs,
   translateFormula,
@@ -22,6 +24,12 @@ interface InternalClip {
   range: Range;
   cells: { content: CellContent | null; style: string | null; value: Scalar }[][];
   cut: boolean;
+}
+
+/** How many rows and columns a sheet has. */
+interface GridSize {
+  rowCount: number;
+  colCount: number;
 }
 
 let lastCopy: InternalClip | null = null;
@@ -76,7 +84,7 @@ export function moveCells(ctl: SheetController, source: Range, top: number, left
   if (top === source.r1 && left === source.c1) return;
   const clip = readClip(ctl, source, !copy);
   const target = { r1: top, c1: left, r2: top + source.r2 - source.r1, c2: left + source.c2 - source.c1 };
-  ctl.apply(internalPaste(ctl, clip, top, left, target, false));
+  ctl.apply(internalPaste(ctl, clip, top, left, target, false, ctl.sheet));
   const active = { row: top + ctl.selection.active.row - source.r1, col: left + ctl.selection.active.col - source.c1 };
   ctl.select({ ranges: [target], active, anchor: { row: top, col: left } });
 }
@@ -106,9 +114,12 @@ export function pasteInto(ctl: SheetController, text: string, html: string | nul
   const left = Math.min(target.c1, origin.col);
   const internal = matchingClip(ctl, text);
   const grid = (html ? parseHtmlTable(html) : null) ?? parseTsv(text);
-  const op = internal ? internalPaste(ctl, internal, top, left, target, valuesOnly) : externalPaste(ctl, grid, top, left);
+  const size = internal
+    ? grownGrid(ctl, top + internal.cells.length, left + (internal.cells[0]?.length ?? 0))
+    : grownGrid(ctl, top + grid.length, left + grid.reduce((n, line) => Math.max(n, line.length), 0));
+  const op = internal ? internalPaste(ctl, internal, top, left, target, valuesOnly, size) : externalPaste(ctl, grid, top, left, size);
   if (!op) return;
-  ctl.apply(op);
+  ctl.apply(withGrowth(ctl, op, size));
   const rows = internal ? internal.cells.length : 1;
   const cols = internal ? (internal.cells[0]?.length ?? 1) : 1;
   ctl.select({
@@ -117,6 +128,27 @@ export function pasteInto(ctl: SheetController, text: string, html: string | nul
     anchor: { row: top, col: left },
   });
   if (internal?.cut && !valuesOnly) lastCopy = null;
+}
+
+/** The active sheet's size grown to hold `rows` rows and `cols` columns: a paste past the edge grows the sheet. */
+function grownGrid(ctl: SheetController, rows: number, cols: number): GridSize {
+  return {
+    rowCount: Math.min(MAX_ROWS, Math.max(ctl.sheet.rowCount, rows)),
+    colCount: Math.min(MAX_COLS, Math.max(ctl.sheet.colCount, cols)),
+  };
+}
+
+/** `op`, after growing the active sheet to `size` when that is bigger, so both undo together. */
+function withGrowth(ctl: SheetController, op: Op, size: GridSize): Op {
+  const { rowCount, colCount } = ctl.sheet;
+  if (size.rowCount === rowCount && size.colCount === colCount) return op;
+  const grow: Op = {
+    type: 'setGridSize',
+    sheetId: ctl.activeSheetId,
+    ...(size.rowCount !== rowCount && { rowCount: size.rowCount }),
+    ...(size.colCount !== colCount && { colCount: size.colCount }),
+  };
+  return { type: 'batch', ops: [grow, op] };
 }
 
 /**
@@ -139,7 +171,7 @@ function normalizeNewlines(s: string): string {
  * selection. Values only: what the cells showed, no formulas or styles, and
  * a cut leaves its source.
  */
-function internalPaste(ctl: SheetController, clip: InternalClip, top: number, left: number, target: Range, valuesOnly: boolean): Op {
+function internalPaste(ctl: SheetController, clip: InternalClip, top: number, left: number, target: Range, valuesOnly: boolean, grid: GridSize): Op {
   const sheetId = ctl.activeSheetId;
   const height = clip.cells.length;
   const width = clip.cells[0]?.length ?? 0;
@@ -150,8 +182,8 @@ function internalPaste(ctl: SheetController, clip: InternalClip, top: number, le
   const styles: [number, number, string | null][] = [];
   // A cut within one sheet moves cells: references to them follow.
   const move = clip.cut && !valuesOnly && clip.sheetId === sheetId ? { range: clip.range, dRow: top - clip.range.r1, dCol: left - clip.range.c1 } : null;
-  for (let row = top; row <= Math.min(r2, ctl.sheet.rowCount - 1); row++) {
-    for (let col = left; col <= Math.min(c2, ctl.sheet.colCount - 1); col++) {
+  for (let row = top; row <= Math.min(r2, grid.rowCount - 1); row++) {
+    for (let col = left; col <= Math.min(c2, grid.colCount - 1); col++) {
       const src = clip.cells[(row - top) % height]![(col - left) % width]!;
       const dRow = row - (clip.range.r1 + ((row - top) % height));
       const dCol = col - (clip.range.c1 + ((col - left) % width));
@@ -240,7 +272,7 @@ function clearSource(ctl: SheetController, clip: InternalClip): Op {
   };
 }
 
-function externalPaste(ctl: SheetController, grid: string[][], top: number, left: number): Op | null {
+function externalPaste(ctl: SheetController, grid: string[][], top: number, left: number, size: GridSize): Op | null {
   if (grid.length === 0) return null;
   const cells: CellPatch[] = [];
   const formats: Op[] = [];
@@ -248,7 +280,7 @@ function externalPaste(ctl: SheetController, grid: string[][], top: number, left
     line.forEach((raw, j) => {
       const row = top + i;
       const col = left + j;
-      if (row >= ctl.sheet.rowCount || col >= ctl.sheet.colCount) return;
+      if (row >= size.rowCount || col >= size.colCount) return;
       const parsed = parseInput(raw, { locale: ctl.options.locale });
       if (parsed.kind === 'formula') {
         cells.push([row, col, { f: delocalizeFormula(parsed.formula, ctl.options.formulaLocale) }]);

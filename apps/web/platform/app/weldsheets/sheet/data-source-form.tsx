@@ -46,7 +46,7 @@ export function DataSourceForm({
   /** Objects the viewer may list; empty: the object cannot change (an existing table). */
   objects: SheetDataObjectKey[];
   onObjectChange: (objectType: SheetDataObjectKey) => void;
-  /** Where a new table starts ("Sheet1!A1"); unset for an existing one. */
+  /** The new tab a new table goes on ("Companies"); unset for an existing one. */
   at?: string;
   saving: boolean;
   onSave: () => void;
@@ -142,7 +142,7 @@ export function DataSourceForm({
         </Labelled>
       </div>
 
-      {at && <p className="text-xs text-muted-foreground">{td.at.replace('{cell}', at)}</p>}
+      {at && <p className="text-xs text-muted-foreground">{td.at.replace('{name}', at)}</p>}
       <div className="flex justify-end gap-1">
         <Button type="button" size="sm" variant="ghost" className="h-7" onClick={onCancel}>
           {td.cancel}
