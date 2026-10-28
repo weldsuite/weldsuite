@@ -20,6 +20,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
+import { PostgresWorkspaceMailStore } from './store/postgres';
 
 const { deviceTokens, mailAccounts, mailMessages, workspaceMembers } = schema;
 
@@ -180,6 +181,24 @@ describe('sendWorkspaceMailReadPush', () => {
     const message = sendExpoPush.mock.calls[0]![0].find((m) => m.to === token);
     expect(message?.badge).toBe(2);
     expect(message?.data?.inboxUnread).toBe('2');
+  });
+
+  // design task D2: when a caller hands over its mailbox store, the badge
+  // comes from `store.stats(...)` instead of the direct `mail_messages`
+  // query — a `PostgresWorkspaceMailStore` wraps the exact same Postgres
+  // query, so the count must agree.
+  it("sets the badge from the store's stats fan-out when one is supplied", async () => {
+    const user = generateId('user');
+    const accountId = await seedAccount({ isShared: false, assignedUserIds: [user] });
+    await seedUnread(accountId);
+    const token = await seedDevice(user);
+    const store = new PostgresWorkspaceMailStore(db, 'ws_test', 'org_test');
+
+    await sendWorkspaceMailReadPush(db, { accountId, emailIds: ['mmsg_x'] }, { store });
+
+    const message = sendExpoPush.mock.calls[0]![0].find((m) => m.to === token);
+    expect(message?.badge).toBe(1);
+    expect(message?.data?.inboxUnread).toBe('1');
   });
 
   it('deactivates a token Expo reports as gone', async () => {

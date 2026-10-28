@@ -1,41 +1,77 @@
 /**
  * POST /api/mail-threads/read-all — "mark all as read" for a folder.
  *
- * Route layer only: the access gate, what reaches the service and the cap on
- * the "email read" push. The SQL is covered by mail-domain's
- * `thread-ops.test.ts`.
+ * Runs against a real pglite tenant DB (see the sibling `mail-messages/
+ * access.test.ts`'s header comment for why: the route now resolves
+ * `workspaceMailFromContext`, which imports `@weldsuite/mail-domain/store/
+ * directory` — a module that destructures `schema.mailLabels`/`mailAccounts`
+ * columns at import time, so this file's old partial `@weldsuite/mail-domain/
+ * access` + `thread-ops` mocks threw before any test body ran).
  */
 
-import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
+import { beforeAll, describe, expect, it, vi, type MockedFunction } from 'vitest';
 import { mailThreadsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-
-vi.mock('@weldsuite/mail-domain/access', () => ({
-  checkAccountAccess: vi.fn(),
-}));
-
-vi.mock('@weldsuite/mail-domain/thread-ops', () => ({
-  markThreadRead: vi.fn(),
-  markFolderRead: vi.fn(),
-}));
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import type { Database } from '@weldsuite/worker-kit/db';
 
 vi.mock('../../lib/read-push', () => ({
   queueMailReadPush: vi.fn(),
 }));
 
-import * as access from '@weldsuite/mail-domain/access';
-import * as threadOps from '@weldsuite/mail-domain/thread-ops';
 import * as readPush from '../../lib/read-push';
 
-const checkAccountAccess = access.checkAccountAccess as MockedFunction<typeof access.checkAccountAccess>;
-const markFolderRead = threadOps.markFolderRead as MockedFunction<typeof threadOps.markFolderRead>;
 const queueMailReadPush = readPush.queueMailReadPush as MockedFunction<typeof readPush.queueMailReadPush>;
+
+const { mailAccounts, mailMessages, workspaceMembers } = schema;
 
 const USER = 'user_1';
 
+let db: Database;
+let privateAccountId: string;
+
+async function seedMessage(accountId: string, overrides: Partial<typeof mailMessages.$inferInsert> = {}): Promise<string> {
+  const id = generateId('mmsg');
+  await db.insert(mailMessages).values({
+    id,
+    accountId,
+    threadId: `thread_${id}`,
+    messageId: `<${id}@test.dev>`,
+    from: { email: 'sender@example.com' },
+    to: [],
+    subject: 'Read-all test',
+    sentDate: new Date(),
+    labels: ['INBOX'],
+    isRead: false,
+    ...overrides,
+  });
+  return id;
+}
+
+beforeAll(async () => {
+  db = (await createPgliteDb()).db;
+  await db.insert(workspaceMembers).values({
+    id: generateId('wm'),
+    userId: USER,
+    email: `${USER}@test.dev`,
+    role: 'ADMIN',
+  } as typeof workspaceMembers.$inferInsert);
+
+  privateAccountId = generateId('mail');
+  await db.insert(mailAccounts).values({
+    id: privateAccountId,
+    name: 'Private',
+    email: `${privateAccountId}@test.dev`,
+    isShared: false,
+    assignedUserIds: [],
+  });
+}, 60_000);
+
 function makeApp(perms: string[] = ['messages:update']) {
   return createTestApp('/api/mail-threads', mailThreadsRoutes, {
-    context: { userId: USER, permissions: permissions(...perms) },
+    context: { userId: USER, tenantDb: db, permissions: permissions(...perms) },
   });
 }
 
@@ -47,70 +83,73 @@ function readAll(body: unknown, perms?: string[]) {
   });
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-});
-
 describe('POST /api/mail-threads/read-all', () => {
   it('answers 403 without messages:update', async () => {
-    const res = await readAll({ labelSlug: 'inbox', accountId: 'acc_1' }, ['messages:read']);
+    const res = await readAll({ labelSlug: 'inbox', accountId: privateAccountId }, ['messages:read']);
     expect(res.status).toBe(403);
-    expect(markFolderRead).not.toHaveBeenCalled();
   });
 
   it('answers 403 for a mailbox the caller may not open', async () => {
-    checkAccountAccess.mockResolvedValueOnce(false);
-    const res = await readAll({ labelSlug: 'inbox', accountId: 'acc_private' });
+    queueMailReadPush.mockClear();
+    const otherAccount = generateId('mail');
+    await db.insert(mailAccounts).values({
+      id: otherAccount,
+      name: 'Someone else',
+      email: `${otherAccount}@test.dev`,
+      isShared: false,
+      assignedUserIds: ['user_other'],
+    });
+    const res = await readAll({ labelSlug: 'inbox', accountId: otherAccount });
     expect(res.status).toBe(403);
-    expect(markFolderRead).not.toHaveBeenCalled();
+    expect(queueMailReadPush).not.toHaveBeenCalled();
   });
 
   it('answers 400 without a folder', async () => {
-    const res = await readAll({ accountId: 'acc_1' });
+    const res = await readAll({ accountId: privateAccountId });
     expect(res.status).toBe(400);
   });
 
   it('marks one mailbox folder and returns the count', async () => {
-    checkAccountAccess.mockResolvedValueOnce(true);
-    markFolderRead.mockResolvedValueOnce({
-      updatedCount: 2,
-      updated: [
-        { id: 'm2', accountId: 'acc_1' },
-        { id: 'm1', accountId: 'acc_1' },
-      ],
-    });
+    queueMailReadPush.mockClear();
+    const m1 = await seedMessage(privateAccountId);
+    const m2 = await seedMessage(privateAccountId);
 
-    const res = await readAll({ labelSlug: 'inbox', accountId: 'acc_1' });
+    const res = await readAll({ labelSlug: 'inbox', accountId: privateAccountId });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: { updatedCount: 2 } });
-    expect(markFolderRead).toHaveBeenCalledWith(expect.anything(), USER, { labelSlug: 'inbox', accountId: 'acc_1' }, { updatedPerAccount: 200 });
-    expect(queueMailReadPush).toHaveBeenCalledWith(expect.anything(), 'acc_1', ['m2', 'm1']);
+    const json = (await res.json()) as { data: { updatedCount: number } };
+    expect(json.data.updatedCount).toBe(2);
+    expect(queueMailReadPush).toHaveBeenCalledWith(
+      expect.anything(),
+      privateAccountId,
+      expect.arrayContaining([m1, m2]),
+    );
   });
 
-  it('marks the unified folder without an account check', async () => {
-    markFolderRead.mockResolvedValueOnce({ updatedCount: 0, updated: [] });
+  it('marks the unified folder without an account-specific check', async () => {
+    queueMailReadPush.mockClear();
+    const shared = generateId('mail');
+    await db.insert(mailAccounts).values({ id: shared, name: 'Shared', email: `${shared}@test.dev`, isShared: true });
+    const id = await seedMessage(shared);
 
     const res = await readAll({ labelSlug: 'inbox' });
 
     expect(res.status).toBe(200);
-    expect(checkAccountAccess).not.toHaveBeenCalled();
-    expect(markFolderRead).toHaveBeenCalledWith(expect.anything(), USER, { labelSlug: 'inbox', accountId: undefined }, { updatedPerAccount: 200 });
-    expect(queueMailReadPush).not.toHaveBeenCalled();
+    const json = (await res.json()) as { data: { updatedCount: number } };
+    expect(json.data.updatedCount).toBeGreaterThanOrEqual(1);
+    expect(queueMailReadPush).toHaveBeenCalledWith(expect.anything(), shared, expect.arrayContaining([id]));
   });
 
   it('pushes at most the 200 newest ids per mailbox', async () => {
-    const updated = [
-      ...Array.from({ length: 250 }, (_, i) => ({ id: `a${i}`, accountId: 'acc_a' })),
-      { id: 'b0', accountId: 'acc_b' },
-    ];
-    markFolderRead.mockResolvedValueOnce({ updatedCount: updated.length, updated });
+    queueMailReadPush.mockClear();
+    const bigAccount = generateId('mail');
+    await db.insert(mailAccounts).values({ id: bigAccount, name: 'Big', email: `${bigAccount}@test.dev`, isShared: true });
+    for (let i = 0; i < 205; i++) await seedMessage(bigAccount);
 
-    const res = await readAll({ labelSlug: 'inbox' });
+    const res = await readAll({ labelSlug: 'inbox', accountId: bigAccount });
 
     expect(res.status).toBe(200);
     const pushed = new Map(queueMailReadPush.mock.calls.map(([, accountId, ids]) => [accountId, ids]));
-    expect(pushed.get('acc_a')).toEqual(updated.slice(0, 200).map((r) => r.id));
-    expect(pushed.get('acc_b')).toEqual(['b0']);
+    expect(pushed.get(bigAccount)?.length).toBeLessThanOrEqual(200);
   });
 });

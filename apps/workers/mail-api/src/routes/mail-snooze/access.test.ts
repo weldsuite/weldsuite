@@ -2,125 +2,136 @@
  * Access-control tests for /api/mail-snooze/*.
  *
  * All mutation endpoints carry accountId in the URL path — verifies that the
- * access gate fires before the snooze service is called.
+ * access gate fires before the snooze op is applied.
+ *
+ * Runs against a real pglite tenant DB, like the sibling route suites
+ * (`mail-messages/access.test.ts`, `mail-attachments/access.test.ts`,
+ * `mail-labels/access.test.ts`): the route resolves `workspaceMailFromContext`
+ * once per request, which imports `@weldsuite/mail-domain/store/directory` —
+ * destructuring `schema.mailLabels`/`mailAccounts` columns at import time, so
+ * this file's old partial `@weldsuite/mail-domain/access` mock (only
+ * `checkAccountAccess`/`accessibleAccountIds`) threw as soon as the route
+ * called a different export (`canOpenAccount`, `principalAccessCondition`,
+ * …) the real `MailAccess` needs.
  */
 
-import { describe, it, expect, vi, type MockedFunction } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { mailSnoozeRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import type { Database } from '@weldsuite/worker-kit/db';
 
-vi.mock('@weldsuite/mail-domain/access', () => ({
-  checkAccountAccess: vi.fn(),
-  accessibleAccountIds: vi.fn(),
-}));
+const { mailAccounts, mailMessages, workspaceMembers } = schema;
 
-vi.mock('@weldsuite/mail-domain/snooze', () => ({
-  listSnoozedMessages: vi.fn(),
-  snoozeMessage: vi.fn(),
-  unsnoozeMessage: vi.fn(),
-  resnoozeMessage: vi.fn(),
-  MailSnoozeError: class MailSnoozeError extends Error {
-    constructor(public readonly code: string, msg: string) { super(msg); }
-  },
-}));
-
-import * as access from '@weldsuite/mail-domain/access';
-import * as snooze from '@weldsuite/mail-domain/snooze';
-
-const checkAccountAccess = access.checkAccountAccess as MockedFunction<typeof access.checkAccountAccess>;
-const snoozeMessage = snooze.snoozeMessage as MockedFunction<typeof snooze.snoozeMessage>;
-const unsnoozeMessage = snooze.unsnoozeMessage as MockedFunction<typeof snooze.unsnoozeMessage>;
-
-const ACCOUNT_ID = 'acc_private';
-const MESSAGE_ID = 'msg_001';
+const USER_ASSIGNED = 'user_assigned';
+const USER_STRANGER = 'user_stranger';
 const UNTIL = new Date(Date.now() + 3_600_000).toISOString();
+
+let db: Database;
+let privateAccountId: string;
+let messageId: string;
+
+async function seedMember(userId: string, role: string) {
+  await db.insert(workspaceMembers).values({
+    id: generateId('wm'),
+    userId,
+    email: `${userId}@test.dev`,
+    role,
+  } as typeof workspaceMembers.$inferInsert);
+}
+
+beforeAll(async () => {
+  db = (await createPgliteDb()).db;
+  await seedMember(USER_ASSIGNED, 'MEMBER');
+  await seedMember(USER_STRANGER, 'MEMBER');
+
+  privateAccountId = generateId('mail');
+  await db.insert(mailAccounts).values({
+    id: privateAccountId,
+    name: 'Private',
+    email: `${privateAccountId}@test.dev`,
+    isShared: false,
+    assignedUserIds: [USER_ASSIGNED],
+  });
+
+  messageId = generateId('mmsg');
+  await db.insert(mailMessages).values({
+    id: messageId,
+    accountId: privateAccountId,
+    threadId: `thread_${messageId}`,
+    messageId: `<${messageId}@test.dev>`,
+    from: { email: 'sender@example.com' },
+    to: [],
+    subject: 'Snoozable',
+    sentDate: new Date(),
+    labels: ['INBOX'],
+  });
+}, 60_000);
 
 function makeApp(userId: string) {
   return createTestApp('/api/mail-snooze', mailSnoozeRoutes, {
-    context: {
-      userId,
-      permissions: permissions('messages:read', 'messages:update'),
-    },
+    context: { userId, tenantDb: db, permissions: permissions('messages:read', 'messages:update') },
   });
 }
 
 describe('POST /api/mail-snooze/accounts/:accountId/messages/:messageId/snooze · access control', () => {
   it('returns 403 for a user without account access', async () => {
-    checkAccountAccess.mockResolvedValueOnce(false);
-    const { request } = makeApp('user_stranger');
+    const { request } = makeApp(USER_STRANGER);
     const res = await request(
-      `/api/mail-snooze/accounts/${ACCOUNT_ID}/messages/${MESSAGE_ID}/snooze`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ until: UNTIL }),
-      },
+      `/api/mail-snooze/accounts/${privateAccountId}/messages/${messageId}/snooze`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ until: UNTIL }) },
     );
     expect(res.status).toBe(403);
-    expect(snoozeMessage).not.toHaveBeenCalled();
   });
 
   it('returns 200 for an assigned user', async () => {
-    checkAccountAccess.mockResolvedValueOnce(true);
-    snoozeMessage.mockResolvedValueOnce({ id: MESSAGE_ID, snoozedUntil: UNTIL } as never);
-    const { request } = makeApp('user_assigned');
+    const { request } = makeApp(USER_ASSIGNED);
     const res = await request(
-      `/api/mail-snooze/accounts/${ACCOUNT_ID}/messages/${MESSAGE_ID}/snooze`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ until: UNTIL }),
-      },
+      `/api/mail-snooze/accounts/${privateAccountId}/messages/${messageId}/snooze`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ until: UNTIL }) },
     );
     expect(res.status).toBe(200);
+    const json = (await res.json()) as { data: { id: string; snoozedUntil: string } };
+    expect(json.data.id).toBe(messageId);
   });
 });
 
 describe('POST /api/mail-snooze/accounts/:accountId/messages/:messageId/unsnooze · access control', () => {
   it('returns 403 for a stranger', async () => {
-    checkAccountAccess.mockResolvedValueOnce(false);
-    const { request } = makeApp('user_stranger');
+    const { request } = makeApp(USER_STRANGER);
     const res = await request(
-      `/api/mail-snooze/accounts/${ACCOUNT_ID}/messages/${MESSAGE_ID}/unsnooze`,
+      `/api/mail-snooze/accounts/${privateAccountId}/messages/${messageId}/unsnooze`,
       { method: 'POST' },
     );
     expect(res.status).toBe(403);
-    expect(unsnoozeMessage).not.toHaveBeenCalled();
   });
 });
 
 describe('GET /api/mail-snooze/snoozed · access control', () => {
   it('returns 403 when accountId is inaccessible', async () => {
-    checkAccountAccess.mockResolvedValueOnce(false);
-    const { request } = makeApp('user_stranger');
-    const res = await request(`/api/mail-snooze/snoozed?accountId=${ACCOUNT_ID}`);
+    const { request } = makeApp(USER_STRANGER);
+    const res = await request(`/api/mail-snooze/snoozed?accountId=${privateAccountId}`);
     expect(res.status).toBe(403);
   });
 
   it('returns 200 when accountId is accessible', async () => {
-    checkAccountAccess.mockResolvedValueOnce(true);
-    (snooze.listSnoozedMessages as MockedFunction<typeof snooze.listSnoozedMessages>).mockResolvedValueOnce([]);
-    const { request } = makeApp('user_assigned');
-    const res = await request(`/api/mail-snooze/snoozed?accountId=${ACCOUNT_ID}`);
+    const { request } = makeApp(USER_ASSIGNED);
+    const res = await request(`/api/mail-snooze/snoozed?accountId=${privateAccountId}`);
     expect(res.status).toBe(200);
   });
 
-  // Bug fix: without `accountId` the route used to call `listSnoozedMessages`
-  // with no account scope at all, which falls through to every mailbox in the
-  // workspace. MAIL-003 says the unified list must be scoped to the caller's
-  // accessible mailboxes, like the unified mail-messages list.
-  it('scopes the unified list (no accountId) to the caller\'s accessible mailboxes', async () => {
-    const scoped = ['acc_shared', 'acc_assigned'];
-    (access.accessibleAccountIds as MockedFunction<typeof access.accessibleAccountIds>).mockResolvedValueOnce(
-      scoped,
-    );
-    const listSnoozedMessages = snooze.listSnoozedMessages as MockedFunction<typeof snooze.listSnoozedMessages>;
-    listSnoozedMessages.mockResolvedValueOnce([]);
-    const { request } = makeApp('user_assigned');
+  // Bug fix (MAIL-003, already landed): the unified list (no `accountId`) must
+  // be scoped to the caller's accessible mailboxes, never every mailbox in the
+  // workspace.
+  it("scopes the unified list (no accountId) to the caller's accessible mailboxes", async () => {
+    const { request } = makeApp(USER_STRANGER);
     const res = await request('/api/mail-snooze/snoozed');
     expect(res.status).toBe(200);
-    // Never the old "no accountId, no accountIds" shape that fell through to
-    // every mailbox in the workspace.
-    expect(listSnoozedMessages).toHaveBeenCalledWith(expect.anything(), { accountIds: scoped });
+    const json = (await res.json()) as { data: Array<{ id: string }> };
+    // The stranger has no accessible accounts, so the private mailbox's
+    // snoozed mail never appears, even unfiltered.
+    expect(json.data).toEqual([]);
   });
 });

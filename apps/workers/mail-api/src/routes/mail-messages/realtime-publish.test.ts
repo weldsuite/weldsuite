@@ -1,196 +1,166 @@
 /**
  * Ensures WeldMail mutation routes that move/update messages fan out
  * `email` entity events for live cross-screen sync.
+ *
+ * Runs against a real pglite tenant DB, like `access.test.ts` (see that
+ * file's header comment for why: the route now resolves
+ * `workspaceMailFromContext` once per request, which imports
+ * `@weldsuite/mail-domain/store/directory` — a module that destructures
+ * `schema.mailLabels`/`mailAccounts` columns at import time, so this file's
+ * old partial `schema` mock threw before any test body ran).
  */
-import { beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mailMessagesRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-
-vi.mock('@weldsuite/mail-domain/access', () => ({
-  checkAccountAccess: vi.fn(),
-  isAdminOrOwner: vi.fn(),
-  userAccessCondition: vi.fn(() => ({ _tag: 'sql' })),
-  hasAccessToAccount: vi.fn(),
-  emailEventData: vi.fn(async (_db: unknown, data: unknown) => data),
-}));
-
-vi.mock('@weldsuite/mail-domain/messages', () => ({
-  getMessageAccountId: vi.fn(),
-  getMessage: vi.fn(),
-  getThread: vi.fn(),
-  listMessages: vi.fn(),
-  getMessageStats: vi.fn(),
-  updateMessage: vi.fn(),
-  softDeleteMessage: vi.fn(),
-  bulkUpdateMessages: vi.fn(),
-  addMessageLabels: vi.fn(),
-  removeMessageLabels: vi.fn(),
-}));
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import type { Database } from '@weldsuite/worker-kit/db';
 
 vi.mock('@weldsuite/mail-domain/send', () => ({
   replyAndPersist: vi.fn(),
   forwardAndPersist: vi.fn(),
   MailSendError: class MailSendError extends Error {
-    constructor(
-      public readonly code: string,
-      public readonly message: string,
-      public readonly details?: unknown,
-    ) {
+    constructor(public readonly code: string, public readonly message: string, public readonly details?: unknown) {
       super(message);
     }
   },
 }));
 
-vi.mock('@weldsuite/worker-kit/db', () => ({
-  schema: {
-    mailAccounts: {
-      id: 'id',
-      isShared: 'isShared',
-      assignedUserIds: 'assignedUserIds',
-      deletedAt: 'deletedAt',
-    },
-    mailMessages: {
-      id: 'id',
-      accountId: 'accountId',
-      deletedAt: 'deletedAt',
-    },
-  },
-}));
-
 vi.mock('@weldsuite/entity-events', async () => {
-  const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
-    '@weldsuite/entity-events',
-  );
+  const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
   return { ...actual, publishEntityEvent: vi.fn() };
 });
 
-import * as access from '@weldsuite/mail-domain/access';
-import * as msgs from '@weldsuite/mail-domain/messages';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 
-const checkAccountAccess = access.checkAccountAccess as MockedFunction<
-  typeof access.checkAccountAccess
->;
-const isAdminOrOwner = access.isAdminOrOwner as MockedFunction<typeof access.isAdminOrOwner>;
-const emailEventData = access.emailEventData as MockedFunction<typeof access.emailEventData>;
-const getMessageAccountId = msgs.getMessageAccountId as MockedFunction<
-  typeof msgs.getMessageAccountId
->;
-const updateMessage = msgs.updateMessage as MockedFunction<typeof msgs.updateMessage>;
-const softDeleteMessage = msgs.softDeleteMessage as MockedFunction<typeof msgs.softDeleteMessage>;
-const bulkUpdateMessages = msgs.bulkUpdateMessages as MockedFunction<
-  typeof msgs.bulkUpdateMessages
->;
-const addMessageLabels = msgs.addMessageLabels as MockedFunction<typeof msgs.addMessageLabels>;
-const removeMessageLabels = msgs.removeMessageLabels as MockedFunction<
-  typeof msgs.removeMessageLabels
->;
+const { mailAccounts, mailMessages, workspaceMembers } = schema;
+
 const mockedPublish = publishEntityEvent as ReturnType<typeof vi.fn>;
 
-const ACCOUNT_ID = 'acc_1';
-const MESSAGE_ID = 'msg_001';
 const USER_ID = 'user_1';
+
+let db: Database;
+let sharedAccountId: string;
+let privateAccountId: string;
+
+async function seedMessage(accountId: string, overrides: Partial<typeof mailMessages.$inferInsert> = {}): Promise<string> {
+  const id = generateId('mmsg');
+  await db.insert(mailMessages).values({
+    id,
+    accountId,
+    threadId: `thread_${id}`,
+    messageId: `<${id}@test.dev>`,
+    from: { email: 'hr@example.com', name: 'HR' },
+    to: [{ email: 'candidate@example.com' }],
+    subject: 'Offer letter',
+    sentDate: new Date(),
+    labels: ['INBOX'],
+    isRead: false,
+    ...overrides,
+  });
+  return id;
+}
+
+beforeAll(async () => {
+  db = (await createPgliteDb()).db;
+  await db.insert(workspaceMembers).values({
+    id: generateId('wm'),
+    userId: USER_ID,
+    email: `${USER_ID}@test.dev`,
+    role: 'ADMIN',
+  } as typeof workspaceMembers.$inferInsert);
+
+  sharedAccountId = generateId('mail');
+  await db.insert(mailAccounts).values({ id: sharedAccountId, name: 'Shared', email: `${sharedAccountId}@test.dev`, isShared: true });
+
+  privateAccountId = generateId('mail');
+  await db.insert(mailAccounts).values({
+    id: privateAccountId,
+    name: 'Private',
+    email: `${privateAccountId}@test.dev`,
+    isShared: false,
+    assignedUserIds: [],
+  });
+}, 60_000);
 
 function makeApp() {
   return createTestApp('/api/mail-messages', mailMessagesRoutes, {
     context: {
       userId: USER_ID,
-      permissions: permissions('messages:read', 'messages:update', 'messages:delete'),
+      tenantDb: db,
+      permissions: permissions('messages:read', 'messages:create', 'messages:update', 'messages:delete'),
     },
   });
 }
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  mockedPublish.mockClear();
 });
 
 describe('mail-messages realtime publish', () => {
   it('publishes email:updated on bulk actions', async () => {
-    isAdminOrOwner.mockResolvedValueOnce(true);
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    bulkUpdateMessages.mockResolvedValueOnce({ affected: 2 });
+    const id1 = await seedMessage(sharedAccountId);
+    const id2 = await seedMessage(sharedAccountId);
 
     const { request } = makeApp();
     const res = await request('/api/mail-messages/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messageIds: [MESSAGE_ID, 'msg_002'],
-        action: 'trash',
-      }),
+      body: JSON.stringify({ messageIds: [id1, id2], action: 'trash' }),
     });
 
     expect(res.status).toBe(200);
     expect(mockedPublish).toHaveBeenCalledWith(
       expect.objectContaining({
         entityType: 'email',
-        entityId: MESSAGE_ID,
+        entityId: id1,
         action: 'updated',
-        data: expect.objectContaining({
-          id: MESSAGE_ID,
-          accountId: ACCOUNT_ID,
-        }),
+        data: expect.objectContaining({ id: id1, accountId: sharedAccountId }),
       }),
     );
   });
 
   it('publishes email:deleted on bulk delete', async () => {
-    isAdminOrOwner.mockResolvedValueOnce(true);
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    bulkUpdateMessages.mockResolvedValueOnce({ affected: 1 });
+    const id = await seedMessage(sharedAccountId);
 
     const { request } = makeApp();
     const res = await request('/api/mail-messages/bulk', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageIds: [MESSAGE_ID], action: 'delete' }),
+      body: JSON.stringify({ messageIds: [id], action: 'delete' }),
     });
 
     expect(res.status).toBe(200);
     expect(mockedPublish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'email',
-        action: 'deleted',
-      }),
+      expect.objectContaining({ entityType: 'email', action: 'deleted' }),
     );
   });
 
   it('publishes email:updated on label add/remove', async () => {
-    getMessageAccountId.mockResolvedValue(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValue(true);
-    addMessageLabels.mockResolvedValueOnce(['INBOX', 'STARRED']);
-    removeMessageLabels.mockResolvedValueOnce(['INBOX']);
-
+    const id = await seedMessage(sharedAccountId);
     const { request } = makeApp();
 
-    const addRes = await request(`/api/mail-messages/${MESSAGE_ID}/labels/add`, {
+    const addRes = await request(`/api/mail-messages/${id}/labels/add`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ labels: ['STARRED'] }),
     });
     expect(addRes.status).toBe(200);
     expect(mockedPublish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'email',
-        entityId: MESSAGE_ID,
-        action: 'updated',
-      }),
+      expect.objectContaining({ entityType: 'email', entityId: id, action: 'updated' }),
     );
 
     mockedPublish.mockClear();
 
-    const removeRes = await request(`/api/mail-messages/${MESSAGE_ID}/labels/remove`, {
+    const removeRes = await request(`/api/mail-messages/${id}/labels/remove`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ labels: ['STARRED'] }),
     });
     expect(removeRes.status).toBe(200);
     expect(mockedPublish).toHaveBeenCalledWith(
-      expect.objectContaining({
-        entityType: 'email',
-        entityId: MESSAGE_ID,
-        action: 'updated',
-      }),
+      expect.objectContaining({ entityType: 'email', entityId: id, action: 'updated' }),
     );
   });
 });
@@ -198,71 +168,40 @@ describe('mail-messages realtime publish', () => {
 // The event is workspace-wide, so whatever a route knows about the message has
 // to pass through `emailEventData` (which clears it for a private mailbox)
 // before it is published. These pin that the routes publish the gate's output,
-// never the raw row.
+// never the raw row — using a REAL private (not-shared) account so the real
+// `emailEventData` redacts it, same as it would for any other private mailbox.
 describe('mail-messages event payload for a private mailbox', () => {
   const SECRETS = ['Offer letter', 'hr@example.com', 'candidate@example.com'];
-
-  /** Stand-in for the real gate's verdict on a private mailbox. */
-  function gateAsPrivate() {
-    emailEventData.mockImplementationOnce(async (_db, data) => ({
-      ...data,
-      subject: null,
-      from: null,
-      to: null,
-    }));
-  }
 
   function publishedPayloads(): string {
     return JSON.stringify(mockedPublish.mock.calls.map(([params]) => (params as { data: unknown }).data));
   }
 
   it('publishes no subject, sender or recipients on update', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(true);
-    updateMessage.mockResolvedValueOnce({
-      id: MESSAGE_ID,
-      accountId: ACCOUNT_ID,
-      subject: 'Offer letter',
-      from: { email: 'hr@example.com' },
-      to: [{ email: 'candidate@example.com' }],
-    } as never);
-    gateAsPrivate();
-
+    const id = await seedMessage(privateAccountId);
     const { request } = makeApp();
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, {
+    const res = await request(`/api/mail-messages/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isRead: true }),
     });
 
     expect(res.status).toBe(200);
-    expect(emailEventData).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ id: MESSAGE_ID, accountId: ACCOUNT_ID, subject: 'Offer letter' }),
-    );
     expect(mockedPublish).toHaveBeenCalledTimes(1);
     expect(mockedPublish).toHaveBeenCalledWith(
       expect.objectContaining({
         entityType: 'email',
         action: 'updated',
-        data: { id: MESSAGE_ID, accountId: ACCOUNT_ID, subject: null, from: null, to: null },
+        data: { id, accountId: privateAccountId, subject: null, from: null, to: null },
       }),
     );
     for (const secret of SECRETS) expect(publishedPayloads()).not.toContain(secret);
   });
 
   it('publishes no subject on delete', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(true);
-    softDeleteMessage.mockResolvedValueOnce({
-      id: MESSAGE_ID,
-      accountId: ACCOUNT_ID,
-      subject: 'Offer letter',
-    } as never);
-    gateAsPrivate();
-
+    const id = await seedMessage(privateAccountId);
     const { request } = makeApp();
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, { method: 'DELETE' });
+    const res = await request(`/api/mail-messages/${id}`, { method: 'DELETE' });
 
     expect(res.status).toBe(204);
     expect(mockedPublish).toHaveBeenCalledTimes(1);
@@ -270,7 +209,7 @@ describe('mail-messages event payload for a private mailbox', () => {
       expect.objectContaining({
         entityType: 'email',
         action: 'deleted',
-        data: { id: MESSAGE_ID, accountId: ACCOUNT_ID, subject: null, from: null, to: null },
+        data: { id, accountId: privateAccountId, subject: null, from: null, to: null },
       }),
     );
     for (const secret of SECRETS) expect(publishedPayloads()).not.toContain(secret);

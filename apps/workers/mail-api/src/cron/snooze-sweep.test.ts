@@ -4,20 +4,38 @@ import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 import { createMemoryKv, createSqliteD1 } from '@weldsuite/worker-kit/testing/d1';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { createFakeMailboxNamespace, createFakeMailIndexEnv } from '@weldsuite/mail-domain/store/object/testing/fake-env';
+import { createFixedModeFlagship } from '../lib/testing/mail-object-mode';
 
 const tenantDbFor = vi.fn(async (_env: unknown, orgId: string) => ({ orgId }));
 const mailWorkspaces = vi.fn(async () => [{ clerkOrgId: 'org_a' }, { clerkOrgId: 'org_b' }]);
 
-vi.mock('@weldsuite/worker-kit/db', () => ({
-  getTenantDbForWorkspace: (env: unknown, orgId: string) => tenantDbFor(env, orgId),
-  getMasterDb: () => ({
-    selectDistinct: () => ({ from: () => ({ innerJoin: () => ({ where: () => mailWorkspaces() }) }) }),
-  }),
-  masterSchema: {
-    mailAccountRegistry: { workspaceId: 'workspace_id', tenantKind: 'tenant_kind', isActive: 'is_active' },
-    workspaces: { id: 'id', clerkOrgId: 'clerk_org_id', isActive: 'is_active' },
-  },
-}));
+// Every other export (`schema`, and everything `@weldsuite/mail-domain/store`
+// pulls in transitively through it — `store/directory.ts` reads real columns
+// off `schema.mailAccounts`/`mailLabels` at import time) comes from the real
+// module: a hand-rolled partial `schema` throws before any test body runs
+// (see `getWorkspaceMail`'s own cron/route callers for the same lesson).
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return {
+    ...actual,
+    getTenantDbForWorkspace: (env: unknown, orgId: string) => tenantDbFor(env, orgId),
+    // `runSnoozeSweep` resolves the internal workspace id to check the
+    // mailbox-store mode (design task D2) — this test never binds FLAGSHIP,
+    // so every workspace resolves to `postgres` regardless of this id.
+    getWorkspaceForOrg: async (_env: unknown, orgId: string) => ({ id: `ws_${orgId}`, clerkOrgId: orgId }),
+    getMasterDb: () => ({
+      selectDistinct: () => ({ from: () => ({ innerJoin: () => ({ where: () => mailWorkspaces() }) }) }),
+    }),
+    masterSchema: {
+      mailAccountRegistry: { workspaceId: 'workspace_id', tenantKind: 'tenant_kind', isActive: 'is_active' },
+      workspaces: { id: 'id', clerkOrgId: 'clerk_org_id', isActive: 'is_active' },
+    },
+  };
+});
 
 const woken = new Map<string, number>();
 const nextDue = new Map<string, Date | null>();
@@ -104,4 +122,62 @@ describe('runSnoozeSweep', () => {
     expect(mailWorkspaces).toHaveBeenCalledTimes(1);
     expect(tenantDbFor.mock.calls.map(([, orgId]) => orgId)).toEqual(['org_a']);
   });
+
+  // design task D2: an `object`-mode workspace wakes each of its mailboxes
+  // through the store's `snooze.wake` op instead of the single cross-mailbox
+  // Postgres UPDATE — still only for the workspace the D1 due index lists.
+  it('wakes an object-mode workspace through the store, per mailbox', async () => {
+    const orgId = 'org_obj';
+    const workspaceId = `ws_${orgId}`;
+    const db = (await createPgliteDb()).db;
+    const accountId = generateId('mail');
+    await db.insert(schema.mailAccounts).values({ id: accountId, name: 'Obj', email: `${accountId}@test.dev`, isShared: true });
+
+    tenantDbFor.mockImplementationOnce(async () => db as unknown as { orgId: string });
+
+    const mailbox = createFakeMailboxNamespace();
+    const mailIndex = createFakeMailIndexEnv();
+    const env = {
+      ...makeEnv(true),
+      FLAGSHIP: createFixedModeFlagship('object'),
+      MAILBOX_STORE: mailbox.namespace,
+      ...mailIndex,
+      MAIL_STORAGE: {},
+    };
+
+    // Ingest a message into the fake mailbox object directly, then snooze it
+    // so it's due — the object is the source of truth for its own mailbox in
+    // `object` mode, so there is nothing to wake on the Postgres side at all.
+    const ref = { workspaceId, accountId, clerkOrgId: orgId };
+    const ns = mailbox.namespace.jurisdiction('eu');
+    const stub = ns.get(ns.idFromName(`mbx:${workspaceId}:${accountId}`));
+    const messageId = generateId('mmsg');
+    await stub.apply(ref, {
+      kind: 'ingest',
+      message: {
+        id: messageId,
+        source: 'inbound',
+        rfcMessageId: `<${messageId}@test.dev>`,
+        threadId: null,
+        from: { email: 'sender@example.com' },
+        to: [{ email: 'me@test.dev' }],
+        subject: 'Due snooze',
+        preview: null,
+        sentAt: T0.getTime() - HOUR,
+        receivedAt: T0.getTime() - HOUR,
+        createdAt: T0.getTime() - HOUR,
+        isRead: false,
+        labels: ['INBOX'],
+        isSpam: false,
+        isReply: false,
+        attachments: [],
+      },
+    }, T0.getTime() - HOUR);
+    await stub.apply(ref, { kind: 'snooze', id: messageId, until: T0.getTime() - 1 }, T0.getTime() - HOUR);
+
+    await markWorkspaceDue(env.SCHEDULE_INDEX, 'mail_snooze', orgId, T0.getTime() - 1);
+
+    const res = await runSnoozeSweep(env as never, T0);
+    expect(res).toMatchObject({ due: 1, processed: 1, woken: 1 });
+  }, 30_000);
 });

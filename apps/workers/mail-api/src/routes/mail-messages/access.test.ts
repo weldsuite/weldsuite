@@ -7,44 +7,26 @@
  * shared) must succeed.  Admin/owner users get no bypass: the unified list is
  * scoped to the accounts they can open, like everyone else's.
  *
- * The test uses the createMockDb harness — it does not hit a real DB, so
- * only the route layer logic (import + access helper call) is exercised
- * here.  A companion pglite integration test (access.integration.test.ts)
- * covers the SQL path end-to-end.
+ * Runs against a real pglite tenant DB (`@weldsuite/worker-kit/testing/pglite`)
+ * and the real mailbox store (`postgres` mode — the default for every
+ * workspace), rather than mocking `@weldsuite/mail-domain/{access,messages}`:
+ * the route now resolves `workspaceMailFromContext` once per request and
+ * reads/writes through `store`/`access`, which themselves import
+ * `@weldsuite/mail-domain/store/directory` — that module destructures
+ * `schema.mailLabels`/`schema.mailAccounts` columns at import time, so a
+ * test's own partial `schema` mock (as this file used to ship) throws before
+ * any test body runs. A real schema sidesteps that entirely and exercises
+ * the actual access decision, which is the point of this suite anyway.
  */
 
-import { describe, it, expect, vi, type MockedFunction } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { mailMessagesRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { schema } from '@weldsuite/worker-kit/db';
+import { generateId } from '@weldsuite/worker-kit/id';
+import type { Database } from '@weldsuite/worker-kit/db';
 
-// ---------------------------------------------------------------------------
-// Mock the access + messages service modules so we control the DB responses.
-// ---------------------------------------------------------------------------
-
-vi.mock('@weldsuite/mail-domain/access', () => ({
-  checkAccountAccess: vi.fn(),
-  isAdminOrOwner: vi.fn(),
-  listAccessibleAccountIds: vi.fn(),
-  userAccessCondition: vi.fn(() => ({ _tag: 'sql' })),
-  hasAccessToAccount: vi.fn(),
-  emailEventData: vi.fn(async (_db: unknown, data: unknown) => data),
-}));
-
-vi.mock('@weldsuite/mail-domain/messages', () => ({
-  getMessageAccountId: vi.fn(),
-  getMessage: vi.fn(),
-  getThread: vi.fn(),
-  listMessages: vi.fn(),
-  getMessageStats: vi.fn(),
-  updateMessage: vi.fn(),
-  softDeleteMessage: vi.fn(),
-  bulkUpdateMessages: vi.fn(),
-  addMessageLabels: vi.fn(),
-  removeMessageLabels: vi.fn(),
-}));
-
-// The send service imports cloudflare:email which is not available in the
-// Vitest node environment — mock it at the module level.
 vi.mock('@weldsuite/mail-domain/send', () => ({
   replyAndPersist: vi.fn(),
   forwardAndPersist: vi.fn(),
@@ -55,56 +37,65 @@ vi.mock('@weldsuite/mail-domain/send', () => ({
   },
 }));
 
-// We also need to mock the db schema reference used in /bulk and in the list
-// path, because the route imports `schema` from '@weldsuite/worker-kit/db'.
-vi.mock('@weldsuite/worker-kit/db', () => ({
-  schema: {
-    mailAccounts: {
-      id: 'id',
-      isShared: 'isShared',
-      assignedUserIds: 'assignedUserIds',
-      deletedAt: 'deletedAt',
-    },
-    mailMessages: {
-      id: 'id',
-      accountId: 'accountId',
-      deletedAt: 'deletedAt',
-    },
-  },
-}));
+const { mailAccounts, mailMessages, workspaceMembers } = schema;
 
-import * as access from '@weldsuite/mail-domain/access';
-import * as msgs from '@weldsuite/mail-domain/messages';
-
-const checkAccountAccess = access.checkAccountAccess as MockedFunction<typeof access.checkAccountAccess>;
-const isAdminOrOwner = access.isAdminOrOwner as MockedFunction<typeof access.isAdminOrOwner>;
-const getMessageAccountId = msgs.getMessageAccountId as MockedFunction<typeof msgs.getMessageAccountId>;
-const getMessage = msgs.getMessage as MockedFunction<typeof msgs.getMessage>;
-const getThread = msgs.getThread as MockedFunction<typeof msgs.getThread>;
-const listMessages = msgs.listMessages as MockedFunction<typeof msgs.listMessages>;
-const getMessageStats = msgs.getMessageStats as MockedFunction<typeof msgs.getMessageStats>;
-const updateMessage = msgs.updateMessage as MockedFunction<typeof msgs.updateMessage>;
-const softDeleteMessage = msgs.softDeleteMessage as MockedFunction<typeof msgs.softDeleteMessage>;
-const addMessageLabels = msgs.addMessageLabels as MockedFunction<typeof msgs.addMessageLabels>;
-const removeMessageLabels = msgs.removeMessageLabels as MockedFunction<typeof msgs.removeMessageLabels>;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const ACCOUNT_ID = 'acc_private';
-const MESSAGE_ID = 'msg_001';
 const USER_ASSIGNED = 'user_assigned';
 const USER_STRANGER = 'user_stranger';
+const USER_ADMIN = 'user_admin';
+
+let db: Database;
+let privateAccountId: string;
+let messageId: string;
+
+async function seedMember(userId: string, role: string) {
+  await db.insert(workspaceMembers).values({
+    id: generateId('wm'),
+    userId,
+    email: `${userId}@test.dev`,
+    role,
+  } as typeof workspaceMembers.$inferInsert);
+}
+
+beforeAll(async () => {
+  db = (await createPgliteDb()).db;
+
+  await seedMember(USER_ASSIGNED, 'MEMBER');
+  await seedMember(USER_STRANGER, 'MEMBER');
+  await seedMember(USER_ADMIN, 'ADMIN');
+
+  privateAccountId = generateId('mail');
+  await db.insert(mailAccounts).values({
+    id: privateAccountId,
+    name: 'Private',
+    email: `${privateAccountId}@test.dev`,
+    isShared: false,
+    assignedUserIds: [USER_ASSIGNED],
+  });
+
+  messageId = generateId('mmsg');
+  await db.insert(mailMessages).values({
+    id: messageId,
+    accountId: privateAccountId,
+    threadId: `thread_${messageId}`,
+    messageId: `<${messageId}@test.dev>`,
+    from: { email: 'sender@example.com', name: 'Sender' },
+    to: [{ email: 'me@test.dev' }],
+    subject: 'Test',
+    sentDate: new Date(),
+    labels: ['INBOX'],
+    isRead: false,
+  });
+}, 60_000);
 
 function makeApp(userId: string, perms: string[] = ['messages:read', 'messages:create', 'messages:update', 'messages:delete']) {
   return createTestApp('/api/mail-messages', mailMessagesRoutes, {
-    context: {
-      userId,
-      permissions: permissions(...perms),
-    },
+    context: { userId, tenantDb: db, permissions: permissions(...perms) },
   });
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // GET /:id — per-message access check
@@ -112,35 +103,23 @@ function makeApp(userId: string, perms: string[] = ['messages:read', 'messages:c
 
 describe('GET /api/mail-messages/:id · access control', () => {
   it('returns 403 when caller has no access to the message account', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(false);
-
     const { request } = makeApp(USER_STRANGER);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`);
+    const res = await request(`/api/mail-messages/${messageId}`);
     expect(res.status).toBe(403);
   });
 
   it('returns 404 when the message does not exist', async () => {
-    getMessageAccountId.mockResolvedValueOnce(null);
-
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`);
+    const res = await request('/api/mail-messages/msg_does_not_exist');
     expect(res.status).toBe(404);
   });
 
   it('returns 200 when the caller is assigned to the account', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(true);
-    getMessage.mockResolvedValueOnce({
-      id: MESSAGE_ID,
-      accountId: ACCOUNT_ID,
-      subject: 'Test',
-      attachments: [],
-    } as never);
-
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`);
+    const res = await request(`/api/mail-messages/${messageId}`);
     expect(res.status).toBe(200);
+    const json = (await res.json()) as { data: { id: string } };
+    expect(json.data.id).toBe(messageId);
   });
 });
 
@@ -150,21 +129,14 @@ describe('GET /api/mail-messages/:id · access control', () => {
 
 describe('GET /api/mail-messages/:id/thread · access control', () => {
   it('returns 403 for a stranger on a private-account message', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(false);
-
     const { request } = makeApp(USER_STRANGER);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}/thread`);
+    const res = await request(`/api/mail-messages/${messageId}/thread`);
     expect(res.status).toBe(403);
   });
 
   it('returns 200 for an assigned user', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(true);
-    getThread.mockResolvedValueOnce({ threadId: 'th_1', messages: [] } as never);
-
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}/thread`);
+    const res = await request(`/api/mail-messages/${messageId}/thread`);
     expect(res.status).toBe(200);
   });
 });
@@ -175,11 +147,8 @@ describe('GET /api/mail-messages/:id/thread · access control', () => {
 
 describe('PATCH /api/mail-messages/:id · access control', () => {
   it('returns 403 for a stranger', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(false);
-
     const { request } = makeApp(USER_STRANGER);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, {
+    const res = await request(`/api/mail-messages/${messageId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isRead: true }),
@@ -188,18 +157,8 @@ describe('PATCH /api/mail-messages/:id · access control', () => {
   });
 
   it('returns 200 for an assigned user', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(true);
-    updateMessage.mockResolvedValueOnce({
-      id: MESSAGE_ID,
-      accountId: ACCOUNT_ID,
-      subject: 'Hi',
-      from: null,
-      to: null,
-    } as never);
-
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, {
+    const res = await request(`/api/mail-messages/${messageId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isRead: true }),
@@ -214,21 +173,27 @@ describe('PATCH /api/mail-messages/:id · access control', () => {
 
 describe('DELETE /api/mail-messages/:id · access control', () => {
   it('returns 403 for a stranger', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(false);
-
     const { request } = makeApp(USER_STRANGER);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, { method: 'DELETE' });
+    const res = await request(`/api/mail-messages/${messageId}`, { method: 'DELETE' });
     expect(res.status).toBe(403);
   });
 
   it('returns 204 for an assigned user', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(true);
-    softDeleteMessage.mockResolvedValueOnce({ id: MESSAGE_ID, accountId: ACCOUNT_ID, subject: null });
-
+    const localId = generateId('mmsg');
+    await db.insert(mailMessages).values({
+      id: localId,
+      accountId: privateAccountId,
+      threadId: `thread_${localId}`,
+      messageId: `<${localId}@test.dev>`,
+      from: { email: 'sender@example.com' },
+      to: [],
+      subject: 'Deletable',
+      sentDate: new Date(),
+      labels: ['INBOX'],
+      isRead: false,
+    });
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}`, { method: 'DELETE' });
+    const res = await request(`/api/mail-messages/${localId}`, { method: 'DELETE' });
     expect(res.status).toBe(204);
   });
 });
@@ -239,11 +204,8 @@ describe('DELETE /api/mail-messages/:id · access control', () => {
 
 describe('POST /api/mail-messages/:id/labels/add · access control', () => {
   it('returns 403 for a stranger', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(false);
-
     const { request } = makeApp(USER_STRANGER);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}/labels/add`, {
+    const res = await request(`/api/mail-messages/${messageId}/labels/add`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ labels: ['STARRED'] }),
@@ -252,12 +214,8 @@ describe('POST /api/mail-messages/:id/labels/add · access control', () => {
   });
 
   it('returns 200 for an assigned user', async () => {
-    getMessageAccountId.mockResolvedValueOnce(ACCOUNT_ID);
-    checkAccountAccess.mockResolvedValueOnce(true);
-    addMessageLabels.mockResolvedValueOnce(['INBOX', 'STARRED']);
-
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages/${MESSAGE_ID}/labels/add`, {
+    const res = await request(`/api/mail-messages/${messageId}/labels/add`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ labels: ['STARRED'] }),
@@ -272,54 +230,33 @@ describe('POST /api/mail-messages/:id/labels/add · access control', () => {
 
 describe('GET /api/mail-messages · list access control', () => {
   it('returns 403 when accountId filter is an inaccessible private account', async () => {
-    checkAccountAccess.mockResolvedValueOnce(false);
-
     const { request } = makeApp(USER_STRANGER);
-    const res = await request(`/api/mail-messages?accountId=${ACCOUNT_ID}`);
+    const res = await request(`/api/mail-messages?accountId=${privateAccountId}`);
     expect(res.status).toBe(403);
   });
 
   it('returns 200 when accountId filter is accessible', async () => {
-    checkAccountAccess.mockResolvedValueOnce(true);
-    listMessages.mockResolvedValueOnce({ data: [], hasMore: false, cursor: null, totalCount: 0 });
-
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages?accountId=${ACCOUNT_ID}`);
+    const res = await request(`/api/mail-messages?accountId=${privateAccountId}`);
     expect(res.status).toBe(200);
   });
 
   it('returns empty list when non-admin has no accessible accounts', async () => {
-    // isAdminOrOwner returns false; db.select returns [] (no accessible accounts)
-    isAdminOrOwner.mockResolvedValueOnce(false);
-    // The route will do a DB select for accessible accounts — the mock DB
-    // returns undefined for chained calls, so the final .from().where() chain
-    // returns the proxy. We override listMessages to be safe.
-    listMessages.mockResolvedValueOnce({ data: [], hasMore: false, cursor: null, totalCount: 0 });
-
     const { request } = makeApp(USER_STRANGER, ['messages:read']);
     const res = await request('/api/mail-messages');
-    // The route short-circuits with an empty list when there are no accessible
-    // accounts — status 200, data = [].
     expect(res.status).toBe(200);
+    const json = (await res.json()) as { data: unknown[] };
+    expect(json.data).toEqual([]);
   });
 
-  it('scopes the unified list for an admin too', async () => {
-    isAdminOrOwner.mockResolvedValueOnce(true);
-    listMessages.mockResolvedValueOnce({ data: [], hasMore: false, cursor: null, totalCount: 0 });
-    const userAccessCondition = access.userAccessCondition as MockedFunction<typeof access.userAccessCondition>;
-    userAccessCondition.mockClear();
-    listMessages.mockClear();
-
-    const { request } = makeApp('user_admin', ['messages:read']);
+  it("scopes the unified list for an admin too — never a colleague's private mailbox", async () => {
+    const { request } = makeApp(USER_ADMIN, ['messages:read']);
     const res = await request('/api/mail-messages');
     expect(res.status).toBe(200);
-    // The role is passed along (it opens unassigned private mailboxes) but the
-    // query is never left unscoped.
-    expect(userAccessCondition).toHaveBeenCalledWith('user_admin', true);
-    expect(listMessages).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ accessibleAccountIds: expect.anything() }),
-    );
+    const json = (await res.json()) as { data: Array<{ accountId: string }> };
+    // The admin is not assigned to `privateAccountId`, so its messages never
+    // appear in the admin's unified list.
+    expect(json.data.every((m) => m.accountId !== privateAccountId)).toBe(true);
   });
 });
 
@@ -329,41 +266,23 @@ describe('GET /api/mail-messages · list access control', () => {
 
 describe('GET /api/mail-messages/stats · access control', () => {
   it('returns 403 when accountId is inaccessible', async () => {
-    checkAccountAccess.mockResolvedValueOnce(false);
-
     const { request } = makeApp(USER_STRANGER);
-    const res = await request(`/api/mail-messages/stats?accountId=${ACCOUNT_ID}`);
+    const res = await request(`/api/mail-messages/stats?accountId=${privateAccountId}`);
     expect(res.status).toBe(403);
   });
 
   it('returns 200 when accountId is accessible', async () => {
-    checkAccountAccess.mockResolvedValueOnce(true);
-    getMessageStats.mockResolvedValueOnce({
-      total: 0, unread: 0, inboxUnread: 0, starred: 0, importantUnread: 0, sentUnread: 0,
-      archiveUnread: 0, trashUnread: 0, spam: 0, snoozed: 0, scheduled: 0, drafts: 0,
-    });
-
     const { request } = makeApp(USER_ASSIGNED);
-    const res = await request(`/api/mail-messages/stats?accountId=${ACCOUNT_ID}`);
+    const res = await request(`/api/mail-messages/stats?accountId=${privateAccountId}`);
     expect(res.status).toBe(200);
   });
 
   it('scopes the unified counters to the accounts the caller can open', async () => {
-    const listAccessibleAccountIds = access.listAccessibleAccountIds as MockedFunction<
-      typeof access.listAccessibleAccountIds
-    >;
-    listAccessibleAccountIds.mockResolvedValueOnce(['acc_shared']);
-    getMessageStats.mockClear();
-    getMessageStats.mockResolvedValueOnce({
-      total: 0, unread: 0, inboxUnread: 0, starred: 0, importantUnread: 0, sentUnread: 0,
-      archiveUnread: 0, trashUnread: 0, spam: 0, snoozed: 0, scheduled: 0, drafts: 0,
-    });
-
     const { request } = makeApp(USER_STRANGER, ['messages:read']);
     const res = await request('/api/mail-messages/stats');
     expect(res.status).toBe(200);
-    // Never the unscoped form: the service is handed the caller's account ids.
-    expect(listAccessibleAccountIds).toHaveBeenCalledWith(expect.anything(), USER_STRANGER);
-    expect(getMessageStats).toHaveBeenCalledWith(expect.anything(), ['acc_shared']);
+    const json = (await res.json()) as { data: { total: number } };
+    // The stranger has no accessible accounts at all.
+    expect(json.data.total).toBe(0);
   });
 });
