@@ -9,7 +9,7 @@
  * `assertMailEntityCreatable` in `./entity-tables.ts`.
  */
 
-import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 
 // `action-handlers.ts` imports `@weldsuite/worker-email` for `send_email`
@@ -22,6 +22,21 @@ vi.mock('cloudflare:email', () => ({
   },
 }));
 
+// `entity-tables.ts`'s MAIL-009 guard resolves `ctx.tenant.workspaceId` (the
+// Clerk org id) to `workspaces.id` via `getWorkspaceForOrg`
+// (`@weldsuite/worker-kit/db`), which queries the master DB through a real
+// Neon connection. Stubbed here as the identity function — these tests only
+// care about the mail-store-mode decision, not workspace resolution.
+// `importOriginal` keeps `schema`/`Database`/everything else this file (and
+// `entity-tables.ts`, which resolves to the same module) imports real.
+const { getWorkspaceForOrgMock } = vi.hoisted(() => ({
+  getWorkspaceForOrgMock: vi.fn(async (_env: unknown, ref: string) => ({ id: ref, clerkOrgId: null })),
+}));
+vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
+  return { ...actual, getWorkspaceForOrg: getWorkspaceForOrgMock };
+});
+
 import {
   executeAction,
   type ActionContext,
@@ -29,6 +44,7 @@ import {
 } from './action-handlers';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { __resetMailStoreModeCacheForTests } from '@weldsuite/mail-domain/store/mode';
 
 let db: Database;
 let sharedAccountId: string;
@@ -236,5 +252,123 @@ describe('query_data and MAIL-003', () => {
         expect(key in record, key).toBe(false);
       }
     }
+  });
+});
+
+// --- record CRUD on mail_message: MAIL-009 (pglite) -------------------------
+//
+// Once a workspace's mail reads from the mailbox object (`weldmail-mailbox-store`
+// flag = `object` / `object-only`), the Postgres `mail_messages` row the engine's
+// table points at is no longer the truth. `assertMailMessageStoreIsPostgres`
+// (`./entity-tables.ts`) refuses the generic actions outright for that entity;
+// `postgres` and `shadow` (and a worker with no `FLAGSHIP` binding at all) are
+// unaffected.
+
+describe('record actions and MAIL-009 (mail store mode guard)', () => {
+  beforeEach(() => {
+    __resetMailStoreModeCacheForTests();
+    getWorkspaceForOrgMock.mockClear();
+    getWorkspaceForOrgMock.mockImplementation(async (_env: unknown, ref: string) => ({ id: ref, clerkOrgId: null }));
+  });
+
+  function envWithMode(mode: string): ActionEnv {
+    // `getWorkspaceForOrg` is mocked above, so the `DbEnv` fields (DATABASE_URL_MASTER,
+    // WORKSPACE_CACHE, NEON_API_KEY) it would otherwise need are never read.
+    return { FLAGSHIP: { getStringValue: async () => mode } } as unknown as ActionEnv;
+  }
+
+  it.each(['postgres', 'shadow'])('%s mode leaves create/update/delete/query on mail_message unchanged', async (mode) => {
+    const ctx = makeCtx({ env: envWithMode(mode) });
+    const id = `mmsg_mode_${mode}`;
+    const created = (await executeAction(
+      'create_record',
+      { entity: 'mail_message', data: messageInput(sharedAccountId, id) },
+      ctx,
+    )) as { created: boolean; record: { id: string } };
+    expect(created.created).toBe(true);
+
+    const updated = (await executeAction(
+      'update_record',
+      { entity: 'mail_message', id: created.record.id, data: { subject: 'changed' } },
+      ctx,
+    )) as { updated: boolean };
+    expect(updated.updated).toBe(true);
+
+    const queried = (await executeAction('query_data', { entity: 'mail_message' }, ctx)) as {
+      records: Array<{ id: string }>;
+    };
+    expect(queried.records.map((r) => r.id)).toContain(created.record.id);
+
+    await executeAction('delete_record', { entity: 'mail_message', id: created.record.id, hardDelete: true }, ctx);
+    const rows = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, created.record.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  describe.each(['object', 'object-only'])('%s mode', (mode) => {
+    it('refuses create_record on mail_message with a clear error', async () => {
+      const ctx = makeCtx({ env: envWithMode(mode) });
+      await expect(
+        executeAction(
+          'create_record',
+          { entity: 'mail_message', data: messageInput(sharedAccountId, `mmsg_mode_refused_${mode}`) },
+          ctx,
+        ),
+      ).rejects.toThrow(/mail actions instead/i);
+    });
+
+    it('refuses update_record on mail_message with a clear error, without touching the row', async () => {
+      const id = `mmsg_mode_update_${mode}`;
+      await seedMessage(sharedAccountId, id);
+      const ctx = makeCtx({ env: envWithMode(mode) });
+      await expect(
+        executeAction('update_record', { entity: 'mail_message', id, data: { subject: 'changed' } }, ctx),
+      ).rejects.toThrow(/mail actions instead/i);
+      const [row] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(row?.subject).toBe('hi');
+    });
+
+    it('refuses delete_record on mail_message with a clear error, without touching the row', async () => {
+      const id = `mmsg_mode_delete_${mode}`;
+      await seedMessage(sharedAccountId, id);
+      const ctx = makeCtx({ env: envWithMode(mode) });
+      await expect(
+        executeAction('delete_record', { entity: 'mail_message', id, hardDelete: true }, ctx),
+      ).rejects.toThrow(/mail actions instead/i);
+      const rows = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(rows).toHaveLength(1);
+    });
+
+    it('refuses query_data on mail_message with a clear error', async () => {
+      const ctx = makeCtx({ env: envWithMode(mode) });
+      await expect(executeAction('query_data', { entity: 'mail_message' }, ctx)).rejects.toThrow(
+        /mail actions instead/i,
+      );
+    });
+
+    it('is a no-op for other mail entities (mail_account)', async () => {
+      const ctx = makeCtx({ env: envWithMode(mode) });
+      await expect(executeAction('query_data', { entity: 'mail_account' }, ctx)).resolves.toBeDefined();
+    });
+  });
+
+  it('falls back to postgres behaviour when there is no FLAGSHIP binding', async () => {
+    const ctx = makeCtx({ env: {} as ActionEnv });
+    const res = (await executeAction(
+      'create_record',
+      { entity: 'mail_message', data: messageInput(sharedAccountId, 'mmsg_mode_no_flagship') },
+      ctx,
+    )) as { created: boolean };
+    expect(res.created).toBe(true);
+  });
+
+  it('fails open to postgres behaviour when the workspace id cannot be resolved', async () => {
+    getWorkspaceForOrgMock.mockRejectedValueOnce(new Error('workspace lookup unavailable'));
+    const ctx = makeCtx({ env: envWithMode('object') });
+    const res = (await executeAction(
+      'create_record',
+      { entity: 'mail_message', data: messageInput(sharedAccountId, 'mmsg_mode_resolve_fails') },
+      ctx,
+    )) as { created: boolean };
+    expect(res.created).toBe(true);
   });
 });

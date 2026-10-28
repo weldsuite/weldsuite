@@ -12,6 +12,7 @@ import {
   getEntityColumns,
   getEntityIdPrefix,
   assertMailEntityCreatable,
+  assertMailMessageStoreIsPostgres,
   assertNoMailAccountCredentialWrite,
   mailEntityCreateOverrides,
   sharedMailboxCondition,
@@ -23,6 +24,10 @@ export const handleCreateRecord: ActionHandler = async (inputs, ctx) => {
   const entityType = asText(inputs.entity || inputs.entityType || '');
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
+
+  // MAIL-009: a workspace whose mail lives in the mailbox object refuses a
+  // generic mail_message action outright, before anything touches Postgres.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
 
   // MAIL-003: a workflow has no member to assign a private mailbox to, so a
   // generic create of a mail entity only ever targets a shared one.
@@ -49,6 +54,8 @@ export const handleUpdateRecord: ActionHandler = async (inputs, ctx) => {
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
+  // MAIL-009: see handleCreateRecord.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
   // A mail account's credentials are never generic-CRUD writable, update included.
   assertNoMailAccountCredentialWrite(entityType, data);
 
@@ -75,6 +82,8 @@ export const handleDeleteRecord: ActionHandler = async (inputs, ctx) => {
   const hardDelete = inputs.hardDelete === true;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
+  // MAIL-009: see handleCreateRecord.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
 
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];
@@ -97,6 +106,8 @@ export const handleDeleteRecord: ActionHandler = async (inputs, ctx) => {
 export const handleQueryData: ActionHandler = async (inputs, ctx) => {
   const entityType = asText(inputs.entity || inputs.entityType || '');
   if (!entityType) throw new Error('Entity type is required');
+  // MAIL-009: see handleCreateRecord.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
 
   const table = getEntityTable(entityType);
   // MAIL-003: same shared-mailbox-only scope as update_record.

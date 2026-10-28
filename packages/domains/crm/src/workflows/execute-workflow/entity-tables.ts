@@ -8,7 +8,9 @@
 
 import { and, eq, getTableColumns, getTableName, inArray, isNull, sql } from 'drizzle-orm';
 import { selectableColumns, sensitiveColumnsOf } from '@weldsuite/db/lib/sensitive-columns';
-import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { schema, getWorkspaceForOrg, type Database } from '@weldsuite/worker-kit/db';
+import type { DbEnv } from '@weldsuite/worker-kit/env';
+import { resolveMailStoreMode, readsFromObject, type MailStoreModeEnv } from '@weldsuite/mail-domain/store/mode';
 
 const entityTableMap: Record<string, any> = {
   // CRM
@@ -228,4 +230,64 @@ export async function assertMailEntityCreatable(
  */
 export function mailEntityCreateOverrides(entityType: string): Record<string, unknown> | undefined {
   return mailAccountColumnOf(entityType) === 'id' ? { isShared: true } : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// MAIL-009 for generic record actions: `mail_message` can move off Postgres
+// ---------------------------------------------------------------------------
+
+/** The error every refused `mail_message` generic record action throws. */
+export const MAIL_MESSAGE_OBJECT_STORE_ERROR =
+  "Mail messages can't be read or changed by generic record actions for this workspace; use the mail actions instead.";
+
+/**
+ * MAIL-009 (`weldmail-mailbox-store` Flagship flag,
+ * `@weldsuite/mail-domain/store/mode`): once a workspace's mail reads from the
+ * per-mailbox object (`object` / `object-only`), the engine's Drizzle
+ * `mail_messages` table no longer points at the truth — it's a stale copy in
+ * `object` mode, and in `object-only` mode it stops being written at all. A
+ * generic `create_record` / `update_record` / `delete_record` / `query_data`
+ * step must refuse rather than silently read or write that row; `postgres`
+ * and `shadow` keep Postgres as (one of) the source(s) of truth, so they are
+ * unaffected. A no-op for every entity type but `mail_message` — `mail_account`
+ * and `mail_folder` are directory/structure rows the object move doesn't touch.
+ *
+ * Resolved once per action run (one call per `create_record` / `update_record`
+ * / `delete_record` / `query_data` invocation, before any DB access for a
+ * `mail_message`). `ctx.tenant.workspaceId` is the Clerk org id, not
+ * `workspaces.id` (docs/plans/workspace-id-standardization.md); it's resolved
+ * to the canonical id via `getWorkspaceForOrg` (`@weldsuite/worker-kit/db`),
+ * which reuses the same KV-cached lookup `execute-sequence.ts` already pays
+ * for when it opens the tenant DB through `getTenantDbForWorkspace` — the same
+ * module, same cache key — so this call is typically an isolate-memory hit,
+ * not even a KV read.
+ *
+ * Fails open to `postgres` (today's behaviour, no refusal) — same rule
+ * `resolveMailStoreMode` itself applies to a Flagship evaluation error — when
+ * the workspace id or the mode can't be resolved at all (no `WORKSPACE_CACHE`
+ * / `DATABASE_URL_MASTER` bound, e.g. a unit test; a master-DB hiccup). A
+ * worker that can't tell where mail lives must keep reading/writing Postgres,
+ * not turn into "every mail_message action in this workspace is refused".
+ */
+export async function assertMailMessageStoreIsPostgres(
+  env: DbEnv & MailStoreModeEnv,
+  entityType: string,
+  workspaceRef: string,
+): Promise<void> {
+  if (entityType.toLowerCase().replaceAll('-', '_') !== 'mail_message') return;
+
+  let readsFromMailboxObject: boolean;
+  try {
+    const { id: workspaceId } = await getWorkspaceForOrg(env, workspaceRef);
+    const mode = await resolveMailStoreMode(env, workspaceId);
+    readsFromMailboxObject = readsFromObject(mode);
+  } catch (err) {
+    console.warn(
+      '[crm-domain:mail-message-guard] could not resolve the mail store mode, assuming postgres:',
+      err instanceof Error ? err.message : err,
+    );
+    return;
+  }
+
+  if (readsFromMailboxObject) throw new Error(MAIL_MESSAGE_OBJECT_STORE_ERROR);
 }

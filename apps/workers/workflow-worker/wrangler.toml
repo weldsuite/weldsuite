@@ -150,6 +150,14 @@ APP_API_URL = "https://app-api-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
 
+# weldmail-mailbox-store: the generic create_record/update_record/delete_record/
+# query_data actions refuse a mail_message when the workspace's mail has moved
+# to the mailbox object (engine/entity-tables.ts). Same Flagship app as
+# mail-api/crm-api's [[env.test.flagship]].
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
+
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
 id = "54dd4f453a5e4021a31695ada36cc708"
@@ -203,6 +211,12 @@ ENVIRONMENT = "production"
 APP_API_URL = "https://app-api.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
+
+# weldmail-mailbox-store — same Flagship app as mail-api/crm-api's
+# [[env.production.flagship]]; see the [env.test.flagship] comment above.
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
