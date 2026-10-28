@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./gateway-costs": "./src/gateway-costs.ts",
-    "./gateway-cache": "./src/gateway-cache.ts"
+    "./gateway-cache": "./src/gateway-cache.ts",
+    "./meters": "./src/meters.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@weldsuite/typescript-config": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^4.1.12"
   }

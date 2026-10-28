@@ -73,6 +73,7 @@ import { z } from 'zod';
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
+import { getMeterUsage, type MeterUsageSummary } from '@weldsuite/credits/meters';
 import type { Env, Variables } from '../../types';
 import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 import { success, error } from '@weldsuite/worker-kit/response';
@@ -609,6 +610,7 @@ app.get('/limits', async (c) => {
   let aiCreditsUsedThisMonth = 0;
   let creditsBalance = 0;
   let creditsMonthlyAllocation = 0;
+  let meters: MeterUsageSummary[] = [];
 
   try {
     const [usage] = await masterDb
@@ -632,6 +634,8 @@ app.get('/limits', async (c) => {
       creditsBalance = credits.currentBalance;
       creditsMonthlyAllocation = credits.monthlyAllocation;
     }
+
+    meters = await getMeterUsage(masterDb, workspace.id);
   } catch (err) {
     console.warn('[billing/limits] Could not fetch usage:', err);
   }
@@ -652,6 +656,8 @@ app.get('/limits', async (c) => {
       creditsBalance,
       creditsMonthlyAllocation,
     },
+    // This month's use of every usage meter, its allowance and the overage paid.
+    meters,
   });
 });
 

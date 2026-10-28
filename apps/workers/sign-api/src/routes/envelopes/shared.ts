@@ -10,6 +10,7 @@ import type { SignEnvelope } from '@weldsuite/db/schema';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
 import { SignError, invalid } from '@weldsuite/sign-domain/errors';
+import { MeterLimitError } from '@weldsuite/credits/meters';
 import { getEnvelopeDetail, memberProfile, type DetailAccess, type SignViewer } from '@weldsuite/sign-domain/envelopes';
 import type { Actor, SendContext } from '@weldsuite/sign-domain/sending';
 
@@ -63,6 +64,10 @@ export async function detailFor(c: Ctx, envelope: SignEnvelope, viewer?: SignVie
 
 /** Turn a service error into the API's error envelope; rethrow anything else. */
 export function respondToSignError(c: Ctx, err: unknown): Response {
+  if (err instanceof MeterLimitError) {
+    const { meter, used, allowance, required, currentBalance } = err.result;
+    return error.paymentRequired(c, err.code, err.message, { meter, used, allowance, required, currentBalance });
+  }
   if (!(err instanceof SignError)) throw err;
   if (err.kind === 'not_found') return error.notFound(c, err.resource ?? 'Resource');
   if (err.kind === 'conflict') return error.conflict(c, err.message);

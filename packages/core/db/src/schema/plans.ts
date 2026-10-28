@@ -39,8 +39,13 @@ export interface PlanFeatures {
   monthlyCredits?: number;
   creditRates?: CreditRates;
 
-  // Task execution limits
-  taskExecutions?: number;
+  // Usage allowances per month, metered by `@weldsuite/credits/meters`
+  // (null = unlimited, unset = the meter's default)
+  taskExecutions?: number | null; // workflow runs (WeldConnect + CRM sequences)
+  signRequestsPerMonth?: number | null; // WeldSign requests sent
+  // Past an allowance: pay from the credit wallet (true) or stop (false).
+  // Unset = true on paid plans, false on free ones.
+  allowOverage?: boolean;
 
   // Boolean features
   removeBranding?: boolean;

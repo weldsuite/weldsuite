@@ -20,6 +20,7 @@ import { memoryCodeAttempts } from '@weldsuite/sign-domain/code-attempts.memory'
 import { masterSchema, schema, type Database, type MasterDatabase } from '@weldsuite/worker-kit/db';
 import { memoryTransport } from '@weldsuite/emails/transports/memory';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import type {
   SignDocumentDto,
   SignEnvelopeDetail,
@@ -111,6 +112,9 @@ beforeAll(async () => {
   db = (await createPgliteDb()).db;
   master = (await createMasterPgliteDb()).db as MasterDatabase;
   dbs.master = master;
+  // Unlimited signature requests, so the flow is not cut off by the plan's allowance.
+  await master.insert(masterSchema.plans).values({ id: 'plan_flow', name: 'Flow', slug: 'flow', features: { signRequestsPerMonth: null } });
+  await master.insert(masterSchema.workspaces).values({ id: WS, name: 'Flow', slug: 'flow', planId: 'plan_flow' });
 }, 120_000);
 
 beforeEach(() => {
@@ -218,7 +222,8 @@ const PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const signature = { kind: 'drawn' as const, image: PNG };
 
-async function draftWithTwoSigners(opts: { expiresAt?: string } = {}) {
+/** A complete draft: two signers in order and a copy recipient, ready to send. */
+async function completeDraft() {
   const app = member();
   const draft = await data<SignEnvelopeDetail>(await app.request(BASE, json({ title: 'Service agreement', message: 'Please sign.' })));
   // The sender's name and email come from workspace_members, which this tenant has no row for.
@@ -253,9 +258,14 @@ async function draftWithTwoSigners(opts: { expiresAt?: string } = {}) {
     ),
   );
   const [row] = await db.select().from(schema.signEnvelopes).where(eq(schema.signEnvelopes.id, draft.id));
+  return { draft: row!, ann, bob, carl };
+}
+
+async function draftWithTwoSigners(opts: { expiresAt?: string } = {}) {
+  const { draft, ann, bob, carl } = await completeDraft();
   const sent = await sendEnvelope(
     { env: env(), db, master, clerkOrgId: ORG, workspaceId: WS },
-    row!,
+    draft,
     { userId: 'user_sender', name: 'Gert', email: 'gert@example.com' },
     opts.expiresAt,
   );
@@ -618,5 +628,56 @@ describe('a sent request', () => {
     await member().request(`${BASE}/${draft.id}/recipients`, json({ name: 'Ann', email: 'ann@example.com' }));
     expect((await annApp.request(`${BASE}/${draft.id}`)).status).toBe(404);
     expect((await member(['sign_envelopes:read'], 'user_stranger').request(`${BASE}/${envelope.id}`)).status).toBe(404);
+  });
+});
+
+describe('the monthly allowance', () => {
+  const setFeatures = (features: PlanFeatures, priceMonthly = '0') =>
+    master.update(masterSchema.plans).set({ features, priceMonthly }).where(eq(masterSchema.plans.id, 'plan_flow'));
+  const usage = async () => {
+    const [row] = await master
+      .select()
+      .from(masterSchema.workspaceMeterUsage)
+      .where(and(eq(masterSchema.workspaceMeterUsage.workspaceId, WS), eq(masterSchema.workspaceMeterUsage.meter, 'sign_requests')));
+    return row?.used ?? 0;
+  };
+
+  it('answers 402 once a free plan has used its requests, and leaves the draft a draft', async () => {
+    const { draft } = await completeDraft();
+    await setFeatures({ signRequestsPerMonth: 0 });
+    try {
+      const res = await member().request(`${BASE}/${draft.id}/send`, json({}));
+      expect(res.status).toBe(402);
+      const body = (await res.json()) as { error: { code: string; details: { meter: string; allowance: number } } };
+      expect(body.error.code).toBe('USAGE_LIMIT_REACHED');
+      expect(body.error.details).toMatchObject({ meter: 'sign_requests', allowance: 0 });
+      const [row] = await db.select().from(schema.signEnvelopes).where(eq(schema.signEnvelopes.id, draft.id));
+      expect(row!.status).toBe('draft');
+    } finally {
+      await setFeatures({ signRequestsPerMonth: null });
+    }
+  });
+
+  it('answers 402 INSUFFICIENT_CREDITS on a paid plan whose wallet cannot pay the extra request', async () => {
+    const { draft } = await completeDraft();
+    await setFeatures({ signRequestsPerMonth: 0 }, '20');
+    try {
+      const res = await member().request(`${BASE}/${draft.id}/send`, json({}));
+      expect(res.status).toBe(402);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe('INSUFFICIENT_CREDITS');
+    } finally {
+      await setFeatures({ signRequestsPerMonth: null });
+    }
+  });
+
+  it('hands the request back when it is not sent after all', async () => {
+    const before = await usage();
+    const { draft } = await completeDraft();
+    const outbound = await import('@weldsuite/mail-domain/outbound');
+    vi.mocked(outbound.checkOutbound).mockRejectedValueOnce(new outbound.OutboundDeniedError({ code: 'SENDING_SUSPENDED' }));
+    await expect(
+      sendEnvelope({ env: env(), db, master, clerkOrgId: ORG, workspaceId: WS }, draft, { userId: 'u', name: null, email: null }),
+    ).rejects.toThrow('email limits');
+    expect(await usage()).toBe(before);
   });
 });

@@ -17,6 +17,7 @@ import { createLink, revokeTokens, signingLink } from './links';
 import { sendRequests, type MailContext } from './mail';
 import { scheduleLifecycle } from './schedule';
 import { loadSignSettings } from './settings';
+import { MeterLimitError, meterUsage, releaseMeterUsage } from '@weldsuite/credits/meters';
 
 const { signEnvelopes, signRecipients, signDocuments, signFields } = schema;
 
@@ -146,8 +147,9 @@ function expiryDate(picked: string | null | undefined, defaultDays: number | nul
 }
 
 /**
- * Send a draft. Checks it is complete, sets its expiry, and emails the first
- * signing group. A refusal by the outbound guard changes nothing.
+ * Send a draft. Checks it is complete, sets its expiry, counts it against the
+ * plan's monthly allowance (`MeterLimitError` when that refuses), and emails
+ * the first signing group. A refusal by the outbound guard changes nothing.
  */
 export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor: Actor, expiresAt?: string | null): Promise<SignEnvelope> {
   if (draft.status !== 'draft') throw notADraft();
@@ -163,8 +165,28 @@ export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor:
     .where(eq(signRecipients.envelopeId, draft.id))
     .orderBy(asc(signRecipients.routingOrder), asc(signRecipients.createdAt));
   const envelope: SignEnvelope = { ...draft, expiresAt: expiry };
-  const outcome = await emailGroup(ctx, envelope, nextGroup(envelope, recipients), actor);
-  if (outcome === 'refused') throw invalid(EMAIL_LIMIT_MESSAGE);
+
+  // A request counts against the plan's monthly allowance; past it the wallet
+  // pays, or it is refused. Handed back when it does not go out after all.
+  const metered = await meterUsage(ctx.master, {
+    workspaceId: ctx.workspaceId,
+    meter: 'sign_requests',
+    referenceId: draft.id,
+    referenceType: 'sign_envelope',
+    userId: actor.userId ?? undefined,
+  });
+  if (!metered.allowed) throw new MeterLimitError(metered);
+  let outcome: 'refused' | 'ok';
+  try {
+    outcome = await emailGroup(ctx, envelope, nextGroup(envelope, recipients), actor);
+  } catch (err) {
+    await releaseMeterUsage(ctx.master, metered.reservation);
+    throw err;
+  }
+  if (outcome === 'refused') {
+    await releaseMeterUsage(ctx.master, metered.reservation);
+    throw invalid(EMAIL_LIMIT_MESSAGE);
+  }
 
   const now = new Date();
   const [sent] = await ctx.db

@@ -6765,6 +6765,9 @@ importers:
       '@weldsuite/core-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/core
+      '@weldsuite/credits':
+        specifier: workspace:*
+        version: link:../../../packages/core/credits
       '@weldsuite/crm-domain':
         specifier: workspace:*
         version: link:../../../packages/domains/crm
@@ -7351,6 +7354,9 @@ importers:
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config
+      '@weldsuite/worker-kit':
+        specifier: workspace:*
+        version: link:../worker-kit
       typescript:
         specifier: ^5.9.2
         version: 5.9.2
@@ -8719,6 +8725,9 @@ importers:
       '@weldsuite/core-domain':
         specifier: workspace:*
         version: link:../core
+      '@weldsuite/credits':
+        specifier: workspace:*
+        version: link:../../core/credits
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../core/db
@@ -9140,6 +9149,9 @@ importers:
       '@weldsuite/core-domain':
         specifier: workspace:*
         version: link:../core
+      '@weldsuite/credits':
+        specifier: workspace:*
+        version: link:../../core/credits
       '@weldsuite/crm-domain':
         specifier: workspace:*
         version: link:../crm
