@@ -1,0 +1,1367 @@
+{
+  "account": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "accounting_contact": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "accounting_dimension": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "accounting_document": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "accounting_entity": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "accounting_settings": [
+    "updated"
+  ],
+  "activity": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "ad_account": [
+    "updated"
+  ],
+  "ad_campaign": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "ad_platform_connection": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "analytics_chart": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "analytics_report": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "bank_account": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "bank_connection": [
+    "created",
+    "updated",
+    "deleted",
+    "synced"
+  ],
+  "bank_deposit": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "bank_reconciliation": [
+    "created",
+    "updated",
+    "deleted",
+    "completed",
+    "undone"
+  ],
+  "bank_transaction": [
+    "created",
+    "updated",
+    "deleted",
+    "apply_reconciliation_rules"
+  ],
+  "bill": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected",
+    "paid"
+  ],
+  "calendar": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "calendar_booking": [
+    "created",
+    "updated",
+    "deleted",
+    "cancelled",
+    "completed"
+  ],
+  "calendar_booking_page": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "calendar_event": [
+    "created",
+    "updated",
+    "deleted",
+    "cancelled"
+  ],
+  "calendar_share": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "call": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "canned_response": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "cart": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "category": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "chat_call": [
+    "started",
+    "joined",
+    "left",
+    "ended"
+  ],
+  "chat_channel": [
+    "created",
+    "updated",
+    "deleted",
+    "archived",
+    "joined",
+    "left"
+  ],
+  "chat_message": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "commerce_customer": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "commerce_order": [
+    "created",
+    "updated",
+    "deleted",
+    "placed",
+    "cancelled",
+    "completed"
+  ],
+  "company": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "connector_connection": [
+    "created",
+    "updated",
+    "deleted",
+    "connected",
+    "disconnected",
+    "paused",
+    "resumed",
+    "sync_started",
+    "auth_error"
+  ],
+  "contact": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "contact_link": [
+    "created",
+    "deleted"
+  ],
+  "conversation": [
+    "created",
+    "updated",
+    "deleted",
+    "assigned",
+    "escalated",
+    "resolved",
+    "closed"
+  ],
+  "custom_field": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "customer": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "customer_list": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "customer_status": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "department": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "desk_attachment": [
+    "created"
+  ],
+  "desk_conversation": [
+    "created",
+    "updated",
+    "state_changed",
+    "assigned"
+  ],
+  "desk_message": [
+    "created"
+  ],
+  "desk_widget": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "digest_settings": [
+    "updated"
+  ],
+  "discount": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "dns_record": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "dns_zone": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "doc": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "doc_version": [
+    "created",
+    "updated"
+  ],
+  "domain": [
+    "created",
+    "updated",
+    "deleted",
+    "use_external",
+    "use_internal"
+  ],
+  "domain_transfer": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected"
+  ],
+  "email": [
+    "created",
+    "updated",
+    "deleted",
+    "email_sent",
+    "email_scheduled",
+    "reply_sent"
+  ],
+  "email_forward": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "email_rule": [
+    "created",
+    "updated",
+    "deleted",
+    "enabled",
+    "disabled"
+  ],
+  "email_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "enrich_field": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "exemption_certificate": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "file": [
+    "created",
+    "updated",
+    "deleted",
+    "moved",
+    "starred",
+    "pinned",
+    "restored",
+    "purged",
+    "shared",
+    "unshared"
+  ],
+  "fiscal_document": [
+    "created",
+    "updated",
+    "cancelled"
+  ],
+  "fiscal_period": [
+    "created",
+    "updated",
+    "deleted",
+    "closed",
+    "reopened"
+  ],
+  "fixed_asset": [
+    "created",
+    "updated",
+    "deleted",
+    "disposed"
+  ],
+  "folder": [
+    "created",
+    "updated",
+    "deleted",
+    "moved",
+    "restored",
+    "purged",
+    "shared",
+    "unshared"
+  ],
+  "form_1099_filing": [
+    "created",
+    "updated",
+    "deleted",
+    "generated",
+    "filed"
+  ],
+  "fx_rate": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpcenter_settings": [
+    "updated"
+  ],
+  "helpdesk_agent": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_analytics_report": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_announcement": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_article": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "helpdesk_contact": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_conversation": [
+    "created",
+    "updated",
+    "deleted",
+    "assigned",
+    "escalated",
+    "resolved",
+    "closed"
+  ],
+  "helpdesk_conversation_message": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_email": [
+    "created",
+    "deleted"
+  ],
+  "helpdesk_faq": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_feedback": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_folder": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_message": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_news": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_review": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_settings": [
+    "updated"
+  ],
+  "helpdesk_ticket": [
+    "created",
+    "updated",
+    "deleted",
+    "archived",
+    "assigned",
+    "escalated",
+    "resolved",
+    "status_changed",
+    "tagged",
+    "priority_changed"
+  ],
+  "helpdesk_ticket_type": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_widget": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "helpdesk_workflow": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "hr_absence": [
+    "created",
+    "updated",
+    "deleted",
+    "recovered"
+  ],
+  "hr_announcement": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "hr_attendance": [
+    "created",
+    "updated",
+    "deleted",
+    "approved"
+  ],
+  "hr_checklist": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "hr_client_assignment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "hr_coaching_log": [
+    "created",
+    "updated",
+    "deleted",
+    "acknowledged"
+  ],
+  "hr_declaration": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected",
+    "paid"
+  ],
+  "hr_employee": [
+    "created",
+    "updated",
+    "deleted",
+    "onboarded",
+    "offboarded"
+  ],
+  "hr_evaluation": [
+    "created",
+    "updated",
+    "deleted",
+    "submitted",
+    "acknowledged"
+  ],
+  "hr_kpi_value": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "hr_leave_request": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected"
+  ],
+  "hr_milestone": [
+    "created",
+    "updated",
+    "deleted",
+    "achieved"
+  ],
+  "hr_open_shift": [
+    "created",
+    "updated",
+    "cancelled"
+  ],
+  "hr_pay_run": [
+    "created",
+    "updated",
+    "deleted",
+    "calculated",
+    "approved",
+    "paid",
+    "cancelled"
+  ],
+  "hr_payroll_filing": [
+    "created",
+    "updated",
+    "submitted"
+  ],
+  "hr_payslip": [
+    "published"
+  ],
+  "hr_shift_request": [
+    "created",
+    "updated",
+    "approved",
+    "rejected"
+  ],
+  "inventory": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "invoice": [
+    "created",
+    "updated",
+    "deleted",
+    "paid",
+    "overdue",
+    "sent"
+  ],
+  "invoice_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "journal_entry": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "knowledge_page": [
+    "created",
+    "updated",
+    "deleted",
+    "moved",
+    "restored"
+  ],
+  "knowledge_space": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "knowledge_space_member": [
+    "added",
+    "updated",
+    "removed"
+  ],
+  "lead": [
+    "created",
+    "updated",
+    "deleted",
+    "archived",
+    "converted",
+    "qualified"
+  ],
+  "mail_account": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "mail_attachment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "mail_campaign": [
+    "created",
+    "updated",
+    "deleted",
+    "sent",
+    "scheduled"
+  ],
+  "mail_domain": [
+    "created",
+    "updated",
+    "deleted",
+    "verified"
+  ],
+  "mail_draft": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "mail_folder": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "mail_label": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "mail_signature": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "mail_subscription": [
+    "unsubscribed"
+  ],
+  "meeting": [
+    "created",
+    "updated",
+    "deleted",
+    "started",
+    "completed",
+    "cancelled"
+  ],
+  "meeting_bot_session": [
+    "created",
+    "updated",
+    "deleted",
+    "started",
+    "completed"
+  ],
+  "meeting_message": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "meeting_session": [
+    "created",
+    "updated",
+    "deleted",
+    "started",
+    "completed"
+  ],
+  "meeting_waitlist": [
+    "created",
+    "updated",
+    "deleted",
+    "admitted"
+  ],
+  "notification": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "notification_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "object_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "opportunity": [
+    "created",
+    "updated",
+    "deleted",
+    "archived",
+    "won",
+    "lost",
+    "stage_changed"
+  ],
+  "order": [
+    "created",
+    "updated",
+    "deleted",
+    "placed",
+    "cancelled",
+    "completed"
+  ],
+  "panel_project": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "parcel": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "parcel_box": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "parcel_carrier": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "parcel_order": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "parcel_pickup": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "parcel_settings": [
+    "updated"
+  ],
+  "parcel_wallet": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "payment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "payment_run": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "exported"
+  ],
+  "payroll_connection": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "payroll_import": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "person": [
+    "created",
+    "updated",
+    "deleted",
+    "archived",
+    "unarchived"
+  ],
+  "personal_task": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "picker": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "picklist": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "pipeline": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "pipeline_stage": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "product": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "project": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "project_document": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_file": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_goal": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_label": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_member": [
+    "added",
+    "updated",
+    "removed"
+  ],
+  "project_message": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_milestone": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "project_pipeline_stage": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_sprint": [
+    "created",
+    "updated",
+    "deleted",
+    "started",
+    "completed"
+  ],
+  "project_task": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "project_time_entry": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "project_timesheet": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected"
+  ],
+  "project_whiteboard": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "purchase_order": [
+    "created",
+    "updated",
+    "deleted",
+    "approved"
+  ],
+  "putaway": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "reach_campaign": [
+    "created",
+    "updated",
+    "deleted",
+    "launched",
+    "paused",
+    "completed"
+  ],
+  "reach_domain": [
+    "connected",
+    "updated",
+    "disconnected"
+  ],
+  "reach_mailbox": [
+    "created",
+    "updated",
+    "deleted",
+    "suspended"
+  ],
+  "reach_prospect": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "reach_reply": [
+    "received",
+    "classified"
+  ],
+  "received_fiscal_document": [
+    "created",
+    "updated"
+  ],
+  "reconciliation_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "recurring_invoice": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "return": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected",
+    "completed"
+  ],
+  "return_reason": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "return_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sales_tax_agency": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sales_tax_jurisdiction": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sales_tax_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sales_tax_zone": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "satisfaction_survey": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sequence": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sheet": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sheet_data_source": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sheet_version": [
+    "created",
+    "updated"
+  ],
+  "shipment": [
+    "created",
+    "updated",
+    "deleted",
+    "shipped",
+    "delivered"
+  ],
+  "shipping_price": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "shipping_rule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sign_envelope": [
+    "created",
+    "updated",
+    "deleted",
+    "sent",
+    "signed",
+    "declined",
+    "completed",
+    "voided",
+    "expired"
+  ],
+  "sign_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "sla": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "social_account": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "social_approval": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected"
+  ],
+  "social_campaign": [
+    "created",
+    "updated",
+    "deleted",
+    "started",
+    "completed"
+  ],
+  "social_media": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "social_post": [
+    "created",
+    "updated",
+    "deleted",
+    "queue_manual",
+    "email_scheduled",
+    "scheduled",
+    "published",
+    "failed",
+    "cancelled"
+  ],
+  "social_settings": [
+    "updated"
+  ],
+  "social_team_member": [
+    "added",
+    "updated",
+    "removed"
+  ],
+  "supplier": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "task": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "task_comment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "task_project": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "task_tag": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "tax_rate": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "tax_return": [
+    "created",
+    "updated",
+    "deleted",
+    "filed",
+    "paid"
+  ],
+  "ticket": [
+    "created",
+    "updated",
+    "deleted",
+    "archived",
+    "assigned",
+    "escalated",
+    "resolved",
+    "status_changed",
+    "tagged",
+    "priority_changed"
+  ],
+  "ticket_note": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "time_entry": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "transcription": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "user_app": [
+    "created",
+    "updated",
+    "deleted",
+    "published",
+    "installed",
+    "uninstalled"
+  ],
+  "vat_return": [
+    "created",
+    "updated",
+    "deleted",
+    "submitted"
+  ],
+  "voip_phone_number": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "voip_porting_order": [
+    "created",
+    "updated",
+    "deleted",
+    "approved",
+    "rejected"
+  ],
+  "w9_request": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "warehouse": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "warehouse_zone": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "website": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "website_domain": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "website_page": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "website_section": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "welddata_column": [
+    "created",
+    "updated",
+    "deleted",
+    "run"
+  ],
+  "welddata_lead": [
+    "created",
+    "deleted",
+    "converted"
+  ],
+  "welddata_list": [
+    "created",
+    "updated",
+    "deleted",
+    "members_added"
+  ],
+  "wms_adjustment": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "wms_category": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "wms_cycle_count": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "wms_inventory": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "wms_inventory_movement": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "wms_location": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "wms_order": [
+    "created",
+    "updated",
+    "deleted",
+    "completed"
+  ],
+  "wms_product": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "workflow": [
+    "created",
+    "updated",
+    "deleted",
+    "archived"
+  ],
+  "workflow_execution": [
+    "created",
+    "updated",
+    "started",
+    "completed",
+    "cancelled"
+  ],
+  "workflow_integration": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "workflow_schedule": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "workflow_template": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "workflow_trigger": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "workflow_variable": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "workflow_webhook": [
+    "created",
+    "updated",
+    "deleted"
+  ],
+  "workspace_settings": [
+    "updated",
+    "deleted"
+  ]
+}

@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+weldsuite-catalogs = { workspace = true }
 axum = { workspace = true, features = ["json"] }
 getrandom = { workspace = true }
 http = { workspace = true }

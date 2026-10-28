@@ -50,6 +50,10 @@ jobs:
         run: pnpm check:mojibake
       - name: Lint
         run: pnpm lint
+      # rust/catalogs is generated from the TypeScript catalogs (entity events,
+      # permissions, flags, API modules, origins). Rerun `pnpm rust:catalogs`.
+      - name: Rust catalogs are current
+        run: pnpm rust:catalogs --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.

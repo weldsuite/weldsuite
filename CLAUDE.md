@@ -77,7 +77,7 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 
 **`apps/hosted-apps/`**, First-party WeldApps (Vite + `@weldsuite/app-sdk`). These are **not** compiled into the platform SPA: CI deploys each `apps/hosted-apps/<code>/` with `weld app deploy` to the test/production registries. See [apps/hosted-apps/README.md](apps/hosted-apps/README.md).
 
-**`rust/`**, the Rust backend (Cargo workspace, ADR API-014): one `weldsuite` binary and image that the TypeScript workers are ported to, module by module, for the Global, EU and self-hosted deployments. Toolchain pinned in `rust/rust-toolchain.toml`; `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:deny` from the root; CI job `Rust`. Plan and rules: [rust/README.md](rust/README.md).
+**`rust/`**, the Rust backend (Cargo workspace, ADR API-014): one `weldsuite` binary and image that the TypeScript workers are ported to, module by module, for the Global, EU and self-hosted deployments. Toolchain pinned in `rust/rust-toolchain.toml`; `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:deny` from the root; CI job `Rust`. Plan and rules: [rust/README.md](rust/README.md). **After changing entity events, permissions, feature flags, `api-modules` or `FIRST_PARTY_ORIGINS`, run `pnpm rust:catalogs` and commit `rust/catalogs/`**; the Lint job fails when the export is stale.
 
 > **Secrets tooling note:** worker secrets are keyed by bare worker name in `scripts/secrets/manifest.ts`; the sync scripts resolve them under **`apps/workers/<name>`**.
 
