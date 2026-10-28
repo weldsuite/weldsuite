@@ -336,6 +336,22 @@ function ActiveCall({ session }: Readonly<{ session: CallSession }>) {
     };
   }, [meeting, session.isDirect, handleLeave]);
 
+  // Join the media room. `initMeeting` only creates the client; the stock
+  // `RtkMeeting` this screen replaced used to call `join()` itself. Without it
+  // nobody's mic is sent and nobody's audio received, while the call still
+  // looks connected. Declared after the listeners above so they see `roomJoined`.
+  const joinTriggered = useRef(false);
+  useEffect(() => {
+    if (!meeting || joinTriggered.current || leftRef.current) return;
+    joinTriggered.current = true;
+    if (meeting.self.roomJoined) return;
+    meeting.join().catch((err: unknown) => {
+      if (leftRef.current) return;
+      console.error('[WeldChat:Call] join failed:', err);
+      void handleLeave();
+    });
+  }, [meeting, handleLeave]);
+
   // Ringback only for the caller; an answered ring already has the caller there.
   useLoopingSound(!!session.isDirect && !session.answered && !connected, RINGBACK, { duringCall: true });
 
