@@ -103,7 +103,8 @@
       "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml"]
     },
     "//#rust:deny": {
-      "inputs": ["rust/**/Cargo.toml", "rust/Cargo.lock", "rust/deny.toml"]
+      "inputs": ["rust/**/Cargo.toml", "rust/Cargo.lock", "rust/deny.toml"],
+      "cache": false
     }
   }
 }
