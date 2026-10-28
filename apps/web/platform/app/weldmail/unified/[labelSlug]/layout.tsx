@@ -10,6 +10,7 @@ import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MessageList } from '../../components/message-list';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
+import { useMailOpenTiming } from '../../hooks/use-mail-open-timing';
 import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useMailRealtime } from '../../hooks/useMailRealtime';
 import { UNIFIED_ACCOUNT } from '../../lib/mail-preferences';
@@ -102,6 +103,7 @@ export default function UnifiedLabelLayout({
     pageSize: PAGE_SIZE,
     ...threadSearch,
   });
+  useMailOpenTiming(threadsQuery);
 
   const mappedThreads = useMemo<ThreadSummary[]>(() => {
     const apiThreads = threadsQuery.data?.pages.flatMap((page) => page.data?.threads ?? []) ?? [];
