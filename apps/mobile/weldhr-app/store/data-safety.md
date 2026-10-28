@@ -47,3 +47,4 @@ audio, video, web browsing, installed apps, payment info, credit score.
 - **Location**: foreground only, `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`; background location is blocked. No declaration form needed for foreground use.
 - **Photos and videos**: no `READ_MEDIA_*` permission (blocked in `app.json`), so no Photo and Video Permissions declaration.
 - **Camera**: for receipt photos.
+- **Advertising ID**: not used; `com.google.android.gms.permission.AD_ID` is blocked in `app.json`, so answer "No".
