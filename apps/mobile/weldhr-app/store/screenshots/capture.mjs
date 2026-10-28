@@ -47,6 +47,13 @@ const SCENES = [
 ];
 
 const SIZES = {
+  // What App Store Connect asks for first ("iPhone with Dynamic Island, medium display").
+  'ios-6.3': {
+    width: 402,
+    height: 874,
+    deviceScaleFactor: 3, // 1206×2622
+    platform: 'ios',
+  },
   'ios-6.9': {
     width: 440,
     height: 956,

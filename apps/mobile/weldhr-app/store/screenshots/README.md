@@ -18,6 +18,7 @@ recapture the same screens from a `preview` build signed in to the demo account.
 
 | Folder | Size | Where |
 | --- | --- | --- |
+| `ios-6.3/` | 1206×2622 | App Store, iPhone with Dynamic Island (6.3"), the slot App Store Connect asks for |
 | `ios-6.9/` | 1320×2868 | App Store, 6.9" iPhone |
 | `ios-6.5/` | 1242×2688 | App Store, 6.5" iPhone (only if the slot is shown) |
 | `ios-ipad-13/` | 2064×2752 | App Store, 13" iPad (`supportsTablet: true`) |
