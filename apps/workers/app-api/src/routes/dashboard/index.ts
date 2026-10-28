@@ -108,7 +108,7 @@ app.get('/installed-apps', async (c) => {
     const orgId = c.get('orgId');
     // Same repair as GET /api/me/permissions: the platform asks for both on
     // load, in parallel, and either may run first.
-    if (orgId) await ensureMemberLinked(c.env, db, orgId, c.get('userId'));
+    if (orgId) await ensureMemberLinked(c.env, db, orgId, c.get('userId'), c.get('workspaceId'));
     return success(c, await listMemberAppCodes(db, c.get('userId')));
   } catch (err) {
     console.error('[app-api/dashboard] installed-apps failed:', err);

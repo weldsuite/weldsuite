@@ -1,4 +1,5 @@
 import type { Database } from '@weldsuite/worker-kit/db';
+import type { RequestTiming } from '@weldsuite/worker-kit/timing';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
@@ -335,6 +336,8 @@ export interface Env {
  */
 export type Variables = {
   requestId: string;
+  /** Where this request's time goes (@weldsuite/worker-kit/timing); set by `createModuleApi` for every request. */
+  timing?: RequestTiming;
   userId: string;
   orgId: string | null;
   sessionId: string;

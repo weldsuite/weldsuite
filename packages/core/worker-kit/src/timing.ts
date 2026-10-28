@@ -50,6 +50,8 @@ export interface TimingSummary {
   masterMs?: number;
   permMs?: number;
   permQueries?: number;
+  /** Whether the resolved-permissions KV cache served this request (./permission-cache.ts, worker-kit). */
+  permCache?: 'hit' | 'miss';
   dbMs?: number;
   dbQueries?: number;
   dbFirstMs?: number;
@@ -61,6 +63,7 @@ export class RequestTiming {
   private readonly totals = new Map<TimingMetric, { ms: number; count: number }>();
   private firstDbMs: number | null = null;
   private workspaceCache: 'hit' | 'miss' | null = null;
+  private permCache: 'hit' | 'miss' | null = null;
 
   constructor(now: number = Date.now()) {
     this.startedAt = now;
@@ -88,6 +91,11 @@ export class RequestTiming {
     this.workspaceCache = result;
   }
 
+  /** Whether the resolved-permissions KV cache served this request (worker-kit's resolveEffectivePermissionsCached). */
+  notePermissionsCache(result: 'hit' | 'miss'): void {
+    this.permCache = result;
+  }
+
   /** True once the request has read KV or a database, i.e. it reached a workspace. */
   get touchedStorage(): boolean {
     return this.totals.size > 0;
@@ -104,6 +112,7 @@ export class RequestTiming {
       ...(this.workspaceCache && { workspaceCache: this.workspaceCache }),
       ...(master && { masterMs: master.ms }),
       ...(perm && { permMs: perm.ms, permQueries: perm.count }),
+      ...(this.permCache && { permCache: this.permCache }),
       ...(db && { dbMs: db.ms, dbQueries: db.count }),
       ...(this.firstDbMs !== null && { dbFirstMs: this.firstDbMs }),
       coldStart: this.firstDbMs !== null && this.firstDbMs >= COLD_START_THRESHOLD_MS,
@@ -116,7 +125,9 @@ export class RequestTiming {
     for (const metric of METRICS) {
       const total = this.totals.get(metric);
       if (!total) continue;
-      parts.push(`${metric};dur=${total.ms};desc="${metricDescription(metric, total.count, this.workspaceCache)}"`);
+      parts.push(
+        `${metric};dur=${total.ms};desc="${metricDescription(metric, total.count, this.workspaceCache, this.permCache)}"`,
+      );
     }
     if (this.firstDbMs !== null) parts.push(`db-first;dur=${this.firstDbMs}`);
     parts.push(`total;dur=${now - this.startedAt}`);
@@ -124,8 +135,14 @@ export class RequestTiming {
   }
 }
 
-function metricDescription(metric: TimingMetric, count: number, cache: 'hit' | 'miss' | null): string {
-  if (metric === 'kv' && cache) return cache;
+function metricDescription(
+  metric: TimingMetric,
+  count: number,
+  wsCache: 'hit' | 'miss' | null,
+  permCache: 'hit' | 'miss' | null,
+): string {
+  if (metric === 'kv' && wsCache) return wsCache;
+  if (metric === 'perm' && permCache === 'hit') return 'cached';
   return count === 1 ? '1 query' : `${count} queries`;
 }
 

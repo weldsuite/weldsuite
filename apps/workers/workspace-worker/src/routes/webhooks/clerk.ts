@@ -32,6 +32,7 @@ import {
 } from '@weldsuite/db/schema/master';
 import { workspaceMembers } from '@weldsuite/db/schema';
 import { releaseRemovedMemberUserId } from '@weldsuite/db/lib/workspace-members';
+import { bumpPermissionsVersion } from '@weldsuite/db/lib/permissions-cache';
 
 // ============================================================================
 // Clerk Webhook Types
@@ -642,6 +643,9 @@ async function handleMembershipCreated(
       membershipId: membership.id,
     });
     console.log(`[Clerk Webhook] Tenant DB updated for membership ${membership.id}`);
+    // Activated, re-activated or brand-new ACTIVE row: this user's resolved
+    // permissions just changed (or went from "no member" to something).
+    await bumpPermissionsVersion(env, masterWorkspaceId);
 
     if (activatedMemberType) {
       try {
@@ -711,6 +715,7 @@ async function handleMembershipUpdated(
         .update(workspaceMembers)
         .set({ role: preservedRole, name, picture, clerkMembershipId: membership.id, updatedAt: new Date() })
         .where(eq(workspaceMembers.id, existing.id));
+      if (preservedRole !== existing.role) await bumpPermissionsVersion(env, masterWorkspaceId);
       // Only the system tier syncs via this webhook, so weldchat channel
       // membership needs no update here. Should a Clerk metadata flow ever
       // propagate a custom `roleId`, call
@@ -746,6 +751,7 @@ async function handleMembershipDeleted(
       .update(workspaceMembers)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
+    await bumpPermissionsVersion(env, masterWorkspaceId);
   } catch (error) {
     console.warn(`[Clerk Webhook] Could not update tenant DB for org ${clerkOrgId}:`, error);
   }
@@ -789,6 +795,8 @@ async function handleInvitationCreated(
       ));
 
     if (existing) {
+      // No permission-cache bump: the match above only ever finds a PENDING
+      // (or still-placeholder-userId) row, which never resolves permissions.
       await tenantDb
         .update(workspaceMembers)
         .set({ role, clerkInvitationId: invitation.id, invitedAt: new Date(invitation.created_at), updatedAt: new Date() })
@@ -904,6 +912,9 @@ async function handleInvitationAccepted(
 
   try {
     const tenantDb = await getTenantDbForWorkspace(env, clerkOrgId);
+    // Resolved once up front (not computed elsewhere in this handler) so the
+    // permission cache can be bumped after whichever branch below writes.
+    const masterWorkspaceId = await getWorkspaceIdFromClerkOrg(masterDb, clerkOrgId);
 
     const [pending] = await tenantDb
       .select()
@@ -963,6 +974,11 @@ async function handleInvitationAccepted(
         .where(eq(workspaceMembers.id, pending.id));
     }
 
+    // Either branch above flips a row to ACTIVE (and the duplicate-merge
+    // branch also soft-deletes a second row): this member's resolved
+    // permissions just changed.
+    if (masterWorkspaceId) await bumpPermissionsVersion(env, masterWorkspaceId);
+
     // Fan the now-ACTIVE member into every public weldchat channel.
     // pending.userId may still be a `pending_clerk_*` placeholder if the
     // membership.created webhook hasn't arrived yet — in that case the join
@@ -994,6 +1010,8 @@ async function handleInvitationRevoked(
   try {
     const tenantDb = await getTenantDbForWorkspace(env, clerkOrgId);
 
+    // No permission-cache bump: only ever touches a PENDING row, and
+    // getMember() requires ACTIVE status, so no resolution could have used it.
     await tenantDb
       .update(workspaceMembers)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -1130,6 +1148,7 @@ async function handleUserDeleted(
               .update(workspaceMembers)
               .set({ deletedAt: new Date(), updatedAt: new Date() })
               .where(and(eq(workspaceMembers.userId, userId), isNull(workspaceMembers.deletedAt)));
+            await bumpPermissionsVersion(env, membership.workspaceId);
           }
         } catch {
           // Best effort per workspace.
