@@ -612,4 +612,110 @@ describe('rebuildDerived equals the incrementally maintained state', () => {
     const after = dumpDerivedState(storage);
     expect(after).toEqual(before);
   });
+
+  // Task B2: the same property, extended with the op kinds this task adds
+  // (snooze/unsnooze/resnooze, snooze.wake, label.rename/delete, folder.read)
+  // so rebuildDerived — still B1's own function, untouched by B2 — keeps
+  // agreeing with the incrementally maintained state once those ops are in
+  // the mix too.
+  it('after a few hundred random ops, including snooze/wake, label rename/delete and folder.read', () => {
+    const { storage, ref } = makeMailbox();
+    const rng = mulberry32(99);
+    const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rng() * arr.length)]!;
+    const chance = (p: number) => rng() < p;
+
+    const ids = Array.from({ length: 10 }, (_, i) => `pm_${i}`);
+    const ingested = new Set<string>();
+    const labelsPool = ['STARRED', 'IMPORTANT', 'Work', 'Invoices', 'Projects', 'Billing'];
+    const locations = ['INBOX', 'ARCHIVE', 'TRASH', 'SPAM'] as const;
+    const folderSlugs = ['inbox', '__all', 'work', 'invoices', 'starred', 'trash', 'spam'];
+    const renamePairs = [
+      ['Work', 'Projects'],
+      ['Invoices', 'Billing'],
+      ['Projects', 'Work'],
+    ] as const;
+    let clock = 1_000;
+
+    const OP_COUNT = 400;
+    for (let i = 0; i < OP_COUNT; i++) {
+      clock += 10;
+
+      // A mailbox-wide op (no single target id) instead of the usual per-id one.
+      if (chance(0.06)) {
+        const extraRoll = rng();
+        if (extraRoll < 0.25) {
+          applyMailboxOp(storage, ref, { kind: 'snooze.wake', now: clock }, clock);
+        } else if (extraRoll < 0.5) {
+          const [from, to] = pick(renamePairs);
+          applyMailboxOp(storage, ref, { kind: 'label.rename', from, to }, clock);
+        } else if (extraRoll < 0.75) {
+          applyMailboxOp(storage, ref, { kind: 'label.delete', name: pick(labelsPool) }, clock);
+        } else {
+          applyMailboxOp(storage, ref, { kind: 'folder.read', scope: { labelSlug: pick(folderSlugs) }, batchSize: 3 }, clock);
+        }
+        continue;
+      }
+
+      const id = pick(ids);
+
+      if (!ingested.has(id) || chance(0.1)) {
+        const threadId = chance(0.4) ? pick([...ingested, id]) : null;
+        const message = makeIngest({
+          id,
+          threadId: ingested.has(id) ? null : threadId === id ? null : threadId,
+          labels: [pick(locations), ...(chance(0.3) ? [pick(labelsPool)] : [])],
+          isRead: chance(0.5),
+          isSpam: chance(0.1),
+        });
+        applyMailboxOp(storage, ref, { kind: 'ingest', message }, clock);
+        ingested.add(id);
+        continue;
+      }
+
+      const roll = rng();
+      if (roll < 0.18) {
+        applyMailboxOp(
+          storage,
+          ref,
+          { kind: 'flags', ids: [id], patch: { isRead: chance(0.5), isStarred: chance(0.5) }, semantics: chance(0.5) ? 'single' : 'bulk' },
+          clock,
+        );
+      } else if (roll < 0.3) {
+        applyMailboxOp(storage, ref, { kind: 'labels.add', ids: [id], labels: [pick(labelsPool)], semantics: chance(0.5) ? 'single' : 'bulk' }, clock);
+      } else if (roll < 0.42) {
+        applyMailboxOp(storage, ref, { kind: 'labels.remove', ids: [id], labels: [pick(labelsPool)], semantics: chance(0.5) ? 'single' : 'bulk' }, clock);
+      } else if (roll < 0.55) {
+        applyMailboxOp(storage, ref, { kind: 'move', ids: [id], location: pick(locations) }, clock);
+      } else if (roll < 0.63) {
+        const otherThread = pick([...ingested]);
+        applyMailboxOp(storage, ref, { kind: 'thread.set', id, threadId: otherThread }, clock);
+      } else if (roll < 0.71) {
+        const row = messageRow(storage, id);
+        if (row) applyMailboxOp(storage, ref, { kind: 'thread.label', threadKey: row.thread_key as string, label: pick(labelsPool), action: chance(0.5) ? 'add' : 'remove' }, clock);
+      } else if (roll < 0.78) {
+        const row = messageRow(storage, id);
+        if (row) applyMailboxOp(storage, ref, { kind: 'thread.read', threadKey: row.thread_key as string, isRead: chance(0.5) }, clock);
+      } else if (roll < 0.86) {
+        const row = messageRow(storage, id);
+        if (row) {
+          const labels = JSON.parse(row.labels_json as string) as string[];
+          if (labels.includes('SNOOZED')) {
+            applyMailboxOp(storage, ref, chance(0.5) ? { kind: 'resnooze', id, until: clock + 30 } : { kind: 'unsnooze', id }, clock);
+          } else {
+            applyMailboxOp(storage, ref, { kind: 'snooze', id, until: clock + 30 }, clock);
+          }
+        }
+      } else if (roll < 0.96) {
+        applyMailboxOp(storage, ref, { kind: 'delete', ids: [id], hard: false }, clock);
+      } else {
+        applyMailboxOp(storage, ref, { kind: 'delete', ids: [id], hard: true }, clock);
+        ingested.delete(id);
+      }
+    }
+
+    const before = dumpDerivedState(storage);
+    rebuildDerived(storage, ref, clock + 1);
+    const after = dumpDerivedState(storage);
+    expect(after).toEqual(before);
+  });
 });

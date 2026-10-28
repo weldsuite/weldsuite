@@ -307,6 +307,20 @@ export interface OpResult {
   message?: MailMessageRecord | null;
   ingest?: IngestResult;
   storagePaths?: string[];
+  /**
+   * `folder.read` only: `true` when the last batch it ran was full-size, so
+   * unread mail matching `scope` may remain beyond `maxBatches * batchSize` —
+   * the caller (an alarm or route, task C1/C4) re-issues the same op to
+   * continue. Resumable by construction (marked-read rows drop out of the
+   * unread set the next SELECT sees), so no cursor needs to round-trip.
+   */
+  more?: boolean;
+  /**
+   * `snooze.wake` only: the next `snoozed_until` still pending after this
+   * wake (or `null` for none), so the caller can schedule the mailbox's next
+   * alarm (design §3.6) without a separate read.
+   */
+  nextSnoozeDueAt?: number | null;
   ready: boolean;
 }
 

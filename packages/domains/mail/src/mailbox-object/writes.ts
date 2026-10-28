@@ -16,17 +16,29 @@
  * them — `../store/model` has no pure function for that specific composition
  * yet, only its building blocks.
  *
- * Scope (design §9 Group B, task B1 only):
- *   implemented  — ingest, flags, labels.set, labels.add, labels.remove, move,
- *                  thread.label, thread.read, thread.set, delete (soft+hard).
- *   NOT implemented (task B2) — folder.read, label.rename, label.delete,
- *                  snooze/resnooze/unsnooze/snooze.wake, scheduled,
- *                  delivery.match, inbound.finalize, categories,
- *                  attachment.update/delete/associate, subscription.status,
- *                  draft.update/delete. These throw `MailboxOpNotImplementedError`.
- *   `attachment.create`/`draft.create` as standalone ops are also B2; ingest's
- *   OWN attachment rows and (ham) subscription upsert are handled here,
- *   because they are part of processing one `IngestMessage`, not a separate op.
+ * Scope (design §9 Group B):
+ *   task B1 (this file's own ops) — ingest, flags, labels.set, labels.add,
+ *                  labels.remove, move, thread.label, thread.read,
+ *                  thread.set, delete (soft+hard), plus the shared mutation
+ *                  core (`changeMessage`, `applyToEach`, `refreshThread`,
+ *                  folder-key/label-count bookkeeping) and `rebuildDerived`.
+ *   task B2 (`./writes-extra`) — every other op kind: folder.read,
+ *                  label.rename, label.delete, snooze/resnooze/unsnooze/
+ *                  snooze.wake, scheduled, delivery.match, inbound.finalize,
+ *                  categories, attachment.create/update/delete/associate,
+ *                  subscription.upsert/status, draft.create/update/delete.
+ *                  `dispatch()` below routes to `./writes-extra`'s
+ *                  `applyExtraOp`; the mutation-core helpers it reuses
+ *                  (`changeMessage`, `applyToEach`, `refreshThread`,
+ *                  `folderKeysOfRow`, `bumpLabelCounts`,
+ *                  `bumpThreadLabelMatch`, `labelPatch`, `insertAttachmentRow`,
+ *                  `baseResult`) are exported from this file for that reason
+ *                  and that reason only — they stay B1's one implementation,
+ *                  never duplicated.
+ *   `attachment.create`/`draft.create` ALSO exist as standalone B2 ops (the
+ *   upload-then-send and two-step-compose flows); ingest's OWN attachment rows
+ *   and (ham) subscription upsert stay in this file because they are part of
+ *   processing one `IngestMessage`, not a separate op.
  *
  * Judgment calls made in this file (flagged for the tasks that depend on
  * them):
@@ -88,6 +100,7 @@ import {
   toJsonOrNull,
 } from './sql';
 import { buildThreadSummary } from '../store/thread-summary';
+import { applyExtraOp } from './writes-extra';
 
 // ---------------------------------------------------------------------------
 // Storage surface this file needs (the real `ctx.storage`; a plain
@@ -107,7 +120,8 @@ export class MailboxOpNotImplementedError extends Error {
   }
 }
 
-function baseResult(partial: Partial<OpResult> = {}): OpResult {
+/** Exported for `./writes-extra` (task B2) — see the file comment above. */
+export function baseResult(partial: Partial<OpResult> = {}): OpResult {
   return { applied: [], missing: [], stale: [], ready: true, ...partial };
 }
 
@@ -148,11 +162,13 @@ function mirrorFlagsFromLabels(
   };
 }
 
-function labelPatch(labels: readonly string[]): Partial<MessageRow> {
+/** Exported for `./writes-extra` (task B2) — see the file comment above. */
+export function labelPatch(labels: readonly string[]): Partial<MessageRow> {
   return { labels_json: toJson(labels), ...mirrorFlagsFromLabels(labels) };
 }
 
-function folderKeysOfRow(row: Pick<MessageRow, 'deleted_at' | 'labels_json' | 'in_trash' | 'in_spam' | 'send_status'>): Set<FolderKey> {
+/** Exported for `./writes-extra` (task B2) — see the file comment above. */
+export function folderKeysOfRow(row: Pick<MessageRow, 'deleted_at' | 'labels_json' | 'in_trash' | 'in_spam' | 'send_status'>): Set<FolderKey> {
   return new Set(
     folderKeys({
       deletedAt: row.deleted_at,
@@ -201,7 +217,8 @@ interface LabelCountDelta {
  * holds — without this cleanup, a label added and then removed would leave a
  * `0/0/0` "ghost" row the incremental path has but a rebuild doesn't.
  */
-function bumpLabelCounts(sql: SqlStorage, key: FolderKey, delta: LabelCountDelta): void {
+/** Exported for `./writes-extra` (task B2) — see the file comment above. */
+export function bumpLabelCounts(sql: SqlStorage, key: FolderKey, delta: LabelCountDelta): void {
   const messages = delta.messages ?? 0;
   const unread = delta.unread ?? 0;
   const threads = delta.threads ?? 0;
@@ -222,8 +239,11 @@ function bumpLabelCounts(sql: SqlStorage, key: FolderKey, delta: LabelCountDelta
 
 type ThreadLabelEffect = 'created' | 'removed' | 'none';
 
-/** Adjusts `thread_labels.match_count` for `(key, threadKey)`, inserting/deleting the row on a 0⇄non-zero transition. */
-function bumpThreadLabelMatch(sql: SqlStorage, key: FolderKey, threadKey: string, delta: number): ThreadLabelEffect {
+/**
+ * Adjusts `thread_labels.match_count` for `(key, threadKey)`, inserting/deleting the row on a 0⇄non-zero transition.
+ * Exported for `./writes-extra` (task B2) — see the file comment above.
+ */
+export function bumpThreadLabelMatch(sql: SqlStorage, key: FolderKey, threadKey: string, delta: number): ThreadLabelEffect {
   if (delta === 0) return 'none';
   const existing = sql
     .exec<{ match_count: number }>('SELECT match_count FROM thread_labels WHERE label_key = ? AND thread_key = ?', key, threadKey)
@@ -328,8 +348,10 @@ function upsertThreadRow(sql: SqlStorage, threadKey: string, summary: ReturnType
  * `updated_at` to that same `at` (`changeMessage`'s
  * `updated_at = MAX(updated_at, ?)`, or `ingest`'s insert), so this produces
  * the identical value in the normal (non-rebuild) case too.
+ *
+ * Exported for `./writes-extra` (task B2) — see the file comment above.
  */
-function refreshThread(sql: SqlStorage, ref: Pick<MailboxRef, 'accountId'>, threadKey: string): void {
+export function refreshThread(sql: SqlStorage, ref: Pick<MailboxRef, 'accountId'>, threadKey: string): void {
   const rows = loadLiveThreadMessages(sql, threadKey);
   if (rows.length === 0) {
     sql.exec('DELETE FROM threads WHERE thread_key = ?', threadKey);
@@ -359,7 +381,8 @@ type ChangeOutcome =
  * its thread. `mutate` returning `null` means "no change needed" (e.g. a
  * toggle already in the desired state) — still `'applied'`, just a no-op.
  */
-function changeMessage(
+/** Exported for `./writes-extra` (task B2) — see the file comment above. */
+export function changeMessage(
   sql: SqlStorage,
   ref: Pick<MailboxRef, 'accountId'>,
   id: string,
@@ -408,7 +431,8 @@ interface MultiOutcome {
   lastRow: MessageRow | null;
 }
 
-function applyToEach(
+/** Exported for `./writes-extra` (task B2) — see the file comment above. */
+export function applyToEach(
   sql: SqlStorage,
   ref: Pick<MailboxRef, 'accountId'>,
   ids: readonly string[],
@@ -746,7 +770,8 @@ function insertMessageAddresses(sql: SqlStorage, messageId: string, sentAt: numb
   }
 }
 
-function insertAttachmentRow(sql: SqlStorage, messageId: string, att: IngestMessage['attachments'][number], at: number): void {
+/** Exported for `./writes-extra` (task B2's standalone `attachment.create`) — see the file comment above. */
+export function insertAttachmentRow(sql: SqlStorage, messageId: string, att: IngestMessage['attachments'][number], at: number): void {
   sql.exec(
     `INSERT INTO attachments (
        id, message_id, file_name, content_type, size, is_inline, content_id, content_disposition,
@@ -1044,8 +1069,15 @@ function dispatch(sql: SqlStorage, ref: MailboxRef, op: MailboxOp, at: number): 
       return applyThreadSet(sql, ref, op.id, op.threadId, at);
     case 'delete':
       return op.hard ? applyHardDelete(sql, ref, op.ids, at) : applySoftDelete(sql, ref, op.ids, at);
+    // Every other op kind (task B2: folder.read, label.rename/delete,
+    // snooze/resnooze/unsnooze/snooze.wake, scheduled, delivery.match,
+    // inbound.finalize, categories, attachment.*, subscription.*, draft.*)
+    // lives in `./writes-extra`, reusing this file's mutation core (see the
+    // file comment above). `applyExtraOp` throws `MailboxOpNotImplementedError`
+    // for anything it doesn't recognise either, so an op kind this union ever
+    // grows without a handler still fails loudly instead of silently no-oping.
     default:
-      throw new MailboxOpNotImplementedError(op.kind);
+      return applyExtraOp(sql, ref, op, at);
   }
 }
 
