@@ -30,6 +30,7 @@ import { cursorPagination, error, list, noContent, success } from '@weldsuite/wo
 import * as peopleService from '@weldsuite/crm-domain/people';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 import { personChatRoutes } from './chat';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -155,7 +156,17 @@ app.post(
  * corresponded through it, so the check mirrors mail-api's own
  * `checkAccountAccess` + `error.forbidden` for an explicit `accountId`
  * query param (see mail-messages' `GET /` and `GET /stats`).
+ *
+ * The address list behind `accountId` comes from the mailbox store's
+ * `recentAddresses` (docs/plans/weldmail-mailbox-store-design.md, task D7) —
+ * crm-domain no longer queries `mail_messages` directly, so this works
+ * unchanged in every mailbox-store mode, `object-only` included. The sample
+ * size (200 most recent addresses) matches what the store's
+ * `recentAddresses` itself caps at; `limit` only bounds the People rows
+ * returned.
  */
+const RECENT_ADDRESSES_SAMPLE_SIZE = 200;
+
 const recentCorrespondentsQuery = z.object({
   accountId: z.string().optional(),
   limit: z.coerce.number().min(1).max(50).default(10),
@@ -174,7 +185,10 @@ app.get(
       if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     }
     try {
-      const people = await peopleService.listRecentCorrespondents(db, { accountId, limit });
+      const emails = accountId
+        ? await (await workspaceMailFromContext(c)).store.mailbox(accountId).recentAddresses(RECENT_ADDRESSES_SAMPLE_SIZE)
+        : undefined;
+      const people = await peopleService.listRecentCorrespondents(db, { emails, limit });
       return success(c, people);
     } catch (err) {
       console.error('[app-api/people] recent-correspondents failed:', err);

@@ -1409,47 +1409,22 @@ export async function resolveByEmails(
 }
 
 /**
- * Distinct lower-cased addresses (from/to) across an account's most recent
- * 200 messages — the "recently-messaged" set that recent correspondents are
- * resolved from. The cap keeps the query fast.
- */
-async function recentAccountEmails(db: Database, accountId: string): Promise<string[]> {
-  const { mailMessages } = schema;
-  const recentMessages = await db
-    .select({
-      fromEmail: sql<string | null>`(${mailMessages.from}->>'email')`,
-      toEmails: mailMessages.to,
-    })
-    .from(mailMessages)
-    .where(
-      and(
-        eq(mailMessages.accountId, accountId),
-        isNull(mailMessages.deletedAt),
-      ),
-    )
-    .orderBy(desc(mailMessages.sentDate))
-    .limit(200);
-
-  const emailSet = new Set<string>();
-  for (const row of recentMessages) {
-    if (row.fromEmail) emailSet.add(row.fromEmail.trim().toLowerCase());
-    if (!Array.isArray(row.toEmails)) continue;
-    for (const addr of row.toEmails as Array<{ email?: string }>) {
-      if (addr?.email) emailSet.add(addr.email.trim().toLowerCase());
-    }
-  }
-  return Array.from(emailSet).slice(0, 200);
-}
-
-/**
  * Return recently-touched Person rows, ordered by `updatedAt` desc.
  *
  * The mail pipeline upserts/touches a person row on every inbound/outbound
  * message via `services/mail/contacts.ts`, so `updatedAt` is a reliable
- * proxy for "recently corresponded with". Optionally filter by mail account
- * by joining against `mailMessages.accountId` when a simpler mail-history
- * join is available; for now the updatedAt-desc approach is used as
- * documented in the task spec.
+ * proxy for "recently corresponded with". Optionally filter by a caller-
+ * supplied address list (the mailbox store's `recentAddresses`, resolved by
+ * the crm-api route) when the request is scoped to one mail account; for now
+ * the updatedAt-desc approach is used as documented in the task spec.
+ *
+ * `opts.emails`, when present (even empty), scopes the result to those
+ * addresses instead of the tenant-wide fallback — crm-domain no longer
+ * queries `mail_messages` itself (docs/plans/weldmail-mailbox-store-design.md,
+ * task D7): the mailbox store is the source of a mail account's recent
+ * correspondence in every mode, so the crm-api route resolves the address
+ * list through `@weldsuite/mail-domain/store`'s `recentAddresses` before
+ * calling this function.
  *
  * NOT owner-scoped: used by WeldMail for mail recipient suggestions. Limiting
  * to the logged-in user's own contacts would prevent team members from
@@ -1457,14 +1432,14 @@ async function recentAccountEmails(db: Database, accountId: string): Promise<str
  */
 export async function listRecentCorrespondents(
   db: Database,
-  opts: { accountId?: string; limit?: number },
+  opts: { emails?: string[]; limit?: number },
 ): Promise<PersonSummary[]> {
   const { people } = schema;
   const limit = Math.min(opts.limit ?? 10, 50);
 
-  if (opts.accountId) {
-    const emailList = await recentAccountEmails(db, opts.accountId);
-    if (emailList.length === 0) return [];
+  if (opts.emails) {
+    if (opts.emails.length === 0) return [];
+    const emailList = opts.emails;
 
     const rows = await db
       .select({
@@ -1488,7 +1463,7 @@ export async function listRecentCorrespondents(
     return rows;
   }
 
-  // No accountId — fall back to updatedAt desc across the whole tenant.
+  // No address list — fall back to updatedAt desc across the whole tenant.
   const rows = await db
     .select({
       id: people.id,
