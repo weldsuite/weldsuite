@@ -1,31 +1,39 @@
 # Screenshots
 
-Capture from a `preview` build (or the Simulator / emulator with a clean status bar)
-signed in as the demo account from `../review-notes.md`, in light mode.
-Make a second set in Dutch for the `nl` localisation if you want localised shots.
+UI-faithful mockups of the WeldHR app (teal `#0D9488`, the black Clock in button,
+date tiles with a coloured bar, the floating tab bar), the same pipeline as
+WeldFlow / WeldCalendar / WeldBooks. Generated from `scenes.html`:
 
-## Sizes
+```bash
+npx --yes playwright install chromium
+node apps/mobile/weldhr-app/store/screenshots/capture.mjs
+```
+
+The scenes are built from the app's own components (`constants/brand.ts`,
+`components/Row.tsx`, `components/Grouped.tsx`, `app/(tabs)/index.tsx`); when the
+UI changes, update `scenes.html` and recapture. If a store rejects mockups,
+recapture the same screens from a `preview` build signed in to the demo account.
+
+## Output
 
 | Folder | Size | Where |
 | --- | --- | --- |
-| `ios-6.9/` | 1320×2868 | App Store, 6.9" iPhone (required) |
+| `ios-6.9/` | 1320×2868 | App Store, 6.9" iPhone |
 | `ios-6.5/` | 1242×2688 | App Store, 6.5" iPhone (only if the slot is shown) |
-| `ios-ipad-13/` | 2064×2752 | App Store, 13" iPad, required because `supportsTablet: true` |
-| `android-phone/` | 1080×2340 (or any 9:16–9:19.5) | Play, phone (2–8) |
-| `android-feature-graphic/` | 1024×500 | Play, feature graphic (required) |
+| `ios-ipad-13/` | 2064×2752 | App Store, 13" iPad (`supportsTablet: true`) |
+| `android-phone/` | 1080×2341 | Play, phone (2–8) |
 
-The Play icon (512×512) is `../../assets/images/icon.png` scaled down.
+The Play feature graphic and 512×512 icon are in `../graphics/`.
 
 ## Shot list (same order everywhere)
 
-1. Home: next shift with the clock button, my schedule and absences
-2. Schedule: my week with shifts and an open shift
+1. Home: today's shift with Clock in, my schedule, my absences
+2. Schedule: the week, an open shift to sign up for
 3. Absence: my requests and sick reports
-4. New leave request with the allowance check
-5. Expenses: a claim with a receipt
-6. Absence as a manager: who is off, requests waiting for approval
-7. Payslips
-8. Profile: leave balances and the Face ID lock
+4. Request leave, with the allowance check
+5. Expenses: claims with category tiles and totals
+6. Absence as a manager: who is off, requests to approve
+7. Pay: payslips and the annual statement
+8. Profile: leave balances, Face ID / fingerprint lock
 
-Simulator: `xcrun simctl status_bar booted override --time 9:41 --batteryState charged --batteryLevel 100`.
-Android emulator: enable demo mode (`adb shell settings put global sysui_demo_allowed 1`).
+The demo data (Northwind Retail, Sanne de Vries) is made up.

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WeldHR store screens</title>
+  <!--
+    UI-faithful mockups of the WeldHR app for the store listings, after the
+    app's own components (constants/brand.ts, components/Row.tsx, Grouped.tsx,
+    app/(tabs)/index.tsx). Captured by capture.mjs; open with ?scene=<name>.
+  -->
+  <style>
+    :root {
+      --canvas: #f2f2f7;
+      --surface: #fff;
+      --chrome: #eeeef0;
+      --control: #e5e5ea;
+      --tile: #f2f2f7;
+      --text: #1c1d1f;
+      --muted: #6f7988;
+      --border: #e5e5ea;
+      --brand: #0d9488;
+      --brand-tint: rgba(13, 148, 136, 0.12);
+      --badge: #3073f1;
+      --grouped-page: #f7f7fa;
+      --grouped-border: #e6e7e8;
+      --grouped-icon: #6c6e6f;
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --calendar: #3b82f6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: #111; }
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+    }
+    .phone { width: 100%; height: 100%; background: var(--surface); display: flex; flex-direction: column; overflow: hidden; position: relative; }
+    .phone.grouped { background: var(--grouped-page); }
+    .phone.canvas { background: var(--canvas); }
+    .status { height: 54px; padding: 14px 28px 0; display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; flex-shrink: 0; }
+    .status-right { display: flex; gap: 7px; align-items: center; font-size: 13px; }
+    .wrap { width: 100%; max-width: 640px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .scroll { flex: 1; overflow: hidden; }
+    .head { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px 4px; }
+    .title-lg { font-size: 30px; font-weight: 700; letter-spacing: -0.6px; }
+    .square { width: 36px; height: 36px; border-radius: 10px; background: var(--chrome); display: flex; align-items: center; justify-content: center; color: var(--text); }
+    .ws { display: flex; align-items: center; gap: 10px; }
+    .ws-tile { width: 30px; height: 30px; border-radius: 8px; background: var(--brand); color: #fff; font-weight: 700; font-size: 15px; display: flex; align-items: center; justify-content: center; }
+    .ws-name { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 4px; }
+    .avatar { border-radius: 50%; color: #fff; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .sec { display: flex; justify-content: space-between; align-items: baseline; padding: 26px 16px 6px; }
+    .sec h3 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+    .sec a { font-size: 15px; color: var(--brand); font-weight: 500; }
+    .sec.small h3 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; position: relative; }
+    .row + .row::before { content: ""; position: absolute; top: 0; left: 68px; right: 0; height: 0.5px; background: var(--border); }
+    .bar { width: 4px; align-self: stretch; border-radius: 2px; margin: 2px 0; }
+    .date-tile { width: 40px; height: 40px; border-radius: 10px; background: var(--tile); display: flex; flex-direction: column; align-items: center; justify-content: center; flex-shrink: 0; }
+    .date-tile .dow { font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
+    .date-tile .d { font-size: 16px; font-weight: 700; line-height: 18px; }
+    .tile { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; }
+    .main { flex: 1; min-width: 0; }
+    .t { font-size: 16px; font-weight: 600; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .u { font-size: 14px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .val { text-align: right; flex-shrink: 0; }
+    .val .v { font-size: 15px; font-weight: 500; }
+    .val .dd { font-size: 13px; color: var(--muted); margin-top: 2px; }
+    .chev { color: #b0b4ba; flex-shrink: 0; }
+    .hero { padding: 26px 16px 4px; display: flex; flex-direction: column; gap: 16px; }
+    .hero-top { display: flex; gap: 12px; }
+    .hero-top .bar { width: 5px; }
+    .hero-title { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; line-height: 26px; }
+    .hero-line { font-size: 15px; color: var(--muted); margin-top: 3px; }
+    .btn { height: 46px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; }
+    .btn.ink { background: #000; color: #fff; }
+    .btn.soft { background: var(--control); color: var(--text); }
+    .btn.sm { height: 34px; border-radius: 10px; font-size: 14px; padding: 0 14px; }
+    .segments { display: flex; background: var(--chrome); border-radius: 10px; padding: 2px; margin: 10px 16px 4px; }
+    .segments div { flex: 1; text-align: center; padding: 7px 0; font-size: 14px; font-weight: 600; color: var(--muted); border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+    .segments .on { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .count { background: var(--badge); color: #fff; font-size: 12px; font-weight: 700; border-radius: 9px; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; }
+    .week { display: flex; align-items: center; justify-content: space-between; padding: 6px 16px 10px; }
+    .week b { font-size: 17px; }
+    .week .u { margin: 0; }
+    .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; padding: 0 12px 14px; }
+    .day { text-align: center; padding: 6px 0; border-radius: 12px; }
+    .day .dow { font-size: 11px; font-weight: 600; color: var(--muted); }
+    .day .d { font-size: 17px; font-weight: 600; margin-top: 2px; }
+    .day .pip { width: 5px; height: 5px; border-radius: 3px; background: var(--brand); margin: 3px auto 0; }
+    .day.today { background: var(--calendar); }
+    .day.today .dow, .day.today .d { color: #fff; }
+    .day.today .pip { background: #fff; }
+    .sheet { flex: 1; background: var(--surface); border-radius: 18px 18px 0 0; overflow: hidden; padding-bottom: 8px; }
+    .grabber { width: 36px; height: 5px; border-radius: 3px; background: #d1d1d6; margin: 8px auto 2px; }
+    .day-head { padding: 16px 16px 4px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+    .open-card { margin: 14px 16px 4px; border: 1px solid #efeff2; border-radius: 14px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+    .pill { font-size: 13px; font-weight: 600; padding: 5px 12px; border-radius: 9px; }
+    .pill.brand { background: var(--brand-tint); color: var(--brand); }
+    .totals { margin: 10px 16px 0; border: 1px solid #efeff2; border-radius: 14px; display: flex; }
+    .totals > div { flex: 1; padding: 12px 14px; }
+    .totals > div + div { border-left: 1px solid #efeff2; }
+    .totals .k { font-size: 13px; color: var(--muted); }
+    .totals .n { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; margin-top: 2px; }
+    .form-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px 6px; }
+    .form-head .x { font-size: 16px; color: var(--muted); }
+    .form-head .title { font-size: 17px; font-weight: 600; }
+    .form-head .go { font-size: 16px; font-weight: 600; color: var(--brand); }
+    .label { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; padding: 18px 16px 8px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px; }
+    .chip { padding: 8px 14px; border-radius: 10px; background: var(--tile); font-size: 15px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+    .chip.on { background: var(--brand); color: #fff; }
+    .fields { display: flex; gap: 10px; padding: 0 16px; }
+    .field { flex: 1; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+    .field .k { font-size: 12px; color: var(--muted); }
+    .field .v { font-size: 16px; font-weight: 600; margin-top: 2px; }
+    .field.note { color: var(--text); font-size: 15px; min-height: 84px; margin: 0 16px; flex: none; }
+    .allow { margin: 14px 16px 0; background: var(--brand-tint); border-radius: 12px; padding: 12px 14px; font-size: 14px; line-height: 20px; color: #0b6f66; }
+    .meter { height: 6px; border-radius: 3px; background: #dceeed; margin-top: 8px; overflow: hidden; }
+    .meter div { height: 100%; background: var(--brand); border-radius: 3px; }
+    .card { background: #fff; border: 0.5px solid var(--grouped-border); border-radius: 14px; margin: 14px 16px 0; overflow: hidden; }
+    .card .row + .row::before { left: 16px; }
+    .g-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; position: relative; }
+    .g-row + .g-row::before { content: ""; position: absolute; top: 0; left: 48px; right: 0; height: 0.5px; background: var(--grouped-border); }
+    .g-row.plain + .g-row.plain::before { left: 14px; }
+    .g-row .gi { color: var(--grouped-icon); flex-shrink: 0; }
+    .g-row .gt { flex: 1; font-size: 15px; font-weight: 500; }
+    .g-row .gv { font-size: 15px; color: var(--muted); }
+    .switch { width: 51px; height: 31px; border-radius: 16px; background: var(--brand); position: relative; }
+    .switch::after { content: ""; position: absolute; right: 2px; top: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+    .bal { padding: 12px 14px; }
+    .bal + .bal { border-top: 0.5px solid var(--grouped-border); }
+    .bal .top { display: flex; justify-content: space-between; font-size: 15px; }
+    .bal .top b { font-weight: 600; }
+    .tabwrap { padding: 8px 18px 4px; flex-shrink: 0; display: flex; gap: 10px; align-items: center; max-width: 640px; width: 100%; margin: 0 auto; }
+    .tabbar { flex: 1; height: 60px; border-radius: 30px; background: rgba(255,255,255,0.96); display: flex; align-items: center; justify-content: space-around; box-shadow: 0 4px 24px rgba(0,0,0,0.12); border: 0.5px solid #e6e7e8; }
+    .tab { width: 52px; height: 46px; border-radius: 23px; color: #8e9298; display: flex; align-items: center; justify-content: center; position: relative; }
+    .tab.active { color: var(--text); background: #eeeef0; }
+    .tab .count { position: absolute; top: 4px; right: 4px; }
+    .add { width: 60px; height: 60px; border-radius: 30px; background: #fff; box-shadow: 0 4px 24px rgba(0,0,0,0.12); border: 0.5px solid #e6e7e8; display: flex; align-items: center; justify-content: center; color: var(--text); flex-shrink: 0; }
+    .home-bar { height: 22px; flex-shrink: 0; }
+    .phone.canvas .tabwrap, .phone.canvas .home-bar { background: #fff; box-shadow: 0 0 0 100vmax #fff; clip-path: inset(0 -100vmax); }
+  </style>
+</head>
+<body>
+  <div class="phone" id="app"></div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const scene = params.get('scene') || 'home';
+    const isIos = params.get('platform') !== 'android';
+    const svg = (d, w = 24, sw = 2.2) =>
+      `<svg viewBox="0 0 24 24" width="${w}" height="${w}" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+    // Lucide icons, as the app uses them (lucide-react-native).
+    const P = {
+      house: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+      calDays: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>',
+      calHeart: '<path d="M3 10h18V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h7"/><path d="M8 2v4M16 2v4"/><path d="M21.29 14.7a2.43 2.43 0 0 0-2.65-.52c-.3.12-.57.3-.8.53l-.34.34-.35-.34a2.43 2.43 0 0 0-2.65-.53c-.3.12-.56.3-.79.53-.95.94-1 2.53.2 3.74L17.5 22l3.6-3.55c1.2-1.21 1.14-2.8.19-3.74Z"/>',
+      receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/>',
+      megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+      plus: '<path d="M5 12h14M12 5v14"/>',
+      chevR: '<path d="m9 18 6-6-6-6"/>',
+      chevL: '<path d="m15 18-6-6 6-6"/>',
+      chevD: '<path d="m6 9 6 6 6-6"/>',
+      plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
+      thermo: '<path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/>',
+      car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+      food: '<path d="m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8"/><path d="M15 15 3.3 3.3a4.2 4.2 0 0 0 0 6l7.3 7.3c.7.7 2 .7 2.8 0L15 15Zm0 0 7 7"/><path d="m2.1 21.8 6.4-6.3"/><path d="m19 5-7 7"/>',
+      laptop: '<path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/>',
+      bed: '<path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"/><path d="M12 4v6"/><path d="M2 18h20"/>',
+      file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8M16 13H8M16 17H8"/>',
+      lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+      langs: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>',
+      check: '<path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/>',
+      msg: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7M17 12H7"/>',
+      clip: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+      search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+      users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+    };
+    const I = (name, w, sw) => svg(P[name], w, sw);
+
+    const status = () => `<div class="status"><span>9:41</span><span class="status-right">●●●● ▲ 100%</span></div>`;
+    const tabbar = (active, counts = {}) => `
+      <div class="tabwrap">
+        <div class="tabbar">
+          ${[['house', 0], ['calDays', 1], ['calHeart', 2], ['receipt', 3], ['megaphone', 4]].map(([icon, i]) =>
+            `<div class="tab ${active === i ? 'active' : ''}">${I(icon, 24)}${counts[i] ? `<span class="count">${counts[i]}</span>` : ''}</div>`).join('')}
+        </div>
+        <div class="add">${I('plus', 26)}</div>
+      </div>
+      <div class="home-bar"></div>`;
+    const avatar = (initials, color, size = 40) =>
+      `<div class="avatar" style="width:${size}px;height:${size}px;background:${color};font-size:${Math.round(size * 0.38)}px">${initials}</div>`;
+    const dateTile = (dow, d) => `<div class="date-tile"><div class="dow">${dow}</div><div class="d">${d}</div></div>`;
+    const tile = (icon, bg) => `<div class="tile" style="background:${bg}">${I(icon, 20)}</div>`;
+    const shiftRow = (dow, d, time, sub, color) => `
+      <div class="row">${dateTile(dow, d)}<div class="bar" style="background:${color}"></div>
+        <div class="main"><div class="t">${time}</div><div class="u">${sub}</div></div>
+        <div class="chev">${I('chevR', 18)}</div></div>`;
+    const valueRow = (lead, title, sub, subColor, value, detail) => `
+      <div class="row">${lead}
+        <div class="main"><div class="t">${title}</div><div class="u" style="color:${subColor || 'var(--muted)'}">${sub}</div></div>
+        <div class="val"><div class="v">${value}</div>${detail ? `<div class="dd">${detail}</div>` : ''}</div></div>`;
+    const header = (title, right = I('search', 20)) =>
+      `<div class="head"><div class="title-lg">${title}</div><div class="square">${right}</div></div>`;
+
+    const scenes = {
+      home: () => `
+        ${status()}
+        <div class="wrap"><div class="scroll">
+          <div class="head">
+            <div class="ws"><div class="ws-tile">N</div><div class="ws-name">Northwind ${I('chevD', 18)}</div></div>
+            ${avatar('SV', '#2F6FE0', 36)}
+          </div>
+          <div class="hero">
+            <div class="hero-top"><div class="bar" style="background:#10B981"></div>
+              <div><div class="hero-title">08:30 – 16:30</div>
+                <div class="hero-line">Today • Store Amsterdam</div><div class="hero-line">Northwind Retail</div></div></div>
+            <div class="btn ink">Clock in</div>
+          </div>
+          <div class="sec"><h3>My schedule</h3><a>See all</a></div>
+          ${shiftRow('Thu', '12', '12:00 – 20:00', 'Store Utrecht • Northwind', '#8B5CF6')}
+          ${shiftRow('Sat', '14', '10:00 – 18:00', 'Store Amsterdam • Northwind', '#10B981')}
+          ${shiftRow('Mon', '16', '09:00 – 17:00', 'Store Amsterdam • Northwind', '#10B981')}
+          <div class="sec"><h3>My absences 2026</h3><a>Request</a></div>
+          ${valueRow(tile('plane', '#0D9488'), 'Holiday', 'Approved', 'var(--success)', '23 – 27 Nov', '5 days')}
+          ${valueRow(tile('plane', '#0D9488'), 'Holiday', 'Pending', 'var(--warning)', '21 Dec – 4 Jan', '8 days')}
+          ${valueRow(tile('thermo', '#DC2626'), 'Sick', 'Recovered', null, '6 – 7 Oct', '2 days')}
+        </div></div>
+        ${tabbar(0, { 4: 2 })}`,
+
+      schedule: () => {
+        document.getElementById('app').classList.add('canvas');
+        const days = [['Mon', '9', true, false], ['Tue', '10', true, true], ['Wed', '11', false, false], ['Thu', '12', true, false], ['Fri', '13', false, false], ['Sat', '14', true, false], ['Sun', '15', false, false]];
+        return `
+        ${status()}
+        <div class="wrap">
+          ${header('Schedule', I('users', 20))}
+          <div class="segments"><div class="on">My week</div><div>Team</div></div>
+          <div class="week"><div class="square">${I('chevL', 18)}</div><div style="text-align:center"><b>Week 46</b><div class="u">9 – 15 Nov • 32h planned</div></div><div class="square">${I('chevR', 18)}</div></div>
+          <div class="days">${days.map(([dow, d, pip, today]) => `<div class="day ${today ? 'today' : ''}"><div class="dow">${dow}</div><div class="d">${d}</div>${pip ? '<div class="pip"></div>' : '<div style="height:8px"></div>'}</div>`).join('')}</div>
+          <div class="sheet"><div class="grabber"></div>
+            <div class="open-card">${tile('calDays', '#F59E0B')}<div class="main"><div class="t">Open shift • Sat 14 Nov</div><div class="u">13:00 – 21:00 • Store Utrecht • 2 spots</div></div><div class="pill brand">Sign up</div></div>
+            <div class="day-head">Monday 9 November</div>
+            ${shiftRow('Mon', '9', '09:00 – 17:00', 'Worked 8h 02m • Store Amsterdam', '#10B981')}
+            <div class="day-head">Today</div>
+            ${shiftRow('Tue', '10', '08:30 – 16:30', 'Store Amsterdam • Northwind', '#10B981')}
+            <div class="day-head">Thursday 12 November</div>
+            ${shiftRow('Thu', '12', '12:00 – 20:00', 'Store Utrecht • Northwind', '#8B5CF6')}
+            <div class="day-head">Saturday 14 November</div>
+            ${shiftRow('Sat', '14', '10:00 – 18:00', 'Store Amsterdam • Northwind', '#10B981')}
+          </div>
+        </div>
+        ${tabbar(1, { 4: 2 })}`;
+      },
+
+      absence: () => `
+        ${status()}
+        <div class="wrap"><div class="scroll">
+          ${header('Absence', I('plus', 20))}
+          <div class="segments"><div class="on">Mine</div><div>Team <span class="count">3</span></div></div>
+          <div class="sec small"><h3>Requests 2026</h3></div>
+          ${valueRow(tile('plane', '#0D9488'), 'Holiday', 'Pending', 'var(--warning)', '21 Dec – 4 Jan', '8 days')}
+          ${valueRow(tile('plane', '#0D9488'), 'Holiday', 'Approved', 'var(--success)', '23 – 27 Nov', '5 days')}
+          ${valueRow(tile('plane', '#6366F1'), 'Special leave', 'Approved • Moving house', 'var(--success)', '2 Oct', '1 day')}
+          ${valueRow(tile('plane', '#0D9488'), 'Holiday', 'Approved', 'var(--success)', '3 – 21 Aug', '15 days')}
+          <div class="sec small"><h3>Sick 2026</h3></div>
+          ${valueRow(tile('thermo', '#DC2626'), 'Sick', 'Recovered', null, '6 – 7 Oct', '2 days')}
+          ${valueRow(tile('thermo', '#DC2626'), 'Sick', 'Recovered', null, '17 Mar', '1 day')}
+        </div></div>
+        ${tabbar(2, { 2: 3, 4: 2 })}`,
+
+      leave: () => `
+        ${status()}
+        <div class="wrap"><div class="scroll">
+          <div class="form-head"><div class="x">Cancel</div><div class="title">Request leave</div><div class="go">Send</div></div>
+          <div class="label">Type</div>
+          <div class="chips"><div class="chip on">${I('plane', 16)} Holiday</div><div class="chip">Special leave</div><div class="chip">Unpaid</div><div class="chip">Parental</div></div>
+          <div class="label">Dates</div>
+          <div class="fields"><div class="field"><div class="k">From</div><div class="v">Mon 21 Dec</div></div><div class="field"><div class="k">To</div><div class="v">Mon 4 Jan</div></div></div>
+          <div class="allow"><b>8 working days.</b> You have 18 of 25 holiday days left this year, 10 after this request.
+            <div class="meter"><div style="width:40%"></div></div></div>
+          <div class="label">Note for your manager</div>
+          <div class="field note">Christmas with family in Groningen</div>
+          <div style="padding:22px 16px 0"><div class="btn ink">Send request</div></div>
+        </div></div>
+        <div class="home-bar"></div>`,
+
+      expenses: () => `
+        ${status()}
+        <div class="wrap"><div class="scroll">
+          ${header('Expenses', I('plus', 20))}
+          <div class="segments"><div class="on">Mine</div><div>To approve <span class="count">2</span></div></div>
+          <div class="totals"><div><div class="k">Open</div><div class="n">€ 134,80</div></div><div><div class="k">Paid this year</div><div class="n">€ 1.206,15</div></div></div>
+          <div class="sec small"><h3>November</h3></div>
+          ${valueRow(tile('car', '#3B82F6'), 'Train to Utrecht store', 'Submitted • Receipt attached', 'var(--warning)', '€ 48,60', '10 Nov')}
+          ${valueRow(tile('food', '#F97316'), 'Team lunch', 'Approved', 'var(--success)', '€ 86,20', '6 Nov')}
+          <div class="sec small"><h3>October</h3></div>
+          ${valueRow(tile('laptop', '#8B5CF6'), 'USB-C dock', 'Paid', 'var(--muted)', '€ 177,60', '22 Oct')}
+          ${valueRow(tile('bed', '#EC4899'), 'Hotel, store opening', 'Paid', 'var(--muted)', '€ 129,00', '14 Oct')}
+          ${valueRow(tile('car', '#3B82F6'), 'Parking Rotterdam', 'Paid', 'var(--muted)', '€ 18,50', '3 Oct')}
+        </div></div>
+        ${tabbar(3, { 2: 3, 4: 2 })}`,
+
+      team: () => `
+        ${status()}
+        <div class="wrap"><div class="scroll">
+          ${header('Absence', I('plus', 20))}
+          <div class="segments"><div>Mine</div><div class="on">Team <span class="count">3</span></div></div>
+          <div class="sec small"><h3>Off today</h3></div>
+          ${valueRow(avatar('JB', '#E07B00'), 'Jeroen Bakker', 'Holiday', 'var(--muted)', 'until Fri', '')}
+          ${valueRow(avatar('LJ', '#A0329E'), 'Lisa Jansen', 'Sick since Mon', 'var(--danger)', '', '')}
+          <div class="sec small"><h3>To approve</h3></div>
+          ${[['Mila de Boer', 'MB', '#2EA043', 'Holiday • 7 – 9 Dec', '3 days'], ['Tom Visser', 'TV', '#5B4BDB', 'Holiday • 28 – 31 Dec', '4 days'], ['Noor Smit', 'NS', '#D6336C', 'Special leave • 18 Nov', '1 day']].map(([name, ini, color, sub, days]) => `
+            <div class="row" style="align-items:flex-start;padding-top:14px;padding-bottom:14px">${avatar(ini, color)}
+              <div class="main"><div class="t">${name}</div><div class="u">${sub} • ${days}</div>
+                <div style="display:flex;gap:8px;margin-top:10px"><div class="btn ink sm">Approve</div><div class="btn soft sm">Decline</div></div></div></div>`).join('')}
+        </div></div>
+        ${tabbar(2, { 2: 3, 4: 2 })}`,
+
+      pay: () => `
+        ${status()}
+        <div class="wrap"><div class="scroll">
+          <div class="form-head"><div class="square">${I('chevL', 18)}</div><div class="title">Pay</div><div style="width:36px"></div></div>
+          <div class="sec small"><h3>Payslips</h3></div>
+          ${['October', 'September', 'August', 'July', 'June'].map((m, i) => valueRow(tile('file', i === 0 ? '#0D9488' : '#94A3B8'), `${m} 2026`, i === 0 ? 'New' : 'PDF', i === 0 ? 'var(--brand)' : null, ['€ 2.845,12', '€ 2.845,12', '€ 2.791,40', '€ 4.902,77', '€ 2.791,40'][i], 'Net')).join('')}
+          <div class="sec small"><h3>Annual statements</h3></div>
+          ${valueRow(tile('file', '#94A3B8'), 'Jaaropgaaf 2025', 'PDF', null, '', '')}
+        </div></div>
+        <div class="home-bar"></div>`,
+
+      profile: () => {
+        document.getElementById('app').classList.add('grouped');
+        return `
+        ${status()}
+        <div class="wrap"><div class="scroll">
+          <div class="form-head"><div class="square">${I('chevL', 18)}</div><div class="title">Profile</div><div style="width:36px"></div></div>
+          <div class="card">
+            <div class="g-row plain">${avatar('SV', '#2F6FE0', 36)}<div class="main"><div class="t">Sanne de Vries</div><div class="u">Store manager • Active</div></div></div>
+            <div class="g-row plain"><div class="gt">Department</div><div class="gv">Retail</div></div>
+            <div class="g-row plain"><div class="gt">Manager</div><div class="gv">Pieter Mulder</div></div>
+          </div>
+          <div class="card">
+            <div class="bal"><div class="top"><b>Holiday</b><span>18 of 25 days left</span></div><div class="meter"><div style="width:72%"></div></div></div>
+            <div class="bal"><div class="top"><b>Special leave</b><span>2 of 3 days left</span></div><div class="meter"><div style="width:66%"></div></div></div>
+          </div>
+          <div class="card">
+            <div class="g-row"><span class="gi">${I('file', 20, 1.75)}</span><div class="gt">Payslips</div><span class="chev">${I('chevR', 18)}</span></div>
+            <div class="g-row"><span class="gi">${I('thermo', 20, 1.75)}</span><div class="gt">Sick leave</div><span class="chev">${I('chevR', 18)}</span></div>
+            <div class="g-row"><span class="gi">${I('clip', 20, 1.75)}</span><div class="gt">Onboarding tasks</div><span class="count">2</span><span class="chev">${I('chevR', 18)}</span></div>
+            <div class="g-row"><span class="gi">${I('msg', 20, 1.75)}</span><div class="gt">Reviews &amp; coaching</div><span class="chev">${I('chevR', 18)}</span></div>
+          </div>
+          <div class="card">
+            <div class="g-row"><span class="gi">${I('langs', 20, 1.75)}</span><div class="gt">Language</div><div class="gv">English</div></div>
+            <div class="g-row"><span class="gi">${I('lock', 20, 1.75)}</span><div class="gt">Lock with ${isIos ? 'Face ID' : 'fingerprint'}</div><div class="switch"></div></div>
+          </div>
+        </div></div>
+        <div class="home-bar"></div>`;
+      },
+    };
+
+    document.getElementById('app').innerHTML = (scenes[scene] || scenes.home)();
+  </script>
+</body>
+</html>
