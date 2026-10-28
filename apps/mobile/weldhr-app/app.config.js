@@ -1,4 +1,12 @@
-const { withAppBuildGradle, withGradleProperties } = require('@expo/config-plugins');
+const fs = require('node:fs');
+const path = require('node:path');
+const {
+  withAppBuildGradle,
+  withGradleProperties,
+  withAndroidManifest,
+} = require('@expo/config-plugins');
+
+const PROJECT_ROOT = __dirname;
 
 // Match weldflow/weldchat. Fresh prebuild defaults OOM mid-lintVital on GHA.
 const GRADLE_JVMARGS =
@@ -46,6 +54,61 @@ const withAndroidPackagingExcludes = (config) => {
   });
 };
 
+/**
+ * Android push needs `google-services.json` for package `com.weldsuite.weldhr`
+ * (Firebase project `weldsuite`). Without it, `expo-notifications` still merges
+ * `ExpoFirebaseMessagingService`, and FCM token refresh on first launch can kill
+ * the process with "Default FirebaseApp is not initialized".
+ *
+ * When the file is present → wire googleServicesFile.
+ * When missing → strip the FCM service so the app can open (push stays disabled).
+ * Same as weldflow-app; see store/README.md for where the file comes from.
+ */
+const withFirebaseOrSafePush = (config) => {
+  const androidFile = path.join(PROJECT_ROOT, 'google-services.json');
+  const iosFile = path.join(PROJECT_ROOT, 'GoogleService-Info.plist');
+
+  if (fs.existsSync(androidFile)) {
+    config.android = {
+      ...config.android,
+      googleServicesFile: './google-services.json',
+    };
+  } else {
+    console.warn(
+      '[weldhr-app] Missing google-services.json for com.weldsuite.weldhr — ' +
+        'stripping ExpoFirebaseMessagingService so release builds do not crash on open. ' +
+        'Add the Firebase Android app file, then rebuild.',
+    );
+    config = withAndroidManifest(config, (config) => {
+      const manifest = config.modResults.manifest;
+      if (!manifest.$['xmlns:tools']) {
+        manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
+      }
+      const application = manifest.application?.[0];
+      if (!application) return config;
+
+      application.service = application.service || [];
+      const serviceName = 'expo.modules.notifications.service.ExpoFirebaseMessagingService';
+      application.service = application.service.filter(
+        (s) => s?.$?.['android:name'] !== serviceName,
+      );
+      application.service.push({
+        $: { 'android:name': serviceName, 'tools:node': 'remove' },
+      });
+      return config;
+    });
+  }
+
+  if (fs.existsSync(iosFile)) {
+    config.ios = {
+      ...config.ios,
+      googleServicesFile: './GoogleService-Info.plist',
+    };
+  }
+
+  return config;
+};
+
 /** Must match the scaffold placeholder in app.json before `eas init` runs. */
 const PLACEHOLDER_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -91,6 +154,7 @@ const withEasProject = (config) => {
 const appConfig = ({ config }) => {
   config = withIncreasedGradleMemory(config);
   config = withAndroidPackagingExcludes(config);
+  config = withFirebaseOrSafePush(config);
   config = withEasProject(config);
 
   return config;

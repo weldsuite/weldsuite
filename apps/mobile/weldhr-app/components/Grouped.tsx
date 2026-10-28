@@ -59,6 +59,8 @@ export interface GroupRowProps {
   testID?: string;
   accessibilityRole?: 'button' | 'radio' | 'switch';
   selected?: boolean;
+  /** Title and icon in red, for an action that cannot be undone (deleting the account). */
+  destructive?: boolean;
 }
 
 export function GroupRow({
@@ -73,14 +75,19 @@ export function GroupRow({
   testID,
   accessibilityRole = 'button',
   selected,
+  destructive = false,
 }: Readonly<GroupRowProps>) {
   const palette = usePalette();
   const content = (
     <>
       <View style={styles.row}>
-        {Icon ? <Icon size={GROUPED_ICON} color={palette.groupedIcon} strokeWidth={1.75} /> : leading}
+        {Icon ? (
+          <Icon size={GROUPED_ICON} color={destructive ? palette.danger : palette.groupedIcon} strokeWidth={1.75} />
+        ) : (
+          leading
+        )}
         <View style={styles.main}>
-          <Text style={[styles.title, { color: palette.text }]} numberOfLines={1}>
+          <Text style={[styles.title, { color: destructive ? palette.danger : palette.text }]} numberOfLines={1}>
             {title}
           </Text>
           {subtitle ? (

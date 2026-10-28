@@ -55,6 +55,15 @@ export const nl: Translations = {
     signOut: 'Uitloggen',
   },
 
+  deleteAccount: {
+    action: 'Account verwijderen',
+    title: 'Je account verwijderen?',
+    message:
+      'Hiermee verwijder je het WeldSuite-account {email} definitief en verdwijn je uit elke werkruimte. Dit kan niet ongedaan worden gemaakt. Je werkgever bewaart je medewerkersdossier, loonstroken en aanvragen, zoals de wet vereist; vraag HR daarnaar.',
+    confirm: 'Account verwijderen',
+    failed: 'Je account kon niet worden verwijderd. Probeer het opnieuw of mail naar privacy@weldsuite.com.',
+  },
+
   notLinked: {
     title: 'Nog geen medewerkersdossier',
     description: 'Je account is niet gekoppeld aan een medewerkersdossier. Vraag HR om het te koppelen en trek daarna omlaag om te verversen.',

@@ -2,11 +2,12 @@
  * Profile, opened from the workspace at the top of Home: the member's
  * details and time off balances, what is not one of the tabs (payslips, sick
  * leave, tasks, reviews, the directory), the app's settings, the workspaces
- * and signing out. Laid out as Attio's settings (Grouped.tsx): cards on a
+ * and signing out or deleting the account. Laid out as Attio's settings (Grouped.tsx): cards on a
  * grey a step lighter than the app's canvas, without titles, the version
  * under the last.
  */
 
+import { useState } from 'react';
 import { Platform, StyleSheet, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
@@ -20,11 +21,13 @@ import {
   MessageSquareText,
   SunMoon,
   Thermometer,
+  Trash2,
 } from 'lucide-react-native';
 import { Switch } from '@weldsuite/mobile-ui/components/Switch';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 import { useTheme, type ThemePreference } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
+import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
 import { Group, GroupFooter, GroupRow } from '@/components/Grouped';
 import { LeaveBalances } from '@/components/LeaveBalances';
 import { MyHrGate, useSelfState, type LinkedSelf } from '@/components/MyHrGate';
@@ -142,6 +145,7 @@ function Settings() {
   const { signOut } = useClerkAuth();
   const lock = useAppLock();
   const method = lockMethodLabel(t, lock.method);
+  const [deleting, setDeleting] = useState(false);
 
   return (
     <>
@@ -188,7 +192,15 @@ function Settings() {
 
       <Group>
         <GroupRow icon={CircleArrowRight} title={t.me.signOut} onPress={() => void signOut()} testID="me-sign-out" />
+        <GroupRow
+          icon={Trash2}
+          title={t.deleteAccount.action}
+          onPress={() => setDeleting(true)}
+          testID="me-delete-account"
+          destructive
+        />
       </Group>
+      <DeleteAccountDialog visible={deleting} onClose={() => setDeleting(false)} />
 
       <GroupFooter
         label={t.me.versionLabel}

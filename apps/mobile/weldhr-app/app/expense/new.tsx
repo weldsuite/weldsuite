@@ -21,6 +21,17 @@ const CATEGORIES: HrDeclarationCategory[] = ['travel', 'meals', 'accommodation',
 const CURRENCIES = ['EUR', 'USD', 'GBP'] as const;
 type Currency = (typeof CURRENCIES)[number];
 
+/**
+ * Android picks photos with the system photo picker, which needs no
+ * permission; the media permissions are blocked in app.json, since Play only
+ * allows them to apps whose core feature is the photo library.
+ */
+async function requestPickerPermission(source: 'camera' | 'library'): Promise<boolean> {
+  if (source === 'camera') return (await ImagePicker.requestCameraPermissionsAsync()).granted;
+  if (Platform.OS === 'android') return true;
+  return (await ImagePicker.requestMediaLibraryPermissionsAsync()).granted;
+}
+
 export default function NewExpenseScreen() {
   const { t } = useI18n();
   const router = useRouter();
@@ -48,11 +59,7 @@ export default function NewExpenseScreen() {
         setError(t.expenseForm.noCamera);
         return;
       }
-      const permission =
-        source === 'camera'
-          ? await ImagePicker.requestCameraPermissionsAsync()
-          : await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
+      if (!(await requestPickerPermission(source))) {
         setError(source === 'camera' ? t.expenseForm.cameraDenied : t.expenseForm.libraryDenied);
         return;
       }

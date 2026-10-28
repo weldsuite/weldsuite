@@ -54,6 +54,15 @@ export const en = {
     signOut: 'Sign out',
   },
 
+  deleteAccount: {
+    action: 'Delete account',
+    title: 'Delete your account?',
+    message:
+      'This permanently deletes the WeldSuite account {email} and removes you from every workspace. It cannot be undone. Your employer keeps your employee record, payslips and requests, as the law requires; ask HR about those.',
+    confirm: 'Delete account',
+    failed: 'Your account could not be deleted. Try again, or email privacy@weldsuite.com.',
+  },
+
   /** Shown when the member has no (active) employee record or no My HR access. */
   notLinked: {
     title: 'No employee record yet',
