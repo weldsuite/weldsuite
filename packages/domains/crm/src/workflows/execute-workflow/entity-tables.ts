@@ -6,7 +6,8 @@
  * (W4 legacy-worker phase-out) — only the schema import path changed.
  */
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, getTableName, inArray, isNull, sql } from 'drizzle-orm';
+import { selectableColumns, sensitiveColumnsOf } from '@weldsuite/db/lib/sensitive-columns';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 const entityTableMap: Record<string, any> = {
@@ -90,6 +91,19 @@ export function getEntityIdPrefix(entityType: string): string {
   return entityIdPrefixMap[normalizedType] || normalizedType.slice(0, 3);
 }
 
+/**
+ * Column map for the record actions' `select` / `returning`: the table's own
+ * columns without any ciphertext (TIN, SSN, account numbers, credentials) or
+ * mail account secrets. A sequence step's output is persisted and can reach
+ * AI prompts and webhooks, so a record action must never read those columns,
+ * whichever table it targets. `undefined` when the table has none (selects
+ * everything). Typed `any` like the rest of this file: Drizzle's overloads
+ * cannot express a runtime table.
+ */
+export function getEntityColumns(table: any): any {
+  return selectableColumns(getTableName(table), getTableColumns(table));
+}
+
 // ---------------------------------------------------------------------------
 // MAIL-003 for generic record actions
 // ---------------------------------------------------------------------------
@@ -147,6 +161,27 @@ export async function sharedMailboxCondition(
 }
 
 /**
+ * A generic record action must never set a mail account's credentials,
+ * through `create_record` or `update_record` alike. The public mail-api
+ * route doesn't even expose these fields (`CreateMailAccountInput` /
+ * `UpdateMailAccountInput` have no `accessToken` / `refreshToken` / `apiKey` /
+ * `passwordHash` / `providerConfig`), so there is no legitimate way for a
+ * sequence to reach them generically either. Sourced from the same list
+ * `getEntityColumns` already strips on read (`@weldsuite/db/lib/
+ * sensitive-columns`), so the read and write guards can't drift apart.
+ * A no-op for every entity type but `mail_account`.
+ */
+export function assertNoMailAccountCredentialWrite(entityType: string, data: Record<string, unknown>): void {
+  if (mailAccountColumnOf(entityType) !== 'id') return;
+  const offending = sensitiveColumnsOf('mail_accounts').filter((key) => key in data);
+  if (offending.length > 0) {
+    throw new Error(
+      `Cannot set ${offending.join(', ')} on mail_account through a generic record action`,
+    );
+  }
+}
+
+/**
  * `create_record` has no existing row to test, so it validates the write
  * instead: `mail_message` / `mail_folder` must name an existing shared
  * account; `mail_account` may only be created shared in the first place
@@ -159,6 +194,7 @@ export async function assertMailEntityCreatable(
   entityType: string,
   data: Record<string, unknown>,
 ): Promise<void> {
+  assertNoMailAccountCredentialWrite(entityType, data);
   const column = mailAccountColumnOf(entityType);
   if (!column) return;
   if (column === 'id') {

@@ -12,6 +12,7 @@ import {
   getEntityColumns,
   getEntityIdPrefix,
   assertMailEntityCreatable,
+  assertNoMailAccountCredentialWrite,
   mailEntityCreateOverrides,
   sharedMailboxCondition,
 } from '../entity-tables';
@@ -48,6 +49,8 @@ export const handleUpdateRecord: ActionHandler = async (inputs, ctx) => {
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
+  // A mail account's credentials are never generic-CRUD writable, update included.
+  assertNoMailAccountCredentialWrite(entityType, data);
 
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];

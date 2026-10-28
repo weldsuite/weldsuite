@@ -5,7 +5,7 @@
  */
 
 import { and, eq, getTableColumns, getTableName, inArray, isNull, sql } from 'drizzle-orm';
-import { selectableColumns } from '@weldsuite/db/lib/sensitive-columns';
+import { selectableColumns, sensitiveColumnsOf } from '@weldsuite/db/lib/sensitive-columns';
 import { schema, type Database } from '../db';
 
 const entityTableMap: Record<string, any> = {
@@ -160,6 +160,27 @@ export async function sharedMailboxCondition(
 }
 
 /**
+ * A generic record action must never set a mail account's credentials,
+ * through `create_record` or `update_record` alike. The public mail-api
+ * route doesn't even expose these fields (`CreateMailAccountInput` /
+ * `UpdateMailAccountInput` have no `accessToken` / `refreshToken` / `apiKey` /
+ * `passwordHash` / `providerConfig`), so there is no legitimate way for a
+ * workflow to reach them generically either. Sourced from the same list
+ * `getEntityColumns` already strips on read (`@weldsuite/db/lib/
+ * sensitive-columns`), so the read and write guards can't drift apart.
+ * A no-op for every entity type but `mail_account`.
+ */
+export function assertNoMailAccountCredentialWrite(entityType: string, data: Record<string, unknown>): void {
+  if (mailAccountColumnOf(entityType) !== 'id') return;
+  const offending = sensitiveColumnsOf('mail_accounts').filter((key) => key in data);
+  if (offending.length > 0) {
+    throw new Error(
+      `Cannot set ${offending.join(', ')} on mail_account through a generic record action`,
+    );
+  }
+}
+
+/**
  * `create_record` has no existing row to test, so it validates the write
  * instead: `mail_message` / `mail_folder` must name an existing shared
  * account; `mail_account` may only be created shared in the first place
@@ -172,6 +193,7 @@ export async function assertMailEntityCreatable(
   entityType: string,
   data: Record<string, unknown>,
 ): Promise<void> {
+  assertNoMailAccountCredentialWrite(entityType, data);
   const column = mailAccountColumnOf(entityType);
   if (!column) return;
   if (column === 'id') {

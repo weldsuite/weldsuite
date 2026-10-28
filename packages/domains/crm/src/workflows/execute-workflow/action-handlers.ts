@@ -21,8 +21,10 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import {
   getEntityTable,
+  getEntityColumns,
   getEntityIdPrefix,
   assertMailEntityCreatable,
+  assertNoMailAccountCredentialWrite,
   mailEntityCreateOverrides,
   sharedMailboxCondition,
 } from './entity-tables';
@@ -269,7 +271,10 @@ async function handleCreateRecord(inputs: Record<string, unknown>, ctx: ActionCo
 
   // `table` is dynamically resolved (any), so drizzle's insert typing
   // degrades to a non-iterable union — normalise the returning() shape.
-  const created = (await ctx.db.insert(table).values(insertData).returning()) as unknown as Record<string, unknown>[];
+  const created = (await ctx.db
+    .insert(table)
+    .values(insertData)
+    .returning(getEntityColumns(table))) as unknown as Record<string, unknown>[];
   return { created: true, record: created[0] };
 }
 
@@ -279,6 +284,8 @@ async function handleUpdateRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
+  // A mail account's credentials are never generic-CRUD writable, update included.
+  assertNoMailAccountCredentialWrite(entityType, data);
 
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];
@@ -288,7 +295,11 @@ async function handleUpdateRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const mailCondition = await sharedMailboxCondition(ctx.db, entityType, table);
   if (mailCondition) whereConditions.push(mailCondition);
 
-  const [updated] = await ctx.db.update(table).set({ ...data, updatedAt: new Date() }).where(and(...whereConditions)).returning();
+  const [updated] = await ctx.db
+    .update(table)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(...whereConditions))
+    .returning(getEntityColumns(table));
   if (!updated) throw new Error(`Record ${recordId} not found`);
   return { updated: true, record: updated };
 }
@@ -327,7 +338,7 @@ async function handleQueryData(inputs: Record<string, unknown>, ctx: ActionConte
   const offset = Number(inputs.offset) || 0;
 
   const records = await ctx.db
-    .select()
+    .select(getEntityColumns(table))
     .from(table)
     .where(mailCondition ? and(isNull(table.deletedAt), mailCondition) : isNull(table.deletedAt))
     .limit(limit)

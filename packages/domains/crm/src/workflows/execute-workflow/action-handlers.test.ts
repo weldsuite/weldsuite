@@ -120,6 +120,37 @@ describe('create_record and MAIL-003', () => {
     )) as { record: { isShared: boolean } };
     expect(res.record.isShared).toBe(true);
   });
+
+  it('refuses to create a mail_account that sets a credential column', async () => {
+    await expect(
+      executeAction(
+        'create_record',
+        { entity: 'mail_account', data: { name: 'New', email: 'creds-seq@test.dev', accessToken: 'secret' } },
+        makeCtx(),
+      ),
+    ).rejects.toThrow(/accessToken/);
+  });
+
+  it('never returns credential columns on create, even when the row has one set directly', async () => {
+    // Bypasses the generic-write refusal to prove the *read* side
+    // (getEntityColumns) also guards mail_account, independent of the write
+    // guard above.
+    const id = 'mail_direct_cred_seq_test';
+    await db.insert(schema.mailAccounts).values({
+      id,
+      name: 'Direct',
+      email: 'direct-seq@test.dev',
+      isShared: true,
+      accessToken: 'leaked-token',
+    });
+    const res = (await executeAction(
+      'update_record',
+      { entity: 'mail_account', id, data: { name: 'Direct renamed' } },
+      makeCtx(),
+    )) as { record: Record<string, unknown> };
+    expect('accessToken' in res.record).toBe(false);
+    expect(res.record.name).toBe('Direct renamed');
+  });
 });
 
 describe('update_record / delete_record and MAIL-003', () => {
@@ -144,6 +175,18 @@ describe('update_record / delete_record and MAIL-003', () => {
       makeCtx(),
     )) as { updated: boolean };
     expect(res.updated).toBe(true);
+  });
+
+  it('refuses to update a mail_account with a credential column, even the caller\'s own', async () => {
+    await expect(
+      executeAction(
+        'update_record',
+        { entity: 'mail_account', id: sharedAccountId, data: { passwordHash: 'new-hash' } },
+        makeCtx(),
+      ),
+    ).rejects.toThrow(/passwordHash/);
+    const [row] = await db.select().from(schema.mailAccounts).where(eq(schema.mailAccounts.id, sharedAccountId));
+    expect(row?.passwordHash).toBeNull();
   });
 
   it('cannot hard-delete a private mailbox\'s message', async () => {
@@ -181,5 +224,17 @@ describe('query_data and MAIL-003', () => {
     const ids = res.records.map((r) => r.id);
     expect(ids).toContain(sharedAccountId);
     expect(ids).not.toContain(privateAccountId);
+  });
+
+  it('never returns a mail_account\'s credential columns', async () => {
+    const res = (await executeAction('query_data', { entity: 'mail_account' }, makeCtx())) as {
+      records: Array<Record<string, unknown>>;
+    };
+    expect(res.records.length).toBeGreaterThan(0);
+    for (const record of res.records) {
+      for (const key of ['accessToken', 'refreshToken', 'apiKey', 'passwordHash', 'providerConfig']) {
+        expect(key in record, key).toBe(false);
+      }
+    }
   });
 });
