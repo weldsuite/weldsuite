@@ -80,7 +80,16 @@ function fakeMailIndexNamespace(overrides: {
 }
 
 function makeEnv(overrides: Partial<AlarmEnv> = {}): AlarmEnv {
-  return { ...overrides };
+  // DbEnv fields (task C4's `BackfillEnv`) are required on the real env type
+  // but unused by any test in this file (none of them exercise backfill) —
+  // dummy values, same convention as `mail-index/mail-index.test.ts`'s own
+  // `testEnv`.
+  return {
+    DATABASE_URL_MASTER: 'postgres://unused',
+    WORKSPACE_CACHE: {} as KVNamespace,
+    NEON_API_KEY: 'unused',
+    ...overrides,
+  };
 }
 
 describe('recomputeAlarm', () => {

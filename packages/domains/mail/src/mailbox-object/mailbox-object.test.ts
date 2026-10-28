@@ -16,7 +16,16 @@ import type { IngestMessage, MailboxRef } from '../store/types';
 const REF: MailboxRef = { workspaceId: 'ws_1', accountId: 'acc_1', clerkOrgId: 'org_1' };
 
 function testEnv(overrides: Partial<MailboxStoreObjectEnv> = {}): MailboxStoreObjectEnv {
-  return { ...overrides };
+  // DbEnv fields (task C4's `BackfillEnv`) are required on the real env type
+  // but unused by any test in this file (none of them exercise backfill) —
+  // dummy values, same convention as `mail-index/mail-index.test.ts`'s own
+  // `testEnv`.
+  return {
+    DATABASE_URL_MASTER: 'postgres://unused',
+    WORKSPACE_CACHE: {} as KVNamespace,
+    NEON_API_KEY: 'unused',
+    ...overrides,
+  };
 }
 
 function makeObject(env: Partial<MailboxStoreObjectEnv> = {}) {
@@ -258,5 +267,17 @@ describe('setMode()', () => {
     const { object } = makeObject();
     await object.setMode(REF, 'object-only');
     expect((await object.status(REF)).mode).toBe('object-only');
+  });
+
+  it("returns 'postgres' the first time a mailbox is ever told its mode", async () => {
+    const { object } = makeObject();
+    await expect(object.setMode(REF, 'shadow')).resolves.toBe('postgres');
+  });
+
+  it('returns whatever mode was stored before this call, so a caller can detect a downgrade', async () => {
+    const { object } = makeObject();
+    await object.setMode(REF, 'object-only');
+    await expect(object.setMode(REF, 'shadow')).resolves.toBe('object-only');
+    await expect(object.setMode(REF, 'shadow')).resolves.toBe('shadow');
   });
 });

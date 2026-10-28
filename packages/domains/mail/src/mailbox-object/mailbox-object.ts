@@ -55,11 +55,14 @@ import type { MailEmailAddress } from '@weldsuite/db/schema/mail-messages';
 import { getSchemaVersion, migrateMailbox } from './migrate';
 import * as reads from './reads';
 import { applyMailboxBatch, applyMailboxOp, type WritableStorage } from './writes';
-import { afterWrite, getStoredMode, recomputeAlarm, runAlarm, setStoredMode, type AlarmEnv } from './alarm';
+import { afterWrite, getStoredMode, recomputeAlarm, registerMaintenanceContinuation, runAlarm, setStoredMode, type AlarmEnv } from './alarm';
+import { backfillStatus, rebuildMailbox, startBackfill, type BackfillEnv, type BackfillState, type StartBackfillOptions } from './backfill';
 import { beginDestroy, isDestroying, MailboxDestroyedError, type ContinueDestroyEnv } from './destroy';
+import { runParity, type ParityReport, type RunParityOptions } from './parity';
+import { runReverseSync, type ReverseSyncOptions, type ReverseSyncReport } from './reverse-sync';
 import type { OutboxEnv } from './outbox';
 
-export interface MailboxStoreObjectEnv extends OutboxEnv, ContinueDestroyEnv {}
+export interface MailboxStoreObjectEnv extends OutboxEnv, ContinueDestroyEnv, BackfillEnv {}
 
 export interface MailboxStoreStatusCounts {
   messages: number;
@@ -163,8 +166,29 @@ export interface MailboxStoreRpc {
   // admin
   status(ref: MailboxRef): Promise<MailboxStoreStatus>;
   destroy(ref: MailboxRef): Promise<{ accepted: true }>;
-  /** Set by the router/backfill (task C3); see `./alarm`'s header comment. */
-  setMode(ref: MailboxRef, mode: MailStoreMode): Promise<void>;
+  /**
+   * Set by the router/backfill (task C3); see `./alarm`'s header comment.
+   * Returns the mode the object had stored before this call (`'postgres'` the
+   * first time it's ever told), so the router can log a downgrade warning
+   * (design's Risks section) without a separate read.
+   */
+  setMode(ref: MailboxRef, mode: MailStoreMode): Promise<MailStoreMode>;
+}
+
+/**
+ * The backfill/catch-up/parity/reverse-sync/rebuild surface (task C4) — kept
+ * off `MailboxStoreRpc` itself (see the class's own "backfill, catch-up,
+ * parity, reverse sync, rebuild" section comment for why) so callers that
+ * need it (the router's `ensureBackfill` call, mail-api's
+ * `routes/internal-mail-store`) type their stub as
+ * `MailboxStoreRpc & MailboxAdminRpc` instead.
+ */
+export interface MailboxAdminRpc {
+  startBackfill(ref: MailboxRef, options?: StartBackfillOptions): Promise<BackfillState>;
+  backfillStatus(ref: MailboxRef): Promise<BackfillState>;
+  runParity(ref: MailboxRef, options?: RunParityOptions): Promise<ParityReport>;
+  reverseSync(ref: MailboxRef, options: ReverseSyncOptions): Promise<ReverseSyncReport>;
+  rebuildMailbox(ref: MailboxRef): Promise<BackfillState>;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +200,7 @@ const SIZE_CRITICAL_BYTES = 8 * 1024 ** 3;
 const SIZE_WARN_THROTTLE_MS = 24 * 60 * 60_000;
 const FTS_TRIM_WINDOW_MS = 2 * 365 * 24 * 60 * 60_000;
 
-export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> implements MailboxStoreRpc {
+export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> implements MailboxStoreRpc, MailboxAdminRpc {
   constructor(ctx: DurableObjectState, env: MailboxStoreObjectEnv) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => migrateMailbox(ctx.storage));
@@ -242,10 +266,11 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
 
   /**
    * `writes.ts`'s `applyMailboxOp`/`applyMailboxBatch` always return
-   * `ready: true` (backfill-state tracking is task C4's job). This re-derives
-   * it from `meta.backfill` when present, so this RPC class is forward
-   * compatible with that task without needing its own changes: a later write
-   * to `meta.backfill = {state: 'done' | ...}` is honoured immediately.
+   * `ready: true` (real backfill-state tracking is task C4's — `./backfill`'s
+   * `startBackfill`/`tickBackfill` now write `meta.backfill` for real). This
+   * re-derives readiness from `meta.backfill` directly, which is why landing
+   * that file required no change here: a write of
+   * `meta.backfill = {state: 'done' | ...}` is honoured immediately.
    */
   private isReady(): boolean {
     const raw = this.getMeta('backfill');
@@ -513,10 +538,69 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
     return { accepted: true };
   }
 
-  async setMode(ref: MailboxRef, mode: MailStoreMode): Promise<void> {
+  async setMode(ref: MailboxRef, mode: MailStoreMode): Promise<MailStoreMode> {
     this.bindRef(ref);
-    setStoredMode(this.ctx.storage.sql, mode);
+    const previous = setStoredMode(this.ctx.storage.sql, mode);
     await recomputeAlarm(this.ctx);
+    return previous;
+  }
+
+  // ---- backfill, catch-up, parity, reverse sync, rebuild (task C4) --------
+  //
+  // Not on `MailboxStoreRpc` (the admin/maintenance surface is narrower than
+  // every caller of the mailbox needs, and adding required methods there
+  // would also require updating `store/object/testing/fake-stub.ts`'s
+  // hand-written forwarding object, owned by a parallel task in this
+  // worktree) — callers that need them (the router's `ensureBackfill` call,
+  // the mail-api admin routes) go through `mailboxStubFor(...)` and call
+  // these directly; the class still implements them for real.
+
+  /**
+   * Cheap and idempotent (design §4, task notes: "make that call cheap and
+   * idempotent — no-op when running/done"): `./backfill`'s own `startBackfill`
+   * already short-circuits without a write when a run is in progress or done;
+   * this only registers the alarm continuation (and nudges the alarm) the
+   * first time a call actually starts a fresh run, detected by the returned
+   * state's `startedAt` matching this call's own clock — a no-op return keeps
+   * whatever `startedAt` the existing run already had.
+   */
+  async startBackfill(ref: MailboxRef, options?: StartBackfillOptions): Promise<BackfillState> {
+    this.bindRef(ref);
+    const now = Date.now();
+    const state = startBackfill(this.ctx.storage.sql, now, options);
+    if (state.startedAt === now && (state.state === 'running' || state.state === 'catchup')) {
+      registerMaintenanceContinuation(this.ctx.storage.sql);
+      await recomputeAlarm(this.ctx, now);
+    }
+    return state;
+  }
+
+  async backfillStatus(ref: MailboxRef): Promise<BackfillState> {
+    this.bindRef(ref);
+    return backfillStatus(this.ctx.storage.sql);
+  }
+
+  /** `./parity.ts`'s `runParity` — see that file's header for pagination/repair semantics. */
+  async runParity(ref: MailboxRef, options?: RunParityOptions): Promise<ParityReport> {
+    this.bindRef(ref);
+    const storage: WritableStorage = this.ctx.storage;
+    return runParity(storage, this.env, ref, options);
+  }
+
+  /** `./reverse-sync.ts`'s `runReverseSync` — required before a mode downgrade from `object`/`object-only`; see that file's header for the rollback runbook. */
+  async reverseSync(ref: MailboxRef, options: ReverseSyncOptions): Promise<ReverseSyncReport> {
+    this.bindRef(ref);
+    return runReverseSync(this.ctx.storage, this.env, ref, options);
+  }
+
+  /** `./backfill.ts`'s `rebuildMailbox` — admin-only: wipes every data table this object owns and restarts backfill from scratch. Always does real work (never short-circuits like `startBackfill`), so this always (re-)registers the continuation. */
+  async rebuildMailbox(ref: MailboxRef): Promise<BackfillState> {
+    this.bindRef(ref);
+    const storage: WritableStorage = this.ctx.storage;
+    const state = rebuildMailbox(storage, Date.now());
+    registerMaintenanceContinuation(this.ctx.storage.sql);
+    await recomputeAlarm(this.ctx);
+    return state;
   }
 
   // ---- alarm ---------------------------------------------------------------

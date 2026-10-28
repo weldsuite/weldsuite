@@ -36,6 +36,7 @@ import { mailWeldMailRoutes } from './routes/mail-weldmail';
 import { mailboxesRoutes } from './routes/mailboxes';
 import { mailSendingRoutes } from './routes/mail-sending';
 import { internalOutboundRoutes } from './routes/internal-outbound';
+import { internalMailStoreRoutes } from './routes/internal-mail-store';
 import {
   handleOutboundReviewBatch,
   handleSendingEventsBatch,
@@ -48,6 +49,11 @@ const app = createModuleApi<Env, Variables>({ service: 'mail-api' });
 // Outbound guard staff API (admin console, shared secret; not Clerk). Kept off
 // the /api/* auth chain on purpose. docs/plans/weldmail-outbound-abuse.md.
 app.route('/internal/outbound', internalOutboundRoutes);
+
+// Mailbox store staff API: backfill/catch-up, full parity, reverse sync and
+// rebuild (docs/plans/weldmail-mailbox-store-design.md §4, §9 task C4). Same
+// shared-secret pattern as /internal/outbound, also kept off /api/*.
+app.route('/internal/mail-store', internalMailStoreRoutes);
 
 // Mailbox directory — Clerk-authenticated but org-LESS: WeldMail lists every
 // workspace mailbox the user can see without flipping the active org (personal

@@ -75,7 +75,13 @@ function asStructuredCloneStub<T extends object>(target: T): T {
  */
 export function createFakeMailboxStub(ref: MailboxRef): FakeMailboxStub {
   const state = createSqliteDurableObjectState({ name: mailboxKeyFor(ref) });
-  const env: MailboxStoreObjectEnv = { MAIL_STORAGE: createMemoryR2() };
+  // The tenant DB settings only matter to backfill, which these stubs never run.
+  const env: MailboxStoreObjectEnv = {
+    MAIL_STORAGE: createMemoryR2(),
+    DATABASE_URL_MASTER: 'postgres://unused',
+    WORKSPACE_CACHE: {} as KVNamespace,
+    NEON_API_KEY: 'unused',
+  };
   const object = new MailboxStoreObject(state, env);
   const rpc = asStructuredCloneStub(object);
 

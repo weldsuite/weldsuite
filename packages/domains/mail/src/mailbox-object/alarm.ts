@@ -2,10 +2,14 @@
  * `MailboxObject`'s single alarm (design §3.6, task C1): multiplexes destroy
  * continuation, snoozed-mail wake-up, outbox delivery (`./outbox`), and a
  * generic "continuation" hook for write ops whose work doesn't fit in one RPC
- * call — today just `folder.read` (design §3.2: "mark a huge folder read in
- * bounded, resumable batches"). `ContinuationKind` is a plain string union so
- * a later task (backfill, C4) can register its own continuation kind without
- * touching `runAlarm`'s dispatch, only adding a case to `runContinuation`.
+ * call — `folder.read` (design §3.2: "mark a huge folder read in bounded,
+ * resumable batches") and, since task C4, `maintenance` (backfill/catch-up —
+ * the actual state machine lives in `./backfill`, keyed off `meta.backfill`;
+ * this file only knows "keep calling `tickBackfill` until it says stop").
+ * `ContinuationKind` is a plain string union so a future kind only needs a
+ * case in `runContinuation`, not a new dispatch mechanism; `runAlarm` itself
+ * only grew an `await` and an `env` parameter to support `maintenance`'s
+ * tenant-Postgres reads.
  *
  * Order in `runAlarm` matters: destroy is exclusive (design §3.6 calls this
  * out explicitly) — while a mailbox is being torn down, nothing else in that
@@ -27,11 +31,12 @@
 import { mailIndexFor, type MailIndexBindingEnv } from '../mail-index/client';
 import { parseMailStoreMode } from '../store/mode';
 import type { MailboxOp, MailboxRef, MailStoreMode } from '../store/types';
+import { getBackfillState, tickBackfill, type BackfillEnv } from './backfill';
 import { continueDestroy, getDestroyState, type ContinueDestroyEnv } from './destroy';
 import { drainOutbox, type OutboxEnv } from './outbox';
 import { applyMailboxOp, type WritableStorage } from './writes';
 
-export type AlarmEnv = OutboxEnv & ContinueDestroyEnv;
+export type AlarmEnv = OutboxEnv & ContinueDestroyEnv & BackfillEnv;
 
 // ---------------------------------------------------------------------------
 // meta helpers (local to this file, matching migrate.ts / mail-index.ts's style)
@@ -61,8 +66,17 @@ export function getStoredMode(sql: SqlStorage): MailStoreMode {
   return raw === null ? 'postgres' : parseMailStoreMode(raw);
 }
 
-export function setStoredMode(sql: SqlStorage, mode: MailStoreMode): void {
+/**
+ * Stores `mode` and returns whatever mode was stored before this call (the
+ * same default-to-`'postgres'` reading `getStoredMode` would have returned),
+ * so a caller — `mailbox-object.ts`'s `setMode` RPC, in turn the router
+ * (task C3) — can tell whether this call just told the object about a
+ * downgrade without a second round trip.
+ */
+export function setStoredMode(sql: SqlStorage, mode: MailStoreMode): MailStoreMode {
+  const previous = getStoredMode(sql);
   setMeta(sql, MODE_KEY, mode);
+  return previous;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,13 +87,17 @@ const CONTINUATION_KEY = 'continuation';
 /** Keeps a wedged continuation (an op that keeps reporting `more`) from looping forever. */
 const MAX_CONTINUATION_ATTEMPTS = 100;
 
-export type ContinuationKind = 'folder.read';
+export type ContinuationKind = 'folder.read' | 'maintenance';
 
-export interface ContinuationState {
-  kind: ContinuationKind;
-  op: MailboxOp;
-  attempts: number;
-}
+/**
+ * `'folder.read'` carries the op it keeps re-applying. `'maintenance'`
+ * carries nothing of its own — it just means "keep calling `tickBackfill`
+ * until `meta.backfill` says otherwise" (task C4); the backfill state machine
+ * itself lives in `./backfill`'s `meta.backfill` key, not here.
+ */
+export type ContinuationState =
+  | { kind: 'folder.read'; op: MailboxOp; attempts: number }
+  | { kind: 'maintenance'; attempts: number };
 
 function getContinuation(sql: SqlStorage): ContinuationState | null {
   const raw = getMeta(sql, CONTINUATION_KEY);
@@ -107,13 +125,39 @@ export function registerContinuation(sql: SqlStorage, op: MailboxOp): void {
   setContinuation(sql, { kind: 'folder.read', op, attempts: 0 });
 }
 
-/** One continuation step. Returns `true` if it did work (whether or not it finished). */
-function runContinuation(storage: WritableStorage, ref: MailboxRef, now: number): boolean {
+/**
+ * Registers the backfill/catch-up continuation (task C4) — called by
+ * `mailbox-object.ts`'s `startBackfill`/`rebuildMailbox` RPCs right after
+ * `./backfill`'s own state write. Idempotent: calling it while one is already
+ * registered just resets `attempts`, which only affects the unrecognised-kind
+ * giving-up counter below, not `./backfill`'s own attempt/backoff tracking.
+ */
+export function registerMaintenanceContinuation(sql: SqlStorage): void {
+  setContinuation(sql, { kind: 'maintenance', attempts: 0 });
+}
+
+/**
+ * One continuation step. Returns `true` if it did work (whether or not it
+ * finished). Async because the `'maintenance'` kind's `tickBackfill` reads
+ * tenant Postgres; `'folder.read'` stays a synchronous SQL-only op underneath.
+ */
+async function runContinuation(storage: WritableStorage, env: AlarmEnv, ref: MailboxRef, now: number): Promise<boolean> {
   const continuation = getContinuation(storage.sql);
   if (!continuation) return false;
 
+  if (continuation.kind === 'maintenance') {
+    await tickBackfill(storage, env, ref, now);
+    const state = getBackfillState(storage.sql);
+    if (state.state === 'running' || state.state === 'catchup') {
+      setContinuation(storage.sql, { kind: 'maintenance', attempts: 0 });
+    } else {
+      clearContinuation(storage.sql);
+    }
+    return true;
+  }
+
   if (continuation.kind !== 'folder.read') {
-    console.error('[mailbox-store] alarm: unrecognised continuation kind, dropping it:', continuation.kind);
+    console.error('[mailbox-store] alarm: unrecognised continuation kind, dropping it:', JSON.stringify(continuation));
     clearContinuation(storage.sql);
     return true;
   }
@@ -185,7 +229,17 @@ function candidateAlarmTimes(sql: SqlStorage, now: number): number[] {
   const drift = sql.exec<{ next: number | null }>(`SELECT MIN(next_attempt_at) AS next FROM pg_drift`).toArray()[0];
   if (drift?.next != null) candidates.push(drift.next);
 
-  if (getContinuation(sql)) candidates.push(now);
+  const continuation = getContinuation(sql);
+  if (continuation?.kind === 'maintenance') {
+    // Backfill/catch-up sets its own `nextAttemptAt` on a failed tick (design
+    // §4's 1/5/30 min backoff); honour it instead of busy-waking every tick.
+    const backfill = getBackfillState(sql);
+    if (backfill.state === 'running' || backfill.state === 'catchup') {
+      candidates.push(backfill.nextAttemptAt && backfill.nextAttemptAt > now ? backfill.nextAttemptAt : now);
+    }
+  } else if (continuation) {
+    candidates.push(now);
+  }
   if (getDestroyState(sql)) candidates.push(now);
 
   if (getStoredMode(sql) === 'object-only') {
@@ -266,7 +320,7 @@ export async function runAlarm(ctx: DurableObjectState, env: AlarmEnv & MailInde
   const now = Date.now();
   runSnoozeWake(storage, ref, now);
   await drainOutbox(sql, env, ref, now);
-  runContinuation(storage, ref, now);
+  await runContinuation(storage, env, ref, now);
 
   await recomputeAlarm(ctx, now);
 }
