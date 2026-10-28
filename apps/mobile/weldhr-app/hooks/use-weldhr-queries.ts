@@ -8,6 +8,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isApiError } from '@weldsuite/api-client/client';
 import type {
+  CreateHrAnnouncementInput,
   HrSelfServiceAbsenceInput,
   HrSelfServiceClockInput,
   HrSelfServiceDeclarationInput,
@@ -151,6 +152,14 @@ export function useAnnouncements(enabled = true) {
     queryKey: weldhrKeys.announcements(),
     queryFn: async () => (await appApi.weldhr.meAnnouncements()).data,
     enabled,
+  });
+}
+
+export function useCreateAnnouncement() {
+  const invalidate = useInvalidateWeldHr();
+  return useMutation({
+    mutationFn: (body: CreateHrAnnouncementInput) => appApi.weldhr.createAnnouncement(body),
+    onSuccess: invalidate,
   });
 }
 

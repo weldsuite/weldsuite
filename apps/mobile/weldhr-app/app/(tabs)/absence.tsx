@@ -1,32 +1,29 @@
 /**
- * Absence: the member's balances, requests and sick reports per year; for
- * people with the permission, who is off on a given day and the leave
- * requests waiting for their approval.
+ * Absence: the member's requests and sick reports per year (their balances
+ * are on the profile page); for people with the permission, who is off on a
+ * given day and the leave requests waiting for their approval. The lists are
+ * Schedule's grouped list (GroupedList), so the two pages look the same.
  */
 
 import { useState, type ReactNode } from 'react';
 import { StyleSheet, Text } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
-import Svg, { Circle } from 'react-native-svg';
-import { Hourglass, ListChecks, Thermometer } from 'lucide-react-native';
-import type {
-  HrAbsence,
-  HrLeaveBalance,
-  HrLeaveRequest,
-  HrSelfLeaveRequest,
-} from '@weldsuite/app-api-client/domains/weldhr';
-import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
+import { Thermometer } from 'lucide-react-native';
+import type { HrAbsence, HrLeaveRequest, HrSelfLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
 
 import { LeaveApprovals } from '@/components/Approvals';
 import { EmptyState } from '@/components/EmptyState';
+import { FilterSheet } from '@/components/FilterSheet';
+import { GroupedList, type ListGroup } from '@/components/GroupedList';
 import { LeaveRow, LeaveTypeTile, SickRow, SickTile } from '@/components/HrRows';
 import { MonthCalendar } from '@/components/MonthCalendar';
+import { ListSearch, NoMatches } from '@/components/ListSearch';
 import { MyHrGate, useSelfState } from '@/components/MyHrGate';
 import { AVATAR_BADGE, PersonAvatar } from '@/components/PersonAvatar';
 import { ListSkeleton, QueryBody } from '@/components/QueryBody';
-import { Card, DetailRow, EmptyRow, IconTile, List, Row } from '@/components/Row';
-import { Inset, PeriodNav, Screen, Section, Segments, type SegmentOption } from '@/components/Screen';
-import { solid } from '@/constants/brand';
+import { IconTile, Row } from '@/components/Row';
+import { Inset, PeriodNav, Screen, TabStrip, type SegmentOption } from '@/components/Screen';
 import { usePalette } from '@/hooks/use-palette';
 import {
   useAbsences,
@@ -38,9 +35,10 @@ import {
 } from '@/hooks/use-weldhr-queries';
 import type { HrAccess } from '@/lib/access';
 import { addDays, todayIso } from '@/lib/dates';
-import { formatDays, formatLongDay, formatShortDate, formatSpan, withCount } from '@/lib/format';
+import { formatLongDay, formatShortDate, formatSpan, RANGE, withCount } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import type { Translations } from '@/lib/i18n/locales/en';
+import { matchesSearch } from '@/lib/search';
 
 type AbsenceView = 'mine' | 'absences' | 'requests';
 
@@ -104,13 +102,17 @@ export default function AbsenceScreen() {
   return (
     <Screen
       title={t.tabs.absence}
-      segments={<Segments value={view} options={options} onChange={setChosen} />}
+      segments={<TabStrip value={view} options={options} onChange={setChosen} />}
       period={period}
       behind={behind}
+      keepSheet
       refreshing={leave.isRefetching || teamLeave.isRefetching || pending.isRefetching}
       onRefresh={refresh}
     >
-      {body}
+      {/* Keyed by the tab, so the other view fades in instead of popping in. */}
+      <Animated.View key={view} entering={FadeIn.duration(180)} style={styles.view}>
+        {body}
+      </Animated.View>
     </Screen>
   );
 }
@@ -180,20 +182,85 @@ function LeaveToApprove({ pending }: Readonly<{ pending: ReturnType<typeof usePe
         requests.length === 0 ? (
           <EmptyState illustration="check" title={t.team.nothingToApprove} description={t.team.nothingToApproveDescription} />
         ) : (
-          <LeaveApprovals requests={requests} />
+          <SearchableLeaveApprovals requests={requests} />
         )
       }
     </QueryBody>
   );
 }
 
+/**
+ * The requests to approve as Expenses → To approve has its claims: a search
+ * field over who asks, for which type of leave, why and when, and a filter
+ * that switches types of leave off.
+ */
+function SearchableLeaveApprovals({ requests }: Readonly<{ requests: HrLeaveRequest[] }>) {
+  const { t, plural, intlLocale } = useI18n();
+  const [search, setSearch] = useState('');
+  const [off, setOff] = useState<string[]>([]);
+  const [filtering, setFiltering] = useState(false);
+
+  // The types of leave asked for, by name; one switched off that nobody asks for any more no longer counts.
+  const types = new Map(requests.map((r) => [r.leaveTypeId, r.leaveTypeName ?? t.absence.leave]));
+  const hidden = off.filter((id) => types.has(id));
+  const shown = requests.filter(
+    (r) =>
+      !hidden.includes(r.leaveTypeId) &&
+      matchesSearch(search, [
+        r.employeeName,
+        r.leaveTypeName,
+        r.reason,
+        formatSpan(r.startDate, r.endDate, intlLocale),
+        plural(r.days, t.balance.days),
+      ]),
+  );
+
+  return (
+    <>
+      <ListSearch
+        value={search}
+        onChangeText={setSearch}
+        placeholder={t.absence.search}
+        filtered={hidden.length > 0}
+        onFilter={() => setFiltering(true)}
+        testID="leave-approvals"
+      />
+      {shown.length === 0 ? (
+        <NoMatches
+          title={t.absence.noResults}
+          description={t.absence.noResultsDescription}
+          filtered={hidden.length > 0}
+          onClearFilters={() => setOff([])}
+          onClearSearch={() => setSearch('')}
+        />
+      ) : (
+        <LeaveApprovals requests={shown} />
+      )}
+      {filtering ? (
+        <FilterSheet
+          options={[...types]
+            .map(([value, label]) => ({ value, label }))
+            .sort((a, b) => a.label.localeCompare(b.label))}
+          off={hidden}
+          onApply={setOff}
+          onClose={() => setFiltering(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The member's year: requests waiting for review, the ones reviewed, and sick
+ * reports (with "Report sick" while they are not), each with how many; under
+ * them the days of leave taken and the days off sick.
+ */
 function MyAbsence({ year, canRequest }: Readonly<{ year: number; canRequest: boolean }>) {
   const palette = usePalette();
-  const { t, intlLocale } = useI18n();
+  const { t, format, plural } = useI18n();
   const router = useRouter();
   const leave = useLeave();
   const absences = useAbsences();
-  const [balance, setBalance] = useState<HrLeaveBalance | null>(null);
   const today = todayIso();
   const prefix = String(year);
   const thisYear = today.startsWith(prefix);
@@ -207,10 +274,47 @@ function MyAbsence({ year, canRequest }: Readonly<{ year: number; canRequest: bo
   const sickReports = [...(current ? [current] : []), ...(absences.data?.history ?? [])].filter(
     (a) => a.startDate.startsWith(prefix) || (a.endDate ?? today).startsWith(prefix),
   );
-  const balances = thisYear ? (leave.data?.balances ?? []) : [];
+  const reportSick = thisYear && !current;
   // A request or sick report opens its own page (cancelling leave is there).
-  const onRequest = (request: HrSelfLeaveRequest) => () =>
-    router.push({ pathname: '/leave/[id]', params: { id: request.id } });
+  const requestRow = (request: HrSelfLeaveRequest) => (
+    <LeaveRow
+      key={request.id}
+      request={request}
+      onPress={() => router.push({ pathname: '/leave/[id]', params: { id: request.id } })}
+    />
+  );
+
+  const groups: ListGroup[] = [];
+  if (open.length > 0) {
+    groups.push({ key: 'open', title: t.absence.openRequests, figure: String(open.length), children: open.map(requestRow) });
+  }
+  if (reviewed.length > 0) {
+    groups.push({ key: 'reviewed', title: t.absence.reviewed, figure: String(reviewed.length), children: reviewed.map(requestRow) });
+  }
+  if (sickReports.length > 0 || reportSick) {
+    groups.push({
+      key: 'sick',
+      title: t.absence.sickLeave,
+      figure: sickReports.length > 0 ? String(sickReports.length) : undefined,
+      children: (
+        <>
+          {sickReports.map((report) => (
+            <SickRow
+              key={report.id}
+              absence={report}
+              onPress={() => router.push({ pathname: '/sick/[id]', params: { id: report.id } })}
+            />
+          ))}
+          {reportSick ? (
+            <Row leading={<IconTile icon={Thermometer} />} title={t.absence.reportSick} onPress={() => router.push('/sick')} chevron />
+          ) : null}
+        </>
+      ),
+    });
+  }
+
+  const leaveDays = requests.filter((r) => r.status === 'approved').reduce((sum, r) => sum + r.days, 0);
+  const sickDays = sickReports.reduce((sum, a) => sum + a.days, 0);
 
   return (
     <>
@@ -220,120 +324,21 @@ function MyAbsence({ year, canRequest }: Readonly<{ year: number; canRequest: bo
         </Inset>
       ) : null}
 
-      {balances.length > 0 ? (
-        <Section title={t.absence.balances} meta={formatSpan(`${prefix}-01-01`, `${prefix}-12-31`, intlLocale)} first>
-          <Card>
-            {balances.map((b) => (
-              <BalanceRow key={b.leaveTypeId} balance={b} onPress={() => setBalance(b)} />
-            ))}
-          </Card>
-        </Section>
-      ) : null}
-
-      <Section title={t.absence.openRequests} first={balances.length === 0}>
-        <Card>
-          {open.length === 0 ? (
-            <EmptyRow icon={Hourglass} title={t.absence.noOpenRequests} />
-          ) : (
-            open.map((request) => <LeaveRow key={request.id} request={request} onPress={onRequest(request)} />)
-          )}
-        </Card>
-      </Section>
-
-      <Section title={t.absence.reviewed}>
-        <Card>
-          {reviewed.length === 0 ? (
-            <EmptyRow icon={ListChecks} title={t.absence.nothingReviewed} />
-          ) : (
-            reviewed.map((request) => <LeaveRow key={request.id} request={request} onPress={onRequest(request)} />)
-          )}
-        </Card>
-      </Section>
-
-      <Section title={t.absence.sickLeave}>
-        <Card>
-          {sickReports.map((report) => (
-            <SickRow
-              key={report.id}
-              absence={report}
-              onPress={() => router.push({ pathname: '/sick/[id]', params: { id: report.id } })}
-            />
-          ))}
-          {current || !thisYear ? null : (
-            <Row leading={<IconTile icon={Thermometer} />} title={t.absence.reportSick} onPress={() => router.push('/sick')} chevron />
-          )}
-          {!thisYear && sickReports.length === 0 ? <EmptyRow icon={Thermometer} title={t.absence.noSickLeave} /> : null}
-        </Card>
-      </Section>
-
-      {balance ? <BalanceSheet balance={balance} onClose={() => setBalance(null)} /> : null}
-    </>
-  );
-}
-
-/** How much of the allowance is left, as a ring in the leave type's colour. */
-function Ring({ fraction, color, size = 44 }: Readonly<{ fraction: number | null; color: string; size?: number }>) {
-  const palette = usePalette();
-  const stroke = 5;
-  const radius = (size - stroke) / 2;
-  const length = 2 * Math.PI * radius;
-  const shown = fraction == null ? 1 : Math.min(1, Math.max(0, fraction));
-  return (
-    <Svg width={size} height={size}>
-      <Circle cx={size / 2} cy={size / 2} r={radius} stroke={palette.tile} strokeWidth={stroke} fill="none" />
-      {shown > 0 ? (
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={color}
-          strokeWidth={stroke}
-          fill="none"
-          strokeLinecap="round"
-          strokeDasharray={`${length * shown} ${length}`}
-          rotation={-90}
-          origin={`${size / 2}, ${size / 2}`}
+      {groups.length === 0 ? (
+        <EmptyState illustration="calendar" title={format(t.absence.noAbsence, { year: prefix })} />
+      ) : (
+        <GroupedList
+          groups={groups}
+          total={{
+            label: t.common.total,
+            value: [
+              format(t.absence.leaveDays, { days: plural(leaveDays, t.balance.days) }),
+              format(t.absence.sickDays, { days: plural(sickDays, t.balance.days) }),
+            ],
+          }}
         />
-      ) : null}
-    </Svg>
-  );
-}
-
-function BalanceRow({ balance, onPress }: Readonly<{ balance: HrLeaveBalance; onPress: () => void }>) {
-  const palette = usePalette();
-  const { t, format, plural } = useI18n();
-  const limited = balance.allowance != null && balance.remaining != null;
-  // How full the ring is; none for a type without a limit.
-  let fraction: number | null = null;
-  if (limited) fraction = balance.allowance! > 0 ? balance.remaining! / balance.allowance! : 0;
-  const remaining = limited ? format(t.absence.remaining, { amount: plural(balance.remaining!, t.balance.days) }) : t.balance.unlimited;
-  return (
-    <Row
-      leading={<Ring fraction={fraction} color={solid(balance.color)} />}
-      title={balance.name}
-      subtitle={remaining}
-      subtitleColor={limited && balance.remaining! < 0 ? palette.danger : undefined}
-      onPress={onPress}
-      chevron
-    />
-  );
-}
-
-/** A balance in figures: allowance, taken, waiting for approval, left. */
-function BalanceSheet({ balance, onClose }: Readonly<{ balance: HrLeaveBalance; onClose: () => void }>) {
-  const palette = usePalette();
-  const { t, intlLocale } = useI18n();
-  const days = (value: number | null) => (value == null ? t.balance.unlimited : formatDays(value, intlLocale));
-  return (
-    <Sheet visible onClose={onClose} title={balance.name} heightRatio={0.5}>
-      <Card style={styles.sheetCard}>
-        <DetailRow label={t.absence.allowance} value={days(balance.allowance)} />
-        <DetailRow label={t.absence.taken} value={days(balance.used)} />
-        <DetailRow label={t.absence.waiting} value={days(balance.pending)} />
-        <DetailRow label={t.absence.left} value={days(balance.remaining)} />
-      </Card>
-      {balance.prorated ? <Text style={[styles.sheetNote, { color: palette.muted }]}>{t.balance.prorated}</Text> : null}
-    </Sheet>
+      )}
+    </>
   );
 }
 
@@ -355,9 +360,13 @@ function OffOnDay({
     return <EmptyState illustration="people" title={t.absence.nobodyAbsent} description={t.absence.nobodyAbsentDescription} />;
   }
 
-  return (
-    <List>
-      {onLeave.map((request) => (
+  const groups: ListGroup[] = [];
+  if (onLeave.length > 0) {
+    groups.push({
+      key: 'leave',
+      title: t.absence.leave,
+      figure: String(onLeave.length),
+      children: onLeave.map((request) => (
         <Row
           key={request.id}
           leading={<PersonAvatar name={request.employeeName} badge={<LeaveTypeTile color={request.leaveTypeColor} size={AVATAR_BADGE} />} />}
@@ -366,8 +375,15 @@ function OffOnDay({
           value={formatSpan(request.startDate, request.endDate, intlLocale)}
           detail={plural(request.days, t.balance.days)}
         />
-      ))}
-      {ill.map((absence) => (
+      )),
+    });
+  }
+  if (ill.length > 0) {
+    groups.push({
+      key: 'sick',
+      title: t.absence.sick,
+      figure: String(ill.length),
+      children: ill.map((absence) => (
         <Row
           key={absence.id}
           leading={<PersonAvatar name={absence.employeeName} badge={<SickTile size={AVATAR_BADGE} />} />}
@@ -376,18 +392,19 @@ function OffOnDay({
           value={
             absence.endDate
               ? formatSpan(absence.startDate, absence.endDate, intlLocale)
-              : `${formatShortDate(absence.startDate, intlLocale)} – …`
+              : `${formatShortDate(absence.startDate, intlLocale)}${RANGE}…`
           }
           detail={plural(absence.days, t.balance.days)}
         />
-      ))}
-    </List>
-  );
+      )),
+    });
+  }
+
+  return <GroupedList groups={groups} />;
 }
 
 const styles = StyleSheet.create({
+  view: { flexGrow: 1 },
   note: { marginTop: 8 },
   noteText: { fontSize: 14, lineHeight: 20 },
-  sheetCard: { marginHorizontal: 0 },
-  sheetNote: { fontSize: 13, marginTop: 10 },
 });

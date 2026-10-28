@@ -10,6 +10,14 @@ const EAS_PROJECT_ID =
   Constants.expoConfig?.extra?.eas?.projectId || process.env.EXPO_PUBLIC_EAS_PROJECT_ID || '';
 const APP_CODE = 'weldhr';
 
+/**
+ * Absent or still-placeholder EAS project ids. Treating those as "absent"
+ * keeps a fresh clone from firing doomed token requests at Expo's push service
+ * on every cold start (each one an error banner in a dev build).
+ */
+const PLACEHOLDER_PROJECT_ID = '00000000-0000-0000-0000-000000000000';
+const hasProjectId = !!EAS_PROJECT_ID && EAS_PROJECT_ID !== PLACEHOLDER_PROJECT_ID;
+
 // Push notifications are not supported in Expo Go (SDK 53+).
 // Only import when running in a dev build or standalone app.
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
@@ -60,7 +68,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
   const followed = useRef(new Set<string>());
 
   const requestPermissions = useCallback(async (): Promise<boolean> => {
-    if (!notifUtils || !EAS_PROJECT_ID) return false;
+    if (!notifUtils || !hasProjectId) return false;
     try {
       const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
       if (token) {
@@ -112,7 +120,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         // expo-notifications reports 'denied' until POST_NOTIFICATIONS is granted
         // (it checks areNotificationsEnabled()), so an undetermined check never
         // prompted there and those devices never got a push token.
-        if (EAS_PROJECT_ID) {
+        if (hasProjectId) {
           const { status, canAskAgain } = await Notifications.getPermissionsAsync();
           if (status === 'granted' || canAskAgain) {
             const token = await notifUtils.registerForPushNotificationsAsync(EAS_PROJECT_ID);
@@ -152,7 +160,7 @@ export function NotificationProvider({ children }: Readonly<{ children: React.Re
         // Re-register when the device token rotates so pushes don't silently
         // stop between cold starts.
         const removeTokenRefresh = notifUtils.addPushTokenRefreshListener(() => {
-          if (!EAS_PROJECT_ID) return;
+          if (!hasProjectId) return;
           notifUtils!
             .registerForPushNotificationsAsync(EAS_PROJECT_ID)
             .then(async (refreshed) => {

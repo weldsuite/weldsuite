@@ -1,10 +1,11 @@
 /**
- * Approving and declining: a card per request with the person, what they
- * ask for, their note, and Decline / Approve. Used for leave on Absence →
- * Requests and for expenses on Expenses → To approve.
+ * Approving and declining, the same on Absence → Requests and Expenses → To
+ * approve: plain rows like the member's own lists, the person and what they
+ * ask for on the left, the dates or the amount on the right, and Decline /
+ * Approve small under the text.
  */
 
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import type { HrDeclarationListItem, HrLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
@@ -16,90 +17,73 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { usePalette } from '@/hooks/use-palette';
 import { useReviewExpense, useReviewLeave, type ReviewDecision } from '@/hooks/use-weldhr-queries';
 import { formatDay, formatMoney, formatSpan } from '@/lib/format';
-import { labelFor, useI18n } from '@/lib/i18n';
-import { LeaveTypeTile } from './HrRows';
-import { AVATAR_BADGE, PersonAvatar } from './PersonAvatar';
+import { useI18n } from '@/lib/i18n';
+import { PersonAvatar } from './PersonAvatar';
+import { List } from './Row';
 
 export type ApprovalKind = 'leave' | 'expenses';
+
+/** The avatar beside a row: smaller than the category tiles, level with the two lines of text. */
+const ROW_AVATAR = 34;
 
 export function LeaveApprovals({ requests }: Readonly<{ requests: HrLeaveRequest[] }>) {
   const { t, plural, intlLocale } = useI18n();
   const [rejecting, setRejecting] = useState<string | null>(null);
   return (
-    <View style={styles.cards}>
-      {requests.map((row) => (
-        <ApprovalCard
-          key={row.id}
-          kind="leave"
-          id={row.id}
-          name={row.employeeName}
-          badge={<LeaveTypeTile color={row.leaveTypeColor} size={AVATAR_BADGE} />}
-          subtitle={row.leaveTypeName ?? t.absence.leave}
-          title={formatSpan(row.startDate, row.endDate, intlLocale)}
-          figure={plural(row.days, t.balance.days)}
-          note={row.reason}
-          sent={formatDay(row.createdAt.slice(0, 10), intlLocale)}
-          onReject={() => setRejecting(row.id)}
-        />
-      ))}
+    <View style={styles.list}>
+      <List>
+        {requests.map((row) => (
+          <ApprovalRow
+            key={row.id}
+            kind="leave"
+            id={row.id}
+            name={row.employeeName}
+            subtitle={row.leaveTypeName ?? t.absence.leave}
+            note={row.reason}
+            value={formatSpan(row.startDate, row.endDate, intlLocale)}
+            detail={plural(row.days, t.balance.days)}
+            onReject={() => setRejecting(row.id)}
+          />
+        ))}
+      </List>
       {rejecting ? <RejectSheet kind="leave" id={rejecting} onClose={() => setRejecting(null)} /> : null}
     </View>
   );
 }
 
 export function ExpenseApprovals({ declarations }: Readonly<{ declarations: HrDeclarationListItem[] }>) {
-  const { t, intlLocale } = useI18n();
+  const { intlLocale } = useI18n();
   const [rejecting, setRejecting] = useState<string | null>(null);
   return (
-    <View style={styles.cards}>
-      {declarations.map((row) => (
-        <ApprovalCard
-          key={row.id}
-          kind="expenses"
-          id={row.id}
-          name={row.employeeName}
-          subtitle={`${labelFor(t.declarationCategory, row.category)} • ${formatDay(row.expenseDate, intlLocale)}`}
-          title={formatMoney(row.amount, row.currency, intlLocale)}
-          note={row.description}
-          onReject={() => setRejecting(row.id)}
-        />
-      ))}
+    <View style={styles.list}>
+      <List>
+        {declarations.map((row) => (
+          <ApprovalRow
+            key={row.id}
+            kind="expenses"
+            id={row.id}
+            name={row.employeeName}
+            subtitle={row.description}
+            value={formatMoney(row.amount, row.currency, intlLocale)}
+            detail={formatDay(row.expenseDate, intlLocale)}
+            onReject={() => setRejecting(row.id)}
+          />
+        ))}
+      </List>
       {rejecting ? <RejectSheet kind="expenses" id={rejecting} onClose={() => setRejecting(null)} /> : null}
     </View>
   );
 }
 
-function ApprovalCard({
-  kind,
-  id,
-  name,
-  badge,
-  subtitle,
-  title,
-  figure,
-  note,
-  sent,
-  onReject,
-}: Readonly<{
-  kind: ApprovalKind;
-  id: string;
-  name: string;
-  badge?: ReactNode;
-  subtitle: string;
-  title: string;
-  figure?: string;
-  note: string | null;
-  sent?: string;
-  onReject: () => void;
-}>) {
-  const palette = usePalette();
+/** Approving a request: a success tick and a toast, or the error. */
+function useApprove(kind: ApprovalKind) {
   const { t } = useI18n();
   const toast = useToast();
   const reviewLeave = useReviewLeave();
   const reviewExpense = useReviewExpense();
   const review = kind === 'leave' ? reviewLeave : reviewExpense;
 
-  const approve = () => {
+  const approve = (id: string) => {
     review.mutate(
       { id, decision: 'approved' },
       {
@@ -111,53 +95,90 @@ function ApprovalCard({
       },
     );
   };
+  return { approve, isPending: review.isPending };
+}
+
+/**
+ * One request or claim to approve, laid out like a row of the member's own
+ * list: who on top, what for under it (and why, on a line of its own), the
+ * dates or amount and a second figure on the right, then the two buttons,
+ * small, under the text.
+ */
+function ApprovalRow({
+  kind,
+  id,
+  name,
+  subtitle,
+  note,
+  value,
+  detail,
+  onReject,
+}: Readonly<{
+  kind: ApprovalKind;
+  id: string;
+  name: string;
+  subtitle: string;
+  /** Why they ask (a leave request's reason), under the subtitle. */
+  note?: string | null;
+  value: string;
+  detail: string;
+  onReject: () => void;
+}>) {
+  const palette = usePalette();
+  const { t } = useI18n();
+  const { approve, isPending } = useApprove(kind);
 
   return (
-    <View style={[styles.card, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-      <View style={styles.header}>
-        <PersonAvatar name={name} badge={badge} />
-        <View style={styles.flex}>
-          <Text style={[styles.name, { color: palette.text }]} numberOfLines={1}>
-            {name}
-          </Text>
-          <Text style={[styles.subtitle, { color: palette.muted }]} numberOfLines={1}>
-            {subtitle}
-          </Text>
-        </View>
-        {sent ? <Text style={[styles.sent, { color: palette.muted }]}>{sent}</Text> : null}
+    <View style={styles.row}>
+      <View style={styles.rowAvatar}>
+        <PersonAvatar name={name} size={ROW_AVATAR} />
       </View>
-      <View style={styles.figures}>
-        <Text style={[styles.title, { color: palette.text }]}>{title}</Text>
-        {figure ? <Text style={[styles.figure, { color: palette.muted }]}>{figure}</Text> : null}
-      </View>
-      {note ? (
-        <View style={[styles.note, { backgroundColor: palette.tile }]}>
-          <Text style={[styles.noteText, { color: palette.text }]} numberOfLines={4}>
-            {note}
-          </Text>
+      <View style={styles.flex}>
+        <View style={styles.rowTop}>
+          <View style={styles.flex}>
+            <Text style={[styles.rowTitle, { color: palette.text }]} numberOfLines={1}>
+              {name}
+            </Text>
+            <Text style={[styles.rowSubtitle, { color: palette.muted }]} numberOfLines={1}>
+              {subtitle}
+            </Text>
+            {note ? (
+              <Text style={[styles.rowNote, { color: palette.muted }]} numberOfLines={2}>
+                {note}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.rowSide}>
+            <Text style={[styles.rowValue, { color: palette.text }]} numberOfLines={1}>
+              {value}
+            </Text>
+            <Text style={[styles.rowSubtitle, { color: palette.muted }]} numberOfLines={1}>
+              {detail}
+            </Text>
+          </View>
         </View>
-      ) : null}
-      <View style={styles.actions}>
-        <Pressable
-          onPress={onReject}
-          disabled={review.isPending}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.action, { backgroundColor: palette.control, opacity: pressed ? 0.75 : 1 }]}
-        >
-          <Text style={[styles.actionText, { color: palette.text }]}>{t.team.reject}</Text>
-        </Pressable>
-        <Pressable
-          onPress={approve}
-          disabled={review.isPending}
-          accessibilityRole="button"
-          style={({ pressed }) => [styles.action, { backgroundColor: palette.ink, opacity: pressed ? 0.85 : 1 }]}
-        >
-          {review.isPending ? (
-            <ActivityIndicator color={palette.inkText} />
-          ) : (
-            <Text style={[styles.actionText, { color: palette.inkText }]}>{t.team.approve}</Text>
-          )}
-        </Pressable>
+        <View style={styles.smallActions}>
+          <Pressable
+            onPress={onReject}
+            disabled={isPending}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.smallAction, { backgroundColor: palette.control, opacity: pressed ? 0.75 : 1 }]}
+          >
+            <Text style={[styles.smallActionText, { color: palette.text }]}>{t.team.reject}</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => approve(id)}
+            disabled={isPending}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.smallAction, { backgroundColor: palette.ink, opacity: pressed ? 0.85 : 1 }]}
+          >
+            {isPending ? (
+              <ActivityIndicator size="small" color={palette.inkText} />
+            ) : (
+              <Text style={[styles.smallActionText, { color: palette.inkText }]}>{t.team.approve}</Text>
+            )}
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -204,19 +225,29 @@ function RejectSheet({ kind, id, onClose }: Readonly<{ kind: ApprovalKind; id: s
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  cards: { paddingHorizontal: 16, gap: 12, marginTop: 8 },
-  card: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 14 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  name: { fontSize: 16, fontWeight: '600' },
-  subtitle: { fontSize: 15, marginTop: 1 },
-  sent: { fontSize: 14 },
-  figures: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 12 },
-  title: { flexShrink: 1, fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
-  figure: { fontSize: 15 },
-  note: { borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
-  noteText: { fontSize: 15, lineHeight: 21 },
-  actions: { flexDirection: 'row', gap: 10 },
-  action: { flex: 1, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  actionText: { fontSize: 16, fontWeight: '600' },
   sheet: { gap: 14 },
+  // The type and spacing of Row (Row.tsx), plus the small buttons.
+  list: { marginTop: 6 },
+  // The avatar 11pt from the text, as a Row's tile is.
+  row: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 16, paddingVertical: 13, gap: 11 },
+  // Centred on the name and description (about 40pt of text), as the tiles are in a Row.
+  rowAvatar: { marginTop: 3 },
+  rowTop: { flexDirection: 'row', gap: 12 },
+  rowTitle: { fontSize: 16, fontWeight: '600' },
+  rowSubtitle: { fontSize: 14, lineHeight: 19, marginTop: 2 },
+  // Straight under the subtitle, as its next line.
+  rowNote: { fontSize: 14, lineHeight: 19 },
+  rowSide: { alignItems: 'flex-end', flexShrink: 0, maxWidth: '45%' },
+  rowValue: { fontSize: 15, fontVariant: ['tabular-nums'] },
+  smallActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  smallAction: {
+    minWidth: 96,
+    height: 34,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderCurve: 'continuous',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  smallActionText: { fontSize: 15, fontWeight: '600' },
 });

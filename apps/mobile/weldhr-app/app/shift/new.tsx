@@ -5,18 +5,14 @@
  */
 
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { Input } from '@weldsuite/mobile-ui/components/Input';
-import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { DateField } from '@/components/DateField';
-import { ErrorNote, Screen } from '@/components/Screen';
+import { FormField, FormHint, FormInput, FormRow, FormScreen } from '@/components/Form';
 import { TimeField } from '@/components/TimeField';
-import { usePalette } from '@/hooks/use-palette';
 import { useRequestShift } from '@/hooks/use-weldhr-queries';
 import { addDays, todayIso } from '@/lib/dates';
 import { formatHoursMinutes } from '@/lib/format';
@@ -30,16 +26,6 @@ function instant(day: string, time: string): Date {
 }
 
 export default function NewShiftRequestScreen() {
-  const { t } = useI18n();
-  return (
-    <Screen title={t.shiftRequest.title} variant="modal">
-      <ShiftRequestForm />
-    </Screen>
-  );
-}
-
-function ShiftRequestForm() {
-  const palette = usePalette();
   const { t } = useI18n();
   const router = useRouter();
   const toast = useToast();
@@ -81,57 +67,49 @@ function ShiftRequestForm() {
   };
 
   return (
-    <View style={styles.form}>
+    <FormScreen
+      title={t.shiftRequest.title}
+      action={{
+        label: t.common.submit,
+        onPress: submit,
+        disabled: request.isPending,
+        loading: request.isPending,
+        testID: 'shift-request-submit',
+      }}
+    >
       <DateField label={t.shiftRequest.day} value={day} min={today} onChange={setDay} />
 
-      <View style={styles.times}>
-        <View style={styles.time}>
+      <View>
+        <FormRow>
           <TimeField label={t.shiftRequest.from} value={from} onChange={setFrom} testID="shift-request-from" />
-        </View>
-        <View style={styles.time}>
           <TimeField label={t.shiftRequest.to} value={until} onChange={setUntil} testID="shift-request-until" />
-        </View>
+        </FormRow>
+        <FormHint>
+          {[formatHoursMinutes(minutes, t.common.hm), nextDay ? t.shiftRequest.nextDay : null].filter(Boolean).join(' · ')}
+        </FormHint>
       </View>
-      <Text style={[styles.hint, { color: palette.muted }]}>
-        {[formatHoursMinutes(minutes, t.common.hm), nextDay ? t.shiftRequest.nextDay : null].filter(Boolean).join(' · ')}
-      </Text>
 
-      <Input
-        label={t.shiftRequest.work}
-        placeholder={t.shiftRequest.workPlaceholder}
-        value={work}
-        onChangeText={setWork}
-        maxLength={100}
-      />
+      <FormField label={t.shiftRequest.work}>
+        <FormInput
+          placeholder={t.shiftRequest.workPlaceholder}
+          value={work}
+          onChangeText={setWork}
+          maxLength={100}
+          accessibilityLabel={t.shiftRequest.work}
+        />
+      </FormField>
 
-      <Textarea
-        label={t.shiftRequest.note}
-        placeholder={t.shiftRequest.notePlaceholder}
-        value={note}
-        onChangeText={setNote}
-        numberOfLines={3}
-        maxLength={1000}
-      />
-
-      <Text style={[styles.hint, { color: palette.muted }]}>{t.shiftRequest.hint}</Text>
-
-      {error ? <ErrorNote message={error} /> : null}
-
-      <Button
-        title={t.shiftRequest.submit}
-        testID="shift-request-submit"
-        onPress={submit}
-        loading={request.isPending}
-        fullWidth
-        size="lg"
-      />
-    </View>
+      <FormField label={t.shiftRequest.note} hint={error ? null : t.shiftRequest.hint}>
+        <FormInput
+          placeholder={t.shiftRequest.notePlaceholder}
+          value={note}
+          onChangeText={setNote}
+          multiline
+          maxLength={1000}
+          accessibilityLabel={t.shiftRequest.note}
+        />
+        {error ? <FormHint error>{error}</FormHint> : null}
+      </FormField>
+    </FormScreen>
   );
 }
-
-const styles = StyleSheet.create({
-  form: { gap: 14 },
-  times: { flexDirection: 'row', gap: 12 },
-  time: { flex: 1 },
-  hint: { fontSize: 13, marginTop: -6 },
-});

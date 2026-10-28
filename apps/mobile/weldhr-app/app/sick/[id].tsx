@@ -12,11 +12,11 @@ import { Button } from '@weldsuite/mobile-ui/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { SickTile } from '@/components/HrRows';
 import { QueryBody } from '@/components/QueryBody';
-import { Card, DetailRow, Row } from '@/components/Row';
+import { Card, DetailRow, Row, ROW_TILE } from '@/components/Row';
 import { Screen, Section } from '@/components/Screen';
 import { usePalette } from '@/hooks/use-palette';
 import { useAbsences } from '@/hooks/use-weldhr-queries';
-import { formatDate, formatLongDay, formatShortDate, formatSpan } from '@/lib/format';
+import { formatDate, formatLongDay, formatShortDate, formatSpan, RANGE } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 
 export default function SickReportScreen() {
@@ -54,16 +54,16 @@ function SickDetail({ data, id }: Readonly<{ data: HrSelfAbsences; id: string }>
   return (
     <>
       <Section first>
-        <Card>
+        <Card open>
           <Row
-            leading={<SickTile />}
+            leading={<SickTile size={ROW_TILE} />}
             title={t.absence.sick}
             subtitle={ongoing ? t.absence.ongoing : t.absence.recovered}
             subtitleColor={ongoing ? palette.danger : palette.muted}
             value={
               report.endDate
                 ? formatSpan(report.startDate, report.endDate, intlLocale)
-                : `${formatShortDate(report.startDate, intlLocale)} – …`
+                : `${formatShortDate(report.startDate, intlLocale)}${RANGE}…`
             }
             detail={plural(report.days, t.balance.days)}
           />
@@ -71,7 +71,7 @@ function SickDetail({ data, id }: Readonly<{ data: HrSelfAbsences; id: string }>
       </Section>
 
       <Section title={t.absence.sickLeave}>
-        <Card>
+        <Card open>
           {facts.map((fact) => (
             <DetailRow key={fact.label} label={fact.label} value={fact.value} />
           ))}

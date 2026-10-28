@@ -116,7 +116,7 @@ function ShiftDetail({ shift }: Readonly<{ shift: HrSelfOpenShift }>) {
   return (
     <>
       <Section first>
-        <Card>
+        <Card open>
           <Row
             bar={swatchFor(shift.workType ?? shift.companyName)}
             title={range}
@@ -176,7 +176,7 @@ function ShiftDetail({ shift }: Readonly<{ shift: HrSelfOpenShift }>) {
       ) : null}
 
       <Section title={t.shift.details}>
-        <Card>
+        <Card open>
           {facts.map((fact) => (
             <DetailRow key={fact.label} label={fact.label} value={fact.value} />
           ))}

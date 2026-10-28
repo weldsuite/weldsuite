@@ -11,21 +11,22 @@
 
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import { Clock } from 'lucide-react-native';
 import type { HrAttendanceRecord, HrSelfAttendance, HrShift } from '@weldsuite/app-api-client/domains/weldhr';
 import { useWorkspace } from '@weldsuite/mobile-ui/contexts/WorkspaceContext';
 
 import { EmptyState } from '@/components/EmptyState';
+import { GroupedList, type ListGroup } from '@/components/GroupedList';
 import { LeaveTypeTile, SickTile, statusColor, timeRange } from '@/components/HrRows';
 import { MonthCalendar } from '@/components/MonthCalendar';
 import { MyHrGate, useSelfState } from '@/components/MyHrGate';
 import { OpenShiftsSection } from '@/components/OpenShifts';
 import { PersonAvatar } from '@/components/PersonAvatar';
 import { QueryBody } from '@/components/QueryBody';
-import { Pinned, useStickySections } from '@/components/Sticky';
-import { Row, type RowProps } from '@/components/Row';
-import { PeriodNav, Screen, Segments, type SegmentOption } from '@/components/Screen';
+import { Row, ROW_TILE, type RowProps } from '@/components/Row';
+import { PeriodNav, Screen, TabStrip, type SegmentOption } from '@/components/Screen';
 import { swatchFor } from '@/constants/brand';
 import { usePalette } from '@/hooks/use-palette';
 import {
@@ -105,7 +106,7 @@ export default function ScheduleScreen() {
   return (
     <Screen
       title={t.tabs.schedule}
-      segments={<Segments value={view} options={options} onChange={setChosen} />}
+      segments={<TabStrip value={view} options={options} onChange={setChosen} />}
       period={
         <PeriodNav
           label={format(t.schedule.week, { week: isoWeek(from) })}
@@ -127,20 +128,23 @@ export default function ScheduleScreen() {
       refreshing={view === 'mine' ? mine.isRefetching : teamShifts.isRefetching || teamHours.isRefetching}
       onRefresh={refresh}
     >
-      {view === 'mine' ? (
-        <MyHrGate state={state} onRetry={refresh}>
-          <OpenShiftsSection enabled={state.status === 'ready'} />
-          <QueryBody query={mine}>{(data) => <MyWeek data={data} from={from} to={to} />}</QueryBody>
-        </MyHrGate>
-      ) : (
-        <QueryBody query={teamShifts}>
-          {(shifts) => (
-            <QueryBody query={teamHours}>
-              {(records) => <TeamWeek shifts={shifts} records={records} from={from} to={to} />}
-            </QueryBody>
-          )}
-        </QueryBody>
-      )}
+      {/* Keyed by the tab, so the other view fades in instead of popping in. */}
+      <Animated.View key={view} entering={FadeIn.duration(180)} style={styles.view}>
+        {view === 'mine' ? (
+          <MyHrGate state={state} onRetry={refresh}>
+            <OpenShiftsSection enabled={state.status === 'ready'} />
+            <QueryBody query={mine}>{(data) => <MyWeek data={data} from={from} to={to} />}</QueryBody>
+          </MyHrGate>
+        ) : (
+          <QueryBody query={teamShifts}>
+            {(shifts) => (
+              <QueryBody query={teamHours}>
+                {(records) => <TeamWeek shifts={shifts} records={records} from={from} to={to} />}
+              </QueryBody>
+            )}
+          </QueryBody>
+        )}
+      </Animated.View>
     </Screen>
   );
 }
@@ -152,17 +156,6 @@ function Running({ children }: Readonly<{ children: string }>) {
     <View style={styles.running}>
       <Clock size={15} color={palette.text} strokeWidth={2} />
       <Text style={[styles.runningText, { color: palette.text }]}>{children}</Text>
-    </View>
-  );
-}
-
-/** The bold "Total" line under the week. */
-function TotalRow({ label, value }: Readonly<{ label: string; value: string }>) {
-  const palette = usePalette();
-  return (
-    <View style={styles.total}>
-      <Text style={[styles.totalLabel, { color: palette.text }]}>{label}</Text>
-      <Text style={[styles.totalValue, { color: palette.muted }]}>{value}</Text>
     </View>
   );
 }
@@ -214,8 +207,14 @@ function MyWeek({ data, from, to }: Readonly<{ data: HrSelfAttendance; from: str
   const place = (companyName: string | null) => [workspace, companyName].filter(Boolean).join(' | ');
   // "0:24 | € 7,40": the hours and what they earn, € 0,00 when payroll has no rate for them.
   const currency = records.find((r) => r.currency)?.currency ?? DEFAULT_CURRENCY;
-  const withPay = (list: MyRecord[]) =>
-    `${formatDuration(list.reduce((sum, r) => sum + minutes(r), 0))} | ${earnings(list, now, currency, intlLocale)}`;
+  const withPay = (list: MyRecord[]) => [
+    formatDuration(list.reduce((sum, r) => sum + minutes(r), 0)),
+    earnings(list, now, currency, intlLocale),
+  ];
+
+  // The day's planned hours the leave takes off: all of them, or a share for a half day.
+  const hoursOff = (request: { startDate: string; endDate: string; days: number }, planned: number) =>
+    request.startDate === request.endDate && request.days < 1 ? planned * request.days : planned;
 
   // A day's figure: what was worked and earned, or for days to come what is
   // planned (nothing when only leave is).
@@ -239,13 +238,11 @@ function MyWeek({ data, from, to }: Readonly<{ data: HrSelfAttendance; from: str
           (r) => r.startDate <= day && r.endDate >= day && (r.startDate === r.endDate || !isWeekend(day)),
         ),
         ill: sick.filter((a) => a.startDate <= day && (a.endDate ?? today) >= day && day <= today),
+        planned,
         total: dayTotal(day, planned, dayRecords),
       };
     })
     .filter((group) => group.shifts.length + group.loose.length + group.asked.length + group.away.length + group.ill.length > 0);
-  const sticky = useStickySections(groups.length, DAY_HEADER_TOP);
-  const pinned = groups[sticky.active];
-
   if (groups.length === 0) {
     return <EmptyState illustration="calendar" title={t.schedule.noShifts} description={t.schedule.noShiftsDescription} />;
   }
@@ -318,57 +315,57 @@ function MyWeek({ data, from, to }: Readonly<{ data: HrSelfAttendance; from: str
     );
   };
 
+  const list: ListGroup[] = groups.map((group) => ({
+    key: group.day,
+    ...dayTitle(group.day, intlLocale),
+    figure: group.total,
+    children: (
+      <>
+        {group.shifts.map(shiftRow)}
+        {group.loose.map(looseRow)}
+        {group.asked.map((request) => (
+          <Row
+            key={request.id}
+            bar={palette.grabber}
+            title={timeRange(request.startsAt, request.endsAt, intlLocale)}
+            subtitle={labelFor(t.shiftRequest.status, request.status)}
+            subtitleColor={statusColor(request.status, palette)}
+            value={formatHoursMinutes(minutesBetween(request.startsAt, request.endsAt), t.common.hm)}
+            detail={request.workType ?? undefined}
+            onPress={() =>
+              router.push({ pathname: '/shift-request/[id]', params: { id: request.id, day: dayOf(request.startsAt) } })
+            }
+          />
+        ))}
+        {group.away.map((request) => (
+          <Row
+            key={request.id}
+            leading={<LeaveTypeTile color={request.leaveTypeColor} size={ROW_TILE} />}
+            title={request.leaveTypeName ?? t.absence.leave}
+            subtitle={labelFor(t.leaveStatus, request.status)}
+            subtitleColor={statusColor(request.status, palette)}
+            value={formatSpan(request.startDate, request.endDate, intlLocale)}
+            detail={format(t.schedule.hoursOff, { hours: formatHoursMinutes(hoursOff(request, group.planned), t.common.hm) })}
+            onPress={() => router.push({ pathname: '/leave/[id]', params: { id: request.id } })}
+          />
+        ))}
+        {group.ill.map((absence) => (
+          <Row
+            key={absence.id}
+            leading={<SickTile size={ROW_TILE} />}
+            title={t.absence.sick}
+            subtitle={absence.status === 'ongoing' ? t.absence.ongoing : t.absence.recovered}
+            subtitleColor={absence.status === 'ongoing' ? palette.danger : palette.muted}
+            value={group.day === absence.startDate && absence.firstDay === 'half' ? t.sick.halfDay : t.sick.fullDay}
+            onPress={() => router.push({ pathname: '/sick/[id]', params: { id: absence.id } })}
+          />
+        ))}
+      </>
+    ),
+  }));
+
   return (
-    <>
-      <Pinned slide={sticky.slide}>{pinned ? <DayHeader day={pinned.day} total={pinned.total} pinned /> : null}</Pinned>
-
-      {groups.map((group, index) => (
-        <View key={group.day} onLayout={sticky.onSectionLayout(index)}>
-          <DayHeader day={group.day} total={group.total} />
-          {group.shifts.map(shiftRow)}
-          {group.loose.map(looseRow)}
-          {group.asked.map((request) => (
-            <Row
-              key={request.id}
-              bar={palette.grabber}
-              title={timeRange(request.startsAt, request.endsAt, intlLocale)}
-              subtitle={labelFor(t.shiftRequest.status, request.status)}
-              subtitleColor={statusColor(request.status, palette)}
-              value={formatHoursMinutes(minutesBetween(request.startsAt, request.endsAt), t.common.hm)}
-              detail={request.workType ?? undefined}
-              onPress={() =>
-                router.push({ pathname: '/shift-request/[id]', params: { id: request.id, day: dayOf(request.startsAt) } })
-              }
-            />
-          ))}
-          {group.away.map((request) => (
-            <Row
-              key={request.id}
-              leading={<LeaveTypeTile color={request.leaveTypeColor} />}
-              title={request.leaveTypeName ?? t.absence.leave}
-              subtitle={labelFor(t.leaveStatus, request.status)}
-              subtitleColor={statusColor(request.status, palette)}
-              value={request.startDate === request.endDate && request.days < 1 ? t.sick.halfDay : t.sick.fullDay}
-              onPress={() => router.push({ pathname: '/leave/[id]', params: { id: request.id } })}
-            />
-          ))}
-          {group.ill.map((absence) => (
-            <Row
-              key={absence.id}
-              leading={<SickTile />}
-              title={t.absence.sick}
-              subtitle={absence.status === 'ongoing' ? t.absence.ongoing : t.absence.recovered}
-              subtitleColor={absence.status === 'ongoing' ? palette.danger : palette.muted}
-              value={group.day === absence.startDate && absence.firstDay === 'half' ? t.sick.halfDay : t.sick.fullDay}
-              onPress={() => router.push({ pathname: '/sick/[id]', params: { id: absence.id } })}
-            />
-          ))}
-          <View style={[styles.divider, { backgroundColor: palette.border }]} />
-        </View>
-      ))}
-
-      <TotalRow label={t.common.total} value={`${totalHours} | ${earnings(records, now, currency, intlLocale)}`} />
-    </>
+    <GroupedList groups={list} total={{ label: t.common.total, value: [totalHours, earnings(records, now, currency, intlLocale)] }} />
   );
 }
 
@@ -410,10 +407,6 @@ function TeamWeek({
       loose: loose.filter((r) => r.date === day),
     }))
     .filter((group) => group.shifts.length + group.loose.length > 0);
-  // Each day is a sticky section: its title stays at the top while its rows scroll.
-  const sticky = useStickySections(days.length, DAY_HEADER_TOP);
-  const pinned = days[sticky.active];
-
   if (days.length === 0) {
     return <EmptyState illustration="people" title={t.schedule.noTeamShifts} />;
   }
@@ -476,48 +469,33 @@ function TeamWeek({
     );
   };
 
+  const list: ListGroup[] = days.map((group) => ({
+    key: group.day,
+    ...dayTitle(group.day, intlLocale),
+    figure: count(group),
+    children: (
+      <>
+        {group.shifts.map(shiftRow)}
+        {group.loose.map(looseRow)}
+      </>
+    ),
+  }));
+
   return (
-    <>
-      <Pinned slide={sticky.slide}>{pinned ? <DayHeader day={pinned.day} total={count(pinned)} pinned /> : null}</Pinned>
-      {days.map((group, index) => (
-        <View key={group.day} onLayout={sticky.onSectionLayout(index)}>
-          <DayHeader day={group.day} total={count(group)} />
-          {group.shifts.map(shiftRow)}
-          {group.loose.map(looseRow)}
-          <View style={[styles.divider, { backgroundColor: palette.border }]} />
-        </View>
-      ))}
-      <TotalRow
-        label={t.common.total}
-        value={plannedWeek > 0 ? format(t.schedule.workedOfPlanned, { worked: workedWeek, planned: formatDuration(plannedWeek) }) : workedWeek}
-      />
-    </>
+    <GroupedList
+      groups={list}
+      total={{
+        label: t.common.total,
+        value: plannedWeek > 0 ? format(t.schedule.workedOfPlanned, { worked: workedWeek, planned: formatDuration(plannedWeek) }) : workedWeek,
+      }}
+    />
   );
 }
 
-/** Space above a day header's text, and between two headers stacked while one pushes the other out. */
-const DAY_HEADER_TOP = 20;
-const STACK_GAP = 6;
-
-/**
- * "Ma 26 okt" on the left, the day's hours (or how many shifts) on the right.
- * `pinned` is the copy that stays at the top while the list scrolls (Sticky.tsx).
- */
-function DayHeader({ day, total, pinned = false }: Readonly<{ day: string; total: string; pinned?: boolean }>) {
-  const palette = usePalette();
-  const { intlLocale } = useI18n();
-  const short = parseIsoDate(day)?.toLocaleDateString(intlLocale, { weekday: 'short' }).slice(0, 2) ?? '';
-  const weekday = short.charAt(0).toUpperCase() + short.slice(1);
-  return (
-    <View style={[styles.dayHeader, pinned && [styles.dayHeaderPinned, { backgroundColor: palette.surface }]]}>
-      <Text style={[styles.dayText, { color: palette.text }]} numberOfLines={1}>
-        <Text style={styles.dayWeekday}>{weekday}</Text>
-        {'  '}
-        {formatShortDate(day, intlLocale)}
-      </Text>
-      <Text style={[styles.dayTotal, { color: palette.muted }]}>{total}</Text>
-    </View>
-  );
+/** "Ma" and "26 okt", a day's title in a grouped list. */
+function dayTitle(day: string, locale: string): { title: string; detail: string } {
+  const short = parseIsoDate(day)?.toLocaleDateString(locale, { weekday: 'short' }).slice(0, 2) ?? '';
+  return { title: short.charAt(0).toUpperCase() + short.slice(1), detail: formatShortDate(day, locale) };
 }
 
 function isWeekend(iso: string): boolean {
@@ -526,30 +504,7 @@ function isWeekend(iso: string): boolean {
 }
 
 const styles = StyleSheet.create({
-  divider: { height: StyleSheet.hairlineWidth },
-  dayHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingTop: DAY_HEADER_TOP,
-    paddingBottom: 4,
-  },
-  // The pinned copy ends just under its text, so the next day's header stacks right below it.
-  dayHeaderPinned: { paddingBottom: STACK_GAP },
-  dayText: { flexShrink: 1, fontSize: 17, lineHeight: 22 },
-  dayWeekday: { fontWeight: '700' },
-  dayTotal: { fontSize: 16, lineHeight: 22, fontVariant: ['tabular-nums'] },
+  view: { flexGrow: 1 },
   running: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   runningText: { fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  total: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 22,
-  },
-  totalLabel: { fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
-  totalValue: { fontSize: 16, fontVariant: ['tabular-nums'] },
 });
