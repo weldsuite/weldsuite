@@ -7037,6 +7037,9 @@ importers:
       '@weldsuite/emails':
         specifier: workspace:*
         version: link:../../../packages/core/emails
+      '@weldsuite/mail-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/mail
       '@weldsuite/neon-provisioning':
         specifier: workspace:*
         version: link:../../../packages/core/neon-provisioning

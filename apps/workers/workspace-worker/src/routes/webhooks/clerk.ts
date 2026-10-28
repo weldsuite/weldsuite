@@ -22,6 +22,7 @@ import { autoJoinUserToPublicChannels } from '../../lib/weldchat-auto-join';
 import { createProvisioningService, type InitialMember } from '@weldsuite/neon-provisioning';
 import { provisionWorkspaceDatabase } from '../../services/provisioning';
 import { deprovisionMailDomain } from '../../services/mail-provisioning';
+import { destroyWorkspaceMail } from '../../services/workspace-mail-destroy';
 import { DatabaseMoveActiveError } from '../../services/database-move/errors';
 import { hasActiveMove } from '../../services/database-move/state';
 import {
@@ -380,6 +381,15 @@ async function handleOrganizationDeleted(
       console.error(`[Clerk Webhook] Mail domain deprovisioning failed for workspace ${workspace.id} (non-blocking):`, mailErr);
     }
   }
+
+  // Destroy mail held outside Postgres (mailbox objects, the MailIndex, their
+  // R2 bodies) before the tenant database goes away — it's the source for the
+  // mailbox list below. Unlike the mail-domain deprovisioning above, a
+  // failure here is NOT swallowed: it must propagate so this handler throws,
+  // the webhook answers non-2xx, and Svix redelivers — the Neon database
+  // teardown below must never run ahead of this (design §7,
+  // docs/plans/weldmail-mailbox-store-design.md).
+  await destroyWorkspaceMail(env, masterDb, workspace.id);
 
   if (env.NEON_API_KEY && workspace.neonProjectId) {
     // A move may have been started since the check above; look again right before the irreversible part.
