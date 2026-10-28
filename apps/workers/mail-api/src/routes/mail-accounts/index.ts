@@ -10,10 +10,10 @@
  * lives at packages/core/entity-events/src/events/mail.ts).
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { requirePermission } from '@weldsuite/permissions/server';
+import { requirePermission, getPermissionsFromContext } from '@weldsuite/permissions/server';
 import {
   checkAccountAccess,
   checkAccountManageAccess,
@@ -27,6 +27,8 @@ import { MailAccountError } from '../../services/mail/accounts';
 import { MailSendError, sendAndPersist } from '@weldsuite/mail-domain/send';
 import { sendErrorResponse } from '../../lib/send-errors';
 import { MAILBOX_DAILY_SEND_LIMIT_MAX } from '@weldsuite/app-api-client/schemas/outbound-mail';
+import { resolveMailStoreMode, readsFromObject, writesObject } from '@weldsuite/mail-domain/store/mode';
+import { bumpMailboxDirectory } from '@weldsuite/mail-domain/store/directory';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -114,6 +116,17 @@ const sendBody = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the caller is an owner/admin, from the permissions `requirePermission`
+ * already resolved for this request (design §6: "isAdmin = ...role, already
+ * resolved by requirePermission") — never a fresh tenant-DB lookup, which is
+ * exactly what object-mode directory reads exist to avoid.
+ */
+function isAdminFromContext(c: Context<{ Bindings: Env; Variables: Variables }>): boolean {
+  const perms = getPermissionsFromContext(c);
+  return !!perms && (perms.isOwner || perms.role.toUpperCase() === 'ADMIN');
+}
+
 /** Map a MailAccountError to its HTTP status code. */
 function mapMailAccountError(c: Parameters<typeof error.badRequest>[0], err: MailAccountError) {
   switch (err.code) {
@@ -152,6 +165,23 @@ function mapMailAccountError(c: Parameters<typeof error.badRequest>[0], err: Mai
 app.get('/', requirePermission('accounts:read'), zValidator('query', listQuery), async (c) => {
   try {
     const filters = c.req.valid('query');
+    const workspaceId = c.get('workspaceId');
+    const mode = await resolveMailStoreMode(c.env, workspaceId);
+    // Two separate `list(...)` calls (not a ternary feeding one shared `result`)
+    // so TypeScript infers each branch's row shape on its own — a `DirectoryAccount`
+    // (date columns as ISO strings) and a Postgres row (date columns as `Date`)
+    // serialise to the identical JSON, but don't unify as one array type.
+    if (readsFromObject(mode)) {
+      const access = await accounts.buildDirectoryMailAccess(
+        c.env,
+        c.get('tenantDb'),
+        workspaceId,
+        c.get('userId'),
+        isAdminFromContext(c),
+      );
+      const result = await accounts.listMailAccountsFromDirectory(access, filters);
+      return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
+    }
     const result = await accounts.listMailAccounts(c.get('tenantDb'), c.get('userId'), filters);
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {
@@ -188,6 +218,20 @@ app.get('/setup/labels', requirePermission('accounts:read'), (c) =>
 app.get('/:id/labels', requirePermission('accounts:read'), async (c) => {
   try {
     const id = c.req.param('id');
+    const workspaceId = c.get('workspaceId');
+    const mode = await resolveMailStoreMode(c.env, workspaceId);
+    if (readsFromObject(mode)) {
+      const access = await accounts.buildDirectoryMailAccess(
+        c.env,
+        c.get('tenantDb'),
+        workspaceId,
+        c.get('userId'),
+        isAdminFromContext(c),
+      );
+      const labels = await accounts.getMailAccountLabelsFromDirectory(access, id);
+      if (labels === null) return error.notFound(c, 'Mail account', id);
+      return success(c, labels);
+    }
     if (!(await checkAccountAccess(c.get('tenantDb'), id, c.get('userId')))) {
       return error.notFound(c, 'Mail account', id);
     }
@@ -202,8 +246,23 @@ app.get('/:id/labels', requirePermission('accounts:read'), async (c) => {
 
 app.get('/:id', requirePermission('accounts:read'), async (c) => {
   try {
-    const row = await accounts.getMailAccount(c.get('tenantDb'), c.req.param('id'), c.get('userId'));
-    if (!row) return error.notFound(c, 'Mail account', c.req.param('id'));
+    const id = c.req.param('id');
+    const workspaceId = c.get('workspaceId');
+    const mode = await resolveMailStoreMode(c.env, workspaceId);
+    if (readsFromObject(mode)) {
+      const access = await accounts.buildDirectoryMailAccess(
+        c.env,
+        c.get('tenantDb'),
+        workspaceId,
+        c.get('userId'),
+        isAdminFromContext(c),
+      );
+      const row = await accounts.getMailAccountFromDirectory(access, id);
+      if (!row) return error.notFound(c, 'Mail account', id);
+      return success(c, row);
+    }
+    const row = await accounts.getMailAccount(c.get('tenantDb'), id, c.get('userId'));
+    if (!row) return error.notFound(c, 'Mail account', id);
     return success(c, row);
   } catch (err) {
     console.error('[app-api/mail-accounts] get failed:', err);
@@ -223,6 +282,7 @@ app.post('/', requirePermission('accounts:create'), zValidator('json', createBod
       c.get('userId'),
       data,
     );
+    c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
     publishEntityEvent({
       c,
       entityType: 'mail_account',
@@ -257,6 +317,7 @@ const updateRoute = async (
   try {
     const result = await accounts.updateMailAccount(c.get('tenantDb'), id, data);
     if (!result) return error.notFound(c, 'Mail account', id);
+    c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
     publishEntityEvent({
       c,
       entityType: 'mail_account',
@@ -283,6 +344,7 @@ app.patch('/:id/sync', requirePermission('accounts:update'), async (c) => {
   try {
     const result = await accounts.triggerAccountSync(c.get('tenantDb'), c.req.param('id'), c.get('userId'));
     if (!result) return error.notFound(c, 'Mail account', c.req.param('id'));
+    c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
     return success(c, result);
   } catch (err) {
     console.error('[app-api/mail-accounts] sync trigger failed:', err);
@@ -305,6 +367,7 @@ app.patch(
         data.isShared,
         data.assignedUserIds,
       );
+      c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
       // The catalog payload (id/email/provider/status) is just an identity
       // breadcrumb — the actual assignment delta lives on the response,
       // not the entity event. Consumers that care about the new
@@ -391,6 +454,24 @@ app.delete('/:id', requirePermission('accounts:delete'), async (c) => {
   try {
     const result = await accounts.deleteMailAccount(c.env, c.get('tenantDb'), id, c.get('userId'));
     if (!result.found) return error.notFound(c, 'Mail account', id);
+
+    const workspaceId = c.get('workspaceId');
+    c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, workspaceId));
+
+    // Any mode that may have written the mailbox object (shadow and above)
+    // also tears it down and drops it from the MailIndex — best-effort,
+    // never failing this request (design §9 task D3).
+    const mode = await resolveMailStoreMode(c.env, workspaceId);
+    if (writesObject(mode)) {
+      c.executionCtx.waitUntil(
+        accounts.destroyMailboxObject(c.env, {
+          workspaceId,
+          accountId: id,
+          clerkOrgId: c.get('clerkOrgId'),
+        }),
+      );
+    }
+
     publishEntityEvent({
       c,
       entityType: 'mail_account',

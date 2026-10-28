@@ -18,6 +18,7 @@ import { error, success } from '@weldsuite/worker-kit/response';
 import * as sync from '../../services/mail/sync';
 import { MailSyncError } from '../../services/mail/sync';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { bumpMailboxDirectory } from '@weldsuite/mail-domain/store/directory';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -44,6 +45,7 @@ app.post(
     const { label } = c.req.valid('query');
     try {
       const result = await sync.beginSync(db, accountId);
+      c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
       return success(c, { ...result, syncedMessages: 0, label: label ?? 'inbox' });
     } catch (err) {
       if (err instanceof MailSyncError) return mapSyncError(c, err);
@@ -63,6 +65,7 @@ app.post(
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
       const result = await sync.beginSync(db, accountId);
+      c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
       return success(c, { ...result, syncedMessages: 0 });
     } catch (err) {
       if (err instanceof MailSyncError) return mapSyncError(c, err);
@@ -84,6 +87,7 @@ app.post(
     const { label } = c.req.valid('json');
     try {
       const result = await sync.beginSync(db, accountId);
+      c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
       return success(c, { ...result, syncedMessages: 0, label: label ?? 'inbox' });
     } catch (err) {
       if (err instanceof MailSyncError) return mapSyncError(c, err);
@@ -123,6 +127,7 @@ app.patch(
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
       const result = await sync.setSyncStatus(db, accountId, c.req.valid('json'));
+      c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
       return success(c, result);
     } catch (err) {
       if (err instanceof MailSyncError) return mapSyncError(c, err);
