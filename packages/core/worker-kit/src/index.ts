@@ -30,6 +30,7 @@ export { clerkMiddleware } from './middleware/clerk';
 export { featureFlagsMiddleware } from './middleware/feature-flags';
 export { licenceGate } from './middleware/licence-gate';
 export { requestId } from './middleware/request-id';
+export { requestTiming, RequestTiming, type TimingMetric, type TimingSummary } from './timing';
 export { workspaceDbMiddleware } from './middleware/workspace-db';
 export {
   computeWorkspaceRestrictions,

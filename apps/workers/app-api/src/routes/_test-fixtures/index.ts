@@ -32,6 +32,7 @@ import {
 import { generateId } from '@weldsuite/worker-kit/id';
 import { success, error } from '@weldsuite/worker-kit/response';
 import { testFixturesGuard } from '../../middleware/test-fixtures-guard';
+import { buildSeedMailRows, seedInsertChunkSize } from './seed-mail-bulk';
 import type { Env } from '../../types';
 
 const TEST_MARKER = '[E2E_TEST]';
@@ -1143,6 +1144,51 @@ testFixturesRoutes.post(
       .where(eq(schema.mailMessages.id, id))
       .limit(1);
     return success(c, row, 201);
+  },
+);
+
+const seedMailBulkBody = z.object({
+  /** An existing mailbox (e.g. a QA one) to fill; omitted → a fresh marked test mailbox. */
+  accountId: z.string().optional(),
+  count: z.number().int().min(1).max(5_000),
+  threadSize: z.number().int().min(1).max(20).default(3),
+  bodyBytes: z.number().int().min(0).max(50_000).default(4_000),
+  unreadRatio: z.number().min(0).max(1).default(0.2),
+  spreadDays: z.number().int().min(1).max(3_650).default(365),
+  labels: z.array(z.string()).default(['INBOX']),
+});
+
+/**
+ * Fill a mailbox with up to 5,000 messages per call, in threads, for timing
+ * WeldMail on a realistically large mailbox (./seed-mail-bulk.ts). Call it
+ * repeatedly for more; `/reset` removes them all.
+ */
+testFixturesRoutes.post(
+  '/seed/mail-messages-bulk',
+  zValidator('json', seedMailBulkBody),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const body = c.req.valid('json');
+    const account = await ensureTestMailAccount(db, body.accountId);
+
+    const rows = buildSeedMailRows({
+      ...body,
+      accountId: account.id,
+      accountEmail: account.email,
+      marker: TEST_MARKER,
+      now: new Date(),
+      batch: `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`,
+    });
+    const chunk = seedInsertChunkSize(body.bodyBytes);
+    for (let start = 0; start < rows.length; start += chunk) {
+      await db.insert(schema.mailMessages).values(rows.slice(start, start + chunk));
+    }
+
+    return success(
+      c,
+      { accountId: account.id, inserted: rows.length, threads: Math.ceil(rows.length / body.threadSize) },
+      201,
+    );
   },
 );
 

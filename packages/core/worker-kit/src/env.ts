@@ -10,6 +10,7 @@ import type * as schema from '@weldsuite/db/schema';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { ReadOnlyReason } from './read-only';
+import type { RequestTiming } from './timing';
 
 export type Database = NeonHttpDatabase<typeof schema>;
 
@@ -45,6 +46,8 @@ export interface KitEnv extends DbEnv {
 
 export type KitVariables = {
   requestId: string;
+  /** Where this request's time goes (./timing.ts); set by `createModuleApi` for every request. */
+  timing?: RequestTiming;
   userId: string;
   orgId: string | null;
   sessionId: string;

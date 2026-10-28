@@ -7,8 +7,8 @@
  *   app.route('/api/weldpass', weldpassRoutes);      // authed
  *   export default { fetch: app.fetch };
  *
- * Global middleware (in order): request id, logger, CORS, X-Weld-App app
- * context. Also `/robots.txt`, `/health` (master DB ping) and the JSON
+ * Global middleware (in order): request id, request timing (Server-Timing),
+ * logger, CORS, X-Weld-App app context. Also `/robots.txt`, `/health` (master DB ping) and the JSON
  * notFound/onError envelope that `@weldsuite/api-client` expects. `onError`
  * answers a database that moved under the request (read-only 25006, rotated
  * password 28P01) with 503 WORKSPACE_MOVING + `Retry-After`.
@@ -31,6 +31,7 @@ import { featureFlagsMiddleware } from './middleware/feature-flags';
 import { licenceGate } from './middleware/licence-gate';
 import { requestId } from './middleware/request-id';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
+import { requestTiming, timePermissionQueries } from './timing';
 import { classifyMovedDatabaseError, workspaceMovingResponse } from './workspace-moving';
 
 let permissionsInitialized = false;
@@ -41,7 +42,10 @@ export function ensurePermissionMiddleware(): void {
   permissionsInitialized = true;
   initPermissionMiddleware({
     createQueries: (c) =>
-      createDrizzlePermissionQueries(c.get('tenantDb'), schema, { eq, and, isNull }),
+      timePermissionQueries(
+        createDrizzlePermissionQueries(c.get('tenantDb'), schema, { eq, and, isNull }),
+        c.get('timing'),
+      ),
   });
 }
 
@@ -65,6 +69,8 @@ export function createModuleApi<
 
   if (options.forwardModules) app.use('*', moduleForwarder({ from: options.service }) as MiddlewareHandler);
   app.use('*', requestId());
+  // Server-Timing + one log line per request that reached a workspace (./timing.ts).
+  app.use('*', requestTiming(options.service));
   app.use('*', logger());
   app.use('*', apiCors());
   // X-Weld-App → c.get('app'), read by requirePermission for app-scoped keys.
