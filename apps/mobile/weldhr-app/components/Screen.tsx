@@ -112,16 +112,7 @@ export function Screen({
   // their line, square and without a grabber, as a plain page does.
   const flush = sheet && !period && !behind;
   const isModal = variant === 'modal';
-  // A modal is a page sheet on iOS: it starts below the status bar already.
-  const top = isModal ? 14 : insets.top + 16;
-  // On tab screens the content runs on under the floating tab bar and the
-  // round "+" above it (AddButton), which float over it; the end of the list
-  // is padded so its last row can scroll clear of both. Pushed screens and
-  // forms run to the home indicator.
-  const bottom =
-    variant === 'tab'
-      ? floatingTabBarBottomInset(insets.bottom) + FLOATING_SIZE + FLOATING_GAP + 16
-      : insets.bottom + 24;
+  const { top, bottom } = screenEdges(variant, insets);
   const leftButton = variant === 'tab' ? left : <BackButton modal={isModal} />;
   const pushed = variant === 'push';
   // A line under a pushed screen's header, as a nav bar; tabs under the title draw their own.
@@ -147,25 +138,7 @@ export function Screen({
     <CanvasContext.Provider value={sheet}>
       <View style={[styles.flex, { backgroundColor: background ?? (sheet ? palette.canvas : palette.surface) }]}>
         <View style={[{ paddingTop: top }, ruled && [styles.ruled, { borderBottomColor: palette.border }]]}>
-          <View style={styles.titleRow}>
-            {heading ? (
-              <View style={styles.heading}>{heading}</View>
-            ) : (
-              <>
-                {leftButton ? <View style={pushed ? styles.leadingBack : styles.leading}>{leftButton}</View> : null}
-                <Text
-                  style={[styles.title, pushed && styles.titlePushed, { color: palette.text }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.75}
-                  accessibilityRole="header"
-                >
-                  {title}
-                </Text>
-              </>
-            )}
-            <View style={[styles.slot, styles.slotRight]}>{right}</View>
-          </View>
+          <ScreenTitle title={title} heading={heading} leftButton={leftButton} pushed={pushed} right={right} />
           {segments}
           {period}
         </View>
@@ -178,6 +151,55 @@ export function Screen({
         )}
       </View>
     </CanvasContext.Provider>
+  );
+}
+
+/**
+ * Where a screen's header starts and its content ends. A modal is a page sheet
+ * on iOS: it starts below the status bar already. On tab screens the content
+ * runs on under the floating tab bar and the round "+" above it (AddButton),
+ * which float over it; the end of the list is padded so its last row can
+ * scroll clear of both. Pushed screens and forms run to the home indicator.
+ */
+function screenEdges(variant: ScreenProps['variant'], insets: { top: number; bottom: number }) {
+  return {
+    top: variant === 'modal' ? 14 : insets.top + 16,
+    bottom:
+      variant === 'tab'
+        ? floatingTabBarBottomInset(insets.bottom) + FLOATING_SIZE + FLOATING_GAP + 16
+        : insets.bottom + 24,
+  };
+}
+
+/** The header's line: a heading of its own (Home's workspace), or the back button and the title; the right slot. */
+function ScreenTitle({
+  title,
+  heading,
+  leftButton,
+  pushed,
+  right,
+}: Readonly<{ title: string; heading?: ReactNode; leftButton?: ReactNode; pushed: boolean; right?: ReactNode }>) {
+  const palette = usePalette();
+  return (
+    <View style={styles.titleRow}>
+      {heading ? (
+        <View style={styles.heading}>{heading}</View>
+      ) : (
+        <>
+          {leftButton ? <View style={pushed ? styles.leadingBack : styles.leading}>{leftButton}</View> : null}
+          <Text
+            style={[styles.title, pushed && styles.titlePushed, { color: palette.text }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            accessibilityRole="header"
+          >
+            {title}
+          </Text>
+        </>
+      )}
+      <View style={[styles.slot, styles.slotRight]}>{right}</View>
+    </View>
   );
 }
 

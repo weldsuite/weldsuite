@@ -74,7 +74,9 @@ export function WorkspaceList() {
     }
   };
 
-  const list = workspaces.length > 0 ? workspaces : currentWorkspace ? [currentWorkspace] : [];
+  // The current one alone until the list has loaded.
+  let list: { clerkOrgId: string; name: string }[] = workspaces;
+  if (list.length === 0) list = currentWorkspace ? [currentWorkspace] : [];
   return (
     <Group>
       {list.map((workspace) => {

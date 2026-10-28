@@ -94,80 +94,26 @@ export function Row({
   accessibilityState,
 }: Readonly<RowProps>) {
   const palette = usePalette();
-
-  const detailLine =
-    typeof detail === 'string' ? (
-      <Text style={[styles.detail, { color: detailColor ?? palette.text }]} numberOfLines={1}>
-        {detail}
-      </Text>
-    ) : (
-      detail
-    );
-
-  const valueLine =
-    typeof value === 'string' ? (
-      <Text style={[styles.value, smallValue && styles.valueSmall, { color: palette.text }]} numberOfLines={1}>
-        {value}
-      </Text>
-    ) : (
-      value
-    );
-  const dot = unread ? <View style={[styles.unreadDot, { backgroundColor: palette.badge }]} /> : null;
-
-  const right =
-    value != null || detail != null || unread ? (
-      <View style={[styles.side, top && styles.sideTop]}>
-        {dot && top ? (
-          <View style={styles.unreadLine}>
-            {dot}
-            {valueLine}
-          </View>
-        ) : (
-          valueLine
-        )}
-        {dot && !top ? (
-          <View style={styles.unreadLine}>
-            {detailLine}
-            {dot}
-          </View>
-        ) : (
-          detailLine
-        )}
-      </View>
-    ) : null;
-
   const background = unread ? palette.unread : undefined;
 
   const content = (
     <View style={[styles.row, !onPress && { backgroundColor: background }]}>
       {leading ? <View style={[styles.leading, top && styles.leadingTop]}>{leading}</View> : null}
       {bar ? <View style={[styles.bar, { backgroundColor: bar }]} /> : null}
-      <View style={[styles.main, Boolean(leading) && !bar && styles.afterLeading]}>
-        <Text
-          style={[
-            styles.title,
-            { color: muted ? palette.muted : palette.text },
-            regular && styles.titleRegular,
-            strike && styles.strike,
-          ]}
-          numberOfLines={titleLines}
-        >
-          {title}
-        </Text>
-        {subtitle ? (
-          <View style={styles.subtitleRow}>
-            <Text
-              style={[styles.subtitle, { color: subtitleColor ?? palette.muted }]}
-              numberOfLines={subtitleLines}
-            >
-              {subtitle}
-            </Text>
-            {subtitleIcon}
-          </View>
-        ) : null}
-        {link ? <Text style={[styles.link, { color: palette.accent }]}>{link}</Text> : null}
-      </View>
-      {right}
+      <RowText
+        title={title}
+        titleLines={titleLines}
+        subtitle={subtitle}
+        subtitleLines={subtitleLines}
+        subtitleIcon={subtitleIcon}
+        subtitleColor={subtitleColor}
+        muted={muted}
+        strike={strike}
+        regular={regular}
+        link={link}
+        afterLeading={Boolean(leading) && !bar}
+      />
+      <RowSide value={value} smallValue={smallValue} detail={detail} detailColor={detailColor} unread={unread} top={top} />
       {chevron ? <ChevronRight size={20} color={palette.text} strokeWidth={2} /> : null}
     </View>
   );
@@ -186,6 +132,107 @@ export function Row({
     >
       {content}
     </Pressable>
+  );
+}
+
+/** The title over the muted line, and a link under them. */
+function RowText({
+  title,
+  titleLines,
+  subtitle,
+  subtitleLines,
+  subtitleIcon,
+  subtitleColor,
+  muted,
+  strike,
+  regular,
+  link,
+  afterLeading,
+}: Readonly<
+  Required<Pick<RowProps, 'titleLines' | 'subtitleLines' | 'muted' | 'strike' | 'regular'>> &
+    Pick<RowProps, 'title' | 'subtitle' | 'subtitleIcon' | 'subtitleColor' | 'link'> & { afterLeading: boolean }
+>) {
+  const palette = usePalette();
+  return (
+    <View style={[styles.main, afterLeading && styles.afterLeading]}>
+      <Text
+        style={[
+          styles.title,
+          { color: muted ? palette.muted : palette.text },
+          regular && styles.titleRegular,
+          strike && styles.strike,
+        ]}
+        numberOfLines={titleLines}
+      >
+        {title}
+      </Text>
+      {subtitle ? (
+        <View style={styles.subtitleRow}>
+          <Text style={[styles.subtitle, { color: subtitleColor ?? palette.muted }]} numberOfLines={subtitleLines}>
+            {subtitle}
+          </Text>
+          {subtitleIcon}
+        </View>
+      ) : null}
+      {link ? <Text style={[styles.link, { color: palette.accent }]}>{link}</Text> : null}
+    </View>
+  );
+}
+
+/**
+ * The right column: the value over the detail, and an unread row's dot after
+ * the detail (with `top`, before the value). Nothing when there is none of them.
+ */
+function RowSide({
+  value,
+  smallValue,
+  detail,
+  detailColor,
+  unread,
+  top,
+}: Readonly<
+  Required<Pick<RowProps, 'smallValue' | 'unread' | 'top'>> & Pick<RowProps, 'value' | 'detail' | 'detailColor'>
+>) {
+  const palette = usePalette();
+  if (value == null && detail == null && !unread) return null;
+
+  const valueLine =
+    typeof value === 'string' ? (
+      <Text style={[styles.value, smallValue && styles.valueSmall, { color: palette.text }]} numberOfLines={1}>
+        {value}
+      </Text>
+    ) : (
+      value
+    );
+  const detailLine =
+    typeof detail === 'string' ? (
+      <Text style={[styles.detail, { color: detailColor ?? palette.text }]} numberOfLines={1}>
+        {detail}
+      </Text>
+    ) : (
+      detail
+    );
+  const dot = unread ? <View style={[styles.unreadDot, { backgroundColor: palette.badge }]} /> : null;
+
+  return (
+    <View style={[styles.side, top && styles.sideTop]}>
+      {dot && top ? (
+        <View style={styles.unreadLine}>
+          {dot}
+          {valueLine}
+        </View>
+      ) : (
+        valueLine
+      )}
+      {dot && !top ? (
+        <View style={styles.unreadLine}>
+          {detailLine}
+          {dot}
+        </View>
+      ) : (
+        detailLine
+      )}
+    </View>
   );
 }
 

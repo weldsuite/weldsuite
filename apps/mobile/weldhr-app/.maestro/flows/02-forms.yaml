@@ -3,16 +3,20 @@ name: Shift, leave and expense forms open, validate and close without saving
 tags: [smoke]
 ---
 - runFlow: ../subflows/login.yaml
-# Every form starts from the round + above the tab bar.
+# Each tab's round + adds what that tab is about; Home has none. On Schedule it
+# opens a shift request straight away.
+- tapOn:
+    id: tab-schedule
 - tapOn:
     id: tab-add
-- tapOn:
-    id: add-shift
 - assertVisible: "Request a shift"
 - assertVisible: "8h 0m"
 - tapOn:
     id: screen-close
-# "Request time off" is only in the menu when leave requests are switched on for the workspace.
+# On Absence: time off (only when leave requests are switched on for the
+# workspace) and reporting sick.
+- tapOn:
+    id: tab-absence
 - tapOn:
     id: tab-add
 - runFlow:
@@ -26,29 +30,31 @@ tags: [smoke]
       - assertVisible: "About .* working day.*"
       - tapOn:
           id: screen-close
+# Without leave requests the card stays open on reporting sick: close it.
 - runFlow:
     when:
       visible:
-        id: add-shift
+        id: add-sick
     commands:
-      - tapOn: "Close"
+      - tapOn:
+          id: add-menu-close
 - tapOn:
     id: tab-expenses
 - tapOn:
     id: tab-add
+# With expenses switched on, the + is about the receipt, and both its buttons
+# open the camera or the photos first; the form is opened by its link instead.
 - runFlow:
     when:
       visible:
-        id: add-expense
+        id: add-receipt-upload
     commands:
       - tapOn:
-          id: add-expense
+          id: add-menu-close
+      - openLink: weldhr://expense/new
       - assertVisible: "New expense"
       # Submitting empty is caught in the app; nothing is sent.
       - hideKeyboard
-      - scrollUntilVisible:
-          element:
-            id: expense-submit
       - tapOn:
           id: expense-submit
       - assertVisible: "Enter an amount above zero."
@@ -56,23 +62,18 @@ tags: [smoke]
           id: expense-amount
       - inputText: "12,50"
       - hideKeyboard
-      - scrollUntilVisible:
-          element:
-            id: expense-submit
       - tapOn:
           id: expense-submit
       - assertVisible: "Say what the expense was for."
-      - scrollUntilVisible:
-          element:
-            id: screen-close
-          direction: UP
       - tapOn:
           id: screen-close
+# Without expenses the + has the usual card: close it.
 - runFlow:
     when:
       visible:
-        id: add-shift
+        id: add-sick
     commands:
-      - tapOn: "Close"
+      - tapOn:
+          id: add-menu-close
 - assertVisible:
     id: tab-expenses

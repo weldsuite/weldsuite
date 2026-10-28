@@ -6,12 +6,12 @@
  * approve) on and off.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Paperclip } from 'lucide-react-native';
-import type { HrDeclarationListItem } from '@weldsuite/app-api-client/domains/weldhr';
+import type { HrDeclarationListItem, HrSelfDeclaration } from '@weldsuite/app-api-client/domains/weldhr';
 
 import { ExpenseApprovals } from '@/components/Approvals';
 import { EmptyState } from '@/components/EmptyState';
@@ -169,6 +169,30 @@ function MyExpenses({ canClaim, turnedOff }: Readonly<{ canClaim: boolean; turne
               formatDay(row.expenseDate, intlLocale),
             ]),
         );
+        let body: ReactNode;
+        if (rows.length === 0) {
+          body = (
+            <EmptyState
+              illustration="receipt"
+              title={t.expenses.noExpenses}
+              description={t.expenses.noExpensesDescription}
+              action={canClaim ? { label: t.expenses.newExpense, onPress: () => router.push('/expense/new') } : undefined}
+            />
+          );
+        } else if (shown.length === 0) {
+          body = (
+            <NoMatches
+              title={t.expenses.noResults}
+              description={t.expenses.noResultsDescription}
+              filtered={isFiltered(filter)}
+              onClearFilters={() => setFilter(NO_FILTER)}
+              onClearSearch={() => setSearch('')}
+            />
+          );
+        } else {
+          body = <DeclarationList declarations={shown} />;
+        }
+
         return (
           <>
             {turnedOff ? (
@@ -206,50 +230,7 @@ function MyExpenses({ canClaim, turnedOff }: Readonly<{ canClaim: boolean; turne
               </Section>
             ) : null}
 
-            {rows.length === 0 ? (
-              <EmptyState
-                illustration="receipt"
-                title={t.expenses.noExpenses}
-                description={t.expenses.noExpensesDescription}
-                action={
-                  canClaim ? { label: t.expenses.newExpense, onPress: () => router.push('/expense/new') } : undefined
-                }
-              />
-            ) : shown.length === 0 ? (
-              <NoMatches
-                title={t.expenses.noResults}
-                description={t.expenses.noResultsDescription}
-                filtered={isFiltered(filter)}
-                onClearFilters={() => setFilter(NO_FILTER)}
-                onClearSearch={() => setSearch('')}
-              />
-            ) : (
-              // Absence's list: the status in its colour under the title, the amount and the day on the right.
-              <GroupedList
-                groups={[
-                  {
-                    key: 'declarations',
-                    title: t.expenses.declarations,
-                    figure: String(shown.length),
-                    children: shown.map((row) => (
-                      <Row
-                        key={row.id}
-                        leading={<CategoryTile category={row.category} />}
-                        title={row.description}
-                        titleLines={1}
-                        subtitle={labelFor(t.declarationStatus, row.status)}
-                        subtitleColor={statusColor(row.status, palette)}
-                        subtitleIcon={row.hasReceipt ? <Paperclip size={13} color={palette.muted} /> : null}
-                        value={formatMoney(row.amount, row.currency, intlLocale)}
-                        detail={formatDay(row.expenseDate, intlLocale)}
-                        muted={row.status === 'cancelled'}
-                        onPress={() => router.push({ pathname: '/expense/[id]', params: { id: row.id } })}
-                      />
-                    )),
-                  },
-                ]}
-              />
-            )}
+            {body}
 
             {filtering ? (
               <FilterSheet
@@ -266,6 +247,39 @@ function MyExpenses({ canClaim, turnedOff }: Readonly<{ canClaim: boolean; turne
         );
       }}
     </QueryBody>
+  );
+}
+
+/** Absence's list: the status in its colour under the title, the amount and the day on the right; a claim opens its page. */
+function DeclarationList({ declarations }: Readonly<{ declarations: HrSelfDeclaration[] }>) {
+  const palette = usePalette();
+  const { t, intlLocale } = useI18n();
+  const router = useRouter();
+  return (
+    <GroupedList
+      groups={[
+        {
+          key: 'declarations',
+          title: t.expenses.declarations,
+          figure: String(declarations.length),
+          children: declarations.map((row) => (
+            <Row
+              key={row.id}
+              leading={<CategoryTile category={row.category} />}
+              title={row.description}
+              titleLines={1}
+              subtitle={labelFor(t.declarationStatus, row.status)}
+              subtitleColor={statusColor(row.status, palette)}
+              subtitleIcon={row.hasReceipt ? <Paperclip size={13} color={palette.muted} /> : null}
+              value={formatMoney(row.amount, row.currency, intlLocale)}
+              detail={formatDay(row.expenseDate, intlLocale)}
+              muted={row.status === 'cancelled'}
+              onPress={() => router.push({ pathname: '/expense/[id]', params: { id: row.id } })}
+            />
+          )),
+        },
+      ]}
+    />
   );
 }
 

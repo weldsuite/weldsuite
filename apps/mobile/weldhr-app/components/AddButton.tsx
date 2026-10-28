@@ -23,7 +23,9 @@ import { ComposeMenu, type ComposeMenuItem } from '@/components/ComposeMenu';
 import { useSelfState, type LinkedSelf } from '@/components/MyHrGate';
 import { floatingButtonBottom } from '@/components/Screen';
 import { useAbsences, useHrAccess } from '@/hooks/use-weldhr-queries';
+import type { HrAccess } from '@/lib/access';
 import { useI18n } from '@/lib/i18n';
+import type { Translations } from '@/lib/i18n/locales/en';
 
 interface Action {
   Icon: LucideIcon;
@@ -63,75 +65,18 @@ function AddMenu({ self }: Readonly<{ self: LinkedSelf }>) {
     if (href) router.push(href);
   }, [router]);
 
-  const item = (key: string, { Icon, title, href, testID }: Action, hint: string): ComposeMenuItem => ({
+  const { main, entries } = menuFor(pathname, self, sick, t);
+  const items: ComposeMenuItem[] = entries.map(({ key, action: { Icon, title, href, testID }, hint }) => ({
     key,
     icon: <Icon size={20} color={colors.text} strokeWidth={1.9} />,
     title,
     hint,
     onPress: () => go(href),
     testID,
-  });
-  const items: ComposeMenuItem[] = [];
-  let main: Action;
-
-  if (pathname === '/expenses' && self.features.declarations) {
-    items.push(
-      item(
-        'upload',
-        {
-          Icon: Images,
-          title: t.home.uploadReceipt,
-          href: { pathname: '/expense/new', params: { receipt: 'library' } },
-          testID: 'add-receipt-upload',
-        },
-        t.home.uploadReceiptHint,
-      ),
-    );
-    main = {
-      Icon: Camera,
-      title: t.home.photoReceipt,
-      href: { pathname: '/expense/new', params: { receipt: 'camera' } },
-      testID: 'add-receipt-photo',
-    };
-  } else {
-    // On Absence only what is about being away: time off and reporting sick.
-    const onAbsence = pathname === '/absence';
-    const shift: Action = { Icon: CalendarClock, title: t.home.requestShift, href: '/shift/new', testID: 'add-shift' };
-    const report: Action = {
-      Icon: Thermometer,
-      title: sick ? t.home.imBetter : t.home.reportSick,
-      href: '/sick',
-      testID: 'add-sick',
-    };
-    const leave: Action | null = self.features.leaveRequests
-      ? { Icon: CalendarPlus, title: t.home.requestTimeOff, href: '/leave/new', testID: 'add-leave' }
-      : null;
-    // Time off is the main action; where the workspace has no leave requests,
-    // asking for a shift (on Absence, reporting sick) takes its place.
-    main = leave ?? (onAbsence ? report : shift);
-
-    if (leave && !onAbsence) items.push(item('shift', shift, t.home.requestShiftHint));
-    if (main !== report) items.push(item('sick', report, sick ? t.home.imBetterHint : t.home.reportSickHint));
-    if (self.features.declarations && !onAbsence) {
-      items.push(
-        item(
-          'expense',
-          { Icon: Receipt, title: t.home.newExpense, href: '/expense/new', testID: 'add-expense' },
-          t.home.newExpenseHint,
-        ),
-      );
-    }
-  }
-
+  }));
+  const direct = directFor(pathname, access, t);
   // The button sits in the tab layout, which fills the screen: both edges are the same.
   const bottom = floatingButtonBottom(insets.bottom);
-  // One thing to do there, so no menu: posting an announcement, asking for a shift.
-  let direct: { href: Href; label: string } | null = null;
-  if (pathname === '/announcements' && access.createAnnouncements) {
-    direct = { href: '/announcement/new', label: t.announcementForm.title };
-  } else if (pathname === '/schedule') {
-    direct = { href: '/shift/new', label: t.home.requestShift };
-  }
 
   return (
     <ComposeMenu
@@ -152,4 +97,75 @@ function AddMenu({ self }: Readonly<{ self: LinkedSelf }>) {
       onClosed={flushPendingHref}
     />
   );
+}
+
+interface MenuEntry {
+  key: string;
+  action: Action;
+  hint: string;
+}
+
+/** What the card offers on a tab: the wide button and the rows above it. */
+function menuFor(pathname: string, self: LinkedSelf, sick: boolean, t: Translations): { main: Action; entries: MenuEntry[] } {
+  // On Expenses it is about the receipt.
+  if (pathname === '/expenses' && self.features.declarations) {
+    return {
+      main: {
+        Icon: Camera,
+        title: t.home.photoReceipt,
+        href: { pathname: '/expense/new', params: { receipt: 'camera' } },
+        testID: 'add-receipt-photo',
+      },
+      entries: [
+        {
+          key: 'upload',
+          action: {
+            Icon: Images,
+            title: t.home.uploadReceipt,
+            href: { pathname: '/expense/new', params: { receipt: 'library' } },
+            testID: 'add-receipt-upload',
+          },
+          hint: t.home.uploadReceiptHint,
+        },
+      ],
+    };
+  }
+
+  // On Absence only what is about being away: time off and reporting sick.
+  const onAbsence = pathname === '/absence';
+  const shift: Action = { Icon: CalendarClock, title: t.home.requestShift, href: '/shift/new', testID: 'add-shift' };
+  const report: Action = {
+    Icon: Thermometer,
+    title: sick ? t.home.imBetter : t.home.reportSick,
+    href: '/sick',
+    testID: 'add-sick',
+  };
+  const leave: Action | null = self.features.leaveRequests
+    ? { Icon: CalendarPlus, title: t.home.requestTimeOff, href: '/leave/new', testID: 'add-leave' }
+    : null;
+  // Time off is the main action; where the workspace has no leave requests,
+  // asking for a shift (on Absence, reporting sick) takes its place.
+  const fallback = onAbsence ? report : shift;
+  const main = leave ?? fallback;
+
+  const entries: MenuEntry[] = [];
+  if (leave && !onAbsence) entries.push({ key: 'shift', action: shift, hint: t.home.requestShiftHint });
+  if (main !== report) entries.push({ key: 'sick', action: report, hint: sick ? t.home.imBetterHint : t.home.reportSickHint });
+  if (self.features.declarations && !onAbsence) {
+    entries.push({
+      key: 'expense',
+      action: { Icon: Receipt, title: t.home.newExpense, href: '/expense/new', testID: 'add-expense' },
+      hint: t.home.newExpenseHint,
+    });
+  }
+  return { main, entries };
+}
+
+/** Where a tab has one thing to do, the "+" does it without the card: posting an announcement, asking for a shift. */
+function directFor(pathname: string, access: HrAccess, t: Translations): { href: Href; label: string } | null {
+  if (pathname === '/announcements' && access.createAnnouncements) {
+    return { href: '/announcement/new', label: t.announcementForm.title };
+  }
+  if (pathname === '/schedule') return { href: '/shift/new', label: t.home.requestShift };
+  return null;
 }

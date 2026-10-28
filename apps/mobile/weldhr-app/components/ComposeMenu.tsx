@@ -215,7 +215,13 @@ export function ComposeMenu({
         onRequestClose={onRequestClose}
         onDismiss={handleDismiss}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={onRequestClose} accessibilityRole="button" />
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onRequestClose}
+          accessibilityRole="button"
+          // A tap beside the card closes it; the UI tests do the same.
+          testID="add-menu-close"
+        />
 
         <Animated.View style={[styles.shell, { bottom }, shellStyle]}>
           <Animated.View style={[styles.clip, clipStyle]}>

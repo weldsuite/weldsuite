@@ -41,12 +41,11 @@ tags: [smoke]
           id: tab-announcements
       # Either the list, or the empty state.
       - assertVisible: "Announcements|No announcements|No employee record yet|My HR is not available"
-# The profile and settings open from the workspace menu at the top of Home.
+# The profile and settings open from the workspace at the top of Home.
 - tapOn:
     id: tab-home
 - tapOn:
     id: home-workspace
-- tapOn: "Profile and settings"
 - scrollUntilVisible:
     element:
       id: me-sign-out
