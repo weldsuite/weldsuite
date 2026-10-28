@@ -90,6 +90,11 @@ export { SendScheduledEmailWorkflow } from '@weldsuite/mail-domain/workflows/sen
 // binds them from here by script_name.
 export { OutboundLedger, OutboundPlatformBudget } from '@weldsuite/mail-domain/outbound/ledger';
 
+// Usage meters (@weldsuite/credits/meters): one per workspace, counting plan
+// allowances and paying overage from the credit wallet. Hosted here (module
+// workers deploy first); the metering workers bind it by script_name.
+export { UsageMeter } from '@weldsuite/credits/meter-object';
+
 /** Queues this worker consumes, by name prefix (the suffix is the environment). */
 const OUTBOUND_REVIEW_QUEUE = 'mail-outbound-review-';
 const SENDING_EVENTS_QUEUE = 'mail-sending-events-';

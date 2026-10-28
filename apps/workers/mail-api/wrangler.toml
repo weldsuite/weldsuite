@@ -145,6 +145,18 @@ class_name = "OutboundPlatformBudget"
 tag = "outbound-v1"
 new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
 
+# ---- Usage meters (@weldsuite/credits/meters) ----
+# One UsageMeter per workspace: plan allowances and overage paid from the
+# credit wallet. Hosted here because module workers deploy before the others,
+# so sign-api, crm-api, app-api and workflow-worker can bind it by script_name.
+[[durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+
+[[migrations]]
+tag = "usage-meter-v1"
+new_sqlite_classes = ["UsageMeter"]
+
 # Per-sender backstop while the ledger is unreachable. Same namespace in every
 # mail-sending worker, so they share the counters on purpose.
 [[ratelimits]]
@@ -250,6 +262,18 @@ class_name = "OutboundPlatformBudget"
 [[env.test.migrations]]
 tag = "outbound-v1"
 new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
+
+# ---- Usage meters (@weldsuite/credits/meters) ----
+# One UsageMeter per workspace: plan allowances and overage paid from the
+# credit wallet. Hosted here because module workers deploy before the others,
+# so sign-api, crm-api, app-api and workflow-worker can bind it by script_name.
+[[env.test.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+
+[[env.test.migrations]]
+tag = "usage-meter-v1"
+new_sqlite_classes = ["UsageMeter"]
 
 # Per-sender backstop while the ledger is unreachable. Same namespace in every
 # mail-sending worker, so they share the counters on purpose.
@@ -358,6 +382,18 @@ class_name = "OutboundPlatformBudget"
 [[env.production.migrations]]
 tag = "outbound-v1"
 new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
+
+# ---- Usage meters (@weldsuite/credits/meters) ----
+# One UsageMeter per workspace: plan allowances and overage paid from the
+# credit wallet. Hosted here because module workers deploy before the others,
+# so sign-api, crm-api, app-api and workflow-worker can bind it by script_name.
+[[env.production.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+
+[[env.production.migrations]]
+tag = "usage-meter-v1"
+new_sqlite_classes = ["UsageMeter"]
 
 # Per-sender backstop while the ledger is unreachable. Same namespace in every
 # mail-sending worker, so they share the counters on purpose.

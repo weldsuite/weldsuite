@@ -2,6 +2,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
+import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
@@ -260,6 +261,11 @@ export interface Env {
   OUTBOUND_PLATFORM?: OutboundGuardEnv['OUTBOUND_PLATFORM'];
   /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
   OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
+
+  // --- Usage meters (@weldsuite/credits/meters) ----------------------------
+  /** mail-api's `UsageMeter` Durable Object (`script_name` binding): plan allowances
+   *  and overage per workspace. Unset: metering fails open. */
+  USAGE_METER?: UsageMeterEnv['USAGE_METER'];
 
   // (The GitHub App integration — GITHUB_APP_*, GITHUB_FULL_SYNC,
   // GITHUB_PROJECT_SYNC — moved to connect-api with workflow-github;

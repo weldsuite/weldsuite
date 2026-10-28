@@ -69,6 +69,10 @@ export const error = {
       402,
     ),
 
+  /** A plan or wallet limit refused the request (`USAGE_LIMIT_REACHED`, `INSUFFICIENT_CREDITS`). */
+  paymentRequired: (c: Context, code: string, message: string, details?: unknown) =>
+    c.json({ error: { code, message, details } }, 402),
+
   internal: (c: Context, message = 'Internal server error') =>
     c.json({ error: { code: 'INTERNAL_ERROR', message } }, 500),
 

@@ -65,7 +65,10 @@ export namespace Credits {
     | 'data_enrichment'
     | 'social_post'
     | 'meeting_transcription'
-    | 'meeting_summary';
+    | 'meeting_summary'
+    | 'workflow_run'
+    | 'sign_request'
+    | 'email';
 
   /**
    * Transaction metadata

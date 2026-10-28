@@ -123,6 +123,13 @@ name = "execute-workflow-dev"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts runs against the plan and pays overage from the wallet.
+[[durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-dev"
+
 # Phase 4: hub SUB_WELDCONNECT → entity-workflows* (entity_event matching)
 #   wrangler queues create entity-workflows-dev
 #   wrangler queues create entity-workflows-dlq-dev
@@ -179,6 +186,13 @@ name = "execute-workflow-test"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts runs against the plan and pays overage from the wallet.
+[[env.test.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-test"
+
 [[env.test.queues.consumers]]
 queue = "entity-workflows-test"
 max_batch_size = 10
@@ -234,6 +248,13 @@ entrypoint = "ConnectInternal"
 name = "execute-workflow"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
+
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts runs against the plan and pays overage from the wallet.
+[[env.production.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api"
 
 [[env.production.queues.consumers]]
 queue = "entity-workflows"

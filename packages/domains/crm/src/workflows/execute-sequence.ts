@@ -14,9 +14,9 @@
  */
 
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
-import { eq, and, isNull, or, sql } from 'drizzle-orm';
+import { eq, and, isNull, or } from 'drizzle-orm';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
-import { getTenantDbForWorkspace, getMasterDb, schema, masterSchema } from '@weldsuite/worker-kit/db';
+import { getTenantDbForWorkspace, getMasterDb, schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
@@ -26,16 +26,16 @@ import { evaluateCondition } from './execute-workflow/evaluate-condition';
 // TODO(weldconnect-rebuild): fold execute-workflow helpers into workflow-worker engine;
 // kept here because CRM sequence execution still imports this legacy executor copy.
 import { executeAction, isWaitingForInput, type ActionContext, type ActionEnv } from './execute-workflow/action-handlers';
-import type { PlanFeatures } from '@weldsuite/db/schema/plans';
 import { asText } from '@weldsuite/text';
-import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
+import { resolveInternalWorkspaceId } from '@weldsuite/credits';
+import { meterDeniedMessage, meterUsage, releaseMeterUsage, type MeterReservation, type UsageMeterEnv } from '@weldsuite/credits/meters';
 
 /**
- * The bindings the workflow reads: tenant/master DB resolution plus what the
- * step runners need (action-handlers' `ActionEnv`). Any worker Env with
- * them fits.
+ * The bindings the workflow reads: tenant/master DB resolution, what the
+ * step runners need (action-handlers' `ActionEnv`) and the usage meter
+ * (`USAGE_METER`, hosted by mail-api). Any worker Env with them fits.
  */
-export interface ExecuteSequenceEnv extends DbEnv, ActionEnv {}
+export interface ExecuteSequenceEnv extends DbEnv, ActionEnv, UsageMeterEnv {}
 
 // ============================================================================
 // Types
@@ -64,175 +64,38 @@ interface WorkflowStepDef {
 }
 
 // ============================================================================
-// Usage tracking helpers (ported from platform/lib/task/usage-tracking.ts)
+// Usage metering (`@weldsuite/credits/meters`, meter `workflow_runs`)
 // ============================================================================
 
-function shouldResetMonthly(lastReset: Date): boolean {
-  const now = new Date();
-  return now.getUTCFullYear() > lastReset.getUTCFullYear()
-    || now.getUTCMonth() > lastReset.getUTCMonth();
-}
+type LimitCheck =
+  | { allowed: true; reservation: MeterReservation | null }
+  | { allowed: false; message: string };
 
-/** `length` random base36 characters from the Web Crypto RNG. */
-function randomBase36(length: number): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
-}
-
-function generateUsageId(): string {
-  return `wsu_${Date.now().toString(36)}_${randomBase36(7)}`;
-}
-
-async function resolveInternalWorkspaceId(env: ExecuteSequenceEnv, ref: string): Promise<string> {
-  if (ref.startsWith('ws_')) return ref;
-
-  // An `org_…` ref may still be a `workspaces.id` (early rows), so match both columns.
-  const masterDb = getMasterDb(env);
-  const [workspace] = await masterDb
-    .select({ id: masterSchema.workspaces.id })
-    .from(masterSchema.workspaces)
-    .where(matchWorkspaceRef(ref))
-    .limit(1);
-
-  if (!workspace) throw new Error(`Workspace not found for: ${ref}`);
-  return workspace.id;
-}
-
-async function checkTaskExecutionLimit(env: ExecuteSequenceEnv, workspaceId: string): Promise<{
-  allowed: boolean;
-  message: string;
-  used: number;
-  limit: number | null;
-  planName: string;
-}> {
+/**
+ * Count the run against the plan's workflow-run allowance in the workspace's
+ * UsageMeter: free inside it, an overage block from the wallet past it,
+ * refused when the plan stops there or the wallet is empty. Keyed by the
+ * enrollment, so a replayed step counts once. Fails open when metering is
+ * unavailable.
+ */
+async function meterSequenceRun(env: ExecuteSequenceEnv, params: ExecuteSequenceParams): Promise<LimitCheck> {
+  if (!env.USAGE_METER) return { allowed: true, reservation: null };
   try {
     const masterDb = getMasterDb(env);
-    const internalId = await resolveInternalWorkspaceId(env, workspaceId);
-
-    // Get or create usage record
-    let [usage] = await masterDb
-      .select()
-      .from(masterSchema.workspaceUsage)
-      .where(eq(masterSchema.workspaceUsage.workspaceId, internalId))
-      .limit(1);
-
-    if (!usage) {
-      [usage] = await masterDb
-        .insert(masterSchema.workspaceUsage)
-        .values({
-          id: generateUsageId(),
-          workspaceId: internalId,
-          taskExecutionsThisMonth: 0,
-          taskExecutionsLastReset: new Date(),
-          emailsSentThisMonth: 0,
-          emailsLastReset: new Date(),
-          aiCreditsUsedThisMonth: 0,
-          aiCreditsLastReset: new Date(),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .returning();
-    } else if (shouldResetMonthly(usage.taskExecutionsLastReset)) {
-      [usage] = await masterDb
-        .update(masterSchema.workspaceUsage)
-        .set({
-          taskExecutionsThisMonth: 0,
-          taskExecutionsLastReset: new Date(),
-          emailsSentThisMonth: 0,
-          emailsLastReset: new Date(),
-          aiCreditsUsedThisMonth: 0,
-          aiCreditsLastReset: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(masterSchema.workspaceUsage.id, usage.id))
-        .returning();
-    }
-
-    // Get plan limits
-    const [workspace] = await masterDb
-      .select({
-        planId: masterSchema.workspaces.planId,
-      })
-      .from(masterSchema.workspaces)
-      .where(eq(masterSchema.workspaces.id, internalId))
-      .limit(1);
-
-    let taskLimit: number | null = null;
-    let planName = 'Free';
-
-    if (workspace?.planId) {
-      const [plan] = await masterDb
-        .select()
-        .from(masterSchema.plans)
-        .where(eq(masterSchema.plans.id, workspace.planId))
-        .limit(1);
-
-      if (plan) {
-        const features = (plan.features as PlanFeatures) || {};
-        taskLimit = features.taskExecutions ?? null;
-        planName = plan.name;
-      }
-    }
-
-    if (!workspace?.planId || taskLimit === undefined) {
-      // Fall back to default plan
-      const [defaultPlan] = await masterDb
-        .select()
-        .from(masterSchema.plans)
-        .where(eq(masterSchema.plans.isDefault, true))
-        .limit(1);
-
-      if (defaultPlan) {
-        const features = (defaultPlan.features as PlanFeatures) || {};
-        taskLimit = features.taskExecutions ?? 100;
-        planName = defaultPlan.name;
-      }
-    }
-
-    if (taskLimit === null) {
-      return { allowed: true, message: 'OK', used: usage.taskExecutionsThisMonth, limit: null, planName };
-    }
-
-    if (usage.taskExecutionsThisMonth >= taskLimit) {
-      return {
-        allowed: false,
-        message: `Your ${planName} plan allows ${taskLimit} workflow executions per month. You've used ${usage.taskExecutionsThisMonth}. Upgrade to continue.`,
-        used: usage.taskExecutionsThisMonth,
-        limit: taskLimit,
-        planName,
-      };
-    }
-
-    return { allowed: true, message: 'OK', used: usage.taskExecutionsThisMonth, limit: taskLimit, planName };
+    const workspaceId = await resolveInternalWorkspaceId(masterDb, params.workspaceId);
+    if (!workspaceId) return { allowed: true, reservation: null };
+    const result = await meterUsage(env, {
+      workspaceId,
+      meter: 'workflow_runs',
+      idempotencyKey: `seq:${params.enrollmentId}`,
+      referenceId: params.enrollmentId,
+      referenceType: 'sequence_enrollment',
+      userId: params.userId,
+    });
+    return result.allowed ? { allowed: true, reservation: result.reservation } : { allowed: false, message: meterDeniedMessage(result) };
   } catch (error) {
-    console.error('[checkTaskExecutionLimit] Error:', error);
-    return { allowed: true, message: 'Could not verify limits', used: 0, limit: null, planName: 'Unknown' };
-  }
-}
-
-async function incrementTaskExecutions(env: ExecuteSequenceEnv, workspaceId: string): Promise<void> {
-  try {
-    const masterDb = getMasterDb(env);
-    const internalId = await resolveInternalWorkspaceId(env, workspaceId);
-
-    const [usage] = await masterDb
-      .select({ id: masterSchema.workspaceUsage.id })
-      .from(masterSchema.workspaceUsage)
-      .where(eq(masterSchema.workspaceUsage.workspaceId, internalId))
-      .limit(1);
-
-    if (usage) {
-      await masterDb
-        .update(masterSchema.workspaceUsage)
-        .set({
-          taskExecutionsThisMonth: sql`${masterSchema.workspaceUsage.taskExecutionsThisMonth} + 1`,
-          updatedAt: new Date(),
-        })
-        .where(eq(masterSchema.workspaceUsage.id, usage.id));
-    }
-  } catch (error) {
-    console.error('[incrementTaskExecutions] Error:', error);
+    console.error('[meterSequenceRun] Error:', error);
+    return { allowed: true, reservation: null };
   }
 }
 
@@ -412,9 +275,9 @@ async function publishExecutionEvent(
   if (rt) await rt.workflowExecutionEvent(workspaceId, executionId, event, data);
 }
 
-/** Step 1: check usage limits; marks the enrollment failed when the limit is hit. */
-async function checkLimitsForEnrollment(env: ExecuteSequenceEnv, params: ExecuteSequenceParams) {
-  const check = await checkTaskExecutionLimit(env, params.workspaceId);
+/** Step 1: meter the run; marks the enrollment failed when the limit is hit. */
+async function checkLimitsForEnrollment(env: ExecuteSequenceEnv, params: ExecuteSequenceParams): Promise<LimitCheck> {
+  const check = await meterSequenceRun(env, params);
   if (!check.allowed) {
     // Mark enrollment as failed due to limit
     try {
@@ -518,9 +381,6 @@ async function createExecutionRecord(
     createdAt: now,
     updatedAt: now,
   });
-
-  // Increment usage counter
-  await incrementTaskExecutions(env, params.workspaceId);
 
   // Publish started event
   await publishExecutionEvent(rt, params.workspaceId, execId, 'started', {
@@ -973,12 +833,15 @@ export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceE
     const loadResult = await step.do('load-sequence', () => loadSequenceDefinition(this.env, params));
 
     if ('skipped' in loadResult && loadResult.skipped) {
+      // Nothing runs, so the run counted in step 1 is handed back.
+      const { reservation } = limitResult;
+      if (reservation) await step.do('release-run', () => releaseMeterUsage(this.env, reservation));
       return { skipped: true, reason: loadResult.reason };
     }
 
     const { name: workflowName, version: workflowVersion, steps, variables, contactData } = loadResult;
 
-    // Step 3: Create execution record & increment usage
+    // Step 3: Create execution record
     const executionId = await step.do('create-execution', () =>
       createExecutionRecord(this.env, params, rt, event.instanceId, workflowName, workflowVersion, steps.length),
     );

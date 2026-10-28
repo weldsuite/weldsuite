@@ -95,6 +95,13 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-dev"
+
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "1101"
@@ -164,6 +171,13 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[env.test.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-test"
+
 [[env.test.ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "2101"
@@ -231,6 +245,13 @@ script_name = "weldsuite-mail-api"
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[env.production.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
 script_name = "weldsuite-mail-api"
 
 [[env.production.ratelimits]]

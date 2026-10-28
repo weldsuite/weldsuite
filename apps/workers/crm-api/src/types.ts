@@ -1,6 +1,7 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
+import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 
 /**
  * crm-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -53,6 +54,11 @@ export interface Env extends KitEnv {
   OUTBOUND_PLATFORM?: OutboundGuardEnv['OUTBOUND_PLATFORM'];
   /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
   OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
+
+  // --- Usage meters (@weldsuite/credits/meters) ----------------------------
+  /** mail-api's `UsageMeter` Durable Object (`script_name` binding): plan allowances
+   *  and overage per workspace. Unset: metering fails open. */
+  USAGE_METER?: UsageMeterEnv['USAGE_METER'];
 
   // --- AI (@weldsuite/ai) — Cloudflare AI Gateway, ai_generate / ai_classify
   // steps. See packages/core/ai/src/config.ts for the full list of recognised keys.

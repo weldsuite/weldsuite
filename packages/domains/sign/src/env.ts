@@ -1,6 +1,7 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { DbEnv } from '@weldsuite/worker-kit';
+import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 import type { SignCodeAttempts } from './code-attempts';
 
 /**
@@ -12,11 +13,14 @@ import type { SignCodeAttempts } from './code-attempts';
  * Built on `DbEnv`, not `KitEnv`: the portal has no Clerk. `OUTBOUND_LEDGER`,
  * `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` are the outbound mail guard's
  * (hosted by mail-api, all optional because the guard fails open). Signing
- * emails count against the workspace (source `sign`).
+ * emails count against the workspace (source `sign`). `USAGE_METER` (also
+ * mail-api's, optional: metering fails open) counts requests sent against the
+ * plan; only sign-api sends, so the portal does not bind it.
  */
 export interface SignEnv
   extends DbEnv,
-    Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
+    Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'>,
+    UsageMeterEnv {
   /** "development" | "test" | "production". */
   ENVIRONMENT?: string;
   /** Entity-events hub queue (publishEntityEvent). */
