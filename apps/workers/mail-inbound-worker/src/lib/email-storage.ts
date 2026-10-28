@@ -36,14 +36,7 @@ import {
   sendPersonalEmailPushNotification,
 } from './push-notifications';
 import { upsertContactsFromMailMessage } from './contact-upsert';
-import {
-  bareSubject,
-  conversationSubjects,
-  hasReplyPrefix,
-  involvesAddress,
-  messageIdVariants,
-  providerMessageIds,
-} from './thread-match';
+import { messageIdVariants } from './thread-match';
 import { scoreInboundSpam } from './spam-filter';
 import { classifyPromotion } from './promotion-filter';
 import { parseListUnsubscribe } from '@weldsuite/email/list-unsubscribe';
@@ -76,6 +69,9 @@ import {
 } from '@weldsuite/ai';
 import { nanoUsd, recordProviderUsage } from '@weldsuite/credits/gateway-costs';
 import { putRawMime } from '@weldsuite/mail-domain/store/bodies';
+import { getWorkspaceMail, type IngestMessage, type MailboxStore } from '@weldsuite/mail-domain/store';
+import { applyRuleActions, inboundRuleMatches, type RuleMessageState } from '@weldsuite/mail-domain/store/model';
+import type { AttachmentInput } from '@weldsuite/mail-domain/attachments';
 import type { Env } from '../index';
 
 export type StoreEmailResult = {
@@ -636,158 +632,6 @@ async function storePersonalEmail(
   }
 }
 
-/** True when this messageId is already stored for the tenant mail account. */
-async function isTenantDuplicate(
-  tenantDb: TenantDbHandle,
-  account: RecipientAccount,
-  email: ParsedEmail,
-): Promise<boolean> {
-  if (!email.messageId) return false;
-  const existing = await tenantDb
-    .select({ id: tenantSchema.mailMessages.id })
-    .from(tenantSchema.mailMessages)
-    .where(
-      and(
-        eq(tenantSchema.mailMessages.accountId, account.accountId),
-        eq(tenantSchema.mailMessages.messageId, email.messageId),
-      )
-    )
-    .limit(1);
-  return existing.length > 0;
-}
-
-interface ThreadMatch {
-  threadId: string;
-  isExistingHamThread: boolean;
-}
-
-/** Find the thread of a reply by the stored Message-ID or the provider message ID. */
-async function findThreadByReplyIds(
-  tenantDb: TenantDbHandle,
-  account: RecipientAccount,
-  email: ParsedEmail,
-): Promise<ThreadMatch | null> {
-  const lookupIds = replyLookupIds(email);
-  if (lookupIds.length === 0) return null;
-
-  // Extract local parts from Message-IDs for provider ID matching
-  // e.g. "<abc-123@eu-west-1.amazonses.com>" → "abc-123"
-  const providerIds = providerMessageIds(lookupIds);
-
-  const existingMessages = await tenantDb
-    .select({
-      threadId: tenantSchema.mailMessages.threadId,
-      messageId: tenantSchema.mailMessages.messageId,
-      isSpam: tenantSchema.mailMessages.isSpam,
-    })
-    .from(tenantSchema.mailMessages)
-    .where(
-      and(
-        eq(tenantSchema.mailMessages.accountId, account.accountId),
-        or(
-          // Match by our stored messageId (custom Message-ID header)
-          inArray(tenantSchema.mailMessages.messageId, lookupIds),
-          // The id the provider returned for a message we sent
-          inArray(tenantSchema.mailMessages.externalMessageId, lookupIds),
-          // Match by provider message ID (Mailgun/SES may override Message-ID)
-          inArray(tenantSchema.mailMessages.mailcowMessageId, providerIds)
-        )
-      )
-    )
-    .limit(1);
-
-  const existingThreadId = existingMessages[0]?.threadId;
-  if (!existingThreadId) return null;
-  return { threadId: existingThreadId, isExistingHamThread: existingMessages[0]?.isSpam === false };
-}
-
-/**
- * Fallback: match by subject when Message-ID lookup fails (the provider
- * overrides the Message-ID header, or the reply carries no threading headers).
- * Looks at earlier messages with the same subject (`X` or `Re: X`) in the same
- * mailbox. A reply that has no headers to vouch for it must also share a
- * participant with the thread, so two strangers' "Re: Hello" do not merge.
- */
-async function findThreadBySubject(
-  tenantDb: TenantDbHandle,
-  account: RecipientAccount,
-  email: ParsedEmail,
-  opts: { requireParticipant: boolean } = { requireParticipant: false },
-): Promise<ThreadMatch | null> {
-  const subjects = conversationSubjects(email.subject);
-  if (subjects.length === 0) return null;
-
-  const candidates = await tenantDb
-    .select({
-      threadId: tenantSchema.mailMessages.threadId,
-      isSpam: tenantSchema.mailMessages.isSpam,
-      from: tenantSchema.mailMessages.from,
-      to: tenantSchema.mailMessages.to,
-      cc: tenantSchema.mailMessages.cc,
-    })
-    .from(tenantSchema.mailMessages)
-    .where(
-      and(
-        eq(tenantSchema.mailMessages.accountId, account.accountId),
-        inArray(sql`lower(${tenantSchema.mailMessages.subject})`, subjects),
-        isNull(tenantSchema.mailMessages.deletedAt)
-      )
-    )
-    .orderBy(desc(tenantSchema.mailMessages.sentDate))
-    .limit(20);
-
-  const subjectMatch = candidates.find(
-    (c) => c.threadId && (!opts.requireParticipant || involvesAddress(c, email.from?.email)),
-  );
-  if (!subjectMatch?.threadId) return null;
-  return { threadId: subjectMatch.threadId, isExistingHamThread: subjectMatch.isSpam === false };
-}
-
-/** Resolve the thread a new tenant message belongs to. */
-async function resolveTenantThread(
-  tenantDb: TenantDbHandle,
-  account: RecipientAccount,
-  email: ParsedEmail,
-  isReply: boolean,
-): Promise<ThreadMatch> {
-  // No threading headers. A "Re: ..." from a sender that never set them
-  // (some helpdesk and CRM mailers) still belongs to the conversation it
-  // answers, when we hold that conversation and the sender took part in it.
-  if (!isReply) {
-    if (hasReplyPrefix(email.subject) && bareSubject(email.subject)) {
-      const bySubject = await findThreadBySubject(tenantDb, account, email, { requireParticipant: true });
-      if (bySubject) {
-        console.log(`[Store] Found existing thread ${bySubject.threadId} for reply without headers (by subject)`);
-        return bySubject;
-      }
-    }
-    // New standalone message
-    return { threadId: email.messageId, isExistingHamThread: false };
-  }
-
-  // Look up existing messages by inReplyTo or references to find the thread
-  const byIds = await findThreadByReplyIds(tenantDb, account, email);
-  if (byIds) {
-    console.log(`[Store] Found existing thread ${byIds.threadId} for reply (by messageId)`);
-    return byIds;
-  }
-
-  const bySubject = await findThreadBySubject(tenantDb, account, email);
-  if (bySubject) {
-    console.log(`[Store] Found existing thread ${bySubject.threadId} for reply (by subject)`);
-    return bySubject;
-  }
-
-  return {
-    threadId: computeThreadId({
-      messageId: email.messageId,
-      inReplyTo: email.inReplyTo,
-      references: email.references,
-    }),
-    isExistingHamThread: false,
-  };
-}
-
 /**
  * Write a workspace message's raw RFC 5322 bytes to R2
  * (`mail/<workspaceId>/<accountId>/<messageId>/raw.eml`), never to the
@@ -815,16 +659,78 @@ export async function storeRawMimeToR2(
 }
 
 /**
- * Store email in tenant database
+ * Store parsed attachments to R2 and build their `IngestMessage.attachments`
+ * rows, plus the CID → URL map for inline image rewriting — all BEFORE the
+ * message itself is ingested (design task D4, §1: "R2 first; attachment rows
+ * inside ingest; no post-insert UPDATE"). A per-attachment failure is logged
+ * and skipped, never blocking the rest or the message store — mirrors the
+ * old two-phase `storeInboundAttachments`'s per-attachment try/catch.
+ */
+async function buildWorkspaceAttachmentInputs(
+  env: Env,
+  workspaceId: string,
+  dbMessageId: string,
+  attachments: ParsedAttachment[],
+): Promise<{ attachmentInputs: Array<AttachmentInput & { id: string }>; cidMap: Map<string, string> }> {
+  const cidMap = new Map<string, string>();
+  const attachmentInputs: Array<AttachmentInput & { id: string }> = [];
+  const r2PublicUrl = env.R2_PUBLIC_URL || '';
+
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i]!;
+
+    try {
+      const contentType = att.contentType || 'application/octet-stream';
+      const sanitizedName = att.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
+      const r2Key = `workspaces/${workspaceId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
+
+      await env.STORAGE.put(r2Key, att.content, { httpMetadata: { contentType } });
+
+      const downloadUrl = r2PublicUrl ? `${r2PublicUrl}/${r2Key}` : '';
+      const attachId = generateId('attach');
+
+      attachmentInputs.push({
+        id: attachId,
+        messageId: dbMessageId,
+        fileName: att.fileName,
+        contentType,
+        size: att.content.length,
+        storagePath: r2Key,
+        downloadUrl,
+        isInline: att.disposition === 'inline',
+      });
+
+      if (att.contentId && downloadUrl) {
+        // Strip angle brackets from contentId if present (e.g. "<image001>" → "image001")
+        const cid = att.contentId.replace(/^</, '').replace(/>$/, '');
+        cidMap.set(cid, downloadUrl);
+      }
+
+      console.log(`[Store] Saved attachment ${attachId} (${att.fileName}, ${att.content.length} bytes) → ${r2Key}`);
+    } catch (attErr) {
+      console.error(`[Store] Failed to store attachment ${i + 1} (${att.fileName}):`, attErr);
+    }
+  }
+
+  return { attachmentInputs, cidMap };
+}
+
+/**
+ * Store email in the workspace mailbox store, or the personal tenant database.
  * @param env - Worker environment bindings
  * @param account - Recipient account info
  * @param email - Parsed email to store
+ * @param mailbox - This account's mailbox store (design task D4), resolved by
+ *   the caller through `getWorkspaceMail` so it is reused for the later
+ *   `inbound.finalize` call too. `null`/unused for a personal account.
  */
 export async function storeEmail(
   env: Env,
   account: RecipientAccount,
   email: ParsedEmail,
   attachmentNames: string[] = [],
+  attachments: ParsedAttachment[] | undefined,
+  mailbox: MailboxStore | null,
 ): Promise<StoreEmailResult | null> {
   if (account.tenantKind === 'personal') {
     return storePersonalEmail(env, account, email, attachmentNames);
@@ -835,21 +741,30 @@ export async function storeEmail(
       console.error('[Store] Missing workspaceId for workspace mail');
       return null;
     }
-    // Get the workspace-specific database
-    const tenantDb = await getTenantDbForWorkspaceById(env, account.workspaceId);
+    if (!mailbox) {
+      console.error(`[Store] No mailbox store resolved for workspace ${account.workspaceId}`);
+      return null;
+    }
 
-    // Deduplication: skip if this messageId already exists for this account
-    if (await isTenantDuplicate(tenantDb, account, email)) {
+    // Thread resolution + duplicate detection, through the store (design
+    // task D4: `resolveInbound`, ported verbatim from this file's old
+    // `isTenantDuplicate` + `resolveTenantThread`).
+    const isReply = Boolean(email.inReplyTo || (email.references && email.references.length > 0));
+    const { duplicate, threadId, isExistingHamThread } = await mailbox.resolveInbound({
+      rfcMessageId: email.messageId,
+      inReplyTo: email.inReplyTo,
+      references: email.references,
+      subject: email.subject,
+      fromEmail: email.from?.email,
+      isReply,
+    });
+    if (duplicate) {
       console.log(`[Store] Duplicate skipped: messageId=${email.messageId} already exists for account ${account.accountId}`);
       return null;
     }
 
     // Generate message ID
     const dbMessageId = `msg_${nanoid()}`;
-
-    // Check if this is a reply to an existing message in the DB
-    const isReply = Boolean(email.inReplyTo || (email.references && email.references.length > 0));
-    const { threadId, isExistingHamThread } = await resolveTenantThread(tenantDb, account, email, isReply);
 
     const { spam, isPromotion } = scoreAndClassify(
       account,
@@ -859,61 +774,114 @@ export async function storeEmail(
       '',
     );
 
-    // Insert message
-    await tenantDb.insert(tenantSchema.mailMessages).values({
-      id: dbMessageId,
-      accountId: account.accountId,
-      messageId: email.messageId,
-      threadId,
-      subject: email.subject,
-      from: email.from,
-      to: email.to,
-      cc: email.cc,
-      textBody: email.textBody,
-      htmlBody: email.htmlBody,
-      preview: email.textBody?.substring(0, 200) || email.subject,
-      sentDate: email.receivedAt,
-      receivedDate: new Date(),
-      isRead: false,
-      isSpam: spam.isSpam,
-      hasAttachments: email.hasAttachments,
-      attachmentCount: email.attachmentCount,
-      inReplyTo: email.inReplyTo,
-      references: email.references || [],
-      isReply,
-      labels: inboundLabels(spam.isSpam, isPromotion),
-      source: 'inbound',
-      spfStatus: email.spfStatus,
-      dkimStatus: email.dkimStatus,
-      dmarcStatus: email.dmarcStatus,
-      rawMessage: email.rawMessage,
-    });
-
-    console.log(`[Store] Saved email ${dbMessageId} (thread ${threadId}) for account ${account.accountId}`);
-
-    // Raw MIME to R2, every mode (ham or spam) — never the Postgres
-    // raw_message column (docs/plans/weldmail-mailbox-store-design.md
-    // decision 4).
-    await storeRawMimeToR2(
-      env,
-      { workspaceId: account.workspaceId, accountId: account.accountId, messageId: dbMessageId },
-      email.rawMessageBytes,
-    );
-
-    // Track the mailing list behind this message for the Subscriptions page.
-    if (!spam.isSpam) {
-      try {
-        await upsertMailSubscription(tenantDb, account.accountId, email);
-      } catch (subErr) {
-        console.error(`[Store] Failed to upsert subscription for ${dbMessageId}:`, subErr);
+    // Attachments to R2 + the CID rewrite BEFORE ingest, so the message row
+    // and its attachments land in one op with no follow-up UPDATE.
+    let htmlBody = email.htmlBody;
+    let attachmentInputs: Array<AttachmentInput & { id: string }> = [];
+    if (email.hasAttachments && attachments && attachments.length > 0 && env.STORAGE) {
+      const built = await buildWorkspaceAttachmentInputs(env, account.workspaceId, dbMessageId, attachments);
+      attachmentInputs = built.attachmentInputs;
+      const rewrittenHtml = rewriteCidReferences(email.htmlBody, built.cidMap);
+      if (rewrittenHtml) {
+        htmlBody = rewrittenHtml;
+        console.log(`[Store] Rewrote ${built.cidMap.size} inline CID reference(s) in HTML body for ${dbMessageId}`);
       }
     }
 
-    return { messageId: dbMessageId, threadId, isSpam: spam.isSpam, isPromotion };
+    const message: IngestMessage = {
+      id: dbMessageId,
+      source: 'inbound',
+      rfcMessageId: email.messageId,
+      threadId,
+      from: email.from,
+      to: email.to,
+      cc: email.cc,
+      subject: email.subject,
+      preview: email.textBody?.substring(0, 200) || email.subject,
+      sentAt: email.receivedAt.getTime(),
+      receivedAt: Date.now(),
+      createdAt: Date.now(),
+      isRead: false,
+      labels: inboundLabels(spam.isSpam, isPromotion),
+      isSpam: spam.isSpam,
+      inReplyTo: email.inReplyTo ?? null,
+      references: email.references || [],
+      isReply,
+      spfStatus: email.spfStatus ?? null,
+      dkimStatus: email.dkimStatus ?? null,
+      dmarcStatus: email.dmarcStatus ?? null,
+      // Worker-side only (never sent over RPC): the Postgres store writes
+      // these straight to `textBody`/`htmlBody`; the object store puts them
+      // to `MAIL_STORAGE` itself and derives `searchText` from them — this
+      // file never writes a mail body to R2 directly (design task D4).
+      content: { html: htmlBody, text: email.textBody },
+      attachments: attachmentInputs,
+      // Track the mailing list behind this message for the Subscriptions
+      // page — folded into the ingest op instead of a separate upsert.
+      subscription: spam.isSpam ? null : (subscriptionValuesFromEmail(email) ?? null),
+    };
+
+    const result = await mailbox.apply({ kind: 'ingest', message });
+    if (result.ingest?.duplicateOf) {
+      // The store's own race guard: another delivery of the same RFC
+      // Message-ID won the insert between our `resolveInbound` read and this
+      // write (at-least-once email delivery).
+      console.log(`[Store] Duplicate skipped (race): messageId=${email.messageId} already exists for account ${account.accountId}`);
+      return null;
+    }
+    const finalMessageId = result.ingest?.id ?? dbMessageId;
+    const finalThreadId = result.ingest?.threadKey ?? threadId;
+
+    console.log(`[Store] Saved email ${finalMessageId} (thread ${finalThreadId}) for account ${account.accountId}`);
+
+    // Raw MIME to R2, every mode (ham or spam) — never the Postgres
+    // raw_message column (docs/plans/weldmail-mailbox-store-design.md
+    // decision 4). The store never writes this; it stays this file's job.
+    await storeRawMimeToR2(
+      env,
+      { workspaceId: account.workspaceId, accountId: account.accountId, messageId: finalMessageId },
+      email.rawMessageBytes,
+    );
+
+    return { messageId: finalMessageId, threadId: finalThreadId, isSpam: spam.isSpam, isPromotion };
   } catch (error) {
     console.error(`[Store] Failed to store email:`, error);
     return null;
   }
+}
+
+/**
+ * This worker's synthetic `MailPrincipal` for `getWorkspaceMail` (design task
+ * D4): the inbound pipeline is a system actor, not a signed-in member, and
+ * never reads `WorkspaceMail.access` (only `.store`), so any workspace-kind
+ * principal satisfies the type — `keyId` is just a label here.
+ */
+const INBOUND_WORKER_PRINCIPAL = { kind: 'workspace' as const, keyId: 'mail-inbound-worker' };
+
+/**
+ * Resolve this account's mailbox store (design task D4), or `null` for a
+ * personal account (out of scope) or a workspace account missing the ids
+ * `getWorkspaceMail` needs. `ctx.waitUntil` carries the router's dual-write
+ * to the object past this invocation's return (shadow/object modes).
+ */
+async function resolveMailbox(
+  env: Env,
+  account: RecipientAccount,
+  ctx: Pick<ExecutionContext, 'waitUntil'>,
+): Promise<MailboxStore | null> {
+  if (account.tenantKind !== 'workspace' || !account.workspaceId) return null;
+  const tenantDb = await getTenantDbForWorkspaceById(env, account.workspaceId);
+  const workspaceMail = await getWorkspaceMail(env, {
+    workspaceId: account.workspaceId,
+    // A workspace missing its Clerk org id is a data anomaly, not a reason to
+    // drop the message (today's code stores it regardless) — `MailAccess`
+    // (unused here) is the only thing that would ever read this back.
+    clerkOrgId: account.clerkOrgId ?? '',
+    db: tenantDb,
+    principal: INBOUND_WORKER_PRINCIPAL,
+    waitUntil: (p) => ctx.waitUntil(p),
+  });
+  return workspaceMail.store.mailbox(account.accountId);
 }
 
 /**
@@ -924,7 +892,8 @@ export async function storeEmail(
 export async function processInboundEmail(
   env: Env,
   email: ParsedEmail,
-  attachments?: ParsedAttachment[],
+  attachments: ParsedAttachment[] | undefined,
+  ctx: Pick<ExecutionContext, 'waitUntil'>,
 ): Promise<{ stored: number; notified: number; recipients: number }> {
   // Match on the envelope recipient + To/Cc so CC- and BCC-only recipients
   // still resolve to their account (see collectRecipientEmails).
@@ -941,7 +910,8 @@ export async function processInboundEmail(
   let notified = 0;
 
   for (const account of accounts) {
-    const result = await storeEmail(env, account, email, attachmentNames);
+    const mailbox = await resolveMailbox(env, account, ctx);
+    const result = await storeEmail(env, account, email, attachmentNames, attachments, mailbox);
     if (!result) continue;
     stored++;
 
@@ -952,38 +922,14 @@ export async function processInboundEmail(
       continue;
     }
 
-    notified += await finishWorkspaceDelivery(env, account, email, attachments, result, preview);
+    // Non-null: `storeEmail` returns null before this point for a workspace
+    // account whose `mailbox` came back null (the guard right above its
+    // `resolveInbound` call), so a non-null `result` here implies a non-null
+    // `mailbox` too.
+    notified += await finishWorkspaceDelivery(env, account, email, attachments, result, preview, mailbox!);
   }
 
   return { stored, notified, recipients: accounts.length };
-}
-
-/** Store attachments to R2 + DB and rewrite inline cid: references. Best-effort. */
-async function storeWorkspaceAttachments(
-  env: Env,
-  workspaceId: string,
-  email: ParsedEmail,
-  attachments: ParsedAttachment[] | undefined,
-  result: StoreEmailResult,
-): Promise<void> {
-  if (!email.hasAttachments || !attachments || attachments.length === 0 || !env.STORAGE) return;
-
-  try {
-    const cidMap = await storeInboundAttachments(env, workspaceId, result.messageId, attachments);
-
-    // Rewrite cid: references in HTML body to point to R2 URLs
-    const rewrittenHtml = rewriteCidReferences(email.htmlBody, cidMap);
-    if (rewrittenHtml) {
-      const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
-      await tenantDb
-        .update(tenantSchema.mailMessages)
-        .set({ htmlBody: rewrittenHtml })
-        .where(eq(tenantSchema.mailMessages.id, result.messageId));
-      console.log(`[Store] Rewrote ${cidMap.size} inline CID reference(s) in HTML body for ${result.messageId}`);
-    }
-  } catch (attachErr) {
-    console.error(`[Store] Failed to store attachments for ${result.messageId}:`, attachErr);
-  }
 }
 
 /** Realtime payload shared by the hub event and the per-member notifications. */
@@ -1108,17 +1054,19 @@ async function notifyWorkspaceMember(
 }
 
 /**
- * Post-store steps for a WORKSPACE mailbox: attachments, AI classification +
- * rules, contact upsert, then realtime + push notification per eligible member.
- * Returns how many members were notified in-app.
+ * Post-store steps for a WORKSPACE mailbox: AI classification + rules,
+ * contact upsert, then realtime + push notification per eligible member.
+ * Attachments are stored before ingest now (`storeEmail`), not here. Returns
+ * how many members were notified in-app.
  */
-async function finishWorkspaceDelivery(
+export async function finishWorkspaceDelivery(
   env: Env,
   account: RecipientAccount,
   email: ParsedEmail,
   attachments: ParsedAttachment[] | undefined,
   stored: StoreEmailResult,
   preview: string,
+  mailbox: MailboxStore,
 ): Promise<number> {
   let result = stored;
   const workspaceId = account.workspaceId;
@@ -1128,13 +1076,20 @@ async function finishWorkspaceDelivery(
     return 0;
   }
 
-  await storeWorkspaceAttachments(env, workspaceId, email, attachments, result);
-
-  // Run Jev multi-label auto-labeling + mail rules (non-blocking). A rule
-  // that sends the message to Spam (e.g. a blocked sender) makes it spam for
-  // the notifications below too, so no bell row or push goes out.
+  // Run Jev multi-label auto-labeling + mail rules (non-blocking), folded
+  // into one `inbound.finalize` op (design task D4) instead of each phase
+  // writing the message row directly. A rule that sends the message to Spam
+  // (e.g. a blocked sender) makes it spam for the notifications below too, so
+  // no bell row or push goes out.
   try {
-    const markedSpam = await classifyAndRunRules(env, account, workspaceId, result.messageId, email);
+    const initialState: RuleMessageState = {
+      labels: inboundLabels(result.isSpam, result.isPromotion ?? false),
+      isRead: false,
+      isFlagged: false,
+      isSpam: result.isSpam,
+      deleted: false,
+    };
+    const markedSpam = await classifyAndRunRules(env, mailbox, account, workspaceId, result.messageId, email, initialState);
     if (markedSpam) result = { ...result, isSpam: true, isPromotion: false };
   } catch (classifyErr) {
     console.error(`[Store] AI classify/rules failed for ${result.messageId}:`, classifyErr);
@@ -1159,11 +1114,19 @@ async function finishWorkspaceDelivery(
   // reaches the whole workspace, so it carries content for a shared mailbox
   // only; for a private one, subject + preview travel on the per-member
   // mail:new below and nowhere else.
+  //
+  // In `object`/`object-only` mode the mailbox object's own outbox already
+  // publishes `email:created` from the ingest it just ran as primary
+  // (design task D4) — publishing here too would duplicate it. `postgres`
+  // (and `shadow`, where Postgres is still primary) keep today's direct
+  // publish; `mailbox.backend` is exactly the router's own primary choice.
   const inboundPayload = buildInboundPayload(account, email, result, preview);
-  try {
-    await publishInboundEmailCreated(env, clerkOrgId, inboundPayload, account.isShared);
-  } catch (hubErr) {
-    console.error(`[Mail] Failed to publish hub email:created for ${result.messageId}:`, hubErr);
+  if (mailbox.backend !== 'object') {
+    try {
+      await publishInboundEmailCreated(env, clerkOrgId, inboundPayload, account.isShared);
+    } catch (hubErr) {
+      console.error(`[Mail] Failed to publish hub email:created for ${result.messageId}:`, hubErr);
+    }
   }
 
   // Send real-time + push notifications to all workspace members.
@@ -1304,30 +1267,10 @@ function rewriteCidReferences(
 }
 
 /**
- * Record (or refresh) the mailing list a message came from, keyed by the
- * lower-cased sender address. No-op when the message has no usable
- * List-Unsubscribe header. An `unsubscribed` status is kept as-is so the
- * page can show that a sender is still mailing after an unsubscribe.
+ * Personal-mailbox twin of the workspace subscription upsert (now folded
+ * into `storeEmail`'s ingest op, design task D4; the personal path is out of
+ * scope and still writes `personal_mail_subscriptions` directly).
  */
-async function upsertMailSubscription(
-  tenantDb: Awaited<ReturnType<typeof getTenantDbForWorkspaceById>>,
-  accountId: string,
-  email: ParsedEmail,
-): Promise<void> {
-  const values = subscriptionValuesFromEmail(email);
-  if (!values) return;
-  const { mailSubscriptions: table } = tenantSchema;
-
-  await tenantDb
-    .insert(table)
-    .values({ id: generateId('msub'), accountId, ...values })
-    .onConflictDoUpdate({
-      target: [table.accountId, table.senderEmail],
-      set: subscriptionConflictSet(table, values),
-    });
-}
-
-/** Personal-mailbox twin of `upsertMailSubscription`. */
 async function upsertPersonalMailSubscription(
   personalDb: ReturnType<typeof getPersonalDb>,
   personalAccountId: string,
@@ -1391,50 +1334,6 @@ function subscriptionConflictSet(
   };
 }
 
-type RuleCondition = { field: string; operator: string; value: string };
-type RuleAction = { type: string; labelId?: string; value?: string };
-
-/**
- * Load the AI-enabled labels worth evaluating for this message (described and
- * not already applied). Returns null when the message no longer exists.
- */
-async function loadAiLabelCandidates(
-  tenantDb: TenantDbHandle,
-  accountId: string,
-  messageId: string,
-): Promise<AiLabelCandidate[] | null> {
-  const { mailMessages, mailLabels } = tenantSchema;
-
-  const aiLabels = await tenantDb
-    .select()
-    .from(mailLabels)
-    .where(
-      and(
-        eq(mailLabels.accountId, accountId),
-        eq(mailLabels.aiEnabled, true),
-        isNull(mailLabels.deletedAt)
-      )
-    );
-
-  const [message] = await tenantDb
-    .select()
-    .from(mailMessages)
-    .where(eq(mailMessages.id, messageId))
-    .limit(1);
-
-  if (!message) return null;
-
-  const currentLabels = (message.labels as string[]) || [];
-  return aiLabels
-    .filter((l) => l.aiDescription && !currentLabels.includes(l.name))
-    .map((l) => ({
-      id: l.id,
-      name: l.name,
-      aiDescription: l.aiDescription as string,
-      aiConfidence: l.aiConfidence,
-    }));
-}
-
 /** Record the Jev infra cost (ops only — the workspace wallet is not charged). */
 async function recordJevUsage(
   env: Env,
@@ -1472,64 +1371,23 @@ async function recordJevUsage(
   }
 }
 
-/** Merge the matched labels into the message and bump each label's counter. */
-async function applyMatchedLabels(
-  tenantDb: TenantDbHandle,
-  messageId: string,
-  candidates: AiLabelCandidate[],
-  matchedLabels: string[],
-): Promise<void> {
-  const { mailMessages, mailLabels } = tenantSchema;
-
-  const [fresh] = await tenantDb
-    .select({ labels: mailMessages.labels })
-    .from(mailMessages)
-    .where(eq(mailMessages.id, messageId))
-    .limit(1);
-
-  const freshLabels = (fresh?.labels as string[]) || [];
-  const newLabels = [...new Set([...freshLabels, ...matchedLabels])];
-
-  await tenantDb
-    .update(mailMessages)
-    .set({ labels: newLabels, updatedAt: new Date() })
-    .where(eq(mailMessages.id, messageId));
-
-  await Promise.all(
-    candidates
-      .filter((l) => matchedLabels.includes(l.name))
-      .map((label) =>
-        tenantDb
-          .update(mailLabels)
-          .set({
-            messageCount: sql`${mailLabels.messageCount} + 1`,
-            updatedAt: new Date(),
-          })
-          .where(eq(mailLabels.id, label.id)),
-      ),
-  );
-
-  console.log(
-    `[Store] Applied Jev labels [${matchedLabels.join(', ')}] to message ${messageId}`,
-  );
-}
-
-/** Phase 1: Jev multi-label classification. Failures are logged, never thrown. */
-async function applyJevAutoLabels(
+/**
+ * Phase 1: Jev multi-label classification. Returns the labels that matched —
+ * never throws, failures are logged and treated as "no match" (mirrors the
+ * old `applyJevAutoLabels`, which also swallowed every error).
+ */
+async function runJevAutoLabel(
   env: Env,
-  tenantDb: TenantDbHandle,
   workspaceId: string,
   messageId: string,
   email: ParsedEmail,
   candidates: AiLabelCandidate[],
-): Promise<void> {
-  if (candidates.length === 0) return;
-
+): Promise<string[]> {
   if (!isEvaluateConfigured(env, JEV_MODEL_ID)) {
     console.warn(
       `[Store] Workers AI not configured — skipping Jev auto-label for ${messageId}`,
     );
-    return;
+    return [];
   }
 
   try {
@@ -1550,131 +1408,116 @@ async function applyJevAutoLabels(
       },
     );
 
-    const matchedLabels = matchedLabelsFromJevAnswers(candidates, result.answers);
-    if (matchedLabels.length > 0) {
-      await applyMatchedLabels(tenantDb, messageId, candidates, matchedLabels);
-    }
+    return matchedLabelsFromJevAnswers(candidates, result.answers);
   } catch (aiErr) {
     console.error(
       `[Store] Jev auto-label failed for ${messageId}: ${aiErr instanceof Error ? aiErr.message : String(aiErr)}`,
       aiErr,
     );
+    return [];
   }
 }
 
-/** Whether a mail rule applies to an inbound message (scope, folders, conditions). */
-function inboundRuleMatches(
-  rule: typeof tenantSchema.mailRules.$inferSelect,
-  message: { labels: unknown },
-): boolean {
-  // Inbound emails only match 'incoming' or 'all'
-  if (rule.scope === 'outgoing') return false;
-
-  // Check folder restrictions
-  const folders = rule.folders as string[] | null;
-  if (folders && folders.length > 0) {
-    const msgLabels = (message.labels as string[]) || [];
-    if (!folders.some((f: string) => msgLabels.includes(f))) return false;
-  }
-
-  // Evaluate conditions
-  const conditions = (rule.conditions || []) as RuleCondition[];
-  const matchType = (rule.matchType as string) || 'all';
-  if (conditions.length === 0) return false;
-
-  return matchType === 'all'
-    ? conditions.every((c) => evalRuleCondition(message, c))
-    : conditions.some((c) => evalRuleCondition(message, c));
-}
-
-/** Execute a rule's actions: how many were applied, and whether one sent the message to Spam. */
-async function executeRuleActions(
-  tenantDb: TenantDbHandle,
-  messageId: string,
-  actions: RuleAction[],
-): Promise<{ actionsApplied: number; markedSpam: boolean }> {
-  let actionsApplied = 0;
-  let markedSpam = false;
-  for (const action of actions) {
-    try {
-      const applied = await executeRuleAction(tenantDb, messageId, action);
-      if (!applied) continue;
-      actionsApplied++;
-      if (action.type === 'mark_as_spam') markedSpam = true;
-    } catch (actionErr) {
-      console.error(`[Rules] Action ${action.type} failed:`, actionErr);
-    }
-  }
-  return { actionsApplied, markedSpam };
-}
+/** One mail rule, enough of its row for matching + actions + the stats bump. */
+type MailRuleRow = typeof tenantSchema.mailRules.$inferSelect;
 
 /**
- * Phase 2: run the account's active mail rules against the stored message.
- * Returns true when a `mark_as_spam` action moved it to Spam.
+ * `mail_rules.conditions`'s schema type (`@weldsuite/db/schema/mail-rules`)
+ * allows `value: string | string[]`; every condition `evalRuleCondition`
+ * (`@weldsuite/mail-domain/store/model`) actually evaluates reads `value` as
+ * a plain string (`v.toLowerCase()`, `Number(v)`, …) — the old local copy of
+ * this evaluator made the same assumption, via an unchecked `as` cast. This
+ * coerces a `string[]` the same way `Array#join` would stringify it, instead
+ * of silencing the mismatch with a cast.
  */
-async function runMailRules(
-  tenantDb: TenantDbHandle,
-  accountId: string,
-  messageId: string,
-): Promise<boolean> {
-  const { mailMessages, mailRules } = tenantSchema;
-  let markedSpam = false;
-
-  try {
-    // Re-read message with latest labels
-    const [updatedMessage] = await tenantDb
-      .select()
-      .from(mailMessages)
-      .where(eq(mailMessages.id, messageId))
-      .limit(1);
-
-    if (!updatedMessage) return false;
-
-    const rules = await tenantDb
-      .select()
-      .from(mailRules)
-      .where(
-        and(
-          eq(mailRules.accountId, accountId),
-          eq(mailRules.isActive, true),
-          isNull(mailRules.deletedAt)
-        )
-      )
-      .orderBy(desc(mailRules.priority));
-
-    for (const rule of rules) {
-      if (!inboundRuleMatches(rule, updatedMessage)) continue;
-
-      const outcome = await executeRuleActions(
-        tenantDb,
-        messageId,
-        (rule.actions || []) as RuleAction[],
-      );
-      const { actionsApplied } = outcome;
-      if (actionsApplied === 0) continue;
-      if (outcome.markedSpam) markedSpam = true;
-
-      await tenantDb
-        .update(mailRules)
-        .set({
-          appliedCount: sql`${mailRules.appliedCount} + 1`,
-          lastAppliedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(mailRules.id, rule.id));
-
-      console.log(`[Rules] Applied rule "${rule.name}" (${actionsApplied} actions) to ${messageId}`);
-
-      if (rule.stopProcessing) break;
-    }
-  } catch (ruleErr) {
-    console.error(`[Rules] Rule execution failed for ${messageId}:`, ruleErr);
-  }
-  return markedSpam;
+function inboundRuleMatchInput(rule: MailRuleRow) {
+  return {
+    scope: rule.scope,
+    folders: rule.folders,
+    matchType: rule.matchType,
+    conditions: rule.conditions.map((c) => ({
+      field: c.field,
+      operator: c.operator,
+      value: Array.isArray(c.value) ? c.value.join(',') : c.value,
+    })),
+  };
 }
 
 /**
- * Apply Jev multi-label auto-labeling, then run user mail rules.
+ * Fold the account's active mail rules into `state`, starting from the
+ * snapshot `state` already carries. Matching uses ONE fixed message view for
+ * every rule — the email's own headers/body plus `state.labels` as they stand
+ * right after AI labeling — mirroring the old `runMailRules`'s single
+ * `updatedMessage` read before its rule loop; actions apply cumulatively,
+ * mirroring the read-modify-write each matched rule's actions made to the row
+ * in sequence. Pure except for the per-rule Postgres stats bump
+ * (`mailRules.appliedCount`/`lastAppliedAt`, design task D4, §1: "rule
+ * stats P" — rule definitions and their stats never move into the store).
+ *
+ * Returns the final state and whether any rule moved the message to Spam.
+ */
+export async function applyMailRules(
+  tenantDb: TenantDbHandle,
+  rules: MailRuleRow[],
+  email: ParsedEmail,
+  messageId: string,
+  state: RuleMessageState,
+): Promise<{ state: RuleMessageState; markedSpam: boolean }> {
+  const matchBase = {
+    from: email.from,
+    to: email.to,
+    cc: email.cc,
+    subject: email.subject,
+    textBody: email.textBody,
+    htmlBody: email.htmlBody,
+    hasAttachments: email.hasAttachments,
+    // Never set at ingest (see `storeEmail`'s `IngestMessage`), so a rule's
+    // `size`/`priority` condition always evaluates against these defaults,
+    // exactly as it does against the stored row's own unset columns today.
+    sizeBytes: null,
+    priority: null,
+  };
+
+  // Matching reads this fixed snapshot for every rule, `isSpam` included —
+  // a prior rule's `mark_as_spam` action (folded into `next` below) never
+  // changes what a LATER rule's `is_spam` condition sees, exactly like the
+  // old code's one `updatedMessage` read before its whole rule loop.
+  const matchMessage = { ...matchBase, isSpam: state.isSpam, labels: state.labels };
+
+  let next = state;
+  let markedSpam = false;
+  for (const rule of rules) {
+    if (!inboundRuleMatches(inboundRuleMatchInput(rule), matchMessage)) continue;
+
+    const outcome = applyRuleActions(next, rule.actions ?? []);
+    if (outcome.actionsApplied === 0) continue;
+    next = outcome.state;
+    if (outcome.markedSpam) markedSpam = true;
+
+    await tenantDb
+      .update(tenantSchema.mailRules)
+      .set({
+        appliedCount: sql`${tenantSchema.mailRules.appliedCount} + 1`,
+        lastAppliedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(tenantSchema.mailRules.id, rule.id));
+
+    console.log(`[Rules] Applied rule "${rule.name}" (${outcome.actionsApplied} actions) to ${messageId}`);
+
+    if (rule.stopProcessing) break;
+  }
+  return { state: next, markedSpam };
+}
+
+/**
+ * Apply Jev multi-label auto-labeling, then the account's active mail rules —
+ * both folded into one `inbound.finalize` op (design task D4, §1: "pure rule
+ * evaluation → S op inbound.finalize") instead of each phase writing the
+ * message row directly. Label and rule *definitions*, and the rules' own
+ * applied-count stats, stay on Postgres in every store mode — only the
+ * message's own state (labels/isRead/isFlagged/isSpam/deleted) moves through
+ * the mailbox store, and only when something actually changed.
  *
  * Keywords are no longer used — every AI-enabled label with an `aiDescription`
  * is evaluated as a noul question via TypeSafe Jev (`typesafe/jev`) through
@@ -1685,237 +1528,64 @@ async function runMailRules(
  */
 async function classifyAndRunRules(
   env: Env,
+  mailbox: MailboxStore,
   account: RecipientAccount,
   workspaceId: string,
   messageId: string,
   email: ParsedEmail,
+  initialState: RuleMessageState,
 ): Promise<boolean> {
   const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
+  const { mailLabels, mailRules } = tenantSchema;
 
   // ---- Phase 1: Jev multi-label classification ----
-  const candidates = await loadAiLabelCandidates(tenantDb, account.accountId, messageId);
-  if (!candidates) return false;
-  await applyJevAutoLabels(env, tenantDb, workspaceId, messageId, email, candidates);
+  const aiLabels = await tenantDb
+    .select()
+    .from(mailLabels)
+    .where(and(eq(mailLabels.accountId, account.accountId), eq(mailLabels.aiEnabled, true), isNull(mailLabels.deletedAt)));
+
+  const candidates: AiLabelCandidate[] = aiLabels
+    .filter((l) => l.aiDescription && !initialState.labels.includes(l.name))
+    .map((l) => ({ id: l.id, name: l.name, aiDescription: l.aiDescription as string, aiConfidence: l.aiConfidence }));
+
+  let state = initialState;
+  if (candidates.length > 0) {
+    const matchedLabels = await runJevAutoLabel(env, workspaceId, messageId, email, candidates);
+    if (matchedLabels.length > 0) {
+      state = { ...state, labels: [...new Set([...state.labels, ...matchedLabels])] };
+      console.log(`[Store] Applied Jev labels [${matchedLabels.join(', ')}] to message ${messageId}`);
+    }
+  }
 
   // ---- Phase 2: Mail Rules ----
-  return runMailRules(tenantDb, account.accountId, messageId);
-}
+  let markedSpam = false;
+  try {
+    const rules = await tenantDb
+      .select()
+      .from(mailRules)
+      .where(and(eq(mailRules.accountId, account.accountId), eq(mailRules.isActive, true), isNull(mailRules.deletedAt)))
+      .orderBy(desc(mailRules.priority));
 
-/** Evaluate a single rule condition against a message */
-function evalRuleCondition(
-  message: any,
-  condition: { field: string; operator: string; value: string },
-): boolean {
-  let fieldValue: any;
-  switch (condition.field) {
-    case 'from': {
-      const from = message.from as { email?: string } | null;
-      fieldValue = from?.email || '';
-      break;
-    }
-    case 'to': {
-      const to = message.to as Array<{ email?: string }> | null;
-      fieldValue = to?.map((t: any) => t.email).join(', ') || '';
-      break;
-    }
-    case 'cc': {
-      const cc = message.cc as Array<{ email?: string }> | null;
-      fieldValue = cc?.map((c: any) => c.email).join(', ') || '';
-      break;
-    }
-    case 'subject':
-      fieldValue = message.subject || '';
-      break;
-    case 'body':
-      fieldValue = message.textBody || message.htmlBody || '';
-      break;
-    case 'has_attachment':
-      fieldValue = message.hasAttachments;
-      break;
-    case 'size':
-      fieldValue = message.sizeBytes || 0;
-      break;
-    case 'is_spam':
-      fieldValue = message.isSpam;
-      break;
-    case 'priority':
-      fieldValue = message.priority || 'normal';
-      break;
-    default:
-      return false;
+    const outcome = await applyMailRules(tenantDb, rules, email, messageId, state);
+    state = outcome.state;
+    markedSpam = outcome.markedSpam;
+  } catch (ruleErr) {
+    console.error(`[Rules] Rule execution failed for ${messageId}:`, ruleErr);
   }
 
-  const v = condition.value;
-  switch (condition.operator) {
-    case 'contains':
-      return typeof fieldValue === 'string' && fieldValue.toLowerCase().includes(v.toLowerCase());
-    case 'not_contains':
-      return typeof fieldValue === 'string' && !fieldValue.toLowerCase().includes(v.toLowerCase());
-    case 'equals':
-      return typeof fieldValue === 'string' ? fieldValue.toLowerCase() === v.toLowerCase() : String(fieldValue) === v;
-    case 'not_equals':
-      return typeof fieldValue === 'string' ? fieldValue.toLowerCase() !== v.toLowerCase() : String(fieldValue) !== v;
-    case 'starts_with':
-      return typeof fieldValue === 'string' && fieldValue.toLowerCase().startsWith(v.toLowerCase());
-    case 'ends_with':
-      return typeof fieldValue === 'string' && fieldValue.toLowerCase().endsWith(v.toLowerCase());
-    case 'greater_than':
-      return !Number.isNaN(Number(fieldValue)) && !Number.isNaN(Number(v)) && Number(fieldValue) > Number(v);
-    case 'less_than':
-      return !Number.isNaN(Number(fieldValue)) && !Number.isNaN(Number(v)) && Number(fieldValue) < Number(v);
-    case 'is_true':
-      return fieldValue === true || fieldValue === 'true';
-    case 'is_false':
-      return fieldValue === false || fieldValue === 'false';
-    default:
-      return false;
-  }
-}
-
-type MailMessageUpdate = Partial<typeof tenantSchema.mailMessages.$inferInsert>;
-
-/** Rule actions that set plain columns on the message. */
-const SIMPLE_RULE_ACTIONS = new Map<string, () => MailMessageUpdate>([
-  ['delete', () => ({ deletedAt: new Date() })],
-  ['mark_as_read', () => ({ isRead: true })],
-  ['mark_as_unread', () => ({ isRead: false })],
-  ['flag', () => ({ isFlagged: true })],
-]);
-
-/**
- * Rule actions that rewrite the message's label list. `apply` returns the new
- * labels, or `null` when nothing needs to change.
- */
-const LABEL_RULE_ACTIONS = new Map<
-  string,
-  { needsLabel: boolean; apply: (cur: string[], labelId: string | undefined) => string[] | null }
->([
-  [
-    'move_to_folder',
-    { needsLabel: true, apply: (cur, labelId) => [...new Set([...cur.filter((l) => l !== 'INBOX'), labelId!])] },
-  ],
-  ['star', { needsLabel: false, apply: (cur) => (cur.includes('STARRED') ? null : [...cur, 'STARRED']) }],
-  [
-    'add_label',
-    { needsLabel: true, apply: (cur, labelId) => (cur.includes(labelId!) ? null : [...cur, labelId!]) },
-  ],
-  ['remove_label', { needsLabel: true, apply: (cur, labelId) => cur.filter((l) => l !== labelId) }],
-  ['archive', { needsLabel: false, apply: (cur) => [...new Set([...cur.filter((l) => l !== 'INBOX'), 'ARCHIVE'])] }],
-]);
-
-/** Folder labels a message leaves when a rule sends it to Spam. */
-const SPAM_DISPLACED_LABELS = new Set(['INBOX', 'ARCHIVE', 'PROMOTIONS']);
-
-/** `mark_as_spam`: move to the Spam folder and set `isSpam`, as storing a scored spam message does. */
-async function markMessageAsSpam(tenantDb: TenantDbHandle, messageId: string): Promise<boolean> {
-  const { mailMessages } = tenantSchema;
-  const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
-  if (!msg) return false;
-  const labels = ((msg.labels as string[]) || []).filter((l) => !SPAM_DISPLACED_LABELS.has(l));
-  await tenantDb
-    .update(mailMessages)
-    .set({ labels: [...new Set([...labels, 'SPAM'])], isSpam: true, updatedAt: new Date() })
-    .where(eq(mailMessages.id, messageId));
-  return true;
-}
-
-/** Read a message's labels, apply a label rule, and persist the result. */
-async function applyLabelRule(
-  tenantDb: TenantDbHandle,
-  messageId: string,
-  apply: (cur: string[], labelId: string | undefined) => string[] | null,
-  labelId: string | undefined,
-): Promise<boolean> {
-  const { mailMessages } = tenantSchema;
-  const [msg] = await tenantDb.select({ labels: mailMessages.labels }).from(mailMessages).where(eq(mailMessages.id, messageId)).limit(1);
-  if (!msg) return false;
-  const nextLabels = apply((msg.labels as string[]) || [], labelId);
-  if (nextLabels) {
-    await tenantDb.update(mailMessages).set({ labels: nextLabels, updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-  }
-  return true;
-}
-
-/** Execute a single rule action using Drizzle */
-async function executeRuleAction(
-  tenantDb: TenantDbHandle,
-  messageId: string,
-  action: { type: string; labelId?: string; value?: string },
-): Promise<boolean> {
-  const { mailMessages } = tenantSchema;
-
-  if (action.type === 'mark_as_spam') return markMessageAsSpam(tenantDb, messageId);
-
-  const simple = SIMPLE_RULE_ACTIONS.get(action.type);
-  if (simple) {
-    await tenantDb.update(mailMessages).set({ ...simple(), updatedAt: new Date() }).where(eq(mailMessages.id, messageId));
-    return true;
+  if (state !== initialState) {
+    await mailbox.apply({
+      kind: 'inbound.finalize',
+      id: messageId,
+      labels: state.labels,
+      isRead: state.isRead,
+      isFlagged: state.isFlagged,
+      isSpam: state.isSpam,
+      deleted: state.deleted,
+    });
   }
 
-  const labelRule = LABEL_RULE_ACTIONS.get(action.type);
-  if (!labelRule || (labelRule.needsLabel && !action.labelId)) return false;
-  return applyLabelRule(tenantDb, messageId, labelRule.apply, action.labelId);
-}
-
-/**
- * Store parsed attachments: upload to R2 and create DB records.
- * Accepts ParsedAttachment[] from the MIME parser (postal-mime).
- * Returns a map of contentId → downloadUrl for inline CID rewriting.
- */
-async function storeInboundAttachments(
-  env: Env,
-  workspaceId: string,
-  dbMessageId: string,
-  attachments: ParsedAttachment[],
-): Promise<Map<string, string>> {
-  const cidMap = new Map<string, string>();
-  const tenantDb = await getTenantDbForWorkspaceById(env, workspaceId);
-  const r2PublicUrl = env.R2_PUBLIC_URL || '';
-
-  for (let i = 0; i < attachments.length; i++) {
-    const att = attachments[i]!;
-
-    try {
-      const contentType = att.contentType || 'application/octet-stream';
-
-      // Build R2 key: workspaces/{workspaceId}/mail/attachments/{messageId}/{filename}
-      const sanitizedName = att.fileName.replaceAll(/[^a-zA-Z0-9._-]/g, '_');
-      const r2Key = `workspaces/${workspaceId}/mail/attachments/${dbMessageId}/${i + 1}_${sanitizedName}`;
-
-      // Upload to R2
-      await env.STORAGE.put(r2Key, att.content, {
-        httpMetadata: { contentType },
-      });
-
-      const downloadUrl = r2PublicUrl ? `${r2PublicUrl}/${r2Key}` : '';
-      const attachId = generateId('attach');
-
-      // Create DB record
-      await tenantDb.insert(tenantSchema.mailAttachments).values({
-        id: attachId,
-        messageId: dbMessageId,
-        fileName: att.fileName,
-        contentType,
-        size: att.content.length,
-        storagePath: r2Key,
-        downloadUrl,
-        isInline: att.disposition === 'inline',
-      });
-
-      // Track CID → URL mapping for inline image rewriting
-      if (att.contentId && downloadUrl) {
-        // Strip angle brackets from contentId if present (e.g. "<image001>" → "image001")
-        const cid = att.contentId.replace(/^</, '').replace(/>$/, '');
-        cidMap.set(cid, downloadUrl);
-      }
-
-      console.log(`[Store] Saved attachment ${attachId} (${att.fileName}, ${att.content.length} bytes) → ${r2Key}`);
-    } catch (attErr) {
-      console.error(`[Store] Failed to store attachment ${i + 1} (${att.fileName}):`, attErr);
-    }
-  }
-
-  return cidMap;
+  return markedSpam;
 }
 
 /**
