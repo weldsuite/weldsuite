@@ -9,7 +9,7 @@ which reviewers reject as "app does not work". So both stores need a ready demo 
 Create once, in **production** (`app.weldsuite.org`), and keep it alive:
 
 1. Workspace **WeldHR Demo** with WeldHR installed (and payroll on, so the Pay screen shows)
-2. Account `appreview@weldsuite.org` with email + password sign-in (no SSO, no 2FA, no email code):
+2. The existing review accounts `appleverification@weldsuite.org` (App Store) and `googleverification@weldsuite.org` (Google Play), with email + password sign-in (no SSO, no 2FA, no email code):
    role with My HR **and** the team permissions (`leave:approve`, `declarations:approve`, `employees:read`),
    so Home, Schedule, Absence, Expenses, Announcements and the Team views all have content
 3. Linked employee record with: a manager, leave balances, two approved and one pending leave request,
@@ -23,7 +23,7 @@ Store the password in WeldPass (shared vault "App Review"), never in this repo.
 
 ## App Store Connect → App Review Information
 
-- Sign-in required: **Yes**, username `appreview@weldsuite.org`, password from WeldPass
+- Sign-in required: **Yes**, username `appleverification@weldsuite.org`, password from WeldPass
 - Notes:
 
 > WeldHR is the employee app for companies that use WeldSuite HR. Accounts are created by the employer; the demo account above belongs to a demo company with sample data.
@@ -53,4 +53,4 @@ App Review rejected WeldFlow 1.0 for three things; WeldHR is set up to avoid eac
 ## Play Console → App content → App access
 
 - "All or some functionality is restricted": **Yes**
-- Instructions: same username, password and notes as above
+- Instructions: username `googleverification@weldsuite.org`, its password from WeldPass, and the same notes as above
