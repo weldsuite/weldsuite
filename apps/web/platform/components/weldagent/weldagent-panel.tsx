@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtom } from 'jotai';
-import { Check, ChevronDown, SquarePen, X } from 'lucide-react';
+import { Check, ChevronDown, Sheet, SquarePen, X } from 'lucide-react';
+import type { AiChatContext } from '@weldsuite/app-api-client/schemas/ai';
 import { splitQuestionMarkers } from '@weldsuite/app-api-client/schemas/weldagent-questions';
 import { Button } from '@weldsuite/ui/components/button';
 import {
@@ -35,6 +36,25 @@ interface WeldAgentPanelProps {
   onNewConversationCreated?: () => void;
   prefillText?: string | null;
   onPrefillConsumed?: () => void;
+}
+
+/** A string field of the page context, cut to what the chat request accepts. */
+function contextText(data: Record<string, unknown> | undefined, key: string, max: number): string | undefined {
+  const value = data?.[key];
+  return typeof value === 'string' && value ? value.slice(0, max) : undefined;
+}
+
+/** The spreadsheet open on the page (WeldSheets publishes it), for the agent to work on. */
+function chatContextOf(entity: EntityContext | undefined): AiChatContext | undefined {
+  if (entity?.type !== 'sheet' || !entity.id) return undefined;
+  return {
+    sheet: {
+      id: entity.id,
+      name: entity.title?.slice(0, 255),
+      tab: contextText(entity.data, 'tab', 200),
+      selection: contextText(entity.data, 'selection', 200),
+    },
+  };
 }
 
 /** One rendered turn: streamed questions are lifted out of the reply text. */
@@ -93,9 +113,12 @@ export function WeldAgentPanel({
   const selectedAgentId = selectedAgent || !agentsLoaded ? session.agentId : '';
   const [restored] = useState(() => session.messages);
 
+  const chatContext = useMemo(() => chatContextOf(entityContext), [entityContext]);
+  const openSheet = chatContext?.sheet;
   const { messages, sendMessage, retry, reset, stop, isSending, error } = useWeldAgentChat({
     system: entityContext?.customSystemPrompt,
     agentId: selectedAgentId || null,
+    context: chatContext,
     initialMessages: restored,
   });
 
@@ -283,6 +306,13 @@ export function WeldAgentPanel({
       )}
 
       <div className={cn('flex-shrink-0 px-3 pb-3', !isEmpty && 'pt-1')}>
+        {openSheet && (
+          <div className="flex min-w-0 items-center gap-1.5 px-1 pb-1.5 text-xs text-muted-foreground" data-testid="weldagent-open-sheet">
+            <Sheet className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{t.openSheet.replace('{name}', openSheet.name ?? '')}</span>
+            {openSheet.selection && <span className="shrink-0">· {openSheet.selection}</span>}
+          </div>
+        )}
         <AgentChatInput
           value={input}
           onChange={setInput}

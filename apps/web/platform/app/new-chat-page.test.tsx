@@ -29,6 +29,10 @@ vi.mock('@/components/breadcrumb-header', () => ({ BreadcrumbHeader: () => null 
 vi.mock('@/components/layout/module-content', () => ({
   ModuleContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
+// The composer's @ picker searches records; nothing is tagged here.
+vi.mock('@/hooks/queries/use-global-search-queries', () => ({
+  useGlobalSearch: () => ({ data: undefined, isFetching: false }),
+}));
 
 vi.mock('@/hooks/queries/use-weldagent-queries', () => ({
   useCreateConversation: () => ({ mutateAsync: state.createConversation }),

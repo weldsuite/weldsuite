@@ -43,6 +43,7 @@ import {
 import { getSubagents, type SerializedAgent } from './agents';
 import { agentViewerFor, canEditAgent } from './access';
 import { approvalLabel, approvalRecipients, heldForApprovalMessage } from './approval-labels';
+import { describeRecordTokens } from './record-tokens';
 import {
   budgetForUsd,
   buildManagedTools,
@@ -834,17 +835,20 @@ export async function driveTurn(params: DriveTurnParams): Promise<TurnOutcome> {
 
 function transcript(messages: AgentExecutorInput['messages']): string {
   return messages
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${describeRecordTokens(m.content)}`)
     .join('\n\n');
 }
 
-/** The user message for a turn, with any history the session has not seen. */
+/**
+ * The user message for a turn, with any history the session has not seen.
+ * Records the user tagged (`<@sheet:id|Budget>`) are spelled out with their ids.
+ */
 function turnMessage(
   messages: AgentExecutorInput['messages'],
   unseen: AgentExecutorInput['messages'],
   olderOmitted = false,
 ): string {
-  const latest = messages[messages.length - 1]?.content ?? '';
+  const latest = describeRecordTokens(messages[messages.length - 1]?.content ?? '');
   if (unseen.length === 0) return latest;
   const intro = olderOmitted
     ? 'This is a long-running chat. The most recent part of it (for context; you did not see these messages yet; older messages are not included):\n\n'

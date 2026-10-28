@@ -15,6 +15,7 @@
 import { and, desc, eq, isNull, or, sql } from 'drizzle-orm';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
+import { loadDriveAccessForUser, visibleFilesCondition } from '@weldsuite/core-domain/drive-access';
 import {
   type SearchEntityType,
   type SearchResultGroup,
@@ -52,12 +53,25 @@ export interface RunSearchParams {
    * skip the lookup.
    */
   memberApps?: () => Promise<ReadonlySet<string>>;
+  /**
+   * Who is searching. Records that are visible per person rather than per
+   * workspace (spreadsheets follow WeldDrive sharing) are filtered by it; with
+   * no user (null or omitted) those types return nothing.
+   */
+  userId?: string | null;
 }
 
 interface EntityRegistration {
   type: SearchEntityType;
   permission: string;
-  search: (db: Database, workspaceId: string, q: string, limit: number) => Promise<SearchResultGroup>;
+  search: (
+    db: Database,
+    workspaceId: string,
+    q: string,
+    limit: number,
+    /** The person searching, or null (see `RunSearchParams.userId`). */
+    userId: string | null,
+  ) => Promise<SearchResultGroup>;
 }
 
 // Canonical group ordering for the response.
@@ -75,6 +89,7 @@ const CANONICAL_ORDER: SearchEntityType[] = [
   'bill',
   'project',
   'task',
+  'sheet',
   'domain',
 ];
 
@@ -105,6 +120,8 @@ const CANONICAL_ORDER: SearchEntityType[] = [
  * and WeldStash list the same products, which link to WeldCommerce unless
  * `memberApps` shows the member can only open WeldStash (WeldCommerce would
  * show them its "not installed" screen). Only WeldCommerce has an orders list.
+ *
+ * Spreadsheets have a page of their own: `/weldsheets/:id`.
  */
 export function buildResultUrl(
   type: SearchEntityType,
@@ -143,6 +160,8 @@ export function buildResultUrl(
       return `/weldflow/project/${id}`;
     case 'task':
       return `/weldflow/task/${id}`;
+    case 'sheet':
+      return `/weldsheets/${id}`;
     case 'domain':
       return `/weldhost/domains/${id}`;
   }
@@ -552,9 +571,10 @@ export async function searchKnowledgePages(
     ${scoreColumn(knowledgePages.contentText, q)}
   )`;
 
-  // Only open teamspaces — the search context has no user identity to check
-  // teamspace membership against, so closed/private teamspaces and personal
-  // spaces stay out (WeldKnow's own sidebar is the way into those).
+  // Only open teamspaces — this search does not check teamspace membership
+  // (it could now: the searcher's id is passed in, see `searchSheets`), so
+  // closed/private teamspaces and personal spaces stay out (WeldKnow's own
+  // sidebar is the way into those).
   const rows = await db
     .select({
       id: knowledgePages.id,
@@ -904,6 +924,82 @@ export async function searchTasks(
   return { type: 'task', items, totalCount: items.length, hasMore };
 }
 
+/** Escapes `\`, `%` and `_` so typed text matches itself in a LIKE pattern. */
+function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * Spreadsheets, matched on the name of their WeldDrive file.
+ *
+ * Mirrors `listSheets` in sheets-api: the sheet's file is not in the trash and
+ * belongs to no module record (a WeldFlow project's sheets follow the project's
+ * members, not the drive, so they stay out). Who may open a spreadsheet is a
+ * per-person WeldDrive question (owner, shares, general access, folders), so
+ * the rows are narrowed to what `userId` can see, and nobody is no one: without
+ * a user nothing is returned.
+ */
+export async function searchSheets(
+  db: Database,
+  _workspaceId: string,
+  q: string,
+  limit: number,
+  userId: string | null,
+): Promise<SearchResultGroup> {
+  const none: SearchResultGroup = { type: 'sheet', items: [], totalCount: 0, hasMore: false };
+  if (!userId) return none;
+
+  const { sheets, files } = schema;
+  const term = q.toLowerCase();
+  const escaped = escapeLike(term);
+  const contains = `%${escaped}%`;
+  const startsWith = `${escaped}%`;
+  const nameMatches = and(
+    isNull(files.deletedAt),
+    isNull(files.entityType),
+    sql`lower(${files.fileName}) LIKE ${contains}`,
+  );
+
+  // Most keystrokes match no spreadsheet. Skip loading the drive's folder tree
+  // and the caller's shares until one does.
+  const [candidate] = await db
+    .select({ id: sheets.id })
+    .from(sheets)
+    .innerJoin(files, eq(files.id, sheets.fileId))
+    .where(nameMatches)
+    .limit(1);
+  if (!candidate) return none;
+
+  const access = await loadDriveAccessForUser(db, userId);
+  const score = sql<number>`CASE
+    WHEN lower(${files.fileName}) = ${term} THEN 1.0
+    WHEN lower(${files.fileName}) LIKE ${startsWith} THEN 0.9
+    WHEN lower(${files.fileName}) LIKE ${contains} THEN 0.6
+    ELSE 0
+  END`;
+  const changedAt = sql`greatest(${sheets.updatedAt}, ${files.updatedAt})`;
+
+  const rows = await db
+    .select({ id: sheets.id, name: files.fileName, score })
+    .from(sheets)
+    .innerJoin(files, eq(files.id, sheets.fileId))
+    .where(and(nameMatches, visibleFilesCondition(access)))
+    .orderBy(desc(score), desc(changedAt), desc(sheets.id))
+    .limit(limit + 1);
+
+  const hasMore = rows.length > limit;
+  const items: SearchResultItem[] = rows.slice(0, limit).map((r) => ({
+    id: r.id,
+    type: 'sheet',
+    title: r.name || 'Spreadsheet',
+    subtitle: null,
+    url: buildResultUrl('sheet', r.id),
+    score: typeof r.score === 'number' ? r.score : Number(r.score) || null,
+  }));
+
+  return { type: 'sheet', items, totalCount: items.length, hasMore };
+}
+
 export async function searchDomains(
   db: Database,
   _workspaceId: string,
@@ -978,6 +1074,7 @@ const ENTITY_REGISTRY: EntityRegistration[] = [
   { type: 'bill', permission: 'bills:read', search: searchBills },
   { type: 'project', permission: 'projects:read', search: searchProjects },
   { type: 'task', permission: 'tasks:read', search: searchTasks },
+  { type: 'sheet', permission: 'sheets:read', search: searchSheets },
   { type: 'domain', permission: 'domains:read', search: searchDomains },
 ];
 
@@ -998,7 +1095,7 @@ export async function runSearch(
   const term = params.lexicalTerm?.trim() || params.q;
 
   const groups = await Promise.all(
-    filtered.map((r) => r.search(db, workspaceId, term, params.limit)),
+    filtered.map((r) => r.search(db, workspaceId, term, params.limit, params.userId ?? null)),
   );
 
   // Sort by canonical order

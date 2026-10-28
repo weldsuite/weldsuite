@@ -86,6 +86,8 @@ app.post('/', zValidator('json', searchInputSchema), async (c) => {
       limit: input.limit,
       perms,
       lexicalTerm: parsed.lexicalTerm,
+      // Spreadsheets are visible per person (WeldDrive sharing), not per workspace.
+      userId: c.get('userId') ?? null,
       memberApps: async () => new Set(await listMemberAppCodes(db, c.get('userId'))),
     });
 

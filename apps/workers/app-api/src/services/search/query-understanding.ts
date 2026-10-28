@@ -171,6 +171,9 @@ const TYPE_KEYWORD_MAP: Record<string, SearchEntityType> = {
   project: 'project', projects: 'project', projecten: 'project',
   // task
   task: 'task', tasks: 'task', taak: 'task', taken: 'task',
+  // sheet
+  sheet: 'sheet', sheets: 'sheet', spreadsheet: 'sheet', spreadsheets: 'sheet',
+  rekenblad: 'sheet', rekenbladen: 'sheet',
   // domain
   domain: 'domain', domains: 'domain', domein: 'domain', domeinen: 'domain',
 };

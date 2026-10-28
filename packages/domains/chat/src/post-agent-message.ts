@@ -20,6 +20,7 @@ import type { NotificationEnv } from '@weldsuite/notifications/types';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { SEARCH_ENTITY_TYPES_SET } from '@weldsuite/core-api-client/schemas/search';
 import { buildMessagePreview } from './message-preview';
 import type { ChatReplyReference } from './reply-reference';
 
@@ -58,6 +59,11 @@ export interface PostAgentChatMessageContext {
   invokerUserId: string;
 }
 
+/**
+ * The mention ids in `content`, after `extra`. A record reference
+ * (`<@sheet:sht_1|Budget>`, a type from `SEARCH_ENTITY_TYPES`) mentions nobody,
+ * so it adds nothing: its type word is not a user id.
+ */
 export function extractChatMentions(content: string, extra: string[] = []): string[] {
   const found: string[] = [...extra];
   const mentionRegex = /<@([^>]+)>/g;
@@ -70,6 +76,7 @@ export function extractChatMentions(content: string, extra: string[] = []): stri
       mentionId &&
       mentionId !== 'everyone' &&
       !mentionId.startsWith('entity:') &&
+      !(colonIdx !== -1 && SEARCH_ENTITY_TYPES_SET.has(mentionId)) &&
       !found.includes(mentionId)
     ) {
       found.push(mentionId);

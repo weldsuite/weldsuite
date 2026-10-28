@@ -4,12 +4,25 @@ import remarkGfm from 'remark-gfm';
 import { CheckCircle2, ChevronRight, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
+import { renderChatTokens } from '@/app/weldchat/lib/render-tokens';
+import { EntityMentionChip } from '@/app/weldchat/components/entity-mention-chip';
+
+/** A message's text with the records it tags (`<@sheet:id|Budget>`) shown as chips. */
+function withRecordChips(text: string): ReactNode {
+  if (!text.includes('<@')) return text;
+  return renderChatTokens(text, {
+    renderUser: (seg, key) => <span key={key}>@{seg.displayName ?? seg.userId}</span>,
+    renderEntity: (seg, key) => (
+      <EntityMentionChip key={key} type={seg.entityType} id={seg.entityId} fallbackLabel={seg.label} />
+    ),
+  });
+}
 
 export function UserMessage({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[min(85%,560px)] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-[15px] leading-relaxed text-foreground">
-        {children}
+        {typeof children === 'string' ? withRecordChips(children) : children}
       </div>
     </div>
   );

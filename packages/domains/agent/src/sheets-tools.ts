@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import type { AiOpenSheet } from '@weldsuite/app-api-client/schemas/ai';
 import type { PlatformToolDefinition, ToolContext } from './tools';
 
 const cell = z.union([z.string().max(32_767), z.number(), z.boolean(), z.null()]);
@@ -120,3 +121,49 @@ export const SHEET_TOOLS: PlatformToolDefinition[] = [
     },
   },
 ];
+
+/** The tools that work on one spreadsheet the caller names (not find or create). */
+const SHEET_SCOPED_TOOL_IDS = ['sheets.list_tabs', 'sheets.read_range', 'sheets.write_range'];
+
+/**
+ * The spreadsheet tools, limited to the given spreadsheets: what the default
+ * WeldAgent gets for the sheet the person has open or tagged. A call for any
+ * other spreadsheet is refused before it reaches sheets-api, which still
+ * checks the person's own access to the ones allowed.
+ */
+export function sheetToolsLimitedTo(spreadsheetIds: readonly string[]): PlatformToolDefinition[] {
+  const allowed = new Set(spreadsheetIds);
+  return SHEET_TOOLS.filter((definition) => SHEET_SCOPED_TOOL_IDS.includes(definition.id)).map((definition) => ({
+    ...definition,
+    async execute(ctx, raw) {
+      const id = (raw as { spreadsheetId?: unknown } | null)?.spreadsheetId;
+      if (typeof id !== 'string' || !allowed.has(id)) {
+        return { error: 'You can only work in the spreadsheet the user has open or tagged.' };
+      }
+      return definition.execute(ctx, raw);
+    },
+  }));
+}
+
+/** Where the person is in the open spreadsheet, as one sentence for the agent. */
+export function describeOpenSheet(sheet: AiOpenSheet): string {
+  const name = sheet.name?.trim() ? `"${sheet.name.trim()}"` : 'a spreadsheet';
+  const where = [
+    sheet.tab ? `on the tab "${sheet.tab}"` : null,
+    sheet.selection ? `with ${sheet.selection} selected` : null,
+  ].filter(Boolean);
+  const place = where.length ? `, ${where.join(', ')}` : '';
+  return `The user has the spreadsheet ${name} open (spreadsheetId ${sheet.id})${place}.`;
+}
+
+/**
+ * What a workspace agent is told about the spreadsheet open next to the chat:
+ * it works on it with its own spreadsheet tools, if it has them.
+ */
+export function openSheetInstructions(sheet: AiOpenSheet): string {
+  return (
+    `${describeOpenSheet(sheet)} ` +
+    '"This sheet", "here" and "the selection" refer to it: use that spreadsheetId with your spreadsheet tools. ' +
+    'Your changes show in the sheet at once. If you have no spreadsheet tools, say you cannot read or change spreadsheets.'
+  );
+}

@@ -66,6 +66,7 @@ const SEARCH_ENTITY_TYPES_SET: ReadonlySet<string> = new Set<string>([
   'bill',
   'project',
   'task',
+  'sheet',
   'domain',
 ]);
 
