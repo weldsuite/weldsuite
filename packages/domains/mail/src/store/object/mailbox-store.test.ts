@@ -176,10 +176,10 @@ describe('ObjectMailboxStore: retry wiring', () => {
     const { store, stub } = makeStore();
     const real = stub.listThreads.bind(stub);
     let calls = 0;
-    stub.listThreads = (async (q: Parameters<typeof real>[0]) => {
+    stub.listThreads = (async (r, q) => {
       calls++;
       if (calls === 1) throw new Error('Durable Object overloaded');
-      return real(q);
+      return real(r, q);
     }) as typeof stub.listThreads;
 
     const page = await store.listThreads({ labelSlug: '__all', pageSize: 10 });
@@ -191,10 +191,10 @@ describe('ObjectMailboxStore: retry wiring', () => {
     const { store, stub } = makeStore();
     const real = stub.apply.bind(stub);
     let calls = 0;
-    stub.apply = (async (op: Parameters<typeof real>[0], at?: number) => {
+    stub.apply = (async (r, op, at) => {
       calls++;
       if (calls === 1) throw new Error('network error');
-      return real(op, at);
+      return real(r, op, at);
     }) as typeof stub.apply;
 
     const message = makeIngest();

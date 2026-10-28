@@ -4,61 +4,27 @@
  * design §2's planned `mailboxStub`, renamed here per this task's brief) and
  * how to call it safely (the retry wrapper below).
  *
- * `MailboxStoreObject` (task C1, `mailbox-object/{mailbox-object,alarm,
- * outbox,destroy,index}.ts`) is being built in the same worktree, in
- * parallel, and does not exist here yet. Per this task's binding RPC
- * contract, once it exists it exposes every `MailboxStore` method (`../types`)
- * under the SAME name, parameters and return type, minus `ref`/`backend` —
- * called directly on the stub, with no `ref` argument, because the Durable
- * Object is already bound to exactly one mailbox by its own name
- * (`mailboxKeyFor`). `MailboxStoreRpc` is typed structurally off
- * `MailboxStore` instead of importing `DurableObjectStub<MailboxStoreObject>`
- * so this task isn't blocked on C1 landing first — see the two type aliases
- * below for the only edits needed once it does.
+ * `MailboxStoreObject` (`../../mailbox-object/mailbox-object.ts`, task C1)
+ * now exists. Its own `MailboxStoreRpc` interface (re-exported below) takes
+ * `ref: MailboxRef` as the FIRST argument of every method — the object binds
+ * to its mailbox on the first call and rejects a mismatching ref afterwards
+ * (`bindRef`), so `ref` travels on every RPC call rather than being implicit
+ * in the stub. Every call site in `./mailbox-store.ts` passes `this.ref`
+ * first accordingly.
  */
 
-import type { MailboxOp, MailboxRef, MailboxStore } from '../types';
+import type { MailboxOp, MailboxRef } from '../types';
+import type { MailboxStoreObject, MailboxStoreRpc as RealMailboxStoreRpc } from '../../mailbox-object/mailbox-object';
 
 // ---------------------------------------------------------------------------
 // The stub's RPC surface
 // ---------------------------------------------------------------------------
 
-/**
- * `MailboxStore` minus `ref`/`backend` (the two members an RPC method can't
- * have: `ref` is implicit in which object you called, `backend` is a client-
- * side label, never server state). Every method here returns a `Promise`,
- * matching both the interface's own declarations and how a real Durable
- * Object RPC stub behaves regardless of whether the method body is sync.
- *
- * SWAP POINT 1 of 2: once `mailbox-object/mailbox-object.ts` exports
- * `MailboxStoreObject`, change this alias to
- * `DurableObjectStub<MailboxStoreObject>` (imported from `../../mailbox-object`)
- * — every file in `store/object/` is written against `MailboxStoreRpc`, so
- * nothing else needs to change.
- */
-export type MailboxStoreRpc = Omit<MailboxStore, 'ref' | 'backend'>;
-
-/**
- * The namespace surface `mailboxStubFor` needs: `jurisdiction('eu')` then
- * `idFromName`/`get`, exactly like `mail-index/client.ts`'s `mailIndexFor`.
- * A real `DurableObjectNamespace<MailboxStoreObject>` satisfies this (it has
- * a strictly larger surface — `newUniqueId`, `idFromString`, `getByName`,
- * `getExisting`, none of which this lookup uses).
- *
- * SWAP POINT 2 of 2: once C1 lands, `MailboxStoreNamespaceEnv.MAILBOX_STORE`
- * can be re-typed as `DurableObjectNamespace<MailboxStoreObject>` and this
- * interface can be deleted — but there is no correctness reason to rush that;
- * the structural interface keeps working unchanged against the real binding.
- */
-export interface MailboxStoreNamespace {
-  jurisdiction(jurisdiction: 'eu'): {
-    idFromName(name: string): unknown;
-    get(id: unknown): MailboxStoreRpc;
-  };
-}
+/** Re-exported from the real object class so callers in `store/object/` only ever need to import from here. */
+export type MailboxStoreRpc = RealMailboxStoreRpc;
 
 export interface MailboxStoreNamespaceEnv {
-  MAILBOX_STORE?: MailboxStoreNamespace;
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
 }
 
 /** `mbx:<workspaces.id>:<accountId>` (decision 1). The only call site that should ever call `idFromName` for this namespace — mirrors `mail-index/client.ts`'s `mailIndexKeyFor`. */
@@ -72,13 +38,24 @@ export function mailboxKeyFor(ref: MailboxRef): string {
  * `object`/`object-only`/`shadow`-mode code reaches here, the binding is a
  * deploy-time prerequisite (design §8), not something to degrade gracefully
  * from.
+ *
+ * Returns `MailboxStoreRpc`, not the raw `DurableObjectStub<MailboxStoreObject>`:
+ * Cloudflare's `Provider<T>` RPC typing (`@cloudflare/workers-types`) maps a
+ * class's members structurally, including private fields and anything whose
+ * return type doesn't satisfy its `Serializable<T>` check (several of
+ * `MailboxStoreObject`'s do, transitively, through Drizzle's `Date` columns);
+ * those collapse to `never` and poison every caller. `MailboxStoreRpc` is the
+ * class's own hand-written RPC surface (`../../mailbox-object/mailbox-object.ts`'s
+ * own header comment: "import just this interface where it only needs the
+ * method shapes") — the cast below is a type-level sidestep of that mapped
+ * type, not a change in what actually crosses the wire at runtime.
  */
 export function mailboxStubFor(env: MailboxStoreNamespaceEnv, ref: MailboxRef): MailboxStoreRpc {
   if (!env.MAILBOX_STORE) {
     throw new Error('mailboxStubFor: MAILBOX_STORE binding is not configured');
   }
   const eu = env.MAILBOX_STORE.jurisdiction('eu');
-  return eu.get(eu.idFromName(mailboxKeyFor(ref)));
+  return eu.get(eu.idFromName(mailboxKeyFor(ref))) as unknown as MailboxStoreRpc;
 }
 
 // ---------------------------------------------------------------------------

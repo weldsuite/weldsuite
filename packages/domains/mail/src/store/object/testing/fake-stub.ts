@@ -1,79 +1,122 @@
 /**
  * An in-memory RPC double for one mailbox, for testing `store/object/*`'s
- * adapters (`ObjectMailboxStore`/`ObjectWorkspaceMailStore`) without the real
- * `MailboxStoreObject` Durable Object class (task C1, built separately in the
- * same PR). Not a mock: it implements `MailboxStoreRpc` by calling the SAME
- * pure functions the real class will wrap — `mailbox-object/{reads,writes}.ts`
- * — against a real SQLite-backed `DurableObjectState` fake
+ * adapters (`ObjectMailboxStore`/`ObjectWorkspaceMailStore`) and anything else
+ * built on `MailboxStoreRpc` (the router, task C3). Not a mock over hand-wired
+ * pure functions: it instantiates the REAL `MailboxStoreObject` Durable Object
+ * class (`mailbox-object/mailbox-object.ts`, task C1) against a real
+ * SQLite-backed `DurableObjectState` fake
  * (`@weldsuite/worker-kit/testing/durable-sqlite`'s
- * `createSqliteDurableObjectState`). Every query, index, trigger-equivalent
- * and derived-table update the real object runs, runs here too; only the RPC
- * envelope itself (an actual Durable Object stub, serialization, a network
- * hop) is missing — the same tradeoff this package's other object fakes make
- * (`testing/cloudflare-workers-stub.ts`, `mail-index`'s own tests).
+ * `createSqliteDurableObjectState`) and a real in-memory R2 bucket
+ * (`@weldsuite/worker-kit/testing/r2`'s `createMemoryR2`) for `MAIL_STORAGE`.
+ * Every query, migration, ref-binding check, write-core invariant and
+ * alarm-scheduling side effect the real class runs, runs here too — so a
+ * future change to the class's RPC surface (a renamed method, a dropped
+ * argument, a changed return shape) fails THESE tests, not just the
+ * object's own.
  *
- * Swap point: once `mailbox-object/mailbox-object.ts` exports the real
- * `MailboxStoreObject`, a test can switch to constructing that class directly
- * with the same `createSqliteDurableObjectState()` state (it's designed to be
- * constructed that way in tests too) instead of this fake — the call sites in
- * `store/object/*.test.ts` that take a `MailboxStoreRpc` don't need to change
- * either way.
+ * Calling a method on the resulting stub is a direct method call on the real
+ * class instance, not an actual Durable Object RPC round trip — there is no
+ * network hop or workerd process boundary to cross in a `node` test
+ * environment. The one behavioural gap that matters for a caller is
+ * serialization: a real RPC call structured-clones its return value on the
+ * way back, so the caller never shares object identity with the Durable
+ * Object's own internal state. `asStructuredCloneStub` below reproduces that
+ * for every method the stub exposes, so a test that mutates a returned
+ * record (or relies on `===` identity across two calls) fails the same way
+ * it would against the real binding.
  */
 
 import { createSqliteDurableObjectState, type SqliteDurableObjectTestExtras } from '@weldsuite/worker-kit/testing/durable-sqlite';
-import { migrateMailbox } from '../../../mailbox-object/migrate';
-import * as reads from '../../../mailbox-object/reads';
-import { applyMailboxBatch, applyMailboxOp } from '../../../mailbox-object/writes';
-import type { MailboxOp, MailboxRef } from '../../types';
-import type { MailboxStoreRpc } from '../stub';
+import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
+import { MailboxStoreObject, type MailboxStoreObjectEnv, type MailboxStoreRpc } from '../../../mailbox-object/mailbox-object';
+import type { MailboxRef } from '../../types';
+import { mailboxKeyFor } from '../stub';
 
 export interface FakeMailboxStub extends MailboxStoreRpc {
   /** The backing fake `DurableObjectState`, for assertions that want to inspect storage directly or drain `waitUntil`. */
   readonly state: DurableObjectState & SqliteDurableObjectTestExtras;
+  /** The real class instance the stub's methods forward to (unwrapped — calling it directly skips the structured-clone step). */
+  readonly object: MailboxStoreObject;
 }
 
 /**
- * Builds a fresh, migrated fake stub for `ref`. One call = one mailbox's
- * worth of state (a fresh in-memory SQLite database), matching one Durable
- * Object instance.
+ * Wraps every method `target` exposes so its return value round-trips
+ * through `structuredClone` before reaching the caller, mirroring what a
+ * real Durable Object RPC response crosses on the way back (unlike calling a
+ * class instance's methods directly in-process, which shares object identity
+ * with the callee's own state). A `Proxy` rather than per-method forwarding
+ * on purpose: this fake then automatically tracks `MailboxStoreRpc` as
+ * methods are added or changed, instead of silently going stale.
+ */
+function asStructuredCloneStub<T extends object>(target: T): T {
+  return new Proxy(target, {
+    get(obj, prop, receiver) {
+      const value = Reflect.get(obj, prop, receiver);
+      if (typeof value !== 'function') return value;
+      return async (...args: unknown[]) => {
+        const result: unknown = await (value as (...a: unknown[]) => unknown).apply(obj, args);
+        return result === undefined ? result : structuredClone(result);
+      };
+    },
+  }) as T;
+}
+
+/**
+ * Builds a fresh, migrated fake stub for `ref`, backed by a real
+ * `MailboxStoreObject` instance. One call = one mailbox's worth of state (a
+ * fresh in-memory SQLite database plus a fresh in-memory R2 bucket), matching
+ * one Durable Object instance. `MAIL_STORAGE` is always bound (an empty
+ * `createMemoryR2()`) so ingest's body writes and `ObjectMailboxStore`'s body
+ * reads both work out of the box; `ENTITY_EVENTS`/`MAIL_INDEX` are left
+ * unbound, same as any env `MailboxStoreObjectEnv` doesn't require — a test
+ * exercising the outbox/alarm against a specific queue or `MailIndex` double
+ * should construct `MailboxStoreObject` directly instead of through this
+ * helper.
  */
 export function createFakeMailboxStub(ref: MailboxRef): FakeMailboxStub {
-  const state = createSqliteDurableObjectState({ name: `mbx:${ref.workspaceId}:${ref.accountId}` });
-  migrateMailbox(state.storage);
-  const sql = state.storage.sql;
+  const state = createSqliteDurableObjectState({ name: mailboxKeyFor(ref) });
+  const env: MailboxStoreObjectEnv = { MAIL_STORAGE: createMemoryR2() };
+  const object = new MailboxStoreObject(state, env);
+  const rpc = asStructuredCloneStub(object);
 
   return {
     state,
+    object,
 
     // ---- reads ----------------------------------------------------------
-    listThreads: async (q) => reads.listThreads(sql, ref, q),
-    getThread: async (threadKey) => reads.getThread(sql, ref, threadKey),
-    getThreadOfMessage: async (messageId) => reads.getThreadOfMessage(sql, ref, messageId),
-    getMessage: async (id, o) => reads.getMessage(sql, ref, id, o),
-    getMessages: async (ids) => reads.getMessages(sql, ref, ids),
-    listMessages: async (q) => reads.listMessages(sql, ref, q),
-    stats: async () => reads.stats(sql),
-    unreadCount: async (scope) => reads.unreadCount(sql, scope),
-    labelCounts: async (keys) => reads.labelCounts(sql, keys),
-    listAttachments: async (messageId) => reads.listAttachments(sql, messageId),
-    getAttachment: async (id) => reads.getAttachment(sql, ref, id),
-    recentAttachments: async (q) => reads.recentAttachments(sql, q),
-    recentAddresses: async (limit) => reads.recentAddresses(sql, limit),
-    resolveInbound: async (q) => reads.resolveInbound(sql, q),
-    findByRfcIds: async (ids, providerIds) => reads.findByRfcIds(sql, ids, providerIds),
-    findSentByIdempotencyKey: async (key) => reads.findSentByIdempotencyKey(sql, key),
-    countSentSince: async (since) => reads.countSentSince(sql, since),
-    listScheduled: async () => reads.listScheduled(sql, ref),
-    listSnoozed: async () => reads.listSnoozed(sql, ref),
-    listSubscriptions: async (q) => reads.listSubscriptions(sql, ref, q),
-    getSubscription: async (id) => reads.getSubscription(sql, ref, id),
-    rawSources: async (q) => reads.rawSources(sql, q),
-    listDrafts: async (q) => reads.listDrafts(sql, ref, q),
-    getDraft: async (id) => reads.getDraft(sql, ref, id),
-    exportPage: async (q) => reads.exportPage(sql, ref, q),
+    listThreads: (r, q) => rpc.listThreads(r, q),
+    getThread: (r, threadKey) => rpc.getThread(r, threadKey),
+    getThreadOfMessage: (r, messageId) => rpc.getThreadOfMessage(r, messageId),
+    getMessage: (r, id, o) => rpc.getMessage(r, id, o),
+    getMessages: (r, ids) => rpc.getMessages(r, ids),
+    listMessages: (r, q) => rpc.listMessages(r, q),
+    stats: (r) => rpc.stats(r),
+    unreadCount: (r, scope) => rpc.unreadCount(r, scope),
+    labelCounts: (r, keys) => rpc.labelCounts(r, keys),
+    listAttachments: (r, messageId) => rpc.listAttachments(r, messageId),
+    getAttachment: (r, id) => rpc.getAttachment(r, id),
+    recentAttachments: (r, q) => rpc.recentAttachments(r, q),
+    recentAddresses: (r, limit) => rpc.recentAddresses(r, limit),
+    resolveInbound: (r, q) => rpc.resolveInbound(r, q),
+    findByRfcIds: (r, ids, providerIds) => rpc.findByRfcIds(r, ids, providerIds),
+    findSentByIdempotencyKey: (r, key) => rpc.findSentByIdempotencyKey(r, key),
+    countSentSince: (r, since) => rpc.countSentSince(r, since),
+    listScheduled: (r) => rpc.listScheduled(r),
+    listSnoozed: (r) => rpc.listSnoozed(r),
+    listSubscriptions: (r, q) => rpc.listSubscriptions(r, q),
+    getSubscription: (r, id) => rpc.getSubscription(r, id),
+    rawSources: (r, q) => rpc.rawSources(r, q),
+    listDrafts: (r, q) => rpc.listDrafts(r, q),
+    getDraft: (r, id) => rpc.getDraft(r, id),
+    exportPage: (r, q) => rpc.exportPage(r, q),
 
     // ---- writes -----------------------------------------------------------
-    apply: async (op: MailboxOp, at?: number) => applyMailboxOp(state.storage, ref, op, at),
-    applyBatch: async (ops: MailboxOp[], at?: number) => applyMailboxBatch(state.storage, ref, ops, at),
+    apply: (r, op, at) => rpc.apply(r, op, at),
+    applyBatch: (r, ops, at) => rpc.applyBatch(r, ops, at),
+
+    // ---- admin -------------------------------------------------------------
+    status: (r) => rpc.status(r),
+    destroy: (r) => rpc.destroy(r),
+    setMode: (r, mode) => rpc.setMode(r, mode),
   };
 }

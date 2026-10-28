@@ -11,11 +11,11 @@
  * binding type at the boundary.
  */
 
+import type { MailboxStoreObject } from '../../../mailbox-object/mailbox-object';
 import type { MailIndexBindingEnv } from '../../../mail-index/client';
 import type { MailIndexStatus } from '../../../mail-index/types';
 import type { MailboxRef } from '../../types';
 import { createFakeMailboxStub, type FakeMailboxStub } from './fake-stub';
-import type { MailboxStoreNamespace } from '../stub';
 
 function parseMailboxKey(name: string): MailboxRef {
   const parts = name.split(':');
@@ -26,24 +26,28 @@ function parseMailboxKey(name: string): MailboxRef {
 }
 
 export interface FakeMailboxNamespace {
-  namespace: MailboxStoreNamespace;
+  namespace: DurableObjectNamespace<MailboxStoreObject>;
   /** Every stub created so far, keyed by `mbx:<workspaceId>:<accountId>` — for assertions against a specific mailbox's backing state. */
   stubs: Map<string, FakeMailboxStub>;
 }
 
 /**
- * A `MailboxStoreNamespace` that lazily creates (and then reuses) one
- * `FakeMailboxStub` per distinct name it's asked to `get()` — mirroring a
- * real `DurableObjectNamespace`'s "same id, same instance" behaviour within
- * one isolate. `makeStub` is overridable so a test can pre-seed specific
- * mailboxes before `ObjectMailboxStore` ever touches them.
+ * A `DurableObjectNamespace<MailboxStoreObject>` double that lazily creates
+ * (and then reuses) one `FakeMailboxStub` per distinct name it's asked to
+ * `get()` — mirroring a real `DurableObjectNamespace`'s "same id, same
+ * instance" behaviour within one isolate. `makeStub` is overridable so a test
+ * can pre-seed specific mailboxes before `ObjectMailboxStore` ever touches
+ * them. Built as a small, honestly-typed plain object, then cast to the real
+ * ambient binding type at the boundary (this file's header comment) — the
+ * class's RPC mapped type (`Provider<T>`) is awkward to satisfy structurally
+ * for the same reason `./stub.ts` casts `mailboxStubFor`'s own return value.
  */
 export function createFakeMailboxNamespace(
   makeStub: (ref: MailboxRef) => FakeMailboxStub = createFakeMailboxStub,
 ): FakeMailboxNamespace {
   const stubs = new Map<string, FakeMailboxStub>();
-  const namespace: MailboxStoreNamespace = {
-    jurisdiction(jurisdiction) {
+  const namespace = {
+    jurisdiction(jurisdiction: string) {
       if (jurisdiction !== 'eu') {
         throw new Error(`createFakeMailboxNamespace: unexpected jurisdiction "${jurisdiction}" (mailboxes are always EU, decision 1)`);
       }
@@ -61,7 +65,7 @@ export function createFakeMailboxNamespace(
       };
     },
   };
-  return { namespace, stubs };
+  return { namespace: namespace as unknown as DurableObjectNamespace<MailboxStoreObject>, stubs };
 }
 
 export interface FakeMailIndexOptions {

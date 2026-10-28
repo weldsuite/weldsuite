@@ -12,9 +12,8 @@ import {
   isTransientStubError,
   mailboxKeyFor,
   mailboxStubFor,
-  type MailboxStoreNamespace,
-  type MailboxStoreRpc,
 } from './stub';
+import type { MailboxStoreObject } from '../../mailbox-object/mailbox-object';
 import type { MailboxOp } from '../types';
 
 describe('mailboxKeyFor', () => {
@@ -29,14 +28,17 @@ describe('mailboxStubFor', () => {
   });
 
   it('resolves the stub through the EU jurisdiction, named by workspace + account', () => {
-    const stub = { listThreads: vi.fn() } as unknown as MailboxStoreRpc;
+    const stub = { listThreads: vi.fn() };
     const euNamespace = {
       idFromName: vi.fn((name: string) => ({ name })),
       get: vi.fn(() => stub),
     };
-    const namespace: MailboxStoreNamespace = { jurisdiction: vi.fn(() => euNamespace) };
+    const namespace = { jurisdiction: vi.fn(() => euNamespace) };
 
-    const result = mailboxStubFor({ MAILBOX_STORE: namespace }, { workspaceId: 'ws_1', accountId: 'mail_1' });
+    const result = mailboxStubFor(
+      { MAILBOX_STORE: namespace as unknown as DurableObjectNamespace<MailboxStoreObject> },
+      { workspaceId: 'ws_1', accountId: 'mail_1' },
+    );
 
     expect(namespace.jurisdiction).toHaveBeenCalledWith('eu');
     expect(euNamespace.idFromName).toHaveBeenCalledWith('mbx:ws_1:mail_1');

@@ -123,110 +123,110 @@ export class ObjectMailboxStore implements MailboxStore {
   // -------------------------------------------------------------------
 
   listThreads(q: ThreadListQuery): Promise<ThreadPage> {
-    return callStubRead(() => this.stub.listThreads(q));
+    return callStubRead(() => this.stub.listThreads(this.ref, q));
   }
 
   async getThread(threadKey: string) {
-    const result = await callStubRead(() => this.stub.getThread(threadKey));
+    const result = await callStubRead(() => this.stub.getThread(this.ref, threadKey));
     if (!result) return null;
     return { ...result, messages: await this.withBodiesMany(result.messages) };
   }
 
   async getThreadOfMessage(messageId: string) {
-    const result = await callStubRead(() => this.stub.getThreadOfMessage(messageId));
+    const result = await callStubRead(() => this.stub.getThreadOfMessage(this.ref, messageId));
     if (!result) return null;
     return { ...result, messages: await this.withBodiesMany(result.messages) };
   }
 
   async getMessage(id: string, o?: { bodies?: boolean; attachments?: boolean }) {
-    const record = await callStubRead(() => this.stub.getMessage(id, o));
+    const record = await callStubRead(() => this.stub.getMessage(this.ref, id, o));
     if (!record) return null;
     return o?.bodies ? await this.withBodies(record) : record;
   }
 
   getMessages(ids: string[]): Promise<MailMessageListRow[]> {
-    return callStubRead(() => this.stub.getMessages(ids));
+    return callStubRead(() => this.stub.getMessages(this.ref, ids));
   }
 
   listMessages(q: MessageListQuery): Promise<MessagePage> {
-    return callStubRead(() => this.stub.listMessages(q));
+    return callStubRead(() => this.stub.listMessages(this.ref, q));
   }
 
   stats(): Promise<MailboxStats> {
-    return callStubRead(() => this.stub.stats());
+    return callStubRead(() => this.stub.stats(this.ref));
   }
 
   unreadCount(scope: 'inbox' | 'all-live'): Promise<number> {
-    return callStubRead(() => this.stub.unreadCount(scope));
+    return callStubRead(() => this.stub.unreadCount(this.ref, scope));
   }
 
   labelCounts(keys: FolderKey[]): Promise<Record<FolderKey, LabelCount>> {
-    return callStubRead(() => this.stub.labelCounts(keys));
+    return callStubRead(() => this.stub.labelCounts(this.ref, keys));
   }
 
   listAttachments(messageId: string): Promise<MailAttachmentRecord[]> {
-    return callStubRead(() => this.stub.listAttachments(messageId));
+    return callStubRead(() => this.stub.listAttachments(this.ref, messageId));
   }
 
   getAttachment(id: string): Promise<(MailAttachmentRecord & { accountId: string }) | null> {
-    return callStubRead(() => this.stub.getAttachment(id));
+    return callStubRead(() => this.stub.getAttachment(this.ref, id));
   }
 
   recentAttachments(q: { before?: { createdAt: number; id: string }; limit: number }) {
-    return callStubRead(() => this.stub.recentAttachments(q));
+    return callStubRead(() => this.stub.recentAttachments(this.ref, q));
   }
 
   recentAddresses(limit: number): Promise<string[]> {
-    return callStubRead(() => this.stub.recentAddresses(limit));
+    return callStubRead(() => this.stub.recentAddresses(this.ref, limit));
   }
 
   resolveInbound(q: InboundThreadQuery) {
-    return callStubRead(() => this.stub.resolveInbound(q));
+    return callStubRead(() => this.stub.resolveInbound(this.ref, q));
   }
 
   findByRfcIds(ids: string[], providerIds: string[]) {
-    return callStubRead(() => this.stub.findByRfcIds(ids, providerIds));
+    return callStubRead(() => this.stub.findByRfcIds(this.ref, ids, providerIds));
   }
 
   findSentByIdempotencyKey(key: string) {
-    return callStubRead(() => this.stub.findSentByIdempotencyKey(key));
+    return callStubRead(() => this.stub.findSentByIdempotencyKey(this.ref, key));
   }
 
   countSentSince(since: number): Promise<number> {
-    return callStubRead(() => this.stub.countSentSince(since));
+    return callStubRead(() => this.stub.countSentSince(this.ref, since));
   }
 
   async listScheduled(): Promise<MailMessageRecord[]> {
-    const rows = await callStubRead(() => this.stub.listScheduled());
+    const rows = await callStubRead(() => this.stub.listScheduled(this.ref));
     return this.withBodiesMany(rows);
   }
 
   listSnoozed(): Promise<SnoozedMessage[]> {
-    return callStubRead(() => this.stub.listSnoozed());
+    return callStubRead(() => this.stub.listSnoozed(this.ref));
   }
 
   listSubscriptions(q: { status?: 'active' | 'unsubscribed' }) {
-    return callStubRead(() => this.stub.listSubscriptions(q));
+    return callStubRead(() => this.stub.listSubscriptions(this.ref, q));
   }
 
   getSubscription(id: string) {
-    return callStubRead(() => this.stub.getSubscription(id));
+    return callStubRead(() => this.stub.getSubscription(this.ref, id));
   }
 
   rawSources(q: { since: number; limit: number }) {
-    return callStubRead(() => this.stub.rawSources(q));
+    return callStubRead(() => this.stub.rawSources(this.ref, q));
   }
 
   listDrafts(q: { limit: number; cursor?: string }) {
-    return callStubRead(() => this.stub.listDrafts(q));
+    return callStubRead(() => this.stub.listDrafts(this.ref, q));
   }
 
   getDraft(id: string) {
-    return callStubRead(() => this.stub.getDraft(id));
+    return callStubRead(() => this.stub.getDraft(this.ref, id));
   }
 
   async exportPage(q: { cursor?: string; limit: number; sentOnly?: boolean; since?: number; until?: number }) {
-    const page = await callStubRead(() => this.stub.exportPage(q));
+    const page = await callStubRead(() => this.stub.exportPage(this.ref, q));
     return { ...page, data: await this.withBodiesMany(page.data) };
   }
 
@@ -236,13 +236,13 @@ export class ObjectMailboxStore implements MailboxStore {
 
   async apply(op: MailboxOp, at?: number): Promise<OpResult> {
     const prepared = await this.prepareOp(op);
-    const result = await callStubWrite(() => this.stub.apply(prepared, at), isRetryableOp(prepared));
+    const result = await callStubWrite(() => this.stub.apply(this.ref, prepared, at), isRetryableOp(prepared));
     return this.withBodiesInResult(result);
   }
 
   async applyBatch(ops: MailboxOp[], at?: number): Promise<OpResult[]> {
     const prepared = await Promise.all(ops.map((op) => this.prepareOp(op)));
-    const results = await callStubWrite(() => this.stub.applyBatch(prepared, at), isBatchRetryable(prepared));
+    const results = await callStubWrite(() => this.stub.applyBatch(this.ref, prepared, at), isBatchRetryable(prepared));
     return Promise.all(results.map((r) => this.withBodiesInResult(r)));
   }
 

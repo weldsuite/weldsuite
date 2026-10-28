@@ -15,7 +15,6 @@ export {
   isBatchRetryable,
   isTransientStubError,
   type MailboxStoreRpc,
-  type MailboxStoreNamespace,
   type MailboxStoreNamespaceEnv,
   type StubRetryOptions,
 } from './stub';

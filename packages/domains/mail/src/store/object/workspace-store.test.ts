@@ -117,9 +117,9 @@ describe('listThreads: merge + cursor continuation across 3 mailboxes', () => {
     const { env } = makeEnv((ref) => {
       const stub = createFakeMailboxStub(ref);
       const real = stub.listThreads.bind(stub);
-      stub.listThreads = (async (q) => {
+      stub.listThreads = (async (r, q) => {
         seenQueries.push({ pageSize: q.pageSize, offset: q.offset, cursor: q.cursor });
-        return real(q);
+        return real(r, q);
       }) as typeof stub.listThreads;
       return stub;
     });
@@ -255,9 +255,9 @@ describe('locateMessages', () => {
     const { env } = makeEnv((ref) => {
       const stub = createFakeMailboxStub(ref);
       const real = stub.getMessages.bind(stub);
-      stub.getMessages = (async (ids) => {
+      stub.getMessages = (async (r, ids) => {
         calls.push(ref.accountId);
-        return real(ids);
+        return real(r, ids);
       }) as typeof stub.getMessages;
       return stub;
     });
