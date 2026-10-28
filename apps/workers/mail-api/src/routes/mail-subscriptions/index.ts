@@ -23,6 +23,7 @@ import {
   scanSubscriptions,
   unsubscribe,
 } from '../../services/mail/subscriptions';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -46,7 +47,8 @@ app.get(
       return error.notFound(c, 'Mail account', accountId);
     }
     try {
-      return success(c, await listSubscriptions(db, { accountId, status }));
+      const { store } = await workspaceMailFromContext(c);
+      return success(c, await listSubscriptions(db, { accountId, status }, store.mailbox(accountId)));
     } catch (err) {
       console.error('[app-api/mail-subscriptions] list failed:', err);
       return error.internal(c, 'Failed to list subscriptions');
@@ -65,7 +67,11 @@ app.post(
       return error.notFound(c, 'Mail account', accountId);
     }
     try {
-      return success(c, await scanSubscriptions(c.env, db, { workspaceId: c.get('workspaceId'), accountId }));
+      const { store } = await workspaceMailFromContext(c);
+      return success(
+        c,
+        await scanSubscriptions(c.env, db, { workspaceId: c.get('workspaceId'), accountId }, store.mailbox(accountId)),
+      );
     } catch (err) {
       console.error('[app-api/mail-subscriptions] scan failed:', err);
       return error.internal(c, 'Failed to scan for subscriptions');
@@ -87,12 +93,19 @@ app.post('/:id/unsubscribe', requirePermission('messages:update'), async (c) => 
   }
 
   try {
-    const result = await unsubscribe(c.env, db, {
-      orgId,
-      userId,
-      subscription,
-      waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
-    });
+    const { store, mode } = await workspaceMailFromContext(c);
+    const result = await unsubscribe(
+      c.env,
+      db,
+      {
+        orgId,
+        userId,
+        subscription,
+        waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+      },
+      store.mailbox(subscription.accountId),
+      mode,
+    );
     publishEntityEvent({
       c,
       entityType: 'mail_subscription',

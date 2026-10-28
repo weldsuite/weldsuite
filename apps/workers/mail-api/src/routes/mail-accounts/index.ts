@@ -29,6 +29,7 @@ import { sendErrorResponse } from '../../lib/send-errors';
 import { MAILBOX_DAILY_SEND_LIMIT_MAX } from '@weldsuite/app-api-client/schemas/outbound-mail';
 import { resolveMailStoreMode, readsFromObject, writesObject } from '@weldsuite/mail-domain/store/mode';
 import { bumpMailboxDirectory } from '@weldsuite/mail-domain/store/directory';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -411,6 +412,7 @@ app.post(
     const accountId = c.req.param('id');
     const data = c.req.valid('json');
     try {
+      const { store, mode } = await workspaceMailFromContext(c);
       const result = await sendAndPersist(
         c.env,
         c.get('tenantDb'),
@@ -418,7 +420,11 @@ app.post(
         c.get('userId'),
         accountId,
         data,
-        { waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx) },
+        {
+          waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+          store: store.mailbox(accountId),
+          mailStoreMode: mode,
+        },
       );
       publishEntityEvent({
         c,

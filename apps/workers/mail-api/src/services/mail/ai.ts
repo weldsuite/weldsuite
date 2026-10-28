@@ -34,6 +34,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { assertAiCredits, chargeAiUsage, type AiMetering } from '@weldsuite/core-domain/ai-billing';
 import { checkAccountAccess, listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
+import type { MailStoreMode, WorkspaceMailStore } from '@weldsuite/mail-domain/store/types';
 
 const { mailAccounts, mailMessages } = schema;
 
@@ -174,20 +175,55 @@ async function loadAccountContext(
   };
 }
 
-async function loadMessage(db: Database, messageId: string) {
+/**
+ * Existence and the account to gate against always come from this direct
+ * Postgres row (`gate` itself reads `mail_accounts`/`workspace_members`, not
+ * `mail_messages`, so it is unaffected by mailbox-store mode either way).
+ * In `shadow`/`object`/`object-only` modes, where this row can be stale or
+ * absent, the message *content* used for the prompt is refreshed from the
+ * store (`getMessage(id, {bodies: true})`, design task D1) — skipped
+ * entirely in `postgres` mode (the default), so that mode never pays for or
+ * behaves differently because of an extra read.
+ */
+async function loadMessage(db: Database, messageId: string, store?: WorkspaceMailStore, mode?: MailStoreMode) {
   const [row] = await db
     .select()
     .from(mailMessages)
     .where(and(eq(mailMessages.id, messageId), isNull(mailMessages.deletedAt)))
     .limit(1);
-  return row ?? null;
+  if (!row || !store || !mode || mode === 'postgres') return row ?? null;
+  try {
+    const record = await store.mailbox(row.accountId).getMessage(messageId, { bodies: true });
+    if (!record) return row;
+    return {
+      ...row,
+      subject: record.subject,
+      preview: record.preview,
+      from: record.from,
+      categories: record.categories,
+      textBody: record.textBody ?? row.textBody,
+      htmlBody: record.htmlBody ?? row.htmlBody,
+    };
+  } catch (err) {
+    console.warn(
+      '[mail-ai] could not enrich message content from the store, using the Postgres row:',
+      err instanceof Error ? err.message : err,
+    );
+    return row;
+  }
 }
 
 type LoadedMessage = NonNullable<Awaited<ReturnType<typeof loadMessage>>>;
 
 /** Load a message from a mailbox the caller may open; null when it does not exist. */
-async function loadAccessibleMessage(db: Database, gate: AccountGate, messageId: string) {
-  const message = await loadMessage(db, messageId);
+async function loadAccessibleMessage(
+  db: Database,
+  gate: AccountGate,
+  messageId: string,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
+) {
+  const message = await loadMessage(db, messageId, store, mode);
   if (!message) return null;
   await gate(message.accountId);
   return message;
@@ -340,12 +376,14 @@ export async function draftEmail(
   userId: string,
   input: DraftInput,
   metering: AiMetering | null,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
 ) {
   const gate = accountGate(db, userId);
   if (input.accountId) await gate(input.accountId);
   const accountCtx = input.accountId ? await loadAccountContext(db, input.accountId) : null;
   const replyTo = input.replyToMessageId
-    ? await loadAccessibleMessage(db, gate, input.replyToMessageId)
+    ? await loadAccessibleMessage(db, gate, input.replyToMessageId, store, mode)
     : null;
   if (input.replyToMessageId && !replyTo) {
     throw new MailAiError('MESSAGE_NOT_FOUND', 'Original message not found', 404);
@@ -431,11 +469,17 @@ export interface AutoDraftInput {
  * Caller-supplied message ids are checked one by one: they need not belong to
  * `accountId`.
  */
-async function loadRecentContext(db: Database, gate: AccountGate, input: AutoDraftInput) {
+async function loadRecentContext(
+  db: Database,
+  gate: AccountGate,
+  input: AutoDraftInput,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
+) {
   if (input.recentMessageIds && input.recentMessageIds.length > 0) {
     return (
       await Promise.all(
-        input.recentMessageIds.slice(0, 20).map((id) => loadAccessibleMessage(db, gate, id)),
+        input.recentMessageIds.slice(0, 20).map((id) => loadAccessibleMessage(db, gate, id, store, mode)),
       )
     ).filter((m): m is LoadedMessage => Boolean(m));
   }
@@ -448,6 +492,8 @@ export async function autoDraft(
   userId: string,
   input: AutoDraftInput,
   metering: AiMetering | null,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
 ) {
   const accountCtx = await loadAccountContext(db, input.accountId);
   if (!accountCtx) throw new MailAiError('ACCOUNT_NOT_FOUND', 'Mail account not found', 404);
@@ -455,8 +501,8 @@ export async function autoDraft(
   await gate(input.accountId);
 
   // Primary context: an explicit message to reply to, else recent inbox.
-  const replyTo = input.messageId ? await loadAccessibleMessage(db, gate, input.messageId) : null;
-  const recent = replyTo ? [] : await loadRecentContext(db, gate, input);
+  const replyTo = input.messageId ? await loadAccessibleMessage(db, gate, input.messageId, store, mode) : null;
+  const recent = replyTo ? [] : await loadRecentContext(db, gate, input, store, mode);
 
   const digest = recent
     .map((m) => `- ${m.from?.email ?? ''}: ${m.subject ?? '(no subject)'} — ${m.preview ?? ''}`)
@@ -509,12 +555,14 @@ export async function replySuggestion(
   userId: string,
   input: ReplyInput,
   metering: AiMetering | null,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
 ) {
   const gate = accountGate(db, userId);
   if (input.accountId) await gate(input.accountId);
   let message: LoadedMessage | null = null;
   if (input.messageId) {
-    message = await loadAccessibleMessage(db, gate, input.messageId);
+    message = await loadAccessibleMessage(db, gate, input.messageId, store, mode);
     if (!message) throw new MailAiError('MESSAGE_NOT_FOUND', 'Message not found', 404);
   }
   const accountIdForCtx = input.accountId ?? message?.accountId;
@@ -597,8 +645,10 @@ export async function smartReplies(
   userId: string,
   input: SmartRepliesInput,
   metering: AiMetering | null,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
 ) {
-  const message = await loadAccessibleMessage(db, accountGate(db, userId), input.messageId);
+  const message = await loadAccessibleMessage(db, accountGate(db, userId), input.messageId, store, mode);
   if (!message) throw new MailAiError('MESSAGE_NOT_FOUND', 'Message not found', 404);
   const accountCtx = message.accountId ? await loadAccountContext(db, message.accountId) : null;
 
@@ -653,18 +703,31 @@ async function classifyOne(
   };
 }
 
-/** Persist the AI category onto `categories` (additive, deduped); flag high priority. */
+/**
+ * Persist the AI category onto `categories` (additive, deduped); flag high
+ * priority. Through `store.apply`'s `categories` op when one is supplied
+ * (design task D1) — which also sets `updatedAt` (a catch-up gap this direct
+ * update always had, design §4's "Postgres gaps to fix for catch-up", fixed
+ * as part of moving onto the store); without one, this function's own
+ * direct-Postgres update, unchanged (and still without `updatedAt`).
+ */
 async function persistClassification(
   db: Database,
   message: LoadedMessage,
   category: string,
   priority: string,
+  store?: WorkspaceMailStore,
 ) {
   const existing = message.categories ?? [];
   const categories = Array.from(new Set([...existing, `ai:${category}`]));
+  const important = priority === 'high' ? true : undefined;
+  if (store) {
+    await store.mailbox(message.accountId).apply({ kind: 'categories', id: message.id, categories, important });
+    return;
+  }
   await db
     .update(mailMessages)
-    .set({ categories, ...(priority === 'high' ? { isImportant: true } : {}) })
+    .set({ categories, ...(important ? { isImportant: true } : {}) })
     .where(eq(mailMessages.id, message.id));
 }
 
@@ -674,15 +737,17 @@ export async function classifyMessage(
   userId: string,
   input: ClassifyInput,
   metering: AiMetering | null,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
 ): Promise<ClassificationResult> {
-  const message = await loadAccessibleMessage(db, accountGate(db, userId), input.messageId);
+  const message = await loadAccessibleMessage(db, accountGate(db, userId), input.messageId, store, mode);
   if (!message) throw new MailAiError('MESSAGE_NOT_FOUND', 'Message not found', 404);
   const accountCtx = message.accountId ? await loadAccountContext(db, message.accountId) : null;
   const ai = getAi(env);
   await assertAiCredits(metering);
   const model = pickModel('label', accountCtx, input.modelId);
   const { category, priority } = await classifyOne(metering, ai, model, message);
-  await persistClassification(db, message, category, priority);
+  await persistClassification(db, message, category, priority, store);
   return {
     messageId: message.id,
     accountId: message.accountId,
@@ -703,12 +768,14 @@ export async function classifyMessagesBatch(
   userId: string,
   input: ClassifyBatchInput,
   metering: AiMetering | null,
+  store?: WorkspaceMailStore,
+  mode?: MailStoreMode,
 ): Promise<ClassificationResult[]> {
   // Resolve and check the whole batch up front, like `/mail-messages/bulk`: one
   // inaccessible message refuses the request before anything is classified,
   // written back or charged. Ids that no longer exist are skipped.
   const gate = accountGate(db, userId, 'Access to one or more mail accounts is not allowed');
-  const loaded = await Promise.all(input.messageIds.map((id) => loadAccessibleMessage(db, gate, id)));
+  const loaded = await Promise.all(input.messageIds.map((id) => loadAccessibleMessage(db, gate, id, store, mode)));
   const batch = loaded.filter((message): message is LoadedMessage => !!message);
 
   const ai = getAi(env);
@@ -718,7 +785,7 @@ export async function classifyMessagesBatch(
     const accountCtx = message.accountId ? await loadAccountContext(db, message.accountId) : null;
     const model = pickModel('label-batch', accountCtx, input.modelId);
     const { category, priority } = await classifyOne(metering, ai, model, message);
-    await persistClassification(db, message, category, priority);
+    await persistClassification(db, message, category, priority, store);
     results.push({
       messageId: message.id,
       accountId: message.accountId,

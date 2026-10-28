@@ -228,14 +228,24 @@ describe('delivery.match', () => {
     expect(row.delivery_updated_at).toBe(10_500);
   });
 
-  it('a lower-ranked status never overwrites a higher-ranked one (STATUS_RANK)', () => {
+  it('a lower-ranked status never overwrites a higher-ranked one (STATUS_RANK), and is reported stale', () => {
     const { storage, ref } = makeMailbox();
     const sent = makeIngest({ source: 'sent', to: [{ email: 'carol@example.com' }], sentAt: 10_000 });
     applyMailboxOp(storage, ref, { kind: 'ingest', message: sent }, 1_000);
     applyMailboxOp(storage, ref, { kind: 'delivery.match', recipient: 'carol@example.com', eventAt: 10_500, status: 'complained', detail: null }, 10_600);
 
-    applyMailboxOp(storage, ref, { kind: 'delivery.match', recipient: 'carol@example.com', eventAt: 10_700, status: 'delivered', detail: null }, 10_800);
+    const downgrade = applyMailboxOp(
+      storage,
+      ref,
+      { kind: 'delivery.match', recipient: 'carol@example.com', eventAt: 10_700, status: 'delivered', detail: null },
+      10_800,
+    );
     expect(messageRow(storage, sent.id)!.delivery_status).toBe('complained'); // unchanged
+    // The rejected downgrade is reported `stale`, not `applied` — the caller
+    // (delivery-events.ts's `markSentCopy`) reads this to answer whether the
+    // event actually changed anything.
+    expect(downgrade.applied).toEqual([]);
+    expect(downgrade.stale).toEqual([sent.id]);
   });
 
   it('no match outside the window or for a different recipient is a quiet no-op', () => {

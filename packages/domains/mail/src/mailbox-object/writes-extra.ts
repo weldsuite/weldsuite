@@ -242,8 +242,8 @@ function applyDeliveryMatch(sql: SqlStorage, ref: MailboxRef, op: DeliveryMatchO
   const windowStart = op.eventAt - 3 * 86_400_000;
   const windowEnd = op.eventAt + 3_600_000;
   const match = sql
-    .exec<{ message_id: string }>(
-      `SELECT ma.message_id FROM message_addresses ma
+    .exec<{ message_id: string; delivery_status: string | null }>(
+      `SELECT ma.message_id, m.delivery_status FROM message_addresses ma
        JOIN messages m ON m.id = ma.message_id
        WHERE ma.address = ? AND ma.role IN ('to', 'cc', 'bcc')
          AND m.source = 'sent' AND m.sent_at BETWEEN ? AND ?
@@ -255,11 +255,22 @@ function applyDeliveryMatch(sql: SqlStorage, ref: MailboxRef, op: DeliveryMatchO
     .toArray()[0];
   if (!match) return baseResult();
 
-  const outcome = changeMessage(sql, ref, match.message_id, ['delivery'], at, (row) => {
-    const current = row.delivery_status as MailDeliveryStatus | null;
-    if (current && STATUS_RANK[current] > STATUS_RANK[op.status]) return null;
-    return { delivery_status: op.status, delivery_detail: op.detail, delivery_updated_at: op.eventAt };
-  });
+  // Checked against the SELECT's own row, not inside `changeMessage`'s
+  // `mutate`: that callback's `null` return means "no change needed, still
+  // applied" (`changeMessage`'s own documented contract, honoured by every
+  // other caller) — it is not a staleness signal, so a downgrade rejected
+  // from inside `mutate` would have been reported `applied` here instead of
+  // `stale` (design task D1's own test on this op caught it).
+  const current = match.delivery_status as MailDeliveryStatus | null;
+  if (current && STATUS_RANK[current] > STATUS_RANK[op.status]) {
+    return baseResult({ stale: [match.message_id] });
+  }
+
+  const outcome = changeMessage(sql, ref, match.message_id, ['delivery'], at, () => ({
+    delivery_status: op.status,
+    delivery_detail: op.detail,
+    delivery_updated_at: op.eventAt,
+  }));
   if (outcome.status === 'missing') return baseResult();
   if (outcome.status === 'stale') return baseResult({ stale: [match.message_id] });
   return baseResult({ applied: [match.message_id], message: mapMessageRow(outcome.row, ref) });

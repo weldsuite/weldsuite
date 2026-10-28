@@ -19,6 +19,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { getStoredObject } from '@weldsuite/worker-kit/storage';
 import { getRawMime, type MailBodyRef } from './store/bodies';
+import type { IngestMessage, MailboxStore, MailStoreMode } from './store/types';
 import * as cfEmail from '@weldsuite/worker-email';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { buildRfc5322 } from '@weldsuite/email/core/mime';
@@ -189,6 +190,27 @@ export interface SendOptions {
    * thread when left out. `workspaceId` (master id) saves a lookup.
    */
   outbound?: { source?: OutboundSource; kind?: OutboundKind; workspaceId?: string | null };
+  /**
+   * The sending account's mailbox store
+   * (docs/plans/weldmail-mailbox-store-design.md, task D1). When supplied,
+   * the SENT copy (and its attachments) is persisted through `store.apply`
+   * (an `ingest` op, source `sent`) instead of a direct Postgres insert, and
+   * the idempotency lookup, the daily-limit count and thread stitching also
+   * go through it — so the same code runs in every mailbox-store mode.
+   * Optional so a caller that cannot resolve a store yet (external-api, until
+   * task D5 lands) keeps working on today's direct-Postgres path unchanged.
+   * `forwardAndPersist`/`replyAndPersist` also use it to load the original
+   * message and its attachments, so forwarding/replying still works once a
+   * workspace's Postgres row for that message is stale or absent.
+   */
+  store?: MailboxStore;
+  /**
+   * The workspace's resolved mailbox-store mode, handed straight to the
+   * outbound guard's `checkOutbound` (design §0.1/§9) so its `MailIndex` can
+   * answer "first contact" authoritatively once a workspace is `object-only`.
+   * Left unset, the guard treats it as `postgres` — today's behaviour.
+   */
+  mailStoreMode?: MailStoreMode;
 }
 
 export interface InlineAttachment {
@@ -221,6 +243,30 @@ export async function findSentByIdempotencyKey(
   return {
     messageId: existing.id,
     smtpMessageId: existing.messageId,
+    externalMessageId: existing.externalMessageId ?? '',
+    accountId,
+    subject: existing.subject ?? '(No subject)',
+    pendingVerification: false,
+  };
+}
+
+/**
+ * {@link findSentByIdempotencyKey}, through the store when one is supplied
+ * (`MailboxStore.findSentByIdempotencyKey`), else the direct-Postgres
+ * function above, unchanged.
+ */
+async function findExistingSent(
+  db: Database,
+  store: MailboxStore | undefined,
+  accountId: string,
+  idempotencyKey: string,
+): Promise<SendResult | null> {
+  if (!store) return findSentByIdempotencyKey(db, accountId, idempotencyKey);
+  const existing = await store.findSentByIdempotencyKey(idempotencyKey);
+  if (!existing) return null;
+  return {
+    messageId: existing.id,
+    smtpMessageId: existing.rfcMessageId,
     externalMessageId: existing.externalMessageId ?? '',
     accountId,
     subject: existing.subject ?? '(No subject)',
@@ -280,7 +326,7 @@ export async function countSentToday(db: Database, accountId: string, now = new 
  * idempotency short-circuit, so replaying a send that already went out never
  * fails on the limit.
  */
-async function assertSendPolicy(db: Database, account: MailAccountRow, opts: SendOptions | undefined): Promise<void> {
+async function assertSendPolicy(db: Database, store: MailboxStore | undefined, account: MailAccountRow, opts: SendOptions | undefined): Promise<void> {
   if (opts?.requireVerifiedDomain && !(await isSenderDomainVerified(db, account.email))) {
     throw new MailSendError(
       'SENDER_DOMAIN_NOT_VERIFIED',
@@ -289,7 +335,10 @@ async function assertSendPolicy(db: Database, account: MailAccountRow, opts: Sen
   }
   if (opts?.enforceDailyLimit) {
     const limit = account.dailySendLimit ?? 500;
-    const sent = await countSentToday(db, account.id);
+    // Through the store (`countSentSince`) when one is supplied, so the count
+    // comes from the object in object modes; otherwise the direct Postgres
+    // query, byte-identical to before.
+    const sent = store ? await store.countSentSince(utcDayStart().getTime()) : await countSentToday(db, account.id);
     if (sent >= limit) {
       throw new MailSendError('DAILY_LIMIT_REACHED', `This account reached its daily send limit of ${limit}.`, {
         limit,
@@ -339,6 +388,7 @@ async function reserveOutbound(
       html: body.html,
       attachments: data.attachments?.map((a) => ({ filename: a.filename, contentType: a.contentType })),
       senderDailyCap: account.dailySendLimit,
+      mailStoreMode: opts?.mailStoreMode,
     });
   } catch (err) {
     if (err instanceof OutboundDeniedError) throw new MailSendError(err.code, err.message, err.details);
@@ -410,9 +460,17 @@ function transmitEmail(
   });
 }
 
-/** Thread stitching: replies inherit the parent's thread, anything else starts its own. */
+/**
+ * Thread stitching: replies inherit the parent's thread, anything else starts
+ * its own. Through the store's `findByRfcIds` when one is supplied — which,
+ * unlike this function's own direct-Postgres fallback, does not look at the
+ * legacy `mailcowMessageId` column (store/postgres/inbound.ts's own doc
+ * comment: a deliberate, already-accepted gap for that Mailcow-sync-only
+ * column, same as the mailbox object and its parity checks treat it).
+ */
 async function resolveThreadId(
   db: Database,
+  store: MailboxStore | undefined,
   accountId: string,
   data: SendComposeInput,
   fallbackThreadId: string,
@@ -423,6 +481,12 @@ async function resolveThreadId(
   const providerIds = lookupIds
     .map((id) => id.replace(/^</, '').replace(/@[\s\S]*/, ''))
     .filter(Boolean);
+
+  if (store) {
+    const matches = await store.findByRfcIds(lookupIds, providerIds);
+    return matches[0]?.threadId || fallbackThreadId;
+  }
+
   const [parent] = await db
     .select({ threadId: mailMessages.threadId })
     .from(mailMessages)
@@ -446,24 +510,96 @@ interface SentCopyInput {
   threadId: string;
   htmlBody: string | undefined;
   textBody: string | undefined;
-  attachmentCount: number;
+  /** Every attachment the sent copy owns — the server-supplied ones too. */
+  attachments: ResolvedAttachment[];
   now: Date;
   /** Known at send time: a partial send, or recipients Cloudflare skipped. */
   delivery?: { status: MailDeliveryStatus; detail: string };
 }
 
+/** `ResolvedAttachment` → the `IngestMessage.attachments` row shape, same fields {@link persistAttachmentPointers} writes. */
+function toAttachmentInput(
+  messageId: string,
+  att: ResolvedAttachment,
+): IngestMessage['attachments'][number] {
+  return {
+    id: generateId('attach'),
+    messageId,
+    fileName: att.filename,
+    contentType: att.contentType || 'application/octet-stream',
+    size: att.content.byteLength,
+    storagePath: att.fileKey,
+    isInline: false,
+  };
+}
+
 /**
- * Persist the SENT copy. Returns the already-persisted result when a concurrent
- * send with the same idempotency key won the unique-index race, otherwise null.
+ * Persist the SENT copy and its attachments. Returns the already-persisted
+ * result when a concurrent send with the same idempotency key won the
+ * unique-index race, otherwise null.
+ *
+ * Through `store.apply` (an `ingest` op, source `sent`) when a store is
+ * supplied — the message row and its attachments land in one op, same as an
+ * inbound ingest (design docs/plans/weldmail-mailbox-store-design.md, task
+ * D1). Without one (external-api until task D5 lands), the direct-Postgres
+ * path below is unchanged: the message row, then
+ * {@link persistAttachmentPointers}'s best-effort attachment inserts.
  */
 async function persistSentCopy(
   db: Database,
+  store: MailboxStore | undefined,
   account: MailAccountRow,
   data: SendComposeInput,
   copy: SentCopyInput,
 ): Promise<SendResult | null> {
-  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, textBody, attachmentCount, now, delivery } = copy;
+  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, textBody, attachments, now, delivery } = copy;
   const textPreview = (textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+
+  if (store) {
+    const message: IngestMessage = {
+      id: messageId,
+      source: 'sent',
+      rfcMessageId: smtpMessageId,
+      externalMessageId,
+      threadId,
+      from: { email: account.email, name: account.displayName || undefined },
+      to: data.to.map((email) => ({ email })),
+      cc: data.cc?.map((email) => ({ email })) ?? null,
+      bcc: data.bcc?.map((email) => ({ email })) ?? null,
+      subject: data.subject || '(No subject)',
+      preview: textPreview,
+      sentAt: now.getTime(),
+      receivedAt: null,
+      createdAt: now.getTime(),
+      isRead: true,
+      labels: ['SENT'],
+      isSpam: false,
+      inReplyTo: data.inReplyTo ?? null,
+      references: data.references ?? null,
+      isReply: !!data.inReplyTo,
+      idempotencyKey: data.idempotencyKey ?? null,
+      delivery: delivery ? { status: delivery.status, detail: delivery.detail.slice(0, 500), at: now.getTime() } : null,
+      // Worker-side only (never sent over RPC): the Postgres store writes
+      // these straight to `textBody`/`htmlBody`; the object store puts them
+      // to `MAIL_STORAGE` itself and derives `searchText` from them.
+      content: { html: htmlBody, text: textBody },
+      attachments: attachments.map((att) => toAttachmentInput(messageId, att)),
+      subscription: null,
+    };
+    try {
+      await store.apply({ kind: 'ingest', message }, now.getTime());
+      return null;
+    } catch (insertErr) {
+      // Same race as the direct-Postgres path below: a concurrent send with
+      // the same idempotency key won the unique index inside the store's own
+      // insert (which only de-dupes on `id`, generated fresh per attempt).
+      if (!data.idempotencyKey) throw insertErr;
+      const existing = await findExistingSent(db, store, account.id, data.idempotencyKey);
+      if (!existing) throw insertErr;
+      return existing;
+    }
+  }
+
   try {
     await db.insert(mailMessages).values({
       id: messageId,
@@ -487,15 +623,14 @@ async function persistSentCopy(
       isReply: !!data.inReplyTo,
       externalMessageId,
       idempotencyKey: data.idempotencyKey,
-      hasAttachments: attachmentCount > 0,
-      attachmentCount,
+      hasAttachments: attachments.length > 0,
+      attachmentCount: attachments.length,
       ...(delivery
         ? { deliveryStatus: delivery.status, deliveryDetail: delivery.detail.slice(0, 500), deliveryUpdatedAt: now }
         : {}),
       createdAt: now,
       updatedAt: now,
     });
-    return null;
   } catch (insertErr) {
     // A concurrent send with the same idempotency key won the unique-index
     // race: return its persisted row instead of double-recording. (The provider
@@ -506,6 +641,8 @@ async function persistSentCopy(
     if (!existing) throw insertErr;
     return existing;
   }
+  await persistAttachmentPointers(db, messageId, attachments, now);
+  return null;
 }
 
 /** Persist attachment pointers (best-effort). */
@@ -615,18 +752,19 @@ export async function sendAndPersist(
 
   // ---- Account + access check ------------------------------------------
   const account = await loadSendableAccount(db, caller, accountId);
+  const store = opts?.store;
 
   // ---- Idempotency: short-circuit a replayed send ----------------------
   // If this key already produced a SENT message, return it without sending
   // again. This covers the offline-queue flush and the retry-after-dropped-
   // response case (the response was lost but the message was already sent).
   if (data.idempotencyKey) {
-    const existing = await findSentByIdempotencyKey(db, accountId, data.idempotencyKey);
+    const existing = await findExistingSent(db, store, accountId, data.idempotencyKey);
     if (existing) return existing;
   }
 
   // ---- Opt-in policies (public API): verified sender, daily limit ------
-  await assertSendPolicy(db, account, opts);
+  await assertSendPolicy(db, store, account, opts);
 
   const body = prepareBody(data);
   await assertValidRecipients(env, data, opts?.dryRun);
@@ -660,25 +798,29 @@ export async function sendAndPersist(
   const now = new Date();
 
   // ---- Thread stitching (replies inherit parent thread) ----------------
-  const threadId = await resolveThreadId(db, accountId, data, smtpMessageId);
+  const threadId = await resolveThreadId(db, store, accountId, data, smtpMessageId);
 
-  // ---- Persist SENT copy ------------------------------------------------
-  const replayed = await persistSentCopy(db, account, data, {
+  // ---- Server-supplied attachments (forward's originals, a generated .eml)
+  // go to R2 before the sent copy is persisted, so an `ingest` op can own
+  // every attachment atomically, same as the direct-Postgres path's own
+  // ordering (today's `persistAttachmentPointers` ran after the insert, but
+  // the R2 put itself never depended on the row existing).
+  const storedExtras = await storeExtraAttachments(env, orgId, messageId, extraAttachments);
+  const allAttachments = [...resolvedAttachments, ...storedExtras];
+
+  // ---- Persist SENT copy (+ attachments) --------------------------------
+  const replayed = await persistSentCopy(db, store, account, data, {
     messageId,
     smtpMessageId,
     externalMessageId,
     threadId,
     htmlBody: body.html,
     textBody: body.text,
-    attachmentCount: resolvedAttachments.length + extraAttachments.length,
+    attachments: allAttachments,
     now,
     delivery: deliveryNote(partial, sendResult.suppressedRecipients ?? []),
   });
   if (replayed) return replayed;
-
-  // ---- Persist attachment pointers (best-effort) -----------------------
-  const storedExtras = await storeExtraAttachments(env, orgId, messageId, extraAttachments);
-  await persistAttachmentPointers(db, messageId, [...resolvedAttachments, ...storedExtras], now);
 
   // ---- Bump daily counter ----------------------------------------------
   await db
@@ -882,7 +1024,73 @@ export interface ReplyInput {
   idempotencyKey?: string;
 }
 
-type OriginalMessage = typeof mailMessages.$inferSelect;
+/**
+ * The fields `forwardAndPersist`/`replyAndPersist`/`buildEmlAttachment` read
+ * off the original message — a narrower shape than the Postgres row so a
+ * `MailboxStore.getMessage` record (which never carries `rawMessage`, and
+ * leaves bodies off unless asked for) satisfies it exactly as well as the
+ * direct-Postgres row does.
+ */
+interface OriginalMessage {
+  id: string;
+  accountId: string;
+  subject: string | null;
+  from: unknown;
+  to: unknown;
+  cc: unknown;
+  messageId: string;
+  references: unknown;
+  inReplyTo: string | null;
+  source: string | null;
+  sentDate: Date | null;
+  receivedDate: Date | null;
+  createdAt: Date;
+  textBody: string | null;
+  htmlBody: string | null;
+  rawMessage: string | null;
+}
+
+/**
+ * Load the message a reply/forward answers. Through `store.getMessage(id,
+ * {bodies: true})` when a store is supplied (design task D1) — so forwarding
+ * or replying still works once a workspace's Postgres row for that message is
+ * stale (shadow/object) or was never written (object-only). Without one
+ * (external-api until task D5 lands), the direct-Postgres row, unchanged.
+ */
+async function loadOriginal(
+  db: Database,
+  store: MailboxStore | undefined,
+  originalMessageId: string,
+): Promise<OriginalMessage | null> {
+  if (store) {
+    const row = await store.getMessage(originalMessageId, { bodies: true });
+    if (!row) return null;
+    return {
+      id: row.id,
+      accountId: row.accountId,
+      subject: row.subject,
+      from: row.from,
+      to: row.to,
+      cc: row.cc,
+      messageId: row.messageId,
+      references: row.references,
+      inReplyTo: row.inReplyTo,
+      source: row.source,
+      sentDate: row.sentDate,
+      receivedDate: row.receivedDate,
+      createdAt: row.createdAt,
+      textBody: row.textBody ?? null,
+      htmlBody: row.htmlBody ?? null,
+      rawMessage: null,
+    };
+  }
+  const [row] = await db
+    .select()
+    .from(mailMessages)
+    .where(and(eq(mailMessages.id, originalMessageId), isNull(mailMessages.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
 
 function formatAddress(addr: { email?: string; name?: string } | null | undefined): string {
   if (!addr) return '';
@@ -909,17 +1117,24 @@ function formatForwardDate(date: Date, timeZone?: string, locale?: string): stri
   }
 }
 
-/** The original's own files, minus the ones the sender removed. Inline images stay in the HTML. */
+/**
+ * The original's own files, minus the ones the sender removed. Inline images
+ * stay in the HTML. Through `store.listAttachments` when one is supplied
+ * (same reasoning as {@link loadOriginal}), else the direct-Postgres rows.
+ */
 async function loadOriginalAttachments(
   env: MailSendEnv,
   db: Database,
+  store: MailboxStore | undefined,
   originalMessageId: string,
   excludeIds: string[],
 ): Promise<InlineAttachment[]> {
-  const rows = await db
-    .select()
-    .from(mailAttachments)
-    .where(and(eq(mailAttachments.messageId, originalMessageId), isNull(mailAttachments.deletedAt)));
+  const rows = store
+    ? await store.listAttachments(originalMessageId)
+    : await db
+        .select()
+        .from(mailAttachments)
+        .where(and(eq(mailAttachments.messageId, originalMessageId), isNull(mailAttachments.deletedAt)));
   const wanted = rows.filter((r) => !r.isInline && r.storagePath && !excludeIds.includes(r.id));
   if (wanted.length === 0) return [];
   if (!env.STORAGE && !env.PRIVATE_STORAGE) {
@@ -1034,11 +1249,7 @@ export async function forwardAndPersist(
   data: ForwardInput,
   opts?: SendOptions,
 ): Promise<SendResult & { forwardedFrom: string }> {
-  const [original] = await db
-    .select()
-    .from(mailMessages)
-    .where(and(eq(mailMessages.id, originalMessageId), isNull(mailMessages.deletedAt)))
-    .limit(1);
+  const original = await loadOriginal(db, opts?.store, originalMessageId);
   if (!original) {
     throw new MailSendError('ACCOUNT_NOT_FOUND', 'Original message not found');
   }
@@ -1048,6 +1259,7 @@ export async function forwardAndPersist(
   const originalFiles = await loadOriginalAttachments(
     env,
     db,
+    opts?.store,
     originalMessageId,
     data.excludeAttachmentIds ?? [],
   );
@@ -1165,11 +1377,7 @@ export async function replyAndPersist(
   data: ReplyInput,
   opts?: SendOptions,
 ): Promise<SendResult & { repliedTo: string }> {
-  const [original] = await db
-    .select()
-    .from(mailMessages)
-    .where(and(eq(mailMessages.id, originalMessageId), isNull(mailMessages.deletedAt)))
-    .limit(1);
+  const original = await loadOriginal(db, opts?.store, originalMessageId);
   if (!original) {
     throw new MailSendError('ACCOUNT_NOT_FOUND', 'Original message not found');
   }

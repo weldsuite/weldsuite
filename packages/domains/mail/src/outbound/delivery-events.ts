@@ -19,9 +19,19 @@ import type { MailDeliveryStatus } from '@weldsuite/db/schema/mail-messages';
 import { addSuppression } from './correspondents';
 import { ledgerKeyFor, type DeliveryEventType, type LedgerSubject } from './ledger-core';
 import type { OutboundLedger } from './ledger';
+import { getWorkspaceMail, type MailboxStore, type MailStoreEnv } from '../store';
 
-export interface DeliveryEventsEnv extends DbEnv {
+export interface DeliveryEventsEnv extends DbEnv, Omit<MailStoreEnv, 'MAIL_STORAGE'> {
   OUTBOUND_LEDGER?: DurableObjectNamespace<OutboundLedger>;
+  /**
+   * EU-jurisdiction mail body bucket. Optional here, unlike `MailStoreEnv`'s
+   * own requirement, so this interface matches every real worker `Env`
+   * (which also types it optional even though wrangler.toml always binds
+   * it) — the same cosmetic discrepancy `mail-store-context.ts`'s own doc
+   * comment describes and papers over with a cast; `resolveDeliveryStore`
+   * below does the same.
+   */
+  MAIL_STORAGE?: R2Bucket;
 }
 
 export interface ParsedSendingEvent {
@@ -114,8 +124,28 @@ const STATUS_RANK: Record<MailDeliveryStatus, number> = {
   complained: 4,
 };
 
-/** Set the delivery status on the latest SENT copy from this account to this recipient. */
-export async function markSentCopy(db: Database, accountId: string, event: ParsedSendingEvent): Promise<boolean> {
+/**
+ * Set the delivery status on the latest SENT copy from this account to this
+ * recipient. Through the store's `delivery.match` op (design task D1) when
+ * one is supplied — `PostgresMailboxStore`'s own implementation of that op is
+ * this exact query, so `postgres` mode is unaffected either way; without a
+ * store (a caller that cannot resolve one yet), this function's own
+ * direct-Postgres scan below, unchanged.
+ */
+export async function markSentCopy(
+  db: Database,
+  accountId: string,
+  event: ParsedSendingEvent,
+  store?: MailboxStore,
+): Promise<boolean> {
+  if (store) {
+    const result = await store.apply(
+      { kind: 'delivery.match', recipient: event.recipient, eventAt: event.at.getTime(), status: STATUS_FOR[event.type], detail: event.detail },
+      event.at.getTime(),
+    );
+    return result.applied.length > 0;
+  }
+
   const { mailMessages } = schema;
   const recipientMatch = sql`EXISTS (
     SELECT 1 FROM jsonb_array_elements(
@@ -203,7 +233,8 @@ export async function applySendingEvents(env: DeliveryEventsEnv, events: ParsedS
     await countInLedger(env, route.subject, senderEvents);
     if (route.subject.kind === 'workspace' && route.clerkOrgId) {
       const db = await getTenantDbForWorkspace(env, route.clerkOrgId);
-      for (const event of senderEvents) await applyToTenant(db, route.accountId, sender, event);
+      const store = await resolveDeliveryStore(env, route.subject.workspaceId, route.clerkOrgId, route.accountId, db);
+      for (const event of senderEvents) await applyToTenant(db, store, route.accountId, sender, event);
     }
     applied += senderEvents.length;
   }
@@ -216,10 +247,56 @@ async function countInLedger(env: DeliveryEventsEnv, subject: LedgerSubject, eve
   for (const event of events) await stub.recordDelivery(subject, event.type, event.at.getTime());
 }
 
-/** Mark the SENT copy and suppress the address after a hard bounce or a complaint. */
-async function applyToTenant(db: Database, accountId: string, sender: string, event: ParsedSendingEvent): Promise<void> {
+/**
+ * Resolve the account's mailbox store for this workspace (design task D1:
+ * "delivery.match through the store per workspace"). `route.subject`'s
+ * `workspaceId` is already the master `workspaces.id` here (from the master
+ * `mail_account_registry`, unlike `send.ts`'s/`scheduled.ts`'s own
+ * "workspaceId" parameters, which are Clerk org ids) — no extra lookup
+ * needed. Never throws: a workspace whose store can't be resolved falls back
+ * to `undefined`, so `markSentCopy` takes its own direct-Postgres scan — the
+ * same resilience `applyToTenant`'s own try/catch already gives every write
+ * here (a tenant that hasn't run the migration yet, etc.).
+ */
+async function resolveDeliveryStore(
+  env: DeliveryEventsEnv,
+  workspaceId: string,
+  clerkOrgId: string,
+  accountId: string,
+  db: Database,
+): Promise<MailboxStore | undefined> {
   try {
-    await markSentCopy(db, accountId, event);
+    const workspaceMail = await getWorkspaceMail(env as unknown as MailStoreEnv, {
+      workspaceId,
+      clerkOrgId,
+      db,
+      waitUntil: (p) => {
+        p.catch(() => undefined);
+      },
+      // A system delivery-status update, not a user request — `MailAccess`
+      // is never consulted on this path.
+      principal: { kind: 'workspace', keyId: 'system:delivery-events' },
+    });
+    return workspaceMail.store.mailbox(accountId);
+  } catch (err) {
+    console.warn(
+      '[outbound-events] could not resolve the mailbox store, falling back to Postgres:',
+      err instanceof Error ? err.message : err,
+    );
+    return undefined;
+  }
+}
+
+/** Mark the SENT copy and suppress the address after a hard bounce or a complaint. */
+async function applyToTenant(
+  db: Database,
+  store: MailboxStore | undefined,
+  accountId: string,
+  sender: string,
+  event: ParsedSendingEvent,
+): Promise<void> {
+  try {
+    await markSentCopy(db, accountId, event, store);
     if (event.type !== 'hard_bounce' && event.type !== 'complained') return;
     await addSuppression(db, {
       email: event.recipient,

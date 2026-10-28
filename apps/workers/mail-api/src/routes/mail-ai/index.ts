@@ -47,6 +47,7 @@ import {
   InsufficientAiCreditsError,
   type AiMetering,
 } from '@weldsuite/core-domain/ai-billing';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
@@ -156,12 +157,15 @@ function publishClassified(c: AppContext, r: ClassificationResult) {
 
 app.post('/draft', requirePermission('messages:create'), zValidator('json', draftBody), async (c) => {
   try {
+    const { store, mode } = await workspaceMailFromContext(c);
     const data = await draftEmail(
       c.env,
       c.get('tenantDb'),
       c.get('userId'),
       c.req.valid('json'),
       await metersFor(c),
+      store,
+      mode,
     );
     return c.json({ success: true, data });
   } catch (err) {
@@ -195,12 +199,15 @@ app.post(
   zValidator('json', autoDraftBody),
   async (c) => {
     try {
+      const { store, mode } = await workspaceMailFromContext(c);
       const data = await autoDraft(
         c.env,
         c.get('tenantDb'),
         c.get('userId'),
         c.req.valid('json'),
         await metersFor(c),
+        store,
+        mode,
       );
       // Consumers (message-detail) read `result.draft.{subject,body}`.
       return c.json({ success: true, draft: data, data });
@@ -212,12 +219,15 @@ app.post(
 
 app.post('/reply', requirePermission('messages:create'), zValidator('json', replyBody), async (c) => {
   try {
+    const { store, mode } = await workspaceMailFromContext(c);
     const data = await replySuggestion(
       c.env,
       c.get('tenantDb'),
       c.get('userId'),
       c.req.valid('json'),
       await metersFor(c),
+      store,
+      mode,
     );
     // Consumers (compose panel, message-detail) read `result.body` (top-level).
     return c.json({ success: true, body: data.body, data });
@@ -232,12 +242,15 @@ app.post(
   zValidator('json', smartRepliesBody),
   async (c) => {
     try {
+      const { store, mode } = await workspaceMailFromContext(c);
       const data = await smartReplies(
         c.env,
         c.get('tenantDb'),
         c.get('userId'),
         c.req.valid('json'),
         await metersFor(c),
+        store,
+        mode,
       );
       return c.json({ success: true, data });
     } catch (err) {
@@ -269,12 +282,15 @@ app.post(
 
 app.post('/label', requirePermission('messages:update'), zValidator('json', classifyBody), async (c) => {
   try {
+    const { store, mode } = await workspaceMailFromContext(c);
     const data = await classifyMessage(
       c.env,
       c.get('tenantDb'),
       c.get('userId'),
       c.req.valid('json'),
       await metersFor(c),
+      store,
+      mode,
     );
     publishClassified(c, data);
     return c.json({ success: true, data });
@@ -289,12 +305,15 @@ app.post(
   zValidator('json', classifyBatchBody),
   async (c) => {
     try {
+      const { store, mode } = await workspaceMailFromContext(c);
       const results = await classifyMessagesBatch(
         c.env,
         c.get('tenantDb'),
         c.get('userId'),
         c.req.valid('json'),
         await metersFor(c),
+        store,
+        mode,
       );
       for (const r of results) publishClassified(c, r);
       return c.json({ success: true, data: { results } });

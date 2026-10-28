@@ -607,8 +607,14 @@ app.post(
  * POST /:id/reply — send a reply to a message. Routed through the
  * Cloudflare `send_email` binding via the shared send helper.
  *
- * Out of scope for task D2 (send paths are task D1): kept on the direct
- * `@weldsuite/mail-domain/messages`/`access` calls, unchanged.
+ * The access check (`getMessageAccountId` + `checkAccountAccess`) stays the
+ * direct-Postgres calls it always was — `MailAccess` is the object-mode
+ * replacement for a different task, and `mail_accounts`/`workspace_members`
+ * are never moved into the mailbox store (design docs/plans/
+ * weldmail-mailbox-store-design.md §6/§9 task D1). Once the account is known,
+ * the send itself goes through its mailbox's store: `sendAndPersist`/
+ * `replyAndPersist` accept it as an optional `store` and fall back to
+ * direct Postgres when it's absent (callers that cannot resolve one yet).
  */
 app.post(
   '/:id/reply',
@@ -626,6 +632,7 @@ app.post(
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     const data = c.req.valid('json');
     try {
+      const { store, mode } = await workspaceMailFromContext(c);
       const result = await replyAndPersist(
         c.env,
         db,
@@ -633,7 +640,11 @@ app.post(
         userId,
         id,
         data,
-        { waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx) },
+        {
+          waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+          store: store.mailbox(accountId),
+          mailStoreMode: mode,
+        },
       );
       publishEntityEvent({
         c,
@@ -669,8 +680,8 @@ app.post(
  * the new recipients); the original body is quoted into both text and
  * html parts.
  *
- * Out of scope for task D2 (send paths are task D1): kept on the direct
- * `@weldsuite/mail-domain/messages`/`access` calls, unchanged.
+ * The access check stays direct Postgres (see `/reply`'s doc comment above);
+ * the send itself goes through the store.
  */
 app.post(
   '/:id/forward',
@@ -688,6 +699,7 @@ app.post(
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     const data = c.req.valid('json');
     try {
+      const { store, mode } = await workspaceMailFromContext(c);
       const result = await forwardAndPersist(
         c.env,
         db,
@@ -701,6 +713,8 @@ app.post(
           // lets a "forward as attachment" read the original's raw MIME from
           // R2 instead of rebuilding it.
           outbound: { workspaceId: c.get('workspaceId') },
+          store: store.mailbox(accountId),
+          mailStoreMode: mode,
         },
       );
       publishEntityEvent({
