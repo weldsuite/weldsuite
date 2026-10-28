@@ -644,8 +644,13 @@ export async function relabelMessages(
 
 /**
  * The message-stripping half of a delete: remove `labelName` from every
- * message that carries it. The `mail_labels` row itself is `deleteMailLabel`'s
- * job; this is the op `label.delete` dispatches to directly (design task B4).
+ * message that carries it, regardless of its stored casing — same
+ * case-insensitive match {@link buildRelabelMessagesUpdate} uses for
+ * `label.rename`, so a label deleted in one casing also clears a message that
+ * carries it in another (labels are referenced by name: a user who deletes
+ * "Work" expects "work" gone too). The `mail_labels` row itself is
+ * `deleteMailLabel`'s job; this is the op `label.delete` dispatches to
+ * directly (design task B4).
  */
 export async function stripLabelFromMessages(
   db: Database,
@@ -656,13 +661,20 @@ export async function stripLabelFromMessages(
   const rows = await db
     .update(mailMessages)
     .set({
-      labels: sql`${mailMessages.labels} - ${labelName}::text`,
+      labels: sql`(
+        SELECT COALESCE(jsonb_agg(value), '[]'::jsonb)
+        FROM jsonb_array_elements(${mailMessages.labels}) AS value
+        WHERE NOT (jsonb_typeof(value) = 'string' AND lower(value #>> '{}') = lower(${labelName}::text))
+      )`,
       updatedAt: now,
     })
     .where(
       and(
         eq(mailMessages.accountId, accountId),
-        sql`${mailMessages.labels} @> ${JSON.stringify([labelName])}::jsonb`,
+        sql`EXISTS (
+          SELECT 1 FROM jsonb_array_elements_text(COALESCE(${mailMessages.labels}, '[]'::jsonb)) AS carried(name)
+          WHERE lower(carried.name) = lower(${labelName}::text)
+        )`,
         isNull(mailMessages.deletedAt),
       ),
     )

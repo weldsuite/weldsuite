@@ -44,17 +44,22 @@
  * when no such row exists; keeping every custom label's stored casing
  * identical to its queried slug exercises that fallback on both backends
  * without needing a `mail_labels` row (which the object has no use for at
- * all). The one scenario that specifically exercises case-insensitive slug
- * resolution registers a `mail_labels` row for Postgres, matching how a real
- * caller/router would ensure the label exists before asking a store for its
- * folder.
+ * all). The scenarios that specifically exercise case-insensitive slug
+ * resolution (`listThreads`, and `labelCounts`/`stats()` since their own
+ * fix) register a `mail_labels` row for Postgres via the `ensureLabel`
+ * helper, matching how a real caller/router would ensure the label exists
+ * before asking a store for its folder or its counts.
  *
- * Every OTHER difference found while writing this suite is in the final
- * `describe` block, each a standalone, non-parameterised test with a comment
- * describing the exact observed behaviour — reported to the caller for
- * routing instead of being fixed here (task instructions: this suite only
- * records real divergences, it never patches `store/postgres/*` or
- * `mailbox-object/*`).
+ * Four of the five "other differences" originally found while writing this
+ * suite (snooze.wake's `OpResult`, `label.delete` casing, `labelCounts`/
+ * `stats()` custom-label casing, `folder.read`'s `more` flag) were fixed in
+ * `store/postgres/mailbox-store.ts` and its helpers (`../../labels.ts`,
+ * `../../snooze.ts`, `../../thread-ops.ts`) and now live as ordinary, shared
+ * assertions in the first `describe.each` block instead of here. The one
+ * difference NOT fixed by that pass (wake-on-read; an object-side fix comes
+ * later) is still a standalone, non-parameterised `it.fails` in the final
+ * `describe` block below, with a comment describing the exact observed
+ * behaviour.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -380,6 +385,20 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       const store = await freshStore();
       expect(await store.labelCounts(['neverused'])).toEqual({ neverused: { messages: 0, unread: 0, threads: 0 } });
     });
+
+    it('labelCounts/stats agree with listThreads for a case-differing custom label', async () => {
+      const store = await freshStore();
+      await ensureLabel('Invoices');
+      const { id } = await ingest(store, { labels: ['INBOX', 'Invoices'] });
+
+      expect(await latestIdsIn(store, 'invoices')).toEqual([id]);
+
+      const counts = await store.labelCounts(['invoices']);
+      expect(counts.invoices).toEqual({ messages: 1, unread: 1, threads: 1 });
+
+      const stats = await store.stats();
+      expect(stats.labels.invoices).toEqual({ messages: 1, unread: 1, threads: 1 });
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -517,6 +536,20 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       expect(await latestIdsIn(store, 'inbox')).toEqual([due]);
       expect(await latestIdsIn(store, 'snoozed')).toEqual([later]);
     });
+
+    it('snooze.wake reports the ids it woke and the next pending due time', async () => {
+      const store = await freshStore();
+      const { id: due } = await ingest(store, { labels: ['INBOX'] });
+      const { id: later } = await ingest(store, { labels: ['INBOX'] });
+      await store.apply({ kind: 'snooze', id: due, until: Date.now() - 60_000 }, 2_000);
+      await store.apply({ kind: 'snooze', id: later, until: FAR_FUTURE }, 2_000);
+
+      const result = await store.apply({ kind: 'snooze.wake', now: Date.now() }, 3_000);
+
+      expect(result.applied).toEqual([due]);
+      expect(result.updatedIds).toEqual([due]);
+      expect(result.nextSnoozeDueAt).toBe(FAR_FUTURE);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -546,6 +579,16 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       expect(await latestIdsIn(store, 'temp')).toEqual([]);
       expect(await latestIdsIn(store, 'inbox')).toEqual([id]);
       expect((await store.labelCounts(['temp'])).temp).toEqual({ messages: 0, unread: 0, threads: 0 });
+    });
+
+    it('deletes the label from a message regardless of its stored casing', async () => {
+      const store = await freshStore();
+      const { id } = await ingest(store, { labels: ['INBOX', 'invoices'] });
+
+      await store.apply({ kind: 'label.delete', name: 'Invoices' }, 2_000);
+
+      expect(await latestIdsIn(store, 'invoices')).toEqual([]);
+      expect(await latestIdsIn(store, 'inbox')).toEqual([id]);
     });
   });
 
@@ -584,6 +627,25 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       expect(new Set(result.updatedIds)).toEqual(new Set(ids));
       const thread = (await store.listThreads({ labelSlug: 'inbox', pageSize: 10 })).threads;
       expect(thread.every((t) => t.unreadCount === 0)).toBe(true);
+    });
+
+    it('reports `more` when the batch cap is hit, and `false` once everything is marked', async () => {
+      const store = await freshStore();
+      for (let i = 0; i < 5; i++) {
+        await ingest(store, { labels: ['INBOX'], receivedAt: 1_000 + i, sentAt: 1_000 + i }, 1_000 + i);
+      }
+
+      const capped = await store.apply(
+        { kind: 'folder.read', scope: { labelSlug: 'inbox' }, batchSize: 2, maxBatches: 1 },
+        2_000,
+      );
+      expect(capped.more).toBe(true);
+
+      const finished = await store.apply(
+        { kind: 'folder.read', scope: { labelSlug: 'inbox' }, batchSize: 2, maxBatches: 10 },
+        2_000,
+      );
+      expect(finished.more).toBe(false);
     });
   });
 
@@ -822,12 +884,15 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
 
 // ---------------------------------------------------------------------------
 // Other differences found while writing this suite (not in the task's known
-// list). Each is a standalone, non-parameterised test: the divergence only
-// shows up on ONE of the two backends, so folding it into the `describe.each`
-// block above would make `it.fails` wrong for the other (it would
-// unexpectedly pass there). Every test below builds exactly the backend(s)
-// it needs to demonstrate the behaviour and is reported to the caller for
-// routing — nothing in `store/postgres/*` or `mailbox-object/*` is changed.
+// list). Four of the five originally found here were fixed (task: mailbox
+// store contract fixes #2-#5) and now live as ordinary, shared assertions in
+// the `describe.each` block above — `snooze.wake` reporting, `label.delete`
+// casing, `labelCounts`/`stats()` custom-label casing, and `folder.read`'s
+// `more` flag. The one below is NOT fixed by that task (an object-side fix
+// comes later) and stays a standalone, non-parameterised `it.fails`: the
+// divergence only shows up on ONE of the two backends, so folding it into the
+// `describe.each` block would make `it.fails` wrong for the other (it would
+// unexpectedly pass there).
 // ---------------------------------------------------------------------------
 
 describe('other differences found (reported, not fixed here)', () => {
@@ -881,104 +946,5 @@ describe('other differences found (reported, not fixed here)', () => {
     // above). The object: `objSnoozed` still has the message. The two
     // backends disagree on a bare `listThreads` call with no op in between.
     expect(pgSnoozed.length).toBe(objSnoozed.length);
-  });
-
-  // `store/postgres/mailbox-store.ts`'s `'snooze.wake'` case discards
-  // `wakeDueSnoozedMessages`'s result entirely:
-  //   `return { applied: [], missing: [], stale: [], ready: true };`
-  // — `applied` is always `[]` and `nextSnoozeDueAt` is never set.
-  // `mailbox-object/writes-extra.ts`'s `applySnoozeWake` instead returns the
-  // real woken ids in `applied`/`updatedIds` and computes `nextSnoozeDueAt`
-  // from the remaining snoozed mail. A caller that reads `OpResult` from
-  // `snooze.wake` (rather than re-listing) sees different shapes from the
-  // two backends for the identical op.
-  it.fails('snooze.wake reports which ids it woke (Postgres never does)', async () => {
-    const { store } = await newPostgresStore();
-    const message = makeIngest({ labels: ['INBOX'] });
-    const { id } = message;
-    await store.apply({ kind: 'ingest', message }, 1_000);
-    await store.apply({ kind: 'snooze', id, until: Date.now() - 60_000 }, 2_000);
-
-    const result = await store.apply({ kind: 'snooze.wake', now: Date.now() }, 3_000);
-
-    // The object would report `applied: [id]` for the identical op; Postgres
-    // reports `applied: []` here.
-    expect(result.applied).toEqual([id]);
-  });
-
-  // `mailbox-object/writes.ts`'s `applyLabelDelete` matches
-  // `message_labels.label_key` (always lower-cased at write time), so
-  // `{kind: 'label.delete', name: 'Invoices'}` strips a message carrying the
-  // label as `'invoices'` regardless of casing. Postgres's
-  // `stripLabelFromMessages` (`../../labels.ts`) instead does an exact JSONB
-  // containment check (`labels @> '["Invoices"]'`), which is case-SENSITIVE
-  // — unlike `relabelMessages`'s `lower(...)` comparison used for
-  // `label.rename`. A message carrying the label in a different casing than
-  // the delete op's `name` is left untouched on Postgres but removed on the
-  // object.
-  it.fails('label.delete removes a label regardless of its stored casing (Postgres keeps a differently-cased one)', async () => {
-    const { store } = await newPostgresStore();
-    const message = makeIngest({ labels: ['INBOX', 'invoices'] });
-    await store.apply({ kind: 'ingest', message }, 1_000);
-
-    await store.apply({ kind: 'label.delete', name: 'Invoices' }, 2_000);
-
-    const page = await store.listThreads({ labelSlug: 'invoices', pageSize: 10 });
-    expect(page.threads.map((t) => t.latestMessageId)).toEqual([]);
-  });
-
-  // `store/postgres/mailbox-store.ts`'s `labelCounts`/`stats()`
-  // (`folderKeyCondition`) call `../../labels.ts`'s `labelCondition(lower)`
-  // with NO `customNames` — so a custom label is only ever matched by an
-  // EXACT, case-sensitive comparison against the (always lower-cased)
-  // `FolderKey` passed in. `listThreads` (via `threadListScope`) resolves
-  // the same slug through `resolveCustomLabelNames`/`mail_labels` first,
-  // so it correctly finds a label stored in its real, typed casing (e.g.
-  // "Invoices") even though the folder slug is "invoices". `labelCounts`
-  // and `stats().labels` have no such resolution: a correctly-registered
-  // custom label whose stored casing differs from its lower-cased slug (the
-  // normal case — real label names are rarely all-lowercase) always reports
-  // zero through these two methods on Postgres, while `listThreads` for the
-  // very same mailbox correctly lists it. The object has no such gap: its
-  // `message_labels`/`label_counts` keys are always normalised lower-case
-  // regardless of the label's displayed casing.
-  it.fails('labelCounts/stats agree with listThreads for a case-differing custom label (Postgres under-counts it)', async () => {
-    const { store, accountId } = await newPostgresStore();
-    await createMailLabel(pgDb, { accountId, name: 'Invoices' });
-    const message = makeIngest({ labels: ['INBOX', 'Invoices'] });
-    await store.apply({ kind: 'ingest', message }, 1_000);
-
-    const listed = (await store.listThreads({ labelSlug: 'invoices', pageSize: 10 })).threads;
-    expect(listed).toHaveLength(1); // this part already passes
-
-    const counts = await store.labelCounts(['invoices']);
-    // Postgres reports {messages:0,...} here even though `listed` above
-    // found the message a moment ago in the same mailbox.
-    expect(counts.invoices).toEqual({ messages: 1, unread: 1, threads: 1 });
-  });
-
-  // design §2's `OpResult.more` ("`folder.read` only: true when the last
-  // batch it ran was full-size ... the caller re-issues the same op to
-  // continue") is implemented by `mailbox-object/writes-extra.ts`'s
-  // `applyFolderRead`, but `store/postgres/mailbox-store.ts`'s
-  // `'folder.read'` case never sets it — `markFolderReadForAccounts`
-  // (`../../thread-ops.ts`) has no concept of "more remain beyond
-  // maxBatches" in its return shape, so the field is always `undefined`
-  // there regardless of whether unread mail remains.
-  it.fails('folder.read reports `more` when the batch cap is hit (Postgres never sets it)', async () => {
-    const { store } = await newPostgresStore();
-    for (let i = 0; i < 5; i++) {
-      const message = makeIngest({ labels: ['INBOX'], sentAt: 1_000 + i, receivedAt: 1_000 + i });
-      await store.apply({ kind: 'ingest', message }, 1_000 + i);
-    }
-
-    const result = await store.apply(
-      { kind: 'folder.read', scope: { labelSlug: 'inbox' }, batchSize: 2, maxBatches: 1 },
-      2_000,
-    );
-
-    // The object would report `more: true` here (5 unread, only 2 marked,
-    // the one batch it ran was full-size); Postgres reports `more: undefined`.
-    expect(result.more).toBe(true);
   });
 });

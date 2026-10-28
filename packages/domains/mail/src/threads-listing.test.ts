@@ -296,7 +296,7 @@ describe('auto-unsnooze (TASK-931)', () => {
     const now = new Date(Date.now() + 2 * 60 * 60_000);
     const result = await wakeDueSnoozedMessages(db, { now });
 
-    expect(result).toEqual({ woken: 1, accountIds: [accountId] });
+    expect(result).toEqual({ woken: 1, accountIds: [accountId], ids: [due] });
     const [row] = await db.select().from(mailMessages).where(eq(mailMessages.id, due)).limit(1);
     expect(row!.labels).toEqual(['INBOX']);
     expect(row!.isRead).toBe(false);

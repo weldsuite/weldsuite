@@ -47,6 +47,7 @@ import { getThreadByKey, listThreadsForAccounts, type ThreadListMessage } from '
 import {
   listSnoozedMessages,
   MailSnoozeError,
+  nextSnoozeDueAt,
   resnoozeMessage,
   snoozeMessage,
   unsnoozeMessage,
@@ -152,8 +153,15 @@ function toListRow(row: ThreadListMessage): MailMessageListRow {
  * `store/model.ts`'s `folderKeys` pure rule in the opposite direction (given a
  * key, not given a message). Kept in lockstep by hand, same as that file
  * documents for the mailbox object's derived tables.
+ *
+ * `customNames` is the custom label's stored casing(s) (from `mail_labels`,
+ * resolved by {@link resolveCustomLabelNamesForKeys}) — without it, a label
+ * registered as e.g. "Invoices" only ever matches the lower-cased slug
+ * "invoices" and never the casing actually written to `mail_messages.labels`,
+ * same resolution `threadListScope` already does for `listThreads` (`../../
+ * labels.ts`'s `labelCondition`'s own `customNames` parameter).
  */
-function folderKeyCondition(key: FolderKey): SQL {
+function folderKeyCondition(key: FolderKey, customNames: string[] = []): SQL {
   const lower = key.toLowerCase();
   if (lower === '__total') return sql`true`;
   if (lower === '__all') return sql`NOT ${inTrashOrSpamCondition()}`;
@@ -163,7 +171,47 @@ function folderKeyCondition(key: FolderKey): SQL {
   const system = toSystemLabel(lower);
   if (system === SYSTEM_LABELS.TRASH || system === SYSTEM_LABELS.SPAM) return labelCondition(lower);
   if (system) return sql`${labelCondition(lower)} AND NOT ${inTrashOrSpamCondition()}`;
-  return sql`${labelCondition(lower)} AND NOT ${inTrashOrSpamCondition()} AND NOT ${archivedCondition()}`;
+  return sql`${labelCondition(lower, customNames)} AND NOT ${inTrashOrSpamCondition()} AND NOT ${archivedCondition()}`;
+}
+
+/** `folderKeyCondition`'s pseudo-keys and system-label slugs — never a custom label's own name, so never worth a `mail_labels` lookup. */
+function isNonCustomFolderKey(key: FolderKey): boolean {
+  const lower = key.toLowerCase();
+  return lower === '__total' || lower === '__all' || lower === '__scheduled' || toSystemLabel(lower) !== null;
+}
+
+/**
+ * Resolves every non-system key in `keys` against `mail_labels` in ONE query
+ * (keyed by the key's lower-case form, since several keys could normalise to
+ * the same registered label), the batched twin of `../../labels.ts`'s
+ * `resolveCustomLabelNames` for `labelCounts`/`stats()` — which ask about many
+ * keys at once, unlike `listThreads`'s single label slug.
+ */
+async function resolveCustomLabelNamesForKeys(
+  db: Database,
+  accountId: string,
+  keys: FolderKey[],
+): Promise<Map<string, string[]>> {
+  const customKeys = [...new Set(keys.filter((k) => !isNonCustomFolderKey(k)).map((k) => k.toLowerCase()))];
+  const byKey = new Map<string, string[]>();
+  if (customKeys.length === 0) return byKey;
+  const rows = await db
+    .selectDistinct({ name: mailLabels.name })
+    .from(mailLabels)
+    .where(
+      and(
+        eq(mailLabels.accountId, accountId),
+        isNull(mailLabels.deletedAt),
+        inArray(sql`LOWER(${mailLabels.name})`, customKeys),
+      ),
+    );
+  for (const row of rows) {
+    const lower = row.name.toLowerCase();
+    const names = byKey.get(lower) ?? [];
+    names.push(row.name);
+    byKey.set(lower, names);
+  }
+  return byKey;
 }
 
 export class PostgresMailboxStore implements MailboxStore {
@@ -297,9 +345,10 @@ export class PostgresMailboxStore implements MailboxStore {
 
   async labelCounts(keys: FolderKey[]): Promise<Record<FolderKey, LabelCount>> {
     if (keys.length === 0) return {};
+    const customNames = await resolveCustomLabelNamesForKeys(this.db, this.ref.accountId, keys);
     const selection: Record<string, SQL.Aliased<number>> = {};
     keys.forEach((key, i) => {
-      const condition = folderKeyCondition(key);
+      const condition = folderKeyCondition(key, customNames.get(key.toLowerCase()) ?? []);
       selection[`m${i}`] = sql<number>`count(*) FILTER (WHERE ${condition})::int`.as(`m${i}`);
       selection[`u${i}`] = sql<number>`count(*) FILTER (WHERE ${condition} AND ${mailMessages.isRead} = false)::int`.as(
         `u${i}`,
@@ -506,7 +555,14 @@ export class PostgresMailboxStore implements MailboxStore {
           { batchSize: op.batchSize, maxBatches: op.maxBatches, updatedPerAccount: op.keepIds },
           now,
         );
-        return { applied: result.updatedIds, missing: [], stale: [], updatedIds: result.updatedIds, ready: true };
+        return {
+          applied: result.updatedIds,
+          missing: [],
+          stale: [],
+          updatedIds: result.updatedIds,
+          more: result.more,
+          ready: true,
+        };
       }
       case 'thread.set': {
         const row = await updateMessage(this.db, op.id, { threadId: op.threadId }, now);
@@ -530,11 +586,17 @@ export class PostgresMailboxStore implements MailboxStore {
       case 'unsnooze':
         return this.applyUnsnooze(op.id, now);
       case 'snooze.wake': {
-        await wakeDueSnoozedMessages(this.db, {
-          now: new Date(op.now),
-          scope: eq(mailMessages.accountId, this.ref.accountId),
-        });
-        return { applied: [], missing: [], stale: [], ready: true };
+        const scope = eq(mailMessages.accountId, this.ref.accountId);
+        const { ids } = await wakeDueSnoozedMessages(this.db, { now: new Date(op.now), scope });
+        const next = await nextSnoozeDueAt(this.db, { scope });
+        return {
+          applied: ids,
+          missing: [],
+          stale: [],
+          updatedIds: ids,
+          nextSnoozeDueAt: next ? next.getTime() : null,
+          ready: true,
+        };
       }
       case 'scheduled': {
         const row = await applyScheduledPatch(this.db, op.id, op.patch, now);

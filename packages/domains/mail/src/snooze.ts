@@ -181,7 +181,7 @@ export function buildWakeDueSnoozedUpdate(db: Database, options: { now?: Date; s
       updatedAt: now,
     })
     .where(and(...conditions))
-    .returning({ accountId: mailMessages.accountId });
+    .returning({ accountId: mailMessages.accountId, id: mailMessages.id });
 }
 
 /**
@@ -192,21 +192,35 @@ export function buildWakeDueSnoozedUpdate(db: Database, options: { now?: Date; s
  *
  * Mail that was trashed or marked spam while snoozed has no SNOOZED label any
  * more (a move clears it), so it is never brought back.
+ *
+ * `ids` lists every message the UPDATE actually woke (via `RETURNING`), so a
+ * caller that applied this as a `snooze.wake` op can report it in
+ * `OpResult.applied`, the same shape the mailbox object's `applySnoozeWake`
+ * returns for the identical op.
  */
 export async function wakeDueSnoozedMessages(
   db: Database,
   options: { now?: Date; scope?: SQL } = {},
-): Promise<{ woken: number; accountIds: string[] }> {
+): Promise<{ woken: number; accountIds: string[]; ids: string[] }> {
   const rows = await buildWakeDueSnoozedUpdate(db, options);
-  return { woken: rows.length, accountIds: [...new Set(rows.map((r) => r.accountId))] };
+  return { woken: rows.length, accountIds: [...new Set(rows.map((r) => r.accountId))], ids: rows.map((r) => r.id) };
 }
 
 /**
- * When the next snoozed message of this workspace comes due (`null`: nothing
- * snoozed). Same conditions as `wakeDueSnoozedMessages`, so the snooze sweep
- * can store this in the D1 due index and leave the tenant alone until then.
+ * When the next snoozed message comes due (`null`: nothing snoozed). Same
+ * conditions as `wakeDueSnoozedMessages`. `options.scope` narrows it to some
+ * accounts, same as that function — omitted, it stays workspace-wide, which
+ * is what the snooze sweep (one tenant DB per workspace) wants; a per-mailbox
+ * caller (`PostgresMailboxStore`'s `snooze.wake` op) passes its own account's
+ * scope so the value it reports is this mailbox's, not the whole workspace's.
  */
-export async function nextSnoozeDueAt(db: Database): Promise<Date | null> {
+export async function nextSnoozeDueAt(db: Database, options: { scope?: SQL } = {}): Promise<Date | null> {
+  const conditions: SQL[] = [
+    isNull(mailMessages.deletedAt)!,
+    sql`${mailMessages.snoozedUntil} IS NOT NULL`,
+    sql`${mailMessages.labels} @> '["SNOOZED"]'::jsonb`,
+  ];
+  if (options.scope) conditions.push(options.scope);
   const [row] = await db
     .select({
       // mapWith: decode like the column (timestamp without time zone = UTC),
@@ -214,13 +228,7 @@ export async function nextSnoozeDueAt(db: Database): Promise<Date | null> {
       next: sql<Date | null>`min(${mailMessages.snoozedUntil})`.mapWith(mailMessages.snoozedUntil),
     })
     .from(mailMessages)
-    .where(
-      and(
-        isNull(mailMessages.deletedAt),
-        sql`${mailMessages.snoozedUntil} IS NOT NULL`,
-        sql`${mailMessages.labels} @> '["SNOOZED"]'::jsonb`,
-      ),
-    );
+    .where(and(...conditions));
   return row?.next ?? null;
 }
 

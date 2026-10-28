@@ -110,9 +110,20 @@ export async function markFolderReadForAccounts(
   input: ThreadListFilter & { labelSlug: string },
   options: MarkFolderReadOptions = {},
   now: Date = new Date(),
-): Promise<{ updatedCount: number; updated: { id: string; accountId: string }[]; updatedIds: string[] }> {
+): Promise<{
+  updatedCount: number;
+  updated: { id: string; accountId: string }[];
+  updatedIds: string[];
+  /**
+   * `true` when the last batch run was full-size, so unread mail matching
+   * `input` may remain beyond `maxBatches * batchSize` — mirrors the mailbox
+   * object's `applyFolderRead`'s `more`, for the `folder.read` op's
+   * `OpResult` (design §2).
+   */
+  more: boolean;
+}> {
   const scope = await threadListScopeForAccounts(db, accountIds, input);
-  if (!scope) return { updatedCount: 0, updated: [], updatedIds: [] };
+  if (!scope) return { updatedCount: 0, updated: [], updatedIds: [], more: false };
   return markFolderReadWithScope(db, scope, options, now);
 }
 
@@ -122,7 +133,7 @@ async function markFolderReadWithScope(
   scope: ThreadScope,
   options: MarkFolderReadOptions,
   now: Date = new Date(),
-): Promise<{ updatedCount: number; updated: { id: string; accountId: string }[]; updatedIds: string[] }> {
+): Promise<{ updatedCount: number; updated: { id: string; accountId: string }[]; updatedIds: string[]; more: boolean }> {
   const batchSize = options.batchSize ?? MARK_READ_BATCH_SIZE;
   const maxBatches = options.maxBatches ?? MARK_READ_MAX_BATCHES;
   const updatedPerAccount = options.updatedPerAccount ?? MARK_READ_UPDATED_PER_ACCOUNT;
@@ -152,6 +163,10 @@ async function markFolderReadWithScope(
   // secondary"), as opposed to `updated`, which stays capped for the push.
   const updatedIds: string[] = [];
   const keptPerAccount = new Map<string, number>();
+  // Mirrors `mailbox-object/writes-extra.ts`'s `applyFolderRead`: `true` only
+  // when the most recent batch was full-size, so unread mail matching the
+  // scope may remain beyond `maxBatches * batchSize`.
+  let more = false;
 
   for (let batchNo = 0; batchNo < maxBatches; batchNo++) {
     // Marked rows leave `unreadInFolder`, so each pass sees the next batch.
@@ -161,7 +176,10 @@ async function markFolderReadWithScope(
       .where(unreadInFolder)
       .orderBy(sql`COALESCE(${mailMessages.receivedDate}, ${mailMessages.sentDate}) DESC NULLS LAST`)
       .limit(batchSize);
-    if (batch.length === 0) break;
+    if (batch.length === 0) {
+      more = false;
+      break;
+    }
 
     // `isRead = false` again: a message read in the meantime is not counted twice.
     const done = await db
@@ -186,8 +204,9 @@ async function markFolderReadWithScope(
       updated.push({ id, accountId });
     }
 
-    if (batch.length < batchSize) break;
+    more = batch.length >= batchSize;
+    if (!more) break;
   }
 
-  return { updatedCount, updated, updatedIds };
+  return { updatedCount, updated, updatedIds, more };
 }
