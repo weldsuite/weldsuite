@@ -125,8 +125,18 @@ function applyUnsnooze(sql: SqlStorage, ref: MailboxRef, id: string, at: number)
   return baseResult({ applied: [id], message: mapMessageRow(outcome.row, ref) });
 }
 
-/** The next `snoozed_until` still pending in this mailbox (mirrors `snooze.ts`'s `nextSnoozeDueAt`, scoped to one mailbox). */
-function nextSnoozeDueAt(sql: SqlStorage): number | null {
+/**
+ * The next `snoozed_until` still pending in this mailbox (mirrors
+ * `snooze.ts`'s `nextSnoozeDueAt`, scoped to one mailbox). Exported for
+ * `mailbox-object.ts`'s wake-on-read path (design §3.3: "before serving
+ * listThreads, stats, labelCounts and unreadCount, the object applies
+ * snooze.wake at the current time when anything is due (cheap check first:
+ * is any snoozed_until <= now?)") — the same indexed `MIN(snoozed_until)`
+ * query `applySnoozeWake` itself already reports back as `OpResult.
+ * nextSnoozeDueAt`, reused here instead of a second, separate "is anything
+ * due" query.
+ */
+export function nextSnoozeDueAt(sql: SqlStorage): number | null {
   const row = sql
     .exec<{ next: number | null }>(
       `SELECT MIN(m.snoozed_until) AS next FROM messages m

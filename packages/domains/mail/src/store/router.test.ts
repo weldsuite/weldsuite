@@ -22,7 +22,7 @@ import {
   rewriteOpForSecondary,
 } from './router';
 import { ParitySampler } from './parity';
-import type { MailboxStoreNamespaceEnv } from './object';
+import { mailboxKeyFor, type MailboxStoreNamespaceEnv } from './object';
 import type {
   MailboxOp,
   MailboxRef,
@@ -122,17 +122,37 @@ function createFakeWorkspaceStore(ref: MailboxRef, mode: MailStoreMode, override
 interface FakeAdminStub {
   status: ReturnType<typeof vi.fn>;
   setMode: ReturnType<typeof vi.fn>;
+  notePgDrift: ReturnType<typeof vi.fn>;
 }
 
-function createFakeAdminStub(opts: { ready?: boolean; previousMode?: MailStoreMode } = {}): FakeAdminStub {
+function createFakeAdminStub(opts: { ready?: boolean; previousMode?: MailStoreMode; notePgDriftFails?: boolean } = {}): FakeAdminStub {
   return {
     status: vi.fn(async () => ({ ready: opts.ready ?? true })),
     setMode: vi.fn(async () => opts.previousMode ?? 'postgres'),
+    notePgDrift: vi.fn(async (_ref: MailboxRef, ids: string[]) => {
+      if (opts.notePgDriftFails) throw new Error('notePgDrift unreachable');
+      return { accepted: true as const, noted: ids.length };
+    }),
   };
 }
 
 function createFakeAdminEnv(stub: FakeAdminStub): MailboxStoreNamespaceEnv {
   const ns = { jurisdiction: (_j: 'eu') => ({ idFromName: (name: string) => name, get: () => stub }) };
+  return { MAILBOX_STORE: ns } as unknown as MailboxStoreNamespaceEnv;
+}
+
+/** Per-mailbox readiness, keyed by `mailboxKeyFor(ref)` (e.g. `mbx:ws_1:acc_2`) — for the cross-mailbox readiness tests, where different mailboxes in one `accountIds` scope need different `status().ready` answers. Unlisted keys default to ready. */
+function createFakeAdminEnvPerMailbox(readyByKey: Record<string, boolean>): MailboxStoreNamespaceEnv {
+  const ns = {
+    jurisdiction: (_j: 'eu') => ({
+      idFromName: (name: string) => name,
+      get: (id: string) => ({
+        status: vi.fn(async () => ({ ready: readyByKey[id] ?? true })),
+        setMode: vi.fn(async () => 'postgres' as MailStoreMode),
+        notePgDrift: vi.fn(async (_ref: MailboxRef, ids: string[]) => ({ accepted: true as const, noted: ids.length })),
+      }),
+    }),
+  };
   return { MAILBOX_STORE: ns } as unknown as MailboxStoreNamespaceEnv;
 }
 
@@ -383,19 +403,59 @@ describe('Secondary write failure: never fails the request, logs, counts, marks 
     expect(parsed.sampleIds).toEqual(['m1', 'm2']);
   });
 
-  it('object: a throwing Postgres secondary does not fail the request, and sets mbxpgdrift:<ws>:<acct>', async () => {
+  it('object: a throwing Postgres secondary does not fail the request, and notes the drift via the object\'s notePgDrift RPC', async () => {
     const postgres = createFakeMailboxStore(REF, 'postgres', { applyBatch: vi.fn(async () => { throw new Error('pg unreachable'); }) });
     const object = createFakeMailboxStore(REF, 'object');
     const { kv, store: kvStore } = createFakeKv();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const calls: Promise<unknown>[] = [];
-    const store = new RoutedMailboxStore({ ref: REF, mode: 'object', postgres, object, adminEnv: createFakeAdminEnv(createFakeAdminStub()), kv, waitUntil: (p) => calls.push(p) });
+    const adminStub = createFakeAdminStub();
+    const store = new RoutedMailboxStore({ ref: REF, mode: 'object', postgres, object, adminEnv: createFakeAdminEnv(adminStub), kv, waitUntil: (p) => calls.push(p) });
 
     const before = getSecondaryFailureCount(REF, 'object-to-pg');
     await expect(store.apply(OP, 1000)).resolves.toMatchObject({ ready: true });
     await Promise.all(calls.map((p) => p.catch(() => undefined)));
 
     expect(getSecondaryFailureCount(REF, 'object-to-pg')).toBe(before + 1);
+    expect(adminStub.notePgDrift).toHaveBeenCalledWith(REF, ['m1', 'm2']);
+    // The real repair table did the job — no need for the KV placeholder too.
+    expect(kvStore.get(`mbxpgdrift:${REF.workspaceId}:${REF.accountId}`)).toBeUndefined();
+  });
+
+  it('object: falls back to the mbxpgdrift:<ws>:<acct> KV marker when notePgDrift itself fails', async () => {
+    const postgres = createFakeMailboxStore(REF, 'postgres', { applyBatch: vi.fn(async () => { throw new Error('pg unreachable'); }) });
+    const object = createFakeMailboxStore(REF, 'object');
+    const { kv, store: kvStore } = createFakeKv();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const calls: Promise<unknown>[] = [];
+    const adminStub = createFakeAdminStub({ notePgDriftFails: true });
+    const store = new RoutedMailboxStore({ ref: REF, mode: 'object', postgres, object, adminEnv: createFakeAdminEnv(adminStub), kv, waitUntil: (p) => calls.push(p) });
+
+    await store.apply(OP, 1000);
+    await Promise.all(calls.map((p) => p.catch(() => undefined)));
+
+    expect(adminStub.notePgDrift).toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalled();
+    const marker = kvStore.get(`mbxpgdrift:${REF.workspaceId}:${REF.accountId}`);
+    expect(marker).toBeDefined();
+    expect(JSON.parse(marker!.value).sampleIds).toEqual(['m1', 'm2']);
+  });
+
+  it('object: an op with no ids to note (e.g. delivery.match) skips the RPC and goes straight to the KV marker', async () => {
+    const noIdOp: MailboxOp = { kind: 'delivery.match', recipient: 'a@b.com', eventAt: 1000, status: 'delivered', detail: null };
+    const postgres = createFakeMailboxStore(REF, 'postgres', { applyBatch: vi.fn(async () => { throw new Error('pg unreachable'); }) });
+    const object = createFakeMailboxStore(REF, 'object');
+    const { kv, store: kvStore } = createFakeKv();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const calls: Promise<unknown>[] = [];
+    const adminStub = createFakeAdminStub();
+    const store = new RoutedMailboxStore({ ref: REF, mode: 'object', postgres, object, adminEnv: createFakeAdminEnv(adminStub), kv, waitUntil: (p) => calls.push(p) });
+
+    await store.apply(noIdOp, 1000);
+    await Promise.all(calls.map((p) => p.catch(() => undefined)));
+
+    expect(adminStub.notePgDrift).not.toHaveBeenCalled();
     expect(kvStore.get(`mbxpgdrift:${REF.workspaceId}:${REF.accountId}`)).toBeDefined();
   });
 
@@ -476,7 +536,11 @@ describe('Readiness: object/object-only demote to Postgres while not ready', () 
   it('a failed status() probe fails open (assumes ready) rather than demoting forever', async () => {
     const postgres = createFakeMailboxStore(REF, 'postgres');
     const object = createFakeMailboxStore(REF, 'object');
-    const adminStub = { status: vi.fn(async () => { throw new Error('DO unreachable'); }), setMode: vi.fn(async () => 'postgres' as MailStoreMode) };
+    const adminStub = {
+      status: vi.fn(async () => { throw new Error('DO unreachable'); }),
+      setMode: vi.fn(async () => 'postgres' as MailStoreMode),
+      notePgDrift: vi.fn(async (_ref: MailboxRef, ids: string[]) => ({ accepted: true as const, noted: ids.length })),
+    };
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const store = new RoutedMailboxStore({ ref: REF, mode: 'object', postgres, object, adminEnv: createFakeAdminEnv(adminStub), kv: createFakeKv().kv, waitUntil: noopWaitUntil });
 
@@ -618,6 +682,72 @@ describe('RoutedWorkspaceMailStore', () => {
 
     await expect(store.listThreads(['acc_1'], { labelSlug: 'inbox', pageSize: 20 })).rejects.toThrow('every mailbox failed');
     expect(postgresWorkspace.listThreads).not.toHaveBeenCalled();
+  });
+
+  describe('cross-mailbox readiness (unified reads over multiple mailboxes)', () => {
+    it('object: demotes the WHOLE read to Postgres when any one mailbox in scope is not ready', async () => {
+      const postgresWorkspace = createFakeWorkspaceStore(REF, 'postgres');
+      const objectWorkspace = createFakeWorkspaceStore(REF, 'object');
+      const adminEnv = createFakeAdminEnvPerMailbox({
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_1' })]: true,
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_2' })]: false,
+      });
+      const store = new RoutedWorkspaceMailStore({ workspaceId: REF.workspaceId, clerkOrgId: 'org_1', mode: 'object', postgresWorkspace, objectWorkspace, adminEnv, kv: createFakeKv().kv, waitUntil: noopWaitUntil });
+
+      await store.listThreads(['acc_1', 'acc_2'], { labelSlug: 'inbox', pageSize: 20 });
+
+      expect(postgresWorkspace.listThreads).toHaveBeenCalled();
+      expect(objectWorkspace.listThreads).not.toHaveBeenCalled();
+    });
+
+    it('object: reads the object when every mailbox in scope is ready', async () => {
+      const postgresWorkspace = createFakeWorkspaceStore(REF, 'postgres');
+      const objectWorkspace = createFakeWorkspaceStore(REF, 'object');
+      const adminEnv = createFakeAdminEnvPerMailbox({
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_1' })]: true,
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_2' })]: true,
+      });
+      const store = new RoutedWorkspaceMailStore({ workspaceId: REF.workspaceId, clerkOrgId: 'org_1', mode: 'object', postgresWorkspace, objectWorkspace, adminEnv, kv: createFakeKv().kv, waitUntil: noopWaitUntil });
+
+      await store.listThreads(['acc_1', 'acc_2'], { labelSlug: 'inbox', pageSize: 20 });
+
+      expect(objectWorkspace.listThreads).toHaveBeenCalled();
+      expect(postgresWorkspace.listThreads).not.toHaveBeenCalled();
+    });
+
+    it('object-only: reads the object anyway when a mailbox is not ready, warning once per isolate per mailbox', async () => {
+      const postgresWorkspace = createFakeWorkspaceStore(REF, 'postgres');
+      const objectWorkspace = createFakeWorkspaceStore(REF, 'object-only');
+      const adminEnv = createFakeAdminEnvPerMailbox({
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_1' })]: true,
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_2' })]: false,
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const store = new RoutedWorkspaceMailStore({ workspaceId: REF.workspaceId, clerkOrgId: 'org_1', mode: 'object-only', postgresWorkspace, objectWorkspace, adminEnv, waitUntil: noopWaitUntil });
+
+      await store.listThreads(['acc_1', 'acc_2'], { labelSlug: 'inbox', pageSize: 20 });
+      await store.listThreads(['acc_1', 'acc_2'], { labelSlug: 'inbox', pageSize: 20 }); // repeat: no second warning
+
+      expect(objectWorkspace.listThreads).toHaveBeenCalledTimes(2);
+      expect(postgresWorkspace.listThreads).not.toHaveBeenCalled();
+      const objectOnlyWarnings = warnSpy.mock.calls.filter((call) => String(call[0]).includes('object-only'));
+      expect(objectOnlyWarnings).toHaveLength(1);
+    });
+
+    it('object-only: never warns when every mailbox in scope is ready', async () => {
+      const postgresWorkspace = createFakeWorkspaceStore(REF, 'postgres');
+      const objectWorkspace = createFakeWorkspaceStore(REF, 'object-only');
+      const adminEnv = createFakeAdminEnvPerMailbox({
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_1' })]: true,
+        [mailboxKeyFor({ workspaceId: REF.workspaceId, accountId: 'acc_2' })]: true,
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const store = new RoutedWorkspaceMailStore({ workspaceId: REF.workspaceId, clerkOrgId: 'org_1', mode: 'object-only', postgresWorkspace, objectWorkspace, adminEnv, waitUntil: noopWaitUntil });
+
+      await store.listThreads(['acc_1', 'acc_2'], { labelSlug: 'inbox', pageSize: 20 });
+
+      expect(warnSpy.mock.calls.some((call) => String(call[0]).includes('object-only'))).toBe(false);
+    });
   });
 
   it('mailbox(accountId) is memoised: the same RoutedMailboxStore comes back for repeat calls', () => {

@@ -281,3 +281,99 @@ describe('setMode()', () => {
     await expect(object.setMode(REF, 'shadow')).resolves.toBe('shadow');
   });
 });
+
+describe('wake-on-read (design §3.3)', () => {
+  async function snoozeOneMessage(object: MailboxStoreObject, until: number): Promise<string> {
+    const message = makeIngest();
+    await object.apply(REF, { kind: 'ingest', message }, 1_000);
+    await object.apply(REF, { kind: 'snooze', id: message.id, until }, 1_000);
+    return message.id;
+  }
+
+  it('listThreads wakes an overdue snooze before answering, with no explicit snooze.wake op', async () => {
+    const { object } = makeObject();
+    const id = await snoozeOneMessage(object, Date.now() - 60_000);
+
+    const snoozed = await object.listThreads(REF, { labelSlug: 'snoozed', pageSize: 10 });
+    const inbox = await object.listThreads(REF, { labelSlug: 'inbox', pageSize: 10 });
+
+    expect(snoozed.threads).toHaveLength(0);
+    expect(inbox.threads.map((t) => t.latestMessageId)).toEqual([id]);
+  });
+
+  it('stats() / labelCounts() / unreadCount() all wake an overdue snooze too', async () => {
+    const { object } = makeObject();
+    await snoozeOneMessage(object, Date.now() - 60_000);
+
+    expect((await object.stats(REF)).snoozed).toBe(0);
+    expect((await object.labelCounts(REF, ['snoozed', 'inbox'])).snoozed?.messages).toBe(0);
+    expect(await object.unreadCount(REF, 'inbox')).toBe(1); // woken mail comes back unread
+  });
+
+  it('a snooze still in the future is left alone by a read', async () => {
+    const { object } = makeObject();
+    const farFuture = Date.now() + 365 * 24 * 60 * 60_000;
+    const id = await snoozeOneMessage(object, farFuture);
+
+    const snoozed = await object.listThreads(REF, { labelSlug: 'snoozed', pageSize: 10 });
+    expect(snoozed.threads.map((t) => t.latestMessageId)).toEqual([id]);
+  });
+
+  it('a read does not mutate anything once destroy has been accepted', async () => {
+    const { object } = makeObject();
+    const id = await snoozeOneMessage(object, Date.now() - 60_000);
+    await object.destroy(REF);
+
+    // Reading during the destroy window must not throw and must not run the
+    // wake write against tables the destroy alarm is in the middle of
+    // deleting (`wakeOverdueSnoozes`'s own `isDestroying` guard).
+    await expect(object.listThreads(REF, { labelSlug: 'snoozed', pageSize: 10 })).resolves.toMatchObject({
+      threads: [{ latestMessageId: id }],
+    });
+  });
+});
+
+describe('notePgDrift()', () => {
+  it('upserts ids into pg_drift and surfaces the count via status()', async () => {
+    const { state, object } = makeObject();
+    await object.apply(REF, { kind: 'ingest', message: makeIngest() }, 1_000);
+
+    const result = await object.notePgDrift(REF, ['m1', 'm2']);
+    expect(result).toEqual({ accepted: true, noted: 2 });
+
+    const status = await object.status(REF);
+    expect(status.counts.pgDriftPending).toBe(2);
+
+    const rows = state.storage.sql.exec<{ message_id: string; attempts: number }>('SELECT message_id, attempts FROM pg_drift ORDER BY message_id').toArray();
+    expect(rows.map((r) => r.message_id)).toEqual(['m1', 'm2']);
+    expect(rows.every((r) => r.attempts === 0)).toBe(true);
+  });
+
+  it('noting the same id again refreshes noted_at but keeps its existing attempts/backoff', async () => {
+    const { state, object } = makeObject();
+    await object.notePgDrift(REF, ['m1']);
+    state.storage.sql.exec('UPDATE pg_drift SET attempts = 3, next_attempt_at = 123456 WHERE message_id = ?', 'm1');
+
+    await object.notePgDrift(REF, ['m1']);
+
+    const row = state.storage.sql.exec<{ attempts: number; next_attempt_at: number }>('SELECT attempts, next_attempt_at FROM pg_drift WHERE message_id = ?', 'm1').toArray()[0]!;
+    expect(row.attempts).toBe(3);
+    expect(row.next_attempt_at).toBe(123456);
+  });
+
+  it('bounds how many ids one call records', async () => {
+    const { object } = makeObject();
+    const ids = Array.from({ length: 1_500 }, (_, i) => `m${i}`);
+
+    const result = await object.notePgDrift(REF, ids);
+
+    expect(result.noted).toBe(1_000);
+    expect((await object.status(REF)).counts.pgDriftPending).toBe(1_000);
+  });
+
+  it('schedules the alarm for a freshly-noted drift row', async () => {
+    const { state, object } = makeObject();
+    await object.notePgDrift(REF, ['m1']);
+    expect(await state.storage.getAlarm()).not.toBeNull();
+  });
+});

@@ -125,6 +125,23 @@ describe('recomputeAlarm', () => {
     await recomputeAlarm(state, 500);
     expect(await state.storage.getAlarm()).toBeNull();
   });
+
+  it.each(['object', 'object-only'] as const)('schedules for a pending snooze in %s mode, unlike postgres/shadow', async (mode) => {
+    const state = makeMailbox();
+    const storage = storageOf(state);
+    const message = makeIngest();
+    applyMailboxOp(storage, REF, { kind: 'ingest', message }, 1_000);
+    applyMailboxOp(storage, REF, { kind: 'snooze', id: message.id, until: 50_000 }, 1_000);
+    state.storage.sql.exec('DELETE FROM outbox'); // isolate this test to the snooze candidate alone
+
+    // postgres (the default): no snooze candidate at all.
+    await recomputeAlarm(state, 1_000);
+    expect(await state.storage.getAlarm()).toBeNull();
+
+    setStoredMode(state.storage.sql, mode);
+    await recomputeAlarm(state, 1_000);
+    expect(await state.storage.getAlarm()).toBe(50_000);
+  });
 });
 
 describe('afterWrite', () => {
@@ -157,9 +174,10 @@ describe('afterWrite', () => {
 });
 
 describe('runAlarm: outbox drain', () => {
-  it('drains ledger.mail and entity_event rows produced by an earlier ingest', async () => {
+  it('drains ledger.mail and entity_event rows produced by an earlier ingest, in object mode (the object is primary there)', async () => {
     const state = makeMailbox();
     const storage = storageOf(state);
+    setStoredMode(state.storage.sql, 'object');
     applyMailboxOp(storage, REF, { kind: 'ingest', message: makeIngest() }, 1_000);
     expect(state.storage.sql.exec('SELECT COUNT(*) AS n FROM outbox').toArray()[0]).toEqual({ n: 2 });
 
@@ -169,6 +187,21 @@ describe('runAlarm: outbox drain', () => {
 
     expect(state.storage.sql.exec('SELECT COUNT(*) AS n FROM outbox').toArray()[0]).toEqual({ n: 0 });
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('drains the ledger.mail row but drops entity_event without publishing in postgres mode (the default) — the route layer already published it', async () => {
+    const state = makeMailbox();
+    const storage = storageOf(state);
+    applyMailboxOp(storage, REF, { kind: 'ingest', message: makeIngest() }, 1_000);
+    expect(getStoredMode(state.storage.sql)).toBe('postgres'); // default, unset
+
+    const { ns, stub } = fakeMailIndexNamespace();
+    const send = vi.fn(async () => undefined);
+    await runAlarm(state, makeEnv({ MAIL_INDEX: ns, ENTITY_EVENTS: { send } as unknown as Queue<unknown> }), REF);
+
+    expect(state.storage.sql.exec('SELECT COUNT(*) AS n FROM outbox').toArray()[0]).toEqual({ n: 0 }); // both rows gone
+    expect(stub.recordMailAddresses).toHaveBeenCalledTimes(1); // ledger.mail still delivered
+    expect(send).not.toHaveBeenCalled(); // entity_event dropped, not published
   });
 });
 
@@ -181,21 +214,31 @@ describe('runAlarm: snooze wake', () => {
     return message.id;
   }
 
-  it('does nothing while the stored mode is not object-only', async () => {
+  it('does nothing while the stored mode is postgres (the default) or shadow — the object is never read in those modes', async () => {
     const state = makeMailbox();
     const id = snoozeOneMessage(state, 5_000);
     expect(getStoredMode(state.storage.sql)).toBe('postgres'); // default
 
-    await runAlarm(state, makeEnv(), REF);
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    try {
+      await runAlarm(state, makeEnv(), REF);
+      let row = state.storage.sql.exec<{ snoozed_until: number | null }>('SELECT snoozed_until FROM messages WHERE id = ?', id).toArray()[0]!;
+      expect(row.snoozed_until).toBe(5_000); // untouched
 
-    const row = state.storage.sql.exec<{ snoozed_until: number | null }>('SELECT snoozed_until FROM messages WHERE id = ?', id).toArray()[0]!;
-    expect(row.snoozed_until).toBe(5_000); // untouched
+      setStoredMode(state.storage.sql, 'shadow');
+      await runAlarm(state, makeEnv(), REF);
+      row = state.storage.sql.exec<{ snoozed_until: number | null }>('SELECT snoozed_until FROM messages WHERE id = ?', id).toArray()[0]!;
+      expect(row.snoozed_until).toBe(5_000); // still untouched
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('wakes a due snoozed message once the mode is object-only', async () => {
+  it.each(['object', 'object-only'] as const)('wakes a due snoozed message once the mode is %s', async (mode) => {
     const state = makeMailbox();
     const id = snoozeOneMessage(state, 5_000);
-    setStoredMode(state.storage.sql, 'object-only');
+    setStoredMode(state.storage.sql, mode);
 
     vi.useFakeTimers();
     vi.setSystemTime(10_000);

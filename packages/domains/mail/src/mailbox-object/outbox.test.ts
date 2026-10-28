@@ -1,12 +1,14 @@
 /**
  * `drainOutbox` (design §3.6 step 3, task C1): batched `ledger.mail` delivery
- * to `MailIndex`, per-row `entity_event` delivery to the hub queue, retry
+ * to `MailIndex`, per-row `entity_event` delivery to the hub queue (gated on
+ * the mailbox's stored mode — see the dedicated describe block below), retry
  * with backoff on a `MailIndex` failure, the "row stays after max attempts"
  * behaviour, and dropping a row of an unrecognised kind.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { createSqliteDurableObjectState } from '@weldsuite/worker-kit/testing/durable-sqlite';
 import { migrateMailbox } from './migrate';
+import { setStoredMode } from './alarm';
 import { drainOutbox, type OutboxEnv } from './outbox';
 import type { MailIndex } from '../mail-index/mail-index';
 import type { MailboxRef } from '../store/types';
@@ -112,9 +114,10 @@ describe('drainOutbox: ledger.mail', () => {
   });
 });
 
-describe('drainOutbox: entity_event', () => {
+describe('drainOutbox: entity_event (mode object/object-only — the object is primary there)', () => {
   it('publishes one hub event per row and removes delivered rows', async () => {
     const storage = makeMailbox();
+    setStoredMode(storage.sql, 'object');
     const send = vi.fn(async (_message: unknown) => undefined);
     insertOutboxRow(storage.sql, 'entity_event', {
       entityType: 'email',
@@ -139,6 +142,7 @@ describe('drainOutbox: entity_event', () => {
 
   it('retries a row whose stored payload is not valid JSON instead of losing it', async () => {
     const storage = makeMailbox();
+    setStoredMode(storage.sql, 'object');
     storage.sql.exec(
       'INSERT INTO outbox (kind, payload, attempts, next_attempt_at, created_at) VALUES (?, ?, 0, 0, 0)',
       'entity_event',
@@ -154,6 +158,7 @@ describe('drainOutbox: entity_event', () => {
 
   it('a send failure does not retry the row: publishEntityEventRaw swallows ENTITY_EVENTS errors itself', async () => {
     const storage = makeMailbox();
+    setStoredMode(storage.sql, 'object-only');
     const send = vi.fn(async () => {
       throw new Error('queue unavailable');
     });
@@ -165,6 +170,54 @@ describe('drainOutbox: entity_event', () => {
     // Delivery "succeeds" from this object's point of view: Cloudflare Queues'
     // own retry/DLQ on the hub queue is what actually handles a failed send.
     expect(result).toEqual({ delivered: 1, failed: 0, remaining: 0 });
+  });
+});
+
+describe('drainOutbox: entity_event is dropped (not published) outside object/object-only', () => {
+  it.each(['postgres', 'shadow'] as const)('drops the row without publishing while the mode is %s, never retrying it', async (mode) => {
+    const storage = makeMailbox();
+    if (mode !== 'postgres') setStoredMode(storage.sql, mode); // 'postgres' is the unset default
+    const send = vi.fn(async (_message: unknown) => undefined);
+    insertOutboxRow(storage.sql, 'entity_event', { entityType: 'email', action: 'created', entityId: 'm1', data: {} });
+
+    const env: OutboxEnv = { ENTITY_EVENTS: makeEntityEventsQueue(send) };
+    const result = await drainOutbox(storage.sql, env, REF, 5000);
+
+    // Same treatment as an unrecognised `kind`: removed, but counted as
+    // neither delivered nor failed — the route layer already published this
+    // event once the Postgres PRIMARY write succeeded (design: "the route
+    // layer's own publishEntityEvent ... already published it").
+    expect(result).toEqual({ delivered: 0, failed: 0, remaining: 0 });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('ledger.mail rows are delivered regardless of mode, so MailIndex stays warm either way', async () => {
+    const storage = makeMailbox();
+    // Default mode (postgres): entity_event drops, ledger.mail still delivers.
+    const { ns, stub } = fakeMailIndexNamespace();
+    insertOutboxRow(storage.sql, 'ledger.mail', { messageId: 'm1', accountId: 'acc_1', at: 1000, addresses: ['a@x.com'] });
+    insertOutboxRow(storage.sql, 'entity_event', { entityType: 'email', action: 'created', entityId: 'm1', data: {} });
+
+    const env: OutboxEnv = { MAIL_INDEX: ns };
+    const result = await drainOutbox(storage.sql, env, REF, 5000);
+
+    expect(result).toEqual({ delivered: 1, failed: 0, remaining: 0 });
+    expect(stub.recordMailAddresses).toHaveBeenCalledTimes(1);
+  });
+
+  it('a mode flip between one alarm tick and the next is honoured immediately (the mode is read fresh, not cached)', async () => {
+    const storage = makeMailbox();
+    const send = vi.fn(async (_message: unknown) => undefined);
+    const env: OutboxEnv = { ENTITY_EVENTS: makeEntityEventsQueue(send) };
+
+    insertOutboxRow(storage.sql, 'entity_event', { entityType: 'email', action: 'created', entityId: 'dropped', data: {} });
+    await drainOutbox(storage.sql, env, REF, 5000); // postgres (default): dropped
+    expect(send).not.toHaveBeenCalled();
+
+    setStoredMode(storage.sql, 'object');
+    insertOutboxRow(storage.sql, 'entity_event', { entityType: 'email', action: 'created', entityId: 'delivered', data: {} });
+    await drainOutbox(storage.sql, env, REF, 5000); // object now: delivered
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 

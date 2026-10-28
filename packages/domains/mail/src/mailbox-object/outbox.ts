@@ -9,21 +9,31 @@
  * anything itself — recomputing the next alarm is `alarm.ts`'s job, so there
  * is exactly one place deciding the object's next wake-up time.
  *
- * Both row kinds retry with the same exponential backoff
- * (`min(5s * 2^attempts, 1h)`). A row that has failed `MAX_OUTBOX_ATTEMPTS`
- * times stays in the table — never silently dropped — with its last error
- * recorded and backed off at the 1h ceiling, logged once more as an error
- * (design §3.6: "after 20 attempts the row stays and an error is logged").
- * Only a row of an unrecognised `kind` (a bug in some future writer; neither
- * of today's two kinds ever produces this) is dropped outright, since there
- * is no handler that could ever deliver it.
+ * `ledger.mail` rows deliver unconditionally, in every mode. `entity_event`
+ * rows deliver ONLY while this mailbox's stored mode is `object`/
+ * `object-only` — the only modes where the object is the PRIMARY store; in
+ * `postgres`/`shadow` the route layer's own `publishEntityEvent` already
+ * published the same event once the Postgres primary write succeeded, so this
+ * file drops its copy instead of double-publishing (see `drainOutbox`'s own
+ * doc below for the full reasoning).
+ *
+ * Both row kinds that DO get delivered retry with the same exponential
+ * backoff (`min(5s * 2^attempts, 1h)`). A row that has failed
+ * `MAX_OUTBOX_ATTEMPTS` times stays in the table — never silently dropped —
+ * with its last error recorded and backed off at the 1h ceiling, logged once
+ * more as an error (design §3.6: "after 20 attempts the row stays and an
+ * error is logged"). A row of an unrecognised `kind` (a bug in some future
+ * writer; neither of today's two kinds ever produces this), or an
+ * `entity_event` row this mailbox's current mode says not to publish, is
+ * dropped outright instead: there is nothing to retry towards in either case.
  */
 
 import { publishEntityEventRaw, type EntityAction, type EntityEventPublisherEnv } from '@weldsuite/entity-events';
 import type { EntityType } from '@weldsuite/entity-events/events';
 import { mailIndexFor, type MailIndexBindingEnv } from '../mail-index/client';
 import type { MailAddressBatchEntry } from '../mail-index/types';
-import type { MailboxRef } from '../store/types';
+import { parseMailStoreMode, readsFromObject } from '../store/mode';
+import type { MailboxRef, MailStoreMode } from '../store/types';
 
 export interface OutboxEnv extends EntityEventPublisherEnv, MailIndexBindingEnv {}
 
@@ -81,6 +91,19 @@ function markFailed(sql: SqlStorage, row: OutboxRow, now: number, message: strin
 
 function deleteRow(sql: SqlStorage, seq: number): void {
   sql.exec('DELETE FROM outbox WHERE seq = ?', seq);
+}
+
+/**
+ * Mirrors `alarm.ts`'s `MODE_KEY`/`getStoredMode` exactly, duplicated rather
+ * than imported to avoid a module cycle (`alarm.ts` already imports
+ * `drainOutbox` from this file). Read fresh on every drain, not cached: the
+ * router can flip a mailbox's mode (`setMode`) between one alarm tick and the
+ * next, and the entity-event gate below needs the CURRENT mode, not whatever
+ * it was when a row was queued.
+ */
+function currentMode(sql: SqlStorage): MailStoreMode {
+  const row = sql.exec<{ value: string }>("SELECT value FROM meta WHERE key = 'mail_store_mode'").toArray()[0];
+  return row ? parseMailStoreMode(row.value) : 'postgres';
 }
 
 async function drainLedgerRows(
@@ -154,9 +177,20 @@ async function drainEntityEventRow(
  * Drains every outbox row due at `now`, up to one alarm tick's worth of work
  * (`LEDGER_BATCH_LIMIT` rows). `ledger.mail` rows are delivered as one
  * batched `recordMailAddresses` call (so one flaky write doesn't force a
- * retry of the other 499 for no reason); `entity_event` rows are delivered
- * one at a time (one hub-queue send per row, so a single failure doesn't
- * block the rest).
+ * retry of the other 499 for no reason) — unconditionally, in every mode, so
+ * `MailIndex` stays warm regardless of which store is primary. `entity_event`
+ * rows are delivered one at a time (one hub-queue send per row, so a single
+ * failure doesn't block the rest) — but ONLY when this mailbox's stored mode
+ * is `object`/`object-only` (`readsFromObject`): those are the only modes
+ * where the object is the PRIMARY store, and therefore the only ones where
+ * nothing else has already published this event. In `postgres`/`shadow` the
+ * route layer's own `publishEntityEvent`, called right after the Postgres
+ * PRIMARY write succeeds, already published it — delivering the object's
+ * queued copy too would fire every workflow/agent/webhook/realtime consumer
+ * a second time, ~1s later, once this alarm tick drains it. Those rows are
+ * dropped outright rather than retried (same treatment as an unrecognised
+ * `kind` below): there's nothing to retry towards once the decision not to
+ * publish is made, and the mode could flip again before the next tick.
  */
 export async function drainOutbox(
   sql: SqlStorage,
@@ -179,7 +213,12 @@ export async function drainOutbox(
   delivered += ledgerResult.delivered;
   failed += ledgerResult.failed;
 
+  const publishEvents = readsFromObject(currentMode(sql));
   for (const row of eventRows) {
+    if (!publishEvents) {
+      deleteRow(sql, row.seq);
+      continue;
+    }
     // Sequential on purpose: each send is an independent hub enqueue, and
     // there is no benefit to racing them against this same row set's own
     // backoff bookkeeping.

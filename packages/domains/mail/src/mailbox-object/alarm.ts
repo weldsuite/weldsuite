@@ -178,11 +178,17 @@ async function runContinuation(storage: WritableStorage, env: AlarmEnv, ref: Mai
 }
 
 // ---------------------------------------------------------------------------
-// snooze wake (design §3.6 item (b); task notes: only acts in object-only —
-// in every other mode, `cron/snooze-sweep.ts` against Postgres is the one
-// authoritative wake, and this object doesn't even bother computing a
-// snoozed-due alarm candidate for modes it won't act on — see
-// `candidateAlarmTimes` below).
+// snooze wake (design §3.6 item (b); task notes: acts in `object` AND
+// `object-only` — the object is actually READ in both of those modes, so
+// both need a backstop wake for whenever nothing happens to be reading the
+// mailbox right when a snooze comes due (`mailbox-object.ts`'s
+// `wakeOverdueSnoozes` now covers the "someone IS reading" case on every
+// `listThreads`/`stats`/`labelCounts`/`unreadCount` call). `postgres` and
+// `shadow` skip this entirely — in `shadow` the object is never read at all
+// (design: "in shadow the object is not read, so leave it"), and
+// `cron/snooze-sweep.ts` against Postgres is the authoritative wake for both
+// of those modes; this object doesn't even bother computing a snoozed-due
+// alarm candidate for them — see `candidateAlarmTimes` below).
 // ---------------------------------------------------------------------------
 
 function nextSnoozeDueAt(sql: SqlStorage): number | null {
@@ -194,8 +200,13 @@ function nextSnoozeDueAt(sql: SqlStorage): number | null {
   return row?.next ?? null;
 }
 
+/** `true` for the two modes the object is actually read under (`wakeOverdueSnoozes`'s doc above). */
+function objectWakesSnoozes(mode: MailStoreMode): boolean {
+  return mode === 'object' || mode === 'object-only';
+}
+
 function runSnoozeWake(storage: WritableStorage, ref: MailboxRef, now: number): void {
-  if (getStoredMode(storage.sql) !== 'object-only') return;
+  if (!objectWakesSnoozes(getStoredMode(storage.sql))) return;
   const due = nextSnoozeDueAt(storage.sql);
   if (due === null || due > now) return;
   applyMailboxOp(storage, ref, { kind: 'snooze.wake', now }, now);
@@ -223,9 +234,10 @@ function candidateAlarmTimes(sql: SqlStorage, now: number): number[] {
   const retried = sql.exec<{ next: number | null }>(`SELECT MIN(next_attempt_at) AS next FROM outbox WHERE attempts > 0`).toArray()[0];
   if (retried?.next != null) candidates.push(retried.next);
 
-  // `pg_drift` has no writer yet (`notePgDrift`/the object-mode mirror is
-  // task C4's job); reading it here costs nothing today and means this
-  // function doesn't need to change once it does.
+  // `notePgDrift` (`mailbox-object.ts`) now writes `pg_drift`, but nothing
+  // drains it yet — the alarm-side mirror-to-Postgres job is still task C4's
+  // job (design §3.6 item 4). Reading it here already costs nothing and means
+  // this function doesn't need to change once that job lands.
   const drift = sql.exec<{ next: number | null }>(`SELECT MIN(next_attempt_at) AS next FROM pg_drift`).toArray()[0];
   if (drift?.next != null) candidates.push(drift.next);
 
@@ -242,7 +254,7 @@ function candidateAlarmTimes(sql: SqlStorage, now: number): number[] {
   }
   if (getDestroyState(sql)) candidates.push(now);
 
-  if (getStoredMode(sql) === 'object-only') {
+  if (objectWakesSnoozes(getStoredMode(sql))) {
     const snoozeNext = nextSnoozeDueAt(sql);
     if (snoozeNext !== null) candidates.push(snoozeNext);
   }

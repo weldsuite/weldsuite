@@ -17,12 +17,27 @@
  * | object       | object               | Postgres                 | object; falls back on failure  |
  * | object-only  | object               | none                     | object; no fallback            |
  *
- * **Readiness.** `object`/`object-only` reads demote to Postgres for a
- * mailbox whose object hasn't finished backfill (`status().ready`, probed via
- * the Durable Object's admin RPC and cached per isolate for 60s, refreshed
- * from every write's `OpResult.ready` too) — this demotion applies even in
- * `object-only`, since the alternative is reading an object that may not have
- * every row yet.
+ * **Readiness, single mailbox (`RoutedMailboxStore.routedRead`).**
+ * `object`/`object-only` reads demote to Postgres for a mailbox whose object
+ * hasn't finished backfill (`status().ready`, probed via the Durable Object's
+ * admin RPC and cached per isolate for 60s, refreshed from every write's
+ * `OpResult.ready` too) — this demotion applies even in `object-only`, since
+ * the alternative is reading an object that may not have every row yet.
+ *
+ * **Readiness, cross-mailbox (`RoutedWorkspaceMailStore.crossMailboxRead`).**
+ * The unified reads (unified inbox/stats, the unread badge, counterparty,
+ * locate, the various cross-mailbox lists) fan out to every mailbox in
+ * `accountIds` at once, so "demote to Postgres" can't be decided per mailbox
+ * the way the single-mailbox case does — it's all-or-nothing for the whole
+ * read. In `object` mode, Postgres is complete for every mailbox regardless
+ * of backfill (writes are always dual-written there — see the mode table),
+ * so ANY not-ready mailbox in scope demotes the WHOLE read to Postgres (the
+ * same per-isolate readiness cache the single-mailbox case probes). In
+ * `object-only` there is no secondary Postgres write at all, so Postgres is
+ * never a safe fallback there — a not-ready mailbox in `object-only` is an
+ * operator precondition violation (object-only is only meant to be switched
+ * on once every mailbox has finished backfill), logged once per isolate per
+ * mailbox rather than silently demoted or left to error.
  *
  * **Telling the object its mode.** The object never reads Flagship (it has no
  * way to); the router calls `setMode(ref, mode)` on first use of a mailbox
@@ -35,15 +50,22 @@
  *
  * **Secondary write failures never fail the request.** They're logged
  * (`mailbox_secondary_write_failed`), counted (`getSecondaryFailureCount`,
- * test/metrics seam), and a KV marker is set for the repair hand-off task C4
- * consumes (`mbxdrift:<ws>:<acct>` — design §2.2's own name for the
- * `shadow`-direction case; `mbxpgdrift:<ws>:<acct>` is this task's analogous
- * placeholder for the `object`-direction case design describes as
- * `stub.notePgDrift(ids)`, a method the object doesn't expose yet — see this
- * file's exported `markMailboxDrift` for the exact shape). An `OpResult` with
- * non-empty `missing` is NOT a failure (the object may simply not have a row
- * yet, mid-backfill — design: "missing ids while backfill is still running
- * are not failures") — only a THROWN error from the secondary counts.
+ * test/metrics seam), and the repair hand-off task C4 consumes is set for
+ * both directions:
+ *  - `shadow` (object secondary failed): a KV marker, `mbxdrift:<ws>:<acct>`
+ *    (design §2.2's own name for this direction) — there's still no object
+ *    RPC for it, so this stays KV-only.
+ *  - `object` (Postgres secondary failed): the object's own `pg_drift` table,
+ *    via its `notePgDrift(ref, ids)` RPC (design: "`stub.notePgDrift(ids)`") —
+ *    `notePgDriftOrFallback` tries that first and only falls back to the KV
+ *    placeholder `mbxpgdrift:<ws>:<acct>` when the RPC call itself fails
+ *    (binding missing, the object unreachable, no ids to note). See this
+ *    file's exported `markMailboxDrift` for the KV marker's exact shape.
+ *
+ * An `OpResult` with non-empty `missing` is NOT a failure (the object may
+ * simply not have a row yet, mid-backfill — design: "missing ids while
+ * backfill is still running are not failures") — only a THROWN error from the
+ * secondary counts.
  */
 
 import type { KVNamespace } from '@cloudflare/workers-types';
@@ -211,6 +233,8 @@ interface ReadinessEntry {
 const readinessCache = new Map<string, ReadinessEntry>();
 const notifiedModes = new Map<string, MailStoreMode>();
 const secondaryFailureCounts = new Map<string, number>();
+/** `RoutedWorkspaceMailStore.warnIfAnyNotReady`'s "once per isolate per mailbox" set — see `warnObjectOnlyNotReady`. */
+const objectOnlyNotReadyWarned = new Set<string>();
 
 export type SecondaryDirection = 'pg-to-object' | 'object-to-pg';
 
@@ -233,6 +257,7 @@ export function __resetMailRouterStateForTests(): void {
   readinessCache.clear();
   notifiedModes.clear();
   secondaryFailureCounts.clear();
+  objectOnlyNotReadyWarned.clear();
 }
 
 function cachedReadiness(key: string, now: number): boolean | undefined {
@@ -269,6 +294,24 @@ async function probeReadiness(adminEnv: MailboxStoreNamespaceEnv, ref: MailboxRe
     console.warn('[mail-store] status() probe failed, assuming ready:', err instanceof Error ? err.message : err);
     return true;
   }
+}
+
+/**
+ * `RoutedWorkspaceMailStore`'s `object-only` cross-mailbox readiness warning
+ * (this file's header comment, design task note 2: "object-only should only
+ * be switched on after every mailbox is ready"). Logged once per isolate per
+ * mailbox, not on every request that happens to touch it — a persistently
+ * not-ready mailbox in `object-only` is an operator configuration problem,
+ * not something worth a warning per page load.
+ */
+function warnObjectOnlyNotReady(ref: MailboxRef): void {
+  const key = mailboxKeyFor(ref);
+  if (objectOnlyNotReadyWarned.has(key)) return;
+  objectOnlyNotReadyWarned.add(key);
+  console.warn(
+    '[mail-store] object-only cross-mailbox read before backfill finished — object-only should only be switched on once every mailbox is ready:',
+    JSON.stringify({ workspaceId: ref.workspaceId, accountId: ref.accountId }),
+  );
 }
 
 /**
@@ -614,7 +657,36 @@ export class RoutedMailboxStore implements MailboxStore {
       }),
     );
     bumpSecondaryFailureCount(this.ref, direction);
+    if (direction === 'object-to-pg') {
+      this.waitUntilFn(this.notePgDriftOrFallback(ids, kind));
+      return;
+    }
     if (this.kv) this.waitUntilFn(markMailboxDrift(this.kv, this.ref, direction, { kind, ids }));
+  }
+
+  /**
+   * The `object`-direction repair hand-off (design: "object (Postgres
+   * failed): log, then `stub.notePgDrift(ids)`"): records the failed op's ids
+   * in the object's own `pg_drift` table via its RPC, so the object's alarm
+   * can mirror them to Postgres later with backoff — a real, durable table
+   * instead of the KV placeholder `mbxpgdrift:<ws>:<acct>` this file used to
+   * set unconditionally for this direction. The KV marker stays as a
+   * fallback ONLY: when there's nothing to note (no ids — some ops, like
+   * `label.rename`/`delivery.match`, touch no specific id), when `adminEnv`
+   * isn't wired, or when the RPC call itself throws (binding missing, the
+   * object unreachable) — in every one of those cases the KV marker is still
+   * the only way to surface that this mailbox has unrepaired drift.
+   */
+  private async notePgDriftOrFallback(ids: string[], kind: string): Promise<void> {
+    if (ids.length > 0 && this.adminEnv) {
+      try {
+        await mailboxStubFor(this.adminEnv, this.ref).notePgDrift(this.ref, ids);
+        return;
+      } catch (err) {
+        console.warn('[mail-store] notePgDrift RPC failed, falling back to the KV marker:', err instanceof Error ? err.message : err);
+      }
+    }
+    if (this.kv) await markMailboxDrift(this.kv, this.ref, 'object-to-pg', { kind, ids });
   }
 }
 
@@ -698,9 +770,51 @@ export class RoutedWorkspaceMailStore implements WorkspaceMailStore {
     return store;
   }
 
-  /** `postgres`/`shadow` → the Postgres fan-out (as today); `object`/`object-only` → the object's fan-out, falling back wholesale to Postgres on total failure in `object` only (no per-mailbox readiness demotion at this fan-out level — see this file's header comment). */
-  private async crossMailboxRead<T>(objectCall: () => Promise<T>, postgresCall: () => Promise<T>): Promise<T> {
+  private refFor(accountId: string): MailboxRef {
+    return { workspaceId: this.workspaceId, accountId, clerkOrgId: this.clerkOrgId };
+  }
+
+  /**
+   * `object` mode's half of the cross-mailbox readiness check (this file's
+   * header comment): every mailbox in `accountIds` must report ready, via the
+   * SAME per-isolate cache `RoutedMailboxStore.routedRead` probes for a
+   * single mailbox, or the whole read demotes to Postgres.
+   */
+  private async allMailboxesReady(accountIds: readonly string[]): Promise<boolean> {
+    if (!this.adminEnv || accountIds.length === 0) return true;
+    const adminEnv = this.adminEnv;
+    const now = this.now();
+    const checks = await Promise.all(accountIds.map((accountId) => probeReadiness(adminEnv, this.refFor(accountId), now)));
+    return checks.every(Boolean);
+  }
+
+  /**
+   * `object-only` mode's half (this file's header comment): there's no
+   * Postgres to demote to, so this only warns — once per isolate per mailbox
+   * — that object-only is live before every mailbox finished backfill.
+   */
+  private async warnIfAnyNotReady(accountIds: readonly string[]): Promise<void> {
+    if (!this.adminEnv || accountIds.length === 0) return;
+    const adminEnv = this.adminEnv;
+    const now = this.now();
+    await Promise.all(
+      accountIds.map(async (accountId) => {
+        const ref = this.refFor(accountId);
+        if (!(await probeReadiness(adminEnv, ref, now))) warnObjectOnlyNotReady(ref);
+      }),
+    );
+  }
+
+  /** `postgres`/`shadow` → the Postgres fan-out (as today); `object`/`object-only` → the object's fan-out, gated by the readiness checks this file's header comment describes, falling back wholesale to Postgres on total failure in `object` only. */
+  private async crossMailboxRead<T>(accountIds: readonly string[], objectCall: () => Promise<T>, postgresCall: () => Promise<T>): Promise<T> {
     if (this.mode === 'postgres' || this.mode === 'shadow') return postgresCall();
+
+    if (this.mode === 'object') {
+      if (!(await this.allMailboxesReady(accountIds))) return postgresCall();
+    } else {
+      await this.warnIfAnyNotReady(accountIds);
+    }
+
     try {
       return await objectCall();
     } catch (err) {
@@ -711,23 +825,24 @@ export class RoutedWorkspaceMailStore implements WorkspaceMailStore {
   }
 
   listThreads(accountIds: string[], q: ThreadListQuery): Promise<ThreadPage> {
-    return this.crossMailboxRead(() => this.objectWorkspace!.listThreads(accountIds, q), () => this.postgresWorkspace.listThreads(accountIds, q));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.listThreads(accountIds, q), () => this.postgresWorkspace.listThreads(accountIds, q));
   }
 
   listMessages(accountIds: string[], q: MessageListQuery): Promise<MessagePage> {
-    return this.crossMailboxRead(() => this.objectWorkspace!.listMessages(accountIds, q), () => this.postgresWorkspace.listMessages(accountIds, q));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.listMessages(accountIds, q), () => this.postgresWorkspace.listMessages(accountIds, q));
   }
 
   stats(accountIds: string[]) {
-    return this.crossMailboxRead(() => this.objectWorkspace!.stats(accountIds), () => this.postgresWorkspace.stats(accountIds));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.stats(accountIds), () => this.postgresWorkspace.stats(accountIds));
   }
 
   unreadBadge(accountIds: string[]): Promise<number> {
-    return this.crossMailboxRead(() => this.objectWorkspace!.unreadBadge(accountIds), () => this.postgresWorkspace.unreadBadge(accountIds));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.unreadBadge(accountIds), () => this.postgresWorkspace.unreadBadge(accountIds));
   }
 
   locateMessages(ids: string[], accountIds: string[], hint?: string): Promise<Map<string, string>> {
     return this.crossMailboxRead(
+      accountIds,
       () => this.objectWorkspace!.locateMessages(ids, accountIds, hint),
       () => this.postgresWorkspace.locateMessages(ids, accountIds, hint),
     );
@@ -735,6 +850,7 @@ export class RoutedWorkspaceMailStore implements WorkspaceMailStore {
 
   locateAttachment(id: string, accountIds: string[], hint?: string) {
     return this.crossMailboxRead(
+      accountIds,
       () => this.objectWorkspace!.locateAttachment(id, accountIds, hint),
       () => this.postgresWorkspace.locateAttachment(id, accountIds, hint),
     );
@@ -742,6 +858,7 @@ export class RoutedWorkspaceMailStore implements WorkspaceMailStore {
 
   locateDraft(id: string, accountIds: string[], hint?: string) {
     return this.crossMailboxRead(
+      accountIds,
       () => this.objectWorkspace!.locateDraft(id, accountIds, hint),
       () => this.postgresWorkspace.locateDraft(id, accountIds, hint),
     );
@@ -749,29 +866,30 @@ export class RoutedWorkspaceMailStore implements WorkspaceMailStore {
 
   messagesByCounterparty(address: string, accountIds: string[], q: { cursor?: MessageCursor; limit: number }) {
     return this.crossMailboxRead(
+      accountIds,
       () => this.objectWorkspace!.messagesByCounterparty(address, accountIds, q),
       () => this.postgresWorkspace.messagesByCounterparty(address, accountIds, q),
     );
   }
 
   recentAttachments(accountIds: string[], q: { limit: number }) {
-    return this.crossMailboxRead(() => this.objectWorkspace!.recentAttachments(accountIds, q), () => this.postgresWorkspace.recentAttachments(accountIds, q));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.recentAttachments(accountIds, q), () => this.postgresWorkspace.recentAttachments(accountIds, q));
   }
 
   recentMessages(accountIds: string[], limit: number): Promise<MailMessageListRow[]> {
-    return this.crossMailboxRead(() => this.objectWorkspace!.recentMessages(accountIds, limit), () => this.postgresWorkspace.recentMessages(accountIds, limit));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.recentMessages(accountIds, limit), () => this.postgresWorkspace.recentMessages(accountIds, limit));
   }
 
   listSnoozed(accountIds: string[]): Promise<SnoozedMessage[]> {
-    return this.crossMailboxRead(() => this.objectWorkspace!.listSnoozed(accountIds), () => this.postgresWorkspace.listSnoozed(accountIds));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.listSnoozed(accountIds), () => this.postgresWorkspace.listSnoozed(accountIds));
   }
 
   listScheduled(accountIds: string[]): Promise<MailMessageRecord[]> {
-    return this.crossMailboxRead(() => this.objectWorkspace!.listScheduled(accountIds), () => this.postgresWorkspace.listScheduled(accountIds));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.listScheduled(accountIds), () => this.postgresWorkspace.listScheduled(accountIds));
   }
 
   listDrafts(accountIds: string[], q: { limit: number; cursor?: string }) {
-    return this.crossMailboxRead(() => this.objectWorkspace!.listDrafts(accountIds, q), () => this.postgresWorkspace.listDrafts(accountIds, q));
+    return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.listDrafts(accountIds, q), () => this.postgresWorkspace.listDrafts(accountIds, q));
   }
 
   /**

@@ -119,6 +119,7 @@ export function createFakeMailboxStub(ref: MailboxRef): FakeMailboxStub {
     // ---- writes -----------------------------------------------------------
     apply: (r, op, at) => rpc.apply(r, op, at),
     applyBatch: (r, ops, at) => rpc.applyBatch(r, ops, at),
+    notePgDrift: (r, ids) => rpc.notePgDrift(r, ids),
 
     // ---- admin -------------------------------------------------------------
     status: (r) => rpc.status(r),

@@ -50,16 +50,18 @@
  * helper, matching how a real caller/router would ensure the label exists
  * before asking a store for its folder or its counts.
  *
- * Four of the five "other differences" originally found while writing this
- * suite (snooze.wake's `OpResult`, `label.delete` casing, `labelCounts`/
- * `stats()` custom-label casing, `folder.read`'s `more` flag) were fixed in
+ * All five "other differences" originally found while writing this suite
+ * (snooze.wake's `OpResult`, `label.delete` casing, `labelCounts`/`stats()`
+ * custom-label casing, `folder.read`'s `more` flag, and wake-on-read) are now
+ * fixed and live as ordinary, shared assertions in the first `describe.each`
+ * block instead of a standalone `it.fails`: the first four in
  * `store/postgres/mailbox-store.ts` and its helpers (`../../labels.ts`,
- * `../../snooze.ts`, `../../thread-ops.ts`) and now live as ordinary, shared
- * assertions in the first `describe.each` block instead of here. The one
- * difference NOT fixed by that pass (wake-on-read; an object-side fix comes
- * later) is still a standalone, non-parameterised `it.fails` in the final
- * `describe` block below, with a comment describing the exact observed
- * behaviour.
+ * `../../snooze.ts`, `../../thread-ops.ts`); wake-on-read in
+ * `mailbox-object/mailbox-object.ts`'s `wakeOverdueSnoozes` (called before
+ * `listThreads`/`stats`/`labelCounts`/`unreadCount`, design §3.3) and
+ * `mailbox-object/alarm.ts`'s snooze-wake gate (now acts in `object` as well
+ * as `object-only`). There is no longer a trailing non-parameterised
+ * `describe` block in this file for that reason.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -550,6 +552,18 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       expect(result.updatedIds).toEqual([due]);
       expect(result.nextSnoozeDueAt).toBe(FAR_FUTURE);
     });
+
+    it('a plain read also wakes an overdue snooze, without any explicit snooze.wake op', async () => {
+      const store = await freshStore();
+      const { id } = await ingest(store, { labels: ['INBOX'] });
+      await store.apply({ kind: 'snooze', id, until: Date.now() - 60_000 }, 2_000);
+
+      // No `snooze.wake` op applied in between — a bare read must still
+      // surface the wake on both backends (design §3.3; previously true only
+      // of Postgres, via `threadListScope`'s `buildWake`).
+      expect(await latestIdsIn(store, 'snoozed')).toEqual([]);
+      expect(await latestIdsIn(store, 'inbox')).toEqual([id]);
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -879,72 +893,5 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
 
       expect(seen).toEqual([...ids].reverse());
     });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Other differences found while writing this suite (not in the task's known
-// list). Four of the five originally found here were fixed (task: mailbox
-// store contract fixes #2-#5) and now live as ordinary, shared assertions in
-// the `describe.each` block above — `snooze.wake` reporting, `label.delete`
-// casing, `labelCounts`/`stats()` custom-label casing, and `folder.read`'s
-// `more` flag. The one below is NOT fixed by that task (an object-side fix
-// comes later) and stays a standalone, non-parameterised `it.fails`: the
-// divergence only shows up on ONE of the two backends, so folding it into the
-// `describe.each` block would make `it.fails` wrong for the other (it would
-// unexpectedly pass there).
-// ---------------------------------------------------------------------------
-
-describe('other differences found (reported, not fixed here)', () => {
-  // `store/postgres/mailbox-store.ts`'s reads go through `../../threads.ts`'s
-  // `listThreadsForAccounts`/`threadListScope`, which wakes any snoozed mail
-  // whose time has passed as a side effect of the read itself (the same rule
-  // `scope.buildWake`/`wakeDueSnoozedMessages` give `markFolderRead` and the
-  // existing `threadIdsIn` pglite tests — "opening the mailbox brings a due
-  // mail back without waiting for the sweep", TASK-931). It compares against
-  // the REAL wall clock, not the `at` passed to `apply`.
-  //
-  // `mailbox-object/reads.ts` has no such logic anywhere (verified by
-  // reading every read function and grepping the whole `mailbox-object/`
-  // directory for `Date.now()` / "wake" / "snooze_due": the only places that
-  // wake snoozed mail are the explicit `snooze.wake` op and the alarm
-  // described in design §3.6, item 2 — not a read). A message snoozed to a
-  // time already in the past stays in the Snoozed folder on the object until
-  // something explicit wakes it; on Postgres, the very next `listThreads`
-  // call already moves it back to the inbox.
-  it.fails('a plain read wakes an overdue snooze on Postgres; the object leaves it snoozed until something wakes it', async () => {
-    const pg = await newPostgresStore();
-    const obj = newObjectStore();
-    const message: IngestMessage = {
-      id: 'wake_repro',
-      source: 'inbound',
-      rfcMessageId: 'wake_repro@contract.test',
-      threadId: null,
-      from: { email: 'sender@example.com' },
-      to: [{ email: 'me@contract.test' }],
-      subject: 'x',
-      preview: 'p',
-      sentAt: 1_000,
-      receivedAt: 1_000,
-      createdAt: 1_000,
-      isRead: false,
-      labels: ['INBOX'],
-      isSpam: false,
-      isReply: false,
-      attachments: [],
-    };
-    await pg.store.apply({ kind: 'ingest', message }, 1_000);
-    await obj.store.apply({ kind: 'ingest', message }, 1_000);
-    const pastDue = Date.now() - 60_000;
-    await pg.store.apply({ kind: 'snooze', id: message.id, until: pastDue }, 2_000);
-    await obj.store.apply({ kind: 'snooze', id: message.id, until: pastDue }, 2_000);
-
-    const pgSnoozed = (await pg.store.listThreads({ labelSlug: 'snoozed', pageSize: 10 })).threads;
-    const objSnoozed = (await obj.store.listThreads({ labelSlug: 'snoozed', pageSize: 10 })).threads;
-
-    // Postgres: `pgSnoozed` is already empty here (auto-woken by the read
-    // above). The object: `objSnoozed` still has the message. The two
-    // backends disagree on a bare `listThreads` call with no op in between.
-    expect(pgSnoozed.length).toBe(objSnoozed.length);
   });
 });

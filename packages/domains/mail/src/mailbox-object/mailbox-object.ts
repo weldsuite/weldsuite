@@ -55,6 +55,7 @@ import type { MailEmailAddress } from '@weldsuite/db/schema/mail-messages';
 import { getSchemaVersion, migrateMailbox } from './migrate';
 import * as reads from './reads';
 import { applyMailboxBatch, applyMailboxOp, type WritableStorage } from './writes';
+import { nextSnoozeDueAt } from './writes-extra';
 import { afterWrite, getStoredMode, recomputeAlarm, registerMaintenanceContinuation, runAlarm, setStoredMode, type AlarmEnv } from './alarm';
 import { backfillStatus, rebuildMailbox, startBackfill, type BackfillEnv, type BackfillState, type StartBackfillOptions } from './backfill';
 import { beginDestroy, isDestroying, MailboxDestroyedError, type ContinueDestroyEnv } from './destroy';
@@ -71,6 +72,8 @@ export interface MailboxStoreStatusCounts {
   drafts: number;
   subscriptions: number;
   outboxPending: number;
+  /** Rows `notePgDrift` has recorded that the alarm hasn't yet mirrored to Postgres (design §2.2 "object (Postgres failed): ... stub.notePgDrift(ids)"; the mirror job itself is still future work — see `notePgDrift`'s own doc). Reverse sync and parity can read this count (via `status()`) to see how much `object`-mode Postgres drift is outstanding for this mailbox. */
+  pgDriftPending: number;
 }
 
 export interface MailboxStoreStatus {
@@ -162,6 +165,25 @@ export interface MailboxStoreRpc {
   // writes
   apply(ref: MailboxRef, op: MailboxOp, at?: number): Promise<OpResult>;
   applyBatch(ref: MailboxRef, ops: MailboxOp[], at?: number): Promise<OpResult[]>;
+  /**
+   * Records ids whose `object`-mode Postgres SECONDARY write failed (design
+   * §2.2: "object (Postgres failed): log, then `stub.notePgDrift(ids)`") into
+   * the `pg_drift` table (`./schema.ts`), so the alarm can mirror them to
+   * Postgres later with backoff — the real counterpart to the router's
+   * `mbxpgdrift:<ws>:<acct>` KV placeholder, which stays only as a fallback
+   * for when this RPC call itself fails (see `store/router.ts`'s
+   * `notePgDriftOrFallback`). Bounded per call (`MAX_PG_DRIFT_IDS_PER_CALL`)
+   * so one pathological bulk-op failure can't grow the table unboundedly from
+   * a single call; a noted id already pending keeps its existing
+   * `attempts`/`next_attempt_at` backoff (only `noted_at` is refreshed) so a
+   * repeated failure doesn't reset the clock on its own repair. This task
+   * does not implement the alarm-side mirror job itself (draining `pg_drift`
+   * into real Postgres writes) — `alarm.ts`'s `candidateAlarmTimes` already
+   * reads `pg_drift.next_attempt_at` to schedule for it, but nothing drains
+   * it yet; `status().counts.pgDriftPending` is this task's way of making the
+   * backlog observable for reverse sync / parity in the meantime.
+   */
+  notePgDrift(ref: MailboxRef, ids: string[]): Promise<{ accepted: true; noted: number }>;
 
   // admin
   status(ref: MailboxRef): Promise<MailboxStoreStatus>;
@@ -199,6 +221,16 @@ const SIZE_WARN_BYTES = 6 * 1024 ** 3;
 const SIZE_CRITICAL_BYTES = 8 * 1024 ** 3;
 const SIZE_WARN_THROTTLE_MS = 24 * 60 * 60_000;
 const FTS_TRIM_WINDOW_MS = 2 * 365 * 24 * 60 * 60_000;
+
+/**
+ * `notePgDrift`'s own bound (design task note 3: "records ids there
+ * (bounded)") — matches the chunk size the design already uses for bulk
+ * secondary writes (`store/router.ts`'s `rewriteOpForSecondary` rewrites
+ * `thread.read`/`folder.read` in chunks of 1000 before they ever reach a
+ * secondary store), so one pathological bulk-op failure can add at most one
+ * chunk's worth of rows per call rather than growing `pg_drift` unboundedly.
+ */
+const MAX_PG_DRIFT_IDS_PER_CALL = 1000;
 
 export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> implements MailboxStoreRpc, MailboxAdminRpc {
   constructor(ctx: DurableObjectState, env: MailboxStoreObjectEnv) {
@@ -283,6 +315,38 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
     }
   }
 
+  // ---- wake-on-read (design §3.3, task note 1) ------------------------------
+
+  /**
+   * Postgres wakes a snoozed message whose time has passed as a side effect
+   * of a plain read (`threads.ts`'s `threadListScope`/`buildWake`); without
+   * this, `object`/`object-only` mail never woke except via the explicit
+   * `snooze.wake` op and the alarm, so a due snooze could sit in the Snoozed
+   * folder until the next alarm tick even while the mailbox was actively
+   * being read. Design: "before serving listThreads, stats, labelCounts and
+   * unreadCount, the object applies snooze.wake at the current time when
+   * anything is due (cheap check first: is any snoozed_until <= now?), in
+   * one transaction, then reads."
+   *
+   * The "cheap check" is `nextSnoozeDueAt`'s indexed `MIN(snoozed_until)` —
+   * the same query `writes-extra.ts`'s `applySnoozeWake` already uses to
+   * report `OpResult.nextSnoozeDueAt` — so a mailbox with nothing snoozed, or
+   * nothing yet due, costs one indexed lookup and nothing else; a write only
+   * happens when something has actually come due. Skipped while the object is
+   * being torn down (`isDestroying`): a read during that window shouldn't
+   * mutate tables the destroy alarm is in the middle of deleting.
+   */
+  private async wakeOverdueSnoozes(ref: MailboxRef): Promise<void> {
+    if (isDestroying(this.ctx.storage.sql)) return;
+    const now = Date.now();
+    const due = nextSnoozeDueAt(this.ctx.storage.sql);
+    if (due === null || due > now) return;
+    const storage: WritableStorage = this.ctx.storage;
+    const op: MailboxOp = { kind: 'snooze.wake', now };
+    const result = applyMailboxOp(storage, ref, op, now);
+    await afterWrite(this.ctx, op, result);
+  }
+
   // ---- size thresholds (design §3.7) ---------------------------------------
 
   /**
@@ -320,6 +384,7 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
 
   async listThreads(ref: MailboxRef, q: ThreadListQuery): Promise<ThreadPage> {
     this.bindRef(ref);
+    await this.wakeOverdueSnoozes(ref);
     return reads.listThreads(this.ctx.storage.sql, ref, q);
   }
 
@@ -354,16 +419,19 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
 
   async stats(ref: MailboxRef): Promise<MailboxStats> {
     this.bindRef(ref);
+    await this.wakeOverdueSnoozes(ref);
     return reads.stats(this.ctx.storage.sql);
   }
 
   async unreadCount(ref: MailboxRef, scope: 'inbox' | 'all-live'): Promise<number> {
     this.bindRef(ref);
+    await this.wakeOverdueSnoozes(ref);
     return reads.unreadCount(this.ctx.storage.sql, scope);
   }
 
   async labelCounts(ref: MailboxRef, keys: FolderKey[]): Promise<Record<FolderKey, LabelCount>> {
     this.bindRef(ref);
+    await this.wakeOverdueSnoozes(ref);
     return reads.labelCounts(this.ctx.storage.sql, keys);
   }
 
@@ -520,6 +588,7 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
         drafts: count('drafts', ' WHERE deleted_at IS NULL'),
         subscriptions: count('subscriptions'),
         outboxPending: count('outbox'),
+        pgDriftPending: count('pg_drift'),
       },
       databaseSize: sql.databaseSize,
       sqliteVersion,
@@ -543,6 +612,33 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
     const previous = setStoredMode(this.ctx.storage.sql, mode);
     await recomputeAlarm(this.ctx);
     return previous;
+  }
+
+  /**
+   * See this method's own doc on `MailboxStoreRpc` above. Upserts into
+   * `pg_drift` (keyed by `message_id`) rather than inserting blindly, so a
+   * message that fails its Postgres mirror repeatedly only refreshes
+   * `noted_at` — its existing `attempts`/`next_attempt_at` backoff (once
+   * something actually drains this table) is left alone, not reset to "retry
+   * immediately" on every fresh failure.
+   */
+  async notePgDrift(ref: MailboxRef, ids: string[]): Promise<{ accepted: true; noted: number }> {
+    this.bindRef(ref);
+    const bounded = ids.slice(0, MAX_PG_DRIFT_IDS_PER_CALL);
+    const now = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      for (const id of bounded) {
+        this.ctx.storage.sql.exec(
+          `INSERT INTO pg_drift (message_id, noted_at, attempts, next_attempt_at) VALUES (?, ?, 0, ?)
+           ON CONFLICT(message_id) DO UPDATE SET noted_at = excluded.noted_at`,
+          id,
+          now,
+          now,
+        );
+      }
+    });
+    await recomputeAlarm(this.ctx, now);
+    return { accepted: true, noted: bounded.length };
   }
 
   // ---- backfill, catch-up, parity, reverse sync, rebuild (task C4) --------
