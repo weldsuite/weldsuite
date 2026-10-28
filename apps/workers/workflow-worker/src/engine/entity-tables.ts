@@ -4,9 +4,9 @@
  * apps/api-worker/src/workflows/execute-workflow/entity-tables.ts.
  */
 
-import { getTableColumns, getTableName } from 'drizzle-orm';
+import { and, eq, getTableColumns, getTableName, inArray, isNull, sql } from 'drizzle-orm';
 import { selectableColumns } from '@weldsuite/db/lib/sensitive-columns';
-import { schema } from '../db';
+import { schema, type Database } from '../db';
 
 const entityTableMap: Record<string, any> = {
   // CRM
@@ -101,4 +101,108 @@ export function getEntityColumns(table: any): any {
 export function getEntityIdPrefix(entityType: string): string {
   const normalizedType = entityType.toLowerCase().replaceAll('-', '_');
   return entityIdPrefixMap[normalizedType] || normalizedType.slice(0, 3);
+}
+
+// ---------------------------------------------------------------------------
+// MAIL-003 for generic record actions
+// ---------------------------------------------------------------------------
+
+/**
+ * Mail entities a workflow's generic `create_record` / `update_record` /
+ * `delete_record` / `query_data` steps can reach, and the column each uses to
+ * tie back to a mailbox. `mail_account` IS the mailbox; `mail_message` and
+ * `mail_folder` belong to one through `accountId`.
+ */
+const MAIL_ENTITY_ACCOUNT_COLUMN: Record<string, 'id' | 'accountId'> = {
+  mail_account: 'id',
+  mail_message: 'accountId',
+  mail_folder: 'accountId',
+};
+
+function mailAccountColumnOf(entityType: string): 'id' | 'accountId' | undefined {
+  return MAIL_ENTITY_ACCOUNT_COLUMN[entityType.toLowerCase().replaceAll('-', '_')];
+}
+
+/**
+ * MAIL-003 (`@weldsuite/mail-domain/access`) says mailbox access follows
+ * sharing and per-user assignment, and the admin/owner role alone never opens
+ * a private mailbox. A workflow run acts for no member, so it can satisfy
+ * neither test. The least-breaking scope left for a *generic* record action is
+ * "shared mailboxes only" — the same scope a workspace API key or WeldApp
+ * token gets (`MailPrincipal.kind === 'workspace'` in mail-domain/access).
+ * Dedicated mail actions that already run as a member (`send_email`, …) are
+ * untouched; this only gates the generic CRUD actions in `actions/data.ts`.
+ *
+ * Returns the extra WHERE condition for `update_record` / `delete_record` /
+ * `query_data` (AND it with the caller's other conditions), or `undefined`
+ * when `entityType` isn't one of the mail entities above. `mail_account`
+ * checks its own `isShared`; `mail_message` / `mail_folder` check it through
+ * the pre-fetched set of shared account ids. `table`/return typed `any` like
+ * the rest of this file: Drizzle's overloads cannot express a runtime table.
+ */
+export async function sharedMailboxCondition(
+  db: Database,
+  entityType: string,
+  table: any,
+): Promise<any> {
+  const column = mailAccountColumnOf(entityType);
+  if (!column) return undefined;
+  if (column === 'id') return eq(table.isShared, true);
+
+  const shared = await db
+    .select({ id: schema.mailAccounts.id })
+    .from(schema.mailAccounts)
+    .where(and(eq(schema.mailAccounts.isShared, true), isNull(schema.mailAccounts.deletedAt)));
+  const ids = shared.map((row) => row.id);
+  // No shared mailbox must mean no rows, never "no filter" — mirrors
+  // `accountScopeCondition` in `@weldsuite/mail-domain/access`.
+  return ids.length === 0 ? sql`false` : inArray(table.accountId, ids);
+}
+
+/**
+ * `create_record` has no existing row to test, so it validates the write
+ * instead: `mail_message` / `mail_folder` must name an existing shared
+ * account; `mail_account` may only be created shared in the first place
+ * (there is no workspace member for a workflow to assign a private one to —
+ * see {@link mailEntityCreateOverrides}). Throws when the data doesn't satisfy
+ * that; a no-op for every other entity type.
+ */
+export async function assertMailEntityCreatable(
+  db: Database,
+  entityType: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const column = mailAccountColumnOf(entityType);
+  if (!column) return;
+  if (column === 'id') {
+    if (data.isShared === false) {
+      throw new Error(
+        'A workflow can only create a shared mail account: there is no workspace member to assign a private one to',
+      );
+    }
+    return;
+  }
+
+  const accountId = data[column];
+  if (typeof accountId !== 'string' || !accountId) {
+    throw new Error(`${entityType} requires ${column}`);
+  }
+  const [account] = await db
+    .select({ isShared: schema.mailAccounts.isShared })
+    .from(schema.mailAccounts)
+    .where(and(eq(schema.mailAccounts.id, accountId), isNull(schema.mailAccounts.deletedAt)));
+  if (!account?.isShared) {
+    throw new Error(
+      `Mail account ${accountId} is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)`,
+    );
+  }
+}
+
+/**
+ * `mail_account` always creates shared — see {@link assertMailEntityCreatable}.
+ * Spread into the insert data AFTER the caller's own `data`, so it wins over
+ * whatever the step passed (or the schema's `isShared: false` default).
+ */
+export function mailEntityCreateOverrides(entityType: string): Record<string, unknown> | undefined {
+  return mailAccountColumnOf(entityType) === 'id' ? { isShared: true } : undefined;
 }

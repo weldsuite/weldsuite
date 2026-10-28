@@ -19,7 +19,13 @@
 import { eq, and, isNull, asc, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getEntityTable, getEntityIdPrefix } from './entity-tables';
+import {
+  getEntityTable,
+  getEntityIdPrefix,
+  assertMailEntityCreatable,
+  mailEntityCreateOverrides,
+  sharedMailboxCondition,
+} from './entity-tables';
 import * as cfEmail from '@weldsuite/worker-email';
 import type { WorkerEmailEnv } from '@weldsuite/worker-email';
 import type { AiBillingEnv } from '@weldsuite/core-domain/ai-billing';
@@ -246,9 +252,19 @@ async function handleCreateRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
 
+  // MAIL-003: a sequence has no member to assign a private mailbox to, so a
+  // generic create of a mail entity only ever targets a shared one.
+  await assertMailEntityCreatable(ctx.db, entityType, data);
+
   const table = getEntityTable(entityType);
   const idPrefix = getEntityIdPrefix(entityType);
-  const insertData: Record<string, unknown> = { id: generateId(idPrefix), ...data, createdAt: new Date(), updatedAt: new Date() };
+  const insertData: Record<string, unknown> = {
+    id: generateId(idPrefix),
+    ...data,
+    ...mailEntityCreateOverrides(entityType),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
   if ('workspaceId' in table) insertData.workspaceId = ctx.tenant.workspaceId;
 
   // `table` is dynamically resolved (any), so drizzle's insert typing
@@ -267,6 +283,10 @@ async function handleUpdateRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];
   if ('workspaceId' in table) whereConditions.push(eq(table.workspaceId, ctx.tenant.workspaceId));
+  // MAIL-003: a generic update of a mail entity only reaches a shared mailbox;
+  // anything else resolves no row and falls into the "not found" branch below.
+  const mailCondition = await sharedMailboxCondition(ctx.db, entityType, table);
+  if (mailCondition) whereConditions.push(mailCondition);
 
   const [updated] = await ctx.db.update(table).set({ ...data, updatedAt: new Date() }).where(and(...whereConditions)).returning();
   if (!updated) throw new Error(`Record ${recordId} not found`);
@@ -283,6 +303,9 @@ async function handleDeleteRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];
   if ('workspaceId' in table) whereConditions.push(eq(table.workspaceId, ctx.tenant.workspaceId));
+  // MAIL-003: same shared-mailbox-only scope as update_record.
+  const mailCondition = await sharedMailboxCondition(ctx.db, entityType, table);
+  if (mailCondition) whereConditions.push(mailCondition);
 
   if (hardDelete) {
     await ctx.db.delete(table).where(and(...whereConditions));
@@ -297,11 +320,18 @@ async function handleQueryData(inputs: Record<string, unknown>, ctx: ActionConte
   if (!entityType) throw new Error('Entity type is required');
 
   const table = getEntityTable(entityType);
+  // MAIL-003: same shared-mailbox-only scope as update_record.
+  const mailCondition = await sharedMailboxCondition(ctx.db, entityType, table);
   const filters = (inputs.filters || inputs.where || {}) as Record<string, unknown>;
   const limit = Number(inputs.limit) || 100;
   const offset = Number(inputs.offset) || 0;
 
-  const records = await ctx.db.select().from(table).where(isNull(table.deletedAt)).limit(limit).offset(offset);
+  const records = await ctx.db
+    .select()
+    .from(table)
+    .where(mailCondition ? and(isNull(table.deletedAt), mailCondition) : isNull(table.deletedAt))
+    .limit(limit)
+    .offset(offset);
 
   let filteredRecords = records;
   for (const [key, value] of Object.entries(filters)) {

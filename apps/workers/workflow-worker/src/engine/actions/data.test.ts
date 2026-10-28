@@ -154,3 +154,193 @@ describe('record actions (pglite)', () => {
     expect(rows).toHaveLength(0);
   });
 });
+
+// --- record CRUD on mail entities: MAIL-003 (pglite) ------------------------
+//
+// A workflow run acts for no member, so it can satisfy neither half of
+// MAIL-003 (sharing or per-user assignment). Generic record actions are
+// therefore scoped to shared mailboxes only — see `sharedMailboxCondition` /
+// `assertMailEntityCreatable` in `../entity-tables.ts`.
+
+describe('record actions and MAIL-003 (pglite)', () => {
+  let db: Database;
+  let sharedAccountId: string;
+  let privateAccountId: string;
+
+  beforeAll(async () => {
+    const handle = await createPgliteDb();
+    db = handle.db;
+
+    sharedAccountId = 'mail_shared_test';
+    await db.insert(schema.mailAccounts).values({
+      id: sharedAccountId,
+      name: 'Shared',
+      email: 'shared@test.dev',
+      isShared: true,
+    });
+
+    privateAccountId = 'mail_private_test';
+    await db.insert(schema.mailAccounts).values({
+      id: privateAccountId,
+      name: 'Private',
+      email: 'private@test.dev',
+      isShared: false,
+      assignedUserIds: ['user_someone'],
+    });
+  }, 60_000);
+
+  describe('create_record', () => {
+    it('refuses a mail_message targeting a private account', async () => {
+      await expect(
+        handleCreateRecord(
+          {
+            entity: 'mail_message',
+            data: {
+              accountId: privateAccountId,
+              threadId: 'thread_x',
+              messageId: '<x@test.dev>',
+              from: { email: 'a@test.dev' },
+              to: [{ email: 'b@test.dev' }],
+              subject: 'hi',
+              sentDate: new Date(),
+              labels: [],
+            },
+          },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mailbox/i);
+    });
+
+    it('creates a mail_message targeting a shared account', async () => {
+      const res = (await handleCreateRecord(
+        {
+          entity: 'mail_message',
+          data: {
+            accountId: sharedAccountId,
+            threadId: 'thread_y',
+            messageId: '<y@test.dev>',
+            from: { email: 'a@test.dev' },
+            to: [{ email: 'b@test.dev' }],
+            subject: 'hi',
+            sentDate: new Date(),
+            labels: [],
+          },
+        },
+        makeActionContext({ db }),
+      )) as { created: boolean; record: { id: string } };
+      expect(res.created).toBe(true);
+    });
+
+    it('refuses to create a mail_account explicitly marked private', async () => {
+      await expect(
+        handleCreateRecord(
+          { entity: 'mail_account', data: { name: 'New', email: 'new@test.dev', isShared: false } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mail account/i);
+    });
+
+    it('creates a mail_account as shared even when isShared is left unset', async () => {
+      const res = (await handleCreateRecord(
+        { entity: 'mail_account', data: { name: 'New', email: 'new2@test.dev' } },
+        makeActionContext({ db }),
+      )) as { record: { id: string; isShared: boolean } };
+      expect(res.record.isShared).toBe(true);
+    });
+  });
+
+  describe('update_record / delete_record', () => {
+    async function seedMessage(accountId: string): Promise<string> {
+      const id = `mmsg_${Math.random().toString(36).slice(2)}`;
+      await db.insert(schema.mailMessages).values({
+        id,
+        accountId,
+        threadId: `thread_${id}`,
+        messageId: `<${id}@test.dev>`,
+        from: { email: 'a@test.dev' },
+        to: [{ email: 'b@test.dev' }],
+        subject: 'hi',
+        sentDate: new Date(),
+        labels: [],
+      });
+      return id;
+    }
+
+    it('cannot update a private mailbox\'s message', async () => {
+      const id = await seedMessage(privateAccountId);
+      await expect(
+        handleUpdateRecord({ entity: 'mail_message', id, data: { subject: 'changed' } }, makeActionContext({ db })),
+      ).rejects.toThrow(/not found/i);
+      const [row] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(row?.subject).toBe('hi');
+    });
+
+    it('updates a shared mailbox\'s message', async () => {
+      const id = await seedMessage(sharedAccountId);
+      const res = (await handleUpdateRecord(
+        { entity: 'mail_message', id, data: { subject: 'changed' } },
+        makeActionContext({ db }),
+      )) as { updated: boolean };
+      expect(res.updated).toBe(true);
+    });
+
+    it('cannot delete a private mailbox\'s message', async () => {
+      const id = await seedMessage(privateAccountId);
+      await handleDeleteRecord({ entity: 'mail_message', id, hardDelete: true }, makeActionContext({ db }));
+      const rows = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(rows).toHaveLength(1); // untouched, not hard-deleted
+    });
+
+    it('deletes a shared mailbox\'s message', async () => {
+      const id = await seedMessage(sharedAccountId);
+      await handleDeleteRecord({ entity: 'mail_message', id, hardDelete: true }, makeActionContext({ db }));
+      const rows = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(rows).toHaveLength(0);
+    });
+  });
+
+  describe('query_data', () => {
+    it('excludes a private mailbox\'s messages from a generic mail_message query', async () => {
+      await db.insert(schema.mailMessages).values([
+        {
+          id: 'mmsg_q_shared',
+          accountId: sharedAccountId,
+          threadId: 'thread_q_shared',
+          messageId: '<q_shared@test.dev>',
+          from: { email: 'a@test.dev' },
+          to: [{ email: 'b@test.dev' }],
+          subject: 'query-shared',
+          sentDate: new Date(),
+          labels: [],
+        },
+        {
+          id: 'mmsg_q_private',
+          accountId: privateAccountId,
+          threadId: 'thread_q_private',
+          messageId: '<q_private@test.dev>',
+          from: { email: 'a@test.dev' },
+          to: [{ email: 'b@test.dev' }],
+          subject: 'query-private',
+          sentDate: new Date(),
+          labels: [],
+        },
+      ]);
+
+      const res = (await handleQueryData({ entity: 'mail_message' }, makeActionContext({ db }))) as {
+        records: Array<{ id: string }>;
+      };
+      const ids = res.records.map((r) => r.id);
+      expect(ids).toContain('mmsg_q_shared');
+      expect(ids).not.toContain('mmsg_q_private');
+    });
+
+    it('excludes a private account from a generic mail_account query', async () => {
+      const res = (await handleQueryData({ entity: 'mail_account' }, makeActionContext({ db }))) as {
+        records: Array<{ id: string }>;
+      };
+      const ids = res.records.map((r) => r.id);
+      expect(ids).toContain(sharedAccountId);
+      expect(ids).not.toContain(privateAccountId);
+    });
+  });
+});

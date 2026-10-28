@@ -11,6 +11,7 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 
 vi.mock('@weldsuite/mail-domain/access', () => ({
   checkAccountAccess: vi.fn(),
+  accessibleAccountIds: vi.fn(),
 }));
 
 vi.mock('@weldsuite/mail-domain/snooze', () => ({
@@ -102,5 +103,24 @@ describe('GET /api/mail-snooze/snoozed · access control', () => {
     const { request } = makeApp('user_assigned');
     const res = await request(`/api/mail-snooze/snoozed?accountId=${ACCOUNT_ID}`);
     expect(res.status).toBe(200);
+  });
+
+  // Bug fix: without `accountId` the route used to call `listSnoozedMessages`
+  // with no account scope at all, which falls through to every mailbox in the
+  // workspace. MAIL-003 says the unified list must be scoped to the caller's
+  // accessible mailboxes, like the unified mail-messages list.
+  it('scopes the unified list (no accountId) to the caller\'s accessible mailboxes', async () => {
+    const scoped = ['acc_shared', 'acc_assigned'];
+    (access.accessibleAccountIds as MockedFunction<typeof access.accessibleAccountIds>).mockResolvedValueOnce(
+      scoped,
+    );
+    const listSnoozedMessages = snooze.listSnoozedMessages as MockedFunction<typeof snooze.listSnoozedMessages>;
+    listSnoozedMessages.mockResolvedValueOnce([]);
+    const { request } = makeApp('user_assigned');
+    const res = await request('/api/mail-snooze/snoozed');
+    expect(res.status).toBe(200);
+    // Never the old "no accountId, no accountIds" shape that fell through to
+    // every mailbox in the workspace.
+    expect(listSnoozedMessages).toHaveBeenCalledWith(expect.anything(), { accountIds: scoped });
   });
 });

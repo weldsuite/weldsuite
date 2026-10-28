@@ -252,14 +252,33 @@ function normalizeProjectWhiteboards(rows: (typeof schema.projectWhiteboards.$in
   }));
 }
 
-function normalizeMailAttachments(rows: (typeof schema.mailAttachments.$inferSelect)[]): UnifiedFile[] {
+/**
+ * A mail attachment's `downloadUrl` is a bare object-storage URL with no
+ * session, signature or expiry — mail-api's own routes never return it for
+ * exactly that reason (`toPublicAttachment`), serving bytes only from
+ * `GET /api/mail-attachments/:id/download`, which re-checks the mailbox
+ * before streaming. This view must not hand out the bypass URL just because
+ * it reached the row through a join; point at the authenticated route
+ * instead, like `storedUrl` does for Drive's own private files. `undefined`
+ * `apiOrigin` (no request context, e.g. a future batch job) means no URL
+ * rather than the raw one.
+ */
+function mailAttachmentDownloadUrl(id: string, apiOrigin: string | undefined): string | null {
+  if (!apiOrigin) return null;
+  return `${apiOrigin.replace(/\/+$/, '')}/api/mail-attachments/${encodeURIComponent(id)}/download`;
+}
+
+function normalizeMailAttachments(
+  rows: (typeof schema.mailAttachments.$inferSelect)[],
+  apiOrigin: string | undefined,
+): UnifiedFile[] {
   return rows.map((r) => ({
     id: r.id,
     name: r.fileName || 'Attachment',
     fileType: guessFileType(r.contentType, r.fileName),
     mimeType: r.contentType,
     fileSize: r.size,
-    url: r.downloadUrl,
+    url: mailAttachmentDownloadUrl(r.id, apiOrigin),
     thumbnailUrl: null,
     source: 'mail',
     sourceLabel: 'Mail',
@@ -423,7 +442,7 @@ export async function aggregateAllFiles(
     ...normalizeProjectFiles(projectFilesRes),
     ...normalizeProjectDocuments(projectDocsRes),
     ...normalizeProjectWhiteboards(whiteboardsRes),
-    ...normalizeMailAttachments(mailAttachmentsRes),
+    ...normalizeMailAttachments(mailAttachmentsRes, params.apiOrigin),
     ...normalizeVoipRecordings(voipCallsRes),
     ...normalizeMeetingRecordings(meetingsRes),
     ...normalizeSocialMedia(socialMediaRes),

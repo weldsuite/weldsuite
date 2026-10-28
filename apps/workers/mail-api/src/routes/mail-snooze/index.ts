@@ -20,7 +20,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import * as snooze from '@weldsuite/mail-domain/snooze';
 import { MailSnoozeError } from '@weldsuite/mail-domain/snooze';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { accessibleAccountIds, checkAccountAccess } from '@weldsuite/mail-domain/access';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -51,8 +51,13 @@ app.get(
       if (accountId) {
         const allowed = await checkAccountAccess(db, accountId, userId);
         if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+        const rows = await snooze.listSnoozedMessages(db, { accountId });
+        return success(c, rows);
       }
-      const rows = await snooze.listSnoozedMessages(db, { accountId });
+      // No accountId: unified snoozed list across every mailbox the caller
+      // may open, never every mailbox in the workspace (MAIL-003).
+      const scopedAccountIds = await accessibleAccountIds(db, userId);
+      const rows = await snooze.listSnoozedMessages(db, { accountIds: scopedAccountIds });
       return success(c, rows);
     } catch (err) {
       console.error('[app-api/mail-snooze] list failed:', err);

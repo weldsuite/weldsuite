@@ -19,7 +19,7 @@
  * and unified); we've collapsed both into `listThreadsByLabel`.
  */
 
-import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import {
@@ -185,28 +185,24 @@ function textArraySql(values: string[]): SQL {
 }
 
 /**
- * The conditional UPDATE that resolves scheduled messages whose send time has
- * passed to `sent`, scoped to exactly the threads a page of the listing
- * covers — built, not executed, so it can run in the same batch as the
- * message SELECT right before it (the UPDATE first, so the SELECT reads the
- * resolved status without a separate in-memory patch).
+ * The lean messages of a page's threads — built, not executed, so it can run
+ * in the same batch as other statements a caller already needs (see
+ * `listThreadsWithScope`'s snooze-wake batch).
+ *
+ * This used to be preceded by a write that flipped a scheduled message whose
+ * `scheduledFor` had passed to `sent`, so a page read right after the send
+ * time "resolved" it without waiting for `SendScheduledEmailWorkflow`. That
+ * was wrong, not just stale metadata: `SendScheduledEmailWorkflow.sleepUntil`
+ * wakes at or after `scheduledFor`, and its outbound guard can additionally
+ * defer a send for up to 24h when a sending limit is in effect
+ * (`workflows/send-scheduled-email.ts`). Any read of the list in that window
+ * — the normal case, not an edge case — marked the message `sent` before an
+ * email had actually gone out. Worse, once marked, the workflow's own guard
+ * (`getSkipReason`: `sendStatus !== 'scheduled'`) treated that as "already
+ * handled" and skipped the real send for good, so the message silently never
+ * went out at all while the UI showed it as sent. The workflow is the only
+ * authority on whether a scheduled send happened; a read must never guess.
  */
-function buildExpireScheduledUpdate(h: Database, accountIds: string[], threadIds: string[], now: Date) {
-  return h
-    .update(mailMessages)
-    .set({ sendStatus: 'sent', sentDate: now, scheduledFor: null, updatedAt: now })
-    .where(
-      and(
-        inArray(mailMessages.accountId, accountIds),
-        sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id}) = ANY(${textArraySql(threadIds)})`,
-        isNull(mailMessages.deletedAt),
-        eq(mailMessages.sendStatus, 'scheduled'),
-        lte(mailMessages.scheduledFor, now),
-      ),
-    );
-}
-
-/** The lean messages of a page's threads — built, not executed (see `buildExpireScheduledUpdate`). */
 function buildThreadMessagesQuery(h: Database, accountIds: string[], threadIds: string[]) {
   return h
     .select(threadListMessageColumns)
@@ -355,7 +351,7 @@ export async function threadListScopeForAccounts(
   return buildThreadScope(db, accountIdsScopeCondition(accountIds), input);
 }
 
-/** The distinct-thread count for a listing — built, not executed (see `buildExpireScheduledUpdate`). */
+/** The distinct-thread count for a listing — built, not executed (see `buildThreadMessagesQuery`). */
 function buildThreadCountQuery(h: Database, baseConditions: SQL[]) {
   return h
     .select({
@@ -367,7 +363,7 @@ function buildThreadCountQuery(h: Database, baseConditions: SQL[]) {
 
 /**
  * One page of thread ids, newest first — built, not executed (see
- * `buildExpireScheduledUpdate`). A thread sorts by its newest message of any
+ * `buildThreadMessagesQuery`). A thread sorts by its newest message of any
  * kind, so the reply you sent (SENT, not INBOX) lifts the conversation in the
  * inbox like it does in Gmail. That date comes from one grouped pass over the
  * scoped accounts, joined to the matching threads. A correlated subquery per
@@ -509,21 +505,12 @@ async function listThreadsWithScope(
 
   if (threadRows.length === 0) return { threads: [], totalCount };
 
-  // ---- resolve expired scheduled messages and pull the page's lean
-  // messages, in one round trip: the UPDATE runs first, so the SELECT reads
-  // the resolved status directly, no separate in-memory patch. A failed
-  // UPDATE (same read-only case as the wake above) falls back to the lean
-  // message SELECT alone, so expired-but-unresolved mail just keeps showing
-  // as "scheduled" instead of taking the list down with it. --------------
+  // ---- pull the page's lean messages. No write here: whether a scheduled
+  // message has actually sent is for `SendScheduledEmailWorkflow` alone to
+  // say (see the note on `buildThreadMessagesQuery`) — a plain read. --------
   const threadIds = threadRows.map((r) => r.threadId).filter(Boolean);
   const accountIds = [...new Set(threadRows.map((r) => r.accountId))];
-  const now = new Date();
-  const [messages] = (await batchWriteThenReads(
-    db,
-    (h) => [buildExpireScheduledUpdate(h, accountIds, threadIds, now), buildThreadMessagesQuery(h, accountIds, threadIds)],
-    (h) => [buildThreadMessagesQuery(h, accountIds, threadIds)],
-    'resolving expired scheduled mail',
-  )) as [ThreadListMessage[]];
+  const messages = await buildThreadMessagesQuery(db, accountIds, threadIds);
 
   // ---- group + summarise ----------------------------------------------
   const threadMap = groupMessagesByThread(messages);

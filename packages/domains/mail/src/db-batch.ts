@@ -48,9 +48,9 @@ export async function batchQueries(
 
 /**
  * Run a batch that leads with a write meant only as a side effect (wake
- * snoozed mail, resolve expired scheduled mail) followed by the reads the
- * caller actually needs, as one round trip. A read must keep working even
- * when the write can't land — most often because the workspace is read-only
+ * snoozed mail) followed by the reads the caller actually needs, as one
+ * round trip. A read must keep working even when the write can't land —
+ * most often because the workspace is read-only
  * during a database move (`readOnlyReason: 'database_move'`,
  * `packages/core/worker-kit/src/db.ts`), which fails the write with a
  * Postgres read-only-transaction error and, inside a shared `db.batch`, would

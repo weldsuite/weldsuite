@@ -8,7 +8,7 @@
  * everything below this file is provider/transport-agnostic.
  */
 
-import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { schema, masterSchema, getMasterDb } from '@weldsuite/worker-kit/db';
 import type { Database, MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
@@ -29,6 +29,21 @@ import {
 import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { mailAccounts, mailDomains, mailLabels, hostDomains, workspaceMembers } = schema;
+
+/**
+ * `mail_accounts` columns safe to send to the browser: every column except
+ * the encrypted credentials (`accessToken`, `refreshToken`, `apiKey`,
+ * `passwordHash`) and `providerConfig`, which can carry an OAuth client id or
+ * other provider secrets. List and detail reads must select this, never `*`.
+ */
+const {
+  accessToken: _accessToken,
+  refreshToken: _refreshToken,
+  apiKey: _apiKey,
+  passwordHash: _passwordHash,
+  providerConfig: _providerConfig,
+  ...publicAccountColumns
+} = getTableColumns(mailAccounts);
 
 const BARE_WELDMAIL_DOMAINS = new Set([
   ...SHARED_WELDMAIL_APEXES,
@@ -165,7 +180,7 @@ export async function listMailAccounts(
 
   const [rows, countRes] = await Promise.all([
     db
-      .select()
+      .select(publicAccountColumns)
       .from(mailAccounts)
       .where(where)
       .orderBy(desc(mailAccounts.createdAt), desc(mailAccounts.id))
@@ -196,7 +211,7 @@ export async function getMailAccountStats(db: Database) {
 
 export async function getMailAccount(db: Database, id: string, userId: string) {
   const [row] = await db
-    .select()
+    .select(publicAccountColumns)
     .from(mailAccounts)
     .where(and(eq(mailAccounts.id, id), isNull(mailAccounts.deletedAt)))
     .limit(1);

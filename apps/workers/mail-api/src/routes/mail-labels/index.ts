@@ -39,7 +39,7 @@ import {
   updateMailLabel,
 } from '@weldsuite/mail-domain/labels';
 import { listThreadsByLabel } from '@weldsuite/mail-domain/threads';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { accessibleAccountIds, checkAccountAccess } from '@weldsuite/mail-domain/access';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -281,8 +281,14 @@ app.get('/', requirePermission('accounts:read'), zValidator('query', listQuery),
     if (accountId) {
       const allowed = await checkAccountAccess(db, accountId, userId);
       if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+      const rows = await listMailLabels(db, { accountId });
+      return success(c, rows);
     }
-    const rows = await listMailLabels(db, { accountId });
+    // No accountId: unified label list across every mailbox the caller may
+    // open, never every mailbox in the workspace (MAIL-003).
+    const scopedAccountIds = await accessibleAccountIds(db, userId);
+    if (scopedAccountIds.length === 0) return success(c, []);
+    const rows = await listMailLabels(db, { accessibleAccountIds: scopedAccountIds });
     return success(c, rows);
   } catch (err) {
     console.error('[app-api/mail-labels] list failed:', err);

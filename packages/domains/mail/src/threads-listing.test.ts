@@ -10,9 +10,12 @@
  *   (TASK-906);
  * - the stats endpoint has a number for every folder badge (TASK-908);
  * - snoozed mail comes back when its time has passed (TASK-931);
- * - the list returns lean messages, no bodies (phase 1 item 1) and resolves
- *   expired scheduled mail in the same read (phase 1 item 2),
- *   docs/plans/weldmail-mailbox-storage.md.
+ * - the list returns lean messages, no bodies (phase 1 item 1),
+ *   docs/plans/weldmail-mailbox-storage.md;
+ * - a scheduled message past its send time is left alone until
+ *   `SendScheduledEmailWorkflow` actually sends it — a read must never guess
+ *   (bug fix, weldmail-mailbox-store-design.md "Where the plan or ADR is
+ *   wrong", item 9).
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -368,8 +371,18 @@ describe('lean thread-list messages (phase 1 item 1)', () => {
   });
 });
 
-describe('expired scheduled resolution (phase 1 item 2)', () => {
-  it('flips a scheduled message past its send time to sent on read', async () => {
+// Bug fix (weldmail-mailbox-store-design.md "Where the plan or ADR is wrong",
+// item 9): the list used to flip a scheduled message past its send time to
+// `sent` on read. That pre-empted `SendScheduledEmailWorkflow`, which can
+// legitimately still be asleep or deferred past `scheduledFor` (its outbound
+// guard can delay a send up to 24h) — a read in that window used to mark the
+// message sent before anything was actually sent, and the workflow's own
+// `getSkipReason` then treated it as already handled and skipped the real
+// send for good. The workflow is the only authority on this; a read must
+// leave the row alone, whatever `scheduledFor` says, whether its time is past
+// or still ahead.
+describe('a scheduled message past its send time is left for the workflow', () => {
+  it('does not flip it to sent on read', async () => {
     const accountId = await seedAccount();
     const id = await seedMessage(accountId, ['SENT', 'SCHEDULED'], {
       sendStatus: 'scheduled',
@@ -377,15 +390,15 @@ describe('expired scheduled resolution (phase 1 item 2)', () => {
     });
 
     const { threads } = await listThreadsByLabel(db, USER, { accountId, labelSlug: 'sent' });
-    expect(threads[0]!.sendStatus).toBe('sent');
-    expect(threads[0]!.scheduledFor).toBeNull();
+    expect(threads[0]!.sendStatus).toBe('scheduled');
+    expect(threads[0]!.scheduledFor).not.toBeNull();
 
     const [row] = await db.select().from(mailMessages).where(eq(mailMessages.id, id)).limit(1);
-    expect(row!.sendStatus).toBe('sent');
-    expect(row!.scheduledFor).toBeNull();
+    expect(row!.sendStatus).toBe('scheduled');
+    expect(row!.scheduledFor).not.toBeNull();
   });
 
-  it('leaves a still-future scheduled message alone', async () => {
+  it('leaves a still-future scheduled message alone too', async () => {
     const accountId = await seedAccount();
     await seedMessage(accountId, ['SENT', 'SCHEDULED'], {
       sendStatus: 'scheduled',

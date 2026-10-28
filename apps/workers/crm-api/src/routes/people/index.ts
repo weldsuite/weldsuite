@@ -28,6 +28,7 @@ import {
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import * as peopleService from '@weldsuite/crm-domain/people';
+import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 import { personChatRoutes } from './chat';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -147,6 +148,13 @@ app.post(
  * people that appear in that account's message history; otherwise the
  * tenant-wide `updatedAt` desc ordering is used as a proxy.
  * Read-only; no entity event.
+ *
+ * `accountId` names a mail mailbox, and MAIL-003 (mailbox access follows
+ * sharing and assignment) applies here exactly as it does inside mail-api:
+ * a caller who cannot open that mailbox must not learn who recently
+ * corresponded through it, so the check mirrors mail-api's own
+ * `checkAccountAccess` + `error.forbidden` for an explicit `accountId`
+ * query param (see mail-messages' `GET /` and `GET /stats`).
  */
 const recentCorrespondentsQuery = z.object({
   accountId: z.string().optional(),
@@ -161,6 +169,10 @@ app.get(
   async (c) => {
     const db = c.get('tenantDb');
     const { accountId, limit } = c.req.valid('query');
+    if (accountId) {
+      const allowed = await checkAccountAccess(db, accountId, c.get('userId'));
+      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+    }
     try {
       const people = await peopleService.listRecentCorrespondents(db, { accountId, limit });
       return success(c, people);
