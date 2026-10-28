@@ -33,6 +33,7 @@
     "./testing/pglite": "./src/testing/pglite.ts",
     "./testing/d1": "./src/testing/d1.ts",
     "./testing/sweeps": "./src/testing/sweeps.ts",
+    "./timing": "./src/timing.ts",
     "./webhook-token": "./src/webhook-token.ts",
     "./workspace-moving": "./src/workspace-moving.ts"
   },

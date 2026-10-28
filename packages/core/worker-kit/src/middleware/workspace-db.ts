@@ -15,8 +15,10 @@ import { createMiddleware } from 'hono/factory';
 import { getWorkspaceContextForOrg } from '../db';
 import type { Database, KitEnv } from '../env';
 import type { ReadOnlyReason } from '../read-only';
+import type { RequestTiming } from '../timing';
 
 type WorkspaceDbVariables = {
+  timing?: RequestTiming;
   userId: string;
   orgId: string | null;
   sessionId: string;
@@ -47,7 +49,11 @@ export const workspaceDbMiddleware = () => {
       );
     }
 
-    const { id, db, suspended, licensedApps, readOnly, readOnlyReason } = await getWorkspaceContextForOrg(c.env, orgId);
+    const { id, db, suspended, licensedApps, readOnly, readOnlyReason } = await getWorkspaceContextForOrg(
+      c.env,
+      orgId,
+      c.get('timing'),
+    );
 
     // A suspended workspace (isActive=false) has been scheduled for deletion by
     // an admin. Reject all tenant access until it is either restored (cancelled)

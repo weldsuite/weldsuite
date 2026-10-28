@@ -37,6 +37,7 @@ import {
 } from '@weldsuite/db/lib/workspace-url-cache';
 import type { DbEnv } from './env';
 import { computeWorkspaceRestrictions, type ReadOnlyReason } from './read-only';
+import { instrumentNeonClient, type RequestTiming } from './timing';
 import { databaseMoveInProgressSql } from './workspace-moving';
 
 export function getMasterDb(env: Pick<DbEnv, 'DATABASE_URL_MASTER'>): NeonHttpDatabase<typeof masterSchema> {
@@ -44,8 +45,10 @@ export function getMasterDb(env: Pick<DbEnv, 'DATABASE_URL_MASTER'>): NeonHttpDa
   return drizzleNeonHttp({ client: sql, schema: masterSchema });
 }
 
-function createNeonTenantDb(connectionUrl: string): NeonHttpDatabase<typeof schema> {
+/** With `timing`, every Neon HTTP call the handle makes is recorded as `db` (./timing.ts). */
+function createNeonTenantDb(connectionUrl: string, timing?: RequestTiming): NeonHttpDatabase<typeof schema> {
   const sql = neon(connectionUrl);
+  if (timing) instrumentNeonClient(sql, timing);
   return drizzleNeonHttp({ client: sql, schema });
 }
 
@@ -175,7 +178,11 @@ export async function selectWorkspaceForRef(masterDb: AnyMasterDatabase, ref: st
   return workspace;
 }
 
-async function getCachedWorkspaceUrl(env: DbEnv, ref: string): Promise<CachedWorkspace> {
+/**
+ * `timing` (optional) records the KV traffic as `kv`, the master lookup and URL
+ * resolution as `master`, and whether the entry was a cache hit.
+ */
+async function getCachedWorkspaceUrl(env: DbEnv, ref: string, timing?: RequestTiming): Promise<CachedWorkspace> {
   // Sealed entries live under `wsx:`; the old plaintext `ws:<ref>` key is never
   // read (a worker not yet redeployed still writes it, and it expires on its own).
   const cacheKey = workspaceCacheKey(ref);
@@ -184,11 +191,13 @@ async function getCachedWorkspaceUrl(env: DbEnv, ref: string): Promise<CachedWor
   // existed omits them and reads as not-suspended / not read-only (it refreshes
   // within KV_TTL_SECONDS). The same goes for a database move, which is stored
   // as `readOnlyReason: 'database_move'`.
-  const cached = (await env.WORKSPACE_CACHE.get(cacheKey, 'json')) as StoredWorkspace | null;
+  const readCache = () => env.WORKSPACE_CACHE.get(cacheKey, 'json') as Promise<StoredWorkspace | null>;
+  const cached = await (timing ? timing.measure('kv', readCache) : readCache());
   if (cached && isCompleteEntry(cached)) {
     // A sealed URL this worker cannot open (rotated key, tampering) is a miss.
     const opened = await openCacheEntry(cached, keyring);
     if (opened) {
+      timing?.noteWorkspaceCache('hit');
       return {
         ...opened,
         // Entries cached before the field existed were only ever keyed by the org id.
@@ -200,6 +209,26 @@ async function getCachedWorkspaceUrl(env: DbEnv, ref: string): Promise<CachedWor
     }
   }
 
+  timing?.noteWorkspaceCache('miss');
+  const resolve = () => resolveWorkspaceFromMaster(env, ref, keyring);
+  const entry = await (timing ? timing.measure('master', resolve) : resolve());
+  // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
+  const stored: StoredWorkspace | null = await sealCacheEntry(entry, keyring);
+  if (stored) {
+    const writeCache = () =>
+      env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(stored), { expirationTtl: KV_TTL_SECONDS });
+    await (timing ? timing.measure('kv', writeCache) : writeCache());
+  }
+
+  return entry;
+}
+
+/** The workspace's resolution read from the master DB (and Neon, for a row without a stored URL). */
+async function resolveWorkspaceFromMaster(
+  env: DbEnv,
+  ref: string,
+  keyring: { v1: string | undefined; v2: string | undefined },
+): Promise<CachedWorkspace> {
   const workspace = await selectWorkspaceForRef(getMasterDb(env), ref);
 
   if (!workspace) throw new Error(`Workspace not found: ${ref}`);
@@ -232,22 +261,13 @@ async function getCachedWorkspaceUrl(env: DbEnv, ref: string): Promise<CachedWor
     databaseMoveInProgress: workspace.databaseMoveInProgress,
   });
 
-  const entry: CachedWorkspace = {
+  return {
     id: workspace.id,
     clerkOrgId: workspace.clerkOrgId,
     databaseUrl,
     suspended: !workspace.isActive,
     ...restrictions,
   };
-  // No keyring → nothing to seal with → do not cache (never a plaintext fallback).
-  const stored: StoredWorkspace | null = await sealCacheEntry(entry, keyring);
-  if (stored) {
-    await env.WORKSPACE_CACHE.put(cacheKey, JSON.stringify(stored), {
-      expirationTtl: KV_TTL_SECONDS,
-    });
-  }
-
-  return entry;
 }
 
 /** The tenant DB of a workspace, by its id or its Clerk org id. */
@@ -264,10 +284,13 @@ export async function getTenantDbForWorkspace(
  * and read-only state, by its id or its Clerk org id. The request middleware
  * uses this to reject suspended workspaces (a 403) instead of serving them a
  * working DB handle, and hands the licence and read-only flag to `licenceGate()`.
+ * With `timing`, the lookup and every query on the returned handle are recorded
+ * for the request's `Server-Timing` (./timing.ts).
  */
 export async function getWorkspaceContextForOrg(
   env: DbEnv,
   ref: string,
+  timing?: RequestTiming,
 ): Promise<{
   id: string;
   clerkOrgId: string | null;
@@ -277,11 +300,11 @@ export async function getWorkspaceContextForOrg(
   readOnly: boolean;
   readOnlyReason: ReadOnlyReason | null;
 }> {
-  const workspace = await getCachedWorkspaceUrl(env, ref);
+  const workspace = await getCachedWorkspaceUrl(env, ref, timing);
   return {
     id: workspace.id,
     clerkOrgId: workspace.clerkOrgId,
-    db: createNeonTenantDb(workspace.databaseUrl),
+    db: createNeonTenantDb(workspace.databaseUrl, timing),
     suspended: workspace.suspended,
     licensedApps: workspace.licensedApps,
     readOnly: workspace.readOnly,
