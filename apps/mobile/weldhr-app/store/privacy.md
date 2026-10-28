@@ -49,13 +49,15 @@ For every type below: **Linked to the user: Yes. Used for tracking: No.**
 | Contact Info → Name | App Functionality |
 | Contact Info → Email Address | App Functionality |
 | Location → Precise Location | App Functionality |
-| Sensitive Info | App Functionality (sick leave / absence reasons count as health-related HR data; declaring it is the safe answer) |
+| Health & Fitness → Health | App Functionality (sick reports and their optional note are user-provided health data; Apple's Sensitive Info is for ethnicity, religion, biometrics and the like) |
 | Financial Info → Other Financial Info | App Functionality (expense amounts, payslips) |
 | User Content → Photos or Videos | App Functionality (receipt photos) |
 | User Content → Other User Content | App Functionality (leave notes, shift requests) |
 | Identifiers → User ID | App Functionality |
 | Identifiers → Device ID | App Functionality (push token) |
 | Diagnostics → Performance Data | App Functionality |
+
+Filed and published in App Store Connect on 2026-10-28 exactly as above (all linked to the user, none used for tracking).
 
 If a build ships with a Mixpanel token, add **Usage Data → Product Interaction** for Analytics.
 
