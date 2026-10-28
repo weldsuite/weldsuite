@@ -9,9 +9,9 @@ Background and the reasoning per data type: `privacy.md`.
 **Yes**, HTTPS/TLS only (cleartext traffic is not allowed in release builds).
 
 ## Do you provide a way for users to request that their data is deleted?
-**Yes**, in the app (Profile → Delete account) and at https://weldsuite.org/support.
-Play also asks for a **web URL** for deletion requests: use https://weldsuite.org/support
-(or a dedicated account-deletion page if one exists by then).
+**Yes**, in the app (Profile → Delete account) and via https://help.weldsuite.org/settings/delete-account.
+Play also asks for a **web URL** for deletion requests: https://help.weldsuite.org/settings/delete-account
+(`apps/web/docs/src/app/settings/delete-account/page.md`).
 
 ## Collected data types
 
@@ -27,7 +27,6 @@ All: collected **Yes**, shared **No**, processed ephemerally **No**.
 | Financial info | Other financial info (expense claims, payslips) | Optional | App functionality |
 | Health and fitness | Health info (sick leave reported by the user) | Optional | App functionality |
 | Photos and videos | Photos (receipt photos the user picks or takes) | Optional | App functionality |
-| Files and docs | Files and docs (receipts, payslip PDFs) | Optional | App functionality |
 | App activity | Other user-generated content (leave requests, notes) | Optional | App functionality |
 | App info and performance | Diagnostics | Required | Analytics |
 | Device or other IDs | Device or other IDs (push token) | Optional | App functionality |
@@ -40,7 +39,7 @@ Add **App activity → App interactions** (Analytics) only if a build ships with
 - (Optional) Independent security review: No
 
 ## Not collected
-Approximate location (only precise, see above), contacts, calendar, messages (SMS/email),
+Files and docs (payslips are only downloaded; receipts are declared as photos), approximate location (only precise, see above), contacts, calendar, messages (SMS/email),
 audio, video, web browsing, installed apps, payment info, credit score.
 
 ## Permissions declarations (App content)
