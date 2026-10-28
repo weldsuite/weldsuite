@@ -245,19 +245,27 @@ export interface UpdateDraftData {
  * label add/remove + bulk action on the new app-api. The legacy
  * `/messages/:id/move` endpoint encoded folder transitions as a single
  * verb; on the new surface the same intent is composed.
+ *
+ * `accountId`, when the caller has it, is sent as a `?accountId=` locate
+ * hint (mailbox-store design §5) so object-mode workspaces open the right
+ * mailbox directly instead of fanning the lookup out across every
+ * accessible one. Omit it and the server falls back to the fan-out, exactly
+ * like before this hint existed.
  */
 async function applyMessageMove(
   messageId: string,
   action: 'archive' | 'spam' | 'unspam' | 'inbox' | 'trash' | 'restore',
+  accountId?: string,
 ): Promise<ApiResponse<{ moved: boolean; fromFolder: string; toFolder: string; action: string }>> {
+  const hint = buildQuery({ accountId });
   switch (action) {
     case 'archive': {
       const add = await appApi<{ id: string; labels: string[] }>(
-        `/mail-messages/${messageId}/labels/add`,
+        `/mail-messages/${messageId}/labels/add${hint}`,
         { method: 'POST', body: JSON.stringify({ labels: ['ARCHIVE'] }) },
       );
       if (!add.success) return { success: false, error: add.error, errorCode: add.errorCode };
-      await appApi(`/mail-messages/${messageId}/labels/remove`, {
+      await appApi(`/mail-messages/${messageId}/labels/remove${hint}`, {
         method: 'POST',
         body: JSON.stringify({ labels: ['INBOX'] }),
       });
@@ -268,14 +276,14 @@ async function applyMessageMove(
       // INBOX is a location: adding it takes the mail out of trash, spam
       // and the archive in the same write.
       const add = await appApi<{ id: string; labels: string[] }>(
-        `/mail-messages/${messageId}/labels/add`,
+        `/mail-messages/${messageId}/labels/add${hint}`,
         { method: 'POST', body: JSON.stringify({ labels: ['INBOX'] }) },
       );
       if (!add.success) return { success: false, error: add.error, errorCode: add.errorCode };
       return { success: true, data: { moved: true, fromFolder: 'TRASH', toFolder: 'INBOX', action } };
     }
     case 'trash': {
-      const bulk = await appApi<{ affected: number }>('/mail-messages/bulk', {
+      const bulk = await appApi<{ affected: number }>(`/mail-messages/bulk${hint}`, {
         method: 'POST',
         body: JSON.stringify({ messageIds: [messageId], action: 'trash' }),
       });
@@ -283,7 +291,7 @@ async function applyMessageMove(
       return { success: true, data: { moved: true, fromFolder: 'INBOX', toFolder: 'TRASH', action } };
     }
     case 'spam': {
-      const update = await appApi<{ id: string }>(`/mail-messages/${messageId}`, {
+      const update = await appApi<{ id: string }>(`/mail-messages/${messageId}${hint}`, {
         method: 'PATCH',
         body: JSON.stringify({ isSpam: true }),
       });
@@ -291,7 +299,7 @@ async function applyMessageMove(
       return { success: true, data: { moved: true, fromFolder: 'INBOX', toFolder: 'SPAM', action } };
     }
     case 'unspam': {
-      const update = await appApi<{ id: string }>(`/mail-messages/${messageId}`, {
+      const update = await appApi<{ id: string }>(`/mail-messages/${messageId}${hint}`, {
         method: 'PATCH',
         body: JSON.stringify({ isSpam: false }),
       });
@@ -341,33 +349,38 @@ export const mailApi = {
       return appApi<Mail.Email[]>(`/mail-messages${q}`);
     },
 
-    get: (_accountId: string, messageId: string) =>
-      appApi<Mail.Email>(`/mail-messages/${messageId}`),
+    // `accountId` is sent as a `?accountId=` locate hint (mailbox-store
+    // design §5): when it's in the caller's accessible set the server opens
+    // that mailbox directly instead of fanning the lookup out across every
+    // one it can read. An empty/unknown value is dropped by `buildQuery`, so
+    // this is a no-op for call sites that don't have it yet.
+    get: (accountId: string, messageId: string) =>
+      appApi<Mail.Email>(`/mail-messages/${messageId}${buildQuery({ accountId })}`),
 
-    update: (_accountId: string, messageId: string, data: UpdateMessageData) =>
+    update: (accountId: string, messageId: string, data: UpdateMessageData) =>
       mutate(
-        appApi<Mail.Email>(`/mail-messages/${messageId}`, {
+        appApi<Mail.Email>(`/mail-messages/${messageId}${buildQuery({ accountId })}`, {
           method: 'PATCH',
           body: JSON.stringify(data),
         }),
       ),
 
-    delete: (_accountId: string, messageId: string) =>
+    delete: (accountId: string, messageId: string) =>
       mutate(
-        appApi<{ deleted: boolean }>(`/mail-messages/${messageId}`, { method: 'DELETE' }),
+        appApi<{ deleted: boolean }>(`/mail-messages/${messageId}${buildQuery({ accountId })}`, { method: 'DELETE' }),
       ),
 
-    addLabel: (_accountId: string, messageId: string, labelName: string) =>
+    addLabel: (accountId: string, messageId: string, labelName: string) =>
       mutate(
-        appApi<Mail.Email>(`/mail-messages/${messageId}/labels/add`, {
+        appApi<Mail.Email>(`/mail-messages/${messageId}/labels/add${buildQuery({ accountId })}`, {
           method: 'POST',
           body: JSON.stringify({ labels: [labelName] }),
         }),
       ),
 
-    removeLabel: (_accountId: string, messageId: string, labelName: string) =>
+    removeLabel: (accountId: string, messageId: string, labelName: string) =>
       mutate(
-        appApi<Mail.Email>(`/mail-messages/${messageId}/labels/remove`, {
+        appApi<Mail.Email>(`/mail-messages/${messageId}/labels/remove${buildQuery({ accountId })}`, {
           method: 'POST',
           body: JSON.stringify({ labels: [labelName] }),
         }),
@@ -453,19 +466,19 @@ export const mailApi = {
       ),
 
     move: (
-      _accountId: string,
+      accountId: string,
       messageId: string,
       action: 'archive' | 'spam' | 'unspam' | 'inbox' | 'trash' | 'restore',
-    ) => mutate(applyMessageMove(messageId, action)),
+    ) => mutate(applyMessageMove(messageId, action, accountId)),
 
-    archive: (_accountId: string, messageId: string) =>
-      mutate(applyMessageMove(messageId, 'archive')).then(toMoved),
-    spam: (_accountId: string, messageId: string, isSpam = true) =>
-      mutate(applyMessageMove(messageId, isSpam ? 'spam' : 'unspam')).then(toMoved),
-    trash: (_accountId: string, messageId: string) =>
-      mutate(applyMessageMove(messageId, 'trash')).then(toMoved),
-    restore: (_accountId: string, messageId: string) =>
-      mutate(applyMessageMove(messageId, 'restore')).then(toMoved),
+    archive: (accountId: string, messageId: string) =>
+      mutate(applyMessageMove(messageId, 'archive', accountId)).then(toMoved),
+    spam: (accountId: string, messageId: string, isSpam = true) =>
+      mutate(applyMessageMove(messageId, isSpam ? 'spam' : 'unspam', accountId)).then(toMoved),
+    trash: (accountId: string, messageId: string) =>
+      mutate(applyMessageMove(messageId, 'trash', accountId)).then(toMoved),
+    restore: (accountId: string, messageId: string) =>
+      mutate(applyMessageMove(messageId, 'restore', accountId)).then(toMoved),
   },
 
   attachments: {

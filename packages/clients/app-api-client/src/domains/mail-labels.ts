@@ -109,8 +109,8 @@ export function createMailLabelsApi(api: ClientApi) {
 
     threads(
       params: ListMailLabelThreadsQuery,
-    ): Promise<DataResponse<{ threads: MailThreadSummary[]; totalCount: number }>> {
-      return api.get<DataResponse<{ threads: MailThreadSummary[]; totalCount: number }>>(
+    ): Promise<DataResponse<{ threads: MailThreadSummary[]; totalCount: number; nextCursor: string | null }>> {
+      return api.get<DataResponse<{ threads: MailThreadSummary[]; totalCount: number; nextCursor: string | null }>>(
         `/mail-labels/threads${buildQueryString(params as Record<string, unknown>)}`,
       );
     },

@@ -185,10 +185,12 @@ export function useMailMessages(
 }
 
 /**
- * Cross-account list — backs the CRM company-panel Emails tab. We pass
- * the counterparty email through as a search term since the app-api
- * list endpoint already greps subject + preview; a tighter
- * `from/to/cc/bcc` filter is a follow-up if needed.
+ * Cross-account list — backs the CRM company-panel Emails tab. Filters by
+ * `counterparty`, an exact address match served by the mailbox store's
+ * address index in object mode (mailbox-store design §5), instead of the
+ * `search` free-text term — same result set (the sender/recipient is still
+ * matched exactly), but it no longer fans the query out across every
+ * accessible mailbox when the store can narrow it up front.
  */
 export function useMailMessagesByCounterparty(
   counterpartyEmail: string | null | undefined,
@@ -197,7 +199,7 @@ export function useMailMessagesByCounterparty(
   const { mailMessages } = useAppApi();
   return useQuery({
     queryKey: mailKeys.messages({ counterpartyEmail }),
-    queryFn: () => mailMessages.list({ search: counterpartyEmail ?? undefined, limit: 100 }),
+    queryFn: () => mailMessages.list({ counterparty: counterpartyEmail ?? undefined, limit: 100 }),
     enabled: !!counterpartyEmail && enabled,
     meta: { persist: false },
   });
@@ -724,8 +726,21 @@ export function useMailLabelThreads(
 }
 
 /**
- * Infinite-scroll thread list for a label. The API is still page-number based;
- * pages are appended as the list sentinel intersects the viewport.
+ * Infinite-scroll page cursor. The very first page is always fetched by
+ * legacy `page` number — `1` — so it matches exactly what
+ * `label-route-prefetch.ts` prefetches (same query key, same first request),
+ * letting TanStack Query reuse that in-flight/cached page instead of
+ * double-fetching. Every later page follows the store's `nextCursor`
+ * (mailbox-store design §5) once the server starts returning one, so deep
+ * scrolling never asks for a large `page`/offset; when a response has no
+ * `nextCursor` at all (older server shape) paging falls back to counting
+ * pages, as before.
+ */
+type ThreadsPageParam = number | { cursor: string };
+
+/**
+ * Infinite-scroll thread list for a label. Pages are appended as the list
+ * sentinel intersects the viewport.
  */
 export function useInfiniteMailLabelThreads(
   params: { accountId?: string; labelSlug: string; pageSize?: number } & MailThreadSearch,
@@ -733,7 +748,8 @@ export function useInfiniteMailLabelThreads(
 ) {
   const { mailLabels } = useAppApi();
   const pageSize = params.pageSize ?? 25;
-  // Omit page from the key so every scroll page shares one infinite cache entry.
+  // Omit page/cursor from the key so every scroll page shares one infinite
+  // cache entry — identical to the key `label-route-prefetch.ts` builds.
   const queryKey = mailKeys.threadsByLabel({
     accountId: params.accountId,
     labelSlug: params.labelSlug,
@@ -748,11 +764,10 @@ export function useInfiniteMailLabelThreads(
 
   return useInfiniteQuery({
     queryKey,
-    queryFn: ({ pageParam }) =>
+    queryFn: ({ pageParam }: { pageParam: ThreadsPageParam }) =>
       mailLabels.threads({
         accountId: params.accountId,
         labelSlug: params.labelSlug,
-        page: pageParam,
         pageSize,
         search: params.search || undefined,
         from: params.from || undefined,
@@ -760,9 +775,20 @@ export function useInfiniteMailLabelThreads(
         subject: params.subject || undefined,
         excludeWords: params.excludeWords || undefined,
         hasAttachment: params.hasAttachment || undefined,
+        // `page` is required by the schema (it has a server-side default),
+        // but the route ignores it whenever `cursor` is present — so a
+        // cursor-mode request keeps sending `page: 1` as a harmless filler.
+        page: typeof pageParam === 'number' ? pageParam : 1,
+        ...(typeof pageParam === 'number' ? {} : { cursor: pageParam.cursor }),
       }),
-    initialPageParam: 1,
+    initialPageParam: 1 as ThreadsPageParam,
     getNextPageParam: (lastPage, allPages) => {
+      const nextCursor = lastPage.data?.nextCursor;
+      if (nextCursor !== undefined) {
+        // Store-backed cursor: `null` means there are no more threads.
+        return nextCursor ? { cursor: nextCursor } : undefined;
+      }
+      // Legacy response shape without `nextCursor` — page by offset count.
       const totalCount = lastPage.data?.totalCount ?? 0;
       const loaded = allPages.reduce((n, page) => n + (page.data?.threads?.length ?? 0), 0);
       return loaded < totalCount ? allPages.length + 1 : undefined;
