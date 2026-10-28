@@ -53,6 +53,7 @@ Fill in `apps/mobile/weldhr-app/.env` (`EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY`, `EXP
 
 ## Before the first build
 
-1. `pnpm --filter weldhr-app exec eas init` for the EAS project id (the placeholder blocks release builds on purpose).
-2. Set `EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY` for the EAS profiles.
-3. Icons come from the platform's WeldHR mark: `pnpm --filter weldhr-app generate-icons`.
+1. `pnpm --filter weldhr-app exec eas init` for the EAS project id (the placeholder blocks release builds on purpose, and the OTA job in `deploy.yml` skips until it is committed).
+2. Icons come from the platform's WeldHR mark: `pnpm --filter weldhr-app generate-icons`.
+
+Firebase, Clerk native apps, App Store Connect, Play Console, the privacy forms and the demo account for review: [store/README.md](store/README.md).

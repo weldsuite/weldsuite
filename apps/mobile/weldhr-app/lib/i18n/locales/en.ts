@@ -48,10 +48,23 @@ export const en = {
     title: 'Create your workspace',
     description:
       'To get started with WeldHR, create your workspace on our website. Once your workspace is ready, come back here to sign in.',
-    goToWebsite: 'Go to weldsuite.com',
+    goToWebsite: 'Go to app.weldsuite.org',
     created: "I've created my workspace",
     checking: 'Checking...',
     signOut: 'Sign out',
+  },
+
+  deleteAccount: {
+    action: 'Delete account',
+    title: 'Delete your account?',
+    message:
+      'This permanently deletes the WeldSuite account {email} and removes you from every workspace. It cannot be undone. Your employer keeps your employee record, payslips and requests, as the law requires; ask HR about those.',
+    confirm: 'Delete account',
+    workspacesDeleted: 'You are the only member of {workspaces}, so that is deleted too.',
+    blockedTitle: 'Hand over your workspaces first',
+    blockedMessage:
+      'You are the only admin of {workspaces}, which still has other members. Make someone else an admin, or remove the members, on app.weldsuite.org. Then you can delete your account.',
+    failed: 'Your account could not be deleted. Try again, or email privacy@weldsuite.com.',
   },
 
   /** Shown when the member has no (active) employee record or no My HR access. */

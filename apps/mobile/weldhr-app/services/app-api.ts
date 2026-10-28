@@ -17,6 +17,7 @@
 
 import { createClientApi } from '@weldsuite/api-client/client';
 import { createApiOriginResolver, parseModuleList } from '@weldsuite/api-modules';
+import { createAccountApi } from '@weldsuite/app-api-client/domains/account';
 import { createWorkspacesApi } from '@weldsuite/app-api-client/domains/workspaces';
 import { createDashboardApi } from '@weldsuite/app-api-client/domains/dashboard';
 import { createMeApi } from '@weldsuite/app-api-client/domains/me';
@@ -55,6 +56,7 @@ const client = createClientApi({
 });
 
 export const appApi = {
+  account: createAccountApi(client),
   workspaces: createWorkspacesApi(client),
   dashboard: createDashboardApi(client),
   me: createMeApi(client),

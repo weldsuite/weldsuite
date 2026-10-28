@@ -20,7 +20,7 @@ describe('services/app-api', () => {
   it('exposes the WeldHR and payroll domains alongside the platform ones', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { appApi, default: fallback } = require('../app-api');
-    expect(Object.keys(appApi).sort()).toEqual(['dashboard', 'me', 'payroll', 'pushTokens', 'weldhr', 'workspaces']);
+    expect(Object.keys(appApi).sort()).toEqual(['account', 'dashboard', 'me', 'payroll', 'pushTokens', 'weldhr', 'workspaces']);
     expect(fallback).toBe(appApi);
   });
 

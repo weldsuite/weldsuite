@@ -49,10 +49,23 @@ export const nl: Translations = {
     title: 'Maak je werkruimte aan',
     description:
       'Maak eerst je werkruimte aan op onze website om WeldHR te gebruiken. Kom daarna hier terug om in te loggen.',
-    goToWebsite: 'Naar weldsuite.com',
+    goToWebsite: 'Naar app.weldsuite.org',
     created: 'Ik heb mijn werkruimte aangemaakt',
     checking: 'Controleren...',
     signOut: 'Uitloggen',
+  },
+
+  deleteAccount: {
+    action: 'Account verwijderen',
+    title: 'Je account verwijderen?',
+    message:
+      'Hiermee verwijder je het WeldSuite-account {email} definitief en verdwijn je uit elke werkruimte. Dit kan niet ongedaan worden gemaakt. Je werkgever bewaart je medewerkersdossier, loonstroken en aanvragen, zoals de wet vereist; vraag HR daarnaar.',
+    confirm: 'Account verwijderen',
+    workspacesDeleted: 'Je bent het enige lid van {workspaces}, dus die wordt ook verwijderd.',
+    blockedTitle: 'Draag eerst je werkruimtes over',
+    blockedMessage:
+      'Je bent de enige beheerder van {workspaces}, waar nog andere leden in zitten. Maak iemand anders beheerder, of verwijder de leden, op app.weldsuite.org. Daarna kun je je account verwijderen.',
+    failed: 'Je account kon niet worden verwijderd. Probeer het opnieuw of mail naar privacy@weldsuite.com.',
   },
 
   notLinked: {

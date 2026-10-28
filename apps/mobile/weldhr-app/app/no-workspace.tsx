@@ -5,15 +5,17 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useOrganizationList } from '@clerk/expo';
-import { Globe, RefreshCw, LogOut } from 'lucide-react-native';
+import { Globe, RefreshCw, LogOut, Trash2 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 import { useClerkAuth } from '@weldsuite/mobile-ui/contexts/ClerkAuthContext';
 
+import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 
-const WELDSUITE_URL = 'https://weldsuite.com';
+// Not weldsuite.com, which serves a placeholder page (App Review rejected WeldFlow for it).
+const WELDSUITE_URL = 'https://app.weldsuite.org';
 
 export default function NoWorkspaceScreen() {
   const { markInteractive } = useObserve();
@@ -27,6 +29,7 @@ export default function NoWorkspaceScreen() {
   });
 
   const [checking, setChecking] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     hideAppSplash();
@@ -95,10 +98,17 @@ export default function NoWorkspaceScreen() {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-        <LogOut size={16} color={colors.muted} />
-        <Text style={[styles.signOutText, { color: colors.muted }]}>{t.noWorkspace.signOut}</Text>
-      </TouchableOpacity>
+      <View style={styles.footer}>
+        <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+          <LogOut size={16} color={colors.muted} />
+          <Text style={[styles.signOutText, { color: colors.muted }]}>{t.noWorkspace.signOut}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.signOutButton} onPress={() => setDeleting(true)} testID="no-workspace-delete-account">
+          <Trash2 size={16} color="#EF4444" />
+          <Text style={[styles.signOutText, { color: '#EF4444' }]}>{t.deleteAccount.action}</Text>
+        </TouchableOpacity>
+      </View>
+      <DeleteAccountDialog visible={deleting} onClose={() => setDeleting(false)} />
     </View>
   );
 }
@@ -113,6 +123,7 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   secondaryButton: { borderRadius: 12, borderWidth: 1, paddingVertical: 14, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', marginTop: 12 },
   secondaryButtonText: { fontSize: 16, fontWeight: '600' },
+  footer: { flexDirection: 'row', justifyContent: 'center', gap: 24 },
   signOutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 16 },
   signOutText: { fontSize: 15 },
 });
