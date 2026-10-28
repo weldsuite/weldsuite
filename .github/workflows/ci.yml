@@ -51,6 +51,36 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+  # The Rust backend (rust/, ADR API-014). The toolchain comes from
+  # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
+  # Not a required check yet: add "Rust" to branch protection once the
+  # workspace holds real code.
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
+      - name: Licences, advisories and sources
+        run: cargo deny check
+
   # app-api plus every module worker and domain is ~17 minutes of tsc.
   # Four-wide on one runner is already at that machine's CPU limit (~5 min).
   # Shards are separate runners, still four-wide each. "Type Check · app-api"

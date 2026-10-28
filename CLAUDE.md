@@ -77,6 +77,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 
 **`apps/hosted-apps/`**, First-party WeldApps (Vite + `@weldsuite/app-sdk`). These are **not** compiled into the platform SPA: CI deploys each `apps/hosted-apps/<code>/` with `weld app deploy` to the test/production registries. See [apps/hosted-apps/README.md](apps/hosted-apps/README.md).
 
+**`rust/`**, the Rust backend (Cargo workspace, ADR API-014): one `weldsuite` binary and image that the TypeScript workers are ported to, module by module, for the Global, EU and self-hosted deployments. Toolchain pinned in `rust/rust-toolchain.toml`; `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:deny` from the root; CI job `Rust`. Plan and rules: [rust/README.md](rust/README.md).
+
 > **Secrets tooling note:** worker secrets are keyed by bare worker name in `scripts/secrets/manifest.ts`; the sync scripts resolve them under **`apps/workers/<name>`**.
 
 ### Packages (`packages/`), grouped by role
