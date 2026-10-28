@@ -90,6 +90,15 @@ export { SendScheduledEmailWorkflow } from '@weldsuite/mail-domain/workflows/sen
 // binds them from here by script_name.
 export { OutboundLedger, OutboundPlatformBudget } from '@weldsuite/mail-domain/outbound/ledger';
 
+// Mailbox store (docs/plans/weldmail-mailbox-store-design.md): one
+// MailboxStoreObject per mailbox and one MailIndex per workspace, both
+// EU-jurisdiction SQLite Durable Objects. Cloudflare requires DO classes to
+// be exported from the worker entry point even though nothing in this file
+// calls them directly — `store/object/*` (this package) and other workers
+// reach them only through `env.MAILBOX_STORE`/`env.MAIL_INDEX`.
+export { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+export { MailIndex } from '@weldsuite/mail-domain/mail-index';
+
 /** Queues this worker consumes, by name prefix (the suffix is the environment). */
 const OUTBOUND_REVIEW_QUEUE = 'mail-outbound-review-';
 const SENDING_EVENTS_QUEUE = 'mail-sending-events-';

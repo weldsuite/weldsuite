@@ -1,0 +1,529 @@
+/**
+ * `MailboxStoreObject`: one SQLite Durable Object per mailbox
+ * (`mbx:<workspaces.id>:<accountId>`, always reached through
+ * `env.MAILBOX_STORE.jurisdiction('eu')` — design decision 1/ADR MAIL-009),
+ * built on this package's already-landed pieces: schema/migrations
+ * (`./schema`, `./migrate`), the write core (`./writes`, `./writes-extra`)
+ * and reads (`./reads`). This file is the thin RPC wrapper the design (§3.5)
+ * and the worktree's task notes describe: every public method takes `ref`
+ * first, binds the object to it on first call (`bindRef`, mirroring
+ * `MailIndex.ensureWorkspace`), and forwards to the plain functions those
+ * other files already export against `this.ctx.storage.sql` (or the full
+ * `this.ctx.storage` for writes, which need `transactionSync`).
+ *
+ * `MailboxStoreRpc` mirrors `MailboxStore` (`../store/types`) by hand — every
+ * read/write method, ref-first, minus the `ref`/`backend` properties the
+ * design says the object doesn't need (it knows its own ref from its name) —
+ * plus the admin surface this task adds: `status`, `destroy`, and `setMode`
+ * (the mode hint `alarm.ts`'s snooze-wake gate reads; the object never
+ * evaluates Flagship itself — see that file's header comment). `implements
+ * MailboxStoreRpc` keeps the CLASS and this interface honest (a typo'd or
+ * missing method fails to compile); it is not type-level linked back to
+ * `MailboxStore` itself, so a future change there still needs a matching
+ * edit here — `mailbox-object.test.ts`'s read round-trip tests (every method
+ * called through the RPC class compared against calling `reads.ts` directly)
+ * are the behavioural backstop for that gap.
+ *
+ * Scheduling (when the alarm next fires) is entirely `./alarm`'s job —
+ * `afterWrite`/`recomputeAlarm` after every write, `runAlarm` for the
+ * `alarm()` handler itself. This file never calls `ctx.storage.setAlarm`/
+ * `deleteAlarm` directly outside of the destroy hand-off in `alarm()`.
+ */
+
+import { DurableObject } from 'cloudflare:workers';
+import type {
+  FolderKey,
+  InboundThreadQuery,
+  LabelCount,
+  MailAttachmentRecord,
+  MailboxOp,
+  MailboxRef,
+  MailboxStats,
+  MailMessageListRow,
+  MailMessageRecord,
+  MailStoreMode,
+  MessageListQuery,
+  MessagePage,
+  OpResult,
+  SnoozedMessage,
+  ThreadListQuery,
+  ThreadPage,
+} from '../store/types';
+import type { MailDraft } from '@weldsuite/db/schema/mail-drafts';
+import type { MailSubscription } from '@weldsuite/db/schema/mail-subscriptions';
+import type { MailEmailAddress } from '@weldsuite/db/schema/mail-messages';
+import { getSchemaVersion, migrateMailbox } from './migrate';
+import * as reads from './reads';
+import { applyMailboxBatch, applyMailboxOp, type WritableStorage } from './writes';
+import { afterWrite, getStoredMode, recomputeAlarm, runAlarm, setStoredMode, type AlarmEnv } from './alarm';
+import { beginDestroy, isDestroying, MailboxDestroyedError, type ContinueDestroyEnv } from './destroy';
+import type { OutboxEnv } from './outbox';
+
+export interface MailboxStoreObjectEnv extends OutboxEnv, ContinueDestroyEnv {}
+
+export interface MailboxStoreStatusCounts {
+  messages: number;
+  threads: number;
+  attachments: number;
+  drafts: number;
+  subscriptions: number;
+  outboxPending: number;
+}
+
+export interface MailboxStoreStatus {
+  schemaVersion: number;
+  workspaceId: string | null;
+  accountId: string | null;
+  clerkOrgId: string | null;
+  mode: MailStoreMode;
+  counts: MailboxStoreStatusCounts;
+  databaseSize: number;
+  sqliteVersion: string;
+  /** design §3.7: set once `databaseSize` has crossed 6 GB; sticky (no auto-reset). */
+  sizeWarning: boolean;
+  /** design §3.7: set once `databaseSize` has crossed 8 GB; sticky (no auto-reset). */
+  sizeCritical: boolean;
+  /**
+   * Placeholder (design §3.7's `searchTrimmed`): this task does not implement
+   * the FTS-row trim job the 8 GB threshold calls for, only the
+   * warn/flag logging — see the file-level comment on `checkSize`.
+   */
+  searchTrimmed: boolean;
+  destroying: boolean;
+  /** Backfill-readiness placeholder: `true` until task C4 lands `meta.backfill` tracking — see `isReady`. */
+  ready: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// The RPC contract: `MailboxStore` (../store/types), ref-first, minus
+// `ref`/`backend`, plus the admin surface. Exported so the worker-side client
+// (`store/object/*`, built in parallel in this worktree) can type
+// `DurableObjectStub<MailboxStoreObject>` against the class directly, or
+// import just this interface where it only needs the method shapes.
+// ---------------------------------------------------------------------------
+
+export interface MailboxStoreRpc {
+  // reads
+  listThreads(ref: MailboxRef, q: ThreadListQuery): Promise<ThreadPage>;
+  getThread(ref: MailboxRef, threadKey: string): Promise<{ threadId: string; accountId: string; messages: MailMessageRecord[] } | null>;
+  getThreadOfMessage(ref: MailboxRef, messageId: string): Promise<{ threadId: string; messages: MailMessageRecord[] } | null>;
+  getMessage(
+    ref: MailboxRef,
+    id: string,
+    o?: { bodies?: boolean; attachments?: boolean },
+  ): Promise<(MailMessageRecord & { attachments?: MailAttachmentRecord[] }) | null>;
+  getMessages(ref: MailboxRef, ids: string[]): Promise<MailMessageListRow[]>;
+  listMessages(ref: MailboxRef, q: MessageListQuery): Promise<MessagePage>;
+  stats(ref: MailboxRef): Promise<MailboxStats>;
+  unreadCount(ref: MailboxRef, scope: 'inbox' | 'all-live'): Promise<number>;
+  labelCounts(ref: MailboxRef, keys: FolderKey[]): Promise<Record<FolderKey, LabelCount>>;
+  listAttachments(ref: MailboxRef, messageId: string): Promise<MailAttachmentRecord[]>;
+  getAttachment(ref: MailboxRef, id: string): Promise<(MailAttachmentRecord & { accountId: string }) | null>;
+  recentAttachments(
+    ref: MailboxRef,
+    q: { before?: { createdAt: number; id: string }; limit: number },
+  ): Promise<{ data: MailAttachmentRecord[]; totalCount: number }>;
+  recentAddresses(ref: MailboxRef, limit: number): Promise<string[]>;
+  resolveInbound(
+    ref: MailboxRef,
+    q: InboundThreadQuery,
+  ): Promise<{ duplicate: boolean; threadId: string; isExistingHamThread: boolean }>;
+  findByRfcIds(
+    ref: MailboxRef,
+    ids: string[],
+    providerIds: string[],
+  ): Promise<Array<{ id: string; threadId: string | null; source: string | null }>>;
+  findSentByIdempotencyKey(
+    ref: MailboxRef,
+    key: string,
+  ): Promise<{ id: string; rfcMessageId: string; externalMessageId: string | null; subject: string | null } | null>;
+  countSentSince(ref: MailboxRef, since: number): Promise<number>;
+  listScheduled(ref: MailboxRef): Promise<MailMessageRecord[]>;
+  listSnoozed(ref: MailboxRef): Promise<SnoozedMessage[]>;
+  listSubscriptions(ref: MailboxRef, q: { status?: 'active' | 'unsubscribed' }): Promise<MailSubscription[]>;
+  getSubscription(ref: MailboxRef, id: string): Promise<MailSubscription | null>;
+  rawSources(
+    ref: MailboxRef,
+    q: { since: number; limit: number },
+  ): Promise<Array<{ id: string; from: MailEmailAddress; subject: string | null; receivedAt: number }>>;
+  listDrafts(
+    ref: MailboxRef,
+    q: { limit: number; cursor?: string },
+  ): Promise<{ data: MailDraft[]; hasMore: boolean; cursor: string | null; totalCount: number }>;
+  getDraft(ref: MailboxRef, id: string): Promise<MailDraft | null>;
+  exportPage(
+    ref: MailboxRef,
+    q: { cursor?: string; limit: number; sentOnly?: boolean; since?: number; until?: number },
+  ): Promise<{ data: MailMessageRecord[]; cursor: string | null }>;
+
+  // writes
+  apply(ref: MailboxRef, op: MailboxOp, at?: number): Promise<OpResult>;
+  applyBatch(ref: MailboxRef, ops: MailboxOp[], at?: number): Promise<OpResult[]>;
+
+  // admin
+  status(ref: MailboxRef): Promise<MailboxStoreStatus>;
+  destroy(ref: MailboxRef): Promise<{ accepted: true }>;
+  /** Set by the router/backfill (task C3); see `./alarm`'s header comment. */
+  setMode(ref: MailboxRef, mode: MailStoreMode): Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// Size thresholds (design §3.7)
+// ---------------------------------------------------------------------------
+
+const SIZE_WARN_BYTES = 6 * 1024 ** 3;
+const SIZE_CRITICAL_BYTES = 8 * 1024 ** 3;
+const SIZE_WARN_THROTTLE_MS = 24 * 60 * 60_000;
+const FTS_TRIM_WINDOW_MS = 2 * 365 * 24 * 60 * 60_000;
+
+export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> implements MailboxStoreRpc {
+  constructor(ctx: DurableObjectState, env: MailboxStoreObjectEnv) {
+    super(ctx, env);
+    void ctx.blockConcurrencyWhile(async () => migrateMailbox(ctx.storage));
+  }
+
+  // ---- meta helpers ------------------------------------------------------
+
+  private getMeta(key: string): string | null {
+    const row = this.ctx.storage.sql.exec<{ value: string }>('SELECT value FROM meta WHERE key = ?', key).toArray()[0];
+    return row ? row.value : null;
+  }
+
+  private setMeta(key: string, value: string): void {
+    this.ctx.storage.sql.exec(
+      'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+      key,
+      value,
+    );
+  }
+
+  // ---- ref binding ---------------------------------------------------------
+
+  /**
+   * Every public method calls this first. Sets `workspace_id`/`account_id`
+   * (and `clerk_org_id`, when given) on the object's first call — the
+   * object's own copy of what its Durable Object name already encodes — and
+   * rejects a call for a mismatching workspace/account (defence in depth: the
+   * object's name is just a hash input, so a caller bug could in principle
+   * address the wrong instance). Mirrors `MailIndex.ensureWorkspace`.
+   */
+  private bindRef(ref: MailboxRef): void {
+    const boundWorkspace = this.getMeta('workspace_id');
+    const boundAccount = this.getMeta('account_id');
+    if (boundWorkspace === null || boundAccount === null) {
+      this.setMeta('workspace_id', ref.workspaceId);
+      this.setMeta('account_id', ref.accountId);
+      if (ref.clerkOrgId) this.setMeta('clerk_org_id', ref.clerkOrgId);
+      return;
+    }
+    if (boundWorkspace !== ref.workspaceId || boundAccount !== ref.accountId) {
+      throw new Error(
+        `MailboxStoreObject: bound to ${boundWorkspace}:${boundAccount}, called with ${ref.workspaceId}:${ref.accountId}`,
+      );
+    }
+    // clerkOrgId is informational (entity-event dispatch only, see outbox.ts)
+    // — refreshed opportunistically, never part of the identity check above.
+    if (ref.clerkOrgId && ref.clerkOrgId !== this.getMeta('clerk_org_id')) {
+      this.setMeta('clerk_org_id', ref.clerkOrgId);
+    }
+  }
+
+  /** Reconstructs `ref` from bound meta — used by `alarm()`, which (unlike every RPC method) gets no arguments from Cloudflare. */
+  private boundRefOrThrow(): MailboxRef {
+    const workspaceId = this.getMeta('workspace_id');
+    const accountId = this.getMeta('account_id');
+    if (workspaceId === null || accountId === null) {
+      throw new Error('MailboxStoreObject: alarm fired before the object was ever bound to a ref');
+    }
+    return { workspaceId, accountId, clerkOrgId: this.getMeta('clerk_org_id') };
+  }
+
+  // ---- backfill-readiness placeholder (writes.ts's own instruction to C1) --
+
+  /**
+   * `writes.ts`'s `applyMailboxOp`/`applyMailboxBatch` always return
+   * `ready: true` (backfill-state tracking is task C4's job). This re-derives
+   * it from `meta.backfill` when present, so this RPC class is forward
+   * compatible with that task without needing its own changes: a later write
+   * to `meta.backfill = {state: 'done' | ...}` is honoured immediately.
+   */
+  private isReady(): boolean {
+    const raw = this.getMeta('backfill');
+    if (raw === null) return true;
+    try {
+      const parsed = JSON.parse(raw) as { state?: string };
+      return parsed.state === 'done';
+    } catch {
+      return true;
+    }
+  }
+
+  // ---- size thresholds (design §3.7) ---------------------------------------
+
+  /**
+   * Called after every successful write. Implements the warn/flag half of
+   * design §3.7 (what this task's notes ask for): a throttled structured
+   * warning at 6 GB, and a sticky `size_critical` flag — surfaced by
+   * `status()` — at 8 GB. It does NOT implement the FTS-row trim job the
+   * design additionally describes at 8 GB (`fts_trim_before` driving alarm
+   * deletions of old search rows): that's a distinct piece of maintenance
+   * work, not part of "the alarm and its outbox" this task covers, so
+   * `status().searchTrimmed` stays a placeholder (always `false`) until it
+   * lands.
+   */
+  private checkSize(): void {
+    const sizeBytes = this.ctx.storage.sql.databaseSize;
+    const now = Date.now();
+    if (sizeBytes >= SIZE_CRITICAL_BYTES) {
+      if (this.getMeta('size_critical') !== '1') {
+        console.error('[mailbox-store] mailbox_store_size:', `level=error sizeBytes=${sizeBytes} ref=${this.getMeta('workspace_id')}:${this.getMeta('account_id')}`);
+        this.setMeta('size_critical', '1');
+        this.setMeta('fts_trim_before', String(now - FTS_TRIM_WINDOW_MS));
+      }
+      return;
+    }
+    if (sizeBytes >= SIZE_WARN_BYTES) {
+      const lastWarnedAt = Number(this.getMeta('size_warned_at') ?? '0');
+      if (now - lastWarnedAt > SIZE_WARN_THROTTLE_MS) {
+        console.warn('[mailbox-store] mailbox_store_size:', `level=warn sizeBytes=${sizeBytes} ref=${this.getMeta('workspace_id')}:${this.getMeta('account_id')}`);
+        this.setMeta('size_warned_at', String(now));
+      }
+    }
+  }
+
+  // ---- reads ---------------------------------------------------------------
+
+  async listThreads(ref: MailboxRef, q: ThreadListQuery): Promise<ThreadPage> {
+    this.bindRef(ref);
+    return reads.listThreads(this.ctx.storage.sql, ref, q);
+  }
+
+  async getThread(ref: MailboxRef, threadKey: string): Promise<{ threadId: string; accountId: string; messages: MailMessageRecord[] } | null> {
+    this.bindRef(ref);
+    return reads.getThread(this.ctx.storage.sql, ref, threadKey);
+  }
+
+  async getThreadOfMessage(ref: MailboxRef, messageId: string): Promise<{ threadId: string; messages: MailMessageRecord[] } | null> {
+    this.bindRef(ref);
+    return reads.getThreadOfMessage(this.ctx.storage.sql, ref, messageId);
+  }
+
+  async getMessage(
+    ref: MailboxRef,
+    id: string,
+    o?: { bodies?: boolean; attachments?: boolean },
+  ): Promise<(MailMessageRecord & { attachments?: MailAttachmentRecord[] }) | null> {
+    this.bindRef(ref);
+    return reads.getMessage(this.ctx.storage.sql, ref, id, o);
+  }
+
+  async getMessages(ref: MailboxRef, ids: string[]): Promise<MailMessageListRow[]> {
+    this.bindRef(ref);
+    return reads.getMessages(this.ctx.storage.sql, ref, ids);
+  }
+
+  async listMessages(ref: MailboxRef, q: MessageListQuery): Promise<MessagePage> {
+    this.bindRef(ref);
+    return reads.listMessages(this.ctx.storage.sql, ref, q);
+  }
+
+  async stats(ref: MailboxRef): Promise<MailboxStats> {
+    this.bindRef(ref);
+    return reads.stats(this.ctx.storage.sql);
+  }
+
+  async unreadCount(ref: MailboxRef, scope: 'inbox' | 'all-live'): Promise<number> {
+    this.bindRef(ref);
+    return reads.unreadCount(this.ctx.storage.sql, scope);
+  }
+
+  async labelCounts(ref: MailboxRef, keys: FolderKey[]): Promise<Record<FolderKey, LabelCount>> {
+    this.bindRef(ref);
+    return reads.labelCounts(this.ctx.storage.sql, keys);
+  }
+
+  async listAttachments(ref: MailboxRef, messageId: string): Promise<MailAttachmentRecord[]> {
+    this.bindRef(ref);
+    return reads.listAttachments(this.ctx.storage.sql, messageId);
+  }
+
+  async getAttachment(ref: MailboxRef, id: string): Promise<(MailAttachmentRecord & { accountId: string }) | null> {
+    this.bindRef(ref);
+    return reads.getAttachment(this.ctx.storage.sql, ref, id);
+  }
+
+  async recentAttachments(
+    ref: MailboxRef,
+    q: { before?: { createdAt: number; id: string }; limit: number },
+  ): Promise<{ data: MailAttachmentRecord[]; totalCount: number }> {
+    this.bindRef(ref);
+    return reads.recentAttachments(this.ctx.storage.sql, q);
+  }
+
+  async recentAddresses(ref: MailboxRef, limit: number): Promise<string[]> {
+    this.bindRef(ref);
+    return reads.recentAddresses(this.ctx.storage.sql, limit);
+  }
+
+  async resolveInbound(
+    ref: MailboxRef,
+    q: InboundThreadQuery,
+  ): Promise<{ duplicate: boolean; threadId: string; isExistingHamThread: boolean }> {
+    this.bindRef(ref);
+    return reads.resolveInbound(this.ctx.storage.sql, q);
+  }
+
+  async findByRfcIds(
+    ref: MailboxRef,
+    ids: string[],
+    providerIds: string[],
+  ): Promise<Array<{ id: string; threadId: string | null; source: string | null }>> {
+    this.bindRef(ref);
+    return reads.findByRfcIds(this.ctx.storage.sql, ids, providerIds);
+  }
+
+  async findSentByIdempotencyKey(
+    ref: MailboxRef,
+    key: string,
+  ): Promise<{ id: string; rfcMessageId: string; externalMessageId: string | null; subject: string | null } | null> {
+    this.bindRef(ref);
+    return reads.findSentByIdempotencyKey(this.ctx.storage.sql, key);
+  }
+
+  async countSentSince(ref: MailboxRef, since: number): Promise<number> {
+    this.bindRef(ref);
+    return reads.countSentSince(this.ctx.storage.sql, since);
+  }
+
+  async listScheduled(ref: MailboxRef): Promise<MailMessageRecord[]> {
+    this.bindRef(ref);
+    return reads.listScheduled(this.ctx.storage.sql, ref);
+  }
+
+  async listSnoozed(ref: MailboxRef): Promise<SnoozedMessage[]> {
+    this.bindRef(ref);
+    return reads.listSnoozed(this.ctx.storage.sql, ref);
+  }
+
+  async listSubscriptions(ref: MailboxRef, q: { status?: 'active' | 'unsubscribed' }): Promise<MailSubscription[]> {
+    this.bindRef(ref);
+    return reads.listSubscriptions(this.ctx.storage.sql, ref, q);
+  }
+
+  async getSubscription(ref: MailboxRef, id: string): Promise<MailSubscription | null> {
+    this.bindRef(ref);
+    return reads.getSubscription(this.ctx.storage.sql, ref, id);
+  }
+
+  async rawSources(
+    ref: MailboxRef,
+    q: { since: number; limit: number },
+  ): Promise<Array<{ id: string; from: MailEmailAddress; subject: string | null; receivedAt: number }>> {
+    this.bindRef(ref);
+    return reads.rawSources(this.ctx.storage.sql, q);
+  }
+
+  async listDrafts(
+    ref: MailboxRef,
+    q: { limit: number; cursor?: string },
+  ): Promise<{ data: MailDraft[]; hasMore: boolean; cursor: string | null; totalCount: number }> {
+    this.bindRef(ref);
+    return reads.listDrafts(this.ctx.storage.sql, ref, q);
+  }
+
+  async getDraft(ref: MailboxRef, id: string): Promise<MailDraft | null> {
+    this.bindRef(ref);
+    return reads.getDraft(this.ctx.storage.sql, ref, id);
+  }
+
+  async exportPage(
+    ref: MailboxRef,
+    q: { cursor?: string; limit: number; sentOnly?: boolean; since?: number; until?: number },
+  ): Promise<{ data: MailMessageRecord[]; cursor: string | null }> {
+    this.bindRef(ref);
+    return reads.exportPage(this.ctx.storage.sql, ref, q);
+  }
+
+  // ---- writes ----------------------------------------------------------------
+
+  async apply(ref: MailboxRef, op: MailboxOp, at?: number): Promise<OpResult> {
+    this.bindRef(ref);
+    if (isDestroying(this.ctx.storage.sql)) throw new MailboxDestroyedError(ref);
+    const storage: WritableStorage = this.ctx.storage;
+    const result = applyMailboxOp(storage, ref, op, at ?? Date.now());
+    result.ready = this.isReady();
+    await afterWrite(this.ctx, op, result);
+    this.checkSize();
+    return result;
+  }
+
+  async applyBatch(ref: MailboxRef, ops: MailboxOp[], at?: number): Promise<OpResult[]> {
+    this.bindRef(ref);
+    if (isDestroying(this.ctx.storage.sql)) throw new MailboxDestroyedError(ref);
+    const storage: WritableStorage = this.ctx.storage;
+    const effectiveAt = at ?? Date.now();
+    const results = applyMailboxBatch(storage, ref, ops, effectiveAt);
+    const ready = this.isReady();
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]!;
+      result.ready = ready;
+      // eslint-disable-next-line no-await-in-loop -- each afterWrite call only ever tightens the same alarm; sequential keeps the "only move earlier" bookkeeping simple to reason about
+      await afterWrite(this.ctx, ops[i]!, result);
+    }
+    this.checkSize();
+    return results;
+  }
+
+  // ---- admin -------------------------------------------------------------
+
+  async status(ref: MailboxRef): Promise<MailboxStoreStatus> {
+    this.bindRef(ref);
+    const sql = this.ctx.storage.sql;
+    const count = (table: string, where = ''): number =>
+      sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM ${table}${where}`).toArray()[0]?.n ?? 0;
+    const sqliteVersion = sql.exec<{ v: string }>('SELECT sqlite_version() AS v').toArray()[0]?.v ?? 'unknown';
+    return {
+      schemaVersion: getSchemaVersion(this.ctx.storage),
+      workspaceId: this.getMeta('workspace_id'),
+      accountId: this.getMeta('account_id'),
+      clerkOrgId: this.getMeta('clerk_org_id'),
+      mode: getStoredMode(sql),
+      counts: {
+        messages: count('messages', ' WHERE deleted_at IS NULL'),
+        threads: count('threads'),
+        attachments: count('attachments', ' WHERE deleted_at IS NULL'),
+        drafts: count('drafts', ' WHERE deleted_at IS NULL'),
+        subscriptions: count('subscriptions'),
+        outboxPending: count('outbox'),
+      },
+      databaseSize: sql.databaseSize,
+      sqliteVersion,
+      sizeWarning: this.getMeta('size_warned_at') !== null,
+      sizeCritical: this.getMeta('size_critical') === '1',
+      searchTrimmed: false,
+      destroying: isDestroying(sql),
+      ready: this.isReady(),
+    };
+  }
+
+  async destroy(ref: MailboxRef): Promise<{ accepted: true }> {
+    this.bindRef(ref);
+    beginDestroy(this.ctx.storage, Date.now());
+    await recomputeAlarm(this.ctx);
+    return { accepted: true };
+  }
+
+  async setMode(ref: MailboxRef, mode: MailStoreMode): Promise<void> {
+    this.bindRef(ref);
+    setStoredMode(this.ctx.storage.sql, mode);
+    await recomputeAlarm(this.ctx);
+  }
+
+  // ---- alarm ---------------------------------------------------------------
+
+  async alarm(): Promise<void> {
+    const ref = this.boundRefOrThrow();
+    const env: AlarmEnv = this.env;
+    await runAlarm(this.ctx, env, ref);
+  }
+}

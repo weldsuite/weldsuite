@@ -38,6 +38,16 @@
 # Email Sending quota to arm the platform budget.
 #
 # CF_ACCOUNT_ID and R2_PUBLIC_URL are [vars] (values copied from app-api).
+#
+# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task C1): this
+# worker hosts MailboxStoreObject (one per mailbox) and MailIndex (one per
+# workspace), both reached through `.jurisdiction('eu')` (ADR MAIL-009), and
+# the MAIL_STORAGE R2 bucket their bodies/raw MIME live in — also
+# EU-jurisdiction, a NEW bucket (decision 7), not the existing STORAGE bucket.
+# Ops: `wrangler r2 bucket create weldsuite-mail --jurisdiction eu` (production)
+# and `weldsuite-mail-test --jurisdiction eu` (test) before this deploys;
+# local `wrangler dev` simulates R2 locally regardless of the top-level
+# `weldsuite-mail-dev` name.
 
 # Local `wrangler dev` only. Deployed names are set per [env.*]; never reuse one here.
 name = "weldsuite-mail-api-dev"
@@ -145,6 +155,31 @@ class_name = "OutboundPlatformBudget"
 tag = "outbound-v1"
 new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
 
+# ---- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) ----
+# MailboxStoreObject: one per mailbox (mbx:<workspaces.id>:<accountId>).
+# MailIndex: one per workspace (mbxidx:<workspaces.id>). Both are always
+# reached through `.jurisdiction('eu')` (ADR MAIL-009); jurisdiction is a
+# runtime call on the namespace, not a wrangler.toml setting.
+[[durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+
+[[durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+
+[[migrations]]
+tag = "mailbox-v1"
+new_sqlite_classes = ["MailboxStoreObject", "MailIndex"]
+
+# EU-jurisdiction bucket for raw MIME and message bodies (decision 7): a
+# local `wrangler dev` simulates R2 regardless of this name, so it doesn't
+# need to exist in Cloudflare the way the test/production buckets do.
+[[r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-dev"
+jurisdiction = "eu"
+
 # Per-sender backstop while the ledger is unreachable. Same namespace in every
 # mail-sending worker, so they share the counters on purpose.
 [[ratelimits]]
@@ -250,6 +285,24 @@ class_name = "OutboundPlatformBudget"
 [[env.test.migrations]]
 tag = "outbound-v1"
 new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
+
+# ---- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) ----
+[[env.test.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+
+[[env.test.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+
+[[env.test.migrations]]
+tag = "mailbox-v1"
+new_sqlite_classes = ["MailboxStoreObject", "MailIndex"]
+
+[[env.test.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-test"
+jurisdiction = "eu"
 
 # Per-sender backstop while the ledger is unreachable. Same namespace in every
 # mail-sending worker, so they share the counters on purpose.
@@ -358,6 +411,24 @@ class_name = "OutboundPlatformBudget"
 [[env.production.migrations]]
 tag = "outbound-v1"
 new_sqlite_classes = ["OutboundLedger", "OutboundPlatformBudget"]
+
+# ---- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) ----
+[[env.production.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+
+[[env.production.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+
+[[env.production.migrations]]
+tag = "mailbox-v1"
+new_sqlite_classes = ["MailboxStoreObject", "MailIndex"]
+
+[[env.production.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail"
+jurisdiction = "eu"
 
 # Per-sender backstop while the ledger is unreachable. Same namespace in every
 # mail-sending worker, so they share the counters on purpose.

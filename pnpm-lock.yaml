@@ -8962,6 +8962,9 @@ importers:
       '@weldsuite/email':
         specifier: workspace:*
         version: link:../../core/email
+      '@weldsuite/entity-events':
+        specifier: workspace:*
+        version: link:../../core/entity-events
       '@weldsuite/notifications':
         specifier: workspace:*
         version: link:../../core/notifications

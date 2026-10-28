@@ -3,6 +3,8 @@ import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 import type { RateLimitBinding } from '@weldsuite/mail-domain/outbound';
 import type { OutboundLedger, OutboundPlatformBudget } from '@weldsuite/mail-domain/outbound/ledger';
 import type { OutboundReviewMessage } from '@weldsuite/mail-domain/outbound/consumers';
+import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+import type { MailIndex } from '@weldsuite/mail-domain/mail-index';
 
 /**
  * mail-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -87,6 +89,12 @@ export interface Env extends KitEnv {
   CF_EMAIL_DAILY_QUOTA?: string;
   /** Shared secret the admin console sends to /internal/outbound/*. */
   OUTBOUND_ADMIN_SECRET?: string;
+
+  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  /** One SQLite Durable Object per mailbox; always reached through `.jurisdiction('eu')` (ADR MAIL-009). Hosted here. */
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
+  /** One SQLite Durable Object per workspace (correspondents + address index); always `.jurisdiction('eu')`. Hosted here. */
+  MAIL_INDEX?: DurableObjectNamespace<MailIndex>;
 }
 
 export type Variables = KitVariables;
