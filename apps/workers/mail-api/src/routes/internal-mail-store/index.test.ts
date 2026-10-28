@@ -14,6 +14,7 @@ const stub = {
   reverseSync: vi.fn(),
   rebuildMailbox: vi.fn(),
   status: vi.fn(),
+  exportPage: vi.fn(),
 };
 
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
@@ -187,5 +188,44 @@ describe('/internal/mail-store status', () => {
     const res = await request(`/status/all?workspaceId=${WORKSPACE_ID}`);
     const body = (await res.json()) as { data: Array<{ accountId: string; error?: string }> };
     expect(body.data).toEqual([{ accountId, error: 'boom' }]);
+  });
+});
+
+describe('/internal/mail-store export', () => {
+  it('pages the object export RPC with the given cursor/limit/window', async () => {
+    stub.exportPage.mockResolvedValue({ data: [{ id: 'm1' }], cursor: 'm1' });
+    const res = await request(
+      `/export?workspaceId=${WORKSPACE_ID}&accountId=${accountId}&cursor=m0&limit=50&sentOnly=true&since=100&until=200`,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { data: [{ id: 'm1' }], cursor: 'm1' } });
+    expect(stub.exportPage).toHaveBeenCalledWith(
+      { workspaceId: WORKSPACE_ID, accountId, clerkOrgId: 'org_mailstore_admin' },
+      { cursor: 'm0', limit: 50, sentOnly: true, since: 100, until: 200 },
+    );
+  });
+
+  it('defaults the page size and omits unset filters when not supplied', async () => {
+    stub.exportPage.mockResolvedValue({ data: [], cursor: null });
+    await request(`/export?workspaceId=${WORKSPACE_ID}&accountId=${accountId}`);
+    expect(stub.exportPage).toHaveBeenCalledWith(expect.anything(), {
+      cursor: undefined,
+      limit: 200,
+      sentOnly: undefined,
+      since: undefined,
+      until: undefined,
+    });
+  });
+
+  it('404s an unknown mail account without calling the object', async () => {
+    const res = await request(`/export?workspaceId=${WORKSPACE_ID}&accountId=acc_nope`);
+    expect(res.status).toBe(404);
+    expect(stub.exportPage).not.toHaveBeenCalled();
+  });
+
+  it('rejects a limit above the cap', async () => {
+    const res = await request(`/export?workspaceId=${WORKSPACE_ID}&accountId=${accountId}&limit=5000`);
+    expect(res.status).toBe(400);
+    expect(stub.exportPage).not.toHaveBeenCalled();
   });
 });

@@ -12,6 +12,15 @@
  *   POST /internal/mail-store/rebuild      { workspaceId, accountId }
  *   GET  /internal/mail-store/status       ?workspaceId=&accountId=
  *   GET  /internal/mail-store/status/all   ?workspaceId=
+ *   GET  /internal/mail-store/export       ?workspaceId=&accountId=&cursor=&limit=&sentOnly=&since=&until=
+ *
+ * `export` (task E2, docs/plans/weldmail-mailbox-store-design.md §9) is the
+ * one read-only addition this task makes: it pages the object's own
+ * `exportPage` RPC directly (every row, ordered by `id`, no bodies — the
+ * object has none to give), the only way `apps/tools/outbound-audit` (which
+ * runs locally against Neon, not inside a Worker) can read mail held in a
+ * mailbox object for a workspace in `object`/`object-only` mode. Same
+ * resolution and auth as every other route here.
  *
  * `workspaceId` is `workspaces.id`; `accountId` is `mail_accounts.id`. Both
  * are validated against the master DB (workspace exists) and the tenant DB
@@ -121,6 +130,18 @@ const reverseSyncBody = workspaceAccountBody.extend({
   since: z.number().int().nonnegative(),
   cursor: z.object({ updatedAt: z.number().int().nonnegative(), id: z.string().min(1).max(255) }).nullish(),
   maxRows: z.number().int().positive().max(MAX_ROWS_CAP).optional(),
+});
+
+/** `EXPORT_PAGE_MAX_LIMIT` mirrors `./parity.ts`'s own `exportPage` page size (its comparison rounds use the same constant); the default is a smaller, friendlier page for a caller that doesn't pass `limit`. */
+const EXPORT_PAGE_DEFAULT_LIMIT = 200;
+const EXPORT_PAGE_MAX_LIMIT = 500;
+
+const exportQuery = workspaceAccountQuery.extend({
+  cursor: z.string().min(1).max(255).optional(),
+  limit: z.coerce.number().int().positive().max(EXPORT_PAGE_MAX_LIMIT).optional(),
+  sentOnly: z.coerce.boolean().optional(),
+  since: z.coerce.number().int().nonnegative().optional(),
+  until: z.coerce.number().int().nonnegative().optional(),
 });
 
 /** A mailbox too large to finish in one HTTP request needs more than this many rounds — the response reports `done: false` and the last `cursor` for the console to resume with. */
@@ -253,6 +274,25 @@ app.post('/rebuild', zValidator('json', workspaceAccountBody), async (c) => {
   const state = await stubFor(c.env, resolved.ref).rebuildMailbox(resolved.ref);
   console.log(JSON.stringify({ event: 'mailbox_rebuilt', workspaceId: resolved.ref.workspaceId, accountId: resolved.ref.accountId, by: c.get('adminEmail') }));
   return success(c, state);
+});
+
+// ---------------------------------------------------------------------------
+// Export (task E2: the outbound-audit tool's read path for object-held mail)
+// ---------------------------------------------------------------------------
+
+app.get('/export', zValidator('query', exportQuery), async (c) => {
+  if (!c.env.MAILBOX_STORE) return notConfigured(c);
+  const query = c.req.valid('query');
+  const resolved = await resolveRef(c.env, query.workspaceId, query.accountId);
+  if (!resolved.ok) return error.notFound(c, resolved.resource, resolved.id);
+  const page = await stubFor(c.env, resolved.ref).exportPage(resolved.ref, {
+    cursor: query.cursor,
+    limit: query.limit ?? EXPORT_PAGE_DEFAULT_LIMIT,
+    sentOnly: query.sentOnly,
+    since: query.since,
+    until: query.until,
+  });
+  return success(c, page);
 });
 
 // ---------------------------------------------------------------------------

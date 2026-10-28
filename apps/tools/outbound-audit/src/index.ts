@@ -13,13 +13,21 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import postgres from 'postgres';
 import { isSharedWeldMailDomain } from '@weldsuite/app-api-client/schemas/outbound-mail';
-import { ArgsError, USAGE, markdownTarget, parseArgs, type CliOptions } from './args';
+import { ArgsError, USAGE, markdownTarget, parseArgs, type CliOptions, type MailSource } from './args';
 import { assembleWorkspace, rankWorkspaces } from './assemble';
 import { summarizeSequences, summarizeWorkflowSends } from './automation';
 import { CLOUDFLARE_MAX_DAYS, CloudflareAnalytics, summarizeCloudflare, type SendingDomain } from './cloudflare';
 import { estimateTrustLevel } from './limits';
 import { MailAccumulator } from './mail-aggregate';
 import { listWorkspaces, tenantDatabaseUrl, trustFactsOf, type WorkspaceRow } from './master';
+import {
+  collectExportedSentRecipients,
+  fetchMailboxModes,
+  forEachExportedSentMessage,
+  isObjectBackedMode,
+  mailStoreAdminConfigFromEnv,
+  type MailStoreAdminConfig,
+} from './mail-store-client';
 import { domainOf } from './recipients';
 import { redactReport } from './redact';
 import { PRIVACY_NOTICE, renderJson, renderMarkdown } from './report';
@@ -43,6 +51,7 @@ import type {
   CorrespondentContext,
   MailboxInfo,
   MailSummary,
+  SentMessageRow,
   SequenceStepRow,
   SequenceSummary,
   WorkflowSummary,
@@ -71,6 +80,99 @@ function sanitize(message: string): string {
 
 function errorMessage(err: unknown): string {
   return sanitize(err instanceof Error ? err.message : String(err)).slice(0, 300);
+}
+
+// ---------------------------------------------------------------------------
+// Mail source (design doc docs/plans/weldmail-mailbox-store-design.md §9 task
+// E2): which mailboxes this run reads from Postgres `mail_messages` versus
+// the mail-store admin export client. `--mail-source postgres` (the default)
+// never builds a plan at all — zero behaviour change, zero new network calls.
+// ---------------------------------------------------------------------------
+
+interface MailSourceOptions {
+  mode: MailSource;
+  /** Non-null exactly when `mode !== 'postgres'` (validated once in `mailSourceFromEnv`). */
+  admin: MailStoreAdminConfig | null;
+}
+
+/** Validates the admin env vars once, upfront, the same way `cloudflareFromEnv` validates `CLOUDFLARE_API_TOKEN`. */
+function mailSourceFromEnv(options: CliOptions): MailSourceOptions {
+  if (options.mailSource === 'postgres') return { mode: 'postgres', admin: null };
+  const admin = mailStoreAdminConfigFromEnv(process.env);
+  if (!admin) {
+    throw new ConfigError(
+      `--mail-source ${options.mailSource} needs MAIL_STORE_ADMIN_URL, OUTBOUND_ADMIN_SECRET and MAIL_STORE_ADMIN_EMAIL (see README.md).`,
+    );
+  }
+  return { mode: options.mailSource, admin };
+}
+
+interface MailSourcePlan {
+  workspaceId: string;
+  admin: MailStoreAdminConfig | null;
+  /** Mailboxes to skip in the Postgres `mail_messages` query (read through `admin` instead). */
+  excludeAccountIds: string[];
+  /** Mailboxes read through `admin`'s export client. */
+  objectAccountIds: string[];
+  notes: string[];
+}
+
+function emptyMailPlan(workspaceId: string, admin: MailStoreAdminConfig | null): MailSourcePlan {
+  return { workspaceId, admin, excludeAccountIds: [], objectAccountIds: [], notes: [] };
+}
+
+/**
+ * Decides, per mailbox, whether this workspace's Postgres `mail_messages` is
+ * read as-is (today's behaviour) or skipped in favour of the mail-store
+ * export client. `'export'` forces every mailbox through the export client;
+ * `'auto'` asks the admin status endpoint and only moves mailboxes whose
+ * stored mode is `object`/`object-only` (§2.2's router table: those are the
+ * modes where Postgres can lag or go unwritten). A failed mode lookup falls
+ * back to pure Postgres for the whole workspace rather than failing the run.
+ */
+async function planMailSources(mailSource: MailSourceOptions, workspaceId: string, accountIds: string[]): Promise<MailSourcePlan> {
+  if (mailSource.mode === 'postgres' || accountIds.length === 0) return emptyMailPlan(workspaceId, mailSource.admin);
+
+  if (mailSource.mode === 'export') {
+    return { workspaceId, admin: mailSource.admin, excludeAccountIds: [...accountIds], objectAccountIds: [...accountIds], notes: [] };
+  }
+
+  try {
+    const modes = await fetchMailboxModes(mailSource.admin!, workspaceId);
+    const objectAccountIds = modes.filter((m) => isObjectBackedMode(m.mode)).map((m) => m.accountId);
+    const failedCount = modes.filter((m) => m.error).length;
+    const notes: string[] = [];
+    if (objectAccountIds.length > 0) {
+      notes.push(
+        `${objectAccountIds.length} mailbox(es) read through the mail-store export API (object mode): no body content, so template fingerprinting and the content screen see nothing for their sends.`,
+      );
+    }
+    if (failedCount > 0) {
+      notes.push(`${failedCount} mailbox(es)' mail-store mode could not be read; their Postgres mail_messages was used as-is.`);
+    }
+    return { workspaceId, admin: mailSource.admin, excludeAccountIds: objectAccountIds, objectAccountIds, notes };
+  } catch (err) {
+    return {
+      ...emptyMailPlan(workspaceId, mailSource.admin),
+      notes: [`mail-store mode lookup failed (${errorMessage(err)}); every mailbox was read from Postgres mail_messages.`],
+    };
+  }
+}
+
+async function collectFromObjectAccounts(plan: MailSourcePlan, window: Window, into: Set<string>): Promise<void> {
+  if (!plan.admin) return;
+  for (const accountId of plan.objectAccountIds) {
+    // eslint-disable-next-line no-await-in-loop -- one mailbox's export pages at a time; a workspace has at most a handful of accounts
+    await collectExportedSentRecipients(plan.admin, { workspaceId: plan.workspaceId, accountId }, window, into);
+  }
+}
+
+async function streamFromObjectAccounts(plan: MailSourcePlan, window: Window, onRow: (row: SentMessageRow) => void): Promise<void> {
+  if (!plan.admin) return;
+  for (const accountId of plan.objectAccountIds) {
+    // eslint-disable-next-line no-await-in-loop -- one mailbox's export pages at a time; a workspace has at most a handful of accounts
+    await forEachExportedSentMessage(plan.admin, { workspaceId: plan.workspaceId, accountId }, window, onRow);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -111,15 +213,27 @@ interface TenantContext {
   ctx: CorrespondentContext;
   mailboxes: Map<string, MailboxInfo>;
   mailDomains: MailDomainRow[];
+  mailPlan: MailSourcePlan;
 }
 
 /** Mailboxes, own domains and, for every recipient of the window, when they first wrote in. */
-async function loadContext(tx: Tx, window: Window, flags: TableFlags, sequenceSteps: SequenceStepRow[]): Promise<TenantContext> {
+async function loadContext(
+  tx: Tx,
+  window: Window,
+  flags: TableFlags,
+  sequenceSteps: SequenceStepRow[],
+  workspaceId: string,
+  mailSource: MailSourceOptions,
+): Promise<TenantContext> {
   const mailboxes = flags.hasMail ? await loadMailboxes(tx) : new Map<string, MailboxInfo>();
   const mailDomains = flags.hasDomains ? await loadMailDomains(tx) : [];
+  const mailPlan = flags.hasMail ? await planMailSources(mailSource, workspaceId, [...mailboxes.keys()]) : emptyMailPlan(workspaceId, mailSource.admin);
 
   const recipients = new Set<string>();
-  if (flags.hasMail) await collectSentRecipients(tx, window, recipients);
+  if (flags.hasMail) {
+    await collectSentRecipients(tx, window, recipients, mailPlan.excludeAccountIds);
+    await collectFromObjectAccounts(mailPlan, window, recipients);
+  }
   for (const step of sequenceSteps) if (step.recipient) recipients.add(step.recipient);
   const canLookUp = flags.hasMail && recipients.size > 0;
   const firstInbound = canLookUp ? await loadFirstInbound(tx, [...recipients], flags.useCorrespondents) : new Map<string, Date>();
@@ -132,12 +246,14 @@ async function loadContext(tx: Tx, window: Window, flags: TableFlags, sequenceSt
     },
     mailboxes,
     mailDomains,
+    mailPlan,
   };
 }
 
 async function summarizeMail(tx: Tx, window: Window, context: TenantContext, listSize: number): Promise<MailSummary> {
   const acc = new MailAccumulator(context.ctx, context.mailboxes, { topTemplates: listSize, topDomains: listSize });
-  await streamSentMessages(tx, window, (row) => acc.add(row));
+  await streamSentMessages(tx, window, (row) => acc.add(row), context.mailPlan.excludeAccountIds);
+  await streamFromObjectAccounts(context.mailPlan, window, (row) => acc.add(row));
   return acc.finish();
 }
 
@@ -160,24 +276,36 @@ interface TenantData {
   notes: string[];
 }
 
-async function readTenant(tx: Tx, window: Window, listSize: number): Promise<TenantData> {
+async function readTenant(tx: Tx, window: Window, listSize: number, workspaceId: string, mailSource: MailSourceOptions): Promise<TenantData> {
   await tx`SET LOCAL statement_timeout = '300s'`;
   const flags = tableFlags(await existingTables(tx));
   const sequenceSteps = flags.hasSequences ? await loadSequenceSteps(tx, window) : [];
   const enrollments = flags.hasSequences ? await loadEnrollments(tx, window) : [];
-  const context = await loadContext(tx, window, flags, sequenceSteps);
+  const context = await loadContext(tx, window, flags, sequenceSteps, workspaceId, mailSource);
 
   const mail = flags.hasMail ? await summarizeMail(tx, window, context, listSize) : null;
   const sequences = flags.hasSequences ? summarizeSequences(sequenceSteps, enrollments, context.ctx, listSize) : null;
   const workflows = flags.hasWorkflows ? summarizeWorkflowSends(await loadWorkflowSendGroups(tx, window)) : null;
 
-  return { mail, sequences, workflows, sendingDomains: sendingDomainsOf(context.mailDomains, mail), notes: notesFor(flags) };
+  return {
+    mail,
+    sequences,
+    workflows,
+    sendingDomains: sendingDomainsOf(context.mailDomains, mail),
+    notes: [...notesFor(flags), ...context.mailPlan.notes],
+  };
 }
 
-async function auditTenant(databaseUrl: string, window: Window, listSize: number): Promise<TenantData> {
+async function auditTenant(
+  databaseUrl: string,
+  window: Window,
+  listSize: number,
+  workspaceId: string,
+  mailSource: MailSourceOptions,
+): Promise<TenantData> {
   const sql = postgres(databaseUrl, { max: 1, prepare: false, onnotice: () => {}, connect_timeout: 30, idle_timeout: 5 });
   try {
-    return await sql.begin('read only', (tx) => readTenant(tx, window, listSize));
+    return await sql.begin('read only', (tx) => readTenant(tx, window, listSize, workspaceId, mailSource));
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -192,6 +320,7 @@ interface RunContext {
   now: Date;
   window: Window;
   cloudflare: CloudflareAnalytics | null;
+  mailSource: MailSourceOptions;
 }
 
 function cloudflareFromEnv(options: CliOptions, now: Date): CloudflareAnalytics | null {
@@ -224,7 +353,7 @@ async function cloudflareSummary(cloudflare: CloudflareAnalytics | null, domains
 async function auditWorkspace(row: WorkspaceRow, run: RunContext): Promise<WorkspaceAudit> {
   const databaseUrl = await tenantDatabaseUrl(row, process.env);
   if (!databaseUrl) throw new Error('incomplete Neon metadata');
-  const data = await auditTenant(databaseUrl, run.window, Math.max(run.options.top, JSON_LIST_SIZE));
+  const data = await auditTenant(databaseUrl, run.window, Math.max(run.options.top, JSON_LIST_SIZE), row.id, run.mailSource);
   return assembleWorkspace({
     workspace: row,
     trustLevel: estimateTrustLevel(trustFactsOf(row), run.now),
@@ -278,6 +407,7 @@ async function run(options: CliOptions): Promise<number> {
     now,
     window: { since: new Date(now.getTime() - options.days * DAY_MS), until: now },
     cloudflare: cloudflareFromEnv(options, now),
+    mailSource: mailSourceFromEnv(options),
   };
 
   const rows = await loadWorkspaces(options.workspace);
