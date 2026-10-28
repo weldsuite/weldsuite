@@ -97,10 +97,10 @@
       "inputs": ["$TURBO_DEFAULT$", "../../packages/design/ui/src/**"]
     },
     "//#rust:lint": {
-      "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml"]
+      "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml", "rust/clippy.toml"]
     },
     "//#rust:test": {
-      "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml"]
+      "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml", "rust/clippy.toml"]
     },
     "//#rust:deny": {
       "inputs": ["rust/**/Cargo.toml", "rust/Cargo.lock", "rust/deny.toml"],
