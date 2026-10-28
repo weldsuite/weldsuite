@@ -635,7 +635,7 @@ app.get('/limits', async (c) => {
       creditsMonthlyAllocation = credits.monthlyAllocation;
     }
 
-    meters = await getMeterUsage(masterDb, workspace.id);
+    meters = await getMeterUsage(c.env, workspace.id);
   } catch (err) {
     console.warn('[billing/limits] Could not fetch usage:', err);
   }

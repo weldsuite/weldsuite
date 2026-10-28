@@ -28,14 +28,14 @@ import { evaluateCondition } from './execute-workflow/evaluate-condition';
 import { executeAction, isWaitingForInput, type ActionContext, type ActionEnv } from './execute-workflow/action-handlers';
 import { asText } from '@weldsuite/text';
 import { resolveInternalWorkspaceId } from '@weldsuite/credits';
-import { meterDeniedMessage, meterUsage, releaseMeterUsage, type MeterReservation } from '@weldsuite/credits/meters';
+import { meterDeniedMessage, meterUsage, releaseMeterUsage, type MeterReservation, type UsageMeterEnv } from '@weldsuite/credits/meters';
 
 /**
- * The bindings the workflow reads: tenant/master DB resolution plus what the
- * step runners need (action-handlers' `ActionEnv`). Any worker Env with
- * them fits.
+ * The bindings the workflow reads: tenant/master DB resolution, what the
+ * step runners need (action-handlers' `ActionEnv`) and the usage meter
+ * (`USAGE_METER`, hosted by mail-api). Any worker Env with them fits.
  */
-export interface ExecuteSequenceEnv extends DbEnv, ActionEnv {}
+export interface ExecuteSequenceEnv extends DbEnv, ActionEnv, UsageMeterEnv {}
 
 // ============================================================================
 // Types
@@ -72,18 +72,22 @@ type LimitCheck =
   | { allowed: false; message: string };
 
 /**
- * Count the run against the plan's workflow-run allowance: free inside it,
- * an overage block from the wallet past it, refused when the plan stops there
- * or the wallet is empty. Fails open when metering is unavailable.
+ * Count the run against the plan's workflow-run allowance in the workspace's
+ * UsageMeter: free inside it, an overage block from the wallet past it,
+ * refused when the plan stops there or the wallet is empty. Keyed by the
+ * enrollment, so a replayed step counts once. Fails open when metering is
+ * unavailable.
  */
 async function meterSequenceRun(env: ExecuteSequenceEnv, params: ExecuteSequenceParams): Promise<LimitCheck> {
+  if (!env.USAGE_METER) return { allowed: true, reservation: null };
   try {
     const masterDb = getMasterDb(env);
     const workspaceId = await resolveInternalWorkspaceId(masterDb, params.workspaceId);
     if (!workspaceId) return { allowed: true, reservation: null };
-    const result = await meterUsage(masterDb, {
+    const result = await meterUsage(env, {
       workspaceId,
       meter: 'workflow_runs',
+      idempotencyKey: `seq:${params.enrollmentId}`,
       referenceId: params.enrollmentId,
       referenceType: 'sequence_enrollment',
       userId: params.userId,
@@ -831,7 +835,7 @@ export class ExecuteSequenceWorkflow extends WorkflowEntrypoint<ExecuteSequenceE
     if ('skipped' in loadResult && loadResult.skipped) {
       // Nothing runs, so the run counted in step 1 is handed back.
       const { reservation } = limitResult;
-      if (reservation) await step.do('release-run', () => releaseMeterUsage(getMasterDb(this.env), reservation));
+      if (reservation) await step.do('release-run', () => releaseMeterUsage(this.env, reservation));
       return { skipped: true, reason: loadResult.reason };
     }
 

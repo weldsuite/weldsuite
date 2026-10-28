@@ -2,12 +2,13 @@
  * Usage meters — plan allowances with overage paid from the credit wallet.
  *
  * Every metered thing a workspace does (a workflow run, a signature request
- * sent, …) is counted per UTC month in the master `workspace_meter_usage`
- * table. The plan includes an allowance per meter (`plans.features`); past it,
- * usage is paid in blocks from the same prepaid wallet AI draws from: the first
- * unit of a new block charges the whole block, the rest of the block is free.
- * A plan that does not allow overage (free plans, by default) stops at the
- * allowance instead.
+ * sent, …) is counted per UTC month by the workspace's `UsageMeter` Durable
+ * Object (./meter-object.ts; hosted by mail-api, bound as `USAGE_METER` by
+ * every worker that meters). The plan includes an allowance per meter
+ * (`plans.features`); past it, usage is paid in blocks from the same prepaid
+ * wallet AI draws from: the first unit of a new block charges the whole block,
+ * the rest of the block is free. A plan that does not allow overage (free
+ * plans, by default) stops at the allowance instead.
  *
  * AI is not a meter: its cost varies per call, so it is charged in credits
  * directly (`@weldsuite/core-domain/ai-billing`) and the plan's
@@ -17,26 +18,21 @@
  * units, charges a block when one is crossed, and refuses with a
  * {@link MeterDenied} when the limit or the wallet says no. When the work then
  * does not happen, hand the reservation back with {@link releaseMeterUsage}.
- * Infrastructure errors fail open (the work goes ahead, uncounted), the same
- * posture as AI billing: a metering outage must not stop a customer's work.
+ * Pass an `idempotencyKey` and a retried call returns the first answer
+ * instead of counting again. A missing binding or an unreachable meter fails
+ * open (the work goes ahead, uncounted), the same posture as AI billing.
  *
- * Counting is not idempotent: a caller retrying the same unit counts it
- * twice. Call it from a step whose result is persisted (a Cloudflare Workflow
- * `step.do`) or from a request that is not retried.
+ * This file is the catalog, the plan limits, the decision logic and the
+ * callers' side; it never imports the Durable Object at runtime.
  */
 
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import * as masterSchema from '@weldsuite/db/schema/master';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
-import {
-  INSUFFICIENT_CREDITS,
-  consumeCredits,
-  refundCredits,
-  type CreditServiceType,
-  type CreditsDb,
-} from './index';
+import { INSUFFICIENT_CREDITS, type CreditServiceType, type CreditsDb } from './index';
+import type { UsageMeter } from './meter-object';
 
-const { workspaceMeterUsage, workspaces, plans } = masterSchema;
+const { workspaces, plans } = masterSchema;
 
 // ============================================================================
 // Catalog
@@ -46,7 +42,7 @@ export type MeterKey = 'workflow_runs' | 'sign_requests' | 'emails';
 
 export interface MeterDefinition {
   key: MeterKey;
-  /** What one unit is, for messages ("run", "signature request"). */
+  /** What one unit is, for messages ("workflow run", "signature request"). */
   unit: string;
   unitPlural: string;
   /** Ledger attribution of the overage charges. */
@@ -129,46 +125,67 @@ export function limitsFromPlan(meter: MeterKey, plan: PlanRow | null): MeterLimi
   return { allowance, allowOverage, planName: plan.name };
 }
 
-/** The workspace's plan, else the default plan, else none. */
-async function workspacePlan(db: CreditsDb, workspaceId: string): Promise<PlanRow | null> {
-  const [ws] = await db
-    .select({ planId: workspaces.planId })
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .limit(1);
-  if (ws?.planId) {
-    const [plan] = await db.select().from(plans).where(eq(plans.id, ws.planId)).limit(1);
-    if (plan) return plan;
-  }
-  const [fallback] = await db.select().from(plans).where(eq(plans.isDefault, true)).limit(1);
-  return fallback ?? null;
+/** Every meter's limits for a workspace: its plan, else the default plan, else none. */
+export async function loadMeterLimits(db: CreditsDb, workspaceId: string): Promise<Record<MeterKey, MeterLimits>> {
+  const [ws] = await db.select({ planId: workspaces.planId }).from(workspaces).where(eq(workspaces.id, workspaceId)).limit(1);
+  const [own]: PlanRow[] = ws?.planId ? await db.select().from(plans).where(eq(plans.id, ws.planId)).limit(1) : [];
+  const [fallback]: PlanRow[] = own ? [] : await db.select().from(plans).where(eq(plans.isDefault, true)).limit(1);
+  const plan = own ?? fallback ?? null;
+  return Object.fromEntries(METER_KEYS.map((meter) => [meter, limitsFromPlan(meter, plan)])) as Record<MeterKey, MeterLimits>;
 }
 
 // ============================================================================
-// Metering
+// Decision
 // ============================================================================
+
+/** One meter's month in the Durable Object's storage. */
+export interface MeterCounter {
+  used: number;
+  /** Overage blocks already paid for this month. */
+  blocksCharged: number;
+}
+
+export type MeterDecision =
+  /** Inside the allowance or a block already paid for. */
+  | { kind: 'free'; used: number }
+  /** The units open `blocks` new blocks: charge `credits`, then count. */
+  | { kind: 'charge'; used: number; blocks: number; credits: number; blocksCharged: number }
+  /** The plan stops at its allowance. */
+  | { kind: 'limit_reached' };
+
+/** What counting `quantity` more units does, given this month's counter and the plan. */
+export function decideMeter(meter: MeterKey, counter: MeterCounter, quantity: number, limits: MeterLimits): MeterDecision {
+  const def = METERS[meter];
+  const used = counter.used + quantity;
+  if (limits.allowance === null) return { kind: 'free', used };
+  const needed = Math.ceil(Math.max(0, used - limits.allowance) / def.blockSize);
+  if (needed <= counter.blocksCharged) return { kind: 'free', used };
+  if (!limits.allowOverage) return { kind: 'limit_reached' };
+  const blocks = needed - counter.blocksCharged;
+  return { kind: 'charge', used, blocks, credits: blocks * def.creditsPerBlock, blocksCharged: needed };
+}
 
 /** The UTC month a moment falls in, `YYYY-MM`. */
 export function meterPeriod(now: Date = new Date()): string {
   return now.toISOString().slice(0, 7);
 }
 
-function generateId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(10));
-  return `wmu_${Date.now().toString(36)}${Array.from(bytes, (b) => (b % 36).toString(36)).join('')}`;
-}
+// ============================================================================
+// Results
+// ============================================================================
 
 export interface MeterUsageParams {
-  /** Master `workspaces.id`. */
+  /** Master `workspaces.id` (the Durable Object is named by it). */
   workspaceId: string;
   meter: MeterKey;
   /** Units to count, default 1. */
   quantity?: number;
+  /** Stable key for this unit of work (`run:<executionId>`): a retry returns the first answer. */
+  idempotencyKey?: string;
   /** What the units are for (an execution or envelope id), recorded on any charge. */
   referenceId?: string;
   referenceType?: string;
   userId?: string;
-  now?: Date;
 }
 
 /** What {@link releaseMeterUsage} needs to hand counted units (and their charge) back. */
@@ -177,6 +194,7 @@ export interface MeterReservation {
   meter: MeterKey;
   period: string;
   quantity: number;
+  idempotencyKey: string | null;
   /** Blocks this call paid for, and the ledger row it paid with. */
   blocks: number;
   credits: number;
@@ -185,7 +203,7 @@ export interface MeterReservation {
 
 export interface MeterAllowed {
   allowed: true;
-  /** `null` when metering was unavailable (fail-open): nothing to release. */
+  /** `null` when the work went ahead unmetered (fail-open): nothing to release. */
   reservation: MeterReservation | null;
   used: number;
   allowance: number | null;
@@ -208,175 +226,6 @@ export interface MeterDenied {
 
 export type MeterUsageResult = MeterAllowed | MeterDenied;
 
-/** How many CAS rounds a block claim gets before giving up (fail-open). */
-const MAX_CLAIM_ATTEMPTS = 5;
-
-/**
- * Count `quantity` units of a meter, paying a new overage block from the
- * wallet when they cross into one. Refuses (and counts nothing) when the plan
- * stops at its allowance or the wallet cannot pay the block.
- */
-export async function meterUsage(db: CreditsDb, params: MeterUsageParams): Promise<MeterUsageResult> {
-  const quantity = params.quantity ?? 1;
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw new Error(`[meters] quantity must be a positive integer, got ${quantity}`);
-  }
-  const def = METERS[params.meter];
-  const period = meterPeriod(params.now);
-
-  let row: { id: string; used: number; blocksCharged: number };
-  let limits: MeterLimits;
-  try {
-    limits = limitsFromPlan(params.meter, await workspacePlan(db, params.workspaceId));
-    [row] = await db
-      .insert(workspaceMeterUsage)
-      .values({ id: generateId(), workspaceId: params.workspaceId, meter: params.meter, period, used: quantity })
-      .onConflictDoUpdate({
-        target: [workspaceMeterUsage.workspaceId, workspaceMeterUsage.meter, workspaceMeterUsage.period],
-        set: { used: sql`${workspaceMeterUsage.used} + ${quantity}`, updatedAt: new Date() },
-      })
-      .returning({ id: workspaceMeterUsage.id, used: workspaceMeterUsage.used, blocksCharged: workspaceMeterUsage.blocksCharged });
-  } catch (err) {
-    console.warn(`[meters] ${params.meter} metering unavailable, allowing:`, err instanceof Error ? err.message : err);
-    return { allowed: true, reservation: null, used: 0, allowance: null, creditsCharged: 0 };
-  }
-
-  const reservation: MeterReservation = {
-    workspaceId: params.workspaceId,
-    meter: params.meter,
-    period,
-    quantity,
-    blocks: 0,
-    credits: 0,
-    transactionId: null,
-  };
-  const allowed = (creditsCharged: number): MeterAllowed => ({
-    allowed: true,
-    reservation,
-    used: row.used,
-    allowance: limits.allowance,
-    creditsCharged,
-  });
-
-  if (limits.allowance === null) return allowed(0);
-  // The blocks the units up to and including ours need paid for.
-  const needed = Math.ceil(Math.max(0, row.used - limits.allowance) / def.blockSize);
-  let charged = row.blocksCharged;
-
-  try {
-    for (let attempt = 0; attempt < MAX_CLAIM_ATTEMPTS; attempt++) {
-      if (needed <= charged) return allowed(0);
-
-      if (!limits.allowOverage) {
-        await uncount(db, row.id, quantity);
-        return denied('limit_reached', row.used - quantity);
-      }
-
-      // Claim the blocks first so two callers never pay for the same one.
-      const [claimed] = await db
-        .update(workspaceMeterUsage)
-        .set({ blocksCharged: needed, updatedAt: new Date() })
-        .where(and(eq(workspaceMeterUsage.id, row.id), eq(workspaceMeterUsage.blocksCharged, charged)))
-        .returning({ id: workspaceMeterUsage.id });
-      if (!claimed) {
-        const [fresh] = await db
-          .select({ blocksCharged: workspaceMeterUsage.blocksCharged })
-          .from(workspaceMeterUsage)
-          .where(eq(workspaceMeterUsage.id, row.id))
-          .limit(1);
-        charged = fresh?.blocksCharged ?? charged;
-        continue;
-      }
-
-      const blocks = needed - charged;
-      const amount = blocks * def.creditsPerBlock;
-      const settle = await consumeCredits(db, {
-        workspaceId: params.workspaceId,
-        amount,
-        serviceType: def.serviceType,
-        referenceId: params.referenceId,
-        referenceType: params.referenceType,
-        description: `${blocks * def.blockSize} extra ${def.unitPlural} (${period})`,
-        metadata: { meter: params.meter, period, blocks, blockSize: def.blockSize, used: row.used, allowance: limits.allowance },
-        userId: params.userId,
-      });
-      if (!settle.ok) {
-        // Give the claim and the units back.
-        await db
-          .update(workspaceMeterUsage)
-          .set({ blocksCharged: sql`${workspaceMeterUsage.blocksCharged} - ${blocks}`, updatedAt: new Date() })
-          .where(and(eq(workspaceMeterUsage.id, row.id), gte(workspaceMeterUsage.blocksCharged, blocks)));
-        await uncount(db, row.id, quantity);
-        return {
-          ...denied('insufficient_credits', row.used - quantity),
-          required: settle.required,
-          currentBalance: settle.currentBalance,
-        };
-      }
-      reservation.blocks = blocks;
-      reservation.credits = amount;
-      reservation.transactionId = settle.transactionId;
-      return allowed(amount);
-    }
-    console.warn(`[meters] ${params.meter}: block claim kept losing races for ${params.workspaceId}, allowing`);
-    return allowed(0);
-  } catch (err) {
-    console.warn(`[meters] ${params.meter} overage settlement failed, allowing:`, err instanceof Error ? err.message : err);
-    return allowed(reservation.credits);
-  }
-
-  function denied(reason: MeterDenied['reason'], used: number): MeterDenied {
-    return { allowed: false, reason, meter: params.meter, used, allowance: limits.allowance, planName: limits.planName };
-  }
-}
-
-async function uncount(db: CreditsDb, rowId: string, quantity: number): Promise<void> {
-  await db
-    .update(workspaceMeterUsage)
-    .set({ used: sql`${workspaceMeterUsage.used} - ${quantity}`, updatedAt: new Date() })
-    .where(and(eq(workspaceMeterUsage.id, rowId), gte(workspaceMeterUsage.used, quantity)));
-}
-
-/**
- * Hand back units counted by {@link meterUsage} for work that did not happen,
- * refunding the blocks that call paid for. Never throws.
- */
-export async function releaseMeterUsage(db: CreditsDb, reservation: MeterReservation | null): Promise<void> {
-  if (!reservation) return;
-  try {
-    const where = and(
-      eq(workspaceMeterUsage.workspaceId, reservation.workspaceId),
-      eq(workspaceMeterUsage.meter, reservation.meter),
-      eq(workspaceMeterUsage.period, reservation.period),
-    );
-    await db
-      .update(workspaceMeterUsage)
-      .set({ used: sql`${workspaceMeterUsage.used} - ${reservation.quantity}`, updatedAt: new Date() })
-      .where(and(where, gte(workspaceMeterUsage.used, reservation.quantity)));
-    if (reservation.blocks > 0 && reservation.transactionId) {
-      await db
-        .update(workspaceMeterUsage)
-        .set({ blocksCharged: sql`${workspaceMeterUsage.blocksCharged} - ${reservation.blocks}`, updatedAt: new Date() })
-        .where(and(where, gte(workspaceMeterUsage.blocksCharged, reservation.blocks)));
-      await refundCredits(db, {
-        workspaceId: reservation.workspaceId,
-        amount: reservation.credits,
-        serviceType: METERS[reservation.meter].serviceType,
-        idempotencyKey: `meter-release:${reservation.transactionId}`,
-        referenceId: reservation.transactionId,
-        referenceType: 'credit_transaction',
-        description: `Refund: ${METERS[reservation.meter].unitPlural} not used`,
-      });
-    }
-  } catch (err) {
-    console.warn(`[meters] releasing ${reservation.meter} usage failed:`, err instanceof Error ? err.message : err);
-  }
-}
-
-// ============================================================================
-// Reading
-// ============================================================================
-
 export interface MeterUsageSummary {
   meter: MeterKey;
   unit: string;
@@ -390,35 +239,61 @@ export interface MeterUsageSummary {
   overageCredits: number;
 }
 
-/** Every meter's usage this month for one workspace, for usage and billing pages. */
-export async function getMeterUsage(db: CreditsDb, workspaceId: string, now: Date = new Date()): Promise<MeterUsageSummary[]> {
-  const period = meterPeriod(now);
-  const [plan, rows] = await Promise.all([
-    workspacePlan(db, workspaceId),
-    db
-      .select()
-      .from(workspaceMeterUsage)
-      .where(and(eq(workspaceMeterUsage.workspaceId, workspaceId), eq(workspaceMeterUsage.period, period))),
-  ]);
-  const byMeter = new Map<string, { used: number; blocksCharged: number }>(
-    (rows as Array<{ meter: string; used: number; blocksCharged: number }>).map((r) => [r.meter, r]),
-  );
-  return METER_KEYS.map((meter) => {
-    const def = METERS[meter];
-    const limits = limitsFromPlan(meter, plan);
-    const row = byMeter.get(meter);
-    return {
-      meter,
-      unit: def.unit,
-      period,
-      used: row?.used ?? 0,
-      allowance: limits.allowance,
-      allowOverage: limits.allowOverage,
-      blockSize: def.blockSize,
-      creditsPerBlock: def.creditsPerBlock,
-      overageCredits: (row?.blocksCharged ?? 0) * def.creditsPerBlock,
-    };
-  });
+// ============================================================================
+// Callers' side
+// ============================================================================
+
+/** The binding every metering worker declares (mail-api hosts the class). */
+export interface UsageMeterEnv {
+  USAGE_METER?: DurableObjectNamespace<UsageMeter>;
+}
+
+const UNMETERED: MeterAllowed = { allowed: true, reservation: null, used: 0, allowance: null, creditsCharged: 0 };
+
+function meterFor(env: UsageMeterEnv, workspaceId: string) {
+  const ns = env.USAGE_METER!;
+  return ns.get(ns.idFromName(workspaceId));
+}
+
+/**
+ * Count units against the plan's allowance in the workspace's meter, paying
+ * a new overage block from the wallet when they cross into one. Refuses (and
+ * counts nothing) when the plan stops at its allowance or the wallet cannot
+ * pay. Fails open.
+ */
+export async function meterUsage(env: UsageMeterEnv, params: MeterUsageParams): Promise<MeterUsageResult> {
+  const quantity = params.quantity ?? 1;
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw new Error(`[meters] quantity must be a positive integer, got ${quantity}`);
+  }
+  if (!env.USAGE_METER) return UNMETERED;
+  try {
+    return (await meterFor(env, params.workspaceId).meter({ ...params, quantity })) as MeterUsageResult;
+  } catch (err) {
+    console.warn(`[meters] ${params.meter} meter unreachable, allowing:`, err instanceof Error ? err.message : err);
+    return UNMETERED;
+  }
+}
+
+/** Hand back units counted for work that did not happen, refunding the blocks that call paid for. Never throws. */
+export async function releaseMeterUsage(env: UsageMeterEnv, reservation: MeterReservation | null): Promise<void> {
+  if (!reservation || !env.USAGE_METER) return;
+  try {
+    await meterFor(env, reservation.workspaceId).release(reservation);
+  } catch (err) {
+    console.warn(`[meters] releasing ${reservation.meter} usage failed:`, err instanceof Error ? err.message : err);
+  }
+}
+
+/** Every meter's use this month for one workspace, for usage and billing pages; `[]` when unavailable. */
+export async function getMeterUsage(env: UsageMeterEnv, workspaceId: string): Promise<MeterUsageSummary[]> {
+  if (!env.USAGE_METER) return [];
+  try {
+    return (await meterFor(env, workspaceId).usage(workspaceId)) as MeterUsageSummary[];
+  } catch (err) {
+    console.warn('[meters] usage unavailable:', err instanceof Error ? err.message : err);
+    return [];
+  }
 }
 
 // ============================================================================

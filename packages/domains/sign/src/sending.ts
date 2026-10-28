@@ -168,9 +168,10 @@ export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor:
 
   // A request counts against the plan's monthly allowance; past it the wallet
   // pays, or it is refused. Handed back when it does not go out after all.
-  const metered = await meterUsage(ctx.master, {
+  const metered = await meterUsage(ctx.env, {
     workspaceId: ctx.workspaceId,
     meter: 'sign_requests',
+    idempotencyKey: `sign:${draft.id}`,
     referenceId: draft.id,
     referenceType: 'sign_envelope',
     userId: actor.userId ?? undefined,
@@ -180,11 +181,11 @@ export async function sendEnvelope(ctx: SendContext, draft: SignEnvelope, actor:
   try {
     outcome = await emailGroup(ctx, envelope, nextGroup(envelope, recipients), actor);
   } catch (err) {
-    await releaseMeterUsage(ctx.master, metered.reservation);
+    await releaseMeterUsage(ctx.env, metered.reservation);
     throw err;
   }
   if (outcome === 'refused') {
-    await releaseMeterUsage(ctx.master, metered.reservation);
+    await releaseMeterUsage(ctx.env, metered.reservation);
     throw invalid(EMAIL_LIMIT_MESSAGE);
   }
 

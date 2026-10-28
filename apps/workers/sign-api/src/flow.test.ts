@@ -21,6 +21,7 @@ import { masterSchema, schema, type Database, type MasterDatabase } from '@welds
 import { memoryTransport } from '@weldsuite/emails/transports/memory';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { PlanFeatures } from '@weldsuite/db/schema/plans';
+import { memoryUsageMeterNamespace } from '@weldsuite/credits/testing/meters';
 import type {
   SignDocumentDto,
   SignEnvelopeDetail,
@@ -97,8 +98,11 @@ const kv = createMemoryKv();
 const codeAttempts = memoryCodeAttempts();
 const finalizeCalls: unknown[] = [];
 
+const meters = memoryUsageMeterNamespace();
+
 function env(): Env {
   return {
+    USAGE_METER: meters.USAGE_METER,
     PRIVATE_STORAGE: storage.bucket,
     WORKSPACE_CACHE: kv,
     SIGN_CODE_ATTEMPTS: codeAttempts,
@@ -634,13 +638,7 @@ describe('a sent request', () => {
 describe('the monthly allowance', () => {
   const setFeatures = (features: PlanFeatures, priceMonthly = '0') =>
     master.update(masterSchema.plans).set({ features, priceMonthly }).where(eq(masterSchema.plans.id, 'plan_flow'));
-  const usage = async () => {
-    const [row] = await master
-      .select()
-      .from(masterSchema.workspaceMeterUsage)
-      .where(and(eq(masterSchema.workspaceMeterUsage.workspaceId, WS), eq(masterSchema.workspaceMeterUsage.meter, 'sign_requests')));
-    return row?.used ?? 0;
-  };
+  const usage = () => (meters.storages.get(WS)?.data.get(`m:${new Date().toISOString().slice(0, 7)}:sign_requests`) as { used: number } | undefined)?.used ?? 0;
 
   it('answers 402 once a free plan has used its requests, and leaves the draft a draft', async () => {
     const { draft } = await completeDraft();
@@ -671,13 +669,13 @@ describe('the monthly allowance', () => {
   });
 
   it('hands the request back when it is not sent after all', async () => {
-    const before = await usage();
+    const before = usage();
     const { draft } = await completeDraft();
     const outbound = await import('@weldsuite/mail-domain/outbound');
     vi.mocked(outbound.checkOutbound).mockRejectedValueOnce(new outbound.OutboundDeniedError({ code: 'SENDING_SUSPENDED' }));
     await expect(
       sendEnvelope({ env: env(), db, master, clerkOrgId: ORG, workspaceId: WS }, draft, { userId: 'u', name: null, email: null }),
     ).rejects.toThrow('email limits');
-    expect(await usage()).toBe(before);
+    expect(usage()).toBe(before);
   });
 });

@@ -8,7 +8,9 @@
     ".": "./src/index.ts",
     "./gateway-costs": "./src/gateway-costs.ts",
     "./gateway-cache": "./src/gateway-cache.ts",
-    "./meters": "./src/meters.ts"
+    "./meters": "./src/meters.ts",
+    "./meter-object": "./src/meter-object.ts",
+    "./testing/meters": "./src/testing/meters.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -18,12 +20,12 @@
   },
   "dependencies": {
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/worker-kit": "workspace:*",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@weldsuite/typescript-config": "workspace:*",
-    "@weldsuite/worker-kit": "workspace:*",
     "typescript": "^5.9.2",
     "vitest": "^4.1.12"
   }

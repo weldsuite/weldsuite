@@ -14,7 +14,7 @@ vi.mock('../db', () => ({ getMasterDb: () => ({}) }));
 import { meterRun } from './meter-run';
 import type { WorkflowEnv } from '../engine/types';
 
-const env = { DATABASE_URL_MASTER: 'postgres://master' } as WorkflowEnv;
+const env = { DATABASE_URL_MASTER: 'postgres://master', USAGE_METER: {} } as WorkflowEnv;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -29,6 +29,7 @@ describe('meterRun', () => {
     expect(mocks.meterUsage).toHaveBeenCalledWith(expect.anything(), {
       workspaceId: 'ws_1',
       meter: 'workflow_runs',
+      idempotencyKey: 'run:wex_1',
       referenceId: 'wex_1',
       referenceType: 'workflow_execution',
       userId: 'user_1',
@@ -50,8 +51,9 @@ describe('meterRun', () => {
     );
   });
 
-  it('runs unmetered without a master DB, an unknown workspace or a working meter', async () => {
-    expect(await meterRun({} as WorkflowEnv, 'org_1', 'wex_1', 'user_1')).toBeNull();
+  it('runs unmetered without a master DB, a meter binding, a known workspace or a working meter', async () => {
+    expect(await meterRun({ USAGE_METER: {} } as WorkflowEnv, 'org_1', 'wex_1', 'user_1')).toBeNull();
+    expect(await meterRun({ DATABASE_URL_MASTER: 'postgres://master' } as WorkflowEnv, 'org_1', 'wex_1', 'user_1')).toBeNull();
 
     mocks.resolveInternalWorkspaceId.mockResolvedValueOnce(null);
     expect(await meterRun(env, 'org_1', 'wex_1', 'user_1')).toBeNull();

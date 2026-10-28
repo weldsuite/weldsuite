@@ -1348,8 +1348,6 @@ export {
   type PanelUsageMonth,
   type NewPanelUsageMonth,
 } from './weldpanel-registry';
-// Usage meters: units used per workspace, meter and month, and overage blocks charged.
-export { workspaceMeterUsage, type WorkspaceMeterUsage, type NewWorkspaceMeterUsage } from './meter-usage';
 // WeldReach warmup network: the cross-workspace mailbox pool and its messages.
 export {
   reachWarmupMailboxes,
