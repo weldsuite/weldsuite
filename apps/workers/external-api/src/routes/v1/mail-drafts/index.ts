@@ -8,18 +8,25 @@
  *
  * `attachmentIds` are upload ids from `POST /v1/mail-attachments`; they are
  * resolved when the draft is sent, not when it is saved.
+ *
+ * The list fans out over `getWorkspaceMail`'s `store`
+ * (`WorkspaceMailStore.listDrafts`/`MailboxStore.listDrafts`, design task D5)
+ * instead of a direct `accessibleAccountIds` scope; single-draft CRUD stays on
+ * the Postgres `drafts.ts` functions (drafts live only on Postgres in
+ * `postgres`/`shadow` mode today), gated by the same `access.canOpen` every
+ * other mail route now uses.
  */
 
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { accessibleAccountIds, canOpenAccount, emailEventData } from '@weldsuite/mail-domain/access';
-import { createDraft, getDraft, listDrafts, softDeleteDraft, updateDraft } from '@weldsuite/mail-domain/drafts';
+import { emailEventData } from '@weldsuite/mail-domain/access';
+import { createDraft, getDraft, softDeleteDraft, updateDraft } from '@weldsuite/mail-domain/drafts';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
-import { mailPrincipal } from '../../../lib/mail';
+import { workspaceMailFromContext } from '../../../lib/mail-store-context';
 
 const listQuery = z.object({
   cursor: z.string().optional(),
@@ -55,9 +62,10 @@ const app = new Hono<HonoEnv>();
 
 /** The draft when it exists in a mailbox the caller can open. */
 async function reachableDraft(c: Context<HonoEnv>, id: string) {
-  const db = c.get('tenantDb');
-  const draft = await getDraft(db, id);
-  if (!draft || !(await canOpenAccount(db, draft.accountId, mailPrincipal(c)))) return null;
+  const draft = await getDraft(c.get('tenantDb'), id);
+  if (!draft) return null;
+  const { access } = await workspaceMailFromContext(c);
+  if (!(await access.canOpen(draft.accountId))) return null;
   return draft;
 }
 
@@ -73,16 +81,15 @@ async function draftEventData(c: Context<HonoEnv>, draft: { id: string; accountI
 }
 
 app.get('/', requireScope('mail_drafts:read'), zValidator('query', listQuery), async (c) => {
-  const db = c.get('tenantDb');
   const q = c.req.valid('query');
-  const principal = mailPrincipal(c);
-  if (q.accountId && !(await canOpenAccount(db, q.accountId, principal))) {
+  const { store, access } = await workspaceMailFromContext(c);
+  if (q.accountId && !(await access.canOpen(q.accountId))) {
     return error.notFound(c, 'MailAccount', q.accountId);
   }
-  const result = await listDrafts(db, {
-    ...q,
-    accessibleAccountIds: q.accountId ? undefined : await accessibleAccountIds(db, principal),
-  });
+  // 50: the legacy `listDrafts`'s own default (`Math.min(filters.limit ?? 50, 100)`), preserved here since the store's `limit` is required, not optional.
+  const result = q.accountId
+    ? await store.mailbox(q.accountId).listDrafts({ limit: q.limit ?? 50, cursor: q.cursor })
+    : await store.listDrafts(await access.accessibleAccountIds(), { limit: q.limit ?? 50, cursor: q.cursor });
   return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
@@ -96,7 +103,8 @@ app.get('/:id', requireScope('mail_drafts:read'), async (c) => {
 app.post('/', requireScope('mail_drafts:write'), zValidator('json', createBody), async (c) => {
   const db = c.get('tenantDb');
   const body = c.req.valid('json');
-  if (!(await canOpenAccount(db, body.accountId, mailPrincipal(c)))) {
+  const { access } = await workspaceMailFromContext(c);
+  if (!(await access.canOpen(body.accountId))) {
     return error.notFound(c, 'MailAccount', body.accountId);
   }
   const row = await createDraft(db, { ...body, isReply: body.isReply ?? (body.inReplyTo ? true : undefined) });
@@ -110,8 +118,9 @@ app.patch('/:id', requireScope('mail_drafts:write'), zValidator('json', updateBo
   if (!(await reachableDraft(c, id))) return error.notFound(c, 'MailDraft', id);
   const body = c.req.valid('json');
   // Moving a draft to another mailbox needs access to that one too.
-  if (body.accountId && !(await canOpenAccount(db, body.accountId, mailPrincipal(c)))) {
-    return error.notFound(c, 'MailAccount', body.accountId);
+  if (body.accountId) {
+    const { access } = await workspaceMailFromContext(c);
+    if (!(await access.canOpen(body.accountId))) return error.notFound(c, 'MailAccount', body.accountId);
   }
   const result = await updateDraft(db, id, body);
   if (!result) return error.notFound(c, 'MailDraft', id);
