@@ -1,9 +1,15 @@
 import { useCallback, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
+import { buildQueryString, type DataResponse, type ListResponse } from '@weldsuite/app-api-client';
+import type { MailAccountRow } from '@weldsuite/app-api-client/domains/mail-accounts';
+import type { MailLabelRow, MailThreadSummary } from '@weldsuite/app-api-client/domains/mail-labels';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { useRouter } from '@/lib/router';
 import { crmTasksKeys, type RawTask } from '@/hooks/use-crm-tasks';
 import { mailKeys } from '@/hooks/queries/use-mail-queries';
+import { preferencesKey, type UserPreferences } from '@/hooks/queries/use-settings-queries';
+import { pickWarmMailAccountId } from '@/app/weldmail/lib/landing-redirect';
 import { fetchChannelList, weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 import {
@@ -39,6 +45,8 @@ interface PrefetchContext {
   queryClient: QueryClient;
   appClient: () => Promise<{ get: <T>(url: string) => Promise<T> }>;
   userId: string | undefined;
+  /** Warms a route's code-split chunk (and its own loaders), e.g. for the page hover is about to land on. */
+  routerPrefetch: (href: string) => void;
 }
 
 type Prefetcher = (ctx: PrefetchContext) => Promise<unknown> | void;
@@ -66,15 +74,53 @@ const PREFETCHERS: Record<string, Prefetcher> = {
     });
   },
 
-  weldmail: ({ queryClient, appClient }) =>
-    queryClient.prefetchQuery({
+  // Warms accounts, then — once we know which mailbox the user would land on
+  // — its first Inbox page and labels too, plus the label route's chunk, so a
+  // click lands on an already-warm page (docs/plans/weldmail-mailbox-storage.md
+  // phase 1 item 8). The unified inbox has no single mailbox to warm; its own
+  // route prefetch (label-route-prefetch.ts) covers that case on navigation.
+  weldmail: async ({ queryClient, appClient, routerPrefetch }) => {
+    const accountsRes = await queryClient.fetchQuery({
       queryKey: mailKeys.accounts(),
       queryFn: async () => {
         const client = await appClient();
-        return client.get<{ data: unknown[] }>('/mail-accounts');
+        return client.get<ListResponse<MailAccountRow>>('/mail-accounts');
       },
       staleTime: PREFETCH_STALE_TIME_MS,
-    }),
+    });
+
+    const accounts = accountsRes.data ?? [];
+    const preferences = queryClient.getQueryData<UserPreferences>(preferencesKey);
+    const accountId = pickWarmMailAccountId(accounts, preferences?.uiPreferences);
+    if (!accountId) return;
+
+    const labelSlug = 'inbox';
+    const threadsParams = { accountId, labelSlug, pageSize: 25 };
+
+    await Promise.all([
+      queryClient.prefetchInfiniteQuery({
+        queryKey: mailKeys.threadsByLabel(threadsParams),
+        queryFn: async ({ pageParam }) => {
+          const client = await appClient();
+          return client.get<DataResponse<{ threads: MailThreadSummary[]; totalCount: number }>>(
+            `/mail-labels/threads${buildQueryString({ ...threadsParams, page: pageParam })}`,
+          );
+        },
+        initialPageParam: 1,
+        staleTime: PREFETCH_STALE_TIME_MS,
+      }),
+      queryClient.prefetchQuery({
+        queryKey: mailKeys.labels(accountId),
+        queryFn: async () => {
+          const client = await appClient();
+          return client.get<DataResponse<MailLabelRow[]>>(`/mail-labels${buildQueryString({ accountId })}`);
+        },
+        staleTime: PREFETCH_STALE_TIME_MS,
+      }),
+    ]);
+
+    routerPrefetch(`/weldmail/${accountId}/${labelSlug}`);
+  },
 
   weldchat: ({ queryClient, appClient }) =>
     queryClient.prefetchQuery({
@@ -158,6 +204,7 @@ export function useAppPrefetch() {
   const { getClient: appClient } = useAppApiClient();
   const { user } = useUser();
   const userId = user?.id;
+  const { prefetch: routerPrefetch } = useRouter();
 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const lastFired = useRef<Record<string, number>>({});
@@ -176,12 +223,12 @@ export function useAppPrefetch() {
       // Running the prefetcher inside `.then` routes both sync throws and
       // rejections to the catch below.
       Promise.resolve()
-        .then(() => fn({ queryClient, appClient, userId }))
+        .then(() => fn({ queryClient, appClient, userId, routerPrefetch }))
         .catch(() => {
           // Prefetch failures are non-fatal — the real hook will fetch on click.
         });
     }, HOVER_DEBOUNCE_MS);
-  }, [queryClient, appClient, userId]);
+  }, [queryClient, appClient, userId, routerPrefetch]);
 
   const cancel = useCallback((appCode: string) => {
     const t = timers.current[appCode];

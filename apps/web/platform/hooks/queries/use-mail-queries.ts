@@ -86,11 +86,12 @@ export const mailKeys = {
 // Accounts
 // =============================================================================
 
-export function useMailAccounts() {
+export function useMailAccounts(enabled = true) {
   const { mailAccounts } = useAppApi();
   return useQuery({
     queryKey: mailKeys.accounts(),
     queryFn: () => mailAccounts.list(),
+    enabled,
   });
 }export function useCreateMailAccount() {
   const { mailAccounts } = useAppApi();
@@ -177,6 +178,9 @@ export function useMailMessages(
     queryKey: mailKeys.messages(filters as Record<string, unknown>),
     queryFn: () => mailMessages.list(filters),
     enabled: !!accountId && enabled,
+    // Rows carry full bodies (`textBody`/`htmlBody`) — don't let them into the
+    // persisted cache (docs/plans/weldmail-mailbox-storage.md phase 1 item 6).
+    meta: { persist: false },
   });
 }
 
@@ -195,6 +199,7 @@ export function useMailMessagesByCounterparty(
     queryKey: mailKeys.messages({ counterpartyEmail }),
     queryFn: () => mailMessages.list({ search: counterpartyEmail ?? undefined, limit: 100 }),
     enabled: !!counterpartyEmail && enabled,
+    meta: { persist: false },
   });
 }
 
@@ -204,6 +209,8 @@ export function useMailMessage(id: string, enabled = true) {
     queryKey: mailKeys.message(id),
     queryFn: () => mailMessages.get(id),
     enabled: !!id && enabled,
+    // Full message body — don't persist (phase 1 item 6).
+    meta: { persist: false },
   });
 }
 
@@ -222,6 +229,8 @@ export function useMailThread(_accountId: string, messageId: string, enabled = t
     queryKey: mailKeys.thread(messageId),
     queryFn: () => mailMessages.thread(messageId),
     enabled: !!messageId && enabled,
+    // Full thread, bodies included — don't persist (phase 1 item 6).
+    meta: { persist: false },
   });
 }export function useMarkMailRead() {
   const { mailMessages } = useAppApi();

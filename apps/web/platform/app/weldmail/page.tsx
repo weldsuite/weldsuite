@@ -5,6 +5,11 @@ import { MailRedirect } from './components/mail-redirect';
 import { PageLoader } from '@/components/page-loader';
 import { UNIFIED_ACCOUNT } from './lib/mail-preferences';
 
+// The fallback for a cold load: the route's `beforeLoad`
+// (src/routes/weldmail/index.tsx, lib/landing-redirect.ts) redirects straight
+// from the persisted query cache when it already has both accounts and
+// preferences, so this component only mounts — and waits on both requests —
+// when neither is cached yet.
 export default function MailPage() {
   const { data: accountsData, isLoading } = useMailAccounts();
   // Personal, per-user landing preferences (default + last opened account).
