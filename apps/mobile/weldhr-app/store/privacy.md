@@ -32,7 +32,9 @@ Google FCM / Expo push (notifications), Cloudflare and Neon (hosting), Expo
 it on their behalf.
 
 Deletion: Profile → **Delete account** (also on the no-workspace screen) deletes
-the WeldSuite account and every workspace membership. The employer's HR records
+the WeldSuite account and every workspace membership, and the workspaces the
+person was the only member of. It is refused, with an explanation, while they are
+the only admin of a workspace that still has other members (app-api `/api/account`). The employer's HR records
 about the person (leave, payslips, claims) stay with the employer, which the
 dialog says; those are removed through the employer.
 

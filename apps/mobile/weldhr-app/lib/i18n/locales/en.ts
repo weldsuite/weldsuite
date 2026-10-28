@@ -60,6 +60,10 @@ export const en = {
     message:
       'This permanently deletes the WeldSuite account {email} and removes you from every workspace. It cannot be undone. Your employer keeps your employee record, payslips and requests, as the law requires; ask HR about those.',
     confirm: 'Delete account',
+    workspacesDeleted: 'You are the only member of {workspaces}, so that is deleted too.',
+    blockedTitle: 'Hand over your workspaces first',
+    blockedMessage:
+      'You are the only admin of {workspaces}, which still has other members. Make someone else an admin, or remove the members, on app.weldsuite.org. Then you can delete your account.',
     failed: 'Your account could not be deleted. Try again, or email privacy@weldsuite.com.',
   },
 

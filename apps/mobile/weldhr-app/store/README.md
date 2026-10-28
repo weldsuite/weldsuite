@@ -45,8 +45,9 @@ Clerk Dashboard (production instance) → **Native applications**:
 - Allowed redirect: `weldhr://sso-callback`
 
 Without this, Google / Apple sign-in fails in release builds while email still works.
-Also check **User & Authentication → Delete account** is enabled: the in-app
-"Delete account" (Profile, and the no-workspace screen) calls `user.delete()`.
+The in-app "Delete account" (Profile, and the no-workspace screen) goes through
+app-api `POST /api/account/delete`, which deletes the Clerk user server-side, so
+no Clerk dashboard setting is needed for it.
 
 ### 1.4 Apple
 1. developer.apple.com → Identifiers → App ID `com.weldsuite.weldhr` with **Push Notifications** and **Sign in with Apple**
