@@ -3,6 +3,8 @@ import type { RequestTiming } from '@weldsuite/worker-kit/timing';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
+import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+import type { MailIndex } from '@weldsuite/mail-domain/mail-index';
 import type { FlagContext, FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { CustomObjectRow } from '@weldsuite/core-domain/custom-objects';
 import type { DeferredEmailParams } from '@weldsuite/notifications/types';
@@ -261,6 +263,33 @@ export interface Env {
   OUTBOUND_PLATFORM?: OutboundGuardEnv['OUTBOUND_PLATFORM'];
   /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
   OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
+
+  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  /**
+   * mail-api's mailbox Durable Object, bound by `script_name` (design §8).
+   * Reached only through `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
+   * (`lib/mail-store-context.ts`) — nothing in this worker calls `idFromName`
+   * on it directly.
+   */
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
+  /**
+   * mail-api's per-workspace address index Durable Object, bound by
+   * `script_name` (decision 1: EU jurisdiction, correspondents + the address
+   * index). Nothing in this worker reads it yet (that is crm-api's
+   * `messagesByCounterparty` fan-in); bound ahead of time so the mode
+   * resolves correctly for every workspace regardless.
+   */
+  MAIL_INDEX?: DurableObjectNamespace<MailIndex>;
+  /**
+   * EU-jurisdiction bucket for mail bodies and raw MIME (decision 7):
+   * `weldsuite-mail`(-test), NOT the existing `STORAGE` bucket above (mail
+   * attachments stay there). `MailStoreEnv`'s object-mode client declares
+   * this required, the same reason it needs `MAILBOX_STORE` bound at deploy
+   * time even though this worker never reads or writes a message body
+   * directly — only the dashboard badge and drive aggregation call into the
+   * store here, and neither touches a body.
+   */
+  MAIL_STORAGE?: R2Bucket;
 
   // (The GitHub App integration — GITHUB_APP_*, GITHUB_FULL_SYNC,
   // GITHUB_PROJECT_SYNC — moved to connect-api with workflow-github;

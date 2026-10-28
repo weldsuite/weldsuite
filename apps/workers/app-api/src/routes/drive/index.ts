@@ -43,6 +43,7 @@ import {
 } from '@weldsuite/core-domain/drive-access';
 import * as foldersService from '../../services/folders';
 import { DRIVE_FOLDER_HOLDS_LOCKED_FILES, DRIVE_VIEW_ONLY, driveAccess } from '../../lib/drive-access';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -59,6 +60,7 @@ app.get('/all', requirePermission('files:read'), zValidator('query', listAllFile
       r2PublicUrl: c.env.R2_PUBLIC_URL,
       apiOrigin: new URL(c.req.url).origin,
       driveAccess: await driveAccess(c),
+      mail: await workspaceMailFromContext(c),
     });
 
     const filters: Record<string, unknown> = {};
@@ -99,7 +101,12 @@ app.get('/all', requirePermission('files:read'), zValidator('query', listAllFile
 
 app.get('/stats', requirePermission('files:read'), async (c) => {
   try {
-    const stats = await aggregateStats(c.get('tenantDb'), c.get('userId'), await driveAccess(c));
+    const stats = await aggregateStats(
+      c.get('tenantDb'),
+      c.get('userId'),
+      await driveAccess(c),
+      await workspaceMailFromContext(c),
+    );
     return success(c, stats);
   } catch (err) {
     console.error('[app-api/drive] /stats failed:', err);

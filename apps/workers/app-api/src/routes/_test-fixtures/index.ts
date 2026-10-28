@@ -16,6 +16,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { and, eq, inArray, isNull, like, sql } from 'drizzle-orm';
@@ -29,10 +30,11 @@ import {
   forwardAndPersist,
   MailSendError,
 } from '@weldsuite/mail-domain/send';
+import { getWorkspaceMail, type MailStoreEnv, type WorkspaceMail } from '@weldsuite/mail-domain/store';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { success, error } from '@weldsuite/worker-kit/response';
 import { testFixturesGuard } from '../../middleware/test-fixtures-guard';
-import { buildSeedMailRows, seedInsertChunkSize } from './seed-mail-bulk';
+import { buildSeedMailRows, seedInsertChunkSize, toIngestMessages } from './seed-mail-bulk';
 import type { Env } from '../../types';
 
 const TEST_MARKER = '[E2E_TEST]';
@@ -49,6 +51,40 @@ export const testFixturesRoutes = new Hono<{
 }>();
 
 testFixturesRoutes.use('*', testFixturesGuard());
+
+/**
+ * These fixtures bypass Clerk entirely (`testFixturesGuard` resolves the
+ * tenant DB from a header, not a session), so there is no real user or
+ * resolved role to hand `getWorkspaceMail` — only `mode`/`store` are ever
+ * used here, never `access`'s per-member scoping, so a fixed OWNER principal
+ * is harmless. `role: 'OWNER'` also skips the live permissions lookup
+ * `ObjectMailAccess` would otherwise do for an unknown user id in
+ * object/object-only mode.
+ */
+const FIXTURE_USER_ID = 'e2e-fixture';
+
+function fixtureWaitUntil(c: Context<{ Bindings: Env; Variables: Variables }>): (p: Promise<unknown>) => void {
+  try {
+    const ctx = c.executionCtx;
+    return (p) => ctx.waitUntil(p);
+  } catch {
+    return (p) => {
+      p.catch(() => {});
+    };
+  }
+}
+
+/** This request's `{ mode, store, access }` (docs/plans/weldmail-mailbox-store-design.md, task D6). */
+async function getFixtureMail(c: Context<{ Bindings: Env; Variables: Variables }>): Promise<WorkspaceMail> {
+  return getWorkspaceMail(c.env as unknown as MailStoreEnv, {
+    workspaceId: c.get('workspaceId'),
+    clerkOrgId: c.get('clerkOrgId'),
+    db: c.get('tenantDb'),
+    waitUntil: fixtureWaitUntil(c),
+    userId: FIXTURE_USER_ID,
+    role: 'OWNER',
+  });
+}
 
 testFixturesRoutes.get('/ping', (c) =>
   success(c, {
@@ -241,8 +277,71 @@ testFixturesRoutes.post('/reset', async (c) => {
 
   // Mail messages carry the marker in `customFields.__e2e` (the SENT rows
   // created by the real send service are stamped after creation; seeded inbox
-  // rows are stamped on insert). Their attachments (FK → mail messages) go
-  // first, found by parent id.
+  // rows are stamped on insert).
+  //
+  // Object-mode mailboxes (docs/plans/weldmail-mailbox-store-design.md, task
+  // D6) keep their own copy of the seeded rows, so clear those first.
+  // `postgres` mode never resolves `mail` beyond its own mode check, so it
+  // costs this path nothing beyond the one extra Flagship lookup every
+  // mail-touching endpoint now makes.
+  const mail = await getFixtureMail(c);
+  if (mail.mode !== 'postgres') {
+    // Precise: a marked message Postgres can still see — true in `shadow`
+    // mode (Postgres primary) and `object` mode (Postgres dual-write
+    // secondary) for any mailbox. Grouped by account so one `delete` op per
+    // mailbox covers every id in it.
+    const markedMessages = await db
+      .select({ id: schema.mailMessages.id, accountId: schema.mailMessages.accountId })
+      .from(schema.mailMessages)
+      .where(sql`(${schema.mailMessages.customFields} ->> '__e2e') = ${TEST_MARKER}`);
+    const idsByAccount = new Map<string, Set<string>>();
+    for (const row of markedMessages) {
+      const ids = idsByAccount.get(row.accountId) ?? new Set<string>();
+      ids.add(row.id);
+      idsByAccount.set(row.accountId, ids);
+    }
+
+    // `object-only` mode never writes Postgres at all, so a seeded message
+    // can be invisible to the query above. `ensureTestMailAccount` marks
+    // every mailbox it creates fresh (`mail_accounts.syncError`) with an
+    // address (`e2e-<suffix>@e2e.test`) nothing else ever sends to or reads
+    // from, so every LIVE message such a mailbox's object holds is test data
+    // by construction — sweep it in full rather than needing a per-message
+    // marker the store has no way to query by. A mailbox reused via an
+    // explicit `accountId` (the bulk fixture's "fill an existing mailbox"
+    // option) is NOT swept this way: it isn't marked, so only the precise
+    // ids above apply to it, and in pure `object-only` mode a message seeded
+    // there has no marker the store can find at all — a known gap, not
+    // silently wrong (nothing is deleted that shouldn't be, something that
+    // should be removed may survive).
+    const markedAccounts = await db
+      .select({ id: schema.mailAccounts.id })
+      .from(schema.mailAccounts)
+      .where(like(schema.mailAccounts.syncError, marker));
+    const accountIds = new Set([...idsByAccount.keys(), ...markedAccounts.map((a) => a.id)]);
+    const sweepFully = new Set(markedAccounts.map((a) => a.id));
+
+    await Promise.all(
+      [...accountIds].map(async (accountId) => {
+        const mailbox = mail.store.mailbox(accountId);
+        const ids = idsByAccount.get(accountId) ?? new Set<string>();
+        if (sweepFully.has(accountId)) {
+          let cursor: { sentAt: number; id: string } | undefined;
+          for (let guard = 0; guard < 50; guard++) {
+            const page = await mailbox.listMessages({ limit: 500, cursor });
+            for (const m of page.data) ids.add(m.id);
+            if (!page.nextCursor) break;
+            cursor = page.nextCursor;
+          }
+        }
+        if (ids.size > 0) await mailbox.apply({ kind: 'delete', ids: [...ids], hard: true });
+      }),
+    );
+  }
+
+  // Their attachments (FK → mail messages) go first, found by parent id. In
+  // every mode this Postgres cleanup still runs: it is the only copy in
+  // `postgres`/`shadow` mode, and a (by then empty) no-op in `object-only`.
   const e2eMailMessageIds = db
     .select({ id: schema.mailMessages.id })
     .from(schema.mailMessages)
@@ -1111,38 +1210,75 @@ testFixturesRoutes.post(
     const now = new Date();
 
     const account = await ensureTestMailAccount(db, body.accountId);
+    const mail = await getFixtureMail(c);
 
     const id = generateId('msg');
     const smtpId = `<seed-${suffix}-${id}@e2e.test>`;
     const textBody = body.textBody ?? `E2E seeded message ${suffix}`;
-    await db.insert(schema.mailMessages).values({
-      id,
-      accountId: account.id,
-      messageId: smtpId,
-      threadId: smtpId,
-      from: { email: body.fromEmail ?? 'sender@external.test', name: body.fromName },
-      to: (body.to ?? [account.email]).map((email) => ({ email })),
-      cc: body.cc?.map((email) => ({ email })),
-      subject: body.subject ?? `E2E Subject ${suffix}`,
-      preview: textBody.slice(0, 200),
-      textBody,
-      htmlBody: body.htmlBody,
-      sentDate: now,
-      receivedDate: now,
-      isRead: body.isRead ?? false,
-      source: 'inbox',
-      labels: body.labels ?? ['INBOX'],
-      // Marker for /reset.
-      customFields: { __e2e: TEST_MARKER },
-      createdAt: now,
-      updatedAt: now,
-    } as unknown as typeof schema.mailMessages.$inferInsert);
 
-    const [row] = await db
-      .select()
-      .from(schema.mailMessages)
-      .where(eq(schema.mailMessages.id, id))
-      .limit(1);
+    if (mail.mode === 'postgres') {
+      await db.insert(schema.mailMessages).values({
+        id,
+        accountId: account.id,
+        messageId: smtpId,
+        threadId: smtpId,
+        from: { email: body.fromEmail ?? 'sender@external.test', name: body.fromName },
+        to: (body.to ?? [account.email]).map((email) => ({ email })),
+        cc: body.cc?.map((email) => ({ email })),
+        subject: body.subject ?? `E2E Subject ${suffix}`,
+        preview: textBody.slice(0, 200),
+        textBody,
+        htmlBody: body.htmlBody,
+        sentDate: now,
+        receivedDate: now,
+        isRead: body.isRead ?? false,
+        source: 'inbox',
+        labels: body.labels ?? ['INBOX'],
+        // Marker for /reset.
+        customFields: { __e2e: TEST_MARKER },
+        createdAt: now,
+        updatedAt: now,
+      } as unknown as typeof schema.mailMessages.$inferInsert);
+
+      const [row] = await db
+        .select()
+        .from(schema.mailMessages)
+        .where(eq(schema.mailMessages.id, id))
+        .limit(1);
+      return success(c, row, 201);
+    }
+
+    // Object modes (docs/plans/weldmail-mailbox-store-design.md, task D6):
+    // the row only exists wherever `mode` actually reads from, so seed it
+    // through the store instead of inserting into Postgres directly.
+    const nowMs = now.getTime();
+    const mailbox = mail.store.mailbox(account.id);
+    await mailbox.apply({
+      kind: 'ingest',
+      message: {
+        id,
+        source: 'inbound',
+        rfcMessageId: smtpId,
+        threadId: null,
+        from: { email: body.fromEmail ?? 'sender@external.test', name: body.fromName },
+        to: (body.to ?? [account.email]).map((email) => ({ email })),
+        cc: body.cc?.map((email) => ({ email })),
+        subject: body.subject ?? `E2E Subject ${suffix}`,
+        preview: textBody.slice(0, 200),
+        content: { text: textBody, html: body.htmlBody ?? null },
+        sentAt: nowMs,
+        receivedAt: nowMs,
+        createdAt: nowMs,
+        isRead: body.isRead ?? false,
+        labels: body.labels ?? ['INBOX'],
+        isSpam: false,
+        isReply: false,
+        attachments: [],
+        // Marker for /reset.
+        extra: { customFields: { __e2e: TEST_MARKER } },
+      },
+    });
+    const row = await mailbox.getMessage(id, { bodies: true });
     return success(c, row, 201);
   },
 );
@@ -1170,6 +1306,7 @@ testFixturesRoutes.post(
     const db = c.get('tenantDb');
     const body = c.req.valid('json');
     const account = await ensureTestMailAccount(db, body.accountId);
+    const mail = await getFixtureMail(c);
 
     const rows = buildSeedMailRows({
       ...body,
@@ -1180,8 +1317,21 @@ testFixturesRoutes.post(
       batch: `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`,
     });
     const chunk = seedInsertChunkSize(body.bodyBytes);
-    for (let start = 0; start < rows.length; start += chunk) {
-      await db.insert(schema.mailMessages).values(rows.slice(start, start + chunk));
+
+    if (mail.mode === 'postgres') {
+      for (let start = 0; start < rows.length; start += chunk) {
+        await db.insert(schema.mailMessages).values(rows.slice(start, start + chunk));
+      }
+    } else {
+      // Object modes: the same rows, ingested through the mailbox's store in
+      // chunks (its `applyBatch` puts each ingest's body to R2, so this keeps
+      // one call's concurrent R2 traffic bounded the same way the Postgres
+      // path above keeps one insert's payload bounded).
+      const ops = toIngestMessages(rows).map((message) => ({ kind: 'ingest' as const, message }));
+      const mailbox = mail.store.mailbox(account.id);
+      for (let start = 0; start < ops.length; start += chunk) {
+        await mailbox.applyBatch(ops.slice(start, start + chunk));
+      }
     }
 
     return success(
