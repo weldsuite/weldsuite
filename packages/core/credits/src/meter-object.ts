@@ -20,7 +20,7 @@
 
 import { DurableObject } from 'cloudflare:workers';
 import { getMasterDb } from '@weldsuite/worker-kit/db';
-import { consumeCredits, refundCredits } from './index';
+import { consumeCredits, refundCredits, type ConsumeCreditsResult } from './index';
 import {
   METERS,
   METER_KEYS,
@@ -28,6 +28,7 @@ import {
   loadMeterLimits,
   meterPeriod,
   type MeterCounter,
+  type MeterDecision,
   type MeterKey,
   type MeterLimits,
   type MeterReservation,
@@ -126,33 +127,16 @@ export class UsageMeter extends DurableObject<UsageMeterHostEnv> {
       let next: MeterCounter = { ...counter, used: decision.used };
       let chargeSeq: number | null = null;
       if (decision.kind === 'charge') {
-        const def = METERS[params.meter];
-        chargeSeq = (await this.ctx.storage.get<number>(CHARGE_SEQ_KEY)) ?? 0;
-        try {
-          const settle = await consumeCredits(getMasterDb(this.env), {
-            workspaceId: params.workspaceId,
-            amount: decision.credits,
-            serviceType: def.serviceType,
-            // Numbered charges: a crash between paying and saving re-uses the
-            // number on the next call, so the block is never paid twice.
-            idempotencyKey: `meter:${params.workspaceId}:${chargeSeq + 1}`,
-            referenceId: params.referenceId,
-            referenceType: params.referenceType,
-            description: `${decision.blocks * def.blockSize} extra ${def.unitPlural} (${period})`,
-            metadata: { meter: params.meter, period, blocks: decision.blocks, blockSize: def.blockSize, used: decision.used, allowance: limits.allowance },
-            userId: params.userId,
-          });
-          if (!settle.ok) {
-            return { ...denied('insufficient_credits'), required: settle.required, currentBalance: settle.currentBalance };
-          }
+        const paid = await this.payOverage(params, period, decision, limits.allowance);
+        if (paid && !paid.settle.ok) {
+          return { ...denied('insufficient_credits'), required: paid.settle.required, currentBalance: paid.settle.currentBalance };
+        }
+        if (paid?.settle.ok) {
           next = { used: decision.used, blocksCharged: decision.blocksCharged };
-          chargeSeq += 1;
+          chargeSeq = paid.chargeSeq;
           reservation.blocks = decision.blocks;
           reservation.credits = decision.credits;
-          reservation.transactionId = settle.transactionId;
-        } catch (err) {
-          // Count and allow; the block stays unpaid, so the next unit charges it.
-          console.warn('[UsageMeter] overage charge failed, allowing:', err instanceof Error ? err.message : err);
+          reservation.transactionId = paid.settle.transactionId;
         }
       }
 
@@ -169,6 +153,40 @@ export class UsageMeter extends DurableObject<UsageMeterHostEnv> {
       await this.ctx.storage.put(writes);
       return result;
     });
+  }
+
+  /**
+   * Pay the blocks a `charge` decision opens from the wallet. `null` when the
+   * charge failed: the unit is counted and allowed, and the block stays unpaid
+   * so the next unit charges it.
+   */
+  private async payOverage(
+    params: MeterUsageParams,
+    period: string,
+    decision: Extract<MeterDecision, { kind: 'charge' }>,
+    allowance: number | null,
+  ): Promise<{ settle: ConsumeCreditsResult; chargeSeq: number } | null> {
+    const def = METERS[params.meter];
+    const chargeSeq = ((await this.ctx.storage.get<number>(CHARGE_SEQ_KEY)) ?? 0) + 1;
+    try {
+      const settle = await consumeCredits(getMasterDb(this.env), {
+        workspaceId: params.workspaceId,
+        amount: decision.credits,
+        serviceType: def.serviceType,
+        // Numbered charges: a crash between paying and saving re-uses the
+        // number on the next call, so the block is never paid twice.
+        idempotencyKey: `meter:${params.workspaceId}:${chargeSeq}`,
+        referenceId: params.referenceId,
+        referenceType: params.referenceType,
+        description: `${decision.blocks * def.blockSize} extra ${def.unitPlural} (${period})`,
+        metadata: { meter: params.meter, period, blocks: decision.blocks, blockSize: def.blockSize, used: decision.used, allowance },
+        userId: params.userId,
+      });
+      return { settle, chargeSeq };
+    } catch (err) {
+      console.warn('[UsageMeter] overage charge failed, allowing:', err instanceof Error ? err.message : err);
+      return null;
+    }
   }
 
   /** Hand back what one `meter` call counted, refunding the blocks it paid for. */
