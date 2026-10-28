@@ -47,6 +47,16 @@ export const FLAGS = {
   // in every mode. Starts in shadow to calibrate the thresholds; target it per
   // workspace (attribute `workspaceId`, the master id) in Flagship.
   'weldmail-outbound-guard': { type: 'string', default: 'shadow' },
+  // WeldMail mailbox store (docs/plans/weldmail-mailbox-store-design.md):
+  // `postgres` reads and writes Postgres only (today's behaviour), `shadow`
+  // writes both and reads Postgres, `object` writes both and reads the
+  // mailbox Durable Object (falling back to Postgres on error), `object-only`
+  // writes and reads the object alone. Defaults to `postgres`, so the flag
+  // being unreachable (no `FLAGSHIP` binding, a brand-new flag not yet
+  // created in the dashboard, an evaluation error) never changes behaviour.
+  // Target it per workspace (attribute `workspaceId`, the master id) in
+  // Flagship.
+  'weldmail-mailbox-store': { type: 'string', default: 'postgres' },
 } as const satisfies Record<string, FlagDefinition>;
 
 export type FlagDefinition =

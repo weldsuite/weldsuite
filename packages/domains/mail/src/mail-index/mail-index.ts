@@ -32,11 +32,11 @@ import type {
   CorrespondentsReader,
   FirstContactsResult,
   MailAddressBatchEntry,
-  MailIndexModeHint,
   MailIndexSeedingState,
   MailIndexStatus,
   RecordMailAddressesResult,
 } from './types';
+import type { MailStoreMode } from '../store/types';
 
 export interface MailIndexEnv extends DbEnv {
   /** Test-only override; see `correspondents-reader.ts`'s file comment. */
@@ -224,7 +224,7 @@ export class MailIndex extends DurableObject<MailIndexEnv> {
 
   // ---- RPC: reads -----------------------------------------------------
 
-  async firstContacts(workspaceId: string, recipients: string[], mode: MailIndexModeHint): Promise<FirstContactsResult> {
+  async firstContacts(workspaceId: string, recipients: string[], mode: MailStoreMode): Promise<FirstContactsResult> {
     this.ensureWorkspace(workspaceId);
     const authoritative = mode === 'object-only' && this.isSeeded();
     if (recipients.length === 0) return { authoritative, firstContact: [] };

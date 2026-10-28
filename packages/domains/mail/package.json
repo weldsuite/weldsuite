@@ -31,6 +31,7 @@
     "./store/cursor": "./src/store/cursor.ts",
     "./store/fts-query": "./src/store/fts-query.ts",
     "./store/merge": "./src/store/merge.ts",
+    "./store/mode": "./src/store/mode.ts",
     "./store/model": "./src/store/model.ts",
     "./store/testing/memory-r2": "./src/store/testing/memory-r2.ts",
     "./store/thread-match": "./src/store/thread-match.ts",

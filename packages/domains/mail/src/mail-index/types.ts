@@ -7,15 +7,10 @@
  * EU-jurisdiction object (MAIL-009 requires EU for anything holding mail
  * addresses).
  *
- * `store/types.ts` (task A3, not landed in this worktree yet) will define the
- * canonical `MailStoreMode`. `MailIndexModeHint` below is a local copy of that
- * same four-value shape so this module doesn't have to wait on A3; once
- * `store/types.ts` lands, replace this with an import of `MailStoreMode` and
- * delete this type.
+ * The mode hint `firstContacts` takes is the canonical `MailStoreMode` from
+ * `../store/types` (imported directly in `mail-index.ts` and in
+ * `outbound/guard.ts`) — not a local copy.
  */
-
-/** Mirrors the eventual `store/types.ts` `MailStoreMode`. */
-export type MailIndexModeHint = 'postgres' | 'shadow' | 'object' | 'object-only';
 
 /** One correspondents row, the shape `recordMailAddresses`/seeding work with (epoch ms, not `Date`). */
 export interface CorrespondentRow {

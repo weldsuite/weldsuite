@@ -53,7 +53,7 @@ import { ledgerKeyFor, type LedgerSubject, type ReserveDecision, type ReserveReq
 import type { OutboundLedger, OutboundPlatformBudget } from './ledger';
 import { mailIndexFor } from '../mail-index/client';
 import type { MailIndex } from '../mail-index/mail-index';
-import type { MailIndexModeHint } from '../mail-index/types';
+import type { MailStoreMode } from '../store/types';
 
 /** Structural `[[ratelimits]]` binding. */
 export interface RateLimitBinding {
@@ -114,11 +114,12 @@ export interface CheckOutboundInput {
   senderDailyCap?: number | null;
   /**
    * The workspace's mail-store mode, when the caller already knows it (the
-   * router, once built, resolves this from Flagship). Unset is treated as not
-   * `object-only`, so `MailIndex.firstContacts` is never trusted as
-   * authoritative and the guard keeps reading Postgres — today's behaviour.
+   * router, once built, resolves this with `store/mode.ts`'s
+   * `resolveMailStoreMode`). Unset is treated as not `object-only`, so
+   * `MailIndex.firstContacts` is never trusted as authoritative and the guard
+   * keeps reading Postgres — today's behaviour.
    */
-  mailStoreMode?: MailIndexModeHint;
+  mailStoreMode?: MailStoreMode;
 }
 
 export interface OutboundReservation {
@@ -394,7 +395,7 @@ async function firstContactsOf(
   db: Database,
   subject: LedgerSubject | null,
   recipients: string[],
-  mode: MailIndexModeHint,
+  mode: MailStoreMode,
 ): Promise<string[]> {
   try {
     const suppressed = (await findSuppressed(db, recipients)).filter((s) => s.reason === 'complaint');
@@ -417,7 +418,7 @@ async function indexedFirstContacts(
   env: OutboundGuardEnv,
   subject: LedgerSubject | null,
   recipients: string[],
-  mode: MailIndexModeHint,
+  mode: MailStoreMode,
 ): Promise<string[] | null> {
   if (!subject || subject.kind !== 'workspace') return null;
   const index = mailIndexFor(env, subject.workspaceId);
