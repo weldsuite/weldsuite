@@ -49,7 +49,7 @@ export const nl: Translations = {
     title: 'Maak je werkruimte aan',
     description:
       'Maak eerst je werkruimte aan op onze website om WeldHR te gebruiken. Kom daarna hier terug om in te loggen.',
-    goToWebsite: 'Naar weldsuite.com',
+    goToWebsite: 'Naar app.weldsuite.org',
     created: 'Ik heb mijn werkruimte aangemaakt',
     checking: 'Controleren...',
     signOut: 'Uitloggen',

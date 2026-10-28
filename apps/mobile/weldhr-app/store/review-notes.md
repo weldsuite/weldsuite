@@ -34,6 +34,22 @@ Store the password in WeldPass (shared vault "App Review"), never in this repo.
 >
 > Account deletion: Profile → Delete account.
 
+## Lessons from WeldFlow's rejection (April 2026)
+
+App Review rejected WeldFlow 1.0 for three things; WeldHR is set up to avoid each:
+
+- **5.1.1(v) account deletion**: reviewers signed up and landed on "Create your workspace" with no way to delete the account. WeldHR has Delete account there and in Profile.
+- **2.1(a) bug**: "Go to weldsuite.com" opened a server test page (weldsuite.com is not the website). WeldHR links to https://app.weldsuite.org. Check the link still works before submitting.
+- **2.1(b) business model**: Apple asked how paid features work. Answer up front in the review notes (below) so the review does not stall. Reviews happen on an **iPad** as well (`supportsTablet: true`), so test the no-workspace and sign-in screens there.
+
+### Business model answers (check the facts before pasting)
+
+> 1. Users: employees and managers of companies that use WeldSuite. The company is the customer; employees never pay.
+> 2. Purchases: the company subscribes to WeldSuite on the web (app.weldsuite.org), billed per workspace. Nothing can be bought in the app, and the app does not link to or mention pricing.
+> 3. Previously purchased features: the HR module of the company's workspace (leave, shifts, expenses, payslips), available to the employees the company gives access to.
+> 4. None. The app unlocks no paid content; it is a client for the employer's workspace (guideline 3.1.3(c), enterprise services sold to organisations).
+> 5. Accounts are created by the employer's invitation, or by signing up for free. Creating an account costs nothing.
+
 ## Play Console → App content → App access
 
 - "All or some functionality is restricted": **Yes**

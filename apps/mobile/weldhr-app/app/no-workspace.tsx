@@ -14,7 +14,8 @@ import { DeleteAccountDialog } from '@/components/DeleteAccountDialog';
 import { useI18n } from '@/lib/i18n';
 import { hideAppSplash } from '@/utils/splash';
 
-const WELDSUITE_URL = 'https://weldsuite.com';
+// Not weldsuite.com, which serves a placeholder page (App Review rejected WeldFlow for it).
+const WELDSUITE_URL = 'https://app.weldsuite.org';
 
 export default function NoWorkspaceScreen() {
   const { markInteractive } = useObserve();

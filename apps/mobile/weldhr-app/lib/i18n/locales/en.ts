@@ -48,7 +48,7 @@ export const en = {
     title: 'Create your workspace',
     description:
       'To get started with WeldHR, create your workspace on our website. Once your workspace is ready, come back here to sign in.',
-    goToWebsite: 'Go to weldsuite.com',
+    goToWebsite: 'Go to app.weldsuite.org',
     created: "I've created my workspace",
     checking: 'Checking...',
     signOut: 'Sign out',
