@@ -19,7 +19,7 @@ import {
   incomingCallPayloadFromNotificationData,
   presentIncomingCallFromPush,
 } from '@/lib/incoming-call-bridge';
-import { addVoipTokenListener, getVoipToken, isNativeCallsAvailable } from '@/modules/weldchat-calls';
+import { addVoipTokenListener, getVoipToken, isCallKitAvailable, isNativeCallsAvailable } from '@/modules/weldchat-calls';
 
 /**
  * Extract the chat channel id from a notification `actionUrl`. The backend
@@ -85,9 +85,17 @@ async function registerPushToken(token: string): Promise<boolean> {
  * rings natively instead of sending the "Incoming call" banner: the PushKit
  * VoIP token on iOS (CallKit), the Expo token again on Android (full-screen
  * call notification). Only binaries with the native call module have one.
+ *
+ * An iPhone in mainland China has no CallKit, so it deactivates any call token
+ * it registered before (another region, an older build): the server then sends
+ * it the ordinary "Incoming call" push.
  */
 async function registerCallToken(expoToken: string | undefined): Promise<void> {
   if (!isNativeCallsAvailable) return;
+  if (Platform.OS === 'ios' && !isCallKitAvailable()) {
+    await appApi.pushTokens.unregister(`${await getDeviceId()}:call`).catch(() => {});
+    return;
+  }
   const token = Platform.OS === 'ios' ? getVoipToken() : expoToken;
   if (!token) return;
   if (Platform.OS === 'android' && !token.startsWith('ExponentPushToken[')) return;
