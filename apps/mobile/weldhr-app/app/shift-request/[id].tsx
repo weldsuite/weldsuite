@@ -93,7 +93,7 @@ function RequestDetail({ request }: Readonly<{ request: HrSelfShiftRequest }>) {
   return (
     <>
       <Section first>
-        <Card>
+        <Card open>
           <Row
             bar={palette.grabber}
             title={range}
@@ -106,7 +106,7 @@ function RequestDetail({ request }: Readonly<{ request: HrSelfShiftRequest }>) {
       </Section>
 
       <Section title={t.shift.details}>
-        <Card>
+        <Card open>
           {facts.map((fact) => (
             <DetailRow key={fact.label} label={fact.label} value={fact.value} />
           ))}

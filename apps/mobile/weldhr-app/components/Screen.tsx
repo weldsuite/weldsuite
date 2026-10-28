@@ -1,21 +1,22 @@
 /**
- * Screen chrome: on a tinted header, the title on the left (after the back
- * or close button, when there is one) and square buttons on the right, then optionally a segmented control and a period navigator ("Week
- * 43", "Sunday 25 October"), and under that a white sheet with small rounded
- * corners and a grabber that holds the list. Pulling the sheet down reveals what sits behind it (a month
- * calendar to jump to another week or day).
+ * Screen chrome on a white page: the title on the left (after the back or
+ * close button, when there is one) and grey square buttons on the right,
+ * then optionally the screen's views as text tabs and a period navigator
+ * ("Week 43", "Sunday 25 October"), and under that the content.
  *
- * Home and the detail pages (a shift, leave, a sick report) have no sheet:
- * their cards sit straight on a white page. Home has the workspace on the
- * left in place of the title. A `plain` page (Expenses, the detail pages) is
- * white all over: no sheet, and grey buttons and segments instead of blue. Pushed screens get a back
- * button, forms a close button, both square like the rest.
+ * A screen with something behind its list (the month calendar on Schedule
+ * and Absence) has a light grey top and holds the list in a white sheet with
+ * a grabber: pulling it down reveals the calendar to jump to another week or
+ * day. Home has the workspace on the left in place of the title. Pushed
+ * screens get a bare back chevron and a smaller title, forms a square close
+ * button like the rest.
  */
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -28,12 +29,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FLOATING_TAB_BAR_HEIGHT, floatingTabBarBottomInset } from '@weldsuite/mobile-ui/components/FloatingTabBar';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
+  Easing,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
 } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
+import * as Haptics from 'expo-haptics';
 import { AlertCircle, ChevronLeft, ChevronRight, X, type LucideIcon } from 'lucide-react-native';
 
 import { usePalette } from '@/hooks/use-palette';
@@ -46,8 +50,8 @@ export interface SegmentOption<T extends string> {
   testID?: string;
 }
 
-/** Whether the screen is `plain`, for the grey buttons and segments in its header. */
-const PlainContext = createContext(false);
+/** Whether the header sits on the grey canvas, for square buttons a step darker. */
+const CanvasContext = createContext(false);
 
 interface ScreenProps {
   title: string;
@@ -65,14 +69,21 @@ interface ScreenProps {
   period?: ReactNode;
   /** What pulling the sheet down reveals; `close` slides the sheet back up. */
   behind?: (close: () => void) => ReactNode;
-  /** False puts the content straight on a plain white page, no tinted header (Home, detail pages). */
+  /** False puts the content straight under the header with no air above it (Home). */
   sheet?: boolean;
-  /** No sheet and no blue: grey square buttons and segments on white (Expenses, detail pages). */
+  /** Never a sheet, even with something behind (detail pages). */
   plain?: boolean;
+  /**
+   * The grey top and the sheet even on a view with nothing behind it, so the
+   * header keeps its colour between tabs (Absence, where only one tab has a calendar).
+   */
+  keepSheet?: boolean;
   refreshing?: boolean;
   onRefresh?: () => void;
   children: ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
+  /** The page's colour where it is not white (the profile's grouped cards sit on a light grey). */
+  background?: string;
 }
 
 export function Screen({
@@ -86,30 +97,36 @@ export function Screen({
   behind,
   sheet: withSheet = true,
   plain = false,
+  keepSheet = false,
   refreshing = false,
   onRefresh,
   children,
   contentStyle,
+  background,
 }: Readonly<ScreenProps>) {
   const palette = usePalette();
   const insets = useSafeAreaInsets();
-  const sheet = withSheet && !plain;
+  // Only a list with something to pull down to sits in a sheet.
+  const sheet = withSheet && !plain && (Boolean(behind) || keepSheet);
+  // A sheet with nothing above it but the tabs (Absence → Requests) starts at
+  // their line, square and without a grabber, as a plain page does.
+  const flush = sheet && !period && !behind;
   const isModal = variant === 'modal';
-  // A modal is a page sheet on iOS: it starts below the status bar already.
-  const top = isModal ? 14 : insets.top + 6;
-  // On tab screens the content runs on under the floating tab bar and the
-  // round "+" above it (AddButton), which float over it; the end of the list
-  // is padded so its last row can scroll clear of both. Pushed screens and
-  // forms run to the home indicator.
-  const bottom =
-    variant === 'tab'
-      ? floatingTabBarBottomInset(insets.bottom) + FLOATING_SIZE + FLOATING_GAP + 16
-      : insets.bottom + 24;
+  const { top, bottom } = screenEdges(variant, insets);
   const leftButton = variant === 'tab' ? left : <BackButton modal={isModal} />;
+  const pushed = variant === 'push';
+  // A line under a pushed screen's header, as a nav bar; tabs under the title draw their own.
+  const ruled = pushed && !segments && !period;
 
   const scroll = (
     <ScreenScroll
-      contentStyle={[{ paddingBottom: bottom }, plain && styles.plainContent, isModal && styles.form, contentStyle]}
+      contentStyle={[
+        { paddingBottom: bottom },
+        ((withSheet && !sheet) || flush) && styles.plainContent,
+        ruled && styles.ruledContent,
+        isModal && styles.form,
+        contentStyle,
+      ]}
       refreshing={refreshing}
       onRefresh={onRefresh}
     >
@@ -118,55 +135,101 @@ export function Screen({
   );
 
   return (
-    <PlainContext.Provider value={plain}>
-      <View style={[styles.flex, { backgroundColor: sheet ? palette.canvas : palette.surface }]}>
-        <View style={{ paddingTop: top }}>
-          <View style={styles.titleRow}>
-            {heading ? (
-              <View style={styles.heading}>{heading}</View>
-            ) : (
-              <>
-                {leftButton ? <View style={styles.leading}>{leftButton}</View> : null}
-                <Text
-                  style={[styles.title, { color: palette.text }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.75}
-                  accessibilityRole="header"
-                >
-                  {title}
-                </Text>
-              </>
-            )}
-            <View style={[styles.slot, styles.slotRight]}>{right}</View>
-          </View>
+    <CanvasContext.Provider value={sheet}>
+      <View style={[styles.flex, { backgroundColor: background ?? (sheet ? palette.canvas : palette.surface) }]}>
+        <View style={[{ paddingTop: top }, ruled && [styles.ruled, { borderBottomColor: palette.border }]]}>
+          <ScreenTitle title={title} heading={heading} leftButton={leftButton} pushed={pushed} right={right} />
           {segments}
           {period}
         </View>
-        {sheet ? <PullSheet behind={behind}>{scroll}</PullSheet> : scroll}
+        {sheet ? (
+          <PullSheet behind={behind} flush={flush}>
+            {scroll}
+          </PullSheet>
+        ) : (
+          scroll
+        )}
       </View>
-    </PlainContext.Provider>
-  );
-}
-
-
-/** The back arrow on a pushed screen, the close cross on a form; to the tabs when there is nothing to go back to. */
-function BackButton({ modal }: Readonly<{ modal: boolean }>) {
-  const router = useRouter();
-  const { t } = useI18n();
-  return (
-    <SquareButton
-      icon={modal ? X : ChevronLeft}
-      label={modal ? t.common.close : t.common.back}
-      testID={modal ? 'screen-close' : 'screen-back'}
-      onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
-    />
+    </CanvasContext.Provider>
   );
 }
 
 /**
- * The scrolling content: pull to refresh, and the slot sticky section headers
- * pin into (Sticky.tsx).
+ * Where a screen's header starts and its content ends. A modal is a page sheet
+ * on iOS: it starts below the status bar already. On tab screens the content
+ * runs on under the floating tab bar and the round "+" above it (AddButton),
+ * which float over it; the end of the list is padded so its last row can
+ * scroll clear of both. Pushed screens and forms run to the home indicator.
+ */
+function screenEdges(variant: ScreenProps['variant'], insets: { top: number; bottom: number }) {
+  return {
+    top: variant === 'modal' ? 14 : insets.top + 16,
+    bottom:
+      variant === 'tab'
+        ? floatingTabBarBottomInset(insets.bottom) + FLOATING_SIZE + FLOATING_GAP + 16
+        : insets.bottom + 24,
+  };
+}
+
+/** The header's line: a heading of its own (Home's workspace), or the back button and the title; the right slot. */
+function ScreenTitle({
+  title,
+  heading,
+  leftButton,
+  pushed,
+  right,
+}: Readonly<{ title: string; heading?: ReactNode; leftButton?: ReactNode; pushed: boolean; right?: ReactNode }>) {
+  const palette = usePalette();
+  return (
+    <View style={styles.titleRow}>
+      {heading ? (
+        <View style={styles.heading}>{heading}</View>
+      ) : (
+        <>
+          {leftButton ? <View style={pushed ? styles.leadingBack : styles.leading}>{leftButton}</View> : null}
+          <Text
+            style={[styles.title, pushed && styles.titlePushed, { color: palette.text }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            accessibilityRole="header"
+          >
+            {title}
+          </Text>
+        </>
+      )}
+      <View style={[styles.slot, styles.slotRight]}>{right}</View>
+    </View>
+  );
+}
+
+/**
+ * The back chevron on a pushed screen, bare as on iOS, the square close cross
+ * on a form; to the tabs when there is nothing to go back to.
+ */
+function BackButton({ modal }: Readonly<{ modal: boolean }>) {
+  const palette = usePalette();
+  const router = useRouter();
+  const { t } = useI18n();
+  const onPress = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
+  if (modal) return <SquareButton icon={X} label={t.common.close} testID="screen-close" onPress={onPress} />;
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t.common.back}
+      testID="screen-back"
+      hitSlop={10}
+      style={({ pressed }) => [styles.back, { opacity: pressed ? 0.5 : 1 }]}
+    >
+      <ChevronLeft size={BACK_ICON} color={palette.text} strokeWidth={2.2} />
+    </Pressable>
+  );
+}
+
+/**
+ * The scrolling content: pull to refresh, and the scroll position sticky
+ * section headers ride on (Sticky.tsx).
  */
 function ScreenScroll({
   contentStyle,
@@ -190,44 +253,36 @@ function ScreenScroll({
     return () => clearTimeout(id);
   }, [pulled, refreshing]);
 
-  // The scroll offset and the pinned slot for sticky section headers.
+  // The scroll offset, for sticky section headers.
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
   });
-  const [pinned, setPinned] = useState<ReactNode>(null);
-  const sticky = useMemo(() => ({ scrollY, setPinned }), [scrollY]);
+  const sticky = useMemo(() => ({ scrollY }), [scrollY]);
 
   return (
-    <View style={[styles.flex, styles.clip]}>
-      <Animated.ScrollView
-        style={styles.flex}
-        contentContainerStyle={[styles.content, contentStyle]}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl
-              refreshing={pulled}
-              onRefresh={() => {
-                setPulled(true);
-                onRefresh();
-              }}
-              tintColor={palette.muted}
-            />
-          ) : undefined
-        }
-      >
-        <StickyScrollContext.Provider value={sticky}>{children}</StickyScrollContext.Provider>
-      </Animated.ScrollView>
-      {pinned ? (
-        <View style={styles.pinned} pointerEvents="box-none">
-          {pinned}
-        </View>
-      ) : null}
-    </View>
+    <Animated.ScrollView
+      style={styles.flex}
+      contentContainerStyle={[styles.content, contentStyle]}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      onScroll={onScroll}
+      scrollEventThrottle={16}
+      refreshControl={
+        onRefresh ? (
+          <RefreshControl
+            refreshing={pulled}
+            onRefresh={() => {
+              setPulled(true);
+              onRefresh();
+            }}
+            tintColor={palette.muted}
+          />
+        ) : undefined
+      }
+    >
+      <StickyScrollContext.Provider value={sticky}>{children}</StickyScrollContext.Provider>
+    </Animated.ScrollView>
   );
 }
 
@@ -236,12 +291,15 @@ const SPRING = { damping: 22, stiffness: 220, mass: 0.8 };
 /**
  * The white sheet. With something behind it, dragging the grabber down
  * slides the sheet off it; a fling or dragging past half-way settles open.
+ * `flush` joins it to the tab line above it: no gap, no rounded top, no grabber.
  */
 function PullSheet({
   behind,
+  flush = false,
   children,
 }: Readonly<{
   behind?: (close: () => void) => ReactNode;
+  flush?: boolean;
   children: ReactNode;
 }>) {
   const palette = usePalette();
@@ -282,17 +340,19 @@ function PullSheet({
           {behind(() => settle(false))}
         </View>
       ) : null}
-      <Animated.View style={[styles.sheet, { backgroundColor: palette.surface }, sheetStyle]}>
-        <GestureDetector gesture={pan}>
-          <Pressable
-            onPress={behind ? () => settle(!open) : undefined}
-            accessibilityRole={behind ? 'button' : undefined}
-            style={styles.grabberZone}
-            testID="sheet-grabber"
-          >
-            <View style={[styles.grabber, { backgroundColor: palette.grabber }]} />
-          </Pressable>
-        </GestureDetector>
+      <Animated.View style={[styles.sheet, flush && styles.sheetFlush, { backgroundColor: palette.surface }, sheetStyle]}>
+        {flush ? null : (
+          <GestureDetector gesture={pan}>
+            <Pressable
+              onPress={behind ? () => settle(!open) : undefined}
+              accessibilityRole={behind ? 'button' : undefined}
+              style={styles.grabberZone}
+              testID="sheet-grabber"
+            >
+              {behind ? <View style={[styles.grabber, { backgroundColor: palette.grabber }]} /> : null}
+            </Pressable>
+          </GestureDetector>
+        )}
         {children}
       </Animated.View>
     </View>
@@ -314,7 +374,7 @@ export function SquareButton({
   disabled?: boolean;
 }>) {
   const palette = usePalette();
-  const plain = useContext(PlainContext);
+  const onCanvas = useContext(CanvasContext);
   return (
     <Pressable
       onPress={onPress}
@@ -327,7 +387,7 @@ export function SquareButton({
       style={({ pressed }) => [
         styles.square,
         {
-          backgroundColor: plain ? palette.chromePlain : palette.chrome,
+          backgroundColor: onCanvas ? palette.canvasControl : palette.chrome,
           opacity: pressedOpacity(pressed, disabled),
         },
       ]}
@@ -348,31 +408,7 @@ export function floatingButtonBottom(safeAreaBottom: number): number {
   return Math.max(safeAreaBottom, 8) + FLOATING_TAB_BAR_HEIGHT + FLOATING_GAP;
 }
 
-/** The round button floating above the tab bar: white like the bar, with its hairline and shadow. */
-export function FloatingButton({
-  icon: Icon,
-  label,
-  onPress,
-  testID,
-}: Readonly<{ icon: LucideIcon; label: string; onPress: () => void; testID?: string }>) {
-  const palette = usePalette();
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      testID={testID}
-      style={({ pressed }) => [
-        styles.floatingButton,
-        { backgroundColor: palette.surface, borderColor: palette.border, opacity: pressed ? 0.85 : 1 },
-      ]}
-    >
-      <Icon size={26} color={palette.text} strokeWidth={2.2} />
-    </Pressable>
-  );
-}
-
-/** The segmented control under the title: a grey track with a white thumb, as on iOS. */
+/** A segmented control for a setting (language, appearance): a grey track with a white thumb, as on iOS. */
 export function Segments<T extends string>({
   value,
   options,
@@ -385,13 +421,9 @@ export function Segments<T extends string>({
   style?: StyleProp<ViewStyle>;
 }>) {
   const palette = usePalette();
-  const plain = useContext(PlainContext);
   if (options.length < 2) return null;
   return (
-    <View
-      style={[styles.segments, { backgroundColor: plain ? palette.chromePlain : palette.chrome }, style]}
-      accessibilityRole="tablist"
-    >
+    <View style={[styles.segments, { backgroundColor: palette.chrome }, style]} accessibilityRole="tablist">
       {options.map((option) => {
         const selected = option.value === value;
         return (
@@ -401,10 +433,7 @@ export function Segments<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             testID={option.testID}
-            style={[
-              styles.segment,
-              selected && [styles.segmentSelected, { backgroundColor: plain ? palette.thumbPlain : palette.thumb }],
-            ]}
+            style={[styles.segment, selected && [styles.segmentSelected, { backgroundColor: palette.thumb }]]}
           >
             <Text
               style={[
@@ -421,6 +450,96 @@ export function Segments<T extends string>({
           </Pressable>
         );
       })}
+    </View>
+  );
+}
+
+/** Where a tab sits in its strip, for the line under the chosen one. */
+type TabLayout = { x: number; width: number };
+
+/** The line under the chosen tab glides over to the next one. */
+const TAB_SLIDE = { duration: 260, easing: Easing.out(Easing.cubic) };
+
+/**
+ * The screen's views as text tabs under the title, as in Employes: the chosen
+ * one in black with a line under it that slides across when another is
+ * picked, and a hairline across the page underneath.
+ */
+export function TabStrip<T extends string>({
+  value,
+  options,
+  onChange,
+  style,
+}: Readonly<{
+  value: T;
+  options: SegmentOption<T>[];
+  onChange: (value: T) => void;
+  style?: StyleProp<ViewStyle>;
+}>) {
+  const palette = usePalette();
+  const onCanvas = useContext(CanvasContext);
+  const [layouts, setLayouts] = useState<Record<string, TabLayout>>({});
+  const lineX = useSharedValue(0);
+  const lineWidth = useSharedValue(0);
+  const placed = useRef(false);
+
+  useEffect(() => {
+    const target = layouts[value];
+    if (!target) return;
+    // The first time the line is simply there; after that it slides.
+    if (placed.current) {
+      lineX.value = withTiming(target.x, TAB_SLIDE);
+      lineWidth.value = withTiming(target.width, TAB_SLIDE);
+    } else {
+      lineX.value = target.x;
+      lineWidth.value = target.width;
+      placed.current = true;
+    }
+  }, [value, layouts, lineX, lineWidth]);
+
+  const lineStyle = useAnimatedStyle(() => ({
+    width: lineWidth.value,
+    transform: [{ translateX: lineX.value }],
+  }));
+
+  if (options.length < 2) return null;
+  // Scrolls sideways when the labels are wider than a small phone (three tabs on Absence).
+  return (
+    <View style={[styles.tabStrip, { borderBottomColor: onCanvas ? palette.canvasBorder : palette.border }, style]}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        alwaysBounceHorizontal={false}
+        contentContainerStyle={styles.tabRow}
+        accessibilityRole="tablist"
+      >
+        {options.map((option) => {
+          const selected = option.value === value;
+          return (
+            <Pressable
+              key={option.value}
+              onPress={() => {
+                if (selected) return;
+                void Haptics.selectionAsync();
+                onChange(option.value);
+              }}
+              onLayout={(e: LayoutChangeEvent) => {
+                const { x, width } = e.nativeEvent.layout;
+                setLayouts((prev) => ({ ...prev, [option.value]: { x, width } }));
+              }}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+              testID={option.testID}
+              style={styles.tab}
+            >
+              <Text style={[styles.tabLabel, { color: selected ? palette.text : palette.muted }]} numberOfLines={1}>
+                {option.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+        <Animated.View style={[styles.tabLine, { backgroundColor: palette.text }, lineStyle]} />
+      </ScrollView>
     </View>
   );
 }
@@ -537,6 +656,8 @@ export function ErrorState({ onRetry }: Readonly<{ onRetry?: () => void }>) {
 }
 
 const SQUARE = 40;
+/** The bare back chevron; lucide draws it in the middle quarter of its box. */
+const BACK_ICON = 26;
 const FLOATING_SIZE = 56;
 /** Between the floating button and the tab bar under it. */
 const FLOATING_GAP = 16;
@@ -545,11 +666,11 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   // Fills the visible height, so an empty state can centre in it.
   content: { flexGrow: 1 },
-  // A little air between a plain page's header and its first card, where a sheet has its grabber.
+  // A little air between the header and the first card, where a sheet has its grabber.
   plainContent: { paddingTop: 4 },
-  // The pinned header slides out under the top edge of the list, not over the grabber.
-  clip: { overflow: 'hidden' },
-  pinned: { position: 'absolute', top: 0, left: 0, right: 0 },
+  // The line runs edge to edge just under the title.
+  ruled: { paddingBottom: 2, borderBottomWidth: StyleSheet.hairlineWidth },
+  ruledContent: { paddingTop: 10 },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -559,7 +680,11 @@ const styles = StyleSheet.create({
   slot: { width: SQUARE + 8, flexDirection: 'row' },
   slotRight: { justifyContent: 'flex-end' },
   title: { flex: 1, textAlign: 'left', fontSize: 28, fontWeight: '700', letterSpacing: -0.6 },
+  titlePushed: { fontSize: 24, letterSpacing: -0.4 },
   leading: { marginRight: 12 },
+  // The chevron's stroke on the page's 16pt edge, the title 16pt after it.
+  leadingBack: { marginLeft: -Math.round((BACK_ICON * 9) / 24), marginRight: 6 },
+  back: { height: SQUARE, justifyContent: 'center' },
   heading: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   square: {
     width: SQUARE,
@@ -593,6 +718,14 @@ const styles = StyleSheet.create({
   },
   segmentLabel: { fontSize: 14, fontWeight: '500' },
   segmentLabelSelected: { fontWeight: '600' },
+  // Left-aligned with the title; the hairline runs from edge to edge.
+  tabStrip: { marginTop: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  tabRow: { flexDirection: 'row', gap: 24, paddingHorizontal: 16 },
+  tab: { paddingTop: 10, paddingBottom: 12 },
+  // One weight for chosen and not, so a label does not change width when picked.
+  tabLabel: { fontSize: 16, fontWeight: '600' },
+  // On top of the hairline, not above it.
+  tabLine: { position: 'absolute', left: 0, bottom: -StyleSheet.hairlineWidth, height: 2, borderRadius: 1 },
   period: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -604,19 +737,6 @@ const styles = StyleSheet.create({
   periodLabel: { fontSize: 17, fontWeight: '600' },
   periodSub: { fontSize: 14, marginTop: 1 },
   behind: { position: 'absolute', top: 0, left: 0, right: 0 },
-  floatingButton: {
-    width: FLOATING_SIZE,
-    height: FLOATING_SIZE,
-    borderRadius: FLOATING_SIZE / 2,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    elevation: 12,
-  },
   sheet: {
     flex: 1,
     marginTop: 12,
@@ -625,7 +745,10 @@ const styles = StyleSheet.create({
     borderCurve: 'continuous',
     overflow: 'hidden',
   },
-  grabberZone: { alignItems: 'center', paddingTop: 10, paddingBottom: 6 },
+  sheetFlush: { marginTop: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 },
+  // A 40pt strip to grab, on top of the list: the list starts 10pt below the
+  // sheet's edge, under it, so the first line sits close to the grabber.
+  grabberZone: { alignItems: 'center', paddingTop: 10, paddingBottom: 26, marginBottom: -30, zIndex: 1 },
   grabber: { width: 38, height: 4, borderRadius: 2 },
   form: { paddingHorizontal: 16, paddingTop: 12, gap: 16 },
   section: { marginTop: 22 },

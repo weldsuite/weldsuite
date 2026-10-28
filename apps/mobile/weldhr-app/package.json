@@ -18,6 +18,7 @@
   "dependencies": {
     "@clerk/expo": "^4.7.1",
     "@clerk/shared": "^4.36.0",
+    "@expo-google-fonts/inter": "^0.4.2",
     "@expo/metro-runtime": "~57.0.15",
     "@expo/ui": "57.0.16",
     "@expo/vector-icons": "^15.0.2",
@@ -36,6 +37,7 @@
     "@weldsuite/text": "workspace:*",
     "expo": "~57.0.20",
     "expo-apple-authentication": "~57.0.1",
+    "expo-blur": "~57.0.2",
     "expo-build-properties": "~57.0.17",
     "expo-constants": "~57.0.17",
     "expo-crypto": "~57.0.2",

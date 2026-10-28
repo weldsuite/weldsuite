@@ -19,7 +19,6 @@ import {
 } from '@weldsuite/mobile-ui/components/FloatingTabBar';
 
 import { AddButton } from '@/components/AddButton';
-import { BRAND } from '@/constants/brand';
 import { usePalette } from '@/hooks/use-palette';
 import { useAnnouncements, useHrAccess, usePendingExpenses, usePendingLeave } from '@/hooks/use-weldhr-queries';
 import { useI18n } from '@/lib/i18n';
@@ -27,10 +26,16 @@ import { useI18n } from '@/lib/i18n';
 type TabIconProps = { color: ColorValue; size: number };
 type TabBarRenderProps = Parameters<NonNullable<ComponentProps<typeof Tabs>['tabBar']>>[0];
 
-/** Solid, so the content scrolling underneath does not show through the floating island. */
+/**
+ * Solid, so the content scrolling underneath does not show through the floating
+ * island, with a light border and shadow so it stands out on the white pages.
+ * The counts on its icons are blue.
+ */
 function WeldHrTabBar(props: Readonly<FloatingTabBarProps>) {
   const palette = usePalette();
-  return <FloatingTabBar {...props} badgeColor={BRAND} shellColor={palette.surface} />;
+  return (
+    <FloatingTabBar {...props} badgeColor={palette.badge} shellColor={palette.surface} borderColor={palette.border} shadow />
+  );
 }
 
 function renderTabBar(props: TabBarRenderProps) {

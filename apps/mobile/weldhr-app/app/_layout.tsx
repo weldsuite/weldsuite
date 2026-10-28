@@ -1,3 +1,5 @@
+// First: swaps in the app's Text and TextInput (Inter, Attio's colours) before anything uses them.
+import { APP_FONTS } from '@/lib/app-font';
 import { ClerkProvider, ClerkLoaded, useOrganizationList } from '@clerk/expo';
 import { DefaultTheme, ThemeProvider as NavigationThemeProvider } from 'expo-router/react-navigation';
 import { Observe, ObserveRoot } from 'expo-observe';
@@ -8,6 +10,7 @@ import { View, ActivityIndicator, Text } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
 import 'react-native-reanimated';
 
 import { hideAppSplash } from '@/utils/splash';
@@ -206,9 +209,11 @@ function AppStack() {
                         <Stack.Screen name="expense/new" options={{ presentation: 'modal' }} />
                         <Stack.Screen name="sick" options={{ presentation: 'modal' }} />
                         <Stack.Screen name="shift/new" options={{ presentation: 'modal' }} />
+                        <Stack.Screen name="announcement/new" options={{ presentation: 'modal' }} />
                         <Stack.Screen name="profile" />
                         <Stack.Screen name="shift/[id]" />
                         <Stack.Screen name="leave/[id]" />
+                        <Stack.Screen name="expense/[id]" />
                         <Stack.Screen name="sick/[id]" />
                         <Stack.Screen name="shift-request/[id]" />
                         <Stack.Screen name="open-shift/[id]" />
@@ -245,6 +250,8 @@ function AuthenticatedApp() {
 
 function RootLayout() {
   const { ready, language } = usePersistedLanguage();
+  // Inter's faces are bundled, so they load in a moment; a face that fails falls back to the system font.
+  const [fontsLoaded, fontError] = useFonts(APP_FONTS);
 
   useEffect(() => {
     const safety = setTimeout(() => hideAppSplash(), 5000);
@@ -253,7 +260,7 @@ function RootLayout() {
 
   // The saved language is read from storage in a few milliseconds; waiting for
   // it keeps a Dutch user from seeing the first screen flash in English.
-  if (!ready) {
+  if (!ready || (!fontsLoaded && !fontError)) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
         <ActivityIndicator size="large" color={BRAND} />

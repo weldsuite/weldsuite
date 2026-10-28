@@ -29,6 +29,8 @@ export interface HrAccess {
   sickToday: boolean;
   /** The employee directory. */
   directory: boolean;
+  /** Post announcements (the "+" on Announcements). */
+  createAnnouncements: boolean;
   /** Any of the team permissions. */
   team: boolean;
 }
@@ -42,6 +44,7 @@ export const NO_ACCESS: HrAccess = {
   leave: false,
   sickToday: false,
   directory: false,
+  createAnnouncements: false,
   team: false,
 };
 
@@ -67,6 +70,7 @@ export function resolveAccess(subject: PermissionSubject, appEnforced: boolean):
     leave: can('leave:read'),
     sickToday,
     directory,
+    createAnnouncements: can('announcements:create'),
     team: approveLeave || approveExpenses || teamToday || sickToday || directory,
   };
 }

@@ -116,6 +116,8 @@ export interface FloatingTabBarProps {
   shellColor?: string;
   /** Hairline around the bar (defaults to a faint black/white). */
   borderColor?: string;
+  /** A light shadow all round, so the bar stands out on a white page. Off by default. */
+  shadow?: boolean;
 }
 
 export function FloatingTabBar({
@@ -129,6 +131,7 @@ export function FloatingTabBar({
   badgeColor = '#EF4444',
   shellColor,
   borderColor,
+  shadow = false,
 }: Readonly<FloatingTabBarProps>) {
   const { colors, theme } = useTheme();
   const insets = useSafeAreaInsets();
@@ -188,102 +191,141 @@ export function FloatingTabBar({
       pointerEvents="box-none"
       style={[styles.wrapper, { paddingBottom: Math.max(insets.bottom, 8) }]}
     >
-      <View
-        style={[
-          styles.shell,
-          {
-            backgroundColor: shellBackground,
-            borderColor: shellBorder,
-          },
-        ]}
-      >
-        <Animated.View
-          pointerEvents="none"
+      {/* The shadow sits on a box of its own: the shell clips its corners, and that would clip a shadow too. */}
+      <View style={[styles.lift, shadow && [styles.shadow, { backgroundColor: shellBackground }]]}>
+        <View
           style={[
-            styles.indicator,
-            { backgroundColor: indicatorBackground },
-            indicatorStyle,
+            styles.shell,
+            {
+              backgroundColor: shellBackground,
+              borderColor: shellBorder,
+            },
           ]}
-        />
+        >
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.indicator,
+              { backgroundColor: indicatorBackground },
+              indicatorStyle,
+            ]}
+          />
 
-        {state.routes.map((route, index) => {
-          const { options } = descriptors[route.key];
-          if (isHiddenTab(options.tabBarItemStyle)) return null;
-          const isFocused = state.index === index;
-          const isAccent = accentRouteName != null && route.name === accentRouteName;
-          const badge = options.tabBarBadge;
+          {state.routes.map((route, index) => {
+            const { options } = descriptors[route.key];
+            if (isHiddenTab(options.tabBarItemStyle)) return null;
+            const isFocused = state.index === index;
+            const isAccent = accentRouteName != null && route.name === accentRouteName;
+            const badge = options.tabBarBadge;
 
-          const onPress = () => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            const event = navigation.emit({
-              type: 'tabPress',
-              target: route.key,
-              canPreventDefault: true,
-            });
+            const onPress = () => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              const event = navigation.emit({
+                type: 'tabPress',
+                target: route.key,
+                canPreventDefault: true,
+              });
 
-            if (!isFocused && !event.defaultPrevented) {
-              if (navigation.jumpTo) {
-                navigation.jumpTo(route.name, route.params);
-              } else {
-                navigation.navigate(route.name, route.params);
+              if (!isFocused && !event.defaultPrevented) {
+                if (navigation.jumpTo) {
+                  navigation.jumpTo(route.name, route.params);
+                } else {
+                  navigation.navigate(route.name, route.params);
+                }
               }
+            };
+
+            const onLongPress = () => {
+              navigation.emit({
+                type: 'tabLongPress',
+                target: route.key,
+              });
+            };
+
+            let color = colors.muted;
+            if (isFocused) {
+              color = isAccent ? (accentColor ?? colors.text) : colors.text;
             }
-          };
 
-          const onLongPress = () => {
-            navigation.emit({
-              type: 'tabLongPress',
-              target: route.key,
-            });
-          };
+            const iconSize = isAccent ? 24 : 22;
 
-          let color = colors.muted;
-          if (isFocused) {
-            color = isAccent ? (accentColor ?? colors.text) : colors.text;
-          }
+            return (
+              <Pressable
+                key={route.key}
+                accessibilityRole="button"
+                accessibilityState={isFocused ? { selected: true } : {}}
+                accessibilityLabel={options.tabBarAccessibilityLabel ?? options.title}
+                testID={options.tabBarButtonTestID}
+                onPress={onPress}
+                onLongPress={onLongPress}
+                onLayout={onTabLayout(index)}
+                style={styles.tab}
+              >
+                {options.tabBarIcon?.({
+                  focused: isFocused,
+                  color,
+                  size: iconSize,
+                }) ??
+                  (isAccent
+                    ? renderAccentFallbackIcon?.({
+                        focused: isFocused,
+                        color,
+                        size: iconSize,
+                      })
+                    : null)}
+                {badge != null && badge !== 0 ? (
+                  <Badge
+                    label={typeof badge === 'number' && badge > 99 ? '99+' : String(badge)}
+                    color={badgeColor}
+                    // The ring is what lies behind the badge: the shell, and on the
+                    // chosen tab the indicator over it.
+                    ring={shellBackground}
+                    ringOverlay={isFocused ? indicatorBackground : undefined}
+                  />
+                ) : null}
+                {renderRouteAccessory?.({
+                  name: route.name,
+                  key: route.key,
+                  index,
+                  focused: isFocused,
+                })}
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+}
 
-          const iconSize = isAccent ? 24 : 22;
+/** The count's dot: one digit fits a circle of this size; more make it a pill. */
+const BADGE_SIZE = 18;
+/** The ring around it, in the colour behind, that cuts it out of the icon. */
+const BADGE_RING = 2;
 
-          return (
-            <Pressable
-              key={route.key}
-              accessibilityRole="button"
-              accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel ?? options.title}
-              testID={options.tabBarButtonTestID}
-              onPress={onPress}
-              onLongPress={onLongPress}
-              onLayout={onTabLayout(index)}
-              style={styles.tab}
-            >
-              {options.tabBarIcon?.({
-                focused: isFocused,
-                color,
-                size: iconSize,
-              }) ??
-                (isAccent
-                  ? renderAccentFallbackIcon?.({
-                      focused: isFocused,
-                      color,
-                      size: iconSize,
-                    })
-                  : null)}
-              {badge != null && badge !== 0 ? (
-                <View style={[styles.badge, { backgroundColor: badgeColor }]}>
-                  <Text style={styles.badgeText}>
-                    {typeof badge === 'number' && badge > 99 ? '99+' : String(badge)}
-                  </Text>
-                </View>
-              ) : null}
-              {renderRouteAccessory?.({
-                name: route.name,
-                key: route.key,
-                index,
-                focused: isFocused,
-              })}
-            </Pressable>
-          );
-        })}
+/**
+ * A count on a tab's icon: a perfect circle (a pill from two characters) on
+ * the icon's top-right corner, cut out of the icon by a ring in the colour
+ * behind it, so it reads on the plain bar and on the chosen tab's pill alike.
+ */
+function Badge({
+  label,
+  color,
+  ring,
+  ringOverlay,
+}: {
+  label: string;
+  color: string;
+  ring: string;
+  ringOverlay?: string;
+}) {
+  return (
+    <View style={[styles.badgeRing, { backgroundColor: ring }]} pointerEvents="none">
+      {ringOverlay ? <View style={[StyleSheet.absoluteFill, { backgroundColor: ringOverlay }]} /> : null}
+      <View style={[styles.badge, label.length > 1 && styles.badgeWide, { backgroundColor: color }]}>
+        <Text style={styles.badgeText} numberOfLines={1} allowFontScaling={false}>
+          {label}
+        </Text>
       </View>
     </View>
   );
@@ -297,6 +339,24 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     paddingHorizontal: 20,
+  },
+  lift: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 28,
+  },
+  shadow: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 6,
+      },
+    }),
   },
   shell: {
     flexDirection: 'row',
@@ -334,23 +394,31 @@ const styles = StyleSheet.create({
     height: '100%',
     minWidth: 44,
   },
-  badge: {
+  // Its left edge just right of the icon's middle, so it sits on the icon's
+  // top-right corner whatever the tab's width (a 22pt icon in the 56pt bar).
+  badgeRing: {
     position: 'absolute',
     top: 8,
-    right: '18%',
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 4,
+    left: '50%',
+    marginLeft: 2,
+    padding: BADGE_RING,
+    borderRadius: BADGE_SIZE / 2 + BADGE_RING,
+    overflow: 'hidden',
+  },
+  badge: {
+    minWidth: BADGE_SIZE,
+    height: BADGE_SIZE,
+    borderRadius: BADGE_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#fff',
   },
+  badgeWide: { paddingHorizontal: 5 },
   badgeText: {
     color: '#fff',
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
-    lineHeight: 11,
+    lineHeight: 13,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
   },
 });

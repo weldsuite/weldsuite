@@ -70,7 +70,7 @@ function EmployeeCard({ data }: Readonly<{ data: HrEmployeeDetail }>) {
 
       {details.length > 0 ? (
         <Section>
-          <Card>
+          <Card open>
             {details.map((detail) => (
               <DetailRow key={detail.label} label={detail.label} value={detail.value} />
             ))}

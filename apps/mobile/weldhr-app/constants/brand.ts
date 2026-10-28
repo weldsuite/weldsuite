@@ -1,33 +1,39 @@
 /**
- * The app's colours, after the WeldChat app: white pages, black type, iOS
- * greys for controls and tiles, black primary buttons, and the app's own
- * colour (WeldHR teal, where WeldChat has its green) for links, switches and
- * badges. The month calendar marks today and the chosen week in blue.
+ * The app's colours, after the WeldChat app: white pages, Attio's text colours
+ * (near-black type, slate grey for the muted; lib/app-font.ts), iOS greys for
+ * controls and tiles, black primary buttons, and the app's own colour (WeldHR
+ * teal, where WeldChat has its green) for links, switches and badges. The
+ * month calendar marks today and the chosen week in blue, and the tab bar's
+ * counts and unread rows are blue.
  */
+
+import type { HrDeclarationCategory } from '@weldsuite/app-api-client/domains/weldhr';
 
 /** WeldHR teal, the same as the platform's WeldHR icon. */
 export const BRAND = '#0D9488';
 
 export interface Palette {
-  /** The tinted page behind the sheet: the header, and Home. A soft blue, the family of the shift card and calendar. */
+  /** The light grey top behind a sheet (Schedule, Absence), where the month calendar is. */
   canvas: string;
-  /** Sheets and cards. */
+  /** Pages, sheets and cards. */
   surface: string;
-  /** Square header buttons and the segmented control's track, a step deeper than the canvas. */
+  /** Square header buttons and the segmented control's track. */
   chrome: string;
-  /** The same on a plain white page (`Screen` with `plain`): iOS grey instead of the blue tint. */
-  chromePlain: string;
   /** Secondary buttons on a sheet ("Decline", call / email). */
   control: string;
+  /** Square buttons on the grey canvas (the week arrows): a light step darker than the canvas. */
+  canvasControl: string;
   /** The selected segment. */
   thumb: string;
-  /** The selected segment on a plain white page. */
-  thumbPlain: string;
   /** Date tiles and icon tiles. */
   tile: string;
   text: string;
   muted: string;
   border: string;
+  /** A softer border: the search field and the Expenses totals card. */
+  softBorder: string;
+  /** A line on the grey canvas (under the tabs), where `border` would barely show. */
+  canvasBorder: string;
   grabber: string;
   accent: string;
   /** Today and the chosen day in the month calendar. */
@@ -36,6 +42,16 @@ export interface Palette {
   calendarSoft: string;
   /** The blue action button on an empty page ("New expense"). */
   primary: string;
+  /** The counts on the tab bar's icons: a blue halfway between `primary` and blue-500. */
+  badge: string;
+  /** Behind a row not opened yet (an unread announcement): `badge` washed out. */
+  unread: string;
+  /** The profile's page behind its cards: the canvas grey, a step lighter. */
+  groupedPage: string;
+  /** Attio's settings cards (Grouped.tsx): their border and lines, the icons, the check. */
+  groupedBorder: string;
+  groupedIcon: string;
+  selected: string;
   /** The black primary button ("Clock in", "Approve"). */
   ink: string;
   inkText: string;
@@ -47,22 +63,29 @@ export interface Palette {
 /** The `@weldsuite/mobile-ui` theme tokens WeldChat is built on, light and dark. */
 export const PALETTES: Record<'light' | 'dark', Palette> = {
   light: {
-    canvas: '#EBF1FE',
+    canvas: '#F2F2F7',
     surface: '#FFFFFF',
-    chrome: '#D9E4FC',
-    chromePlain: '#EEEEF0',
+    chrome: '#EEEEF0',
     control: '#E5E5EA',
+    canvasControl: '#E7E7EC',
     thumb: '#FFFFFF',
-    thumbPlain: '#FFFFFF',
     tile: '#F2F2F7',
-    text: '#000000',
-    muted: '#52575F',
+    text: '#1C1D1F',
+    muted: '#6F7988',
     border: '#E5E5EA',
+    softBorder: '#EFEFF2',
+    canvasBorder: '#C7C7CC',
     grabber: '#D1D1D6',
     accent: BRAND,
     calendar: '#3B82F6',
     calendarSoft: 'rgba(59, 130, 246, 0.12)',
     primary: '#2563EB',
+    badge: '#3073F1',
+    unread: '#EEF4FE',
+    groupedPage: '#F7F7FA',
+    groupedBorder: '#E6E7E8',
+    groupedIcon: '#6C6E6F',
+    selected: '#3A6CE8',
     ink: '#000000',
     inkText: '#FFFFFF',
     success: '#059669',
@@ -70,22 +93,29 @@ export const PALETTES: Record<'light' | 'dark', Palette> = {
     danger: '#DC2626',
   },
   dark: {
-    canvas: '#0C1426',
+    canvas: '#000000',
     surface: '#1C1C1E',
-    chrome: '#1C2741',
-    chromePlain: '#2C2C2E',
+    chrome: '#2C2C2E',
     control: '#2C2C2E',
-    thumb: '#33425F',
-    thumbPlain: '#636366',
+    canvasControl: '#2C2C2E',
+    thumb: '#636366',
     tile: '#2C2C2E',
-    text: '#FFFFFF',
-    muted: '#9CA3AF',
+    text: '#EFF3F4',
+    muted: '#97A0AF',
     border: '#38383A',
+    softBorder: '#38383A',
+    canvasBorder: '#38383A',
     grabber: '#48484A',
     accent: '#14B8A6',
     calendar: '#3B82F6',
     calendarSoft: 'rgba(59, 130, 246, 0.22)',
     primary: '#3B82F6',
+    badge: '#4E94F8',
+    unread: '#232D3C',
+    groupedPage: '#000000',
+    groupedBorder: '#2C2C2E',
+    groupedIcon: '#98989F',
+    selected: '#4E7FF0',
     ink: '#FFFFFF',
     inkText: '#000000',
     success: '#34D399',
@@ -128,6 +158,16 @@ export const ACCENTS = {
   team: '#3B82F6',
   settings: '#6B7280',
 } as const;
+
+/** A colour per expense category, for its tinted tile on Expenses. */
+export const DECLARATION_ACCENTS: Record<HrDeclarationCategory, string> = {
+  travel: '#3B82F6',
+  meals: '#F97316',
+  accommodation: '#8B5CF6',
+  equipment: '#14B8A6',
+  training: '#EC4899',
+  other: '#6B7280',
+};
 
 const HEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 

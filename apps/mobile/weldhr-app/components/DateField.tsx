@@ -1,7 +1,8 @@
 /**
  * A date input that opens a month calendar in a sheet. Plain JS on purpose:
  * it looks the same on iOS, Android and the browser preview, and needs no
- * native date-picker module in the build.
+ * native date-picker module in the build. The field is a form's grey field
+ * under its small-capitals label (Form.tsx).
  */
 
 import { useMemo, useState } from 'react';
@@ -11,6 +12,7 @@ import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
 import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 import { BRAND } from '@/constants/brand';
+import { FormLabel, useFieldBox } from './Form';
 import { monthGrid, parseIsoDate, todayIso } from '@/lib/dates';
 import { formatDay } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
@@ -26,23 +28,20 @@ interface DateFieldProps {
 }
 
 export function DateField({ label, value, onChange, min, max }: Readonly<DateFieldProps>) {
-  const { colors } = useTheme();
+  const { colors, box, value: valueStyle } = useFieldBox();
   const { intlLocale } = useI18n();
   const [open, setOpen] = useState(false);
 
   return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
+    <View>
+      <FormLabel>{label}</FormLabel>
       <Pressable
         onPress={() => setOpen(true)}
         accessibilityRole="button"
         accessibilityLabel={`${label}: ${formatDay(value, intlLocale)}`}
-        style={({ pressed }) => [
-          styles.input,
-          { backgroundColor: colors.inputBackground, opacity: pressed ? 0.8 : 1 },
-        ]}
+        style={({ pressed }) => [box, pressed && styles.pressed]}
       >
-        <Text style={[styles.value, { color: colors.text }]}>{formatDay(value, intlLocale)}</Text>
+        <Text style={valueStyle}>{formatDay(value, intlLocale)}</Text>
         <CalendarDays size={18} color={colors.mutedForeground} />
       </Pressable>
       {open ? (
@@ -164,17 +163,7 @@ function MonthCalendar({
 }
 
 const styles = StyleSheet.create({
-  field: { gap: 6 },
-  label: { fontSize: 14, fontWeight: '500' },
-  input: {
-    minHeight: 46,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  value: { fontSize: 16 },
+  pressed: { opacity: 0.8 },
   calendar: { gap: 4, paddingBottom: 8 },
   calendarHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   arrow: { padding: 6 },

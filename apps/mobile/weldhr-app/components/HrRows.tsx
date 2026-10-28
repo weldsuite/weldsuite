@@ -1,18 +1,32 @@
 /**
  * Rows that show up on more than one screen: a shift (Home, Schedule), a
  * leave request and a sick report (Home, Absence), and the tiles that mark a
- * leave type or a sick day.
+ * leave type, a sick day or an expense's category.
  */
 
-import { Plane, Thermometer } from 'lucide-react-native';
-import type { HrLeaveStatus, HrSelfAbsence, HrSelfLeaveRequest } from '@weldsuite/app-api-client/domains/weldhr';
+import {
+  BedDouble,
+  Car,
+  GraduationCap,
+  Laptop,
+  Plane,
+  Receipt,
+  Thermometer,
+  UtensilsCrossed,
+} from 'lucide-react-native';
+import type {
+  HrDeclarationCategory,
+  HrLeaveStatus,
+  HrSelfAbsence,
+  HrSelfLeaveRequest,
+} from '@weldsuite/app-api-client/domains/weldhr';
 
-import { onColor, solid, swatchFor, type Palette } from '@/constants/brand';
+import { DECLARATION_ACCENTS, onColor, solid, swatchFor, type Palette } from '@/constants/brand';
 import { usePalette } from '@/hooks/use-palette';
 import { dayOf } from '@/lib/dates';
-import { formatShortDate, formatSpan, formatTime } from '@/lib/format';
+import { formatShortDate, formatSpan, formatTime, RANGE } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
-import { DateTile, IconTile, Row } from './Row';
+import { DateTile, IconTile, Row, ROW_TILE } from './Row';
 
 /** Status words in their colour: approved green, pending amber, declined red. */
 export function statusColor(status: HrLeaveStatus | string, palette: Palette): string {
@@ -43,9 +57,25 @@ export function SickTile({ size = 40 }: Readonly<{ size?: number }>) {
   return <IconTile icon={Thermometer} background={palette.danger} color="#FFFFFF" size={size} />;
 }
 
-/** "09:00 – 16:30" for a shift or a clocked stretch; "09:00 – …" while it is still running. */
+/** An icon per expense category, so a list of claims scans without reading. */
+const CATEGORY_ICONS: Record<HrDeclarationCategory, typeof Receipt> = {
+  travel: Car,
+  meals: UtensilsCrossed,
+  accommodation: BedDouble,
+  equipment: Laptop,
+  training: GraduationCap,
+  other: Receipt,
+};
+
+/** An expense category's icon on a tile in its colour, as a leave type's tile. */
+export function CategoryTile({ category, size = ROW_TILE }: Readonly<{ category: HrDeclarationCategory; size?: number }>) {
+  const accent = DECLARATION_ACCENTS[category] ?? DECLARATION_ACCENTS.other;
+  return <IconTile icon={CATEGORY_ICONS[category] ?? Receipt} background={accent} color={onColor(accent)} size={size} />;
+}
+
+/** "09:00 - 16:30" for a shift or a clocked stretch; "09:00 - …" while it is still running. */
 export function timeRange(start: string | null, end: string | null, locale: string): string {
-  return `${formatTime(start, locale)} – ${end ? formatTime(end, locale) : '…'}`;
+  return `${formatTime(start, locale)}${RANGE}${end ? formatTime(end, locale) : '…'}`;
 }
 
 export function ShiftRow({
@@ -74,7 +104,7 @@ export function LeaveRow({ request, onPress }: Readonly<{ request: HrSelfLeaveRe
   const status = labelFor(t.leaveStatus, request.status);
   return (
     <Row
-      leading={<LeaveTypeTile color={request.leaveTypeColor} />}
+      leading={<LeaveTypeTile color={request.leaveTypeColor} size={ROW_TILE} />}
       title={request.leaveTypeName ?? t.absence.leave}
       subtitle={
         request.reviewNote ? `${status} • ${format(t.timeOff.reviewNoteAnonymous, { note: request.reviewNote })}` : status
@@ -95,13 +125,13 @@ export function SickRow({ absence, onPress }: Readonly<{ absence: HrSelfAbsence;
   const ongoing = absence.status === 'ongoing';
   return (
     <Row
-      leading={<SickTile />}
+      leading={<SickTile size={ROW_TILE} />}
       title={t.absence.sick}
       subtitle={ongoing ? t.absence.ongoing : t.absence.recovered}
       subtitleColor={ongoing ? palette.danger : palette.muted}
       value={
         ongoing
-          ? `${formatShortDate(absence.startDate, intlLocale)} – …`
+          ? `${formatShortDate(absence.startDate, intlLocale)}${RANGE}…`
           : formatSpan(absence.startDate, absence.endDate ?? absence.startDate, intlLocale)
       }
       detail={plural(absence.days, t.balance.days)}

@@ -1,20 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { Check } from 'lucide-react-native';
 import type { HrLeaveBalance, HrSelfLeave } from '@weldsuite/app-api-client/domains/weldhr';
 import { Banner } from '@weldsuite/mobile-ui/components/Banner';
-import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { Textarea } from '@weldsuite/mobile-ui/components/Textarea';
 import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { DateField } from '@/components/DateField';
+import { FormChoice, FormField, FormHint, FormInput, FormOptions, FormRow, FormScreen } from '@/components/Form';
 import { LeaveTypeTile } from '@/components/HrRows';
 import { ListSkeleton } from '@/components/QueryBody';
-import { ErrorNote, Screen } from '@/components/Screen';
-import { tint } from '@/constants/brand';
-import { usePalette } from '@/hooks/use-palette';
+import { ROW_TILE } from '@/components/Row';
 import { useLeave, useMe, useRequestLeave } from '@/hooks/use-weldhr-queries';
 import { nextWeekday, todayIso, weekdaysBetween } from '@/lib/dates';
 import { formatDays } from '@/lib/format';
@@ -25,24 +21,18 @@ export default function NewLeaveScreen() {
   const { t } = useI18n();
   const me = useMe();
   const leave = useLeave();
+  const turnedOff = me.data?.features.leaveRequests === false;
 
-  return (
-    <Screen title={t.leaveForm.title} variant="modal">
-      <NewLeaveBody turnedOff={me.data?.features.leaveRequests === false} leave={leave} />
-    </Screen>
-  );
-}
-
-function NewLeaveBody({ turnedOff, leave }: Readonly<{ turnedOff: boolean; leave: ReturnType<typeof useLeave> }>) {
-  const { t } = useI18n();
-  if (leave.isPending) return <ListSkeleton count={3} />;
-  if (turnedOff) return <Banner variant="info">{t.timeOff.turnedOff}</Banner>;
-  if (leave.isError || !leave.data) return <ErrorNote message={t.common.somethingWrong} />;
+  if (leave.isPending || turnedOff || leave.isError || !leave.data) {
+    let body = <ListSkeleton count={3} />;
+    if (turnedOff) body = <Banner variant="info">{t.timeOff.turnedOff}</Banner>;
+    else if (!leave.isPending) body = <FormHint error>{t.common.somethingWrong}</FormHint>;
+    return <FormScreen title={t.leaveForm.title}>{body}</FormScreen>;
+  }
   return <LeaveForm data={leave.data} />;
 }
 
 function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
-  const palette = usePalette();
   const { t, plural } = useI18n();
   const router = useRouter();
   const toast = useToast();
@@ -86,8 +76,20 @@ function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
     );
   };
 
+  let approvalHint: string | null = null;
+  if (type) approvalHint = type.requiresApproval ? t.leaveForm.needsApproval : t.leaveForm.autoApproved;
+
   return (
-    <View style={styles.form}>
+    <FormScreen
+      title={t.leaveForm.title}
+      action={{
+        label: t.common.submit,
+        onPress: submit,
+        disabled: blocked || !typeId || request.isPending,
+        loading: request.isPending,
+        testID: 'leave-submit',
+      }}
+    >
       <TypePicker
         types={types}
         balances={startDate.slice(0, 4) === today.slice(0, 4) ? data.balances : []}
@@ -95,8 +97,8 @@ function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
         onChange={setTypeId}
       />
 
-      <View style={styles.dates}>
-        <View style={styles.date}>
+      <View>
+        <FormRow>
           <DateField
             label={t.leaveForm.from}
             value={startDate}
@@ -105,42 +107,25 @@ function LeaveForm({ data }: Readonly<{ data: HrSelfLeave }>) {
               if (endDate < next) setEndDate(next);
             }}
           />
-        </View>
-        <View style={styles.date}>
           <DateField label={t.leaveForm.to} value={endDate} min={startDate} onChange={setEndDate} />
-        </View>
+        </FormRow>
+        <FormHint>{plural(days, t.leaveForm.estimate)}</FormHint>
       </View>
-      <Text style={[styles.hint, { color: palette.muted }]}>{plural(days, t.leaveForm.estimate)}</Text>
 
       <AllowanceBanner allowance={allowance} />
 
-      <Textarea
-        label={t.leaveForm.reason}
-        placeholder={t.leaveForm.reasonPlaceholder}
-        value={reason}
-        onChangeText={setReason}
-        numberOfLines={3}
-        maxLength={2000}
-      />
-
-      {type ? (
-        <Text style={[styles.hint, { color: palette.muted }]}>
-          {type.requiresApproval ? t.leaveForm.needsApproval : t.leaveForm.autoApproved}
-        </Text>
-      ) : null}
-
-      {error ? <ErrorNote message={error} /> : null}
-
-      <Button
-        title={t.leaveForm.submit}
-        testID="leave-submit"
-        onPress={submit}
-        loading={request.isPending}
-        disabled={blocked || !typeId}
-        fullWidth
-        size="lg"
-      />
-    </View>
+      <FormField label={t.leaveForm.reason} hint={error ? null : approvalHint}>
+        <FormInput
+          placeholder={t.leaveForm.reasonPlaceholder}
+          value={reason}
+          onChangeText={setReason}
+          multiline
+          maxLength={2000}
+          accessibilityLabel={t.leaveForm.reason}
+        />
+        {error ? <FormHint error>{error}</FormHint> : null}
+      </FormField>
+    </FormScreen>
   );
 }
 
@@ -156,59 +141,29 @@ function TypePicker({
   value: string | null;
   onChange: (id: string) => void;
 }>) {
-  const palette = usePalette();
   const { t, format, intlLocale } = useI18n();
   return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: palette.text }]}>{t.leaveForm.type}</Text>
-      <View style={[styles.types, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-        {types.map((type, index) => {
-          const selected = type.id === value;
+    <FormField label={t.leaveForm.type}>
+      <FormOptions>
+        {types.map((type) => {
           const balance = balances.find((b) => b.leaveTypeId === type.id);
           let sub: string | null = null;
           if (balance?.remaining != null) {
             sub = `${format(t.balance.left, { days: formatDays(balance.remaining, intlLocale) })} · ${format(t.balance.ofAllowance, { days: formatDays(balance.allowance ?? 0, intlLocale) })}`;
           } else if (balance) sub = t.balance.unlimited;
           return (
-            <Pressable
+            <FormChoice
               key={type.id}
+              leading={<LeaveTypeTile color={type.color} size={ROW_TILE} />}
+              title={type.name}
+              hint={sub}
+              selected={type.id === value}
               onPress={() => onChange(type.id)}
-              accessibilityRole="radio"
-              accessibilityState={{ selected }}
-              accessibilityLabel={type.name}
-              style={({ pressed }) => [
-                styles.type,
-                index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.border },
-                (pressed || selected) && { backgroundColor: selected ? tint(palette.accent, 0.07) : palette.tile },
-              ]}
-            >
-              <LeaveTypeTile color={type.color} />
-              <View style={styles.flex}>
-                <Text style={[styles.typeName, { color: palette.text }]} numberOfLines={1}>
-                  {type.name}
-                </Text>
-                {sub ? (
-                  <Text style={[styles.typeSub, { color: palette.muted }]} numberOfLines={1}>
-                    {sub}
-                  </Text>
-                ) : null}
-              </View>
-              <View
-                style={[
-                  styles.radio,
-                  {
-                    borderColor: selected ? palette.accent : palette.grabber,
-                    backgroundColor: selected ? palette.accent : 'transparent',
-                  },
-                ]}
-              >
-                {selected ? <Check size={13} color="#FFFFFF" strokeWidth={3} /> : null}
-              </View>
-            </Pressable>
+            />
           );
         })}
-      </View>
-    </View>
+      </FormOptions>
+    </FormField>
   );
 }
 
@@ -222,18 +177,3 @@ function AllowanceBanner({ allowance }: Readonly<{ allowance: AllowanceCheck }>)
     </Banner>
   );
 }
-
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  form: { gap: 14 },
-  field: { gap: 8 },
-  label: { fontSize: 14, fontWeight: '500' },
-  types: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
-  type: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 14, paddingVertical: 12 },
-  typeName: { fontSize: 16, fontWeight: '600' },
-  typeSub: { fontSize: 14, marginTop: 1 },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
-  hint: { fontSize: 13, marginTop: -6 },
-  dates: { flexDirection: 'row', gap: 12 },
-  date: { flex: 1 },
-});
