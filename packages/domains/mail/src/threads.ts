@@ -132,6 +132,13 @@ export type ThreadListMessage = Omit<
   'textBody' | 'htmlBody' | 'rawMessage' | 'headers' | 'customFields' | 'clickedLinks'
 >;
 
+/** `mail_messages.accountId IN (...)`, or `= accountId` for a single id — same condition either way. */
+function accountIdsScopeCondition(accountIds: string[]): SQL {
+  return accountIds.length === 1
+    ? eq(mailMessages.accountId, accountIds[0]!)
+    : inArray(mailMessages.accountId, accountIds);
+}
+
 /**
  * The account-scope conditions for a thread listing: one verified account, or
  * the union of every account the caller can read. Null when nothing is readable.
@@ -242,11 +249,21 @@ function fieldFilterConditions(input: ThreadListFilter): SQL[] {
 /** What decides which threads a listing holds; everything but the paging. */
 export type ThreadListFilter = Omit<ListThreadsByLabelInput, 'page' | 'pageSize' | 'offset'>;
 
+export interface ThreadScope {
+  accountScope: SQL;
+  conditions: SQL[];
+  buildWake: (h: Database) => ReturnType<typeof buildWakeDueSnoozedUpdate>;
+}
+
 /**
- * The accounts a thread listing covers and the conditions a message must meet
- * to put its thread in the list. Null when the caller can read none of the
- * accounts. Shared by the listing and "mark all as read", so the button acts
- * on exactly the threads the folder shows.
+ * The conditions a message must meet to put its thread in the list, given an
+ * already-resolved account scope. Shared by the caller-checked variant
+ * (`threadListScope`) and the store's accounts-list variant
+ * (`threadListScopeForAccounts`, design task B4: "access is split out of
+ * `listThreadsByLabel`/`threadListScope`") — the store already knows which
+ * accounts are in play (its own `ref`, or `WorkspaceMailStore`'s resolved
+ * accessible-account list) and must not re-run a principal access check to
+ * find out again.
  *
  * The snooze wake-up is returned as `buildWake` — built, not executed — so
  * each caller decides when to run it: `markFolderRead` awaits it on its own
@@ -254,16 +271,8 @@ export type ThreadListFilter = Omit<ListThreadsByLabelInput, 'page' | 'pageSize'
  * `db.batch([...])` with the count and page queries, one round trip for all
  * three instead of three.
  */
-export async function threadListScope(
-  db: Database,
-  caller: MailCaller,
-  input: ThreadListFilter,
-): Promise<{ accountScope: SQL; conditions: SQL[]; buildWake: (h: Database) => ReturnType<typeof buildWakeDueSnoozedUpdate> } | null> {
-  const baseConditions: SQL[] = [isNull(mailMessages.deletedAt)!];
-
-  const accountScope = await resolveAccountScope(db, caller, input.accountId);
-  if (!accountScope) return null;
-  baseConditions.push(accountScope);
+async function buildThreadScope(db: Database, accountScope: SQL, input: ThreadListFilter): Promise<ThreadScope> {
+  const baseConditions: SQL[] = [isNull(mailMessages.deletedAt)!, accountScope];
 
   // Which messages put a thread in this list: the folder's label, or the
   // whole mailbox for a search. Trash and spam only ever show in their own
@@ -314,6 +323,38 @@ export async function threadListScope(
   };
 }
 
+/**
+ * The accounts a thread listing covers and the conditions a message must meet
+ * to put its thread in the list. Null when the caller can read none of the
+ * accounts. Shared by the listing and "mark all as read", so the button acts
+ * on exactly the threads the folder shows.
+ */
+export async function threadListScope(
+  db: Database,
+  caller: MailCaller,
+  input: ThreadListFilter,
+): Promise<ThreadScope | null> {
+  const accountScope = await resolveAccountScope(db, caller, input.accountId);
+  if (!accountScope) return null;
+  return buildThreadScope(db, accountScope, input);
+}
+
+/**
+ * The accounts-list twin of {@link threadListScope}: `accountIds` is already
+ * the resolved set the caller may read (the store's own mailbox, or
+ * `WorkspaceMailStore`'s accessible-account list), so this never queries
+ * `mail_accounts` / `workspace_members` to find out again. Null for an empty
+ * account list, same "nothing to show" rule as `accountScopeCondition`.
+ */
+export async function threadListScopeForAccounts(
+  db: Database,
+  accountIds: string[],
+  input: ThreadListFilter,
+): Promise<ThreadScope | null> {
+  if (accountIds.length === 0) return null;
+  return buildThreadScope(db, accountIdsScopeCondition(accountIds), input);
+}
+
 /** The distinct-thread count for a listing — built, not executed (see `buildExpireScheduledUpdate`). */
 function buildThreadCountQuery(h: Database, baseConditions: SQL[]) {
   return h
@@ -333,13 +374,31 @@ function buildThreadCountQuery(h: Database, baseConditions: SQL[]) {
  * matching message would rescan the account each time: no index covers
  * COALESCE(thread_id, id).
  */
+/** Resume after this position in the shared `(latestAt DESC, accountId ASC, threadKey ASC)` order (design §5). */
+export interface ThreadKeysetCursor {
+  latestAt: Date;
+  accountId: string;
+  threadKey: string;
+}
+
+type ThreadPaging = { offset: number } | { cursor: ThreadKeysetCursor };
+
+function threadKeysetCondition(
+  latestDate: SQL.Aliased<string>,
+  accountId: SQL.Aliased<string>,
+  threadId: SQL.Aliased<string>,
+  cursor: ThreadKeysetCursor,
+): SQL {
+  return sql`(${latestDate} < ${cursor.latestAt} OR (${latestDate} = ${cursor.latestAt} AND (${accountId} > ${cursor.accountId} OR (${accountId} = ${cursor.accountId} AND ${threadId} > ${cursor.threadKey}))))`;
+}
+
 function buildThreadPageQuery(
   h: Database,
   baseConditions: SQL[],
   accountScope: SQL,
   threadIdExpr: SQL<string>,
   pageSize: number,
-  offset: number,
+  paging: ThreadPaging,
 ) {
   const matchingThreads = h
     .select({
@@ -363,7 +422,7 @@ function buildThreadPageQuery(
     .groupBy(mailMessages.accountId, threadIdExpr)
     .as('thread_dates');
 
-  return h
+  const joined = h
     .select({
       accountId: matchingThreads.accountId,
       threadId: matchingThreads.threadId,
@@ -376,26 +435,54 @@ function buildThreadPageQuery(
         eq(threadDates.accountId, matchingThreads.accountId),
         eq(threadDates.threadId, matchingThreads.threadId),
       ),
-    )
-    .orderBy(desc(threadDates.latestDate), asc(matchingThreads.threadId))
-    .limit(pageSize)
-    .offset(offset);
+    );
+
+  const filtered =
+    'cursor' in paging
+      ? joined.where(
+          threadKeysetCondition(threadDates.latestDate, matchingThreads.accountId, matchingThreads.threadId, paging.cursor),
+        )
+      : joined;
+
+  const ordered = filtered
+    .orderBy(desc(threadDates.latestDate), asc(matchingThreads.accountId), asc(matchingThreads.threadId))
+    .limit(pageSize);
+
+  return 'offset' in paging ? ordered.offset(paging.offset) : ordered;
 }
 
 type ThreadCountRow = { count: number };
 type ThreadPageRow = { accountId: string; threadId: string; latestDate: string };
 
-export async function listThreadsByLabel(
-  db: Database,
-  caller: MailCaller,
-  input: ListThreadsByLabelInput,
-): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
-  const page = Math.max(1, input.page ?? 1);
-  const pageSize = Math.min(100, Math.max(1, input.pageSize ?? 25));
-  const offset = input.offset !== undefined ? Math.max(0, input.offset) : (page - 1) * pageSize;
+/** Pagination + the `withMessages`-independent shape every thread listing needs, once the scope is known. */
+export interface ThreadListPagination {
+  page?: number;
+  pageSize?: number;
+  offset?: number;
+  cursor?: ThreadKeysetCursor | null;
+}
 
-  const scope = await threadListScope(db, caller, input);
-  if (!scope) return { threads: [], totalCount: 0 };
+/**
+ * Page, summarise and enrich a thread listing once its `ThreadScope` is
+ * known — the part `listThreadsByLabel` and `listThreadsForAccounts` share,
+ * split out so the store's accounts-list variant never duplicates the
+ * wake/expire/group/enrich pipeline (design task B4).
+ */
+async function listThreadsWithScope(
+  db: Database,
+  scope: ThreadScope,
+  pagination: ThreadListPagination,
+): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
+  const pageSize = Math.min(100, Math.max(1, pagination.pageSize ?? 25));
+  const paging: ThreadPaging = pagination.cursor
+    ? { cursor: pagination.cursor }
+    : {
+        offset:
+          pagination.offset !== undefined
+            ? Math.max(0, pagination.offset)
+            : (Math.max(1, pagination.page ?? 1) - 1) * pageSize,
+      };
+
   const { accountScope, conditions: baseConditions, buildWake } = scope;
   const threadIdExpr = sql<string>`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
 
@@ -410,11 +497,11 @@ export async function listThreadsByLabel(
     (h) => [
       buildWake(h),
       buildThreadCountQuery(h, baseConditions),
-      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, offset),
+      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, paging),
     ],
     (h) => [
       buildThreadCountQuery(h, baseConditions),
-      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, offset),
+      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, paging),
     ],
     'waking snoozed mail',
   )) as [ThreadCountRow[], ThreadPageRow[]];
@@ -452,6 +539,34 @@ export async function listThreadsByLabel(
   await enrichThreadContacts(db, summaries);
 
   return { threads: summaries, totalCount };
+}
+
+export async function listThreadsByLabel(
+  db: Database,
+  caller: MailCaller,
+  input: ListThreadsByLabelInput,
+): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
+  const scope = await threadListScope(db, caller, input);
+  if (!scope) return { threads: [], totalCount: 0 };
+  return listThreadsWithScope(db, scope, input);
+}
+
+/**
+ * The accounts-list twin of {@link listThreadsByLabel}, for the Postgres
+ * store (design task B4): `PostgresMailboxStore.listThreads` calls this with
+ * `[ref.accountId]`, `PostgresWorkspaceMailStore.listThreads` with the
+ * resolved accessible-account list — one query either way, no caller access
+ * check. Supports the store's keyset `cursor` in addition to the legacy
+ * `offset`/`page`.
+ */
+export async function listThreadsForAccounts(
+  db: Database,
+  accountIds: string[],
+  input: ThreadListFilter & ThreadListPagination,
+): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
+  const scope = await threadListScopeForAccounts(db, accountIds, input);
+  if (!scope) return { threads: [], totalCount: 0 };
+  return listThreadsWithScope(db, scope, input);
 }
 
 /**

@@ -6,7 +6,7 @@
  * `send_email` binding.
  */
 
-import { and, asc, desc, eq, inArray, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import {
@@ -57,6 +57,20 @@ export interface MessageFilters {
   excludeTrash?: boolean;
   /** Leave out spam. */
   excludeSpam?: boolean;
+  /**
+   * Exact address match across from/to/cc/bcc — the CRM Emails tab and the
+   * store's `MessageListQuery.counterparty` (design §5, §2). Unlike `from`
+   * this is case-insensitive equality, not a `LIKE` substring, and it checks
+   * every participant role, not only the sender.
+   */
+  counterparty?: string;
+  /**
+   * A pre-resolved keyset position `(sentDate, id)` — the store's
+   * `MessageCursor`, already decoded by the caller. Skips the `cursor`
+   * id-lookup below entirely; set this instead of `cursor` when the caller
+   * already has both values (design task B4).
+   */
+  cursorValue?: { sentDate: Date; id: string };
 }
 
 /** The message carries this system label. */
@@ -93,6 +107,31 @@ export function senderMatches(value: string): SQL {
 export function anyRecipientMatches(value: string): SQL {
   const pattern = containsPattern(value);
   return sql`(${recipientMatches(sql`${mailMessages.to}`, pattern)} OR ${recipientMatches(sql`${mailMessages.cc}`, pattern)})`;
+}
+
+/** One of the addresses in a recipient column matches exactly (case-insensitive), not a substring. */
+function recipientEquals(column: SQL, address: string): SQL {
+  return sql`EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(${column}) = 'array' THEN ${column} ELSE '[]'::jsonb END) AS recipient
+    WHERE lower(recipient->>'email') = ${address}
+  )`;
+}
+
+/**
+ * The message's sender or any To/Cc/Bcc recipient is exactly this address
+ * (case-insensitive) — the CRM Emails tab's `counterparty` filter (design §5:
+ * "exact address match"), as opposed to `senderMatches`/`anyRecipientMatches`,
+ * which are substring filters over From/To/Cc only.
+ */
+export function counterpartyCondition(address: string): SQL {
+  const normalized = address.trim().toLowerCase();
+  return sql`(
+    lower(${mailMessages.from}->>'email') = ${normalized}
+    OR ${recipientEquals(sql`${mailMessages.to}`, normalized)}
+    OR ${recipientEquals(sql`${mailMessages.cc}`, normalized)}
+    OR ${recipientEquals(sql`${mailMessages.bcc}`, normalized)}
+  )`;
 }
 
 /**
@@ -158,6 +197,7 @@ function buildMessageConditions(filters: MessageFilters, labelNames: string[] = 
   if (filters.threadId) conditions.push(eq(mailMessages.threadId, filters.threadId));
   if (filters.label) conditions.push(labelCondition(filters.label, labelNames));
   if (filters.from?.trim()) conditions.push(senderMatches(filters.from));
+  if (filters.counterparty?.trim()) conditions.push(counterpartyCondition(filters.counterparty));
   if (filters.excludeTrash) conditions.push(sql`NOT ${hasSystemLabel(SYSTEM_LABELS.TRASH)}`);
   if (filters.excludeSpam) conditions.push(sql`NOT ${hasSystemLabel(SYSTEM_LABELS.SPAM)}`);
 
@@ -171,7 +211,15 @@ export async function listMessages(db: Database, filters: MessageFilters) {
     : [];
   const conditions = buildMessageConditions(filters, labelNames);
 
-  if (filters.cursor) {
+  let hasCursorCondition = false;
+  if (filters.cursorValue) {
+    // Already-decoded keyset position (the store's `MessageCursor`) — no
+    // id-lookup round trip needed, unlike the legacy `cursor` string below.
+    conditions.push(
+      sql`(${mailMessages.sentDate} < ${filters.cursorValue.sentDate} OR (${mailMessages.sentDate} = ${filters.cursorValue.sentDate} AND ${mailMessages.id} < ${filters.cursorValue.id}))`,
+    );
+    hasCursorCondition = true;
+  } else if (filters.cursor) {
     const [cur] = await db
       .select({ sentDate: mailMessages.sentDate, id: mailMessages.id })
       .from(mailMessages)
@@ -181,11 +229,12 @@ export async function listMessages(db: Database, filters: MessageFilters) {
       conditions.push(
         sql`(${mailMessages.sentDate} < ${cur.sentDate} OR (${mailMessages.sentDate} = ${cur.sentDate} AND ${mailMessages.id} < ${cur.id}))`,
       );
+      hasCursorCondition = true;
     }
   }
 
   const where = and(...conditions);
-  const filterConditions = filters.cursor ? conditions.slice(0, -1) : conditions;
+  const filterConditions = hasCursorCondition ? conditions.slice(0, -1) : conditions;
   const countWhere = and(...filterConditions);
 
   const [rows, countRes] = await Promise.all([
@@ -233,6 +282,89 @@ export async function listMessages(db: Database, filters: MessageFilters) {
   await enrichSenderContacts(db, data);
 
   return { data, hasMore, cursor, totalCount };
+}
+
+// Every `mail_messages` column except bodies, raw MIME and the two JSONB
+// blobs no list view reads — the same set `threads.ts`'s `ThreadListMessage`
+// picks (the design's lean list row, `store/types.ts` `MailMessageListRow`).
+// Redefined here rather than imported from `./threads`, which already
+// imports from this file, to avoid a module cycle.
+const {
+  textBody: _wideTextBody,
+  htmlBody: _wideHtmlBody,
+  rawMessage: _wideRawMessage,
+  headers: _wideHeaders,
+  customFields: _wideCustomFields,
+  clickedLinks: _wideClickedLinks,
+  ...wideListColumns
+} = getTableColumns(mailMessages);
+
+/**
+ * `listMessages`'s filter/pagination semantics, but the full lean-row column
+ * set (`MailMessageListRow`) instead of the ~20-column projection the live
+ * `GET /api/mail-messages` route serializes today. Used by the store (design
+ * task B4: `PostgresMailboxStore.listMessages`), which must return the
+ * contract's full `MailMessageListRow` shape; `listMessages` itself is left
+ * untouched so today's route keeps its exact response shape.
+ */
+export async function listMessagesWide(db: Database, filters: MessageFilters) {
+  const limit = Math.min(filters.limit ?? 50, 100);
+  const labelNames = filters.label
+    ? await resolveCustomLabelNames(db, filters.label, filters.accountId)
+    : [];
+  const conditions = buildMessageConditions(filters, labelNames);
+
+  let hasCursorCondition = false;
+  if (filters.cursorValue) {
+    conditions.push(
+      sql`(${mailMessages.sentDate} < ${filters.cursorValue.sentDate} OR (${mailMessages.sentDate} = ${filters.cursorValue.sentDate} AND ${mailMessages.id} < ${filters.cursorValue.id}))`,
+    );
+    hasCursorCondition = true;
+  } else if (filters.cursor) {
+    const [cur] = await db
+      .select({ sentDate: mailMessages.sentDate, id: mailMessages.id })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, filters.cursor))
+      .limit(1);
+    if (cur?.sentDate) {
+      conditions.push(
+        sql`(${mailMessages.sentDate} < ${cur.sentDate} OR (${mailMessages.sentDate} = ${cur.sentDate} AND ${mailMessages.id} < ${cur.id}))`,
+      );
+      hasCursorCondition = true;
+    }
+  }
+
+  const where = and(...conditions);
+  const filterConditions = hasCursorCondition ? conditions.slice(0, -1) : conditions;
+  const countWhere = and(...filterConditions);
+
+  const [rows, countRes] = await Promise.all([
+    db
+      .select(wideListColumns)
+      .from(mailMessages)
+      .where(where)
+      .orderBy(desc(mailMessages.sentDate), desc(mailMessages.id))
+      .limit(limit + 1),
+    db.select({ count: sql<number>`count(*)::int` }).from(mailMessages).where(countWhere),
+  ]);
+
+  const hasMore = rows.length > limit;
+  const data = hasMore ? rows.slice(0, limit) : rows;
+  const cursor = hasMore && data.length > 0 ? data[data.length - 1]!.id : null;
+  const totalCount = Number(countRes[0]?.count ?? 0);
+
+  await enrichSenderContacts(db, data);
+
+  return { data, hasMore, cursor, totalCount };
+}
+
+/** Live lean rows for a set of ids within one account — the store's `getMessages` (locate, bulk checks). */
+export async function getLiveMessagesByIds(db: Database, accountId: string, ids: string[]) {
+  if (ids.length === 0) return [];
+  return db
+    .select(wideListColumns)
+    .from(mailMessages)
+    .where(and(eq(mailMessages.accountId, accountId), inArray(mailMessages.id, ids), isNull(mailMessages.deletedAt)));
 }
 
 function collectSenderEmails(rows: Array<{ from: unknown }>): Set<string> {
@@ -515,6 +647,7 @@ export async function updateMessage(
   db: Database,
   id: string,
   data: UpdateMessageInput,
+  now: Date = new Date(),
 ): Promise<typeof mailMessages.$inferSelect | null> {
   const [existing] = await db
     .select()
@@ -523,7 +656,7 @@ export async function updateMessage(
     .limit(1);
   if (!existing) return null;
 
-  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  const patch: Record<string, unknown> = { updatedAt: now };
   for (const [k, v] of Object.entries(data)) {
     if (v !== undefined) patch[k] = v;
   }
@@ -556,6 +689,7 @@ export async function updateMessage(
 export async function softDeleteMessage(
   db: Database,
   id: string,
+  now: Date = new Date(),
 ): Promise<{ id: string; accountId: string; subject: string | null } | null> {
   const [existing] = await db
     .select({
@@ -570,7 +704,7 @@ export async function softDeleteMessage(
 
   await db
     .update(mailMessages)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .set({ deletedAt: now, updatedAt: now })
     .where(eq(mailMessages.id, id));
   return existing;
 }
@@ -590,8 +724,8 @@ export async function bulkUpdateMessages(
   db: Database,
   messageIds: string[],
   action: BulkAction,
+  now: Date = new Date(),
 ): Promise<{ affected: number }> {
-  const now = new Date();
   const where = and(inArray(mailMessages.id, messageIds), isNull(mailMessages.deletedAt));
 
   switch (action) {
@@ -602,10 +736,10 @@ export async function bulkUpdateMessages(
       await db.update(mailMessages).set({ isRead: false, updatedAt: now }).where(where);
       break;
     case 'star':
-      await bulkAddLabelToMessages(db, SYSTEM_LABELS.STARRED, messageIds);
+      await bulkAddLabelToMessages(db, SYSTEM_LABELS.STARRED, messageIds, now);
       break;
     case 'unstar':
-      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.STARRED, messageIds);
+      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.STARRED, messageIds, now);
       break;
     case 'flag':
       await db.update(mailMessages).set({ isFlagged: true, updatedAt: now }).where(where);
@@ -614,10 +748,10 @@ export async function bulkUpdateMessages(
       await db.update(mailMessages).set({ isFlagged: false, updatedAt: now }).where(where);
       break;
     case 'trash':
-      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.TRASH);
+      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.TRASH, now);
       break;
     case 'restore':
-      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.INBOX);
+      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.INBOX, now);
       break;
     case 'delete':
       await db.update(mailMessages).set({ deletedAt: now, updatedAt: now }).where(where);
@@ -630,6 +764,7 @@ export async function addMessageLabels(
   db: Database,
   id: string,
   rawLabels: string[],
+  now: Date = new Date(),
 ): Promise<string[] | null> {
   const [existing] = await db
     .select({ labels: mailMessages.labels, accountId: mailMessages.accountId })
@@ -641,7 +776,7 @@ export async function addMessageLabels(
   const next = addLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)
-    .set({ labels: next, ...flagsForLabelChange(labels, 'add'), updatedAt: new Date() })
+    .set({ labels: next, ...flagsForLabelChange(labels, 'add'), updatedAt: now })
     .where(eq(mailMessages.id, id));
   return next;
 }
@@ -650,6 +785,7 @@ export async function removeMessageLabels(
   db: Database,
   id: string,
   rawLabels: string[],
+  now: Date = new Date(),
 ): Promise<string[] | null> {
   const [existing] = await db
     .select({ labels: mailMessages.labels, accountId: mailMessages.accountId })
@@ -661,7 +797,7 @@ export async function removeMessageLabels(
   const next = removeLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)
-    .set({ labels: next, ...flagsForLabelChange(labels, 'remove'), updatedAt: new Date() })
+    .set({ labels: next, ...flagsForLabelChange(labels, 'remove'), updatedAt: now })
     .where(eq(mailMessages.id, id));
   return next;
 }

@@ -73,8 +73,9 @@ export async function snoozeMessage(
   accountId: string,
   messageId: string,
   until: Date,
+  now: Date = new Date(),
 ) {
-  if (until <= new Date()) {
+  if (until <= now) {
     throw new MailSnoozeError('SNOOZE_IN_PAST', 'Snooze time must be in the future');
   }
   const message = await findMessage(db, accountId, messageId);
@@ -87,8 +88,8 @@ export async function snoozeMessage(
       labels: addLabels(removeLabels(labels, 'INBOX'), 'SNOOZED'),
       isRead: true,
       snoozedUntil: until,
-      snoozedAt: new Date(),
-      updatedAt: new Date(),
+      snoozedAt: now,
+      updatedAt: now,
     })
     .where(eq(mailMessages.id, messageId));
 
@@ -99,6 +100,7 @@ export async function unsnoozeMessage(
   db: Database,
   accountId: string,
   messageId: string,
+  now: Date = new Date(),
 ) {
   const message = await findMessage(db, accountId, messageId);
   if (!message) throw new MailSnoozeError('MESSAGE_NOT_FOUND', 'Message not found');
@@ -115,9 +117,9 @@ export async function unsnoozeMessage(
       isRead: false,
       snoozedUntil: null,
       unsnoozeTriggerRunId: null,
-      unsnoozedAt: new Date(),
+      unsnoozedAt: now,
       unsnoozedEarly: true,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(eq(mailMessages.id, messageId));
 
@@ -129,8 +131,9 @@ export async function resnoozeMessage(
   accountId: string,
   messageId: string,
   until: Date,
+  now: Date = new Date(),
 ) {
-  if (until <= new Date()) {
+  if (until <= now) {
     throw new MailSnoozeError('SNOOZE_IN_PAST', 'Snooze time must be in the future');
   }
   const message = await findMessage(db, accountId, messageId);
@@ -140,8 +143,8 @@ export async function resnoozeMessage(
     .update(mailMessages)
     .set({
       snoozedUntil: until,
-      resnoozedAt: new Date(),
-      updatedAt: new Date(),
+      resnoozedAt: now,
+      updatedAt: now,
     })
     .where(eq(mailMessages.id, messageId));
 
@@ -222,13 +225,19 @@ export async function nextSnoozeDueAt(db: Database): Promise<Date | null> {
 }
 
 /**
- * Return every message tagged `SNOOZED`, optionally restricted to a
- * single account. Projects the snooze-relevant `customFields` up to
- * the top level so callers don't have to dig into the JSONB blob.
+ * Return every message tagged `SNOOZED`, restricted to a single account or to
+ * an explicit list. Projects the snooze-relevant `customFields` up to the top
+ * level so callers don't have to dig into the JSONB blob.
+ *
+ * `accountIds` is the store's accessible-account scoping (design task B4,
+ * fixing "existing access bugs" item 9 / design §1: this used to default to
+ * *every* mailbox in the workspace with no access filter at all). Passing
+ * neither `accountId` nor `accountIds` keeps the old "every account" default
+ * for any caller that hasn't been updated yet.
  */
 export async function listSnoozedMessages(
   db: Database,
-  filters: { accountId?: string },
+  filters: { accountId?: string; accountIds?: string[] },
 ) {
   let accountIds: string[];
   if (filters.accountId) {
@@ -238,6 +247,8 @@ export async function listSnoozedMessages(
       .where(and(eq(mailAccounts.id, filters.accountId), isNull(mailAccounts.deletedAt)))
       .limit(1);
     accountIds = account ? [account.id] : [];
+  } else if (filters.accountIds) {
+    accountIds = filters.accountIds;
   } else {
     const rows = await db
       .select({ id: mailAccounts.id })

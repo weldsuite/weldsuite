@@ -94,17 +94,20 @@ export interface AttachmentInput {
   contentDisposition?: string;
 }
 
-export async function createAttachment(db: Database, data: AttachmentInput) {
-  const id = generateId('attach');
-  const now = new Date();
+export async function createAttachment(db: Database, data: AttachmentInput & { id?: string }, now: Date = new Date()) {
+  const { id: suppliedId, ...rest } = data;
+  // Accept a pre-generated id (the store's `attachment.create` op, design task
+  // B4, mints the id up front, like `ingest`) — defaulting to a fresh one
+  // keeps every existing caller working unchanged.
+  const id = suppliedId ?? generateId('attach');
   await db.insert(mailAttachments).values({
     id,
-    ...data,
+    ...rest,
     isInline: data.isInline ?? false,
     createdAt: now,
     updatedAt: now,
   });
-  await refreshMessageAttachmentCount(db, data.messageId);
+  await refreshMessageAttachmentCount(db, data.messageId, now);
   const [row] = await db.select().from(mailAttachments).where(eq(mailAttachments.id, id));
   return row!;
 }
@@ -113,6 +116,7 @@ export async function updateAttachment(
   db: Database,
   id: string,
   data: Partial<AttachmentInput>,
+  now: Date = new Date(),
 ) {
   const [existing] = await db
     .select()
@@ -121,18 +125,43 @@ export async function updateAttachment(
     .limit(1);
   if (!existing) return null;
 
-  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  const patch: Record<string, unknown> = { updatedAt: now };
   for (const [k, v] of Object.entries(data)) if (v !== undefined) patch[k] = v;
   await db
     .update(mailAttachments)
     .set(patch as typeof mailAttachments.$inferInsert)
     .where(eq(mailAttachments.id, id));
   if (data.messageId && data.messageId !== existing.messageId) {
-    await refreshMessageAttachmentCount(db, existing.messageId);
-    await refreshMessageAttachmentCount(db, data.messageId);
+    await refreshMessageAttachmentCount(db, existing.messageId, now);
+    await refreshMessageAttachmentCount(db, data.messageId, now);
   }
   const [after] = await db.select().from(mailAttachments).where(eq(mailAttachments.id, id));
   return { before: existing, after: after! };
+}
+
+/**
+ * The row-level half of a delete: soft-delete and refresh the parent
+ * message's count flags, with no R2 involved. `deleteAttachment` below (the
+ * live HTTP route) layers the best-effort R2 cleanup on top; the store's
+ * `attachment.delete` op (design task B4) calls this directly and returns
+ * `existing.storagePath` in its `OpResult.storagePaths` for the router to
+ * delete instead — the store itself has no R2 binding (`PostgresMailboxStore`
+ * takes only `db` and `ref`).
+ */
+export async function softDeleteAttachmentRow(db: Database, id: string, now: Date = new Date()) {
+  const [existing] = await db
+    .select()
+    .from(mailAttachments)
+    .where(and(eq(mailAttachments.id, id), isNull(mailAttachments.deletedAt)))
+    .limit(1);
+  if (!existing) return null;
+
+  await db
+    .update(mailAttachments)
+    .set({ deletedAt: now, updatedAt: now })
+    .where(eq(mailAttachments.id, id));
+  await refreshMessageAttachmentCount(db, existing.messageId, now);
+  return existing;
 }
 
 /**
@@ -142,18 +171,8 @@ export async function updateAttachment(
  * sweep without re-surfacing in the UI.
  */
 export async function deleteAttachment(env: MailAttachmentsEnv, db: Database, id: string) {
-  const [existing] = await db
-    .select()
-    .from(mailAttachments)
-    .where(and(eq(mailAttachments.id, id), isNull(mailAttachments.deletedAt)))
-    .limit(1);
+  const existing = await softDeleteAttachmentRow(db, id);
   if (!existing) return null;
-
-  await db
-    .update(mailAttachments)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(eq(mailAttachments.id, id));
-  await refreshMessageAttachmentCount(db, existing.messageId);
 
   if (existing.storagePath && (env.STORAGE || env.PRIVATE_STORAGE)) {
     try {
@@ -178,11 +197,12 @@ export async function associateAttachments(
   db: Database,
   messageId: string,
   attachmentIds: string[],
+  now: Date = new Date(),
 ): Promise<{ associated: number }> {
   if (attachmentIds.length === 0) return { associated: 0 };
   const rows = await db
     .update(mailAttachments)
-    .set({ messageId, updatedAt: new Date() })
+    .set({ messageId, updatedAt: now })
     .where(
       and(
         inArray(mailAttachments.id, attachmentIds),
@@ -190,11 +210,11 @@ export async function associateAttachments(
       ),
     )
     .returning({ id: mailAttachments.id });
-  await refreshMessageAttachmentCount(db, messageId);
+  await refreshMessageAttachmentCount(db, messageId, now);
   return { associated: rows.length };
 }
 
-async function refreshMessageAttachmentCount(db: Database, messageId: string) {
+async function refreshMessageAttachmentCount(db: Database, messageId: string, now: Date = new Date()) {
   await db.execute(sql`
     UPDATE mail_messages
     SET
@@ -206,7 +226,7 @@ async function refreshMessageAttachmentCount(db: Database, messageId: string) {
         SELECT 1 FROM mail_attachments
         WHERE message_id = ${messageId} AND deleted_at IS NULL
       ),
-      updated_at = NOW()
+      updated_at = ${now}
     WHERE id = ${messageId}
   `);
 }
