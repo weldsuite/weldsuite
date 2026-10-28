@@ -34,6 +34,8 @@ export interface Env {
   NEON_API_KEY: string;
   // R2 storage for mail attachments
   STORAGE: R2Bucket;
+  // EU-jurisdiction R2 bucket for raw MIME and bodies (docs/plans/weldmail-mailbox-store-design.md decision 7)
+  MAIL_STORAGE?: R2Bucket;
   R2_PUBLIC_URL?: string;
   // Service bindings
   REALTIME: Fetcher;

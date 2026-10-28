@@ -18,6 +18,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { getStoredObject } from '@weldsuite/worker-kit/storage';
+import { getRawMime, type MailBodyRef } from './store/bodies';
 import * as cfEmail from '@weldsuite/worker-email';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { buildRfc5322 } from '@weldsuite/email/core/mime';
@@ -57,6 +58,8 @@ export interface MailSendEnv
     OutboundGuardEnv {
   /** Private uploads (compose attachments); read with the public bucket as fallback. */
   PRIVATE_STORAGE?: R2Bucket;
+  /** EU-jurisdiction bucket holding raw MIME and bodies (store/bodies.ts). */
+  MAIL_STORAGE?: R2Bucket;
 }
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
@@ -942,28 +945,53 @@ async function loadOriginalAttachments(
 }
 
 /**
- * The original as an `.eml` file: the raw message when inbound stored it,
- * otherwise rebuilt from the stored headers, bodies and files.
+ * The original as an `.eml` file: R2's raw copy first
+ * (docs/plans/weldmail-mailbox-store-design.md decision 4), then the
+ * Postgres `rawMessage` column (older messages, or a message a different
+ * transport stored it on), then rebuilt from the stored headers, bodies and
+ * files. `ref` is null when the caller has no workspace id to look R2 up
+ * with (an older call site) — that just skips straight to the next source.
  */
-function buildEmlAttachment(original: OriginalMessage, files: InlineAttachment[]): InlineAttachment {
-  const from = original.from as { email?: string; name?: string } | null;
-  const raw =
-    original.rawMessage ||
-    buildRfc5322({
-      from: { email: from?.email ?? 'unknown@invalid', name: from?.name },
-      to: ((original.to as { email?: string; name?: string }[] | null) ?? [])
-        .filter((r): r is { email: string; name?: string } => !!r.email)
-        .map((r) => ({ email: r.email, name: r.name })),
-      cc: ((original.cc as { email?: string; name?: string }[] | null) ?? [])
-        .filter((r): r is { email: string; name?: string } => !!r.email)
-        .map((r) => ({ email: r.email, name: r.name })),
-      subject: original.subject ?? '',
-      text: original.textBody ?? undefined,
-      html: original.htmlBody ?? undefined,
-      messageId: original.messageId,
-      headers: { Date: (original.sentDate ?? original.createdAt).toUTCString() },
-      attachments: files,
-    }).raw;
+async function buildEmlAttachment(
+  env: Pick<MailSendEnv, 'MAIL_STORAGE'>,
+  ref: MailBodyRef | null,
+  original: OriginalMessage,
+  files: InlineAttachment[],
+): Promise<InlineAttachment> {
+  let content: ArrayBuffer | null = null;
+  if (ref && env.MAIL_STORAGE) {
+    try {
+      content = await getRawMime(env.MAIL_STORAGE, ref);
+    } catch (err) {
+      console.warn(
+        `[mail] Failed to read raw MIME from R2 for ${original.id} (forward as attachment):`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  if (!content && original.rawMessage) {
+    content = new TextEncoder().encode(original.rawMessage).buffer as ArrayBuffer;
+  }
+  if (!content) {
+    const from = original.from as { email?: string; name?: string } | null;
+    content = new TextEncoder().encode(
+      buildRfc5322({
+        from: { email: from?.email ?? 'unknown@invalid', name: from?.name },
+        to: ((original.to as { email?: string; name?: string }[] | null) ?? [])
+          .filter((r): r is { email: string; name?: string } => !!r.email)
+          .map((r) => ({ email: r.email, name: r.name })),
+        cc: ((original.cc as { email?: string; name?: string }[] | null) ?? [])
+          .filter((r): r is { email: string; name?: string } => !!r.email)
+          .map((r) => ({ email: r.email, name: r.name })),
+        subject: original.subject ?? '',
+        text: original.textBody ?? undefined,
+        html: original.htmlBody ?? undefined,
+        messageId: original.messageId,
+        headers: { Date: (original.sentDate ?? original.createdAt).toUTCString() },
+        attachments: files,
+      }).raw,
+    ).buffer as ArrayBuffer;
+  }
   const name = (original.subject ?? '')
     .replace(/[\\/:*?"<>|]+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -974,7 +1002,7 @@ function buildEmlAttachment(original: OriginalMessage, files: InlineAttachment[]
     // Sent base64-encoded, which `message/rfc822` parts may not be; mail
     // clients open the file by its extension.
     contentType: 'application/octet-stream',
-    content: new TextEncoder().encode(raw).buffer as ArrayBuffer,
+    content,
   };
 }
 
@@ -1028,9 +1056,14 @@ export async function forwardAndPersist(
   let composedHtml = data.htmlBody;
   let extraAttachments: InlineAttachment[];
   if (data.asAttachment) {
-    // A stored raw message already carries its files; a rebuilt one gets them
-    // from the attachment rows.
-    extraAttachments = [buildEmlAttachment(original, original.rawMessage ? [] : originalFiles)];
+    // `opts.outbound.workspaceId` (master id) is the same one the outbound
+    // guard uses; reused here to look up the original's raw MIME in R2. Null
+    // when a caller doesn't pass it — buildEmlAttachment falls back to
+    // `rawMessage` / rebuilding from the stored row in that case.
+    const ref: MailBodyRef | null = opts?.outbound?.workspaceId
+      ? { workspaceId: opts.outbound.workspaceId, accountId: original.accountId, messageId: original.id }
+      : null;
+    extraAttachments = [await buildEmlAttachment(env, ref, original, originalFiles)];
   } else {
     extraAttachments = originalFiles;
     const senderLabel =

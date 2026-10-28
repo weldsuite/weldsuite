@@ -75,6 +75,7 @@ import {
   providerCostUsd,
 } from '@weldsuite/ai';
 import { nanoUsd, recordProviderUsage } from '@weldsuite/credits/gateway-costs';
+import { putRawMime } from '@weldsuite/mail-domain/store/bodies';
 import type { Env } from '../index';
 
 export type StoreEmailResult = {
@@ -193,8 +194,20 @@ export interface ParsedEmail {
   spfStatus?: SecurityStatus;
   dkimStatus?: SecurityStatus;
   dmarcStatus?: SecurityStatus;
-  // Raw RFC 5322 message for audit trail
+  // Raw RFC 5322 message for audit trail. Stays string-typed and, for every
+  // Cloudflare-routed message, stays undefined: the DB column it feeds
+  // (`mail_messages.raw_message` / `personal_mail_messages.raw_message`) is
+  // not where raw MIME lives going forward (docs/plans/weldmail-mailbox-store-design.md
+  // decision 4) — see `rawMessageBytes` below for the bytes workspace mail
+  // actually stores (in R2).
   rawMessage?: string;
+  /**
+   * Raw RFC 5322 bytes, kept through from the Cloudflare adapter
+   * (`cf-email-adapter.ts`) independently of `rawMessage`. `storeEmail` writes
+   * these to R2 (`@weldsuite/mail-domain/store/bodies`) for workspace mail;
+   * the personal path does not use this field (out of scope, TASK A4).
+   */
+  rawMessageBytes?: ArrayBuffer;
 }
 
 /**
@@ -776,6 +789,32 @@ async function resolveTenantThread(
 }
 
 /**
+ * Write a workspace message's raw RFC 5322 bytes to R2
+ * (`mail/<workspaceId>/<accountId>/<messageId>/raw.eml`), never to the
+ * Postgres `raw_message` column (docs/plans/weldmail-mailbox-store-design.md
+ * decisions 4 and 7), in the EU mail bucket (`MAIL_STORAGE`). No-ops when
+ * there are no bytes (nothing came through the adapter) or no `MAIL_STORAGE`
+ * binding. Best-effort: the message row is already committed by the time this
+ * runs, so a storage hiccup here must not turn into a dropped delivery — it
+ * only warns.
+ */
+export async function storeRawMimeToR2(
+  env: { MAIL_STORAGE?: R2Bucket },
+  ref: { workspaceId: string; accountId: string; messageId: string },
+  rawMessageBytes: ArrayBuffer | undefined,
+): Promise<void> {
+  if (!rawMessageBytes || !env.MAIL_STORAGE) return;
+  try {
+    await putRawMime(env.MAIL_STORAGE, ref, rawMessageBytes);
+  } catch (rawErr) {
+    console.warn(
+      `[Store] Failed to write raw MIME to R2 for ${ref.messageId}:`,
+      rawErr instanceof Error ? rawErr.message : rawErr,
+    );
+  }
+}
+
+/**
  * Store email in tenant database
  * @param env - Worker environment bindings
  * @param account - Recipient account info
@@ -851,6 +890,15 @@ export async function storeEmail(
     });
 
     console.log(`[Store] Saved email ${dbMessageId} (thread ${threadId}) for account ${account.accountId}`);
+
+    // Raw MIME to R2, every mode (ham or spam) — never the Postgres
+    // raw_message column (docs/plans/weldmail-mailbox-store-design.md
+    // decision 4).
+    await storeRawMimeToR2(
+      env,
+      { workspaceId: account.workspaceId, accountId: account.accountId, messageId: dbMessageId },
+      email.rawMessageBytes,
+    );
 
     // Track the mailing list behind this message for the Subscriptions page.
     if (!spam.isSpam) {

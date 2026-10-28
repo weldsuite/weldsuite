@@ -9,7 +9,10 @@
  * - search looks through the whole mailbox: subject, body, participants
  *   (TASK-906);
  * - the stats endpoint has a number for every folder badge (TASK-908);
- * - snoozed mail comes back when its time has passed (TASK-931).
+ * - snoozed mail comes back when its time has passed (TASK-931);
+ * - the list returns lean messages, no bodies (phase 1 item 1) and resolves
+ *   expired scheduled mail in the same read (phase 1 item 2),
+ *   docs/plans/weldmail-mailbox-storage.md.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -336,5 +339,60 @@ describe('auto-unsnooze (TASK-931)', () => {
 
     expect(await labelsOf(mine)).toEqual(['INBOX']);
     expect(await labelsOf(theirs)).toEqual(['SNOOZED']);
+  });
+});
+
+describe('lean thread-list messages (phase 1 item 1)', () => {
+  it('drops bodies, raw MIME and the two JSONB blobs the list never reads', async () => {
+    const accountId = await seedAccount();
+    const id = await seedMessage(accountId, ['INBOX'], {
+      textBody: 'plain body',
+      htmlBody: '<p>html body</p>',
+      rawMessage: 'Subject: raw\r\n\r\nraw mime',
+      headers: { 'X-Test': '1' },
+      customFields: { foo: 'bar' },
+      clickedLinks: [{ url: 'https://example.test', clickedAt: new Date().toISOString(), clickCount: 1 }],
+    });
+
+    const { threads } = await listThreadsByLabel(db, USER, { accountId, labelSlug: 'inbox' });
+    const [message] = threads[0]!.messages;
+
+    expect(message).toBeDefined();
+    expect(message!.id).toBe(id);
+    for (const key of ['textBody', 'htmlBody', 'rawMessage', 'headers', 'customFields', 'clickedLinks']) {
+      expect(message).not.toHaveProperty(key);
+    }
+    // Everything a list row actually shows is still there.
+    expect(message!.isRead).toBe(false);
+    expect(message!.labels).toEqual(['INBOX']);
+  });
+});
+
+describe('expired scheduled resolution (phase 1 item 2)', () => {
+  it('flips a scheduled message past its send time to sent on read', async () => {
+    const accountId = await seedAccount();
+    const id = await seedMessage(accountId, ['SENT', 'SCHEDULED'], {
+      sendStatus: 'scheduled',
+      scheduledFor: new Date(Date.now() - 60_000),
+    });
+
+    const { threads } = await listThreadsByLabel(db, USER, { accountId, labelSlug: 'sent' });
+    expect(threads[0]!.sendStatus).toBe('sent');
+    expect(threads[0]!.scheduledFor).toBeNull();
+
+    const [row] = await db.select().from(mailMessages).where(eq(mailMessages.id, id)).limit(1);
+    expect(row!.sendStatus).toBe('sent');
+    expect(row!.scheduledFor).toBeNull();
+  });
+
+  it('leaves a still-future scheduled message alone', async () => {
+    const accountId = await seedAccount();
+    await seedMessage(accountId, ['SENT', 'SCHEDULED'], {
+      sendStatus: 'scheduled',
+      scheduledFor: new Date(Date.now() + 60 * 60_000),
+    });
+
+    const { threads } = await listThreadsByLabel(db, USER, { accountId, labelSlug: 'sent' });
+    expect(threads[0]!.sendStatus).toBe('scheduled');
   });
 });

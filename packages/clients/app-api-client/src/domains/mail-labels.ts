@@ -32,6 +32,16 @@ export interface MailLabelRow {
   deletedAt: string | null;
 }
 
+/**
+ * A message as a thread-list row carries it: everything `MailMessageRow` has
+ * except the two body fields. `listThreadsByLabel` selects every
+ * `mail_messages` column but bodies, raw MIME and two JSONB blobs no list
+ * view reads; `MailMessageRow` never declared the latter three to begin with,
+ * so only `textBody` / `htmlBody` need dropping here. Opening a thread still
+ * loads the full `MailMessageRow` (`mail-messages.thread()` / `.get()`).
+ */
+export type MailThreadListMessageRow = Omit<MailMessageRow, 'textBody' | 'htmlBody'>;
+
 export interface MailThreadSummary {
   threadId: string;
   accountId: string;
@@ -50,7 +60,7 @@ export interface MailThreadSummary {
   labels: string[];
   scheduledFor: string | null;
   sendStatus: string | null;
-  messages: MailMessageRow[];
+  messages: MailThreadListMessageRow[];
 }
 
 /** Note: the legacy api-worker returned `{ data: MailLabelRow[] }` directly — no

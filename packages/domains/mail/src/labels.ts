@@ -9,6 +9,11 @@
  * exposes bulk apply/unapply against `mail_messages.labels` (JSONB).
  * Both bulk paths are single-statement JSONB updates instead of the
  * row-by-row scan the legacy api-worker used.
+ *
+ * The label/location vocabulary and the pure `addLabels` / `removeLabels` /
+ * `flagsForLabelChange` helpers live in `./store/model` so the mailbox object
+ * can share them (docs/plans/weldmail-mailbox-store-design.md, task A3); this
+ * file re-exports what callers already import from here.
  */
 
 import { and, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
@@ -17,77 +22,37 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { atomically } from '@weldsuite/worker-kit/atomically';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { accountScopeCondition } from './access';
+import {
+  addLabels,
+  CLEARED_BY_MOVE,
+  flagsForLabelChange,
+  isLocationLabel,
+  isSystemLabelSlug,
+  type LabelFlags,
+  type LocationLabel,
+  LOCATION_LABELS,
+  normalizeLabel,
+  OUTGOING_LABELS,
+  removeLabels,
+  SYSTEM_LABELS,
+  type SystemLabel,
+  toSystemLabel,
+} from './store/model';
+
+export {
+  addLabels,
+  flagsForLabelChange,
+  isLocationLabel,
+  isSystemLabelSlug,
+  LOCATION_LABELS,
+  normalizeLabel,
+  removeLabels,
+  SYSTEM_LABELS,
+  toSystemLabel,
+};
+export type { LabelFlags, LocationLabel, SystemLabel };
 
 const { mailMessages, mailLabels } = schema;
-
-export const SYSTEM_LABELS = {
-  INBOX: 'INBOX',
-  SENT: 'SENT',
-  DRAFT: 'DRAFT',
-  DRAFTS: 'DRAFTS',
-  TRASH: 'TRASH',
-  SPAM: 'SPAM',
-  STARRED: 'STARRED',
-  IMPORTANT: 'IMPORTANT',
-  ARCHIVE: 'ARCHIVE',
-  SNOOZED: 'SNOOZED',
-  SCHEDULED: 'SCHEDULED',
-  PROMOTIONS: 'PROMOTIONS',
-  PINNED: 'PINNED',
-} as const;
-
-export type SystemLabel = (typeof SYSTEM_LABELS)[keyof typeof SYSTEM_LABELS];
-
-const SLUG_TO_SYSTEM_LABEL: Record<string, string> = {
-  inbox: 'INBOX',
-  sent: 'SENT',
-  draft: 'DRAFT',
-  drafts: 'DRAFTS',
-  trash: 'TRASH',
-  spam: 'SPAM',
-  starred: 'STARRED',
-  important: 'IMPORTANT',
-  archive: 'ARCHIVE',
-  snoozed: 'SNOOZED',
-  scheduled: 'SCHEDULED',
-  promotions: 'PROMOTIONS',
-  pinned: 'PINNED',
-};
-
-export function isSystemLabelSlug(slug: string): boolean {
-  return slug.toLowerCase() in SLUG_TO_SYSTEM_LABEL;
-}
-
-export function toSystemLabel(slug: string): string | null {
-  return SLUG_TO_SYSTEM_LABEL[slug.toLowerCase()] ?? null;
-}
-
-/** The value a label is stored as: system slugs upper-cased, user labels as typed. */
-export function normalizeLabel(label: string): string {
-  return toSystemLabel(label) ?? label;
-}
-
-/**
- * Where a message lives. A message sits in at most one of these, so trashing,
- * archiving or marking spam takes it out of the inbox instead of adding a
- * second folder (Gmail-style location labels).
- */
-export const LOCATION_LABELS = ['INBOX', 'ARCHIVE', 'TRASH', 'SPAM'] as const;
-export type LocationLabel = (typeof LOCATION_LABELS)[number];
-
-export function isLocationLabel(label: string): label is LocationLabel {
-  return (LOCATION_LABELS as readonly string[]).includes(label);
-}
-
-/**
- * Labels a move to any location clears: the other locations, the promotions
- * tab, and a pending snooze (a snoozed mail that is trashed must not wake up
- * in the inbox).
- */
-const CLEARED_BY_MOVE: readonly string[] = [...LOCATION_LABELS, 'PROMOTIONS', 'SNOOZED'];
-
-/** Mail the mailbox sent or is still writing; a restore never puts it in the inbox. */
-const OUTGOING_LABELS: readonly string[] = ['SENT', 'DRAFT', 'DRAFTS', 'SCHEDULED'];
 
 function hasLabel(label: string): SQL {
   return sql`${mailMessages.labels} @> ${JSON.stringify([label])}::jsonb`;
@@ -191,54 +156,6 @@ export async function canonicalLabelNames(
     );
   const byLower = new Map(rows.map((r) => [r.name.toLowerCase(), r.name]));
   return labels.map((l) => (toSystemLabel(l) ? l : (byLower.get(l.toLowerCase()) ?? l)));
-}
-
-/**
- * Add labels the way every write path must: system slugs normalised, no
- * duplicates, and a location label replacing the previous location.
- */
-export function addLabels(existing: string[] | null, ...labels: string[]): string[] {
-  let next = [...new Set(existing ?? [])];
-  for (const raw of labels) {
-    const label = normalizeLabel(raw);
-    if (isLocationLabel(label)) next = next.filter((l) => !CLEARED_BY_MOVE.includes(l));
-    if (!next.includes(label)) next.push(label);
-  }
-  return next;
-}
-
-export function removeLabels(existing: string[] | null, ...labels: string[]): string[] {
-  const toRemove = new Set(labels.map(normalizeLabel));
-  return (existing ?? []).filter((l) => !toRemove.has(l));
-}
-
-/** The boolean columns on `mail_messages` that mirror a system label. */
-export interface LabelFlags {
-  isStarred?: boolean;
-  isImportant?: boolean;
-  isTrash?: boolean;
-  isSpam?: boolean;
-}
-
-/**
- * The flag columns to write alongside a label change, for the labels it
- * touched only: starring sets `isStarred`, a move sets `isTrash` / `isSpam` to
- * match the new location. Untouched flags are left alone.
- */
-export function flagsForLabelChange(labels: string[], action: 'add' | 'remove'): LabelFlags {
-  const flags: LabelFlags = {};
-  const on = action === 'add';
-  for (const raw of labels) {
-    const label = normalizeLabel(raw);
-    if (label === SYSTEM_LABELS.STARRED) flags.isStarred = on;
-    else if (label === SYSTEM_LABELS.IMPORTANT) flags.isImportant = on;
-    else if (on && isLocationLabel(label)) {
-      flags.isTrash = label === SYSTEM_LABELS.TRASH;
-      flags.isSpam = label === SYSTEM_LABELS.SPAM;
-    } else if (label === SYSTEM_LABELS.TRASH) flags.isTrash = false;
-    else if (label === SYSTEM_LABELS.SPAM) flags.isSpam = false;
-  }
-  return flags;
 }
 
 // ===========================================================================

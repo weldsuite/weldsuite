@@ -19,7 +19,7 @@
  * and unified); we've collapsed both into `listThreadsByLabel`.
  */
 
-import { and, asc, desc, eq, ilike, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import {
@@ -39,7 +39,8 @@ import {
   messageSearchCondition,
   senderMatches,
 } from './messages';
-import { wakeDueSnoozedMessages } from './snooze';
+import { buildWakeDueSnoozedUpdate } from './snooze';
+import { batchWriteThenReads } from './db-batch';
 import {
   principalAccessCondition,
   principalHasAccess,
@@ -47,8 +48,19 @@ import {
   toPrincipal,
   type MailCaller,
 } from './access';
+import { buildThreadSummary, normalizeSubject } from './store/thread-summary';
+
+export { normalizeSubject };
 
 const { mailAccounts, mailMessages } = schema;
+
+// Every `mail_messages` column except bodies, raw MIME and the two JSONB
+// blobs no list view reads — `getTableColumns` + an omitting destructure so a
+// column added to the schema later shows up here too, the same "all but
+// these" rule the plan asks for (docs/plans/weldmail-mailbox-storage.md,
+// phase 1 item 1).
+const { textBody, htmlBody, rawMessage, headers, customFields, clickedLinks, ...threadListMessageColumns } =
+  getTableColumns(mailMessages);
 
 export interface ListThreadsByLabelInput {
   labelSlug: string;
@@ -102,10 +114,23 @@ export interface ThreadSummary {
   labels: string[];
   scheduledFor: Date | null;
   sendStatus: string | null;
-  messages: typeof mailMessages.$inferSelect[];
+  messages: ThreadListMessage[];
 }
 
 type MessageRow = typeof mailMessages.$inferSelect;
+
+/**
+ * A message as the thread list returns it: every column `MessageRow` has
+ * except `textBody`, `htmlBody`, `rawMessage`, `headers`, `customFields` and
+ * `clickedLinks` — bodies and raw MIME the list never shows, and two JSONB
+ * blobs no list view reads. Opening a thread loads the full `MessageRow` on
+ * its own (`getThreadByKey`, `GET /api/mail-messages/:id/thread`), which this
+ * leaves untouched.
+ */
+export type ThreadListMessage = Omit<
+  MessageRow,
+  'textBody' | 'htmlBody' | 'rawMessage' | 'headers' | 'customFields' | 'clickedLinks'
+>;
 
 /**
  * The account-scope conditions for a thread listing: one verified account, or
@@ -125,7 +150,13 @@ async function resolveAccountScope(
       .where(and(eq(mailAccounts.id, accountId), isNull(mailAccounts.deletedAt)))
       .limit(1);
     if (!account) return null;
-    if (!principalHasAccess(account, principal, await principalIsAdmin(db, principal))) return null;
+    // A shared account is open to every principal regardless of role —
+    // `principalHasAccess` never consults admin status for one — so the
+    // admin lookup (a `workspace_members` round trip) only runs when it could
+    // actually change the answer.
+    const allowed =
+      account.isShared || principalHasAccess(account, principal, await principalIsAdmin(db, principal));
+    if (!allowed) return null;
     return eq(mailMessages.accountId, accountId);
   }
 
@@ -141,32 +172,50 @@ async function resolveAccountScope(
   );
 }
 
-/** Flip scheduled messages whose send time has passed to `sent`, in the DB and in the given rows. */
-async function resolveExpiredScheduled(db: Database, messages: MessageRow[]): Promise<void> {
-  const now = new Date();
-  const expired = messages.filter(
-    (m) => m.sendStatus === 'scheduled' && m.scheduledFor && new Date(m.scheduledFor) <= now,
-  );
-  if (expired.length === 0) return;
+/** The ids array a `COALESCE(threadId, id) = ANY(...)` / account-id condition compares against. */
+function textArraySql(values: string[]): SQL {
+  return sql`ARRAY[${sql.join(values.map((v) => sql`${v}`), sql`, `)}]::text[]`;
+}
 
-  await db
+/**
+ * The conditional UPDATE that resolves scheduled messages whose send time has
+ * passed to `sent`, scoped to exactly the threads a page of the listing
+ * covers — built, not executed, so it can run in the same batch as the
+ * message SELECT right before it (the UPDATE first, so the SELECT reads the
+ * resolved status without a separate in-memory patch).
+ */
+function buildExpireScheduledUpdate(h: Database, accountIds: string[], threadIds: string[], now: Date) {
+  return h
     .update(mailMessages)
     .set({ sendStatus: 'sent', sentDate: now, scheduledFor: null, updatedAt: now })
     .where(
-      inArray(
-        mailMessages.id,
-        expired.map((m) => m.id),
+      and(
+        inArray(mailMessages.accountId, accountIds),
+        sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id}) = ANY(${textArraySql(threadIds)})`,
+        isNull(mailMessages.deletedAt),
+        eq(mailMessages.sendStatus, 'scheduled'),
+        lte(mailMessages.scheduledFor, now),
       ),
     );
-  for (const msg of expired) {
-    msg.sendStatus = 'sent';
-    msg.scheduledFor = null;
-    msg.sentDate = now;
-  }
 }
 
-function groupMessagesByThread(messages: MessageRow[]): Map<string, MessageRow[]> {
-  const threadMap = new Map<string, MessageRow[]>();
+/** The lean messages of a page's threads — built, not executed (see `buildExpireScheduledUpdate`). */
+function buildThreadMessagesQuery(h: Database, accountIds: string[], threadIds: string[]) {
+  return h
+    .select(threadListMessageColumns)
+    .from(mailMessages)
+    .where(
+      and(
+        inArray(mailMessages.accountId, accountIds),
+        sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id}) = ANY(${textArraySql(threadIds)})`,
+        isNull(mailMessages.deletedAt),
+      ),
+    )
+    .orderBy(asc(mailMessages.sentDate));
+}
+
+function groupMessagesByThread(messages: ThreadListMessage[]): Map<string, ThreadListMessage[]> {
+  const threadMap = new Map<string, ThreadListMessage[]>();
   for (const msg of messages) {
     const key = `${msg.accountId}::${msg.threadId ?? msg.id}`;
     const bucket = threadMap.get(key) ?? [];
@@ -176,73 +225,10 @@ function groupMessagesByThread(messages: MessageRow[]): Map<string, MessageRow[]
   return threadMap;
 }
 
-function summarizeThreadMessages(threadMessages: MessageRow[]): {
-  participants: string[];
-  labels: string[];
-  hasAttachments: boolean;
-  isStarred: boolean;
-  unreadCount: number;
-} {
-  const participants = new Set<string>();
-  const labels = new Set<string>();
-  let hasAttachments = false;
-  let isStarred = false;
-  let unreadCount = 0;
-  for (const msg of threadMessages) {
-    const from = msg.from as { name?: string; email?: string } | null;
-    const sender = from?.name || from?.email;
-    if (sender) participants.add(sender);
-    if (Array.isArray(msg.labels)) {
-      for (const l of msg.labels as string[]) labels.add(l);
-    }
-    if (msg.hasAttachments) hasAttachments = true;
-    if (msg.isStarred) isStarred = true;
-    if (!msg.isRead) unreadCount += 1;
-  }
-  if (labels.has('STARRED')) isStarred = true;
-  return { participants: [...participants], labels: [...labels], hasAttachments, isStarred, unreadCount };
-}
-
-function buildThreadSummary(
-  row: { accountId: string; threadId: string },
-  threadMessages: MessageRow[],
-): ThreadSummary {
-  threadMessages.sort(
-    (a, b) =>
-      dateOf(a.receivedDate, a.sentDate, a.createdAt) -
-      dateOf(b.receivedDate, b.sentDate, b.createdAt),
-  );
-
-  const first = threadMessages[0]!;
-  const latest = threadMessages.at(-1)!;
-  const { participants, labels, hasAttachments, isStarred, unreadCount } =
-    summarizeThreadMessages(threadMessages);
-
-  const latestFrom = latest.from as { name?: string; email?: string } | null;
-  const latestSender = latestFrom?.name || latestFrom?.email || 'Unknown';
-  const latestSenderEmail = latestFrom?.email ?? '';
-
-  return {
-    threadId: row.threadId,
-    accountId: row.accountId,
-    subject: normalizeSubject(first.subject),
-    participants,
-    latestMessageId: latest.id,
-    latestSender,
-    latestSenderEmail,
-    latestSenderAvatarUrl: null,
-    latestDate: latest.receivedDate ?? latest.sentDate ?? latest.createdAt ?? null,
-    preview: latest.preview ?? '',
-    messageCount: threadMessages.length,
-    unreadCount,
-    hasAttachments,
-    isStarred,
-    labels,
-    scheduledFor: latest.scheduledFor ?? null,
-    sendStatus: latest.sendStatus ?? null,
-    messages: threadMessages,
-  };
-}
+// `summarizeThreadMessages`, `buildThreadSummary` and `normalizeSubject`
+// moved to `./store/thread-summary` so the mailbox object's `refreshThread`
+// can share the exact aggregation rules (design task A3); imported above,
+// re-exported below for existing callers of `normalizeSubject`.
 
 /** The advanced-search From / To / Subject filters, per message. */
 function fieldFilterConditions(input: ThreadListFilter): SQL[] {
@@ -261,23 +247,23 @@ export type ThreadListFilter = Omit<ListThreadsByLabelInput, 'page' | 'pageSize'
  * to put its thread in the list. Null when the caller can read none of the
  * accounts. Shared by the listing and "mark all as read", so the button acts
  * on exactly the threads the folder shows.
+ *
+ * The snooze wake-up is returned as `buildWake` — built, not executed — so
+ * each caller decides when to run it: `markFolderRead` awaits it on its own
+ * (same as before), `listThreadsByLabel` folds it into its own
+ * `db.batch([...])` with the count and page queries, one round trip for all
+ * three instead of three.
  */
 export async function threadListScope(
   db: Database,
   caller: MailCaller,
   input: ThreadListFilter,
-): Promise<{ accountScope: SQL; conditions: SQL[] } | null> {
+): Promise<{ accountScope: SQL; conditions: SQL[]; buildWake: (h: Database) => ReturnType<typeof buildWakeDueSnoozedUpdate> } | null> {
   const baseConditions: SQL[] = [isNull(mailMessages.deletedAt)!];
 
   const accountScope = await resolveAccountScope(db, caller, input.accountId);
   if (!accountScope) return null;
   baseConditions.push(accountScope);
-
-  // Snoozed mail that came due since the last sweep is back in the inbox
-  // before the list is read. Never worth failing the listing over.
-  await wakeDueSnoozedMessages(db, { scope: accountScope }).catch((err) => {
-    console.error('[mail-threads] waking snoozed mail failed:', err);
-  });
 
   // Which messages put a thread in this list: the folder's label, or the
   // whole mailbox for a search. Trash and spam only ever show in their own
@@ -321,39 +307,41 @@ export async function threadListScope(
     baseConditions.push(sql`${threadKey} NOT IN ${anyMessageOfThread(excludeCondition)}`);
   }
 
-  return { accountScope, conditions: baseConditions };
+  return {
+    accountScope,
+    conditions: baseConditions,
+    buildWake: (h: Database) => buildWakeDueSnoozedUpdate(h, { scope: accountScope }),
+  };
 }
 
-export async function listThreadsByLabel(
-  db: Database,
-  caller: MailCaller,
-  input: ListThreadsByLabelInput,
-): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
-  const page = Math.max(1, input.page ?? 1);
-  const pageSize = Math.min(100, Math.max(1, input.pageSize ?? 25));
-  const offset = input.offset !== undefined ? Math.max(0, input.offset) : (page - 1) * pageSize;
-
-  const scope = await threadListScope(db, caller, input);
-  if (!scope) return { threads: [], totalCount: 0 };
-  const { accountScope, conditions: baseConditions } = scope;
-  const threadIdExpr = sql<string>`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
-
-  // ---- count distinct threads -----------------------------------------
-  const [countRow] = await db
+/** The distinct-thread count for a listing — built, not executed (see `buildExpireScheduledUpdate`). */
+function buildThreadCountQuery(h: Database, baseConditions: SQL[]) {
+  return h
     .select({
       count: sql<number>`COUNT(DISTINCT (${mailMessages.accountId}, COALESCE(${mailMessages.threadId}, ${mailMessages.id})))::int`,
     })
     .from(mailMessages)
     .where(and(...baseConditions));
-  const totalCount = countRow?.count ?? 0;
+}
 
-  // ---- paginate the thread IDs ----------------------------------------
-  // A thread sorts by its newest message of any kind, so the reply you sent
-  // (SENT, not INBOX) lifts the conversation in the inbox like it does in Gmail.
-  // That date comes from one grouped pass over the scoped accounts, joined to
-  // the matching threads. A correlated subquery per matching message would
-  // rescan the account each time: no index covers COALESCE(thread_id, id).
-  const matchingThreads = db
+/**
+ * One page of thread ids, newest first — built, not executed (see
+ * `buildExpireScheduledUpdate`). A thread sorts by its newest message of any
+ * kind, so the reply you sent (SENT, not INBOX) lifts the conversation in the
+ * inbox like it does in Gmail. That date comes from one grouped pass over the
+ * scoped accounts, joined to the matching threads. A correlated subquery per
+ * matching message would rescan the account each time: no index covers
+ * COALESCE(thread_id, id).
+ */
+function buildThreadPageQuery(
+  h: Database,
+  baseConditions: SQL[],
+  accountScope: SQL,
+  threadIdExpr: SQL<string>,
+  pageSize: number,
+  offset: number,
+) {
+  const matchingThreads = h
     .select({
       accountId: sql<string>`${mailMessages.accountId}`.as('match_account_id'),
       threadId: sql<string>`${threadIdExpr}`.as('match_thread_key'),
@@ -362,7 +350,7 @@ export async function listThreadsByLabel(
     .where(and(...baseConditions))
     .groupBy(mailMessages.accountId, threadIdExpr)
     .as('matching_threads');
-  const threadDates = db
+  const threadDates = h
     .select({
       accountId: sql<string>`${mailMessages.accountId}`.as('date_account_id'),
       threadId: sql<string>`${threadIdExpr}`.as('date_thread_key'),
@@ -375,7 +363,7 @@ export async function listThreadsByLabel(
     .groupBy(mailMessages.accountId, threadIdExpr)
     .as('thread_dates');
 
-  const threadRows = await db
+  return h
     .select({
       accountId: matchingThreads.accountId,
       threadId: matchingThreads.threadId,
@@ -392,29 +380,63 @@ export async function listThreadsByLabel(
     .orderBy(desc(threadDates.latestDate), asc(matchingThreads.threadId))
     .limit(pageSize)
     .offset(offset);
+}
+
+type ThreadCountRow = { count: number };
+type ThreadPageRow = { accountId: string; threadId: string; latestDate: string };
+
+export async function listThreadsByLabel(
+  db: Database,
+  caller: MailCaller,
+  input: ListThreadsByLabelInput,
+): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
+  const page = Math.max(1, input.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, input.pageSize ?? 25));
+  const offset = input.offset !== undefined ? Math.max(0, input.offset) : (page - 1) * pageSize;
+
+  const scope = await threadListScope(db, caller, input);
+  if (!scope) return { threads: [], totalCount: 0 };
+  const { accountScope, conditions: baseConditions, buildWake } = scope;
+  const threadIdExpr = sql<string>`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
+
+  // ---- wake snoozed mail, count distinct threads and page the thread ids,
+  // in one round trip: the wake runs first, inside the same transaction as
+  // the reads, so a mail that just came due is already back in the inbox for
+  // the count and the page below. If the wake can't land (the workspace is
+  // read-only during a database move, say) the listing still has to work, so
+  // this retries with the two reads alone rather than failing the request.
+  const [countRows, threadRows] = (await batchWriteThenReads(
+    db,
+    (h) => [
+      buildWake(h),
+      buildThreadCountQuery(h, baseConditions),
+      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, offset),
+    ],
+    (h) => [
+      buildThreadCountQuery(h, baseConditions),
+      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, offset),
+    ],
+    'waking snoozed mail',
+  )) as [ThreadCountRow[], ThreadPageRow[]];
+  const totalCount = countRows[0]?.count ?? 0;
 
   if (threadRows.length === 0) return { threads: [], totalCount };
 
-  // ---- pull full messages for those threads ---------------------------
+  // ---- resolve expired scheduled messages and pull the page's lean
+  // messages, in one round trip: the UPDATE runs first, so the SELECT reads
+  // the resolved status directly, no separate in-memory patch. A failed
+  // UPDATE (same read-only case as the wake above) falls back to the lean
+  // message SELECT alone, so expired-but-unresolved mail just keeps showing
+  // as "scheduled" instead of taking the list down with it. --------------
   const threadIds = threadRows.map((r) => r.threadId).filter(Boolean);
   const accountIds = [...new Set(threadRows.map((r) => r.accountId))];
-  const messages = await db
-    .select()
-    .from(mailMessages)
-    .where(
-      and(
-        inArray(mailMessages.accountId, accountIds),
-        sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id}) = ANY(ARRAY[${sql.join(
-          threadIds.map((id) => sql`${id}`),
-          sql`, `,
-        )}]::text[])`,
-        isNull(mailMessages.deletedAt),
-      ),
-    )
-    .orderBy(asc(mailMessages.sentDate));
-
-  // ---- auto-resolve expired scheduled messages ------------------------
-  await resolveExpiredScheduled(db, messages);
+  const now = new Date();
+  const [messages] = (await batchWriteThenReads(
+    db,
+    (h) => [buildExpireScheduledUpdate(h, accountIds, threadIds, now), buildThreadMessagesQuery(h, accountIds, threadIds)],
+    (h) => [buildThreadMessagesQuery(h, accountIds, threadIds)],
+    'resolving expired scheduled mail',
+  )) as [ThreadListMessage[]];
 
   // ---- group + summarise ----------------------------------------------
   const threadMap = groupMessagesByThread(messages);
@@ -456,24 +478,6 @@ export async function getThreadByKey(
     .orderBy(asc(mailMessages.sentDate), asc(mailMessages.id));
   if (messages.length === 0) return null;
   return { threadId: threadKey, accountId, messages };
-}
-
-function dateOf(...candidates: (Date | null | undefined)[]): number {
-  for (const c of candidates) {
-    if (c instanceof Date) return c.getTime();
-    if (typeof c === 'string') return new Date(c).getTime();
-  }
-  return 0;
-}
-
-/**
- * The title of a thread: its first message's subject without reply prefixes.
- * A forward keeps its `Fwd:`, which tells the conversation from the mail it
- * was forwarded from.
- */
-export function normalizeSubject(subject: string | null): string {
-  if (!subject) return '(No subject)';
-  return subject.replace(/^(?:re:\s*)+/i, '') || '(No subject)';
 }
 
 /**

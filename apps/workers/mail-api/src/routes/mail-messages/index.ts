@@ -512,7 +512,13 @@ app.post(
         userId,
         id,
         data,
-        { waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx) },
+        {
+          waitUntil: c.executionCtx.waitUntil.bind(c.executionCtx),
+          // The master workspace id (already resolved by workspaceDbMiddleware)
+          // lets a "forward as attachment" read the original's raw MIME from
+          // R2 instead of rebuilding it.
+          outbound: { workspaceId: c.get('workspaceId') },
+        },
       );
       publishEntityEvent({
         c,

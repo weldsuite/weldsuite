@@ -22,6 +22,8 @@ import {
   resolveCustomLabelNames,
   SYSTEM_LABELS,
 } from './labels';
+import { labelsForFlagPatch } from './store/model';
+import { batchQueries } from './db-batch';
 
 const { mailAccounts, mailMessages, mailAttachments, mailDrafts, people: contacts } = schema;
 
@@ -263,23 +265,19 @@ function buildContactLookups(
 }
 
 /** `accountId::email` to display name, for senders that are the mailbox itself. */
-async function loadOwnMailboxNames(
-  db: Database,
-  rows: Array<{ accountId?: string | null }>,
-): Promise<Map<string, string>> {
-  const accountIds = [...new Set(rows.map((r) => r.accountId).filter((id): id is string => !!id))];
+function ownMailboxNameMap(
+  accounts: Array<{ id: string; email: string; displayName: string | null }>,
+): Map<string, string> {
   const names = new Map<string, string>();
-  if (accountIds.length === 0) return names;
-  const accounts = await db
-    .select({ id: mailAccounts.id, email: mailAccounts.email, displayName: mailAccounts.displayName })
-    .from(mailAccounts)
-    .where(inArray(mailAccounts.id, accountIds));
   for (const a of accounts) {
     const name = a.displayName?.trim();
     if (a.email && name) names.set(`${a.id}::${a.email.toLowerCase()}`, name);
   }
   return names;
 }
+
+type OwnMailboxAccountRow = { id: string; email: string; displayName: string | null };
+type SenderContactRow = { email: string | null; firstName: string | null; lastName: string | null; avatarUrl: string | null };
 
 /**
  * Resolve every sender's display name and avatar in place, the one rule the
@@ -294,17 +292,40 @@ export async function enrichSenderContacts(
 ): Promise<void> {
   const senderEmails = collectSenderEmails(rows);
   if (senderEmails.size === 0) return;
-  const ownNames = await loadOwnMailboxNames(db, rows);
+  const accountIds = [...new Set(rows.map((r) => r.accountId).filter((id): id is string => !!id))];
 
-  const contactRows = await db
-    .select({
-      email: contacts.email,
-      firstName: contacts.firstName,
-      lastName: contacts.lastName,
-      avatarUrl: contacts.avatarUrl,
-    })
-    .from(contacts)
-    .where(and(inArray(contacts.email, [...senderEmails]), isNull(contacts.deletedAt)));
+  const contactsQuery = (h: Database) =>
+    h
+      .select({
+        email: contacts.email,
+        firstName: contacts.firstName,
+        lastName: contacts.lastName,
+        avatarUrl: contacts.avatarUrl,
+      })
+      .from(contacts)
+      .where(and(inArray(contacts.email, [...senderEmails]), isNull(contacts.deletedAt)));
+
+  let ownNames: Map<string, string>;
+  let contactRows: SenderContactRow[];
+  if (accountIds.length === 0) {
+    // Nothing to look an own-mailbox name up for — one round trip, not two.
+    ownNames = new Map();
+    contactRows = await contactsQuery(db);
+  } else {
+    const accountsQuery = (h: Database) =>
+      h
+        .select({ id: mailAccounts.id, email: mailAccounts.email, displayName: mailAccounts.displayName })
+        .from(mailAccounts)
+        .where(inArray(mailAccounts.id, accountIds));
+    // Independent reads (neither depends on the other's result) — one round
+    // trip for both instead of two.
+    const [accounts, rows2] = (await batchQueries(db, (h) => [accountsQuery(h), contactsQuery(h)])) as [
+      OwnMailboxAccountRow[],
+      SenderContactRow[],
+    ];
+    ownNames = ownMailboxNameMap(accounts);
+    contactRows = rows2;
+  }
 
   const { nameMap, avatarMap } = buildContactLookups(contactRows);
 
@@ -442,39 +463,37 @@ export async function getMessageStats(
   const ids = typeof accountIds === 'string' ? [accountIds] : accountIds;
   if (ids.length === 0) return { ...EMPTY_STATS };
   const conditions: SQL[] = [isNull(mailMessages.deletedAt)!, inArray(mailMessages.accountId, ids)];
-  const draftConditions: SQL[] = [isNull(mailDrafts.deletedAt)!, inArray(mailDrafts.accountId, ids)];
 
   const labels = sql`COALESCE(${mailMessages.labels}, '[]'::jsonb)`;
   const has = (label: string) => sql`${labels} @> ${JSON.stringify([label])}::jsonb`;
   const live = sql`NOT ${inTrashOrSpamCondition()}`;
   const unread = sql`${mailMessages.isRead} = false`;
   const count = (condition: SQL) => sql<number>`count(*) filter (where ${condition})::int`;
+  // Drafts live in a different table; folded into the same statement as a
+  // scalar subquery rather than a second round trip.
+  const idsArray = sql`ARRAY[${sql.join(ids.map((id) => sql`${id}`), sql`, `)}]::text[]`;
+  const drafts = sql<number>`(SELECT count(*)::int FROM ${mailDrafts} WHERE ${mailDrafts.deletedAt} IS NULL AND ${mailDrafts.accountId} = ANY(${idsArray}))`;
 
-  const [[row], [draftRow]] = await Promise.all([
-    db
-      .select({
-        total: sql<number>`count(*)::int`,
-        unread: count(unread),
-        inboxUnread: count(sql`${has('INBOX')} AND ${live} AND ${unread}`),
-        starred: count(sql`(${has('STARRED')} OR ${mailMessages.isStarred} = true) AND ${live}`),
-        importantUnread: count(
-          sql`(${has('IMPORTANT')} OR ${mailMessages.isImportant} = true) AND ${live} AND ${unread}`,
-        ),
-        sentUnread: count(sql`${has('SENT')} AND ${live} AND ${unread}`),
-        archiveUnread: count(sql`${has('ARCHIVE')} AND ${live} AND ${unread}`),
-        trashUnread: count(sql`${has('TRASH')} AND ${unread}`),
-        spam: count(has('SPAM')),
-        snoozed: count(sql`${has('SNOOZED')} AND ${live}`),
-        scheduled: count(sql`${has('SCHEDULED')} AND ${mailMessages.sendStatus} = 'scheduled' AND ${live}`),
-      })
-      .from(mailMessages)
-      .where(and(...conditions)),
-    db
-      .select({ drafts: sql<number>`count(*)::int` })
-      .from(mailDrafts)
-      .where(and(...draftConditions)),
-  ]);
-  return { ...EMPTY_STATS, ...row, drafts: draftRow?.drafts ?? 0 };
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      unread: count(unread),
+      inboxUnread: count(sql`${has('INBOX')} AND ${live} AND ${unread}`),
+      starred: count(sql`(${has('STARRED')} OR ${mailMessages.isStarred} = true) AND ${live}`),
+      importantUnread: count(
+        sql`(${has('IMPORTANT')} OR ${mailMessages.isImportant} = true) AND ${live} AND ${unread}`,
+      ),
+      sentUnread: count(sql`${has('SENT')} AND ${live} AND ${unread}`),
+      archiveUnread: count(sql`${has('ARCHIVE')} AND ${live} AND ${unread}`),
+      trashUnread: count(sql`${has('TRASH')} AND ${unread}`),
+      spam: count(has('SPAM')),
+      snoozed: count(sql`${has('SNOOZED')} AND ${live}`),
+      scheduled: count(sql`${has('SCHEDULED')} AND ${mailMessages.sendStatus} = 'scheduled' AND ${live}`),
+      drafts,
+    })
+    .from(mailMessages)
+    .where(and(...conditions));
+  return { ...EMPTY_STATS, ...row };
 }
 
 // ---------------------------------------------------------------------------
@@ -526,47 +545,9 @@ export async function updateMessage(
   return after!;
 }
 
-/** Leave a location (`TRASH` / `SPAM`): back to the inbox unless the mail already sits somewhere else. */
-function leaveLocation(labels: string[], location: string): string[] {
-  const next = removeLabels(labels, location);
-  const elsewhere = [SYSTEM_LABELS.TRASH, SYSTEM_LABELS.SPAM, SYSTEM_LABELS.ARCHIVE].some((l) =>
-    next.includes(l),
-  );
-  return elsewhere ? next : addLabels(next, SYSTEM_LABELS.INBOX);
-}
-
-/**
- * The labels array (and the flags a move implies) that a patch of the boolean
- * flags leads to. Null when the patch sets none of the mirrored flags.
- */
-function labelsForFlagPatch(
-  existing: string[] | null,
-  data: UpdateMessageInput,
-): { labels: string[]; isTrash?: boolean; isSpam?: boolean } | null {
-  const mirrored = [data.isStarred, data.isImportant, data.isSpam, data.isTrash];
-  if (mirrored.every((v) => v === undefined)) return null;
-
-  let labels = [...(existing ?? [])];
-  const toggle = (value: boolean | undefined, label: string) => {
-    if (value === undefined) return;
-    labels = value ? addLabels(labels, label) : removeLabels(labels, label);
-  };
-  toggle(data.isStarred, SYSTEM_LABELS.STARRED);
-  toggle(data.isImportant, SYSTEM_LABELS.IMPORTANT);
-  if (data.isSpam === true) labels = addLabels(labels, SYSTEM_LABELS.SPAM);
-  else if (data.isSpam === false) labels = leaveLocation(labels, SYSTEM_LABELS.SPAM);
-  if (data.isTrash === true) labels = addLabels(labels, SYSTEM_LABELS.TRASH);
-  else if (data.isTrash === false) labels = leaveLocation(labels, SYSTEM_LABELS.TRASH);
-
-  const moved = data.isSpam !== undefined || data.isTrash !== undefined;
-  return moved
-    ? {
-        labels,
-        isTrash: labels.includes(SYSTEM_LABELS.TRASH),
-        isSpam: labels.includes(SYSTEM_LABELS.SPAM),
-      }
-    : { labels };
-}
+// `leaveLocation` and the labels-from-a-flag-patch logic moved to
+// `./store/model` (`labelsForFlagPatch`) so the mailbox object can share them
+// (design task A3); imported above, re-used here unchanged.
 
 /**
  * Soft-delete a message. Returns the identifying fields the route needs

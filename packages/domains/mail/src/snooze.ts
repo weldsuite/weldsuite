@@ -149,18 +149,15 @@ export async function resnoozeMessage(
 }
 
 /**
- * Wake every snoozed message whose time has come: SNOOZED goes, INBOX comes
- * back, and the mail is unread again so it stands out as it would have on
- * arrival. One statement, driven by the `snoozed_until` index. `scope`
- * narrows it to some accounts (an extra condition on `mail_messages`).
- *
- * Mail that was trashed or marked spam while snoozed has no SNOOZED label any
- * more (a move clears it), so it is never brought back.
+ * The UPDATE `wakeDueSnoozedMessages` runs, built but not executed. Split out
+ * so a caller that already has its own `db.batch([...])` in flight (the
+ * thread list: `listThreadsByLabel` folds the wake in with its count and page
+ * queries, one round trip instead of three) can include this statement
+ * instead of paying for it separately. `wakeDueSnoozedMessages` is this plus
+ * the await and the result bookkeeping, for the cron sweep and direct
+ * callers that want the woken count.
  */
-export async function wakeDueSnoozedMessages(
-  db: Database,
-  options: { now?: Date; scope?: SQL } = {},
-): Promise<{ woken: number; accountIds: string[] }> {
+export function buildWakeDueSnoozedUpdate(db: Database, options: { now?: Date; scope?: SQL } = {}) {
   const now = options.now ?? new Date();
   const conditions: SQL[] = [
     isNull(mailMessages.deletedAt)!,
@@ -169,7 +166,7 @@ export async function wakeDueSnoozedMessages(
   ];
   if (options.scope) conditions.push(options.scope);
 
-  const rows = await db
+  return db
     .update(mailMessages)
     .set({
       labels: sql`((${mailMessages.labels} - 'SNOOZED') - 'INBOX') || '["INBOX"]'::jsonb`,
@@ -182,6 +179,22 @@ export async function wakeDueSnoozedMessages(
     })
     .where(and(...conditions))
     .returning({ accountId: mailMessages.accountId });
+}
+
+/**
+ * Wake every snoozed message whose time has come: SNOOZED goes, INBOX comes
+ * back, and the mail is unread again so it stands out as it would have on
+ * arrival. One statement, driven by the `snoozed_until` index. `scope`
+ * narrows it to some accounts (an extra condition on `mail_messages`).
+ *
+ * Mail that was trashed or marked spam while snoozed has no SNOOZED label any
+ * more (a move clears it), so it is never brought back.
+ */
+export async function wakeDueSnoozedMessages(
+  db: Database,
+  options: { now?: Date; scope?: SQL } = {},
+): Promise<{ woken: number; accountIds: string[] }> {
+  const rows = await buildWakeDueSnoozedUpdate(db, options);
   return { woken: rows.length, accountIds: [...new Set(rows.map((r) => r.accountId))] };
 }
 

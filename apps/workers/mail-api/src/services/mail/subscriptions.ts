@@ -8,9 +8,15 @@
  * Header parsing, the unsubscribe mechanism picker and the backfill
  * aggregation live in `@weldsuite/email/list-unsubscribe`, shared with
  * personal-api.
+ *
+ * Raw MIME lives in R2, never in the Postgres `raw_message` column
+ * (docs/plans/weldmail-mailbox-store-design.md decision 4), so the scan reads
+ * each candidate message's header bytes from R2
+ * (`@weldsuite/mail-domain/store/bodies`) instead of a `raw_message IS NOT
+ * NULL` SQL filter — that column is always NULL for workspace mail.
  */
 
-import { and, desc, eq, gte, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, sql } from 'drizzle-orm';
 import type { ExecutionContext } from 'hono';
 import {
   aggregateSubscriptions,
@@ -22,6 +28,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { sendAndPersist } from '@weldsuite/mail-domain/send';
+import { getRawMimeHeader } from '@weldsuite/mail-domain/store/bodies';
 
 const { mailSubscriptions, mailMessages } = schema;
 
@@ -32,6 +39,27 @@ export const SCAN_WINDOW_DAYS = 180;
 export const SCAN_MESSAGE_LIMIT = 2000;
 /** Only the header block is needed — never pull whole raw bodies. */
 export const RAW_HEADER_BYTES = 32_000;
+/** R2 range-reads in flight at once, so a 2000-message scan doesn't fire 2000 requests at once. */
+const R2_READ_CONCURRENCY = 20;
+
+/** Runs `fn` over `items` with at most `limit` in flight, preserving result order. */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 export function listSubscriptions(
   db: Database,
@@ -55,19 +83,26 @@ export async function getSubscription(db: Database, id: string): Promise<MailSub
 /**
  * Rebuild subscription rows for an account from the raw headers of its
  * recently received messages. Unsubscribe state on existing rows is kept.
+ *
+ * `env` only needs `MAIL_STORAGE`, the EU mail bucket: without it (or without a
+ * raw object for a given message — e.g. it predates this fix, or the inbound
+ * R2 write failed) that message simply contributes nothing, same as
+ * `aggregateSubscriptions` already does for a null `rawHeaders`.
  */
 export async function scanSubscriptions(
+  env: { MAIL_STORAGE?: R2Bucket },
   db: Database,
-  accountId: string,
+  input: { workspaceId: string; accountId: string },
 ): Promise<{ scanned: number; subscriptions: number }> {
+  const { workspaceId, accountId } = input;
   const since = new Date(Date.now() - SCAN_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const rows = await db
     .select({
+      id: mailMessages.id,
       from: mailMessages.from,
       subject: mailMessages.subject,
       receivedDate: mailMessages.receivedDate,
       sentDate: mailMessages.sentDate,
-      rawHeaders: sql<string | null>`substring(${mailMessages.rawMessage} from 1 for ${RAW_HEADER_BYTES})`,
     })
     .from(mailMessages)
     .where(
@@ -75,19 +110,32 @@ export async function scanSubscriptions(
         eq(mailMessages.accountId, accountId),
         eq(mailMessages.source, 'inbound'),
         eq(mailMessages.isSpam, false),
-        isNotNull(mailMessages.rawMessage),
         gte(mailMessages.sentDate, since),
       ),
     )
     .orderBy(desc(mailMessages.sentDate))
     .limit(SCAN_MESSAGE_LIMIT);
 
+  const rawHeaders = env.MAIL_STORAGE
+    ? await mapWithConcurrency(rows, R2_READ_CONCURRENCY, (row) =>
+        getRawMimeHeader(env.MAIL_STORAGE!, { workspaceId, accountId, messageId: row.id }, RAW_HEADER_BYTES).catch(
+          (err) => {
+            console.warn(
+              `[mail-subscriptions] Failed to read raw MIME header from R2 for ${row.id}:`,
+              err instanceof Error ? err.message : err,
+            );
+            return null;
+          },
+        ),
+      )
+    : rows.map(() => null);
+
   const aggregates = aggregateSubscriptions(
-    rows.map((r) => ({
+    rows.map((r, i) => ({
       from: r.from,
       subject: r.subject,
       receivedAt: r.receivedDate ?? r.sentDate,
-      rawHeaders: r.rawHeaders,
+      rawHeaders: rawHeaders[i] ?? null,
     })),
   );
 

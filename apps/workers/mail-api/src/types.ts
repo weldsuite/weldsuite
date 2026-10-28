@@ -22,6 +22,8 @@ export interface Env extends KitEnv {
   STORAGE?: R2Bucket;
   /** Private uploads (no public domain); read via @weldsuite/worker-kit/storage. */
   PRIVATE_STORAGE?: R2Bucket;
+  /** EU-jurisdiction bucket for raw MIME and message bodies (mail-domain store/bodies.ts). */
+  MAIL_STORAGE?: R2Bucket;
   /** Public hostname that serves objects in the STORAGE bucket. */
   R2_PUBLIC_URL?: string;
 

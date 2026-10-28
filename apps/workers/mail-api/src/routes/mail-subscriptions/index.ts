@@ -65,7 +65,7 @@ app.post(
       return error.notFound(c, 'Mail account', accountId);
     }
     try {
-      return success(c, await scanSubscriptions(db, accountId));
+      return success(c, await scanSubscriptions(c.env, db, { workspaceId: c.get('workspaceId'), accountId }));
     } catch (err) {
       console.error('[app-api/mail-subscriptions] scan failed:', err);
       return error.internal(c, 'Failed to scan for subscriptions');

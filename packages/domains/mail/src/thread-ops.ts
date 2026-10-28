@@ -94,6 +94,12 @@ export async function markFolderRead(
   const scope = await threadListScope(db, caller, input);
   if (!scope) return { updatedCount: 0, updated: [] };
 
+  // Snoozed mail that came due since the last sweep is back in the inbox
+  // before the batches below read it. Never worth failing the mark-all over.
+  await scope.buildWake(db).catch((err) => {
+    console.error('[mail-thread-ops] waking snoozed mail failed:', err);
+  });
+
   const threadIdExpr = sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
   const folderThreads = db
     .select({ accountId: mailMessages.accountId, threadKey: threadIdExpr })

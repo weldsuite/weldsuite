@@ -45,11 +45,18 @@ export function toPublicAttachment<T extends { storagePath?: unknown; downloadUr
  * A workspace has two folders: compose uploads live under the Clerk org id
  * (`workspaces/org_…/`), inbound attachments under the master workspace id
  * (`workspaces/ws_…/`, mail-inbound-worker). Pass both.
+ *
+ * `mail/<workspaceId>/…` is the separate R2 layout for message bodies and raw
+ * MIME (`store/bodies.ts`, docs/plans/weldmail-mailbox-store-design.md
+ * decision 4) — a sibling top-level prefix, not nested under `workspaces/`.
+ * It only ever uses the master `workspaces.id`, but the check is run against
+ * whichever ids the caller passes (same as the `workspaces/` prefix above),
+ * so a key still has to match one of them.
  */
 export function isWorkspaceStorageKey(key: string, workspaceIds: string | readonly string[]): boolean {
   if (key.includes('..')) return false;
   const ids = (typeof workspaceIds === 'string' ? [workspaceIds] : workspaceIds).filter(Boolean);
-  return ids.some((id) => key.startsWith(`workspaces/${id}/`));
+  return ids.some((id) => key.startsWith(`workspaces/${id}/`) || key.startsWith(`mail/${id}/`));
 }
 
 /** The binding `deleteAttachment` reads (any worker Env with it fits). */
