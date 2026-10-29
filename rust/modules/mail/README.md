@@ -21,7 +21,7 @@ workstreams fill this crate in; add your group's line here when it lands.
 | `/api/mail-scheduled` | `routes::mail_scheduled` | outbound | in progress |
 | `mail-sending-events`, `mail-outbound-review` consumers | `consumers` | outbound | handlers ported |
 | outbound-alerts cron | `cron::outbound_alerts` | outbound | in progress |
-| `/api/mail-messages` reads, `/api/mail-threads`, `/api/mail-labels`, `/api/mail-folders`, `/api/mail-drafts`, … | | mailbox store | not started |
+| `/api/mail-messages` reads, `/api/mail-threads`, `/api/mail-labels`, `/api/mail-folders`, `/api/mail-drafts`, … | (domain: `weldsuite_mail_domain::labels`) | mailbox store | started: label model and label SQL only, no routes |
 | `/api/mailboxes`, `/api/mail-accounts` (CRUD), `/api/mail-domains`, `/api/mail-weldmail` | | accounts and domains | not started |
 | inbound (mail-inbound-worker) | | inbound | not started |
 

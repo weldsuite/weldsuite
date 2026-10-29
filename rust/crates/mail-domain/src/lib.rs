@@ -16,6 +16,7 @@
 pub mod access;
 pub mod contacts;
 pub mod html;
+pub mod labels;
 pub mod outbound;
 pub mod recipients;
 pub mod send;
