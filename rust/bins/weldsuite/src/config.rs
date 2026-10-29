@@ -22,6 +22,121 @@ pub(crate) enum ClerkKey {
     SecretKey(String),
 }
 
+/// Who signs people in (`AUTH_PROVIDER`, ADR SEC-012).
+#[derive(Clone)]
+pub(crate) enum AuthConfig {
+    /// `clerk`, the default: Clerk session tokens, as the workers verify them.
+    Clerk {
+        key: ClerkKey,
+        /// `CLERK_AUTHORIZED_PARTIES`: extra origins allowed as `azp`.
+        authorized_parties: Option<String>,
+    },
+    /// `oidc`: an OIDC provider's tokens (Zitadel, or the customer's own).
+    Oidc {
+        settings: weldsuite_auth::OidcSettings,
+        /// `OIDC_WEB_CLIENT_ID`: the platform's public PKCE client, told to
+        /// the frontends by `/config.json`.
+        web_client_id: Option<String>,
+    },
+}
+
+impl fmt::Debug for AuthConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Clerk {
+                authorized_parties, ..
+            } => f
+                .debug_struct("Clerk")
+                .field("authorized_parties", authorized_parties)
+                .finish_non_exhaustive(),
+            Self::Oidc {
+                settings,
+                web_client_id,
+            } => f
+                .debug_struct("Oidc")
+                .field("settings", settings)
+                .field("web_client_id", web_client_id)
+                .finish(),
+        }
+    }
+}
+
+impl AuthConfig {
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        read_file: &impl Fn(&str) -> std::io::Result<String>,
+        problems: &mut Vec<String>,
+    ) -> Self {
+        match lookup("AUTH_PROVIDER").as_deref() {
+            None | Some("clerk") => Self::Clerk {
+                key: clerk_key(lookup, read_file, problems),
+                authorized_parties: lookup("CLERK_AUTHORIZED_PARTIES"),
+            },
+            Some("oidc") => {
+                let issuer = lookup("OIDC_ISSUER").unwrap_or_else(|| {
+                    problems.push("OIDC_ISSUER is required with AUTH_PROVIDER=oidc".to_owned());
+                    String::new()
+                });
+                let audiences: Vec<String> = lookup("OIDC_AUDIENCE")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|aud| !aud.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                if audiences.is_empty() {
+                    problems.push("OIDC_AUDIENCE is required with AUTH_PROVIDER=oidc".to_owned());
+                }
+                let mut settings = weldsuite_auth::OidcSettings::new(issuer, audiences);
+                if let Some(claim) = lookup("OIDC_ORG_CLAIM") {
+                    settings.org_claim = claim;
+                }
+                settings.jwks_url = lookup("OIDC_JWKS_URL");
+                Self::Oidc {
+                    settings,
+                    web_client_id: lookup("OIDC_WEB_CLIENT_ID"),
+                }
+            }
+            Some(_) => {
+                problems.push("AUTH_PROVIDER must be clerk or oidc".to_owned());
+                Self::Clerk {
+                    key: ClerkKey::Pem(String::new()),
+                    authorized_parties: None,
+                }
+            }
+        }
+    }
+}
+
+/// In order of preference: a fixed key, then keys fetched over HTTP.
+fn clerk_key(
+    lookup: &impl Fn(&str) -> Option<String>,
+    read_file: &impl Fn(&str) -> std::io::Result<String>,
+    problems: &mut Vec<String>,
+) -> ClerkKey {
+    if let Some(pem) = lookup("CLERK_JWT_KEY") {
+        ClerkKey::Pem(pem.replace("\\n", "\n"))
+    } else if let Some(path) = lookup("CLERK_JWKS_FILE") {
+        read_file(&path).map_or_else(
+            |error| {
+                problems.push(format!("CLERK_JWKS_FILE {path} cannot be read: {error}"));
+                ClerkKey::Jwks(String::new())
+            },
+            ClerkKey::Jwks,
+        )
+    } else if let Some(url) = lookup("CLERK_JWKS_URL") {
+        ClerkKey::JwksUrl(url)
+    } else if let Some(secret) = lookup("CLERK_SECRET_KEY") {
+        ClerkKey::SecretKey(secret)
+    } else {
+        problems.push(
+            "one of CLERK_JWT_KEY, CLERK_JWKS_FILE, CLERK_JWKS_URL or CLERK_SECRET_KEY is required"
+                .to_owned(),
+        );
+        ClerkKey::Pem(String::new())
+    }
+}
+
 /// Log lines as JSON (for the cluster's log pipeline) or text (local runs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LogFormat {
@@ -37,9 +152,7 @@ pub(crate) struct Config {
     pub(crate) master_database_url: String,
     pub(crate) master_max_connections: u32,
     pub(crate) keyring: Keyring,
-    pub(crate) clerk_key: ClerkKey,
-    /// `CLERK_AUTHORIZED_PARTIES`: extra origins allowed as `azp`.
-    pub(crate) authorized_parties: Option<String>,
+    pub(crate) auth: AuthConfig,
     /// `PERMISSIONS_APP_ENFORCE=true`: refuse per-app denials instead of
     /// logging them.
     pub(crate) permissions_app_enforce: bool,
@@ -55,6 +168,9 @@ pub(crate) struct Config {
     /// `SIGN_PORTAL_URL`: the signer portal's origin; signing links are
     /// `<portal>/r/<token>` (default `https://sign.weldsuite.org`).
     pub(crate) sign_portal_url: Option<String>,
+    /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
+    /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
+    pub(crate) files_public_url: Option<String>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -273,7 +389,7 @@ impl fmt::Debug for Config {
             .field("environment", &self.environment)
             .field("master_max_connections", &self.master_max_connections)
             .field("keyring", &self.keyring)
-            .field("authorized_parties", &self.authorized_parties)
+            .field("auth", &self.auth)
             .field("permissions_app_enforce", &self.permissions_app_enforce)
             .field("workspaces", &self.workspaces)
             .field("log_format", &self.log_format)
@@ -351,28 +467,7 @@ impl Config {
             v2: lookup("DATABASE_ENCRYPTION_KEY_V2"),
         };
 
-        // In order of preference: a fixed key, then keys fetched over HTTP.
-        let clerk_key = if let Some(pem) = lookup("CLERK_JWT_KEY") {
-            ClerkKey::Pem(pem.replace("\\n", "\n"))
-        } else if let Some(path) = lookup("CLERK_JWKS_FILE") {
-            read_file(&path).map_or_else(
-                |error| {
-                    problems.push(format!("CLERK_JWKS_FILE {path} cannot be read: {error}"));
-                    ClerkKey::Jwks(String::new())
-                },
-                ClerkKey::Jwks,
-            )
-        } else if let Some(url) = lookup("CLERK_JWKS_URL") {
-            ClerkKey::JwksUrl(url)
-        } else if let Some(secret) = lookup("CLERK_SECRET_KEY") {
-            ClerkKey::SecretKey(secret)
-        } else {
-            problems.push(
-                "one of CLERK_JWT_KEY, CLERK_JWKS_FILE, CLERK_JWKS_URL or CLERK_SECRET_KEY is required"
-                    .to_owned(),
-            );
-            ClerkKey::Pem(String::new())
-        };
+        let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
             None | Some("json") => LogFormat::Json,
@@ -393,8 +488,7 @@ impl Config {
             master_database_url,
             master_max_connections: saturate(master_max_connections),
             keyring,
-            clerk_key,
-            authorized_parties: lookup("CLERK_AUTHORIZED_PARTIES"),
+            auth,
             permissions_app_enforce: lookup("PERMISSIONS_APP_ENFORCE").as_deref() == Some("true"),
             workspaces: WorkspaceConfig {
                 cache_ttl: Duration::from_secs(cache_ttl),
@@ -407,6 +501,7 @@ impl Config {
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
+            files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
         })
     }
 }
@@ -446,7 +541,10 @@ mod tests {
         assert_eq!(config.listen.to_string(), "0.0.0.0:8080");
         assert_eq!(config.log_format, LogFormat::Json);
         assert!(!config.permissions_app_enforce);
-        assert!(matches!(&config.clerk_key, ClerkKey::Pem(pem) if pem.contains('\n')));
+        assert!(matches!(
+            &config.auth,
+            AuthConfig::Clerk { key: ClerkKey::Pem(pem), .. } if pem.contains('\n')
+        ));
         assert!(!format!("{config:?}").contains("postgres://master"));
     }
 
@@ -532,7 +630,71 @@ abc",
             ("CLERK_JWKS_FILE", "/etc/clerk/jwks.json"),
         ])
         .expect("valid");
-        assert!(matches!(config.clerk_key, ClerkKey::Jwks(_)));
+        assert!(matches!(
+            config.auth,
+            AuthConfig::Clerk {
+                key: ClerkKey::Jwks(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn oidc_needs_an_issuer_and_audience_and_no_clerk_key() {
+        let oidc = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+            ("OIDC_ISSUER", "https://auth.eu.example"),
+            ("OIDC_AUDIENCE", "300000000000000100, 300000000000000200"),
+            ("OIDC_WEB_CLIENT_ID", "300000000000000300"),
+        ])
+        .expect("valid");
+        let AuthConfig::Oidc {
+            settings,
+            web_client_id,
+        } = &oidc.auth
+        else {
+            panic!("oidc expected");
+        };
+        assert_eq!(settings.issuer, "https://auth.eu.example");
+        assert_eq!(
+            settings.audiences,
+            ["300000000000000100", "300000000000000200"]
+        );
+        assert_eq!(settings.org_claim, weldsuite_auth::ZITADEL_ORG_CLAIM);
+        assert_eq!(settings.jwks_url, None);
+        assert_eq!(web_client_id.as_deref(), Some("300000000000000300"));
+
+        let error = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+        ])
+        .expect_err("incomplete");
+        assert_eq!(error.0.len(), 2, "{error}");
+        assert!(error.0.iter().all(|problem| problem.contains("OIDC_")));
+
+        let error = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "saml"),
+        ])
+        .expect_err("unknown provider");
+        assert!(error.0[0].contains("AUTH_PROVIDER"));
+
+        let claim = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("AUTH_PROVIDER", "oidc"),
+            ("OIDC_ISSUER", "https://auth.eu.example"),
+            ("OIDC_AUDIENCE", "p"),
+            ("OIDC_ORG_CLAIM", "urn:zitadel:iam:org:project:roles"),
+            ("OIDC_JWKS_URL", "http://zitadel:8080/oauth/v2/keys"),
+        ])
+        .expect("valid");
+        assert!(matches!(
+            &claim.auth,
+            AuthConfig::Oidc { settings, .. }
+                if settings.org_claim == "urn:zitadel:iam:org:project:roles"
+                    && settings.jwks_url.is_some()
+        ));
     }
 
     #[test]

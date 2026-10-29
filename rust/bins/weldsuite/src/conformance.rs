@@ -14,7 +14,8 @@
 //!   "permissions": { ... },            // pre-resolved, like `context.permissions`
 //!   "flags": { "upgrade-button": true }, // what the test's `context.flags` answers
 //!   "env": { "PERMISSIONS_APP_ENFORCE": "true" },
-//!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." } } // the test's buckets, over HTTP
+//!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." }, // the test's buckets, over HTTP
+//!   "outbound": "http://127.0.0.1:..." }  // third-party calls, through the test's fetch stub
 //! ```
 //!
 //! Side effects are recorded instead of published (`Recorders`), and
@@ -49,15 +50,12 @@ use weldsuite_ports::{
 use crate::infra::Infra;
 use crate::server::{AppEnforcedOverride, AppState};
 
-/// The doubles a conformance build publishes to, and the test databases.
+/// The doubles a conformance build publishes to.
 #[derive(Clone, Default)]
 pub(crate) struct Recorders {
     events: Arc<RecordingEventBus>,
     realtime: Arc<RecordingRealtime>,
     mail: Arc<RecordingSystemMail>,
-    /// One pool per test database, shared by every request and the cron
-    /// endpoints (pglite allows one connection).
-    pub(crate) pools: Arc<Pools>,
 }
 
 /// Infrastructure that records instead of publishing.
@@ -195,6 +193,10 @@ struct TestContext {
     /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
     #[serde(default)]
     files: HashMap<String, String>,
+    /// The harness's outbound bridge: third-party calls (Clerk, …) go
+    /// through the test's own fetch stub (`conformance_outbound`).
+    #[serde(default)]
+    outbound: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -220,6 +222,8 @@ pub(crate) struct Pools {
     caches: Mutex<HashMap<String, Arc<MemoryCache>>>,
     /// The test buckets' HTTP stores, by URL.
     buckets: crate::conformance_files::BucketBridges,
+    /// The bridged third-party providers, by bridge URL.
+    outbound: crate::conformance_outbound::OutboundBridges,
 }
 
 impl Pools {
@@ -292,6 +296,14 @@ pub(crate) async fn auth(
     // The test's buckets; without them a module keeps the app state's stores.
     if let Some(stores) = pools.buckets.file_stores(&context.files) {
         extensions.insert(stores);
+    }
+    // The identity provider answers from the test's fetch stub.
+    if let Some(bridge) = context.outbound.as_deref() {
+        extensions.insert(weldsuite_ports::IdentityProvider(
+            pools.outbound.identity(bridge),
+        ));
+        // Expo's push API too (`POST /api/push-tokens/test`).
+        extensions.insert(pools.outbound.expo(bridge));
     }
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
@@ -393,7 +405,7 @@ pub(crate) async fn sign_lifecycle_sweep(
     State(state): State<AppState>,
     axum::Json(request): axum::Json<SweepRequest>,
 ) -> Response {
-    let pools = &state.recorders.pools;
+    let pools = &state.conformance_pools;
     let (db, master) = match (
         pools.get(&request.database_url),
         pools.get(&request.master_database_url),

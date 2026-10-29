@@ -23,3 +23,39 @@ export const unregisterPushTokenQuery = z.object({ deviceId: z.string().min(1) }
 
 export type RegisterPushTokenInput = z.infer<typeof registerPushTokenSchema>;
 export type UnregisterPushTokenQuery = z.infer<typeof unregisterPushTokenQuery>;
+
+/** `GET /`: an active token, masked to its last 12 characters. */
+export const pushTokenSchema = z.object({
+  deviceId: z.string(),
+  platform: z.string(),
+  appCode: z.string(),
+  tokenSuffix: z.string().nullable(),
+  lastUsedAt: z.string().nullable(),
+  updatedAt: z.string(),
+});
+
+/** `GET /` answers `{ data: PushToken[] }`, without pagination. */
+export const pushTokenListSchema = z.array(pushTokenSchema);
+
+/** `POST /`. */
+export const pushTokenRegisteredSchema = z.object({
+  deviceId: z.string(),
+  platform: z.enum(['ios', 'android', 'web']),
+  registered: z.literal(true),
+});
+
+/** `DELETE /?deviceId=`. */
+export const pushTokenUnregisteredSchema = z.object({
+  deviceId: z.string(),
+  unregistered: z.literal(true),
+});
+
+/** `POST /test`: the delivered and failed counts, Expo's reasons. */
+export const pushTestResultSchema = z.object({
+  sent: z.number().int(),
+  failed: z.number().int(),
+  errors: z.array(z.string()),
+});
+
+export type PushToken = z.infer<typeof pushTokenSchema>;
+export type PushTestResult = z.infer<typeof pushTestResultSchema>;

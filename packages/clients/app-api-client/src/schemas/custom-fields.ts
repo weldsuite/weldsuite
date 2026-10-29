@@ -129,6 +129,32 @@ export const reorderCustomFieldsSchema = z.object({
   ),
 });
 
+/** A `custom_field_definitions` row as the routes answer it. */
+export const customFieldDefinitionSchema = z.object({
+  id: z.string(),
+  entityType: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  description: z.string().nullable(),
+  fieldType: z.string(),
+  options: z.array(selectOptionSchema).nullable(),
+  config: z.record(z.unknown()).nullable(),
+  required: z.boolean().nullable(),
+  sortOrder: z.number().nullable(),
+  group: z.string().nullable(),
+  ticketTypeId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** `GET /api/custom-fields/all`: definitions grouped by entity type. */
+export const customFieldDefinitionsByEntityTypeSchema = z.record(z.array(customFieldDefinitionSchema));
+
+/** `DELETE /api/custom-fields/:id`. */
+export const customFieldDeletedSchema = z.object({ deleted: z.literal(true) });
+
+export type CustomFieldDefinitionResponse = z.infer<typeof customFieldDefinitionSchema>;
 export type CreateCustomFieldInput = z.infer<typeof createCustomFieldSchema>;
 export type UpdateCustomFieldInput = z.infer<typeof updateCustomFieldSchema>;
 export type ReorderCustomFieldsInput = z.infer<typeof reorderCustomFieldsSchema>;

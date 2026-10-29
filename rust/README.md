@@ -37,18 +37,22 @@ rust/
   bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs), `cron <job>` (cron.rs); consume later
   crates/kit/           envelope, errors, ids, CORS, request id, pagination, cursors, zod-shaped validation
   crates/catalogs/      entity events, permission keys, flags, API modules (+ Rust flag), origins
-  crates/auth/          Clerk session tokens (fixed key or fetched JWKS), step-up second factor
+  crates/auth/          session tokens: Clerk's or an OIDC provider's (Zitadel; discovery, fetched JWKS), step-up second factor
   crates/permissions/   @weldsuite/permissions: matching, per-app checks, grants, resolution, route layer
   crates/db/            master DB, workspace → tenant pool, database_url decryption, Postgres errors,
                         atomically, Drizzle-shaped rows, permission lookups
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
-  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail), their test doubles, in-process jobs
+  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity), their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
-                        files over the S3 API, system mail over SMTP
+                        files over the S3 API, system mail over SMTP, identity on Zitadel
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
-                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know, modules/sign
+                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
+                        modules/sign, modules/core-files (app-api files, folders, drive, search),
+                        modules/core-objects (WeldObjects, custom fields, object templates, grid views),
+                        modules/core-team (team, roles, settings, preferences, app catalog);
+                        core areas are mounted in conformance builds only until complete
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
   deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
@@ -118,7 +122,11 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 | Variable | |
 |---|---|
 | `DATABASE_URL_MASTER` | master database (required) |
-| `CLERK_JWT_KEY`, `CLERK_JWKS_FILE`, `CLERK_JWKS_URL` or `CLERK_SECRET_KEY` | session token keys: a PEM, a JWKS file, a JWKS URL, or Clerk's Backend API (one is required) |
+| `AUTH_PROVIDER` | `clerk` (default) or `oidc` (ADR SEC-012) |
+| `CLERK_JWT_KEY`, `CLERK_JWKS_FILE`, `CLERK_JWKS_URL` or `CLERK_SECRET_KEY` | with `clerk`: session token keys: a PEM, a JWKS file, a JWKS URL, or Clerk's Backend API (one is required) |
+| `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
+| `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
+| `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
@@ -129,6 +137,7 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
+| `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
 | `FEATURE_FLAGS` (`defaults`/`master-db`), `FEATURE_FLAGS_REFRESH_SECONDS` | where flag values come from |
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |
@@ -140,8 +149,9 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
-Not there yet: OIDC providers other than Clerk (ADR SEC-012, phase P5), the
-Neon API fallback for a workspace without a stored `database_url` (the
+Not there yet: the Zitadel `Identity` adapter wired into the server (it
+waits for the team routes that call the port), group-claim workspaces for a
+customer's own provider (P7), the Neon API fallback for a workspace without a stored `database_url` (the
 Kubernetes editions always store it), Clerk member linking on
 `/api/me/permissions`, and an admin screen for `feature_flag_overrides` (the table
 that `FEATURE_FLAGS=master-db` reads; set rows with SQL for now).

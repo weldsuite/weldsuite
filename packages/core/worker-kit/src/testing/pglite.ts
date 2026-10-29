@@ -177,7 +177,7 @@ export async function createMasterPgliteDb(): Promise<{ db: any; close: () => Pr
 
     const client = new PGlite();
     const db = drizzlePg.drizzle(client, { schema: masterSchemaModule });
-    // Conformance mode serves it to the Rust server (`masterDb` in a test context).
+    // Conformance mode serves it to the Rust server like the tenant database.
     clients.set(db, client);
 
     const here = path.dirname(url.fileURLToPath(import.meta.url));
@@ -206,6 +206,8 @@ export async function createMasterPgliteDb(): Promise<{ db: any; close: () => Pr
       }
     }
 
+    // Conformance mode serves it to the Rust server like the tenant database.
+    clients.set(db, client);
     cachedMaster = {
       db,
       close: async () => {

@@ -43,6 +43,15 @@ templates).
   `query_values(raw_query)`; `z.coerce.number()` is `Number { coerce: true }`.
   Add a missing rule to the validator with a test against Zod's real output
   (run Zod from `packages/clients/app-api-client` and paste its issues).
+  `.min().max().regex(re, msg)` is `Issues::pattern` (Zod checks in that
+  order). A `.refine()` is `Issues::custom`, called after every other field:
+  `zValidator` uses `safeParseAsync`, which settles refinements after the
+  body's synchronous checks, so their issues come last.
+- JavaScript key order: `serde_json` sorts object keys, but `JSON.stringify`
+  comparisons (`computeChanges`), `asText` of an object and "the first
+  invalid field" all follow the body's order, and a `jsonb` column comes back
+  in `jsonb`'s (shorter keys first). `modules/core-objects/src/js.rs` keeps
+  either order and prints values and numbers as JavaScript does.
 - Errors: mirror the route's own mapping (`respondToSignError`,
   `accessError`, …) in one enum with a `respond()`; unknown errors are a 500
   through `ApiError::internal()` (with the route's message where TS passes
@@ -93,7 +102,20 @@ templates).
    binary). Every request runs on both backends: a read on the shared pglite,
    a write on Rust first and TypeScript on a copy. Status, body, schema and
    side effects (entity events, realtime) must match.
-5. The harness shares what a test sets up: the tenant pglite, `masterDb` from
+5. Third-party APIs (Clerk's Backend API today) are ports
+   (`weldsuite_ports::Identity`). In conformance mode Rust's calls go through
+   the harness's outbound bridge (`outbound-bridge.ts`,
+   `conformance_outbound.rs`) into the test's own `fetch` stub, and the calls
+   both backends made are compared as a side effect (method, URL, body). A
+   stub answers both runs, so it must answer by URL and method
+   (`mockImplementation`), never by call order (`mockResolvedValueOnce`).
+6. Routes that write the master database: put `masterDb` (from
+   `createMasterPgliteDb()`) in the test context and mock `getMasterDb` to
+   return `conformanceMasterDb(masterDb)` (from
+   `@weldsuite/worker-kit/testing/conformance`). On a write the TypeScript
+   run then reads a copy of the master taken before Rust ran, as it does for
+   the tenant database.
+7. The harness shares what a test sets up: the tenant pglite, `masterDb` from
    the test context, R2-shaped buckets in `env` (served over HTTP), and the
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see

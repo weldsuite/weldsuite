@@ -1,6 +1,10 @@
 //! Core platform rules other modules share, from `@weldsuite/core-domain`
-//! (`packages/domains/core`). Today: WeldDrive's access rules, which WeldSign
-//! reads to check the Drive file a request starts from and the folder its
-//! signed copy goes to; the drive port (P4) builds on the same module.
+//! (`packages/domains/core`): WeldDrive's access rules and sharing, its file
+//! store and its folder tree. WeldSign reads the access rules to check the
+//! Drive file a request starts from; `/api/files`, `/api/folders` and
+//! `/api/drive` (`weldsuite-core-files`) are built on all of it.
 
 pub mod drive_access;
+pub mod drive_sharing;
+pub mod files;
+pub mod folders;

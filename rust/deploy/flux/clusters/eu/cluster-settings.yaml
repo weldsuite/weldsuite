@@ -15,6 +15,11 @@ data:
   FILES_S3_ENDPOINT: https://fsn1.your-objectstorage.com
   FILES_S3_REGION: fsn1
   FILES_BUCKET_PRIVATE: weldsuite-eu-private
+  # Zitadel (auth.${DOMAIN}): the WeldSuite project's id (the tokens'
+  # audience) and the platform's web application's client id (PKCE). Made in
+  # Zitadel's console after its first start (Hetzner runbook, step 7).
+  ZITADEL_PROJECT_ID: "000000000000000000"
+  ZITADEL_WEB_CLIENT_ID: "000000000000000000"
   # The release this cluster runs: the chart from this tag, the image tag.
   WELDSUITE_GIT_TAG: weldsuite-v0.0.0
   WELDSUITE_IMAGE_TAG: 0.0.0

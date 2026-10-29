@@ -122,6 +122,8 @@ pub enum Format {
     DatetimeOffset,
     /// `.regex(/^\d+$/)`.
     Digits,
+    /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
+    Url,
 }
 
 /// A number's checks: `z.number()` (`z.coerce.number()` when `coerce`),
@@ -137,6 +139,33 @@ pub struct Number {
 /// A failed validation: answers 400 with the `safeParse` result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Invalid(Vec<Value>);
+
+impl Invalid {
+    /// Zod's `error.flatten()`: messages of root issues in `formErrors`, the
+    /// rest by their first path segment in `fieldErrors`, in issue order.
+    pub fn flatten(&self) -> Value {
+        let mut form_errors = Vec::new();
+        let mut field_errors = Map::new();
+        for issue in &self.0 {
+            let message = issue["message"].clone();
+            match issue["path"].get(0) {
+                Some(first) => {
+                    let key = first
+                        .as_str()
+                        .map_or_else(|| first.to_string(), str::to_owned);
+                    if let Value::Array(messages) = field_errors
+                        .entry(key)
+                        .or_insert_with(|| Value::Array(Vec::new()))
+                    {
+                        messages.push(message);
+                    }
+                }
+                None => form_errors.push(message),
+            }
+        }
+        json!({ "formErrors": form_errors, "fieldErrors": field_errors })
+    }
+}
 
 impl IntoResponse for Invalid {
     fn into_response(self) -> Response {
@@ -157,6 +186,22 @@ pub struct Issues {
 impl Issues {
     pub fn is_empty(&self) -> bool {
         self.issues.is_empty()
+    }
+
+    /// How many issues so far: where the next field's issues start, for
+    /// [`Issues::custom_message`].
+    pub fn count(&self) -> usize {
+        self.issues.len()
+    }
+
+    /// A check's custom message (`.min(1, 'Name is required')`): every issue
+    /// with `code` added since `from` gets `message`.
+    pub fn custom_message(&mut self, from: usize, code: &str, message: &str) {
+        for issue in self.issues.iter_mut().skip(from) {
+            if issue["code"] == code {
+                issue["message"] = Value::String(message.to_owned());
+            }
+        }
     }
 
     /// `Err` (a 400 response) when anything was wrong.
@@ -387,6 +432,47 @@ impl Issues {
         Field::Set(text)
     }
 
+    /// `z.string().min(min).max(max).regex(pattern, message)` with `presence`:
+    /// Zod runs the checks in that order and reports every one that fails,
+    /// so a too-short value that doesn't match gets both issues.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pattern(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        min: Option<usize>,
+        max: Option<usize>,
+        matches: impl Fn(&str) -> bool,
+        message: &str,
+    ) -> Field<String> {
+        let field = self.text_at(Some(key), body.get(key), presence, Text::length(min, max));
+        if let Some(Value::String(text)) = body.get(key)
+            && !matches(text)
+        {
+            let path = self.path(key);
+            self.issues.push(json!({
+                "validation": "regex",
+                "code": "invalid_string",
+                "message": message,
+                "path": path,
+            }));
+            return Field::Absent;
+        }
+        field
+    }
+
+    /// A failed `.refine(check, { message })` on `key`. Zod runs a refinement
+    /// whenever the value got past its type check, even when one of its own
+    /// checks failed. `zValidator` parses asynchronously, which settles a
+    /// refinement after every synchronous check of the body: call this once
+    /// the other fields are read, in key order.
+    pub fn custom(&mut self, key: &str, message: &str) {
+        let path = self.path(key);
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
     /// `z.boolean()` with `presence`.
     pub fn boolean(
         &mut self,
@@ -544,8 +630,23 @@ impl Issues {
         presence: Presence,
         min: Option<usize>,
         max: Option<usize>,
+        read: impl FnMut(&mut Self, &Value) -> Option<T>,
+    ) -> Field<Vec<T>> {
+        self.list_with(body, key, presence, (min, None), max, read)
+    }
+
+    /// [`Issues::list`] with `.min(min, message)`: `min` is the bound and,
+    /// when given, the message in place of Zod's default.
+    pub fn list_with<T>(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        min: (Option<usize>, Option<&str>),
+        max: Option<usize>,
         mut read: impl FnMut(&mut Self, &Value) -> Option<T>,
     ) -> Field<Vec<T>> {
+        let (min, min_message) = min;
         let value = body.get(key);
         if let Some(field) = self.left_out(Some(key), "array", value, presence) {
             return field;
@@ -559,12 +660,11 @@ impl Issues {
             && items.len() < min
         {
             let path = self.path(key);
-            self.too_small(
-                &path,
-                "array",
-                &json!(min),
-                &format!("Array must contain at least {min} element(s)"),
+            let message = min_message.map_or_else(
+                || format!("Array must contain at least {min} element(s)"),
+                str::to_owned,
             );
+            self.too_small(&path, "array", &json!(min), &message);
         }
         if let Some(max) = max
             && items.len() > max
@@ -660,6 +760,34 @@ impl Issues {
         }
     }
 
+    /// An array item as `z.enum([...])` (`z.array(z.enum([...]))`), reported
+    /// at the item's own path; `None` when invalid.
+    pub fn item_choice(&mut self, item: &Value, options: &[&str]) -> Option<String> {
+        let expected = options
+            .iter()
+            .map(|o| format!("'{o}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        match item {
+            Value::String(text) if options.contains(&text.as_str()) => Some(text.clone()),
+            Value::String(text) => {
+                let path = self.path_at(None);
+                self.issues.push(json!({
+                    "received": text,
+                    "code": "invalid_enum_value",
+                    "options": options,
+                    "path": path,
+                    "message": format!("Invalid enum value. Expected {expected}, received '{text}'"),
+                }));
+                None
+            }
+            _ => {
+                self.invalid_type_at(None, &expected, Some(item));
+                None
+            }
+        }
+    }
+
     /// `z.enum([...])`, required.
     pub fn one_of(
         &mut self,
@@ -669,6 +797,20 @@ impl Issues {
     ) -> Option<String> {
         self.choice(body, key, Presence::Required, options)
             .into_option()
+    }
+
+    /// `z.string().min(min, message)` failing on `key`, with the schema's
+    /// own message.
+    pub fn string_too_small(&mut self, key: &str, min: usize, message: &str) {
+        let path = self.path(key);
+        self.too_small(&path, "string", &json!(min), message);
+    }
+
+    /// `z.string().max(max, message)` failing on `key`, with the schema's
+    /// own message.
+    pub fn string_too_big(&mut self, key: &str, max: usize, message: &str) {
+        let path = self.path(key);
+        self.too_big(&path, "string", &json!(max), message);
     }
 
     #[cfg(test)]
@@ -683,6 +825,7 @@ impl Format {
             Self::Email => ("email", "Invalid email"),
             Self::DatetimeOffset => ("datetime", "Invalid datetime"),
             Self::Digits => ("regex", "Invalid"),
+            Self::Url => ("url", "Invalid url"),
         }
     }
 
@@ -693,8 +836,72 @@ impl Format {
             Self::Email => !text.starts_with('.') && !text.contains("..") && EMAIL.is_match(text),
             Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
+            Self::Url => js_url_parses(text),
         }
     }
+}
+
+/// Whether `new URL(text)` (WHATWG URL, no base) would succeed, as Zod 3's
+/// `.url()` checks: a scheme, and for the special schemes a valid host.
+/// Covers what profile links and the like send; exotic hosts (IDNA,
+/// percent-encoded labels, IPv4 shorthands) are judged by their characters.
+pub fn js_url_parses(text: &str) -> bool {
+    // The parser strips leading/trailing C0 controls and spaces, and every
+    // tab and newline.
+    let trimmed = text.trim_matches(|c: char| c <= ' ');
+    let cleaned: String = trimmed
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect();
+    let Some((scheme, rest)) = cleaned.split_once(':') else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    let scheme_ok = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    if !scheme_ok {
+        return false;
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    if !matches!(scheme.as_str(), "http" | "https" | "ws" | "wss" | "ftp") {
+        // `file:` and the non-special schemes take any rest.
+        return true;
+    }
+    let after = rest.trim_start_matches(['/', '\\']);
+    let authority = after
+        .split(['/', '\\', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let (host, port) = if host_port.starts_with('[') {
+        match host_port.find(']') {
+            Some(end) => (&host_port[..=end], &host_port[end + 1..]),
+            None => return false,
+        }
+    } else {
+        match host_port.rsplit_once(':') {
+            Some((host, port)) => (host, port),
+            None => (host_port, ""),
+        }
+    };
+    let port = port.strip_prefix(':').unwrap_or(port);
+    let port_ok = port.is_empty()
+        || (port.bytes().all(|b| b.is_ascii_digit())
+            && port.parse::<u32>().is_ok_and(|p| p <= 65535));
+    if host.is_empty() || !port_ok {
+        return false;
+    }
+    if host.starts_with('[') {
+        return host.ends_with(']') && host.len() > 2;
+    }
+    !host.chars().any(|c| {
+        c <= ' '
+            || c == '\u{7f}'
+            || matches!(
+                c,
+                '#' | '%' | '/' | ':' | '<' | '>' | '?' | '@' | '[' | '\\' | ']' | '^' | '|'
+            )
+    })
 }
 
 static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
@@ -713,12 +920,12 @@ static DATETIME_OFFSET: LazyLock<Regex> = LazyLock::new(|| {
 
 /// `String.prototype.trim()`: JavaScript's whitespace, which is Unicode
 /// `White_Space` plus the BOM.
-fn js_trim(text: &str) -> &str {
+pub fn js_trim(text: &str) -> &str {
     text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
 }
 
 /// `Number(value)` for what a body or query string holds.
-fn js_number_of(value: Option<&Value>) -> f64 {
+pub fn js_number_of(value: Option<&Value>) -> f64 {
     match value {
         None | Some(Value::Object(_)) => f64::NAN,
         Some(Value::Null) => 0.0,
@@ -737,7 +944,7 @@ fn js_number_of(value: Option<&Value>) -> f64 {
 
 /// `Number(text)`: trimmed, empty is 0, decimal or `0x`/`0o`/`0b`, and
 /// `Infinity`. Anything else is NaN.
-fn js_number(text: &str) -> f64 {
+pub fn js_number(text: &str) -> f64 {
     let text = js_trim(text);
     if text.is_empty() {
         return 0.0;
@@ -814,7 +1021,97 @@ pub fn query_values(query: Option<&str>) -> Map<String, Value> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn urls_parse_like_new_url() {
+        for valid in [
+            "https://ann.example",
+            "https://github.com/cy?tab=1#top",
+            "http://user:pw@host:8080/x",
+            "mailto:bob@acme.test",
+            "localhost:3000",
+            "  https://a.test  ",
+            "http://[::1]:80/",
+            "file:///etc/hosts",
+        ] {
+            assert!(js_url_parses(valid), "{valid}");
+        }
+        for invalid in [
+            "not a url",
+            "example.com",
+            "/relative",
+            "http://",
+            "https://exa mple.com",
+            "http://a.test:99999",
+            "http://a.test:8o",
+            "1http://a.test",
+            "",
+        ] {
+            assert!(!js_url_parses(invalid), "{invalid}");
+        }
+    }
+
     /// Issues Zod 3 produced for the same input (`safeParse`, JSON-serialised).
+    /// `createObjectTemplateSchema` and `createCustomObjectSchema`: regex
+    /// after the length checks, a refinement after a failed check, and an
+    /// array minimum with its own message (Zod 3's issues for these bodies).
+    #[test]
+    fn patterns_refinements_and_list_messages_match_zod() {
+        let lowercase = |text: &str| {
+            text.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && text
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        };
+        let mut issues = Issues::default();
+        let body = json!({ "slug": "", "fields": [] });
+        let object = issues.object(&body).expect("object");
+        issues.pattern(
+            object,
+            "slug",
+            Presence::Required,
+            Some(1),
+            Some(24),
+            lowercase,
+            "Slug must start with a letter",
+        );
+        issues.list_with(
+            object,
+            "fields",
+            Presence::Required,
+            (Some(1), Some("Select at least one field")),
+            None,
+            |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+        );
+        issues.custom("slug", "Reserved");
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_small","minimum":1,"type":"string","inclusive":true,"exact":false,"message":"String must contain at least 1 character(s)","path":["slug"]},
+                {"validation":"regex","code":"invalid_string","message":"Slug must start with a letter","path":["slug"]},
+                {"code":"too_small","minimum":1,"type":"array","inclusive":true,"exact":false,"message":"Select at least one field","path":["fields"]},
+                {"code":"custom","message":"Reserved","path":["slug"]}
+            ])
+        );
+    }
+
+    #[test]
+    fn custom_messages_and_refinements_match_zod() {
+        // z.object({ name: z.string().trim().min(1, 'Name is required').max(200, …),
+        //            phone: z.string().refine(…, 'Enter a valid phone number') })
+        let mut issues = Issues::default();
+        issues.string_too_small("name", 1, "Name is required");
+        issues.custom("phone", "Enter a valid phone number");
+        issues.string_too_big("nick", 200, "Name must be 200 characters or fewer");
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_small","minimum":1,"type":"string","inclusive":true,"exact":false,"message":"Name is required","path":["name"]},
+                {"code":"custom","message":"Enter a valid phone number","path":["phone"]},
+                {"code":"too_big","maximum":200,"type":"string","inclusive":true,"exact":false,"message":"Name must be 200 characters or fewer","path":["nick"]}
+            ])
+        );
+    }
+
     #[test]
     fn issues_match_zod() {
         let mut issues = Issues::default();
@@ -1174,6 +1471,33 @@ mod tests {
         assert_eq!(
             issues.whole_number(&Map::new(), "limit", Presence::Optional, limit),
             Field::Absent
+        );
+    }
+
+    #[test]
+    fn refinements_add_a_custom_issue_after_the_string_checks() {
+        // z.object({ name: z.string().trim().min(1).refine(() => false, { message: 'No' }) })
+        //   .safeParse({ name: '  ' }) — the refinement still runs on the too-short string.
+        let body = json!({ "name": "  " });
+        let mut issues = Issues::default();
+        let fields = issues_object(&body);
+        issues.text_with(
+            fields,
+            "name",
+            Presence::Required,
+            Text::trimmed(Some(1), None),
+        );
+        issues.custom("name", "No");
+        assert_eq!(
+            issues.take(),
+            json!([
+                {
+                    "code": "too_small", "minimum": 1, "type": "string", "inclusive": true,
+                    "exact": false, "message": "String must contain at least 1 character(s)",
+                    "path": ["name"]
+                },
+                { "code": "custom", "message": "No", "path": ["name"] }
+            ])
         );
     }
 

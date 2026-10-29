@@ -22,7 +22,7 @@ kc() {
 settings="flux/clusters/eu/cluster-settings.yaml"
 substitute() {
   local script
-  script="$(awk '/^data:/{d=1;next} d && /^  [A-Z_]+:/{k=$1; sub(":","",k); v=$0; sub(/^  [A-Z_]+: */,"",v); gsub(/[\/&]/,"\\\\&",v); printf "s/[$][{]%s[}]/%s/g;", k, v}' "$settings")"
+  script="$(awk '/^data:/{d=1;next} d && /^  [A-Z_]+:/{k=$1; sub(":","",k); v=$0; sub(/^  [A-Z_]+: */,"",v); gsub(/^"|"$/,"",v); gsub(/[\/&]/,"\\\\&",v); printf "s/[$][{]%s[}]/%s/g;", k, v}' "$settings")"
   sed -e "$script"
 }
 

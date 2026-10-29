@@ -42,6 +42,13 @@ import { pgliteClientOf } from './pglite';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
+import {
+  type OutboundCall,
+  outboundBridgeUrl,
+  recordOutbound,
+  sortOutbound,
+  takeRustOutbound,
+} from './outbound-bridge';
 
 export interface ConformanceTarget {
   url: string;
@@ -76,7 +83,14 @@ export const CONFORMANCE_HEADER = 'X-Weld-Conformance';
 export const ROUTE_HEADER = 'X-Weld-Route';
 
 /** Env bindings the Rust server honours per request in conformance mode. */
-export const FORWARDED_ENV = ['PERMISSIONS_APP_ENFORCE', 'SIGN_SESSION_SECRET', 'SIGN_PORTAL_URL', 'ENVIRONMENT'] as const;
+export const FORWARDED_ENV = [
+  'PERMISSIONS_APP_ENFORCE',
+  'SIGN_SESSION_SECRET',
+  'SIGN_PORTAL_URL',
+  'R2_PUBLIC_URL',
+  'ENVIRONMENT',
+  'PUBLIC_APP_URL',
+] as const;
 
 /** The test's env values the Rust server reads, as strings. */
 export function forwardedEnv(env: Record<string, unknown>): Record<string, string> {
@@ -111,6 +125,8 @@ export interface SideEffects {
   realtime: Array<{ path: string; body: unknown }>;
   /** System mail, compared as records (./conformance-mail.ts). */
   mail: MailRecord[];
+  /** Calls to third-party APIs (Clerk, Expo, …), sorted (./outbound-bridge.ts). */
+  outbound?: OutboundCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -278,11 +294,33 @@ export function databaseUrlFor(client: PGliteClient): Promise<string> {
 }
 
 /** A drizzle handle on a copy of the test's database, for the TypeScript side of a write. */
-export async function cloneDatabase(client: PGliteClient): Promise<{ db: Database; close: () => Promise<void> }> {
-  const [drizzlePg, schema] = await Promise.all([import('drizzle-orm/pglite'), import('@weldsuite/db/schema')]);
+export async function cloneDatabase(
+  client: PGliteClient,
+  kind: 'tenant' | 'master' = 'tenant',
+): Promise<{ db: Database; close: () => Promise<void> }> {
+  const [drizzlePg, schema] = await Promise.all([
+    import('drizzle-orm/pglite'),
+    kind === 'master' ? import('@weldsuite/db/schema/master') : import('@weldsuite/db/schema'),
+  ]);
   const clone = await client.clone();
   const db = drizzlePg.drizzle(clone as never, { schema }) as unknown as Database;
   return { db, close: () => (clone as { close: () => Promise<void> }).close() };
+}
+
+/** The copy of the master database the TypeScript side of a write runs on, while it runs. */
+let masterForTypeScript: Database | undefined;
+
+/**
+ * The master database a test's `getMasterDb` mock should hand out:
+ * `vi.mock(..., () => ({ getMasterDb: () => conformanceMasterDb(master.db) }))`.
+ *
+ * The master database is shared with the Rust server like the tenant one, so
+ * a write would otherwise run on TypeScript after Rust already changed it. For
+ * the TypeScript side of a write this is a copy taken before Rust ran; at
+ * every other moment (and outside conformance mode) it is `db` itself.
+ */
+export function conformanceMasterDb<T>(db: T): T {
+  return (masterForTypeScript as T | undefined) ?? db;
 }
 
 // ── comparison ──────────────────────────────────────────────────────────────
@@ -294,6 +332,11 @@ const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * `Date.now()` inside a string (a storage key, a URL): 13 digits from 2001 to
+ * 2286, not part of a longer number. Differs between two runs of a write.
+ */
+const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
 
 /**
  * Sorted keys, and for writes the values that differ by construction between
@@ -326,7 +369,7 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (GENERATED_ID.test(value)) return '<id>';
-  return value;
+  return value.replace(EPOCH_MS, '<epoch-ms>');
 }
 
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */
@@ -496,6 +539,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     env: forwardedEnv(env),
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
+    // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
+    outbound: await outboundBridgeUrl(),
   };
 }
 
@@ -524,31 +569,50 @@ async function runBoth(
   // Start both recordings empty.
   await request.sideEffects.drain();
   await rustSideEffects(request.target);
+  takeRustOutbound();
 
-  if (!isWrite) {
-    const ts = await runTypeScript(request.ctx.tenantDb);
-    const tsEffects = await request.sideEffects.drain();
-    const tsMail = request.sideEffects.lastMail();
-    const rust = await runRust();
-    const rustSide = await rustSideEffects(request.target);
-    return { ts, tsEffects, tsMail, rust, rustEffects: rustSide.effects, rustMail: rustSide.mail };
-  }
-  const clone = await cloneDatabase(client);
-  try {
-    const rust = await runRust();
-    const rustSide = await rustSideEffects(request.target);
-    const ts = await runTypeScript(clone.db);
-    const tsEffects = await request.sideEffects.drain();
+  // The Hono app's run, its `waitUntil` work included, with its outbound calls.
+  const typeScript = async (db: Database) => {
+    const { result, calls } = await recordOutbound(async () => {
+      const ts = await runTypeScript(db);
+      return { ts, effects: await request.sideEffects.drain() };
+    });
     return {
-      ts,
-      rust,
-      rustEffects: rustSide.effects,
-      rustMail: rustSide.mail,
-      tsEffects,
+      ts: result.ts,
+      tsEffects: { ...result.effects, outbound: sortOutbound(calls) },
       tsMail: request.sideEffects.lastMail(),
     };
+  };
+  // Rust's run; its outbound calls are what reached the bridge.
+  const rustRun = async () => {
+    const rust = await runRust();
+    const side = await rustSideEffects(request.target);
+    return {
+      rust,
+      rustEffects: { ...side.effects, outbound: sortOutbound(takeRustOutbound()) },
+      rustMail: side.mail,
+    };
+  };
+
+  if (!isWrite) {
+    const ts = await typeScript(request.ctx.tenantDb);
+    return { ...ts, ...(await rustRun()) };
+  }
+  const clone = await cloneDatabase(client);
+  // The master database too, when the test has one: Rust writes the shared one.
+  const masterClient = request.ctx.masterDb ? pgliteClientOf(request.ctx.masterDb) : undefined;
+  const masterClone = masterClient ? await cloneDatabase(masterClient, 'master') : undefined;
+  try {
+    const rust = await rustRun();
+    masterForTypeScript = masterClone?.db;
+    try {
+      return { ...rust, ...(await typeScript(clone.db)) };
+    } finally {
+      masterForTypeScript = undefined;
+    }
   } finally {
     await clone.close();
+    await masterClone?.close();
   }
 }
 
@@ -586,7 +650,7 @@ function checkSchema(
 async function replayableBody(body: BodyInit | null | undefined, headers: Headers): Promise<string | Uint8Array | undefined> {
   if (body === undefined || body === null) return undefined;
   if (typeof body === 'string') return body;
-  const serialised = new Request('http://conformance.local/', { method: 'POST', body });
+  const serialised = new Request('https://conformance.local/', { method: 'POST', body });
   const type = serialised.headers.get('content-type');
   if (type && !headers.has('content-type')) headers.set('content-type', type);
   return new Uint8Array(await serialised.arrayBuffer());
@@ -612,6 +676,10 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const body = await replayableBody(init?.body, headers);
   const rustHeaders = new Headers(headers);
   rustHeaders.set(CONFORMANCE_HEADER, Buffer.from(JSON.stringify(context)).toString('base64'));
+  // The Hono app sees `http://localhost/...`; tell Rust the same origin, as
+  // an ingress would, so URLs built from it (private object URLs) match.
+  rustHeaders.set('X-Forwarded-Host', 'localhost');
+  rustHeaders.set('X-Forwarded-Proto', 'http');
 
   const runs = await runBoth(
     request,
