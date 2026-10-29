@@ -1,0 +1,174 @@
+# The Rust backend on this machine, wired like the kind smoke test: Postgres
+# (built by `weldsuite migrate`, with one seeded workspace), Valkey, NATS
+# JetStream, S3 (RustFS), Restate and Mailpit, then the server and the sign
+# portal. README.md has the steps and the Postman collection. Every
+# credential here is a throwaway for this machine.
+#
+#   node mint-token.mjs        (once: the session key and the Postman tokens)
+#   docker compose up -d
+name: weldsuite-local
+
+x-weldsuite-env: &weldsuite-env
+  ENVIRONMENT: local
+  LOG_FORMAT: text
+  RUST_LOG: info
+  DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/master
+  # Session tokens are Clerk-shaped and signed with the key mint-token.mjs made.
+  CLERK_JWKS_FILE: /keys/jwks.json
+  VALKEY_URL: redis://valkey:6379
+  NATS_URL: nats://nats:4222
+  NATS_ENSURE_STREAMS: "true"
+  S3_ENDPOINT: http://s3:9000
+  S3_REGION: us-east-1
+  S3_BUCKET_PRIVATE: weldsuite-private
+  S3_FORCE_PATH_STYLE: "true"
+  S3_ACCESS_KEY_ID: weldsuite
+  S3_SECRET_ACCESS_KEY: weldsuite-local
+  RESTATE_INGRESS_URL: http://restate:8080
+  RESTATE_ADMIN_URL: http://restate:9070
+  RESTATE_DEPLOYMENT_URI: http://weldsuite:9080
+  JOBS_PORT: "9080"
+  SMTP_URL: smtp://mailpit:1025
+  SYSTEM_EMAIL_FROM: WeldSuite <notifications@weldsuite.localhost>
+  SIGN_SESSION_SECRET: local-sign-session-secret
+  SIGN_PORTAL_SECRET: local-sign-portal-secret
+  SIGN_PORTAL_URL: http://localhost:3010
+  STORAGE_SIGNING_KEY: local-storage-signing-key
+  SHUTDOWN_DELAY_SECONDS: "1"
+
+x-weldsuite: &weldsuite
+  image: ${WELDSUITE_IMAGE:-weldsuite:local}
+  environment: *weldsuite-env
+  volumes:
+    - ./.local/keys:/keys:ro
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: weldsuite
+      POSTGRES_PASSWORD: weldsuite
+      POSTGRES_DB: master
+    # For psql or a database client: localhost:55433, weldsuite / weldsuite.
+    ports: ["127.0.0.1:55433:5432"]
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "weldsuite", "-d", "master"]
+      interval: 2s
+      retries: 30
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  nats:
+    image: nats:2-alpine
+    command: ["-js", "-m", "8222"]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 2s
+      retries: 30
+
+  s3:
+    image: rustfs/rustfs:1.0.1
+    environment:
+      RUSTFS_ACCESS_KEY: weldsuite
+      RUSTFS_SECRET_KEY: weldsuite-local
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 2s
+      retries: 30
+
+  s3-bucket:
+    image: amazon/aws-cli:latest
+    depends_on:
+      s3: { condition: service_healthy }
+    environment:
+      AWS_ACCESS_KEY_ID: weldsuite
+      AWS_SECRET_ACCESS_KEY: weldsuite-local
+      AWS_DEFAULT_REGION: us-east-1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        aws --endpoint-url http://s3:9000 s3api head-bucket --bucket weldsuite-private 2>/dev/null
+        || aws --endpoint-url http://s3:9000 s3api create-bucket --bucket weldsuite-private
+
+  restate:
+    image: docker.io/restatedev/restate:1.7.14
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9070/health"]
+      interval: 2s
+      retries: 30
+
+  # Sign emails land here: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    ports: ["127.0.0.1:8025:8025"]
+
+  # The schema, then the workspace, then its database: the order the chart's
+  # migration Job and the kind smoke test use.
+  migrate-master:
+    <<: *weldsuite
+    command: ["migrate", "--master"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  seed-master:
+    image: pgvector/pgvector:pg17
+    environment:
+      PGPASSWORD: weldsuite
+    volumes:
+      - ./seed:/seed:ro
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "weldsuite", "-d", "master", "-f", "/seed/master.sql"]
+    depends_on:
+      migrate-master: { condition: service_completed_successfully }
+
+  migrate-tenants:
+    <<: *weldsuite
+    command: ["migrate", "--tenants"]
+    depends_on:
+      seed-master: { condition: service_completed_successfully }
+
+  seed-tenant:
+    image: pgvector/pgvector:pg17
+    environment:
+      PGPASSWORD: weldsuite
+    volumes:
+      - ./seed:/seed:ro
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "weldsuite", "-d", "tenant", "-f", "/seed/tenant.sql"]
+    depends_on:
+      migrate-tenants: { condition: service_completed_successfully }
+
+  # The API (and the platform SPA) on http://localhost:8080
+  weldsuite:
+    <<: *weldsuite
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      seed-tenant: { condition: service_completed_successfully }
+      s3-bucket: { condition: service_completed_successfully }
+      valkey: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      restate: { condition: service_healthy }
+      mailpit: { condition: service_started }
+
+  # The WeldSign signer portal on http://localhost:3010. Its server routes
+  # answer once sign is marked ported (RUST_PORTED_MODULES, the edition-flags
+  # work); until then a release build doesn't mount sign.
+  sign-portal:
+    image: ${PORTAL_IMAGE:-weldsuite-sign-portal:local}
+    environment:
+      PORT: "3000"
+      SIGN_PORTAL_BACKEND: rust
+      SIGN_PORTAL_BACKEND_URL: http://weldsuite:8080
+      SIGN_PORTAL_TRUSTED_PROXIES: "0"
+      SIGN_PORTAL_SECRET: local-sign-portal-secret
+    ports: ["127.0.0.1:3010:3000"]
+    depends_on:
+      weldsuite: { condition: service_started }
+
+volumes:
+  postgres:
