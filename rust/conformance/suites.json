@@ -634,8 +634,7 @@
         "src/routes/chat-entity-channels/integration.test.ts",
         "src/routes/chat-entity-channels/access.integration.test.ts",
         "src/routes/chat-entity-channels/drive-files.integration.test.ts",
-        "src/routes/chat-entity-channels/detail.integration.test.ts",
-        "src/routes/_sweeps.test.ts"
+        "src/routes/chat-entity-channels/detail.integration.test.ts"
       ],
       "paths": [
         "apps/workers/chat-api/src/",

@@ -62,7 +62,9 @@ function realtimeStub() {
 function api(userId: string, perms: string[], realtime = realtimeStub()) {
   const { request } = createTestApp('/api/chat-entity-channels', chatEntityChannelsRoutes, {
     context: { userId, permissions: permissions(...perms), tenantDb: db },
-    env: { REALTIME: realtime.binding },
+    // WELDAGENT_JOB as deployed: a tagged agent's reply is a job (agent-api),
+    // not the inline runtime a worker without the binding falls back to.
+    env: { REALTIME: realtime.binding, WELDAGENT_JOB: { create: async () => ({ id: 'job' }) } as never },
   });
   const json = (path: string, method: string, body?: unknown) =>
     request(`/api/chat-entity-channels${path}`, {
@@ -518,8 +520,10 @@ describe('POST / DELETE /:entityType/:entityId/follow', () => {
     const events = vi.mocked(publishEntityEvent);
     const channelEvents = () =>
       events.mock.calls
-        .map(([e]) => e as { entityType: string; action: string; entityId: string })
-        .filter((e) => e.entityType === 'chat_channel' && e.entityId === channelId)
+        .map(([e]) => e as { entityType: string; action: string; entityId: string; data?: { name?: string } })
+        // Also by the record's name: in conformance mode the spy sees the
+        // TypeScript run, whose new channel has an id of its own.
+        .filter((e) => e.entityType === 'chat_channel' && (e.entityId === channelId || e.data?.name === 'Unfollow Co'))
         .map((e) => e.action);
 
     const me = api('u_uf_me', CRM);

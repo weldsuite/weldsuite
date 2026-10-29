@@ -232,14 +232,28 @@ export function createSideEffectRecorder() {
     /**
      * A test's own `REALTIME` binding (one that answers presence reads or keeps
      * what was published), recorded the same way: its publishes are side
-     * effects too, and then go on to the test's stub.
+     * effects too. Reads (presence) go to the test's stub; the publishes the
+     * stub keeps are Rust's, handed over after each request (`deliver`), as
+     * the test reads Rust's response and mail.
      */
     wrapRealtime(binding: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }) {
       return {
         testOwned: true,
         fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+          if (!new URL(requestUrl(input)).pathname.startsWith('/publish/')) return binding.fetch(input, init);
           recordPublish(input, init);
-          return binding.fetch(input, init);
+          return Promise.resolve(
+            new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } }),
+          );
+        },
+        async deliver(published: Array<{ path: string; body: unknown }>) {
+          for (const { path: publishPath, body } of published) {
+            await binding.fetch(`https://internal${publishPath}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+          }
         },
       };
     },
@@ -498,6 +512,8 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // A notification's link to what the request just created
   // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
+  // A realtime publish to a room the request just created (`/publish/chat/ch_<id>`).
+  if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential, then any other `Date.now()` (the key's segment holds one).
   return value
@@ -879,8 +895,16 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { ts, rust } = runs;
   // The test reads Rust's mail, as it reads Rust's response.
   request.sideEffects.adoptMail(runs.tsMail, runs.rustMail);
+  // And a REALTIME stub of its own keeps Rust's publishes.
+  const ownRealtime = request.env.REALTIME as
+    | { testOwned?: boolean; deliver?: (published: SideEffects['realtime']) => Promise<void> }
+    | undefined;
+  if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
   const route = ts.headers.get(ROUTE_HEADER);
   const difference = compareRuns(runs, isWrite, method, route);
+  if (difference && process.env.CONFORMANCE_DUMP_EFFECTS) {
+    console.log('TS-EFFECTS', JSON.stringify(runs.tsEffects), '\nRUST-EFFECTS', JSON.stringify(runs.rustEffects));
+  }
   const { schema, schemaError } = checkSchema(method, route, rust);
 
   if (target.reportDir) {
