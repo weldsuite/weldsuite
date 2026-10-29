@@ -53,7 +53,7 @@ pub(crate) fn read_permission(entity_type: &str) -> Option<&'static str> {
 }
 
 /// A live WeldDrive file the member may open (`visibleDriveFile`).
-async fn visible_drive_file(
+pub(crate) async fn visible_drive_file(
     db: &PgPool,
     user_id: &str,
     file_id: &str,

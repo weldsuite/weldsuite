@@ -168,21 +168,32 @@ impl Issues {
         }
     }
 
-    /// The path of `key` at the current depth.
-    fn path(&self, key: &str) -> Value {
+    /// The path of `key` at the current depth; `None` is the current path
+    /// itself (an array item).
+    fn path_at(&self, key: Option<&str>) -> Value {
         let mut path = self.prefix.clone();
-        path.push(Value::String(key.to_owned()));
+        if let Some(key) = key {
+            path.push(Value::String(key.to_owned()));
+        }
         Value::Array(path)
     }
 
+    fn path(&self, key: &str) -> Value {
+        self.path_at(Some(key))
+    }
+
     fn invalid_type(&mut self, key: &str, expected: &str, value: Option<&Value>) {
+        self.invalid_type_at(Some(key), expected, value);
+    }
+
+    fn invalid_type_at(&mut self, key: Option<&str>, expected: &str, value: Option<&Value>) {
         let received = parsed_type(value);
         let message = if received == "undefined" {
             "Required".to_owned()
         } else {
             format!("Expected {expected}, received {received}")
         };
-        let path = self.path(key);
+        let path = self.path_at(key);
         self.issues.push(json!({
             "code": "invalid_type",
             "expected": expected,
@@ -231,7 +242,7 @@ impl Issues {
     /// when there is a value to check.
     fn left_out<T>(
         &mut self,
-        key: &str,
+        key: Option<&str>,
         expected: &str,
         value: Option<&Value>,
         presence: Presence,
@@ -239,7 +250,7 @@ impl Issues {
         match value {
             None => {
                 if matches!(presence, Presence::Required | Presence::Nullable) {
-                    self.invalid_type(key, expected, None);
+                    self.invalid_type_at(key, expected, None);
                 }
                 Some(Field::Absent)
             }
@@ -247,7 +258,7 @@ impl Issues {
                 Some(Field::Null)
             }
             Some(Value::Null) => {
-                self.invalid_type(key, expected, value);
+                self.invalid_type_at(key, expected, value);
                 Some(Field::Absent)
             }
             Some(_) => None,
@@ -301,12 +312,28 @@ impl Issues {
         presence: Presence,
         rules: Text,
     ) -> Field<String> {
-        let value = body.get(key);
+        self.text_at(Some(key), body.get(key), presence, rules)
+    }
+
+    /// An array item as a string with `rules` (`z.array(z.string()...)`),
+    /// reported at the item's own path; `None` when invalid.
+    pub fn item_text(&mut self, item: &Value, rules: Text) -> Option<String> {
+        self.text_at(None, Some(item), Presence::Required, rules)
+            .into_option()
+    }
+
+    fn text_at(
+        &mut self,
+        key: Option<&str>,
+        value: Option<&Value>,
+        presence: Presence,
+        rules: Text,
+    ) -> Field<String> {
         if let Some(field) = self.left_out(key, "string", value, presence) {
             return field;
         }
         let Some(Value::String(text)) = value else {
-            self.invalid_type(key, "string", value);
+            self.invalid_type_at(key, "string", value);
             return Field::Absent;
         };
         let mut text = if rules.trim {
@@ -322,7 +349,7 @@ impl Issues {
             && !format.matches(&text)
         {
             let (validation, message) = format.issue();
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.issues.push(json!({
                 "validation": validation,
                 "code": "invalid_string",
@@ -335,7 +362,7 @@ impl Issues {
         if let Some(min) = rules.min
             && length < min
         {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.too_small(
                 &path,
                 "string",
@@ -346,7 +373,7 @@ impl Issues {
         if let Some(max) = rules.max
             && length > max
         {
-            let path = self.path(key);
+            let path = self.path_at(key);
             self.too_big(
                 &path,
                 "string",
@@ -368,7 +395,7 @@ impl Issues {
         presence: Presence,
     ) -> Field<bool> {
         let value = body.get(key);
-        if let Some(field) = self.left_out(key, "boolean", value, presence) {
+        if let Some(field) = self.left_out(Some(key), "boolean", value, presence) {
             return field;
         }
         if let Some(Value::Bool(flag)) = value {
@@ -429,7 +456,7 @@ impl Issues {
             }
             js_number_of(value)
         } else {
-            if let Some(field) = self.left_out(key, "number", value, presence) {
+            if let Some(field) = self.left_out(Some(key), "number", value, presence) {
                 return field;
             }
             let Some(Value::Number(number)) = value else {
@@ -520,7 +547,7 @@ impl Issues {
         mut read: impl FnMut(&mut Self, &Value) -> Option<T>,
     ) -> Field<Vec<T>> {
         let value = body.get(key);
-        if let Some(field) = self.left_out(key, "array", value, presence) {
+        if let Some(field) = self.left_out(Some(key), "array", value, presence) {
             return field;
         }
         let Some(Value::Array(items)) = value else {
@@ -577,7 +604,7 @@ impl Issues {
         read: impl FnOnce(&mut Self, &Map<String, Value>) -> T,
     ) -> Field<T> {
         let value = body.get(key);
-        if let Some(field) = self.left_out(key, "object", value, presence) {
+        if let Some(field) = self.left_out(Some(key), "object", value, presence) {
             return field;
         }
         let Some(Value::Object(fields)) = value else {
@@ -608,7 +635,7 @@ impl Issues {
             .collect::<Vec<_>>()
             .join(" | ");
         let value = body.get(key);
-        if let Some(field) = self.left_out(key, &expected, value, presence) {
+        if let Some(field) = self.left_out(Some(key), &expected, value, presence) {
             return field;
         }
         match value {

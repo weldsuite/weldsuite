@@ -43,6 +43,14 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         let sign = weldsuite_sign::SignState {
             events: state.infra.events.clone(),
             session_secret: state.sign_session_secret.clone(),
+            files: state
+                .infra
+                .files
+                .clone()
+                .map(|private| weldsuite_ports::FileStores {
+                    private,
+                    public: state.infra.public_files.clone(),
+                }),
         };
         return router.nest("/sign", weldsuite_sign::router(sign, &state.permissions));
     }

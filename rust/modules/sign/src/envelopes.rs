@@ -975,17 +975,6 @@ pub(crate) async fn delete_draft(db: &PgPool, envelope: &Value) -> SignResult<Ve
     Ok(keys)
 }
 
-/// Remove deleted drafts' files without holding up the response. Until the
-/// files port is wired in, the keys are only logged.
-pub(crate) fn delete_files_later(keys: &[String]) {
-    if !keys.is_empty() {
-        tracing::warn!(
-            count = keys.len(),
-            "sign: no file store; files of a deleted draft stay"
-        );
-    }
-}
-
 pub(crate) async fn remove(
     State(state): State<SignState>,
     caller: Caller,
@@ -996,7 +985,7 @@ pub(crate) async fn remove(
             let viewer = viewer_of(&caller).await?;
             let envelope = load_own_envelope(&caller.db, &id, &viewer).await?;
             let keys = delete_draft(&caller.db, &envelope).await?;
-            delete_files_later(&keys);
+            crate::documents::delete_files_later(&caller, &state, keys);
             caller.publish(&state, SIGN_ENVELOPE_DELETED, &id, &event_data(&envelope));
             Ok(NoContent.into_response())
         }

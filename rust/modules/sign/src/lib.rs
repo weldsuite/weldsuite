@@ -2,16 +2,17 @@
 //! members (`apps/workers/sign-api/src/routes/`), with the domain rules of
 //! `@weldsuite/sign-domain`.
 //!
-//! Ported so far: drafts and their settings, recipients, fields, the
-//! activity trail, templates and their roles. Documents, sending and the
-//! signed PDF, the lifecycle cron and the signer portal's endpoints follow
-//! with the ports they need (files, system mail, jobs, the due index).
+//! Ported so far: drafts and their settings, documents, recipients, fields,
+//! the activity trail, templates and their roles. Sending and the signed PDF,
+//! the lifecycle cron and the signer portal's endpoints follow with the ports
+//! they need (system mail, jobs, the due index).
 //!
 //! Who sees what: without `sign_envelopes:manage` a member sees the envelopes
 //! they sent and the sent requests they are a recipient of (by email); one
 //! they may not see is a 404. Only the owner changes an envelope, and only a
 //! draft (409 otherwise). Templates belong to the workspace.
 
+mod documents;
 mod envelopes;
 mod fields;
 mod hash;
@@ -42,6 +43,9 @@ use weldsuite_events::{EntityEventPublisher, EventContext, iso_timestamp, publis
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
+use weldsuite_ports::FileStores;
+
+use crate::documents::Scope;
 
 /// What the sign handlers share.
 #[derive(Debug, Clone)]
@@ -50,6 +54,8 @@ pub struct SignState {
     /// `SIGN_SESSION_SECRET`: keys the stored hash of access codes. Without
     /// it a recipient cannot get an access code.
     pub session_secret: Option<Arc<str>>,
+    /// The private bucket (and the legacy public one), when configured.
+    pub files: Option<FileStores>,
 }
 
 /// `/api/sign`, to nest under `/api` behind the session, tenant database,
@@ -102,7 +108,8 @@ where
         .route(
             "/{id}/fields",
             put(fields::replace_envelope_fields).route_layer(need(SIGN_ENVELOPES_UPDATE)),
-        );
+        )
+        .merge(document_routes(Scope::Envelope, gate));
     let templates = Router::new()
         .route(
             "/",
@@ -137,11 +144,71 @@ where
         .route(
             "/{id}/fields",
             put(fields::replace_template_fields).route_layer(need(SIGN_TEMPLATES_UPDATE)),
-        );
+        )
+        .merge(document_routes(Scope::Template, gate));
     Router::new()
         .nest("/envelopes", envelopes)
         .nest("/templates", templates)
         .with_state(state)
+}
+
+/// `/:id/documents/*` of a draft or a template.
+fn document_routes<Q>(scope: Scope, gate: &Arc<PermissionGate<Q>>) -> Router<SignState>
+where
+    Q: PermissionQueries + 'static,
+{
+    use axum::extract::DefaultBodyLimit;
+    let update = scope_permission(scope, true);
+    let read = scope_permission(scope, false);
+    let need = |key: &str| gate.require([key.to_owned()]);
+    let (upload, from_drive, order, content, remove) = match scope {
+        Scope::Envelope => (
+            post(documents::upload_envelope),
+            post(documents::from_drive_envelope),
+            put(documents::reorder_envelope),
+            get(documents::content_envelope),
+            axum::routing::delete(documents::remove_envelope),
+        ),
+        Scope::Template => (
+            post(documents::upload_template),
+            post(documents::from_drive_template),
+            put(documents::reorder_template),
+            get(documents::content_template),
+            axum::routing::delete(documents::remove_template),
+        ),
+    };
+    Router::new()
+        .route(
+            "/{id}/documents",
+            // Above the 25 MB a PDF may have, so the route says why it refuses.
+            upload
+                .route_layer(need(update))
+                .layer(DefaultBodyLimit::max(64 * 1024 * 1024)),
+        )
+        .route(
+            "/{id}/documents/from-drive",
+            from_drive
+                .route_layer(need(weldsuite_catalogs::permission_keys::FILES_READ))
+                .route_layer(need(update)),
+        )
+        .route("/{id}/documents/order", order.route_layer(need(update)))
+        .route(
+            "/{id}/documents/{document_id}/content",
+            content.route_layer(need(read)),
+        )
+        .route(
+            "/{id}/documents/{document_id}",
+            remove.route_layer(need(update)),
+        )
+}
+
+fn scope_permission(scope: Scope, update: bool) -> &'static str {
+    match (scope, update) {
+        (Scope::Envelope, true) => SIGN_ENVELOPES_UPDATE,
+        (Scope::Envelope, false) => SIGN_ENVELOPES_READ,
+        (Scope::Template, true) => SIGN_TEMPLATES_UPDATE,
+        (Scope::Template, false) => SIGN_TEMPLATES_READ,
+    }
 }
 
 /// Who is asking, in which workspace, with what permissions.
@@ -152,7 +219,10 @@ pub(crate) struct Caller {
     pub(crate) events: EventContext,
     /// The workspace is read-only (`c.get('readOnly')`): reads only.
     pub(crate) read_only: bool,
+    /// `c.get('clerkOrgId')`: storage keys are `workspaces/<org>/…`.
+    pub(crate) clerk_org_id: Option<String>,
     env: Option<RequestEnv>,
+    files: Option<FileStores>,
 }
 
 impl Caller {
@@ -170,6 +240,11 @@ impl Caller {
         data: &Value,
     ) {
         publish_entity_event(&state.events, &self.events, event, entity_id, data);
+    }
+
+    /// The request's buckets (conformance mode), else the app's.
+    pub(crate) fn files(&self, state: &SignState) -> Option<FileStores> {
+        self.files.clone().or_else(|| state.files.clone())
     }
 
     /// `c.env.SIGN_SESSION_SECRET`.
@@ -203,7 +278,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     permissions: permissions.clone(),
                     events: EventContext::for_request(auth, tenant),
                     read_only: tenant.read_only_reason().is_some(),
+                    clerk_org_id: tenant.clerk_org_id.clone(),
                     env: parts.extensions.get::<RequestEnv>().cloned(),
+                    files: parts.extensions.get::<FileStores>().cloned(),
                 })
             } else {
                 tracing::error!("sign: a route without the session, tenant or permission layer");
@@ -226,6 +303,8 @@ pub(crate) enum SignError {
     /// A response the route wrote itself (validation, 401).
     Response(Box<Response>),
     Database(sqlx::Error),
+    /// Anything else that fails (the file store); logged, answered with a 500.
+    Internal(String),
 }
 
 impl SignError {
@@ -247,6 +326,10 @@ impl SignError {
             // Anything else reaches the app's error handler.
             Self::Database(error) => {
                 tracing::error!(%error, "sign: database error");
+                ApiError::internal().into_response()
+            }
+            Self::Internal(error) => {
+                tracing::error!(error, "sign: request failed");
                 ApiError::internal().into_response()
             }
         }

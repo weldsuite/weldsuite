@@ -20,9 +20,8 @@ use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 
 use crate::envelopes::{
-    DetailAccess, Viewer, delete_draft, delete_files_later, envelope_detail, load_sign_settings,
-    load_template, member_profile, page_query, read_changes, recipient_dto, touch_envelope,
-    update_envelope,
+    DetailAccess, Viewer, delete_draft, envelope_detail, load_sign_settings, load_template,
+    member_profile, page_query, read_changes, recipient_dto, touch_envelope, update_envelope,
 };
 use crate::recipients::{
     AUTH_MODES, EMAIL, LOCALES, MAX_RECIPIENTS, NAME, ROLES, get_recipient, recipient_count,
@@ -249,7 +248,7 @@ pub(crate) async fn remove(
         async {
             let template = load_template(&caller.db, &id).await?;
             let keys = delete_draft(&caller.db, &template).await?;
-            delete_files_later(&keys);
+            crate::documents::delete_files_later(&caller, &state, keys);
             caller.publish(&state, SIGN_TEMPLATE_DELETED, &id, &event_data(&template));
             Ok(NoContent.into_response())
         }

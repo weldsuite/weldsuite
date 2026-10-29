@@ -45,6 +45,7 @@ http-body-util = "0.1.5"
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+lopdf = { version = "0.46.0", default-features = false }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 redis = { version = "1.8.0", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf"] }
