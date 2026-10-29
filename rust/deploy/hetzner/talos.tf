@@ -47,21 +47,31 @@ data "talos_machine_configuration" "node" {
   )
 }
 
+# talosctl, the bootstrap and the kubeconfig go through the API load balancer,
+# which reaches the control plane over the private network; nodes are named by
+# their private address. A node's own public address only answers
+# admin_cidrs, and the Hetzner firewall can see an operator's traffic from
+# another address than the operator does (the first apply's bootstrap timed
+# out that way).
 data "talos_client_configuration" "cluster" {
   cluster_name         = var.cluster_name
   client_configuration = talos_machine_secrets.cluster.client_configuration
-  endpoints            = [for key in keys(local.control_planes) : hcloud_server.node[key].ipv4_address]
-  nodes                = [for key in keys(local.control_planes) : hcloud_server.node[key].ipv4_address]
+  endpoints            = [local.api_endpoint]
+  nodes                = [for node in local.control_planes : node.ip]
 }
 
 # etcd is bootstrapped once, on the first control-plane node.
 resource "talos_machine_bootstrap" "cluster" {
-  node                 = hcloud_server.node[local.first_cp].ipv4_address
+  endpoint             = local.api_endpoint
+  node                 = local.control_planes[local.first_cp].ip
   client_configuration = talos_machine_secrets.cluster.client_configuration
+
+  depends_on = [hcloud_load_balancer_target.api]
 }
 
 resource "talos_cluster_kubeconfig" "cluster" {
-  node                 = hcloud_server.node[local.first_cp].ipv4_address
+  endpoint             = local.api_endpoint
+  node                 = local.control_planes[local.first_cp].ip
   client_configuration = talos_machine_secrets.cluster.client_configuration
 
   depends_on = [talos_machine_bootstrap.cluster]
