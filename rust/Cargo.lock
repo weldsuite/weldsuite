@@ -3709,6 +3709,7 @@ dependencies = [
  "aws-lc-rs",
  "axum",
  "http",
+ "reqwest",
  "serde_json",
  "sqlx",
  "time",

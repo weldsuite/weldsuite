@@ -335,6 +335,11 @@ const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
 /** An API key's display prefix (`wsk_` and the random key's first 8 hex characters). */
 const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
+/**
+ * A random token in hex (16 random bytes, e.g. an SSO domain's TXT record
+ * value), on its own or inside a string. New on every run of a write.
+ */
+const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
 
 /**
  * Sorted keys, and for writes the values that differ by construction between
@@ -359,7 +364,7 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
     if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
     if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
     if (GENERATED_ID.test(value)) return '<id>';
-    return value.replace(EPOCH_MS, '<epoch-ms>');
+    return value.replace(RANDOM_HEX, '<hex>').replace(EPOCH_MS, '<epoch-ms>');
   }
   return value;
 }

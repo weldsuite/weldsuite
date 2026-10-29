@@ -44,7 +44,7 @@ pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSource
 pub use identity::{
     Identity, IdentityCall, IdentityError, IdentityProvider, IdentityResult, Invitation, ListPage,
     Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, Organization,
-    OrganizationChanges, OrganizationRef, User, with_identity,
+    OrganizationChanges, OrganizationRef, Session, User, with_identity,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
