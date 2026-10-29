@@ -8,6 +8,7 @@ pub(crate) mod my_role;
 pub(crate) mod notification_preferences;
 pub(crate) mod push_tokens;
 pub(crate) mod roles;
+pub(crate) mod seats;
 pub(crate) mod settings_profile;
 pub(crate) mod team_members;
 pub(crate) mod user_preferences;
