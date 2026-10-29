@@ -26,6 +26,7 @@
     "rust:conformance": "tsx scripts/rust-conformance.ts",
     "rust:emails": "tsx --tsconfig packages/core/emails/tsconfig.json scripts/rust-emails.ts",
     "rust:fmt": "cd rust && cargo fmt --all",
+    "rust:subscriber-fixtures": "tsx scripts/rust-subscriber-fixtures.ts",
     "rust:lint": "cd rust && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings",
     "rust:test": "cd rust && cargo test --workspace --locked",
     "rust:deny": "cd rust && cargo deny check",

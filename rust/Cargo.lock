@@ -3598,6 +3598,7 @@ dependencies = [
  "weldsuite-pipeline",
  "weldsuite-ports",
  "weldsuite-sign",
+ "weldsuite-subscribers",
 ]
 
 [[package]]
@@ -3884,6 +3885,32 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-subscribers"
+version = "0.0.0"
+dependencies = [
+ "async-nats",
+ "aws-lc-rs",
+ "axum",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-adapters-oss",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 
