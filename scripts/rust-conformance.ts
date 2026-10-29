@@ -5,6 +5,7 @@
  *   pnpm rust:conformance                 build, run every suite, report
  *   pnpm rust:conformance --no-build      reuse rust/target/debug/weldsuite
  *   pnpm rust:conformance --changed BASE  only suites whose paths (or rust/) changed since BASE
+ *   pnpm rust:conformance --shard 2/4     every fourth of the selected suites, from the second (CI)
  *   pnpm rust:conformance --coverage apps/workers/know-api [...]
  *       run those workers' whole test suites on the Hono app in record-only
  *       mode and report which of their routes the tests reach (playbook step 1)
@@ -76,6 +77,19 @@ const changedIndex = args.indexOf('--changed');
 const changedBase = changedIndex >= 0 ? args[changedIndex + 1] : undefined;
 const coverageIndex = args.indexOf('--coverage');
 const coverageChangedIndex = args.indexOf('--coverage-changed');
+const shardIndex = args.indexOf('--shard');
+const shard = shardIndex >= 0 ? parseShard(args[shardIndex + 1]) : undefined;
+
+/** `--shard i/n`: the i-th of n slices of the selected suites, 1-based. */
+function parseShard(value: string | undefined): { index: number; count: number } {
+  const match = /^(\d+)\/(\d+)$/.exec(value ?? '');
+  const index = Number(match?.[1]);
+  const count = Number(match?.[2]);
+  if (!match || count < 1 || index < 1 || index > count) {
+    throw new Error(`--shard wants i/n with 1 <= i <= n, not ${value ?? 'nothing'}`);
+  }
+  return { index, count };
+}
 
 const { suites } = JSON.parse(readFileSync(path.join(rustDir, 'conformance', 'suites.json'), 'utf8')) as {
   suites: Suite[];
@@ -394,7 +408,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const selected = selectSuites();
+  // Dealt round-robin, so a shard gets a mix of long and short suites.
+  const selected = selectSuites().filter((_, i) => !shard || i % shard.count === shard.index - 1);
   if (selected.length === 0) {
     console.log('No conformance suite is affected by this change.');
     mkdirSync(reportDir, { recursive: true });
