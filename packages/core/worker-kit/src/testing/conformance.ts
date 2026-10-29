@@ -39,6 +39,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Database } from '../env';
 import { pgliteClientOf } from './pglite';
+import { wireCompatiblePglite } from './pglite-wire';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
@@ -272,7 +273,14 @@ function databaseUrlFor(client: PGliteClient): Promise<string> {
     url = (async () => {
       const { PGLiteSocketServer } = await import('@electric-sql/pglite-socket');
       const port = await freePort();
-      const server = new PGLiteSocketServer({ db: client as never, port, host: '127.0.0.1', maxConnections: 8 });
+      // wireCompatiblePglite: one ReadyForQuery per Sync after a failed
+      // statement, or the Rust connection falls out of step (./pglite-wire.ts).
+      const server = new PGLiteSocketServer({
+        db: wireCompatiblePglite(client) as never,
+        port,
+        host: '127.0.0.1',
+        maxConnections: 8,
+      });
       await server.start();
       process.once('beforeExit', () => void server.stop());
       // A unique name per database: the Rust server keys its pools by URL, and a
