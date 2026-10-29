@@ -566,7 +566,7 @@ function checkSchema(
 async function replayableBody(body: BodyInit | null | undefined, headers: Headers): Promise<string | Uint8Array | undefined> {
   if (body === undefined || body === null) return undefined;
   if (typeof body === 'string') return body;
-  const serialised = new Request('http://conformance.local/', { method: 'POST', body });
+  const serialised = new Request('https://conformance.local/', { method: 'POST', body });
   const type = serialised.headers.get('content-type');
   if (type && !headers.has('content-type')) headers.set('content-type', type);
   return new Uint8Array(await serialised.arrayBuffer());
