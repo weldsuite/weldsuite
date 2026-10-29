@@ -28,6 +28,7 @@ use crate::{Caller, MailState};
 
 #[path = "mail_messages_reads.rs"]
 mod reads;
+pub(crate) use reads::locate as locate_message;
 #[path = "mail_messages_writes.rs"]
 mod writes;
 

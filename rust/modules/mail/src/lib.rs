@@ -99,6 +99,10 @@ where
         .merge(routes::mail_folders::routes(state.clone(), gate))
         .merge(routes::mail_labels::routes(state.clone(), gate))
         .merge(routes::mail_signatures::routes(state.clone(), gate))
+        .merge(routes::mail_attachments::routes(state.clone(), gate))
+        .merge(routes::mail_drafts::routes(state.clone(), gate))
+        .merge(routes::mail_snooze::routes(state.clone(), gate))
+        .merge(routes::mail_threads::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 

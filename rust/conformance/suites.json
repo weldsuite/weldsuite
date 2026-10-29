@@ -624,7 +624,9 @@
         "src/routes/mail-accounts/routes.test.ts",
         "src/routes/mail-messages/routes.test.ts",
         "src/routes/mail-messages/access.test.ts",
-        "src/routes/mail-messages/stats-access.test.ts"
+        "src/routes/mail-messages/stats-access.test.ts",
+        "src/routes/mail-attachments/access.test.ts",
+        "src/routes/mail-attachments/routes.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/",
@@ -642,6 +644,24 @@
         "src/routes/mail-labels/access.test.ts",
         "src/routes/mail-folders/routes.test.ts",
         "src/routes/mail-signatures/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
+      "name": "mail: drafts, threads, snooze",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-drafts/routes.test.ts",
+        "src/routes/mail-threads/read-all.test.ts",
+        "src/routes/mail-threads/routes.test.ts",
+        "src/routes/mail-snooze/access.test.ts",
+        "src/routes/mail-snooze/routes.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/",

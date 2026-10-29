@@ -14,7 +14,7 @@ use weldsuite_events::{EventContext, publish_entity_event};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_mail_domain::outbound::{OutboundBindings, OutboundGuard, RequestOutbound};
 use weldsuite_permissions::Permissions;
-use weldsuite_ports::{DynCache, FileStores, OutboundHttp, RequestCache};
+use weldsuite_ports::{DynCache, FileStores, OutboundHttp, RequestCache, StorageBuckets};
 
 use crate::MailState;
 
@@ -28,6 +28,7 @@ pub(crate) struct Bindings {
     outbound: Option<OutboundBindings>,
     files: Option<FileStores>,
     http: Option<OutboundHttp>,
+    buckets: Option<StorageBuckets>,
 }
 
 impl Bindings {
@@ -45,6 +46,7 @@ impl Bindings {
                 .map(|o| o.0.clone()),
             files: parts.extensions.get::<FileStores>().cloned(),
             http: parts.extensions.get::<OutboundHttp>().cloned(),
+            buckets: parts.extensions.get::<StorageBuckets>().cloned(),
         }
     }
 
@@ -82,6 +84,18 @@ impl Bindings {
             return self.http.clone();
         }
         self.http.clone().or_else(|| state.http.clone())
+    }
+
+    /// `env.PRIVATE_STORAGE` / `env.STORAGE`, each optional: only the buckets
+    /// a conformance test shares, else the app's.
+    pub(crate) fn buckets(&self, state: &MailState) -> StorageBuckets {
+        if self.env.is_some() {
+            return self.buckets.clone().unwrap_or_default();
+        }
+        self.buckets
+            .clone()
+            .or_else(|| state.files.clone().map(Into::into))
+            .unwrap_or_default()
     }
 
     pub(crate) fn files(&self, state: &MailState) -> Option<FileStores> {

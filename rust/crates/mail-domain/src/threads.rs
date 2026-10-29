@@ -578,3 +578,115 @@ pub async fn thread_by_key(
         "messages": rows.into_iter().map(|r| message_record(r, true)).collect::<Vec<_>>(),
     })))
 }
+
+/// `markThreadRead(db, accountId, threadKey, isRead)`: the ids whose read
+/// state changed.
+pub async fn mark_thread_read(
+    db: &PgPool,
+    account_id: &str,
+    thread_key: &str,
+    is_read: bool,
+    now: OffsetDateTime,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "update mail_messages set is_read = $3, updated_at = $4::timestamp
+         where account_id = $1 and coalesce(thread_id, id) = $2 and deleted_at is null
+           and is_read = not $3
+         returning id",
+    )
+    .bind(account_id)
+    .bind(thread_key)
+    .bind(is_read)
+    .bind(iso(now))
+    .fetch_all(db)
+    .await
+}
+
+/// `MARK_READ_BATCH_SIZE` / `MARK_READ_MAX_BATCHES`.
+const MARK_READ_BATCH_SIZE: i64 = 1000;
+const MARK_READ_MAX_BATCHES: usize = 50;
+
+/// What `markFolderReadForAccounts` reports.
+#[derive(Debug, Clone, Default)]
+pub struct FolderRead {
+    pub updated_count: usize,
+    /// `(id, accountId)`, at most `updated_per_account` per mailbox.
+    pub updated: Vec<(String, String)>,
+}
+
+/// `markFolderReadForAccounts(db, accountIds, { labelSlug }, { updatedPerAccount })`:
+/// every unread message of the folder's threads read, newest first, in
+/// batches; the due snoozed mail woken first.
+pub async fn mark_folder_read(
+    db: &PgPool,
+    account_ids: &[String],
+    label_slug: &str,
+    updated_per_account: usize,
+    now: OffsetDateTime,
+) -> Result<FolderRead, sqlx::Error> {
+    if account_ids.is_empty() {
+        return Ok(FolderRead::default());
+    }
+    let query = ThreadQuery {
+        label_slug: label_slug.to_owned(),
+        ..ThreadQuery::default()
+    };
+    let scope = build_scope(db, account_ids, &query).await?;
+    if let Err(error) = wake_due_snoozed(db, Some(account_ids), now).await {
+        tracing::error!(%error, "[mail-thread-ops] waking snoozed mail failed");
+    }
+    let mut out = FolderRead::default();
+    let mut kept: Vec<(String, usize)> = Vec::new();
+    for _ in 0..MARK_READ_MAX_BATCHES {
+        let batch: Vec<(String, String)> = bind_scope!(
+            sqlx::query_as(concat!(
+                "select o.id, o.account_id from mail_messages o
+                 where o.account_id = any($1::text[]) and o.deleted_at is null and o.is_read = false
+                   and (o.account_id, coalesce(o.thread_id, o.id)) in (
+                     select m.account_id, coalesce(m.thread_id, m.id) from mail_messages m where ",
+                thread_conditions!(),
+                ")
+                 order by coalesce(o.received_date, o.sent_date) desc nulls last
+                 limit $14"
+            )),
+            scope
+        )
+        .bind(MARK_READ_BATCH_SIZE)
+        .fetch_all(db)
+        .await?;
+        if batch.is_empty() {
+            break;
+        }
+        let ids: Vec<String> = batch.iter().map(|(id, _)| id.clone()).collect();
+        let done: Vec<String> = sqlx::query_scalar(
+            "update mail_messages set is_read = true, updated_at = $2::timestamp
+             where id = any($1::text[]) and is_read = false
+             returning id",
+        )
+        .bind(&ids)
+        .bind(iso(now))
+        .fetch_all(db)
+        .await?;
+        out.updated_count += done.len();
+        for (id, account) in &batch {
+            if !done.contains(id) {
+                continue;
+            }
+            let index = if let Some(index) = kept.iter().position(|(a, _)| a == account) {
+                index
+            } else {
+                kept.push((account.clone(), 0));
+                kept.len() - 1
+            };
+            if kept[index].1 >= updated_per_account {
+                continue;
+            }
+            kept[index].1 += 1;
+            out.updated.push((id.clone(), account.clone()));
+        }
+        if i64::try_from(batch.len()).unwrap_or(i64::MAX) < MARK_READ_BATCH_SIZE {
+            break;
+        }
+    }
+    Ok(out)
+}

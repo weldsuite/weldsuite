@@ -213,7 +213,7 @@ pub(super) async fn stats(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 /// `locateMessageOrRespond`: the message's mailbox among those the caller
 /// may open; otherwise 404 when it does not exist, 403 when it is in a
 /// mailbox closed to the caller.
-pub(super) async fn locate(caller: &Caller, id: &str, resource: &str) -> MailResult<String> {
+pub(crate) async fn locate(caller: &Caller, id: &str, resource: &str) -> MailResult<String> {
     let accessible = accessible_account_ids(&caller.db, &caller.user_id).await?;
     if !accessible.is_empty()
         && let Some((_, account)) = locate_messages(&caller.db, &[id.to_owned()], &accessible, false)
