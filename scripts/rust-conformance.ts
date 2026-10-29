@@ -176,76 +176,96 @@ interface SuiteReport {
   uncovered: Array<{ method: string; route: string }>;
 }
 
+/** Fold one recorded request into its route's report. */
+function addRequest(route: RouteReport, line: RequestLine): void {
+  const label = line.test ?? line.path;
+  route.requests++;
+  if (line.test && !route.tests.includes(line.test)) route.tests.push(line.test);
+  const status = line.rustStatus ?? line.tsStatus;
+  if (!route.statuses.includes(status)) route.statuses.push(status);
+  if (!line.match && line.difference) route.mismatches.push(`${label}: ${line.difference}`);
+  if (line.schema === 'fail') {
+    route.schema = 'fail';
+    route.mismatches.push(`${label}: schema: ${line.schemaError}`);
+  } else if (line.schema === 'ok' && route.schema === 'none') {
+    route.schema = 'ok';
+  }
+}
+
+/** Per route, sorted by path: the tests, statuses and differences seen. */
+function routeReports(requests: RequestLine[]): RouteReport[] {
+  const routes = new Map<string, RouteReport>();
+  for (const line of requests) {
+    const path = line.route ?? line.path;
+    const key = `${line.method} ${path}`;
+    const route = routes.get(key) ?? {
+      method: line.method,
+      route: path,
+      tests: [],
+      statuses: [],
+      requests: 0,
+      mismatches: [],
+      schema: 'none' as const,
+    };
+    addRequest(route, line);
+    routes.set(key, route);
+  }
+  const sorted = [...routes.values()].sort((a, b) => `${a.route} ${a.method}`.localeCompare(`${b.route} ${b.method}`));
+  for (const route of sorted) route.statuses.sort((a, b) => a - b);
+  return sorted;
+}
+
+/** Inventory routes no request reached, once each. */
+function uncoveredRoutes(inventory: InventoryLine[], routes: RouteReport[]): Array<{ method: string; route: string }> {
+  const covered = new Set(routes.map((r) => `${r.method} ${r.route}`));
+  const missing = new Map<string, { method: string; route: string }>();
+  for (const r of inventory) {
+    const key = `${r.method} ${r.route}`;
+    if (!covered.has(key)) missing.set(key, { method: r.method, route: r.route });
+  }
+  return [...missing.values()];
+}
+
 function buildReport(selected: Suite[], results: Map<string, boolean>): SuiteReport[] {
   const lines = readLines();
   return selected.map((suite) => {
     const inSuite = (file: string | undefined) =>
       Boolean(file) && suite.tests.some((t) => file!.replaceAll('\\', '/').endsWith(`${suite.workspace}/${t}`));
-    const requests = lines.filter((l): l is RequestLine => l.kind === 'request' && inSuite(l.file));
+    const routes = routeReports(lines.filter((l): l is RequestLine => l.kind === 'request' && inSuite(l.file)));
     const inventory = lines.filter((l): l is InventoryLine => l.kind === 'inventory' && inSuite(l.file));
-
-    const routes = new Map<string, RouteReport>();
-    for (const line of requests) {
-      const key = `${line.method} ${line.route ?? line.path}`;
-      const route = routes.get(key) ?? {
-        method: line.method,
-        route: line.route ?? line.path,
-        tests: [],
-        statuses: [],
-        requests: 0,
-        mismatches: [],
-        schema: 'none' as const,
-      };
-      route.requests++;
-      if (line.test && !route.tests.includes(line.test)) route.tests.push(line.test);
-      const status = line.rustStatus ?? line.tsStatus;
-      if (!route.statuses.includes(status)) route.statuses.push(status);
-      if (!line.match && line.difference) route.mismatches.push(`${line.test ?? line.path}: ${line.difference}`);
-      if (line.schema === 'fail') {
-        route.schema = 'fail';
-        route.mismatches.push(`${line.test ?? line.path}: schema: ${line.schemaError}`);
-      } else if (line.schema === 'ok' && route.schema === 'none') {
-        route.schema = 'ok';
-      }
-      routes.set(key, route);
-    }
-    const covered = new Set(routes.keys());
-    const uncovered = [
-      ...new Map(
-        inventory
-          .filter((r) => !covered.has(`${r.method} ${r.route}`))
-          .map((r) => [`${r.method} ${r.route}`, { method: r.method, route: r.route }]),
-      ).values(),
-    ];
-    const sorted = [...routes.values()].sort((a, b) => `${a.route} ${a.method}`.localeCompare(`${b.route} ${b.method}`));
-    for (const route of sorted) route.statuses.sort();
-    const passed = (results.get(suite.name) ?? false) && sorted.every((r) => r.mismatches.length === 0);
-    return { name: suite.name, module: suite.module, passed, routes: sorted, uncovered };
+    const passed = (results.get(suite.name) ?? false) && routes.every((r) => r.mismatches.length === 0);
+    return { name: suite.name, module: suite.module, passed, routes, uncovered: uncoveredRoutes(inventory, routes) };
   });
+}
+
+/** One suite's section of the conformance report. */
+function suiteSection(report: SuiteReport): string[] {
+  const out = [
+    `## ${report.name} (${report.passed ? 'pass' : 'FAIL'})`,
+    '',
+    '| Route | Tests | Requests | Statuses | Schema | Result |',
+    '|---|---|---|---|---|---|',
+  ];
+  for (const r of report.routes) {
+    const result = r.mismatches.length === 0 ? 'match' : `${r.mismatches.length} difference(s)`;
+    out.push(
+      `| \`${r.method} ${r.route}\` | ${r.tests.length} | ${r.requests} | ${r.statuses.join(', ')} | ${r.schema} | ${result} |`,
+    );
+  }
+  if (report.routes.length === 0) out.push('| _no requests recorded_ | | | | | |');
+  out.push('');
+  if (report.uncovered.length > 0) {
+    out.push('Routes of the routers under test that no test reached:', '');
+    out.push(...report.uncovered.map((r) => `- \`${r.method} ${r.route}\``), '');
+  }
+  const differences = report.routes.flatMap((r) => r.mismatches.map((m) => `- \`${r.method} ${r.route}\`: ${m}`));
+  if (differences.length > 0) out.push('Differences:', '', ...differences, '');
+  return out;
 }
 
 function markdown(reports: SuiteReport[]): string {
   const out = ['# Conformance report', '', 'TypeScript worker tests run against the Rust backend (`pnpm rust:conformance`).', ''];
-  for (const report of reports) {
-    out.push(`## ${report.name} (${report.passed ? 'pass' : 'FAIL'})`, '');
-    out.push('| Route | Tests | Requests | Statuses | Schema | Result |', '|---|---|---|---|---|---|');
-    for (const r of report.routes) {
-      out.push(
-        `| \`${r.method} ${r.route}\` | ${r.tests.length} | ${r.requests} | ${r.statuses.join(', ')} | ${r.schema} | ${
-          r.mismatches.length === 0 ? 'match' : `${r.mismatches.length} difference(s)`
-        } |`,
-      );
-    }
-    if (report.routes.length === 0) out.push('| _no requests recorded_ | | | | | |');
-    out.push('');
-    if (report.uncovered.length > 0) {
-      out.push('Routes of the routers under test that no test reached:', '');
-      for (const r of report.uncovered) out.push(`- \`${r.method} ${r.route}\``);
-      out.push('');
-    }
-    const differences = report.routes.flatMap((r) => r.mismatches.map((m) => `- \`${r.method} ${r.route}\`: ${m}`));
-    if (differences.length > 0) out.push('Differences:', '', ...differences, '');
-  }
+  for (const report of reports) out.push(...suiteSection(report));
   return `${out.join('\n')}\n`;
 }
 
@@ -262,6 +282,47 @@ function changedWorkers(base: string): string[] {
   return [...workers].sort();
 }
 
+interface RouteHits {
+  tests: Set<string>;
+  statuses: Set<number>;
+}
+
+/** Every route the inventory or a request names, and what reached each. */
+function routeHits(lines: Array<RequestLine | InventoryLine>): { keys: string[]; hits: Map<string, RouteHits> } {
+  const keys = new Set<string>();
+  const hits = new Map<string, RouteHits>();
+  for (const line of lines) {
+    if (line.kind === 'inventory') keys.add(`${line.method} ${line.route}`);
+    if (line.kind !== 'request' || !line.route) continue;
+    const key = `${line.method} ${line.route}`;
+    keys.add(key);
+    const hit = hits.get(key) ?? { tests: new Set<string>(), statuses: new Set<number>() };
+    if (line.test) hit.tests.add(line.test);
+    hit.statuses.add(line.tsStatus);
+    hits.set(key, hit);
+  }
+  const routeOf = (key: string) => key.slice(key.indexOf(' ') + 1);
+  return { keys: [...keys].sort((a, b) => routeOf(a).localeCompare(routeOf(b)) || a.localeCompare(b)), hits };
+}
+
+/** One worker's section of the coverage report. */
+function coverageSection(workspace: string, keys: string[], hits: Map<string, RouteHits>, passed: boolean): string[] {
+  const covered = keys.filter((key) => hits.has(key)).length;
+  const out = [
+    `## ${workspace}: ${covered} of ${keys.length} routes reached${passed ? '' : ' (tests FAILED)'}`,
+    '',
+    '| Route | Tests | Statuses seen |',
+    '|---|---|---|',
+  ];
+  for (const key of keys) {
+    const hit = hits.get(key);
+    const statuses = hit ? [...hit.statuses].sort((a, b) => a - b).join(', ') : '**not reached**';
+    out.push(`| \`${key}\` | ${hit ? hit.tests.size : 0} | ${statuses} |`);
+  }
+  out.push('', 'A router that no test file mounts does not appear here at all.', '');
+  return out;
+}
+
 function coverage(workspaces: string[]): void {
   const coverageDir = path.join(reportDir, 'coverage');
   rmSync(coverageDir, { recursive: true, force: true });
@@ -272,40 +333,14 @@ function coverage(workspaces: string[]): void {
     '',
   ];
   const summary: Array<{ workspace: string; routes: number; covered: number; testsPassed: boolean }> = [];
-  let failed = false;
   for (const workspace of workspaces) {
     const dir = path.join(coverageDir, workspace.replaceAll('/', '_'));
     console.log(`\n== coverage: ${workspace}`);
-    const status = run('pnpm', ['test'], path.join(repo, workspace), {
-      CONFORMANCE_TARGET: 'record',
-      CONFORMANCE_REPORT_DIR: dir,
-    });
-    failed ||= status !== 0;
-    const lines = readLines(dir);
-    const keys = new Set<string>();
-    const hits = new Map<string, { tests: Set<string>; statuses: Set<number> }>();
-    for (const line of lines) {
-      if (line.kind === 'inventory') keys.add(`${line.method} ${line.route}`);
-      if (line.kind !== 'request' || !line.route) continue;
-      const key = `${line.method} ${line.route}`;
-      keys.add(key);
-      const hit = hits.get(key) ?? { tests: new Set<string>(), statuses: new Set<number>() };
-      if (line.test) hit.tests.add(line.test);
-      hit.statuses.add(line.tsStatus);
-      hits.set(key, hit);
-    }
-    const routeOf = (key: string) => key.slice(key.indexOf(' ') + 1);
-    const all = [...keys].sort((a, b) => routeOf(a).localeCompare(routeOf(b)) || a.localeCompare(b));
-    const covered = all.filter((key) => hits.has(key)).length;
-    summary.push({ workspace, routes: all.length, covered, testsPassed: status === 0 });
-    out.push(`## ${workspace}: ${covered} of ${all.length} routes reached${status === 0 ? '' : ' (tests FAILED)'}`, '');
-    out.push('| Route | Tests | Statuses seen |', '|---|---|---|');
-    for (const key of all) {
-      const hit = hits.get(key);
-      const statuses = hit ? [...hit.statuses].sort().join(', ') : '**not reached**';
-      out.push(`| \`${key}\` | ${hit ? hit.tests.size : 0} | ${statuses} |`);
-    }
-    out.push('', 'A router that no test file mounts does not appear here at all.', '');
+    const passed =
+      run('pnpm', ['test'], path.join(repo, workspace), { CONFORMANCE_TARGET: 'record', CONFORMANCE_REPORT_DIR: dir }) === 0;
+    const { keys, hits } = routeHits(readLines(dir));
+    summary.push({ workspace, routes: keys.length, covered: keys.filter((key) => hits.has(key)).length, testsPassed: passed });
+    out.push(...coverageSection(workspace, keys, hits, passed));
   }
   mkdirSync(coverageDir, { recursive: true });
   const text = `${out.join('\n')}\n`;
@@ -313,7 +348,7 @@ function coverage(workspaces: string[]): void {
   writeFileSync(path.join(coverageDir, 'coverage.json'), `${JSON.stringify(summary, null, 2)}\n`);
   console.log(`\n${text}`);
   if (process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, text, { flag: 'a' });
-  if (failed) process.exit(1);
+  if (!summary.every((s) => s.testsPassed)) process.exit(1);
 }
 
 async function main(): Promise<void> {

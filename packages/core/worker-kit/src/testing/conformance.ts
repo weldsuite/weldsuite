@@ -98,6 +98,13 @@ export interface SideEffects {
   realtime: Array<{ path: string; body: unknown }>;
 }
 
+/** The URL a `fetch` was called with, whatever form it came in. */
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
 /**
  * Recording `ENTITY_EVENTS` and `REALTIME` bindings for the Hono app, and a
  * `drain()` that waits for the request's `waitUntil` work and returns what
@@ -119,7 +126,7 @@ export function createSideEffectRecorder() {
       },
       REALTIME: {
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+          const url = new URL(requestUrl(input));
           const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
           effects.realtime.push({ path: url.pathname, body });
           return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
@@ -255,27 +262,31 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */
 export function firstDifference(a: unknown, b: unknown, at = '$'): string | null {
   if (Object.is(a, b)) return null;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return `${at}: ${a.length} items vs ${b.length}`;
-    for (let i = 0; i < a.length; i++) {
-      const diff = firstDifference(a[i], b[i], `${at}[${i}]`);
-      if (diff) return diff;
-    }
-    return null;
-  }
-  if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
-    const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
-    for (const k of [...keys].sort()) {
-      const diff = firstDifference(
-        (a as Record<string, unknown>)[k],
-        (b as Record<string, unknown>)[k],
-        `${at}.${k}`,
-      );
-      if (diff) return diff;
-    }
-    return null;
-  }
+  if (Array.isArray(a) && Array.isArray(b)) return firstArrayDifference(a, b, at);
+  if (isPlainObject(a) && isPlainObject(b)) return firstObjectDifference(a, b, at);
   return `${at}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function firstArrayDifference(a: unknown[], b: unknown[], at: string): string | null {
+  if (a.length !== b.length) return `${at}: ${a.length} items vs ${b.length}`;
+  for (let i = 0; i < a.length; i++) {
+    const diff = firstDifference(a[i], b[i], `${at}[${i}]`);
+    if (diff) return diff;
+  }
+  return null;
+}
+
+function firstObjectDifference(a: Record<string, unknown>, b: Record<string, unknown>, at: string): string | null {
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].sort();
+  for (const key of keys) {
+    const diff = firstDifference(a[key], b[key], `${at}.${key}`);
+    if (diff) return diff;
+  }
+  return null;
 }
 
 interface Captured {
@@ -390,6 +401,91 @@ function pathOf(input: string): string {
   return input;
 }
 
+/** The test's context as the Rust server's conformance mode reads it. */
+async function testContext(ctx: ConformanceContext, env: Record<string, unknown>, databaseUrl: string) {
+  const forwardedEnv = Object.fromEntries(
+    FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
+  );
+  return {
+    userId: ctx.userId,
+    orgId: ctx.orgId,
+    workspaceId: ctx.workspaceId,
+    clerkOrgId: ctx.clerkOrgId,
+    sessionId: ctx.sessionId,
+    factorVerificationAge: ctx.factorVerificationAge ?? null,
+    databaseUrl,
+    permissions: ctx.permissions,
+    flags: await flagValues(ctx.flags),
+    env: forwardedEnv,
+  };
+}
+
+interface Runs {
+  ts: Captured;
+  rust: Captured;
+  tsEffects: SideEffects;
+  rustEffects: SideEffects;
+}
+
+/**
+ * Both runs from the same starting state: a read runs TypeScript and then
+ * Rust on the test's database; a write runs Rust on it (the test's own
+ * assertions then see Rust's writes) and TypeScript on a copy taken first.
+ */
+async function runBoth(
+  request: ConformanceRequest,
+  client: PGliteClient,
+  isWrite: boolean,
+  runRust: () => Promise<Captured>,
+  runTypeScript: (db: Database) => Promise<Captured>,
+): Promise<Runs> {
+  // Start both recordings empty.
+  await request.sideEffects.drain();
+  await rustSideEffects(request.target);
+
+  if (!isWrite) {
+    const ts = await runTypeScript(request.ctx.tenantDb);
+    const tsEffects = await request.sideEffects.drain();
+    const rust = await runRust();
+    return { ts, tsEffects, rust, rustEffects: await rustSideEffects(request.target) };
+  }
+  const clone = await cloneDatabase(client);
+  try {
+    const rust = await runRust();
+    const rustEffects = await rustSideEffects(request.target);
+    const ts = await runTypeScript(clone.db);
+    return { ts, rust, rustEffects, tsEffects: await request.sideEffects.drain() };
+  } finally {
+    await clone.close();
+  }
+}
+
+/** Where the two runs differ: status, body, then side effects; null when they match. */
+function compareRuns({ ts, rust, tsEffects, rustEffects }: Runs, isWrite: boolean): string | null {
+  if (ts.status !== rust.status) return `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
+  if (ts.json !== undefined || rust.json !== undefined) {
+    const body = firstDifference(normalizeForDiff(ts.json, isWrite), normalizeForDiff(rust.json, isWrite));
+    if (body) return body;
+  } else if (ts.text !== rust.text) {
+    return 'response bodies differ';
+  }
+  // New event ids and timestamps differ by construction, even on a read.
+  const effects = firstDifference(normalizeForDiff(tsEffects, true), normalizeForDiff(rustEffects, true));
+  return effects ? `side effects: ${effects}` : null;
+}
+
+/** Rust's successful body against the route's registered Zod schema. */
+function checkSchema(
+  method: string,
+  route: string | null,
+  rust: Captured,
+): Pick<ConformanceRecord, 'schema' | 'schemaError'> {
+  const validator = route ? schemaFor(method, route) : undefined;
+  if (!validator || rust.status >= 300 || rust.json === undefined) return { schema: 'none', schemaError: null };
+  const error = validator(rust.json);
+  return { schema: error === null ? 'ok' : 'fail', schemaError: error };
+}
+
 /** Run one test request against Rust and TypeScript, compare, and return Rust's response. */
 export async function conformanceRequest(request: ConformanceRequest): Promise<Response> {
   const { target, ctx, env, init } = request;
@@ -403,26 +499,10 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
       'Conformance mode needs a pglite tenantDb (createPgliteDb()): this test uses a mock database, which the Rust server cannot reach.',
     );
   }
-  const databaseUrl = await databaseUrlFor(client);
-
-  const forwardedEnv = Object.fromEntries(
-    FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
-  );
-  const context = {
-    userId: ctx.userId,
-    orgId: ctx.orgId,
-    workspaceId: ctx.workspaceId,
-    clerkOrgId: ctx.clerkOrgId,
-    sessionId: ctx.sessionId,
-    factorVerificationAge: ctx.factorVerificationAge ?? null,
-    databaseUrl,
-    permissions: ctx.permissions,
-    flags: await flagValues(ctx.flags),
-    env: forwardedEnv,
-  };
+  const context = await testContext(ctx, env, await databaseUrlFor(client));
 
   // A request body can be read once: keep it as text for both runs.
-  const body = init?.body === undefined || init.body === null ? undefined : init.body;
+  const body = init?.body ?? undefined;
   if (body !== undefined && typeof body !== 'string') {
     throw new Error('Conformance mode supports string request bodies only (JSON.stringify the body).');
   }
@@ -430,59 +510,17 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const rustHeaders = new Headers(headers);
   rustHeaders.set(CONFORMANCE_HEADER, Buffer.from(JSON.stringify(context)).toString('base64'));
 
-  const runRust = () =>
-    fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body }).then(capture);
-  const runTypeScript = (db: Database) =>
-    request.runTypeScript(db, input, { ...init, method, headers, body }).then(capture);
-
-  // Start both recordings empty.
-  await request.sideEffects.drain();
-  await rustSideEffects(target);
-
-  let ts: Captured;
-  let rust: Captured;
-  let tsEffects: SideEffects;
-  let rustEffects: SideEffects;
-  if (isWrite) {
-    const clone = await cloneDatabase(client);
-    try {
-      rust = await runRust();
-      rustEffects = await rustSideEffects(target);
-      ts = await runTypeScript(clone.db);
-      tsEffects = await request.sideEffects.drain();
-    } finally {
-      await clone.close();
-    }
-  } else {
-    ts = await runTypeScript(ctx.tenantDb);
-    tsEffects = await request.sideEffects.drain();
-    rust = await runRust();
-    rustEffects = await rustSideEffects(target);
-  }
-
+  const runs = await runBoth(
+    request,
+    client,
+    isWrite,
+    () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body }).then(capture),
+    (db) => request.runTypeScript(db, input, { ...init, method, headers, body }).then(capture),
+  );
+  const { ts, rust } = runs;
   const route = ts.headers.get(ROUTE_HEADER);
-  let difference: string | null = null;
-  if (ts.status !== rust.status) {
-    difference = `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
-  } else if (ts.json !== undefined || rust.json !== undefined) {
-    difference = firstDifference(normalizeForDiff(ts.json, isWrite), normalizeForDiff(rust.json, isWrite));
-  } else if (ts.text !== rust.text) {
-    difference = 'response bodies differ';
-  }
-  if (difference === null) {
-    // New event ids and timestamps differ by construction, even on a read.
-    const effects = firstDifference(normalizeForDiff(tsEffects, true), normalizeForDiff(rustEffects, true));
-    if (effects) difference = `side effects: ${effects}`;
-  }
-
-  let schema: ConformanceRecord['schema'] = 'none';
-  let schemaError: string | null = null;
-  const validator = route ? schemaFor(method, route) : undefined;
-  if (validator && rust.status < 300 && rust.json !== undefined) {
-    const result = validator(rust.json);
-    schema = result === null ? 'ok' : 'fail';
-    schemaError = result;
-  }
+  const difference = compareRuns(runs, isWrite);
+  const { schema, schemaError } = checkSchema(method, route, rust);
 
   if (target.reportDir) {
     const { file, test } = await currentTest();

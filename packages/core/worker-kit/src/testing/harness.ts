@@ -193,21 +193,26 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     env,
     executionCtx,
     /** Convenience wrapper around `app.request()` that injects env + executionCtx. */
-    request: (input: string, init?: RequestInit): Promise<Response> =>
-      target
-        ? inventory.then(() => conformanceRequest({
-            target,
-            ctx: { ...ctx, clerkOrgId: ctx.clerkOrgId === undefined ? ctx.orgId : ctx.clerkOrgId },
-            env: env as unknown as Record<string, unknown>,
-            input,
-            init,
-            runTypeScript: async (tenantDb, path, requestInit) =>
-              buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
-            sideEffects: sideEffects!,
-          }))
-        : recorder
-          ? inventory.then(() => recordOnlyRequest(recorder, init?.method ?? 'GET', input, () => runHere(input, init)))
-          : runHere(input, init),
+    request: async (input: string, init?: RequestInit): Promise<Response> => {
+      if (target) {
+        await inventory;
+        return conformanceRequest({
+          target,
+          ctx: { ...ctx, clerkOrgId: ctx.clerkOrgId === undefined ? ctx.orgId : ctx.clerkOrgId },
+          env: env as unknown as Record<string, unknown>,
+          input,
+          init,
+          runTypeScript: async (tenantDb, path, requestInit) =>
+            buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
+          sideEffects: sideEffects!,
+        });
+      }
+      if (recorder) {
+        await inventory;
+        return recordOnlyRequest(recorder, init?.method ?? 'GET', input, () => runHere(input, init));
+      }
+      return runHere(input, init);
+    },
   };
 }
 
