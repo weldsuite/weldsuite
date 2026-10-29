@@ -215,6 +215,63 @@
       ]
     },
     {
+      "name": "core: workspace-settings",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/workspace-settings/workspace-settings.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/workspace-settings/",
+        "apps/workers/app-api/src/services/workspace-settings.ts",
+        "packages/clients/app-api-client/src/schemas/workspace-settings.ts",
+        "packages/clients/app-api-client/src/schemas/workspace-slug.ts",
+        "packages/clients/app-api-client/src/schemas/vat-number.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
+      "name": "core: account",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/account/account.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/account/",
+        "packages/clients/app-api-client/src/schemas/account.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
+      "name": "core: invitations",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/invitations/invitations.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/invitations/",
+        "apps/workers/app-api/src/services/member-link.ts",
+        "packages/clients/app-api-client/src/schemas/invitations.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
+      "name": "core: workspaces",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/workspaces/workspaces.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/workspaces/",
+        "packages/domains/core/src/workspaces.ts",
+        "packages/clients/app-api-client/src/schemas/workspaces.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",

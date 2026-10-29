@@ -11,5 +11,7 @@ pub(crate) mod roles;
 pub(crate) mod settings_profile;
 pub(crate) mod team_members;
 pub(crate) mod user_preferences;
+pub(crate) mod vat_number;
 pub(crate) mod workspace_settings;
 pub(crate) mod workspaces;
+pub(crate) mod zod_issues;

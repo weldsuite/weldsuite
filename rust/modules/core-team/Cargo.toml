@@ -18,10 +18,14 @@ weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }
 http = { workspace = true }
+regex = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true

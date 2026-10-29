@@ -44,6 +44,16 @@ import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/fe
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
+import { accountDeletionStatusSchema, deleteAccountResultSchema } from '@weldsuite/app-api-client/schemas/account';
+import { acceptedInvitationSchema, invitationDetailsSchema } from '@weldsuite/app-api-client/schemas/invitations';
+import {
+  deleteWorkspaceResultSchema,
+  workspaceDeletionStatusSchema,
+  workspaceNameUpdatedSchema,
+  workspaceSettingsSchema,
+  workspaceSlugUpdatedSchema,
+} from '@weldsuite/app-api-client/schemas/workspace-settings';
+import { workspaceSummarySchema } from '@weldsuite/app-api-client/schemas/workspaces';
 import {
   notificationPreferenceRefSchema,
   notificationPreferenceSchema,
@@ -175,6 +185,18 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/app-catalog/:code/install', envelope: 'single', data: installedCatalogAppSchema },
   { method: 'GET', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewOrNullSchema },
   { method: 'POST', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewSchema },
+  // core: workspace settings, account, invitations, workspaces
+  { method: 'GET', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema.nullable() },
+  { method: 'PUT', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema },
+  { method: 'PUT', route: '/api/workspace-settings/name', envelope: 'single', data: workspaceNameUpdatedSchema },
+  { method: 'POST', route: '/api/workspace-settings/slug', envelope: 'single', data: workspaceSlugUpdatedSchema },
+  { method: 'GET', route: '/api/workspace-settings/deletion-status', envelope: 'single', data: workspaceDeletionStatusSchema },
+  { method: 'POST', route: '/api/workspace-settings/delete', envelope: 'single', data: deleteWorkspaceResultSchema },
+  { method: 'GET', route: '/api/account/deletion-status', envelope: 'single', data: accountDeletionStatusSchema },
+  { method: 'POST', route: '/api/account/delete', envelope: 'single', data: deleteAccountResultSchema },
+  { method: 'GET', route: '/api/invitations/:token', envelope: 'single', data: invitationDetailsSchema },
+  { method: 'POST', route: '/api/invitations/accept', envelope: 'single', data: acceptedInvitationSchema },
+  { method: 'GET', route: '/api/workspaces', envelope: 'single', data: workspaceSummarySchema.array() },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },

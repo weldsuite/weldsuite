@@ -280,33 +280,33 @@ function databaseUrlFor(client: PGliteClient): Promise<string> {
 }
 
 /** A drizzle handle on a copy of the test's database, for the TypeScript side of a write. */
-async function cloneDatabase(client: PGliteClient): Promise<{ db: Database; close: () => Promise<void> }> {
-  const [drizzlePg, schema] = await Promise.all([import('drizzle-orm/pglite'), import('@weldsuite/db/schema')]);
+async function cloneDatabase(
+  client: PGliteClient,
+  kind: 'tenant' | 'master' = 'tenant',
+): Promise<{ db: Database; close: () => Promise<void> }> {
+  const [drizzlePg, schema] = await Promise.all([
+    import('drizzle-orm/pglite'),
+    kind === 'master' ? import('@weldsuite/db/schema/master') : import('@weldsuite/db/schema'),
+  ]);
   const clone = await client.clone();
   const db = drizzlePg.drizzle(clone as never, { schema }) as unknown as Database;
   return { db, close: () => (clone as { close: () => Promise<void> }).close() };
 }
 
-/** A copy of the test's master database, for the TypeScript side of a write. */
-async function cloneMasterDatabase(client: PGliteClient): Promise<{ db: Database; close: () => Promise<void> }> {
-  const [drizzlePg, schema] = await Promise.all([import('drizzle-orm/pglite'), import('@weldsuite/db/schema/master')]);
-  const clone = await client.clone();
-  const db = drizzlePg.drizzle(clone as never, { schema }) as unknown as Database;
-  return { db, close: () => (clone as { close: () => Promise<void> }).close() };
-}
-
-/** The master copy the Hono app reads during a write's TypeScript run. */
-let masterOverride: unknown = null;
+/** The copy of the master database the TypeScript side of a write runs on, while it runs. */
+let masterForTypeScript: Database | undefined;
 
 /**
- * The master database the Hono app should use now. A test that mocks
- * `getMasterDb` returns `conformanceMasterDb(itsDb)`: the test's database,
- * except during the TypeScript run of a write in conformance mode, where it
- * is a copy taken before Rust ran (as the tenant database is), so both
- * backends start from the same master rows.
+ * The master database a test's `getMasterDb` mock should hand out:
+ * `vi.mock(..., () => ({ getMasterDb: () => conformanceMasterDb(master.db) }))`.
+ *
+ * The master database is shared with the Rust server like the tenant one, so
+ * a write would otherwise run on TypeScript after Rust already changed it. For
+ * the TypeScript side of a write this is a copy taken before Rust ran; at
+ * every other moment (and outside conformance mode) it is `db` itself.
  */
 export function conformanceMasterDb<T>(db: T): T {
-  return (masterOverride as T | null) ?? db;
+  return (masterForTypeScript as T | undefined) ?? db;
 }
 
 // ── comparison ──────────────────────────────────────────────────────────────
@@ -573,17 +573,20 @@ async function runBoth(
     return { ...ts, ...(await rustRun()) };
   }
   const clone = await cloneDatabase(client);
-  // The master database too, when the test has one: copied before Rust runs.
+  // The master database too, when the test has one: Rust writes the shared one.
   const masterClient = request.ctx.masterDb ? pgliteClientOf(request.ctx.masterDb) : undefined;
-  const masterCopy = masterClient ? await cloneMasterDatabase(masterClient) : null;
+  const masterClone = masterClient ? await cloneDatabase(masterClient, 'master') : undefined;
   try {
     const rust = await rustRun();
-    masterOverride = masterCopy?.db ?? null;
-    return { ...rust, ...(await typeScript(clone.db)) };
+    masterForTypeScript = masterClone?.db;
+    try {
+      return { ...rust, ...(await typeScript(clone.db)) };
+    } finally {
+      masterForTypeScript = undefined;
+    }
   } finally {
-    masterOverride = null;
     await clone.close();
-    await masterCopy?.close();
+    await masterClone?.close();
   }
 }
 
