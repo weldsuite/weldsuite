@@ -569,7 +569,7 @@
     "prefixes": [
       "/api/weldpass"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "pass-api"
   },
   {
