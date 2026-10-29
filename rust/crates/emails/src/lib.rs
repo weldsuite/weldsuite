@@ -30,15 +30,21 @@
 //! A workspace brand with the "Sent via WeldSuite" line turned off
 //! (`poweredBy: false`, white-label portals): no exported layout has it.
 
+pub mod calendar;
 mod catalog;
 mod date;
 mod escape;
+pub mod ics;
 mod send;
 pub mod sign;
+mod when;
+#[rustfmt::skip]
+mod zone_names;
 
 pub use catalog::{EmailError, RenderedEmail, render};
 pub use date::format_date;
 pub use send::{SYSTEM_FROM_ADDRESS, SystemEmail, WithFromAddress, send_system_email};
+pub use when::{EndTime, format_time, format_when};
 
 /// The recipient's language (`EmailLocale`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

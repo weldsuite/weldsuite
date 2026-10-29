@@ -121,6 +121,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/__conformance/cron/sign-lifecycle",
             axum::routing::post(crate::conformance::sign_lifecycle_sweep),
+        )
+        .route(
+            "/__conformance/cron/calendar-replan",
+            axum::routing::post(crate::conformance::calendar_replan_sweep),
         );
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))

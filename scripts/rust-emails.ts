@@ -32,7 +32,7 @@ import { createElement } from 'react';
 import type { EmailBrand } from '../packages/core/emails/src/brand';
 import { EmailLayout } from '../packages/core/emails/src/components/layout';
 import type { EmailTemplate } from '../packages/core/emails/src/define';
-import { formatDate } from '../packages/core/emails/src/format';
+import { formatDate, formatWhen } from '../packages/core/emails/src/format';
 import type { EmailLocale } from '../packages/core/emails/src/i18n';
 import { renderEmail, renderHtml, renderTemplate } from '../packages/core/emails/src/render';
 import { templates, type TemplateId } from '../packages/core/emails/src/templates/index';
@@ -78,6 +78,11 @@ function brandOf(key: BrandKey): EmailBrand {
 
 interface Spec {
   id: TemplateId;
+  /**
+   * The exported name, when one template is exported as several (one per
+   * `kind`, so the kinds' flags don't multiply): `templates/<name>.json`.
+   */
+  name?: string;
   /** The branches, in a fixed order: a variant key is the set ones joined by `+`. */
   flags: string[];
   /** Placeholders the variants use (documentation for the Rust side). */
@@ -86,6 +91,12 @@ interface Spec {
   multiline?: string[];
   /** A flag that adds a date: the placeholder its formatted text becomes. */
   dates?: Record<string, string>;
+  /**
+   * Text the render contains that Rust writes itself (a formatted time range,
+   * a URL around a sentinel): rendered text → what replaces it, usually a
+   * sentinel (`⟦when⟧`), before the sentinels become placeholders.
+   */
+  texts?: (locale: EmailLocale, flags: Set<string>) => Record<string, string>;
   props: (flags: Set<string>) => Record<string, unknown>;
 }
 
@@ -144,7 +155,62 @@ const SPECS: Spec[] = [
     fields: ['title', 'unsigned', 'url'],
     props: (f) => ({ title: S('title'), unsigned: f.has('unsigned') ? [S('unsigned')] : [], url: S('url') }),
   },
+  ...calendarSpecs(),
 ];
+
+/**
+ * WeldCalendar's attendee mail (`calendar.event`), one export per kind. The
+ * time lines are `formatWhen`'s, which Rust formats (`weldsuite_emails::format_when`):
+ * the samples' text becomes `{{ when }}` / `{{ was }}`. A WeldMeet join link
+ * is rendered under a WeldMeet host, so the button reads "Join WeldMeet
+ * meeting", and the host is cut off again around the sentinel.
+ */
+function calendarSpecs(): Spec[] {
+  const WHEN = { start: SAMPLE_DATE, end: '2001-02-03T13:00:00.000Z' };
+  const WAS = { start: '2001-02-04T15:00:00.000Z', end: '2001-02-04T16:00:00.000Z' };
+  const WELDMEET = 'https://meet.weldsuite.org/x/';
+  const open = ['where', 'description', 'meeting', 'weldmeet', 'event_url'];
+  const kinds: Array<{ kind: string; flags: string[] }> = [
+    { kind: 'invite', flags: open },
+    { kind: 'update', flags: open },
+    { kind: 'reschedule', flags: ['was', ...open] },
+    { kind: 'restored', flags: open },
+    { kind: 'cancel', flags: ['where'] },
+    { kind: 'removed', flags: ['where'] },
+  ];
+  const meetingUrl = (f: Set<string>): string | null => {
+    if (!f.has('meeting')) return null;
+    const prefix = f.has('weldmeet') ? WELDMEET : '';
+    return `${prefix}${S('meeting_url')}`;
+  };
+  return kinds.map(({ kind, flags }) => ({
+    id: 'calendar.event',
+    name: `calendar.event.${kind}`,
+    flags,
+    fields: ['organizer_name', 'title', 'when', 'was', 'where', 'description', 'meeting_url', 'event_url'],
+    multiline: ['description'],
+    texts: (locale, f) => ({
+      [formatWhen({ ...WHEN, locale, timeZone: 'UTC' })]: S('when'),
+      ...(f.has('was') ? { [formatWhen({ ...WAS, locale, timeZone: 'UTC' })]: S('was') } : {}),
+      [`${WELDMEET}${S('meeting_url')}`]: S('meeting_url'),
+    }),
+    props: (f) => ({
+      kind,
+      organizerName: S('organizer_name'),
+      title: S('title'),
+      description: f.has('description') ? S('description') : null,
+      startTime: WHEN.start,
+      endTime: WHEN.end,
+      oldStartTime: f.has('was') ? WAS.start : null,
+      oldEndTime: f.has('was') ? WAS.end : null,
+      location: f.has('where') ? S('where') : null,
+      timezone: 'UTC',
+      allDay: false,
+      meetingUrl: meetingUrl(f),
+      eventUrl: f.has('event_url') ? S('event_url') : null,
+    }),
+  }));
+}
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -205,8 +271,16 @@ type Mode = 'html' | 'text' | 'plain';
  * whitespace collapsed as html-to-text does (`collapse`, `text_lines`);
  * `plain`: as is (subject, preview, footer).
  */
-function placeholders(text: string, mode: Mode, multiline: string[], dates: Record<string, string>, locale: EmailLocale): string {
+function placeholders(
+  text: string,
+  mode: Mode,
+  multiline: string[],
+  dates: Record<string, string>,
+  locale: EmailLocale,
+  texts: Record<string, string> = {},
+): string {
   let out = text;
+  for (const [literal, replacement] of Object.entries(texts)) out = out.replaceAll(literal, replacement);
   for (const [, name] of Object.entries(dates)) {
     out = out.replaceAll(formatDate(SAMPLE_DATE, locale, 'UTC'), `{{ ${name} }}`);
   }
@@ -283,7 +357,8 @@ async function exportVariant(spec: Spec, locale: EmailLocale, flags: Set<string>
   const props = spec.props(flags);
   const multiline = spec.multiline ?? [];
   const dates = Object.fromEntries(Object.entries(spec.dates ?? {}).filter(([flag]) => flags.has(flag)));
-  const where = `${spec.id} ${locale} [${variantKey(spec, flags)}]`;
+  const where = `${spec.name ?? spec.id} ${locale} [${variantKey(spec, flags)}]`;
+  const texts = spec.texts?.(locale, flags) ?? {};
 
   const text = {} as Record<BrandKey, string>;
   let canonical: { subject: string; preview: string; footer: string | null; content: string } | undefined;
@@ -293,11 +368,11 @@ async function exportVariant(spec: Spec, locale: EmailLocale, flags: Set<string>
     guard(rendered.html, where);
     guard(rendered.text, where);
     const parts = await splitContent(rendered.html, locale, brand, `${where} ${brand}`);
-    const content = placeholders(parts.content, 'html', multiline, dates, locale);
+    const content = placeholders(parts.content, 'html', multiline, dates, locale, texts);
     const variant = {
-      subject: placeholders(rendered.subject, 'plain', multiline, dates, locale),
-      preview: placeholders(parts.preview, 'plain', multiline, dates, locale),
-      footer: parts.footer === null ? null : placeholders(parts.footer, 'plain', multiline, dates, locale),
+      subject: placeholders(rendered.subject, 'plain', multiline, dates, locale, texts),
+      preview: placeholders(parts.preview, 'plain', multiline, dates, locale, texts),
+      footer: parts.footer === null ? null : placeholders(parts.footer, 'plain', multiline, dates, locale, texts),
       content,
     };
     // The WeldSuite brand has the theme accent where the others have the
@@ -309,7 +384,7 @@ async function exportVariant(spec: Spec, locale: EmailLocale, flags: Set<string>
     else if (JSON.stringify(expected) !== JSON.stringify(variant)) {
       throw new Error(`${where}: the content depends on the brand (${brand}); it needs brand placeholders`);
     }
-    text[brand] = placeholders(rendered.text, 'text', multiline, dates, locale);
+    text[brand] = placeholders(rendered.text, 'text', multiline, dates, locale, texts);
     assertClean(text[brand], `${where} ${brand} text`);
   }
   const { subject, preview, footer, content } = canonical!;
@@ -345,7 +420,7 @@ async function exportTemplate(spec: Spec): Promise<string> {
       variants[locale][variantKey(spec, flags)] = await exportVariant(spec, locale, flags);
     }
   }
-  return stableJson({ id: spec.id, flags: spec.flags, fields: spec.fields, multiline: spec.multiline ?? [], variants });
+  return stableJson({ id: spec.name ?? spec.id, flags: spec.flags, fields: spec.fields, multiline: spec.multiline ?? [], variants });
 }
 
 /**
@@ -354,7 +429,11 @@ async function exportTemplate(spec: Spec): Promise<string> {
  */
 async function renderCases(): Promise<string> {
   const cases: unknown[] = [];
+  const done = new Set<string>();
   for (const spec of SPECS) {
+    // A template exported as several specs has its previews once.
+    if (done.has(spec.id)) continue;
+    done.add(spec.id);
     const template = templates[spec.id] as unknown as EmailTemplate<Record<string, unknown>>;
     for (const [name, preview] of Object.entries(template.previews)) {
       for (const locale of LOCALES) {
@@ -394,7 +473,7 @@ async function main() {
   const check = process.argv.includes('--check');
   const files = new Map<string, string>();
   files.set('layouts.json', await exportLayouts());
-  for (const spec of SPECS) files.set(`templates/${spec.id}.json`, await exportTemplate(spec));
+  for (const spec of SPECS) files.set(`templates/${spec.name ?? spec.id}.json`, await exportTemplate(spec));
   files.set('strings.en.json', stableJson(en));
   files.set('strings.nl.json', stableJson(nl));
   const caseFile = path.join(repo, 'rust', 'crates', 'emails', 'tests', 'fixtures', 'render-cases.json');

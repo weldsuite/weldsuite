@@ -132,6 +132,9 @@ export const FORWARDED_ENV = [
   'USER_APP_FRAME_ANCESTORS',
   'WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS',
   'EXTERNAL_API_URL',
+  // WeldCalendar: the Google Calendar app credentials (a token refresh before a push).
+  'GOOGLE_CALENDAR_CLIENT_ID',
+  'GOOGLE_CALENDAR_CLIENT_SECRET',
   // WeldPass: the root keys that wrap every vault's key.
   'WELDPASS_ROOT_KEY',
   'WELDPASS_ROOT_KEY_V2',

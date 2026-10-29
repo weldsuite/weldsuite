@@ -11,6 +11,28 @@
  */
 
 import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
+import {
+  annotatedCalendarSchema,
+  bookingPageDeleteImpactSchema,
+  bookingPageSchema,
+  bookingPageToggledSchema,
+  bookingSchema,
+  bookingSlotSchema,
+  calendarDeleteImpactSchema,
+  calendarEventCancelledSchema,
+  calendarEventSchema,
+  calendarEventUnpinnedSchema,
+  calendarEventWriteSchema,
+  calendarRefSchema,
+  calendarSchema,
+  calendarShareResultSchema,
+  calendarShareSchema,
+  calendarUpdatedSchema,
+  memberWorkingHoursSchema,
+  memberWorkingHoursUpdatedSchema,
+  myWorkingHoursSchema,
+  teamWorkingHoursSchema,
+} from '@weldsuite/app-api-client/schemas/calendar';
 import { desktopTicketSchema } from '@weldsuite/app-api-client/schemas/auth-desktop';
 import { cliAuthApproveSchema, cliAuthDeviceSchema, cliAuthTokenSchema } from '@weldsuite/app-api-client/schemas/cli-auth';
 import {
@@ -250,6 +272,43 @@ interface RouteSchema {
 }
 
 const ROUTES: RouteSchema[] = [
+  // calendar: calendars and shares
+  { method: 'GET', route: '/api/calendars', envelope: 'list', data: annotatedCalendarSchema },
+  { method: 'POST', route: '/api/calendars/ensure-default', envelope: 'single', data: calendarSchema },
+  { method: 'POST', route: '/api/calendars', envelope: 'single', data: calendarRefSchema },
+  { method: 'GET', route: '/api/calendars/:id', envelope: 'single', data: calendarSchema },
+  { method: 'PATCH', route: '/api/calendars/:id', envelope: 'single', data: calendarUpdatedSchema },
+  { method: 'GET', route: '/api/calendars/:id/delete-impact', envelope: 'single', data: calendarDeleteImpactSchema },
+  { method: 'GET', route: '/api/calendars/:id/shares', envelope: 'list', data: calendarShareSchema },
+  { method: 'POST', route: '/api/calendars/:id/share', envelope: 'single', data: calendarShareResultSchema },
+  // calendar: events
+  { method: 'GET', route: '/api/calendar-events', envelope: 'list', data: calendarEventSchema },
+  { method: 'GET', route: '/api/calendar-events/range', envelope: 'array', data: calendarEventSchema },
+  { method: 'GET', route: '/api/calendar-events/upcoming', envelope: 'array', data: calendarEventSchema },
+  { method: 'GET', route: '/api/calendar-events/:id', envelope: 'single', data: calendarEventSchema },
+  { method: 'POST', route: '/api/calendar-events', envelope: 'single', data: calendarEventWriteSchema },
+  { method: 'PATCH', route: '/api/calendar-events/:id', envelope: 'single', data: calendarEventWriteSchema },
+  { method: 'PATCH', route: '/api/calendar-events/:id/cancel', envelope: 'single', data: calendarEventCancelledSchema },
+  { method: 'PATCH', route: '/api/calendar-events/:id/reschedule', envelope: 'single', data: calendarEventWriteSchema },
+  { method: 'POST', route: '/api/calendar-events/:id/unpin', envelope: 'single', data: calendarEventUnpinnedSchema },
+  // calendar: booking pages and bookings
+  { method: 'GET', route: '/api/booking-pages', envelope: 'list', data: bookingPageSchema },
+  { method: 'GET', route: '/api/booking-pages/:id', envelope: 'single', data: bookingPageSchema },
+  { method: 'POST', route: '/api/booking-pages', envelope: 'single', data: calendarRefSchema },
+  { method: 'PATCH', route: '/api/booking-pages/:id', envelope: 'single', data: calendarRefSchema },
+  { method: 'GET', route: '/api/booking-pages/:id/delete-impact', envelope: 'single', data: bookingPageDeleteImpactSchema },
+  { method: 'PATCH', route: '/api/booking-pages/:id/toggle', envelope: 'single', data: bookingPageToggledSchema },
+  { method: 'GET', route: '/api/booking-pages/:id/available-slots', envelope: 'array', data: bookingSlotSchema },
+  { method: 'GET', route: '/api/bookings', envelope: 'list', data: bookingSchema },
+  { method: 'GET', route: '/api/bookings/:id', envelope: 'single', data: bookingSchema },
+  { method: 'POST', route: '/api/bookings', envelope: 'single', data: calendarRefSchema },
+  { method: 'PATCH', route: '/api/bookings/:id', envelope: 'single', data: calendarRefSchema },
+  // calendar: working hours
+  { method: 'GET', route: '/api/working-hours', envelope: 'single', data: myWorkingHoursSchema },
+  { method: 'PUT', route: '/api/working-hours', envelope: 'single', data: myWorkingHoursSchema },
+  { method: 'GET', route: '/api/working-hours/team', envelope: 'array', data: teamWorkingHoursSchema },
+  { method: 'GET', route: '/api/working-hours/members/:memberId', envelope: 'single', data: memberWorkingHoursSchema },
+  { method: 'PUT', route: '/api/working-hours/members/:memberId', envelope: 'single', data: memberWorkingHoursUpdatedSchema },
   { method: 'GET', route: '/api/me/permissions', envelope: 'single', data: myPermissionsSchema },
   { method: 'GET', route: '/api/feature-flags', envelope: 'single', data: featureFlagsResponseSchema },
   { method: 'POST', route: '/api/access-requests', envelope: 'single', data: accessRequestSchema },

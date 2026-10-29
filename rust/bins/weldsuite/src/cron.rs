@@ -6,6 +6,9 @@
 //! - `mail-outbound-ledgers` (every 5 minutes): the outbound guard's ledger
 //!   alarm (risk score, automatic actions, the platform budget, pruning),
 //!   which the `OutboundLedger` Durable Objects ran on their own alarms.
+//! - `calendar-replan` (daily, 04:00 UTC): WeldCalendar re-plans
+//!   auto-scheduled task events whose start slipped into the past
+//!   (`apps/workers/calendar-api/src/cron/calendar-replan.ts`).
 //!
 //! A job takes the same environment as `serve`. It prints what it did as one
 //! JSON line and exits 0 even when a workspace failed (the due index retries
@@ -41,11 +44,11 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, mail-outbound-ledgers";
+const JOBS: &str = "jobs: sign-lifecycle, mail-outbound-ledgers, calendar-replan";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
-    let Some(job @ ("sign-lifecycle" | "mail-outbound-ledgers")) = job else {
+    let Some(job @ ("sign-lifecycle" | "mail-outbound-ledgers" | "calendar-replan")) = job else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
         return ExitCode::from(2);
     };
@@ -68,10 +71,10 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
         }
     };
     let run = async {
-        if job == "mail-outbound-ledgers" {
-            mail_outbound_ledgers(config).await
-        } else {
-            sign_lifecycle(config).await
+        match job {
+            "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
+            "calendar-replan" => calendar_replan(config).await,
+            _ => sign_lifecycle(config).await,
         }
     };
     let code = match runtime.block_on(run) {
@@ -159,6 +162,46 @@ async fn sign_lifecycle(config: Config) -> Result<(), Box<dyn std::error::Error>
     println!(
         "{}",
         serde_json::json!({ "job": "sign-lifecycle", "result": result })
+    );
+    tracker.close();
+    if tokio::time::timeout(Duration::from_secs(30), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
+    Ok(())
+}
+
+async fn calendar_replan(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra = crate::infra::connect(&config.infra, &master, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    let tenants: weldsuite_calendar::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let now = time::OffsetDateTime::now_utc();
+    let result =
+        weldsuite_calendar::run_replan_sweep(&master, &tenants, infra.cache.as_deref(), now).await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "calendar-replan", "result": result })
     );
     tracker.close();
     if tokio::time::timeout(Duration::from_secs(30), tracker.wait())

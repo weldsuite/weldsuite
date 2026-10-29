@@ -497,6 +497,31 @@ impl weldsuite_core_apps::HttpTransport for BridgedHttp {
     }
 }
 
+impl weldsuite_calendar::GoogleHttp for BridgedHttp {
+    fn send(
+        &self,
+        request: weldsuite_calendar::HttpRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_calendar::HttpResponse, String>> {
+        Box::pin(async move {
+            let response = weldsuite_core_apps::HttpTransport::send(
+                self,
+                weldsuite_core_apps::OutboundRequest {
+                    method: request.method,
+                    url: request.url,
+                    headers: request.headers,
+                    body: request.body,
+                    timeout: None,
+                },
+            )
+            .await?;
+            Ok(weldsuite_calendar::HttpResponse {
+                status: response.status,
+                body: response.body,
+            })
+        })
+    }
+}
+
 /// Expo's push API through the bridge: the POST goes to the test's fetch
 /// stub, which answers for Expo.
 pub(crate) struct BridgedExpo {
@@ -742,6 +767,14 @@ impl OutboundBridges {
     /// Live presence behind the test's realtime bridge.
     pub(crate) fn presence(&self, bridge: &str) -> weldsuite_ports::PresenceReader {
         weldsuite_ports::PresenceReader(Arc::new(BridgedPresence {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// WeldCalendar's Google Calendar API behind the test's bridge.
+    pub(crate) fn calendar_http(&self, bridge: &str) -> weldsuite_calendar::CalendarHttp {
+        weldsuite_calendar::CalendarHttp(Arc::new(BridgedHttp {
             bridge: bridge.trim_end_matches('/').to_owned(),
             client: self.client.clone(),
         }))

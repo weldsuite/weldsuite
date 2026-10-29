@@ -573,6 +573,17 @@ impl Issues {
             .push(json!({ "code": "custom", "message": message, "path": path }));
     }
 
+    /// A failed refinement deeper in the body (`ctx.addIssue` of a
+    /// `.superRefine()` on a nested object or array): `path` from the
+    /// current depth, settled after the synchronous checks like
+    /// [`Issues::custom`].
+    pub fn custom_at(&mut self, path: &[Value], message: &str) {
+        let mut full = self.prefix.clone();
+        full.extend(path.iter().cloned());
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": Value::Array(full) }));
+    }
+
     /// `z.discriminatedUnion(key, [...])` given an object whose `key` is not
     /// one of `options` (missing included): Zod's only issue for it, at the
     /// discriminator's path. Read the union with [`Issues::nested`] (or

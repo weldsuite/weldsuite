@@ -5,8 +5,9 @@
 
 use serde::Deserialize;
 use serde_json::Value;
+use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
-use weldsuite_emails::{EmailBrand, EmailLocale, RenderedEmail, sign};
+use weldsuite_emails::{EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, sign};
 
 #[derive(Deserialize)]
 struct Case {
@@ -121,9 +122,49 @@ fn render(case: &Case) -> RenderedEmail {
             &list(p, "unsigned"),
             &s(p, "url"),
         ),
+        "calendar.event" => calendar::event(locale, &brand, &calendar_props(p)),
         other => panic!("no Rust renderer for {other}"),
     };
     result.unwrap_or_else(|error| panic!("{} {}: {error}", case.template, case.preview))
+}
+
+fn millis(value: &Value) -> Option<i64> {
+    value
+        .as_str()
+        .and_then(|iso| iso.parse::<jiff::Timestamp>().ok())
+        .map(jiff::Timestamp::as_millisecond)
+}
+
+fn end_time(value: &Value) -> EndTime {
+    millis(value).map_or(EndTime::None, EndTime::At)
+}
+
+/// A preview's `CalendarEventEmailProps`.
+fn calendar_props(p: &Value) -> CalendarEventEmail {
+    let opt = |key: &str| p[key].as_str().map(str::to_owned);
+    let kind = match p["kind"].as_str() {
+        Some("update") => CalendarEventKind::Update,
+        Some("reschedule") => CalendarEventKind::Reschedule,
+        Some("cancel") => CalendarEventKind::Cancel,
+        Some("removed") => CalendarEventKind::Removed,
+        Some("restored") => CalendarEventKind::Restored,
+        _ => CalendarEventKind::Invite,
+    };
+    CalendarEventEmail {
+        kind,
+        organizer_name: s(p, "organizerName"),
+        title: s(p, "title"),
+        description: opt("description"),
+        start: millis(&p["startTime"]).unwrap_or_default(),
+        end: end_time(&p["endTime"]),
+        old_start: millis(&p["oldStartTime"]),
+        old_end: end_time(&p["oldEndTime"]),
+        location: opt("location"),
+        timezone: opt("timezone"),
+        all_day: p["allDay"].as_bool().unwrap_or(false),
+        meeting_url: opt("meetingUrl"),
+        event_url: opt("eventUrl"),
+    }
 }
 
 /// The first byte where two strings differ, with some context.

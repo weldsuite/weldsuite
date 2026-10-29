@@ -337,6 +337,8 @@ impl Pools {
             extensions.insert(self.outbound.outbound_http(bridge));
             // WeldMail's MX lookups (DNS over HTTPS).
             extensions.insert(self.mail.doh(bridge));
+            // WeldCalendar's Google Calendar pushes.
+            extensions.insert(self.outbound.calendar_http(bridge));
             // WeldPass's pushes to Cloudflare and Vercel.
             extensions.insert(self.outbound.pass_http(bridge));
         }
@@ -509,6 +511,9 @@ pub(crate) struct SweepRequest {
     workspaces: HashMap<String, String>,
     /// The test's KV namespace (its seed flag lives there).
     seed_scope: String,
+    /// The test set the seed flag itself: the scope starts with it.
+    #[serde(default)]
+    seeded: bool,
 }
 
 /// Every workspace opens the test's tenant database.
@@ -579,6 +584,52 @@ pub(crate) async fn sign_lifecycle_sweep(
         "expired": result.expired,
     }))
     .into_response()
+}
+
+/// `POST /__conformance/cron/calendar-replan`: one tick of the nightly
+/// calendar re-plan against the test's databases, as
+/// `runCalendarReplanSweep(env)` runs it there. Every workspace opens the
+/// test's tenant database.
+pub(crate) async fn calendar_replan_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let cache: Arc<dyn weldsuite_ports::DynCache> = pools
+        .caches
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(request.seed_scope)
+        .or_default()
+        .clone();
+    if request.seeded
+        && let Err(error) = cache
+            .put_boxed(weldsuite_calendar::CALENDAR_REPLAN_SEED_KEY, "done", None)
+            .await
+    {
+        return ApiError::internal()
+            .with_message(format!("conformance: seed flag: {error}"))
+            .into_response();
+    }
+    let tenants: weldsuite_calendar::TenantDatabases = Arc::new(move |_workspace_id: String| {
+        let db = db.clone();
+        Box::pin(async move { Ok::<_, String>(db) })
+    });
+    let result =
+        weldsuite_calendar::run_replan_sweep(&master, &tenants, Some(cache.as_ref()), now).await;
+    axum::Json(json!(result)).into_response()
 }
 
 #[cfg(test)]

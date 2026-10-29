@@ -3772,6 +3772,7 @@ dependencies = [
  "tracing-subscriber",
  "weldsuite-adapters-oss",
  "weldsuite-auth",
+ "weldsuite-calendar",
  "weldsuite-catalogs",
  "weldsuite-core-apps",
  "weldsuite-core-files",
@@ -3832,6 +3833,36 @@ dependencies = [
  "tower",
  "tracing",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-calendar"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "form_urlencoded",
+ "hex",
+ "http",
+ "jiff",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-calendar-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]
