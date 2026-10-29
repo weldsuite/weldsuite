@@ -28,4 +28,4 @@ data:
   WELDSUITE_GIT_TAG: unused
   # The images the "Rust images" workflow pushed for a commit of the deploy
   # branch: sha-<first 12 characters of the commit>.
-  WELDSUITE_IMAGE_TAG: CHANGE_ME
+  WELDSUITE_IMAGE_TAG: sha-3dc788aa4c45
