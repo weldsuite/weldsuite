@@ -70,7 +70,6 @@ pub(crate) async fn create_link(master: &PgPool, target: &LinkTarget<'_>) -> Sig
 }
 
 /// A live link (`ResolvedLink`).
-#[allow(dead_code, reason = "the signer portal (next stage) resolves links")]
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedLink {
     pub(crate) token_hash: String,
@@ -81,7 +80,6 @@ pub(crate) struct ResolvedLink {
 
 /// The live link for a token hash, or `None` when unknown, revoked or past
 /// its expiry (`resolveLinkByHash`).
-#[allow(dead_code, reason = "the signer portal (next stage) resolves links")]
 pub(crate) async fn resolve_link_by_hash(
     master: &PgPool,
     token_hash: &str,
@@ -110,7 +108,6 @@ pub(crate) async fn resolve_link_by_hash(
 }
 
 /// The live link for a token (`resolveLink`).
-#[allow(dead_code, reason = "the signer portal (next stage) resolves links")]
 pub(crate) async fn resolve_link(
     master: &PgPool,
     token: &str,

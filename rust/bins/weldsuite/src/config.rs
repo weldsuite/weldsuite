@@ -172,6 +172,9 @@ pub(crate) struct Config {
     /// `SIGN_PORTAL_URL`: the signer portal's origin; signing links are
     /// `<portal>/r/<token>` (default `https://sign.weldsuite.org`).
     pub(crate) sign_portal_url: Option<String>,
+    /// `SIGN_PORTAL_SECRET`: the key the signer portal sends with every call
+    /// to `/public/sign-portal` (ADR FE-017); without it those calls are refused.
+    pub(crate) sign_portal_secret: Option<String>,
     /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
     /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
     pub(crate) files_public_url: Option<String>,
@@ -514,6 +517,7 @@ impl Config {
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
+            sign_portal_secret: lookup("SIGN_PORTAL_SECRET").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
             realtime,

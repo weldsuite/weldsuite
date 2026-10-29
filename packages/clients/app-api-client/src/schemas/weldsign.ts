@@ -829,3 +829,45 @@ export interface SignPortalEnvelope {
   documents: Pick<SignDocumentDto, 'id' | 'name' | 'pageCount' | 'pageSizes'>[];
   fields: SignPortalField[];
 }
+
+// The signer portal's answers as Zod, for the conformance suite: the Rust
+// backend's /public/sign-portal (ADR FE-017) is checked against them.
+
+export const signPortalSessionResponseSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('ready'), session: z.string().min(1), expiresAt: timestamp }),
+  z.object({
+    state: z.literal('code_required'),
+    method: z.enum(['email_code', 'access_code']),
+    emailHint: z.string().nullable(),
+  }),
+  z.object({ state: z.literal('closed'), reason: z.enum(SIGN_PORTAL_CLOSED_REASONS) }),
+]);
+
+export const signPortalEnvelopeSchema = z.object({
+  envelopeId: z.string(),
+  title: z.string(),
+  message: z.string().nullable(),
+  status: z.enum(SIGN_ENVELOPE_STATUSES),
+  senderName: z.string().nullable(),
+  senderEmail: z.string().nullable(),
+  brand: z.object({ name: z.string(), color: z.string().nullable(), logoUrl: z.string().nullable() }),
+  recipient: z.object({
+    id: z.string(),
+    name: z.string().nullable(),
+    email: z.string().nullable(),
+    role: z.enum(SIGN_RECIPIENT_ROLES),
+    status: z.enum(SIGN_RECIPIENT_STATUSES),
+    locale: z.enum(SIGN_LOCALES),
+    consented: z.boolean(),
+  }),
+  mode: z.enum(['sign', 'waiting', 'completed', 'closed']),
+  closedReason: z.enum(SIGN_PORTAL_CLOSED_REASONS).nullable(),
+  expiresAt: timestamp.nullable(),
+  disclosureVersion: z.string(),
+  documents: z.array(signDocumentDtoSchema.pick({ id: true, name: true, pageCount: true, pageSizes: true })),
+  fields: z.array(signFieldDtoSchema.omit({ recipientId: true }).extend({ value: z.string().nullable() })),
+});
+
+export const signPortalCodeSentSchema = z.object({ sent: z.literal(true) });
+
+export const signPortalConsentedSchema = z.object({ consented: z.literal(true) });

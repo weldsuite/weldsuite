@@ -6,8 +6,8 @@
 //! activity trail, templates and their roles, sending and a sent request's
 //! lifecycle (void, reminders, new links, corrections, "sign now"), the
 //! signed PDF with its certificate (the `sign.finalize` job) and the
-//! lifecycle sweep (`weldsuite cron sign-lifecycle`). The signer portal's
-//! endpoints are the next stage.
+//! lifecycle sweep (`weldsuite cron sign-lifecycle`), and the signer
+//! portal's operations at `/public/sign-portal` (ADR FE-017, [`portal_router`]).
 //!
 //! Who sees what: without `sign_envelopes:manage` a member sees the envelopes
 //! they sent and the sent requests they are a recipient of (by email); one
@@ -25,9 +25,11 @@ mod links;
 mod mail;
 mod outbound;
 pub mod pdf_render;
+mod portal;
 mod recipients;
 mod schedule;
 mod sending;
+mod signing;
 mod sources;
 #[rustfmt::skip]
 mod standard_fonts;
@@ -37,6 +39,9 @@ mod templates;
 pub use finalize::{
     BuiltPdf, FINALIZE_JOB, FinalizeJob, FinalizeParams, TenantRef, TenantResolver,
     finalize_request, start_finalize,
+};
+pub use portal::{
+    PortalOverrides, PortalState, SIGN_PORTAL_KEY_HEADER, SIGNER_IP_HEADER, portal_router,
 };
 pub use sweep::{LIFECYCLE_SEED_KEY, LifecycleSweepResult, run_lifecycle_sweep};
 
@@ -89,7 +94,7 @@ pub struct SignState {
     /// Feature flags (`weldmail-outbound-guard`).
     pub flags: Arc<dyn DynFlagSource>,
     /// Starts durable jobs: `sign.finalize` once the last signer signs (the
-    /// signer portal, next stage, through [`start_finalize`]).
+    /// signer portal, through [`start_finalize`]).
     pub jobs: Option<Arc<dyn DynJobs>>,
     /// `SIGN_PORTAL_URL`: signing links are `<portal>/r/<token>`.
     pub portal_url: Option<Arc<str>>,

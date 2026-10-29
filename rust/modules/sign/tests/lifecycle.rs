@@ -1,6 +1,6 @@
-//! The lifecycle sweep and the finalize job against the real schema: what
-//! the conformance suite can't reach yet (the job is started by the signer
-//! portal, the next stage) and the sweep's order of work.
+//! The lifecycle sweep and the finalize job against the real schema: the
+//! signed PDF's content (the conformance suite compares only what it sends
+//! out, as its bytes differ from pdf-lib's) and the sweep's order of work.
 //!
 //! Runs when `WELDSUITE_TEST_MASTER_URL` and `WELDSUITE_TEST_TENANT_URL` are
 //! set (`scripts/rust-test-db.ts` builds both; CI's `Rust · checks` sets
