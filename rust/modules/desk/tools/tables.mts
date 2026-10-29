@@ -57,6 +57,15 @@ const TABLES = [
   'helpdeskAnalyticsCharts',
   'deskWidgetSettings',
   'people',
+  'helpdeskConversationEvents',
+  'auditLogs',
+  'deskConversations',
+  'deskMessages',
+  'deskVisitors',
+  'helpdeskChannelIntegrations',
+  'helpdeskWorkflowExecutions',
+  'helpcenterDomains',
+  'workspaceMembers',
 ] as const;
 
 type Kind = 'Text' | 'Number' | 'Bool' | 'Json' | 'Date' | 'DateString' | 'Numeric' | 'Array' | 'Other';

@@ -592,6 +592,42 @@ impl weldsuite_pass::HttpTransport for BridgedPass {
     }
 }
 
+/// WeldDesk's Discord and Slack calls through the bridge into the test's
+/// fetch stub; a stub that threw is a failed `fetch`.
+pub(crate) struct BridgedDesk {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_desk_domain::http::DeskHttp for BridgedDesk {
+    fn send(
+        &self,
+        request: weldsuite_desk_domain::http::HttpRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_desk_domain::http::HttpResponse, String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method =
+                Method::from_bytes(request.method.as_bytes()).map_err(|error| error.to_string())?;
+            let mut outgoing = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                outgoing = outgoing.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                outgoing = outgoing.body(body);
+            }
+            let response = outgoing.send().await.map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err(response.text().await.unwrap_or_default());
+            }
+            let status = response.status().as_u16();
+            let body = response.text().await.map_err(|error| error.to_string())?;
+            Ok(weldsuite_desk_domain::http::HttpResponse { status, body })
+        })
+    }
+}
+
 /// The bridged providers by bridge URL, made once per test process.
 #[derive(Default)]
 pub(crate) struct OutboundBridges {
@@ -619,6 +655,14 @@ impl OutboundBridges {
     /// WeldPass's deploy targets behind the test's bridge.
     pub(crate) fn pass_http(&self, bridge: &str) -> weldsuite_pass::PassHttp {
         weldsuite_pass::PassHttp(Arc::new(BridgedPass {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// WeldDesk's Discord and Slack calls behind the test's bridge.
+    pub(crate) fn desk_http(&self, bridge: &str) -> weldsuite_desk_domain::http::RequestHttp {
+        weldsuite_desk_domain::http::RequestHttp(Arc::new(BridgedDesk {
             bridge: bridge.trim_end_matches('/').to_owned(),
             client: self.client.clone(),
         }))

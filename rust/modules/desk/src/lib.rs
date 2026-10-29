@@ -49,8 +49,12 @@ macro_rules! listing {
     };
 }
 
+mod assignment;
+mod conversations;
 mod crud;
 mod custom_fields;
+mod discord;
+mod dispatch;
 mod js;
 mod link;
 mod notify;
@@ -74,10 +78,12 @@ use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_db::{PgPool, Tenant};
+use weldsuite_desk_domain::http::{DynDeskHttp, RequestHttp};
 use weldsuite_desk_domain::workflow::DynWorkflowEngine;
 use weldsuite_events::{EntityEventPublisher, EventContext, iso_timestamp, publish_entity_event};
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
+use weldsuite_mail_domain::outbound::{OutboundBindings, RequestOutbound};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 use weldsuite_ports::{DynCache, DynRealtimePublisher, DynSystemMail, FileStores};
 
@@ -98,6 +104,14 @@ pub struct DeskState {
     pub mail: Option<Arc<dyn DynSystemMail>>,
     /// The helpdesk workflow engine (`HELPDESK_WORKFLOW`).
     pub workflow: DynWorkflowEngine,
+    /// Discord and Slack calls. A request's `RequestHttp` (conformance) wins.
+    pub http: Option<DynDeskHttp>,
+    /// Customer mail (email replies) and the outbound ledgers. A request's
+    /// `RequestOutbound` (conformance) wins.
+    pub outbound: OutboundBindings,
+    /// The master database (the outbound guard's sender ownership). A
+    /// request's `MasterDb` (conformance) wins.
+    pub master: Option<PgPool>,
 }
 
 impl std::fmt::Debug for DeskState {
@@ -141,6 +155,7 @@ where
             crud::routes(&simple::SURVEYS, gate),
         )
         .nest("/tickets", tickets::routes(gate))
+        .nest("/conversations", conversations::routes(gate))
         .with_state(state)
 }
 
@@ -157,6 +172,12 @@ pub(crate) struct Caller {
     pub(crate) env: Option<RequestEnv>,
     /// The test's buckets (conformance), before the state's.
     pub(crate) files: Option<FileStores>,
+    /// The test's fetch stub (conformance), before the state's client.
+    pub(crate) http: Option<RequestHttp>,
+    /// The test's mail bindings (conformance), before the state's.
+    pub(crate) outbound: Option<RequestOutbound>,
+    /// The test's master database (conformance), before the state's.
+    pub(crate) master: Option<weldsuite_db::MasterDb>,
 }
 
 #[allow(dead_code)] // filled in route group by route group
@@ -183,6 +204,32 @@ impl Caller {
             return env.get(name).map(str::to_owned);
         }
         std::env::var(name).ok()
+    }
+
+    /// The HTTP client: the request's (conformance), else the state's.
+    pub(crate) fn http(&self, state: &DeskState) -> Option<DynDeskHttp> {
+        self.http
+            .as_ref()
+            .map(|http| std::sync::Arc::clone(&http.0))
+            .or_else(|| state.http.clone())
+    }
+
+    /// The outbound guard and transport for a customer reply: the
+    /// request's bindings first, then the state's.
+    pub(crate) fn outbound(&self, state: &DeskState) -> dispatch::Outbound {
+        let bindings = self
+            .outbound
+            .as_ref()
+            .map_or_else(|| state.outbound.clone(), |own| own.0.clone());
+        let master = self
+            .master
+            .as_ref()
+            .map(|master| master.0.clone())
+            .or_else(|| state.master.clone());
+        dispatch::Outbound {
+            guard: bindings.guard(master, state.cache.clone()),
+            transport: bindings.transport.clone(),
+        }
     }
 
     /// The buckets: the request's (conformance), else the state's.
@@ -216,6 +263,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     events: EventContext::for_request(auth, tenant),
                     env: parts.extensions.get::<RequestEnv>().cloned(),
                     files: parts.extensions.get::<FileStores>().cloned(),
+                    http: parts.extensions.get::<RequestHttp>().cloned(),
+                    outbound: parts.extensions.get::<RequestOutbound>().cloned(),
+                    master: parts.extensions.get::<weldsuite_db::MasterDb>().cloned(),
                 })
             } else {
                 tracing::error!("desk: a route without the session, tenant or permission layer");

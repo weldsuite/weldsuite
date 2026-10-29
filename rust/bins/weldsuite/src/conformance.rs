@@ -317,6 +317,8 @@ impl Pools {
             extensions.insert(self.outbound.apps_http(bridge));
             // WeldPass's pushes to Cloudflare and Vercel.
             extensions.insert(self.outbound.pass_http(bridge));
+            // WeldDesk's Discord and Slack calls.
+            extensions.insert(self.outbound.desk_http(bridge));
         }
     }
 

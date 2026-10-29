@@ -599,6 +599,24 @@
         "rust/modules/desk/",
         "rust/crates/desk-domain/"
       ]
+    },
+    {
+      "name": "desk: conversations",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/conversations/routes.test.ts",
+        "src/routes/conversations/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/conversations/",
+        "apps/workers/desk-api/src/services/helpdesk/",
+        "apps/workers/desk-api/src/services/realtime/",
+        "apps/workers/desk-api/src/lib/",
+        "packages/clients/core-api-client/src/schemas/conversations.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
     }
   ]
 }

@@ -18,6 +18,7 @@ use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_number;
 
+use crate::js::js_date_iso;
 use crate::table::js_date;
 
 /// A live `custom_field_definitions` row, the parts the value code reads.
@@ -469,31 +470,4 @@ fn js_number_string(number: f64) -> String {
     } else {
         format!("{number}")
     }
-}
-
-/// `new Date(text).toISOString()` for the ISO shapes JavaScript parses
-/// (a date alone is UTC midnight; a date-time without an offset is the
-/// worker's time zone, UTC); `None` where it is an Invalid Date.
-fn js_date_iso(text: &str) -> Option<String> {
-    use time::format_description::well_known::Rfc3339;
-    use time::macros::format_description;
-    let text = text.trim();
-    if let Ok(parsed) = time::OffsetDateTime::parse(text, &Rfc3339) {
-        return Some(weldsuite_events::iso_timestamp(parsed));
-    }
-    if let Ok(date) = time::Date::parse(text, format_description!("[year]-[month]-[day]")) {
-        return Some(weldsuite_events::iso_timestamp(
-            date.midnight().assume_utc(),
-        ));
-    }
-    for format in [
-        format_description!("[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond]"),
-        format_description!("[year]-[month]-[day]T[hour]:[minute]:[second]"),
-        format_description!("[year]-[month]-[day]T[hour]:[minute]"),
-    ] {
-        if let Ok(local) = time::PrimitiveDateTime::parse(text, format) {
-            return Some(weldsuite_events::iso_timestamp(local.assume_utc()));
-        }
-    }
-    None
 }

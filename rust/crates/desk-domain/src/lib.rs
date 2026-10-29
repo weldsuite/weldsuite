@@ -8,6 +8,7 @@
 //! - [`realtime`] (`desk-api/src/services/realtime/helpdesk-publisher.ts`
 //!   and the `RealtimePublisher` conversation calls): the helpdesk
 //!   conversation room payloads.
+//! - [`http`]: the third-party HTTP calls (Discord, Slack) as a port.
 //! - [`notify`] (`@weldsuite/notifications` `helpers/helpdesk.ts`): whether
 //!   and what to notify on an assignment or a customer reply.
 //! - [`workflow`]: the port to the helpdesk workflow engine
@@ -19,6 +20,7 @@
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
 
+pub mod http;
 pub mod notify;
 pub mod realtime;
 pub mod webchat;

@@ -132,6 +132,11 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         cache: state.infra.cache.clone(),
         mail: state.infra.mail.clone(),
         workflow: Arc::new(weldsuite_desk_domain::workflow::Unavailable),
+        http: Some(desk_http()),
+        // Customer mail is not wired on Kubernetes yet (the Mail module's
+        // transport): email replies fail as the worker does without SEND_EMAIL.
+        outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        master: Some(state.workspaces.master().clone()),
     }
 }
 
@@ -144,6 +149,12 @@ fn pass_state() -> weldsuite_pass::PassState {
     STATE
         .get_or_init(weldsuite_pass::PassState::from_env)
         .clone()
+}
+
+/// WeldDesk's Discord and Slack client, one per process.
+fn desk_http() -> weldsuite_desk_domain::http::DynDeskHttp {
+    static HTTP: OnceLock<weldsuite_desk_domain::http::DynDeskHttp> = OnceLock::new();
+    Arc::clone(HTTP.get_or_init(|| Arc::new(crate::desk_http::ReqwestDeskHttp::default())))
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge

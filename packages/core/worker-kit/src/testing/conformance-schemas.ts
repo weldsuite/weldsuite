@@ -168,6 +168,18 @@ import { slaSchema } from '@weldsuite/core-api-client/schemas/slas';
 import { ticketNoteSchema } from '@weldsuite/core-api-client/schemas/ticket-notes';
 import { ticketMessageSchema } from '@weldsuite/core-api-client/schemas/ticket-messages';
 import { satisfactionSurveySchema } from '@weldsuite/core-api-client/schemas/satisfaction-surveys';
+import {
+  auditLogRowSchema,
+  autoLinkedContactSchema,
+  blockResponseResultSchema,
+  conversationActionSchema,
+  conversationFolderCountsSchema,
+  conversationReviewSchema,
+  convertedTicketSchema,
+  helpdeskConversationEventSchema,
+  helpdeskConversationMessageSchema,
+  helpdeskConversationSchema,
+} from '@weldsuite/core-api-client/schemas/conversations';
 import { ticketCreatedSchema, ticketSchema, ticketTagsSchema } from '@weldsuite/app-api-client/schemas/tickets';
 
 import {
@@ -541,6 +553,31 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/weldpass/vaults/:vaultId/items/:itemId/versions', envelope: 'array', data: weldpassItemVersionSchema },
   { method: 'POST', route: '/api/weldpass/vaults/:vaultId/items/:itemId/restore', envelope: 'single', data: weldpassItemSchema },
   { method: 'POST', route: '/api/weldpass/vaults/:vaultId/items/:itemId/move', envelope: 'single', data: weldpassItemSchema },
+  // desk: conversations
+  { method: 'GET', route: '/api/conversations', envelope: 'list', data: helpdeskConversationSchema },
+  { method: 'GET', route: '/api/conversations/folder-counts', envelope: 'single', data: conversationFolderCountsSchema },
+  { method: 'GET', route: '/api/conversations/:id', envelope: 'single', data: helpdeskConversationSchema },
+  { method: 'GET', route: '/api/conversations/:id/messages', envelope: 'array', data: helpdeskConversationMessageSchema },
+  { method: 'POST', route: '/api/conversations/:id/messages', envelope: 'single', data: helpdeskConversationMessageSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/messages/:messageId/respond', envelope: 'single', data: blockResponseResultSchema },
+  { method: 'GET', route: '/api/conversations/:id/events', envelope: 'array', data: helpdeskConversationEventSchema },
+  { method: 'GET', route: '/api/conversations/:id/review', envelope: 'single', data: conversationReviewSchema },
+  { method: 'GET', route: '/api/conversations/:id/audit-logs', envelope: 'array', data: auditLogRowSchema },
+  { method: 'POST', route: '/api/conversations', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/conversations/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/status', envelope: 'single', data: conversationActionSchema },
+  { method: 'POST', route: '/api/conversations/:id/close', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/read', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/star', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/archive', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/priority', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/assign', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/assign-team', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/snooze', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/tags', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/contact', envelope: 'single', data: conversationActionSchema },
+  { method: 'POST', route: '/api/conversations/:id/convert-to-ticket', envelope: 'single', data: convertedTicketSchema },
+  { method: 'POST', route: '/api/conversations/:id/auto-link-contact', envelope: 'single', data: autoLinkedContactSchema },
 ];
 
 /** null when valid, else why not. */

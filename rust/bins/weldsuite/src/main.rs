@@ -17,6 +17,7 @@ mod conformance_mail;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
 mod cron;
+mod desk_http;
 mod infra;
 mod routes;
 mod server;
