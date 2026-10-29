@@ -328,3 +328,122 @@ export interface CustomObjectRecordResponse {
   /** Hydrated `{ [fieldSlug]: value }`. */
   fields: Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------------------
+// Response schemas (what the routes answer: rows as Drizzle reads them)
+// ---------------------------------------------------------------------------
+
+const timestampSchema = z.string();
+
+/** A `custom_objects` row; the list and detail routes add the two counts. */
+export const customObjectSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  entityKey: z.string(),
+  labelSingular: z.string(),
+  labelPlural: z.string(),
+  description: z.string().nullable(),
+  icon: z.string(),
+  color: z.string().nullable(),
+  titleFieldId: z.string().nullable(),
+  status: z.enum(CUSTOM_OBJECT_STATUSES),
+  enableEvents: z.boolean(),
+  enableSearch: z.boolean(),
+  enableAgentTools: z.boolean(),
+  enableExternalApi: z.boolean(),
+  listConfig: customObjectListConfigSchema,
+  sortOrder: z.number(),
+  createdBy: z.string().nullable(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema,
+  deletedAt: timestampSchema.nullable(),
+  recordCount: z.number().optional(),
+  fieldCount: z.number().optional(),
+});
+
+/** `GET /api/custom-objects/:id/delete-impact`. */
+export const customObjectDeleteImpactSchema = z.object({
+  recordCount: z.number(),
+  fieldCount: z.number(),
+  linkCount: z.number(),
+  relationCount: z.number(),
+  /** Source labels of `restrict` relationships that still hold edges. */
+  blockedBy: z.array(z.string()),
+});
+
+/** `PUT /api/custom-objects/reorder` (and `/api/custom-fields/reorder`). */
+export const reorderResultSchema = z.object({ reordered: z.number() });
+
+/** A `custom_object_links` row. */
+export const customObjectLinkSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  sourceEntityKey: z.string(),
+  targetEntityKey: z.string(),
+  cardinality: z.enum(CUSTOM_OBJECT_CARDINALITIES),
+  sourceLabel: z.string(),
+  targetLabel: z.string(),
+  onDelete: z.enum(CUSTOM_OBJECT_ON_DELETE),
+  required: z.boolean(),
+  sortOrder: z.number(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema,
+  deletedAt: timestampSchema.nullable(),
+});
+
+/** `GET /api/custom-objects/link-targets`: what a relationship may point at. */
+export const customObjectLinkTargetSchema = z.object({
+  entityType: z.string(),
+  label: z.string(),
+  kind: z.enum(['builtin', 'custom']),
+});
+
+/** A record with its hydrated `{ [fieldSlug]: value }`. */
+export const customObjectRecordSchema = z.object({
+  id: z.string(),
+  objectId: z.string(),
+  entityKey: z.string(),
+  title: z.string().nullable(),
+  ownerId: z.string().nullable(),
+  createdBy: z.string().nullable(),
+  updatedBy: z.string().nullable(),
+  createdAt: timestampSchema,
+  updatedAt: timestampSchema,
+  deletedAt: timestampSchema.nullable(),
+  fields: z.record(z.unknown()),
+});
+
+/** One resolved target of a relationship, with the edge id to detach it. */
+export const customObjectRelatedRecordSchema = z.object({
+  id: z.string(),
+  entityType: z.string(),
+  title: z.string(),
+  href: z.string(),
+  relationId: z.string(),
+});
+
+/** `GET /api/objects/:slug/records/:id/links`: one panel per relationship. */
+export const customObjectLinkPanelSchema = z.object({
+  linkId: z.string(),
+  linkSlug: z.string(),
+  label: z.string(),
+  cardinality: z.enum(CUSTOM_OBJECT_CARDINALITIES),
+  targetEntityKey: z.string(),
+  records: z.array(customObjectRelatedRecordSchema),
+});
+
+/** `GET /api/related/:entityType/:entityId/custom-objects`: records linked TO a record. */
+export const customObjectReversePanelSchema = z.object({
+  linkId: z.string(),
+  linkSlug: z.string(),
+  label: z.string(),
+  objectSlug: z.string(),
+  objectLabelPlural: z.string(),
+  records: z.array(z.object({ id: z.string(), title: z.string(), href: z.string(), relationId: z.string() })),
+});
+
+export type CustomObjectDeleteImpact = z.infer<typeof customObjectDeleteImpactSchema>;
+export type CustomObjectLinkTarget = z.infer<typeof customObjectLinkTargetSchema>;
+export type CustomObjectRelatedRecord = z.infer<typeof customObjectRelatedRecordSchema>;
+export type CustomObjectLinkPanel = z.infer<typeof customObjectLinkPanelSchema>;
+export type CustomObjectReversePanel = z.infer<typeof customObjectReversePanelSchema>;
