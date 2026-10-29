@@ -22,8 +22,8 @@ data:
   # Zitadel (auth.${DOMAIN}): the WeldSuite project's id and the platform's
   # web application's client id, made in Zitadel's console after its first
   # start (runbook step 7). Until then the server runs but refuses sign-ins.
-  ZITADEL_PROJECT_ID: "000000000000000000"
-  ZITADEL_WEB_CLIENT_ID: "000000000000000000"
+  ZITADEL_PROJECT_ID: "397293722078806067"
+  ZITADEL_WEB_CLIENT_ID: "397293960835366963"
   # Unused here: the chart follows the deploy branch (layers.yaml).
   WELDSUITE_GIT_TAG: unused
   # The images the "Rust images" workflow pushed for a commit of the deploy
