@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 weldsuite-db = { workspace = true }
+weldsuite-kit = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 
