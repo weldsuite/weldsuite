@@ -26,6 +26,7 @@ secret:
     NATS_URL: nats://nats:4222
     S3_ACCESS_KEY_ID: weldsuite
     S3_SECRET_ACCESS_KEY: weldsuite-kind
+    SMTP_URL: smtp://mailpit:1025
     CLERK_JWT_KEY: set by smoke-test.sh
 podDisruptionBudget:
   enabled: false

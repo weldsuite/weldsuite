@@ -135,3 +135,36 @@ spec:
   ports:
     - { name: ingress, port: 8080 }
     - { name: admin, port: 9070 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mailpit }
+  template:
+    metadata:
+      labels: { app: mailpit }
+    spec:
+      containers:
+        # Mailpit: an SMTP server that keeps what it receives (MIT).
+        - name: mailpit
+          image: axllent/mailpit:v1.31.6
+          ports:
+            - containerPort: 1025
+            - containerPort: 8025
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8025 }
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+spec:
+  selector: { app: mailpit }
+  ports:
+    - { name: smtp, port: 1025 }
+    - { name: http, port: 8025 }

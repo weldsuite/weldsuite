@@ -74,6 +74,11 @@ config:
       ingressUrl: ""   # http://restate:8080
       adminUrl: ""     # http://restate:9070
     port: 9080
+  # System mail goes through the SMTP relay in the Secret (SMTP_URL). Mail is
+  # sent from notifications@mail.weldsuite.org unless `from` names another
+  # address, for a relay that only takes its own domain.
+  mail:
+    from: ""
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -91,6 +96,8 @@ config:
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
+#   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
+#                                the relay system mail goes through (optional; unset skips mail)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
