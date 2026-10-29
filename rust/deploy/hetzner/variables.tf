@@ -95,8 +95,14 @@ variable "worker_locations" {
 }
 
 variable "worker_count" {
-  type    = number
-  default = 3
+  description = "General workers. 0 runs every workload on the control plane, ingress included: a small test cluster, not production."
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.worker_count >= 0
+    error_message = "worker_count can't be negative."
+  }
 }
 
 variable "worker_type" {

@@ -1,0 +1,72 @@
+# The test cluster (rust/deploy/hetzner/TEST-CLUSTER.md) runs on one node with
+# no Postgres pool: every Postgres cluster is a single instance there (no
+# synchronous replica, which needs a second one), sized small, and each
+# pooler runs once. WAL archiving and the nightly backups stay on.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - target:
+      kind: Cluster
+    patch: |-
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: any
+      spec:
+        instances: 1
+        postgresql:
+          synchronous: null
+        affinity:
+          nodeSelector: null
+  - target:
+      kind: Cluster
+      name: master
+    patch: |-
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: master
+      spec:
+        postgresql:
+          parameters:
+            shared_buffers: 256MB
+        storage:
+          size: 10Gi
+        walStorage:
+          size: 5Gi
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 1536Mi
+  - target:
+      kind: Cluster
+      name: tenants-1
+    patch: |-
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: tenants-1
+      spec:
+        postgresql:
+          parameters:
+            shared_buffers: 256MB
+        storage:
+          size: 20Gi
+        walStorage:
+          size: 5Gi
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            memory: 2Gi
+  - target:
+      kind: Pooler
+    patch: |-
+      - op: replace
+        path: /spec/instances
+        value: 1

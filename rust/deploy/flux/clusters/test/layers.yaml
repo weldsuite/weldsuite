@@ -1,7 +1,11 @@
-# The test cluster (rust/deploy/hetzner/TEST-CLUSTER.md): the eu layers, with
-# the weldsuite chart taken from the deploy branch instead of a release tag,
-# so a push to that branch reaches the cluster without tagging a release. In
-# order: chart sources, operators and the ingress, the encrypted secrets,
+# The test cluster (rust/deploy/hetzner/TEST-CLUSTER.md): the eu layers on one
+# node, with
+#   - the weldsuite chart taken from the deploy branch instead of a release
+#     tag, so a push to that branch reaches the cluster without tagging;
+#   - single-instance Postgres (infrastructure/configs/test);
+#   - one replica of everything else (the patches below, on top of each
+#     release's values).
+# In order: chart sources, operators and the ingress, the encrypted secrets,
 # Postgres and the issuer, the services, and the weldsuite server.
 # `flux create kustomization ... --path=./rust/deploy/flux/clusters/test`
 # applies this directory (runbook step 6).
@@ -48,6 +52,30 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
+  patches:
+    - target:
+        kind: HelmRelease
+        name: traefik
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: traefik
+        spec:
+          values:
+            deployment:
+              replicas: 1
+    - target:
+        kind: HelmRelease
+        name: (cert-manager|cloudnative-pg)
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: any
+        spec:
+          values:
+            replicaCount: 1
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -77,7 +105,7 @@ spec:
   dependsOn:
     - name: secrets
   interval: 1h
-  path: ./rust/deploy/flux/infrastructure/configs/eu
+  path: ./rust/deploy/flux/infrastructure/configs/test
   prune: false
   wait: true
   timeout: 30m
@@ -109,6 +137,56 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: cluster-settings
+  patches:
+    # One JetStream server instead of a three-node cluster.
+    - target:
+        kind: HelmRelease
+        name: nats
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: nats
+        spec:
+          values:
+            config:
+              cluster:
+                enabled: false
+    # Restate with a quarter of the memory (RocksDB under half its limit).
+    - target:
+        kind: HelmRelease
+        name: restate
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: restate
+        spec:
+          values:
+            env:
+              - name: RESTATE_LOG_FORMAT
+                value: json
+              - name: RESTATE_CLUSTER_NAME
+                value: weldsuite
+              - name: RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE
+                value: 512Mi
+            resources:
+              requests:
+                cpu: 250m
+                memory: 768Mi
+              limits:
+                memory: 1536Mi
+    - target:
+        kind: HelmRelease
+        name: zitadel
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: zitadel
+        spec:
+          values:
+            replicaCount: 1
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -130,3 +208,28 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: cluster-settings
+  patches:
+    # One pod of each; no autoscaling, and no disruption budget (with one
+    # replica it would block every drain). Streams on the one NATS server.
+    - target:
+        kind: HelmRelease
+        name: weldsuite
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: weldsuite
+        spec:
+          values:
+            replicaCount: 1
+            autoscaling:
+              enabled: false
+            podDisruptionBudget:
+              enabled: false
+            signPortal:
+              replicaCount: 1
+            consume:
+              replicaCount: 1
+              streamReplicas: 1
+              podDisruptionBudget:
+                enabled: false

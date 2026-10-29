@@ -1,12 +1,14 @@
 # Two load balancers in the first location, both reaching nodes over the
 # private network: one for the Kubernetes and Talos APIs (control plane), one
-# for HTTP(S) to the ingress controller on every general worker. A location
-# outage takes a load balancer with it; DNS failover to the second location
-# (design doc, "Edge") is the documented next step, not built here.
+# for HTTP(S) to the ingress controller on every general worker (on the
+# control plane when there are none). A location outage takes a load balancer
+# with it; DNS failover to the second location (design doc, "Edge") is the
+# documented next step, not built here.
 
 locals {
   api_lb_private_ip     = cidrhost(var.nodes_subnet_cidr, 2)
   ingress_lb_private_ip = cidrhost(var.nodes_subnet_cidr, 3)
+  ingress_targets       = length(local.workers) > 0 ? local.workers : local.control_planes
 }
 
 resource "hcloud_load_balancer" "api" {
@@ -81,7 +83,7 @@ resource "hcloud_load_balancer_network" "ingress" {
 }
 
 resource "hcloud_load_balancer_target" "ingress" {
-  for_each = local.workers
+  for_each = local.ingress_targets
 
   load_balancer_id = hcloud_load_balancer.ingress.id
   type             = "server"

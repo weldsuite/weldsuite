@@ -1,0 +1,19 @@
+# The test cluster (TEST-CLUSTER.md): cp test.tfvars.example terraform.tfvars
+# (git-ignored), then set admin_cidrs. The token is not here:
+# export TF_VAR_hcloud_token=… in the shell that runs tofu.
+
+cluster_name = "weldsuite-eu-test"
+domain       = "eu-test.weldsuite.org"
+
+# Your own public address (curl -s https://ifconfig.me), as /32: the only
+# address that reaches the Kubernetes and Talos APIs.
+admin_cidrs = ["203.0.113.10/32"]
+
+# One node for everything; the Flux `test` cluster sizes the workloads for it.
+# cpx32 (4 vCPU / 8 GB) holds the stack; cpx42 (8 vCPU / 16 GB) leaves room.
+# If the type is sold out in fsn1, use nbg1 or hel1 in both location lists.
+control_plane_locations = ["fsn1"]
+control_plane_type      = "cpx32"
+worker_count            = 0
+worker_locations        = ["fsn1"]
+postgres_locations      = []

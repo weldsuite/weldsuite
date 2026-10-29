@@ -1,5 +1,6 @@
 # Control-plane nodes: the API answers on the load balancer's addresses, etcd
-# peers over the private network, and no workloads run here.
+# peers over the private network, and no workloads run here unless the
+# cluster has no workers (a small test cluster, worker_count = 0).
 machine:
   certSANs:
 %{ for san in cert_sans ~}
@@ -14,4 +15,4 @@ cluster:
   etcd:
     advertisedSubnets:
       - ${nodes_subnet}
-  allowSchedulingOnControlPlanes: false
+  allowSchedulingOnControlPlanes: ${allow_scheduling}

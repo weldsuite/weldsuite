@@ -38,8 +38,9 @@ data "talos_machine_configuration" "node" {
     ],
     each.value.role == "controlplane" ? [
       templatefile("${path.module}/talos/controlplane.yaml.tftpl", {
-        cert_sans    = compact([hcloud_load_balancer.api.ipv4, local.api_lb_private_ip, var.api_hostname])
-        nodes_subnet = var.nodes_subnet_cidr
+        cert_sans        = compact([hcloud_load_balancer.api.ipv4, local.api_lb_private_ip, var.api_hostname])
+        nodes_subnet     = var.nodes_subnet_cidr
+        allow_scheduling = length(local.workers) == 0
       }),
     ] : [],
     each.value.pool == "postgres" ? [file("${path.module}/talos/postgres.yaml")] : [],

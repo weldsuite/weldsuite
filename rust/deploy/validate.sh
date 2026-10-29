@@ -38,6 +38,7 @@ for dir in \
   flux/infrastructure/controllers \
   flux/infrastructure/configs/eu \
   flux/infrastructure/configs/drill \
+  flux/infrastructure/configs/test \
   flux/infrastructure/services \
   flux/apps/eu \
   flux/secrets/eu \
