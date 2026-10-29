@@ -671,6 +671,30 @@ impl Issues {
             .into_option()
     }
 
+    /// `.refine(check, message)` failing on `key`: Zod's `custom` issue.
+    pub fn custom(&mut self, key: &str, message: &str) {
+        let path = self.path(key);
+        self.issues.push(json!({
+            "code": "custom",
+            "message": message,
+            "path": path,
+        }));
+    }
+
+    /// `z.string().min(min, message)` failing on `key`, with the schema's
+    /// own message.
+    pub fn string_too_small(&mut self, key: &str, min: usize, message: &str) {
+        let path = self.path(key);
+        self.too_small(&path, "string", &json!(min), message);
+    }
+
+    /// `z.string().max(max, message)` failing on `key`, with the schema's
+    /// own message.
+    pub fn string_too_big(&mut self, key: &str, max: usize, message: &str) {
+        let path = self.path(key);
+        self.too_big(&path, "string", &json!(max), message);
+    }
+
     #[cfg(test)]
     fn take(self) -> Value {
         Value::Array(self.issues)
@@ -815,6 +839,24 @@ mod tests {
     use super::*;
 
     /// Issues Zod 3 produced for the same input (`safeParse`, JSON-serialised).
+    #[test]
+    fn custom_messages_and_refinements_match_zod() {
+        // z.object({ name: z.string().trim().min(1, 'Name is required').max(200, …),
+        //            phone: z.string().refine(…, 'Enter a valid phone number') })
+        let mut issues = Issues::default();
+        issues.string_too_small("name", 1, "Name is required");
+        issues.custom("phone", "Enter a valid phone number");
+        issues.string_too_big("nick", 200, "Name must be 200 characters or fewer");
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_small","minimum":1,"type":"string","inclusive":true,"exact":false,"message":"Name is required","path":["name"]},
+                {"code":"custom","message":"Enter a valid phone number","path":["phone"]},
+                {"code":"too_big","maximum":200,"type":"string","inclusive":true,"exact":false,"message":"Name must be 200 characters or fewer","path":["nick"]}
+            ])
+        );
+    }
+
     #[test]
     fn issues_match_zod() {
         let mut issues = Issues::default();
