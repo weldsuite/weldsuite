@@ -19,7 +19,9 @@ async fn marks_only_pull_earlier_and_settles_respect_concurrent_writes() {
         .await
         .expect("master database");
     let kind = format!("test_{}", weldsuite_kit::generate_id("k"));
-    let now = OffsetDateTime::now_utc().replace_nanosecond(0).expect("whole second");
+    let now = OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .expect("whole second");
 
     // A later mark never pushes the due time out.
     mark_due(&pool, &kind, "org_a", now + Duration::hours(2)).await;

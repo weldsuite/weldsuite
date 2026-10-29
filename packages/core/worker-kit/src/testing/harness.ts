@@ -56,6 +56,12 @@ export interface TestContext {
   factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
   /**
+   * The master database, when the routes under test use one (the test mocks
+   * `getMasterDb` to return it). Only conformance mode reads it here: it is
+   * served to the Rust server like `tenantDb`.
+   */
+  masterDb?: Database;
+  /**
    * Pre-resolved permissions cached on the context. When set, the
    * `requirePermission` middleware short-circuits its DB query and uses
    * this value directly. Use `permissions('*')` to grant everything.

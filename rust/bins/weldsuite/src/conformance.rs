@@ -134,6 +134,9 @@ struct TestContext {
     session_id: String,
     factor_verification_age: Option<[f64; 2]>,
     database_url: String,
+    /// The test's master database, when its routes use one.
+    #[serde(default)]
+    master_database_url: Option<String>,
     permissions: Option<TestPermissions>,
     /// Flag values the test's `context.flags` answers; `None` = no evaluator.
     flags: Option<HashMap<String, Value>>,
@@ -209,6 +212,16 @@ pub(crate) async fn auth(
         Err(error) => return error.into_response(),
     };
 
+    let master = match context
+        .master_database_url
+        .as_deref()
+        .map(|url| pools.get(url))
+    {
+        Some(Ok(pool)) => Some(pool),
+        Some(Err(error)) => return error.into_response(),
+        None => None,
+    };
+
     let app_enforced = context
         .env
         .get("PERMISSIONS_APP_ENFORCE")
@@ -216,6 +229,9 @@ pub(crate) async fn auth(
     let extensions = request.extensions_mut();
     if let Some(enforced) = app_enforced {
         extensions.insert(AppEnforcedOverride(enforced));
+    }
+    if let Some(master) = master {
+        extensions.insert(weldsuite_db::MasterDb(master));
     }
     extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
         context.env.clone(),

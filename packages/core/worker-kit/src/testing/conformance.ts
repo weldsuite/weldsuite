@@ -87,6 +87,8 @@ interface ConformanceContext {
   sessionId: string;
   factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
+  /** The master database, when the routes use one (shared, never cloned). */
+  masterDb?: Database;
   permissions?: unknown;
   /** The test's flag evaluator (`context.flags`), if any. */
   flags?: unknown;
@@ -407,6 +409,12 @@ function pathOf(input: string): string {
   return input;
 }
 
+/** The URL the master pglite is served at, when the test has one. */
+async function masterDatabaseUrl(masterDb: Database | undefined): Promise<string | null> {
+  const client = masterDb ? pgliteClientOf(masterDb) : undefined;
+  return client ? databaseUrlFor(client) : null;
+}
+
 /** The test's context as the Rust server's conformance mode reads it. */
 async function testContext(ctx: ConformanceContext, env: Record<string, unknown>, databaseUrl: string) {
   const forwardedEnv = Object.fromEntries(
@@ -420,6 +428,7 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     sessionId: ctx.sessionId,
     factorVerificationAge: ctx.factorVerificationAge ?? null,
     databaseUrl,
+    masterDatabaseUrl: await masterDatabaseUrl(ctx.masterDb),
     permissions: ctx.permissions,
     flags: await flagValues(ctx.flags),
     env: forwardedEnv,
