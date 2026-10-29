@@ -91,16 +91,19 @@ pub(crate) fn is_owner(envelope: &Value, viewer: &Viewer) -> bool {
 }
 
 /// Still collecting signatures: sent or in progress, and not past expiry.
-fn is_open_request(envelope: &Value) -> bool {
+pub(crate) fn is_open_request(envelope: &Value) -> bool {
+    is_open_request_at(envelope, OffsetDateTime::now_utc())
+}
+
+/// [`is_open_request`] at `now` (`isOpenRequest(envelope, now)`).
+pub(crate) fn is_open_request_at(envelope: &Value, now: OffsetDateTime) -> bool {
     let status = text(envelope, "status");
     if status != "sent" && status != "in_progress" {
         return false;
     }
     match envelope["expiresAt"].as_str() {
         None => true,
-        Some(at) => {
-            OffsetDateTime::parse(at, &Rfc3339).is_ok_and(|at| at > OffsetDateTime::now_utc())
-        }
+        Some(at) => OffsetDateTime::parse(at, &Rfc3339).is_ok_and(|at| at > now),
     }
 }
 
@@ -353,7 +356,7 @@ pub(crate) async fn list_fields(db: &PgPool, envelope_id: &str) -> SignResult<Ve
 }
 
 /// The last filing of a completed request (`latestFiling`).
-async fn latest_filing(db: &PgPool, envelope_id: &str) -> SignResult<Value> {
+pub(crate) async fn latest_filing(db: &PgPool, envelope_id: &str) -> SignResult<Value> {
     let row: Option<(Option<Value>, Value)> = sqlx::query_as(
         "select details, to_jsonb(created_at) from sign_events
          where envelope_id = $1 and type = 'filed' order by created_at desc limit 1",
@@ -759,23 +762,30 @@ async fn check_file_back_folder(
     Ok(())
 }
 
-/// Workspace reminder defaults for new envelopes (`loadSignSettings`).
+/// `sign_settings` defaults: expiry, reminder delay, interval, maximum.
+type SettingsRow = (Option<i32>, Option<i32>, Option<i32>, Option<i32>);
+
+/// Workspace defaults for new envelopes (`loadSignSettings`).
 pub(crate) struct SignDefaults {
+    /// Days a sent request stays open when the sender picks no date.
+    pub(crate) expiry_days: Option<i32>,
     pub(crate) after_days: Option<i32>,
     pub(crate) every_days: Option<i32>,
     pub(crate) max_count: Option<i32>,
 }
 
 pub(crate) async fn load_sign_settings(db: &PgPool) -> SignResult<SignDefaults> {
-    let row: Option<(Option<i32>, Option<i32>, Option<i32>)> = sqlx::query_as(
-        "select default_reminder_after_days, default_reminder_every_days, default_reminder_max_count
+    let row: Option<SettingsRow> = sqlx::query_as(
+        "select default_expiry_days, default_reminder_after_days, default_reminder_every_days,
+                default_reminder_max_count
          from sign_settings limit 1",
     )
     .fetch_optional(db)
     .await?;
     // `SIGN_DEFAULTS` until the workspace saves its own.
-    let (after, every, max) = row.unwrap_or((Some(3), Some(3), Some(3)));
+    let (expiry, after, every, max) = row.unwrap_or((Some(30), Some(3), Some(3), Some(3)));
     Ok(SignDefaults {
+        expiry_days: expiry,
         after_days: after,
         every_days: every,
         max_count: max,

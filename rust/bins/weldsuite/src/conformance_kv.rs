@@ -83,6 +83,21 @@ impl Cache for HttpCache {
             Err(status_error(response.status()))
         }
     }
+
+    /// A read and a write through the bridge: a test runs one request at a
+    /// time, so nothing races it (Workers KV has no atomic increment either).
+    async fn increment(&self, key: &str, by: i64, ttl: Option<Duration>) -> Result<i64, PortError> {
+        let current = match self.get(key).await? {
+            Some(text) => text
+                .trim()
+                .parse::<i64>()
+                .map_err(|_| PortError::backend(format!("{key} is not an integer")))?,
+            None => 0,
+        };
+        let next = current.saturating_add(by);
+        self.put(key, &next.to_string(), ttl).await?;
+        Ok(next)
+    }
 }
 
 /// The bridge caches by URL, made once.

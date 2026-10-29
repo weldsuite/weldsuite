@@ -391,6 +391,171 @@ export interface SignEventDto {
 }
 
 // ---------------------------------------------------------------------------
+// Response schemas: the interfaces above as Zod, for clients that validate
+// and for the conformance suite (worker-kit/src/testing/conformance-schemas.ts),
+// which checks every answer of the TypeScript and Rust backends against them.
+// ---------------------------------------------------------------------------
+
+const timestamp = z.string().datetime({ offset: true });
+
+export const signPageSizeSchema = z.object({
+  width: z.number(),
+  height: z.number(),
+  rotation: z.number().optional(),
+});
+
+export const signDocumentDtoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  position: z.number().int(),
+  sizeBytes: z.number().int(),
+  pageCount: z.number().int(),
+  pageSizes: z.array(signPageSizeSchema),
+  sha256: z.string(),
+  createdAt: timestamp,
+});
+
+export const signRecipientDtoSchema = z.object({
+  id: z.string(),
+  role: z.enum(SIGN_RECIPIENT_ROLES),
+  roleName: z.string().nullable(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  personId: z.string().nullable(),
+  locale: z.enum(SIGN_LOCALES),
+  routingOrder: z.number().int(),
+  authMode: z.enum(SIGN_AUTH_MODES),
+  hasAccessCode: z.boolean(),
+  status: z.enum(SIGN_RECIPIENT_STATUSES),
+  sentAt: timestamp.nullable(),
+  openedAt: timestamp.nullable(),
+  signedAt: timestamp.nullable(),
+  declinedAt: timestamp.nullable(),
+  declineReason: z.string().nullable(),
+  lastRemindedAt: timestamp.nullable(),
+  remindersSent: z.number().int(),
+});
+
+export const signFieldDtoSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  recipientId: z.string(),
+  type: z.enum(SIGN_FIELD_TYPES),
+  page: z.number().int(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  required: z.boolean(),
+  label: z.string().nullable(),
+});
+
+export const signRecipientCountsSchema = z.object({
+  signers: z.number().int(),
+  signed: z.number().int(),
+  cc: z.number().int(),
+});
+
+export const signEnvelopeSummarySchema = z.object({
+  id: z.string(),
+  kind: z.enum(SIGN_ENVELOPE_KINDS),
+  title: z.string(),
+  status: z.enum(SIGN_ENVELOPE_STATUSES),
+  senderUserId: z.string(),
+  senderName: z.string().nullable(),
+  documentCount: z.number().int(),
+  recipients: signRecipientCountsSchema,
+  recipientPreview: z.array(z.string()),
+  sentAt: timestamp.nullable(),
+  completedAt: timestamp.nullable(),
+  expiresAt: timestamp.nullable(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+
+export const signSourceDtoSchema = z.object({
+  entityType: z.enum(SIGN_SOURCE_TYPES),
+  entityId: z.string(),
+  name: z.string().nullable(),
+});
+
+export const signFilingDtoSchema = z.object({
+  driveFileId: z.string().nullable(),
+  driveFolderId: z.string().nullable(),
+  recordFileId: z.string().nullable(),
+  recordType: z.enum(['company', 'person']).nullable(),
+  recordId: z.string().nullable(),
+  activityId: z.string().nullable(),
+  filedAt: timestamp,
+});
+
+export const signEnvelopeDetailSchema = signEnvelopeSummarySchema.extend({
+  message: z.string().nullable(),
+  signingOrderEnabled: z.boolean(),
+  reminderAfterDays: z.number().int().nullable(),
+  reminderEveryDays: z.number().int().nullable(),
+  reminderMaxCount: z.number().int().nullable(),
+  documents: z.array(signDocumentDtoSchema),
+  recipientList: z.array(signRecipientDtoSchema),
+  fields: z.array(signFieldDtoSchema),
+  voidedReason: z.string().nullable(),
+  voidedAt: timestamp.nullable(),
+  source: signSourceDtoSchema.nullable(),
+  fileBackFolderId: z.string().nullable(),
+  filing: signFilingDtoSchema.nullable(),
+  canEdit: z.boolean(),
+  isOwner: z.boolean(),
+  canVoid: z.boolean(),
+  canRemind: z.boolean(),
+  mySignerId: z.string().nullable(),
+});
+
+export const signRecipientSuggestionSchema = z.object({
+  personId: z.string(),
+  name: z.string(),
+  email: z.string(),
+  title: z.string().nullable(),
+});
+
+export const signEventDtoSchema = z.object({
+  id: z.string(),
+  type: z.enum(SIGN_EVENT_TYPES),
+  recipientId: z.string().nullable(),
+  recipientName: z.string().nullable(),
+  actorName: z.string().nullable(),
+  actorEmail: z.string().nullable(),
+  ip: z.string().nullable(),
+  createdAt: timestamp,
+  details: z.record(z.unknown()).nullable(),
+});
+
+export const signRemindResultSchema = z.object({ reminded: z.number().int() });
+
+export const signSigningLinkSchema = z.object({ url: z.string().url() });
+
+export const signTemplateRoleSummarySchema = z.object({
+  id: z.string(),
+  roleName: z.string(),
+  role: z.enum(SIGN_RECIPIENT_ROLES),
+});
+
+export const signTemplateSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  documentCount: z.number().int(),
+  roles: z.array(signTemplateRoleSummarySchema),
+  createdByName: z.string().nullable(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
+});
+
+/** `{ data: T[] }` answers that are not paginated lists. */
+export const signDocumentListSchema = z.array(signDocumentDtoSchema);
+export const signFieldListSchema = z.array(signFieldDtoSchema);
+export const signEventListSchema = z.array(signEventDtoSchema);
+export const signRecipientSuggestionListSchema = z.array(signRecipientSuggestionSchema);
+
+// ---------------------------------------------------------------------------
 // Helpers shared by the editor and the server
 // ---------------------------------------------------------------------------
 
