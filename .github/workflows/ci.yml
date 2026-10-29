@@ -58,6 +58,10 @@ jobs:
       # (@weldsuite/emails) and the email strings. Rerun `pnpm rust:emails`.
       - name: Rust email templates are current
         run: pnpm rust:emails --check
+      # rust/crates/subscribers/tests/fixtures: what the TypeScript hub consumers
+      # do with the parity batches. Rerun `pnpm rust:subscriber-fixtures`.
+      - name: Rust subscriber fixtures are current
+        run: pnpm rust:subscriber-fixtures --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.

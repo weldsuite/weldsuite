@@ -1,6 +1,6 @@
 //! The `weldsuite` binary. One image runs every role through a subcommand:
-//! `serve` and `migrate` today; `consume`, `cron <job>` and the admin
-//! commands as they are ported.
+//! `serve`, `consume`, `cron <job>` and `migrate` today; the admin commands as
+//! they are ported.
 //!
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
@@ -14,6 +14,7 @@ mod conformance_files;
 mod conformance_kv;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
+mod consume;
 mod cron;
 mod infra;
 mod migrate;
@@ -38,6 +39,7 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
+  consume    run the entity-event subscribers on NATS JetStream
   cron <job> run one scheduled job and exit: sign-lifecycle
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
@@ -59,6 +61,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("serve") => serve(),
+        Some("consume") => consume::run(),
         Some("cron") => cron::main(args.get(1).map(String::as_str)),
         Some("migrate") => migrate::run(&args[1..]),
         Some("version" | "--version" | "-V") => {

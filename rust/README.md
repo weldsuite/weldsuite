@@ -34,7 +34,7 @@ rust/
   conformance/          suites.json: the worker tests each ported route must pass (P2)
   docs/spikes.md        the answers to spikes S3 (PgBouncer) and S4 (thousands of tenants)
   Dockerfile            the image (distroless, nonroot, cross-compiled for arm64) with the platform SPA; context is the repo root
-  bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs), `cron <job>` (cron.rs), `migrate` (migrate.rs); consume later
+  bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs), `consume` (consume/), `cron <job>` (cron.rs), `migrate` (migrate.rs)
   crates/kit/           envelope, errors, ids, CORS, request id, pagination, cursors, zod-shaped validation
   crates/catalogs/      entity events, permission keys, flags, API modules (+ Rust flag), origins
   crates/auth/          session tokens: Clerk's or an OIDC provider's (Zitadel; discovery, fetched JWKS), step-up second factor
@@ -47,6 +47,8 @@ rust/
   crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity, database provisioning),
                         their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
+  crates/subscribers/   the hub subscribers `consume` runs: audit log, search index, outgoing webhooks, realtime;
+                        tests/fixtures from `pnpm rust:subscriber-fixtures` (the TypeScript consumers on pglite)
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
                         files over the S3 API, system mail over SMTP, identity on Zitadel, workspace databases on
                         CloudNativePG shards; `realtime.rs` is the realtime backplane's wire format on Valkey (stamped
@@ -79,6 +81,7 @@ pnpm rust:lint         # rustfmt --check + clippy, warnings are errors
 pnpm rust:test         # tests
 pnpm rust:deny         # licences, advisories, duplicate crates, sources (needs cargo-deny)
 pnpm rust:conformance  # the worker tests of every ported route, against Rust (report in rust/target/conformance)
+pnpm rust:subscriber-fixtures   # re-export what the TypeScript hub consumers do, for crates/subscribers/tests/parity.rs
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
@@ -94,7 +97,7 @@ The integration tests need throwaway services and are skipped without them:
 | `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database; its role creates databases for `weldsuite-migrations` and the CloudNativePG provisioner) | `weldsuite-db`, the flag table, the migration runner, the provisioner |
 | `WELDSUITE_TEST_MASTER_URL`, `WELDSUITE_TEST_TENANT_URL` | Postgres with pgvector, built by `pnpm exec tsx scripts/rust-test-db.ts` from the journaled migrations | the SQL against the real schema |
 | `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters |
-| `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter |
+| `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter; with the tenant URL, the consume end-to-end test |
 | `WELDSUITE_TEST_S3_ENDPOINT` (+ `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`) | an S3 store, e.g. `docker run -p 9000:9000 rustfs/rustfs:1.0.1` | S3 file store |
 | `WELDSUITE_TEST_RESTATE_INGRESS`, `_ADMIN`, `_ENDPOINT_HOST` | a Restate server, e.g. `docker run -p 8080:8080 -p 9070:9070 --add-host=host.docker.internal:host-gateway restatedev/restate:1.7.14`, with `host.docker.internal` as the host it reaches the test on | Restate jobs adapter |
 | `WELDSUITE_TEST_SMTP_URL` | an SMTP server, e.g. `docker run -p 1025:1025 axllent/mailpit:v1.31.6` (`smtp://127.0.0.1:1025`) | SMTP mail |
@@ -198,6 +201,14 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 | `ENVIRONMENT`, `LOG_FORMAT` (`json`/`text`), `RUST_LOG` | reporting and logs |
 | `DATABASE_MASTER_MAX_CONNECTIONS`, `TENANT_POOL_MAX_CONNECTIONS`, `TENANT_POOLS_MAX`, `WORKSPACE_CACHE_TTL_SECONDS` | pools and the workspace cache |
 | `SHUTDOWN_DELAY_SECONDS` | how long `/readyz` fails after SIGTERM before connections stop |
+
+`weldsuite consume` runs the entity-event subscribers on NATS JetStream: one durable
+consumer per subscriber on the hub stream, retries with backoff, a dead-letter
+stream. It reads the same database, NATS and Valkey variables, needs no sign-in
+settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`,
+`NATS_DEAD_LETTER_STREAM`, `EMBEDDINGS_URL`/`EMBEDDINGS_MODEL`/`EMBEDDINGS_API_KEY`,
+`WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`):
+the list and the stream layout are in `bins/weldsuite/src/consume/`.
 
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
