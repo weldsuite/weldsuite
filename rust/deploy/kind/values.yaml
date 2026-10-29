@@ -1,5 +1,5 @@
-# Chart values for the kind smoke test (smoke-test.sh). The Clerk key is the
-# throwaway test key of rust/crates/auth/tests/fixtures; it signs nothing real.
+# Chart values for the kind smoke test (smoke-test.sh). The Clerk key is set
+# by the script from a throwaway key it generates (mint-token.mjs).
 image:
   repository: weldsuite
   tag: dev
@@ -9,18 +9,13 @@ config:
   environment: kind
   logFormat: text
   shutdownDelaySeconds: 1
+  nats:
+    ensureStreams: true
 secret:
   values:
-    DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/weldsuite
-    CLERK_JWT_KEY: |
-      -----BEGIN PUBLIC KEY-----
-      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA24h/PPNEmOVOq1Wnm28F
-      LYS3xyV3Z3wBTR8jHSETGOLE4hkV0Eq1I7Lq2WbZ41kBFRNEwgYlMfsbAVcfA5IS
-      nC0s50mtJ3NZMMFNy69+2vGyGr+XZ3toFGlibI1vAlkL98howsvK5O8ZYmdtIDym
-      52HceZPGXvbx+f3GFjoc8FAi+RBu8+vM5Tv5JCMQN+/NXf9XHrr4N/f3DyS68vOz
-      ZlDWrvuDUKdavLh4qunirXntJgsV1XolarSMxwnD8fAJthlB3CVDrzNcWk//8uWU
-      tObzcWtDDep7g4YznrLUx96dlf1Z6lEcUC2fTIzHIV2thLIvE2okXj+iIriD3jvN
-      vQIDAQAB
-      -----END PUBLIC KEY-----
+    DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/master
+    VALKEY_URL: redis://valkey:6379
+    NATS_URL: nats://nats:4222
+    CLERK_JWT_KEY: set by smoke-test.sh
 podDisruptionBudget:
   enabled: false
