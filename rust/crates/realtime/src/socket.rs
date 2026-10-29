@@ -259,7 +259,7 @@ async fn subscribe(gateway: &Arc<Gateway>, hub: &Arc<Hub>, conn: &HubConn, messa
                 conn.out.text(snapshot);
             }
             Err(error) => {
-                tracing::warn!(%error, hub = %hub.key, "realtime: presence snapshot failed")
+                tracing::warn!(%error, hub = %hub.key, "realtime: presence snapshot failed");
             }
         }
     }
