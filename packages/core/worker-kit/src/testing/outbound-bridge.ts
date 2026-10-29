@@ -141,11 +141,14 @@ export function takeRustOutbound(): OutboundCall[] {
 export async function recordOutbound<T>(fn: () => Promise<T>): Promise<{ result: T; calls: OutboundCall[] }> {
   const calls: OutboundCall[] = [];
   const original = globalThis.fetch;
-  const wrapped = (input: RequestInfo | URL, init?: RequestInit) => {
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = requestUrl(input);
     if (!isLoopback(url)) {
       const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-      calls.push({ method, url, body: bodyOf(textOf(init?.body)) });
+      // A `Request` carries its own body (a forwarded call, `fetch(new Request(…))`).
+      const text =
+        init?.body === undefined && input instanceof Request ? (await input.clone().text()) || null : textOf(init?.body);
+      calls.push({ method, url, body: bodyOf(text) });
     }
     return original(input, init);
   };

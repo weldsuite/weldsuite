@@ -73,6 +73,7 @@
     "./schemas/invitations": "./src/schemas/invitations.ts",
     "./schemas/vat-number": "./src/schemas/vat-number.ts",
     "./schemas/auth-desktop": "./src/schemas/auth-desktop.ts",
+    "./schemas/cli-auth": "./src/schemas/cli-auth.ts",
     "./schemas/commerce-portal": "./src/schemas/commerce-portal.ts",
     "./schemas/weldhr": "./src/schemas/weldhr.ts",
     "./schemas/weldhr-payroll": "./src/schemas/weldhr-payroll.ts",

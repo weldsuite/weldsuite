@@ -197,6 +197,10 @@ struct TestContext {
     /// through the test's own fetch stub (`conformance_outbound`).
     #[serde(default)]
     outbound: Option<String>,
+    /// The test's `WORKSPACE_CACHE`, when it shared it (`conformanceKv`),
+    /// served over HTTP (`conformance_cache`).
+    #[serde(default)]
+    cache: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -221,6 +225,8 @@ pub(crate) struct Pools {
     buckets: crate::conformance_files::BucketBridges,
     /// The bridged third-party providers, by bridge URL.
     outbound: crate::conformance_outbound::OutboundBridges,
+    /// The tests' shared KV namespaces, by bridge URL.
+    caches: crate::conformance_cache::CacheBridges,
 }
 
 impl Pools {
@@ -245,18 +251,85 @@ impl Pools {
     }
 }
 
+fn test_context(request: &Request) -> Option<TestContext> {
+    request
+        .headers()
+        .get(HEADER)
+        .and_then(|value| STANDARD.decode(value.as_bytes()).ok())
+        .and_then(|bytes| serde_json::from_slice::<TestContext>(&bytes).ok())
+}
+
+/// What a test shares with every route, signed in or not: the master
+/// database, the env values, the buckets, the KV namespace and the outbound
+/// bridge.
+fn insert_shared(
+    pools: &Pools,
+    context: &TestContext,
+    extensions: &mut http::Extensions,
+) -> Result<(), ApiError> {
+    if let Some(url) = context.master_database_url.as_deref() {
+        extensions.insert(weldsuite_db::MasterDb(pools.get(url)?));
+    }
+    extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
+        context.env.clone(),
+    )));
+    // The test's buckets; without them a module keeps the app state's stores.
+    if let Some(stores) = pools.buckets.file_stores(&context.files) {
+        extensions.insert(stores);
+    }
+    // The test's KV namespace, when it shared one.
+    if let Some(bridge) = context.cache.as_deref() {
+        extensions.insert(weldsuite_ports::RequestCache(pools.caches.cache(bridge)));
+    }
+    // The identity provider answers from the test's fetch stub.
+    if let Some(bridge) = context.outbound.as_deref() {
+        extensions.insert(weldsuite_ports::IdentityProvider(
+            pools.outbound.identity(bridge),
+        ));
+        // Expo's push API too (`POST /api/push-tokens/test`).
+        extensions.insert(pools.outbound.expo(bridge));
+        // WeldApps' gateway forwards and lifecycle webhooks.
+        extensions.insert(pools.outbound.apps_http(bridge));
+    }
+    Ok(())
+}
+
+/// Sets the answering route on the response, as the TypeScript harness does.
+async fn run_reporting_route(request: Request, next: Next) -> Response {
+    let route = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|path| hono_pattern(path.as_str()));
+    let mut response = next.run(request).await;
+    if let Some(value) = route.and_then(|route| http::HeaderValue::from_str(&route).ok()) {
+        response.headers_mut().insert(ROUTE_HEADER, value);
+    }
+    response
+}
+
+/// Middleware for the public routes (the WeldApps bundle host, the CLI's
+/// device login): no session, but the test's shared databases, buckets, KV
+/// and env when the request carries a context.
+pub(crate) async fn public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = test_context(&request)
+        && let Err(error) = insert_shared(&pools, &context, request.extensions_mut())
+    {
+        return error.into_response();
+    }
+    run_reporting_route(request, next).await
+}
+
 /// Middleware in place of `clerk_auth` + `workspace_db`.
 pub(crate) async fn auth(
     State(pools): State<Arc<Pools>>,
     mut request: Request,
     next: Next,
 ) -> Response {
-    let Some(context) = request
-        .headers()
-        .get(HEADER)
-        .and_then(|value| STANDARD.decode(value.as_bytes()).ok())
-        .and_then(|bytes| serde_json::from_slice::<TestContext>(&bytes).ok())
-    else {
+    let Some(context) = test_context(&request) else {
         return ApiError::unauthorized()
             .with_message("Missing or invalid Authorization header")
             .into_response();
@@ -264,16 +337,6 @@ pub(crate) async fn auth(
     let db = match pools.get(&context.database_url) {
         Ok(db) => db,
         Err(error) => return error.into_response(),
-    };
-
-    let master = match context
-        .master_database_url
-        .as_deref()
-        .map(|url| pools.get(url))
-    {
-        Some(Ok(pool)) => Some(pool),
-        Some(Err(error)) => return error.into_response(),
-        None => None,
     };
 
     let app_enforced = context
@@ -284,23 +347,8 @@ pub(crate) async fn auth(
     if let Some(enforced) = app_enforced {
         extensions.insert(AppEnforcedOverride(enforced));
     }
-    if let Some(master) = master {
-        extensions.insert(weldsuite_db::MasterDb(master));
-    }
-    extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
-        context.env.clone(),
-    )));
-    // The test's buckets; without them a module keeps the app state's stores.
-    if let Some(stores) = pools.buckets.file_stores(&context.files) {
-        extensions.insert(stores);
-    }
-    // The identity provider answers from the test's fetch stub.
-    if let Some(bridge) = context.outbound.as_deref() {
-        extensions.insert(weldsuite_ports::IdentityProvider(
-            pools.outbound.identity(bridge),
-        ));
-        // Expo's push API too (`POST /api/push-tokens/test`).
-        extensions.insert(pools.outbound.expo(bridge));
+    if let Err(error) = insert_shared(&pools, &context, extensions) {
+        return error.into_response();
     }
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
@@ -345,15 +393,7 @@ pub(crate) async fn auth(
         session_id: context.session_id,
         factor_verification_age: context.factor_verification_age,
     });
-    let route = request
-        .extensions()
-        .get::<MatchedPath>()
-        .map(|path| hono_pattern(path.as_str()));
-    let mut response = next.run(request).await;
-    if let Some(value) = route.and_then(|route| http::HeaderValue::from_str(&route).ok()) {
-        response.headers_mut().insert(ROUTE_HEADER, value);
-    }
-    response
+    run_reporting_route(request, next).await
 }
 
 #[cfg(test)]

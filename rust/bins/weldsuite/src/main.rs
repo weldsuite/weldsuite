@@ -11,6 +11,8 @@ mod conformance;
 #[cfg(feature = "conformance")]
 mod conformance_files;
 #[cfg(feature = "conformance")]
+mod conformance_cache;
+#[cfg(feature = "conformance")]
 mod conformance_outbound;
 mod infra;
 mod routes;

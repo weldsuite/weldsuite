@@ -41,6 +41,8 @@ import type { Database } from '../env';
 import { pgliteClientOf } from './pglite';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
+import { isSharedKv, kvUrl, recordingKv, redoKv, takeKvJournal, undoKv, type KvWrite } from './kv-bridge';
+import { maskVolatile } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import {
   type OutboundCall,
@@ -89,6 +91,14 @@ const FORWARDED_ENV = [
   'R2_PUBLIC_URL',
   'ENVIRONMENT',
   'PUBLIC_APP_URL',
+  // WeldApps: bundle link signing, the bundle origin, the publisher allowlist
+  // and where the app gateway forwards to.
+  'INTERNAL_API_SECRET',
+  'USER_APP_BUNDLE_SIGNING_KEY',
+  'USER_APP_BUNDLE_ORIGIN',
+  'USER_APP_FRAME_ANCESTORS',
+  'WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS',
+  'EXTERNAL_API_URL',
 ] as const;
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -519,6 +529,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     env: forwardedEnv,
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
+    // The test's KV, when it shared it (`conformanceKv`).
+    cache: (await kvUrl(env)) ?? null,
     // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
     outbound: await outboundBridgeUrl(),
   };
@@ -574,8 +586,24 @@ async function runBoth(
     };
   };
 
+  // A shared KV can't be cloned: both runs start from the same entries by
+  // undoing the first run's writes (./kv-bridge.ts).
+  const kv = isSharedKv(request.env.WORKSPACE_CACHE) ? request.env.WORKSPACE_CACHE : undefined;
+  const typeScriptOnKv = async (db: Database, journal: KvWrite[]) => {
+    if (!kv) return typeScript(db);
+    request.env.WORKSPACE_CACHE = recordingKv(kv, journal);
+    try {
+      return await typeScript(db);
+    } finally {
+      request.env.WORKSPACE_CACHE = kv;
+    }
+  };
+  if (kv) takeKvJournal(kv);
+
   if (!isWrite) {
-    const ts = await typeScript(request.ctx.tenantDb);
+    const tsWrites: KvWrite[] = [];
+    const ts = await typeScriptOnKv(request.ctx.tenantDb, tsWrites);
+    if (kv) await undoKv(kv, tsWrites);
     return { ...ts, ...(await rustRun()) };
   }
   const clone = await cloneDatabase(client);
@@ -584,11 +612,18 @@ async function runBoth(
   const masterClone = masterClient ? await cloneDatabase(masterClient, 'master') : undefined;
   try {
     const rust = await rustRun();
+    const rustWrites = kv ? takeKvJournal(kv) : [];
+    if (kv) await undoKv(kv, rustWrites);
     masterForTypeScript = masterClone?.db;
+    const tsWrites: KvWrite[] = [];
     try {
-      return { ...rust, ...(await typeScript(clone.db)) };
+      return { ...rust, ...(await typeScriptOnKv(clone.db, tsWrites)) };
     } finally {
       masterForTypeScript = undefined;
+      if (kv) {
+        await undoKv(kv, tsWrites);
+        await redoKv(kv, rustWrites);
+      }
     }
   } finally {
     await clone.close();
@@ -597,10 +632,18 @@ async function runBoth(
 }
 
 /** Where the two runs differ: status, body, then side effects; null when they match. */
-function compareRuns({ ts, rust, tsEffects, rustEffects }: Runs, isWrite: boolean): string | null {
+function compareRuns(
+  { ts, rust, tsEffects, rustEffects }: Runs,
+  isWrite: boolean,
+  method: string,
+  route: string | null,
+): string | null {
   if (ts.status !== rust.status) return `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
   if (ts.json !== undefined || rust.json !== undefined) {
-    const body = firstDifference(normalizeForDiff(ts.json, isWrite), normalizeForDiff(rust.json, isWrite));
+    const body = firstDifference(
+      normalizeForDiff(maskVolatile(method, route, ts.json), isWrite),
+      normalizeForDiff(maskVolatile(method, route, rust.json), isWrite),
+    );
     if (body) return body;
   } else if (Buffer.compare(ts.bytes, rust.bytes) !== 0) {
     return 'response bodies differ';
@@ -640,6 +683,9 @@ async function replayableBody(body: BodyInit | null | undefined, headers: Header
 export async function conformanceRequest(request: ConformanceRequest): Promise<Response> {
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
+  // An absolute URL keeps its origin for the Hono app, as outside conformance
+  // mode; Rust gets it as an ingress would pass it on.
+  const absolute = /^https?:\/\//.test(request.input) ? new URL(request.input) : null;
   const method = (init?.method ?? 'GET').toUpperCase();
   const isWrite = !SAFE_METHODS.has(method);
 
@@ -658,21 +704,21 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   rustHeaders.set(CONFORMANCE_HEADER, Buffer.from(JSON.stringify(context)).toString('base64'));
   // The Hono app sees `http://localhost/...`; tell Rust the same origin, as
   // an ingress would, so URLs built from it (private object URLs) match.
-  rustHeaders.set('X-Forwarded-Host', 'localhost');
-  rustHeaders.set('X-Forwarded-Proto', 'http');
+  rustHeaders.set('X-Forwarded-Host', absolute?.host ?? 'localhost');
+  rustHeaders.set('X-Forwarded-Proto', absolute ? absolute.protocol.replace(/:$/, '') : 'http');
 
   const runs = await runBoth(
     request,
     client,
     isWrite,
     () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body }).then(capture),
-    (db) => request.runTypeScript(db, input, { ...init, method, headers, body }).then(capture),
+    (db) => request.runTypeScript(db, absolute ? request.input : input, { ...init, method, headers, body }).then(capture),
   );
   const { ts, rust } = runs;
   // The test reads Rust's mail, as it reads Rust's response.
   request.sideEffects.adoptMail(runs.tsMail, runs.rustMail);
   const route = ts.headers.get(ROUTE_HEADER);
-  const difference = compareRuns(runs, isWrite);
+  const difference = compareRuns(runs, isWrite, method, route);
   const { schema, schemaError } = checkSchema(method, route, rust);
 
   if (target.reportDir) {

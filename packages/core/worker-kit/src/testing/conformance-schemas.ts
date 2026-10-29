@@ -11,6 +11,22 @@
  */
 
 import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
+import { desktopTicketSchema } from '@weldsuite/app-api-client/schemas/auth-desktop';
+import { cliAuthApproveSchema, cliAuthDeviceSchema, cliAuthTokenSchema } from '@weldsuite/app-api-client/schemas/cli-auth';
+import {
+  appDeveloperAccountSchema,
+  installedUserAppSchema,
+  userAppBundleUrlSchema,
+  userAppDevSessionViewSchema,
+  userAppInstallResultSchema,
+  userAppInstallSchema,
+  userAppOauthClientSchema,
+  userAppOauthClientSecretSchema,
+  userAppSchema,
+  userAppSessionTokenSchema,
+  userAppStoreListingSchema,
+  userAppVersionSchema,
+} from '@weldsuite/app-api-client/schemas/user-apps';
 import {
   customFieldDefinitionSchema,
   customFieldDefinitionsByEntityTypeSchema,
@@ -304,6 +320,32 @@ const ROUTES: RouteSchema[] = [
   { method: 'DELETE', route: '/api/drive/trash/empty', envelope: 'single', data: emptiedResultSchema },
   // core: search (`{ data: groups, query, permittedTypes, understanding }`)
   { method: 'POST', route: '/api/search', envelope: 'single', data: searchResultGroupSchema.array() },
+  // core: WeldApps (user-created apps)
+  { method: 'GET', route: '/api/user-apps', envelope: 'list', data: userAppSchema },
+  { method: 'POST', route: '/api/user-apps', envelope: 'single', data: userAppSchema },
+  { method: 'GET', route: '/api/user-apps/store', envelope: 'list', data: userAppStoreListingSchema },
+  { method: 'GET', route: '/api/user-apps/store/:code', envelope: 'single', data: userAppStoreListingSchema },
+  { method: 'GET', route: '/api/user-apps/installed', envelope: 'list', data: installedUserAppSchema },
+  { method: 'GET', route: '/api/user-apps/developer-account', envelope: 'single', data: appDeveloperAccountSchema },
+  { method: 'POST', route: '/api/user-apps/code/:code/session-token', envelope: 'single', data: userAppSessionTokenSchema },
+  { method: 'POST', route: '/api/user-apps/code/:code/bundle-url', envelope: 'single', data: userAppBundleUrlSchema },
+  { method: 'GET', route: '/api/user-apps/code/:code/dev-session', envelope: 'single', data: userAppDevSessionViewSchema.nullable() },
+  { method: 'PUT', route: '/api/user-apps/code/:code/dev-session', envelope: 'single', data: userAppDevSessionViewSchema },
+  { method: 'GET', route: '/api/user-apps/:id', envelope: 'single', data: userAppSchema },
+  { method: 'PATCH', route: '/api/user-apps/:id', envelope: 'single', data: userAppSchema },
+  { method: 'GET', route: '/api/user-apps/:id/versions', envelope: 'list', data: userAppVersionSchema },
+  { method: 'POST', route: '/api/user-apps/:id/versions', envelope: 'single', data: userAppVersionSchema },
+  { method: 'POST', route: '/api/user-apps/:id/submit', envelope: 'single', data: userAppSchema },
+  { method: 'POST', route: '/api/user-apps/:id/review', envelope: 'single', data: userAppSchema },
+  { method: 'POST', route: '/api/user-apps/:id/install', envelope: 'single', data: userAppInstallResultSchema },
+  { method: 'POST', route: '/api/user-apps/:id/consent', envelope: 'single', data: userAppInstallSchema },
+  { method: 'POST', route: '/api/user-apps/:id/oauth-client', envelope: 'single', data: userAppOauthClientSecretSchema },
+  { method: 'GET', route: '/api/user-apps/:id/oauth-client', envelope: 'single', data: userAppOauthClientSchema },
+  // core: CLI login, desktop sign-in handoff
+  { method: 'POST', route: '/api/cli-auth/device', envelope: 'single', data: cliAuthDeviceSchema },
+  { method: 'POST', route: '/api/cli-auth/token', envelope: 'single', data: cliAuthTokenSchema },
+  { method: 'POST', route: '/api/cli-auth/approve', envelope: 'single', data: cliAuthApproveSchema },
+  { method: 'POST', route: '/api/auth-desktop/ticket', envelope: 'single', data: desktopTicketSchema },
 ];
 
 /** null when valid, else why not. */

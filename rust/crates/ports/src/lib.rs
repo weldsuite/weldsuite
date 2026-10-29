@@ -34,7 +34,7 @@ pub mod jobs;
 pub mod mail;
 pub mod realtime;
 
-pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
+pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
     DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions, StoredObject,
@@ -44,7 +44,7 @@ pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSource
 pub use identity::{
     Identity, IdentityCall, IdentityError, IdentityProvider, IdentityResult, Invitation, ListPage,
     Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, Organization,
-    OrganizationChanges, OrganizationRef, User, with_identity,
+    OrganizationChanges, OrganizationRef, User, UserProfile, with_identity,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{

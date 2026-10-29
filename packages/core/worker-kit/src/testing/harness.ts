@@ -28,6 +28,7 @@ import {
 } from './conformance';
 
 export { conformanceMasterDb } from './conformance';
+export { conformanceKv } from './kv-bridge';
 
 // One-time init: the `requirePermission` middleware throws if its DB
 // query factory was never registered. Tests pre-cache `userPermissions`

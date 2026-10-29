@@ -122,6 +122,17 @@ impl<C: Cache + ?Sized> Cache for Arc<C> {
     }
 }
 
+/// The cache a request uses in place of the app's, as a request extension:
+/// conformance mode hands each request the test's own KV namespace.
+#[derive(Clone)]
+pub struct RequestCache(pub Arc<dyn DynCache>);
+
+impl std::fmt::Debug for RequestCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RequestCache")
+    }
+}
+
 /// In-process [`Cache`]: the test double, and enough for a single replica
 /// that has no Valkey. Expired entries are dropped when read.
 #[derive(Debug, Default)]
