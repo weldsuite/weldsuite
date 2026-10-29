@@ -41,3 +41,20 @@ export interface AccountDeletionStatus {
 export interface DeleteAccountResult {
   deleted: boolean;
 }
+
+// Response schemas, for clients and the conformance suite.
+
+const workspaceRefSchema = z.object({ workspaceId: z.string(), name: z.string() });
+
+export const accountDeletionStatusSchema = z.object({
+  canDelete: z.boolean(),
+  blockers: z.array(
+    workspaceRefSchema.extend({
+      reason: z.literal('sole_admin_with_members'),
+      otherMemberCount: z.number().int(),
+    }),
+  ),
+  workspacesToDelete: z.array(workspaceRefSchema),
+});
+
+export const deleteAccountResultSchema = z.object({ deleted: z.boolean() });

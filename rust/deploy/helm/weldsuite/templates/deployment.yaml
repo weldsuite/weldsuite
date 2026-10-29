@@ -69,6 +69,28 @@ spec:
               value: {{ .Values.config.logLevel | quote }}
             - name: PERMISSIONS_APP_ENFORCE
               value: {{ .Values.config.permissionsAppEnforce | toString | quote }}
+            {{- with .Values.config.auth }}
+            - name: AUTH_PROVIDER
+              value: {{ .provider | quote }}
+            {{- if eq .provider "oidc" }}
+            - name: OIDC_ISSUER
+              value: {{ required "config.auth.oidc.issuer is required with config.auth.provider oidc" .oidc.issuer | quote }}
+            - name: OIDC_AUDIENCE
+              value: {{ required "config.auth.oidc.audience is required with config.auth.provider oidc" .oidc.audience | toString | quote }}
+            - name: OIDC_ORG_CLAIM
+              value: {{ .oidc.orgClaim | quote }}
+            {{- with .oidc.jwksUrl }}
+            - name: OIDC_JWKS_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .oidc.webClientId }}
+            - name: OIDC_WEB_CLIENT_ID
+              value: {{ . | toString | quote }}
+            {{- end }}
+            {{- else if ne .provider "clerk" }}
+            {{- fail "config.auth.provider must be clerk or oidc" }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.config.clerkAuthorizedParties }}
             - name: CLERK_AUTHORIZED_PARTIES
               value: {{ . | quote }}

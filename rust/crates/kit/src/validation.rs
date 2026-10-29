@@ -122,6 +122,8 @@ pub enum Format {
     DatetimeOffset,
     /// `.regex(/^\d+$/)`.
     Digits,
+    /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
+    Url,
 }
 
 /// A number's checks: `z.number()` (`z.coerce.number()` when `coerce`),
@@ -142,6 +144,31 @@ impl Invalid {
     /// The issues, as Zod lists them.
     pub fn issues(&self) -> &[Value] {
         &self.0
+    }
+
+    /// Zod's `error.flatten()`: messages of root issues in `formErrors`, the
+    /// rest by their first path segment in `fieldErrors`, in issue order.
+    pub fn flatten(&self) -> Value {
+        let mut form_errors = Vec::new();
+        let mut field_errors = Map::new();
+        for issue in &self.0 {
+            let message = issue["message"].clone();
+            match issue["path"].get(0) {
+                Some(first) => {
+                    let key = first
+                        .as_str()
+                        .map_or_else(|| first.to_string(), str::to_owned);
+                    if let Value::Array(messages) = field_errors
+                        .entry(key)
+                        .or_insert_with(|| Value::Array(Vec::new()))
+                    {
+                        messages.push(message);
+                    }
+                }
+                None => form_errors.push(message),
+            }
+        }
+        json!({ "formErrors": form_errors, "fieldErrors": field_errors })
     }
 }
 
@@ -164,6 +191,22 @@ pub struct Issues {
 impl Issues {
     pub fn is_empty(&self) -> bool {
         self.issues.is_empty()
+    }
+
+    /// How many issues so far: where the next field's issues start, for
+    /// [`Issues::custom_message`].
+    pub fn count(&self) -> usize {
+        self.issues.len()
+    }
+
+    /// A check's custom message (`.min(1, 'Name is required')`): every issue
+    /// with `code` added since `from` gets `message`.
+    pub fn custom_message(&mut self, from: usize, code: &str, message: &str) {
+        for issue in self.issues.iter_mut().skip(from) {
+            if issue["code"] == code {
+                issue["message"] = Value::String(message.to_owned());
+            }
+        }
     }
 
     /// `Err` (a 400 response) when anything was wrong.
@@ -768,6 +811,20 @@ impl Issues {
             .into_option()
     }
 
+    /// `z.string().min(min, message)` failing on `key`, with the schema's
+    /// own message.
+    pub fn string_too_small(&mut self, key: &str, min: usize, message: &str) {
+        let path = self.path(key);
+        self.too_small(&path, "string", &json!(min), message);
+    }
+
+    /// `z.string().max(max, message)` failing on `key`, with the schema's
+    /// own message.
+    pub fn string_too_big(&mut self, key: &str, max: usize, message: &str) {
+        let path = self.path(key);
+        self.too_big(&path, "string", &json!(max), message);
+    }
+
     #[cfg(test)]
     fn take(self) -> Value {
         Value::Array(self.issues)
@@ -780,6 +837,7 @@ impl Format {
             Self::Email => ("email", "Invalid email"),
             Self::DatetimeOffset => ("datetime", "Invalid datetime"),
             Self::Digits => ("regex", "Invalid"),
+            Self::Url => ("url", "Invalid url"),
         }
     }
 
@@ -790,8 +848,72 @@ impl Format {
             Self::Email => !text.starts_with('.') && !text.contains("..") && EMAIL.is_match(text),
             Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
+            Self::Url => js_url_parses(text),
         }
     }
+}
+
+/// Whether `new URL(text)` (WHATWG URL, no base) would succeed, as Zod 3's
+/// `.url()` checks: a scheme, and for the special schemes a valid host.
+/// Covers what profile links and the like send; exotic hosts (IDNA,
+/// percent-encoded labels, IPv4 shorthands) are judged by their characters.
+pub fn js_url_parses(text: &str) -> bool {
+    // The parser strips leading/trailing C0 controls and spaces, and every
+    // tab and newline.
+    let trimmed = text.trim_matches(|c: char| c <= ' ');
+    let cleaned: String = trimmed
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect();
+    let Some((scheme, rest)) = cleaned.split_once(':') else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    let scheme_ok = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    if !scheme_ok {
+        return false;
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    if !matches!(scheme.as_str(), "http" | "https" | "ws" | "wss" | "ftp") {
+        // `file:` and the non-special schemes take any rest.
+        return true;
+    }
+    let after = rest.trim_start_matches(['/', '\\']);
+    let authority = after
+        .split(['/', '\\', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let (host, port) = if host_port.starts_with('[') {
+        match host_port.find(']') {
+            Some(end) => (&host_port[..=end], &host_port[end + 1..]),
+            None => return false,
+        }
+    } else {
+        match host_port.rsplit_once(':') {
+            Some((host, port)) => (host, port),
+            None => (host_port, ""),
+        }
+    };
+    let port = port.strip_prefix(':').unwrap_or(port);
+    let port_ok = port.is_empty()
+        || (port.bytes().all(|b| b.is_ascii_digit())
+            && port.parse::<u32>().is_ok_and(|p| p <= 65535));
+    if host.is_empty() || !port_ok {
+        return false;
+    }
+    if host.starts_with('[') {
+        return host.ends_with(']') && host.len() > 2;
+    }
+    !host.chars().any(|c| {
+        c <= ' '
+            || c == '\u{7f}'
+            || matches!(
+                c,
+                '#' | '%' | '/' | ':' | '<' | '>' | '?' | '@' | '[' | '\\' | ']' | '^' | '|'
+            )
+    })
 }
 
 static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
@@ -911,6 +1033,35 @@ pub fn query_values(query: Option<&str>) -> Map<String, Value> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn urls_parse_like_new_url() {
+        for valid in [
+            "https://ann.example",
+            "https://github.com/cy?tab=1#top",
+            "http://user:pw@host:8080/x",
+            "mailto:bob@acme.test",
+            "localhost:3000",
+            "  https://a.test  ",
+            "http://[::1]:80/",
+            "file:///etc/hosts",
+        ] {
+            assert!(js_url_parses(valid), "{valid}");
+        }
+        for invalid in [
+            "not a url",
+            "example.com",
+            "/relative",
+            "http://",
+            "https://exa mple.com",
+            "http://a.test:99999",
+            "http://a.test:8o",
+            "1http://a.test",
+            "",
+        ] {
+            assert!(!js_url_parses(invalid), "{invalid}");
+        }
+    }
+
     /// Issues Zod 3 produced for the same input (`safeParse`, JSON-serialised).
     /// `createObjectTemplateSchema` and `createCustomObjectSchema`: regex
     /// after the length checks, a refinement after a failed check, and an
@@ -951,6 +1102,24 @@ mod tests {
                 {"validation":"regex","code":"invalid_string","message":"Slug must start with a letter","path":["slug"]},
                 {"code":"too_small","minimum":1,"type":"array","inclusive":true,"exact":false,"message":"Select at least one field","path":["fields"]},
                 {"code":"custom","message":"Reserved","path":["slug"]}
+            ])
+        );
+    }
+
+    #[test]
+    fn custom_messages_and_refinements_match_zod() {
+        // z.object({ name: z.string().trim().min(1, 'Name is required').max(200, …),
+        //            phone: z.string().refine(…, 'Enter a valid phone number') })
+        let mut issues = Issues::default();
+        issues.string_too_small("name", 1, "Name is required");
+        issues.custom("phone", "Enter a valid phone number");
+        issues.string_too_big("nick", 200, "Name must be 200 characters or fewer");
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_small","minimum":1,"type":"string","inclusive":true,"exact":false,"message":"Name is required","path":["name"]},
+                {"code":"custom","message":"Enter a valid phone number","path":["phone"]},
+                {"code":"too_big","maximum":200,"type":"string","inclusive":true,"exact":false,"message":"Name must be 200 characters or fewer","path":["nick"]}
             ])
         );
     }

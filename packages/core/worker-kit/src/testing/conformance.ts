@@ -49,6 +49,13 @@ import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
 import { isolatedEnv } from './write-isolation';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
+import {
+  type OutboundCall,
+  outboundBridgeUrl,
+  recordOutbound,
+  sortOutbound,
+  takeRustOutbound,
+} from './outbound-bridge';
 
 export interface ConformanceTarget {
   url: string;
@@ -91,8 +98,9 @@ const FORWARDED_ENV = [
   'PERMISSIONS_APP_ENFORCE',
   'SIGN_SESSION_SECRET',
   'R2_PUBLIC_URL',
-  'STORAGE_SIGNING_KEY',
   'ENVIRONMENT',
+  'PUBLIC_APP_URL',
+  'STORAGE_SIGNING_KEY',
   'CLERK_JWT_KEY',
   'CLERK_AUTHORIZED_PARTIES',
 ] as const;
@@ -123,6 +131,8 @@ export interface SideEffects {
   realtime: Array<{ path: string; body: unknown }>;
   /** System mail, compared as records (./conformance-mail.ts). */
   mail: MailRecord[];
+  /** Calls to third-party APIs (Clerk, Expo, …), sorted (./outbound-bridge.ts). */
+  outbound?: OutboundCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -295,11 +305,33 @@ function databaseUrlFor(client: PGliteClient): Promise<string> {
 }
 
 /** A drizzle handle on a copy of the test's database, for the TypeScript side of a write. */
-async function cloneDatabase(client: PGliteClient): Promise<{ db: Database; close: () => Promise<void> }> {
-  const [drizzlePg, schema] = await Promise.all([import('drizzle-orm/pglite'), import('@weldsuite/db/schema')]);
+async function cloneDatabase(
+  client: PGliteClient,
+  kind: 'tenant' | 'master' = 'tenant',
+): Promise<{ db: Database; close: () => Promise<void> }> {
+  const [drizzlePg, schema] = await Promise.all([
+    import('drizzle-orm/pglite'),
+    kind === 'master' ? import('@weldsuite/db/schema/master') : import('@weldsuite/db/schema'),
+  ]);
   const clone = await client.clone();
   const db = drizzlePg.drizzle(clone as never, { schema }) as unknown as Database;
   return { db, close: () => (clone as { close: () => Promise<void> }).close() };
+}
+
+/** The copy of the master database the TypeScript side of a write runs on, while it runs. */
+let masterForTypeScript: Database | undefined;
+
+/**
+ * The master database a test's `getMasterDb` mock should hand out:
+ * `vi.mock(..., () => ({ getMasterDb: () => conformanceMasterDb(master.db) }))`.
+ *
+ * The master database is shared with the Rust server like the tenant one, so
+ * a write would otherwise run on TypeScript after Rust already changed it. For
+ * the TypeScript side of a write this is a copy taken before Rust ran; at
+ * every other moment (and outside conformance mode) it is `db` itself.
+ */
+export function conformanceMasterDb<T>(db: T): T {
+  return (masterForTypeScript as T | undefined) ?? db;
 }
 
 // ── comparison ──────────────────────────────────────────────────────────────
@@ -307,6 +339,11 @@ async function cloneDatabase(client: PGliteClient): Promise<{ db: Database; clos
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * `Date.now()` inside a string (a storage key, a URL): 13 digits from 2001 to
+ * 2286, not part of a longer number. Differs between two runs of a write.
+ */
+const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /** The `<Date.now()>_<random UUID hex>` segment of a new upload's object key. */
@@ -322,7 +359,11 @@ function isMintedExpiry(value: unknown): boolean {
   return Math.abs(value - Math.floor(Date.now() / 1000)) <= EXPIRY_WINDOW_SECONDS;
 }
 
-/** A write's string with its per-run parts (upload tokens, random key segments, URL signatures) replaced. */
+/**
+ * A write's string with its per-run parts replaced: upload tokens, an upload
+ * key's random segment, URL signatures, then any other `Date.now()` (the
+ * upload key's segment first, since it holds one).
+ */
 function normalizeString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
@@ -330,7 +371,8 @@ function normalizeString(value: string, key: string | undefined): string {
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
-    .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>');
+    .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
+    .replace(EPOCH_MS, '<epoch-ms>');
 }
 
 /**
@@ -533,6 +575,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     files: await bucketUrls(env),
     // And its KV namespace, so Rust shares its keys.
     kv: await kvUrls(env),
+    // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
+    outbound: await outboundBridgeUrl(),
   };
 }
 
@@ -562,25 +606,53 @@ async function runBoth(
   // Start both recordings empty.
   await request.sideEffects.drain();
   await rustSideEffects(request.target);
+  takeRustOutbound();
+
+  // The Hono app's run, its `waitUntil` work included, with its outbound calls.
+  const typeScript = async (db: Database, env?: Record<string, unknown>) => {
+    const { result, calls } = await recordOutbound(async () => {
+      const ts = await runTypeScript(db, env);
+      return { ts, effects: await request.sideEffects.drain() };
+    });
+    return {
+      ts: result.ts,
+      tsEffects: { ...result.effects, outbound: sortOutbound(calls) },
+      tsMail: request.sideEffects.lastMail(),
+    };
+  };
+  // Rust's run; its outbound calls are what reached the bridge.
+  const rustRun = async () => {
+    const rust = await runRust();
+    const side = await rustSideEffects(request.target);
+    return {
+      rust,
+      rustEffects: { ...side.effects, outbound: sortOutbound(takeRustOutbound()) },
+      rustMail: side.mail,
+    };
+  };
 
   if (!isWrite) {
-    const ts = await runTypeScript(request.ctx.tenantDb);
-    const tsEffects = await request.sideEffects.drain();
-    const tsMail = request.sideEffects.lastMail();
-    const rust = await runRust();
-    const rustSide = await rustSideEffects(request.target);
-    return { ts, tsEffects, tsMail, rust, rustEffects: rustSide.effects, rustMail: rustSide.mail };
+    const ts = await typeScript(request.ctx.tenantDb);
+    return { ...ts, ...(await rustRun()) };
   }
   const clone = await cloneDatabase(client);
+  // The master database too, when the test has one: Rust writes the shared one.
+  const masterClient = request.ctx.masterDb ? pgliteClientOf(request.ctx.masterDb) : undefined;
+  const masterClone = masterClient ? await cloneDatabase(masterClient, 'master') : undefined;
   try {
-    const ts = await runTypeScript(clone.db, isolatedEnv(request.env));
-    const tsEffects = await request.sideEffects.drain();
-    const tsMail = request.sideEffects.lastMail();
-    const rust = await runRust();
-    const rustSide = await rustSideEffects(request.target);
-    return { ts, rust, rustEffects: rustSide.effects, rustMail: rustSide.mail, tsEffects, tsMail };
+    // TypeScript first, on the copies and on copy-on-write views of the
+    // buckets and KV, so it starts from the state Rust then starts from.
+    masterForTypeScript = masterClone?.db;
+    let ts: Awaited<ReturnType<typeof typeScript>>;
+    try {
+      ts = await typeScript(clone.db, isolatedEnv(request.env));
+    } finally {
+      masterForTypeScript = undefined;
+    }
+    return { ...ts, ...(await rustRun()) };
   } finally {
     await clone.close();
+    await masterClone?.close();
   }
 }
 

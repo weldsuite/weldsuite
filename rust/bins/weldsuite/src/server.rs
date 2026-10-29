@@ -52,9 +52,16 @@ pub(crate) struct AppState {
     pub(crate) files_public_url: Option<Arc<str>>,
     /// `STORAGE_SIGNING_KEY`, for private-object cookies and signed URLs.
     pub(crate) storage_signing_key: Option<Arc<str>>,
+    /// Sign-in settings for `/config.json`: the OIDC issuer and the
+    /// platform's client id. `None` with Clerk.
+    pub(crate) public_auth: Option<Arc<serde_json::Value>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
+    /// The test databases and bridges, shared by every conformance route
+    /// (one connection per pglite).
+    #[cfg(feature = "conformance")]
+    pub(crate) conformance_pools: Arc<crate::conformance::Pools>,
 }
 
 impl AppState {
@@ -95,10 +102,12 @@ pub(crate) fn router(state: AppState) -> Router {
         ))
         .layer(axum::middleware::from_fn(weldsuite_pipeline::licence_gate));
     let api = authenticated(api, &state);
+    // Session only, no workspace: app-api mounts these above its guard.
+    let api = api.merge(signed_in(crate::routes::account(&state), &state));
     // Before any authentication, at their full `/api/...` paths: the routes
     // that check their own credential (an upload token, a files cookie, a
     // signed URL), as app-api mounts them ahead of `clerkMiddleware`.
-    let public = before_authentication(crate::routes::public(&state));
+    let public = before_authentication(crate::routes::public(&state), &state);
 
     let root = Router::new().merge(public);
     #[cfg(feature = "conformance")]
@@ -138,27 +147,44 @@ fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     ))
 }
 
+/// The session alone, for the routes that need no workspace
+/// (`clerkMiddleware()` without `workspaceDbMiddleware()`).
+#[cfg(not(feature = "conformance"))]
+fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    api.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.verifier),
+        weldsuite_auth::clerk_auth,
+    ))
+}
+
 /// Conformance builds take the test's context from a header instead.
 #[cfg(feature = "conformance")]
-fn authenticated(api: Router<AppState>, _state: &AppState) -> Router<AppState> {
+fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     api.layer(axum::middleware::from_fn_with_state(
-        Arc::new(crate::conformance::Pools::default()),
+        Arc::clone(&state.conformance_pools),
         crate::conformance::auth,
     ))
 }
 
+/// Conformance builds take the test's context from a header, workspace or
+/// not.
+#[cfg(feature = "conformance")]
+fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    authenticated(api, state)
+}
+
 /// The public routes as they are.
 #[cfg(not(feature = "conformance"))]
-fn before_authentication(public: Router<AppState>) -> Router<AppState> {
+fn before_authentication(public: Router<AppState>, _state: &AppState) -> Router<AppState> {
     public
 }
 
 /// Conformance builds give the public routes what the test shares (its
 /// buckets, KV and env), without a session.
 #[cfg(feature = "conformance")]
-fn before_authentication(public: Router<AppState>) -> Router<AppState> {
+fn before_authentication(public: Router<AppState>, state: &AppState) -> Router<AppState> {
     public.route_layer(axum::middleware::from_fn_with_state(
-        Arc::new(crate::conformance::Pools::default()),
+        Arc::clone(&state.conformance_pools),
         crate::conformance::public,
     ))
 }
@@ -227,8 +253,9 @@ async fn health(State(state): State<AppState>) -> Response {
 /// frontends. `modules` is the core platform plus every module ported to Rust
 /// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`); a client hides the
 /// apps of any other module. Global never asks: it runs every module in
-/// TypeScript.
-async fn config_json() -> Response {
+/// TypeScript. With an OIDC provider, `auth` tells the frontends where to
+/// sign in (issuer, the platform's PKCE client id, the organization claim).
+async fn config_json(State(state): State<AppState>) -> Response {
     let modules: Vec<&str> = std::iter::once("core")
         .chain(
             weldsuite_catalogs::api_modules()
@@ -237,15 +264,15 @@ async fn config_json() -> Response {
                 .map(|module| module.id.as_str()),
         )
         .collect();
-    (
-        [(header::CACHE_CONTROL, "no-cache")],
-        Json(json!({
-            "backend": "rust",
-            "version": env!("CARGO_PKG_VERSION"),
-            "modules": modules,
-        })),
-    )
-        .into_response()
+    let mut body = json!({
+        "backend": "rust",
+        "version": env!("CARGO_PKG_VERSION"),
+        "modules": modules,
+    });
+    if let Some(auth) = &state.public_auth {
+        body["auth"] = auth.as_ref().clone();
+    }
+    ([(header::CACHE_CONTROL, "no-cache")], Json(body)).into_response()
 }
 
 async fn robots() -> &'static str {
@@ -361,8 +388,11 @@ mod tests {
             sign_session_secret: None,
             files_public_url: None,
             storage_signing_key: None,
+            public_auth: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
+            #[cfg(feature = "conformance")]
+            conformance_pools: Arc::default(),
         }
     }
 
@@ -438,6 +468,66 @@ mod tests {
             .filter(|m| m.rust)
             .count();
         assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
+        assert!(body.get("auth").is_none(), "Clerk setups add nothing");
+    }
+
+    /// The app state with an OIDC verifier over the auth crate's fixture keys.
+    fn oidc_state() -> (AppState, Value) {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../crates/auth/tests/fixtures/oidc-tokens.json"
+        ))
+        .expect("fixture");
+        let settings = weldsuite_auth::OidcSettings::new(
+            fixture["issuer"].as_str().expect("issuer"),
+            vec![fixture["project"].as_str().expect("project").to_owned()],
+        );
+        let verifier =
+            SessionVerifier::oidc_with_jwks(settings, &fixture["jwks"].to_string()).expect("jwks");
+        let mut state = state();
+        state.verifier = Arc::new(verifier);
+        state.public_auth = Some(Arc::new(json!({
+            "provider": "oidc",
+            "issuer": fixture["issuer"],
+            "clientId": "300000000000000300",
+        })));
+        (state, fixture)
+    }
+
+    #[cfg(not(feature = "conformance"))]
+    #[tokio::test]
+    async fn an_oidc_session_passes_auth_and_reaches_the_workspace_lookup() {
+        let (state, fixture) = oidc_state();
+        let with = |name: &str| {
+            Request::builder()
+                .uri("/api/me/permissions")
+                .header(
+                    "Authorization",
+                    format!(
+                        "Bearer {}",
+                        fixture["tokens"][name].as_str().expect("token")
+                    ),
+                )
+                .body(Body::empty())
+                .expect("request")
+        };
+        // Signed in: the next layer looks the organization up in the master
+        // database, which this test has none of (500, not 401).
+        let (status, _, body) = call(state.clone(), with("longLived")).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        let (status, _, body) = call(state, with("expired")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body.contains("Token verification failed"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn config_tells_oidc_frontends_where_to_sign_in() {
+        let (state, fixture) = oidc_state();
+        let (status, _, body) = call(state, get("/config.json")).await;
+        assert_eq!(status, StatusCode::OK);
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["auth"]["provider"], "oidc");
+        assert_eq!(body["auth"]["issuer"], fixture["issuer"]);
+        assert_eq!(body["auth"]["clientId"], "300000000000000300");
     }
 
     #[tokio::test]

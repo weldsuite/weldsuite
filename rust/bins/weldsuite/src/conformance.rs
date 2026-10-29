@@ -15,7 +15,8 @@
 //!   "flags": { "upgrade-button": true }, // what the test's `context.flags` answers
 //!   "env": { "PERMISSIONS_APP_ENFORCE": "true" },
 //!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." }, // the test's buckets, over HTTP
-//!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." } }   // the test's KV, over HTTP
+//!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." },     // the test's KV, over HTTP
+//!   "outbound": "http://127.0.0.1:..." }  // third-party calls, through the test's fetch stub
 //! ```
 //!
 //! The routes that run before authentication (`/api/storage/upload/:token`,
@@ -200,6 +201,10 @@ struct TestContext {
     /// The test's KV namespace served over HTTP (`{ WORKSPACE_CACHE: url }`).
     #[serde(default)]
     kv: HashMap<String, String>,
+    /// The harness's outbound bridge: third-party calls (Clerk, …) go
+    /// through the test's own fetch stub (`conformance_outbound`).
+    #[serde(default)]
+    outbound: Option<String>,
 }
 
 impl TestContext {
@@ -235,6 +240,8 @@ pub(crate) struct Pools {
     kv: crate::conformance_kv::KvBridges,
     /// Session verifiers for the tests' own `CLERK_JWT_KEY`, by key.
     verifiers: Mutex<HashMap<String, Arc<SessionVerifier>>>,
+    /// The bridged third-party providers, by bridge URL.
+    outbound: crate::conformance_outbound::OutboundBridges,
 }
 
 impl Pools {
@@ -260,7 +267,7 @@ impl Pools {
     }
 
     /// What the test shares with Rust beyond the session: its env, buckets,
-    /// KV and session key.
+    /// KV, session key and outbound bridge.
     fn insert_shared(&self, extensions: &mut http::Extensions, context: &TestContext) {
         extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
             context.env.clone(),
@@ -277,6 +284,14 @@ impl Pools {
         }
         if let Some(verifier) = self.verifier(&context.env) {
             extensions.insert(verifier);
+        }
+        // The identity provider answers from the test's fetch stub.
+        if let Some(bridge) = context.outbound.as_deref() {
+            extensions.insert(weldsuite_ports::IdentityProvider(
+                self.outbound.identity(bridge),
+            ));
+            // Expo's push API too (`POST /api/push-tokens/test`).
+            extensions.insert(self.outbound.expo(bridge));
         }
     }
 

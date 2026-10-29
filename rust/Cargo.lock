@@ -3588,6 +3588,7 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-core-files",
  "weldsuite-core-objects",
+ "weldsuite-core-team",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
@@ -3604,8 +3605,11 @@ name = "weldsuite-adapters-oss"
 version = "0.0.0"
 dependencies = [
  "async-nats",
+ "axum",
+ "base64 0.22.1",
  "bytes",
  "futures-util",
+ "jiff",
  "lettre",
  "redis",
  "reqwest",
@@ -3706,6 +3710,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-core-team"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-db"
 version = "0.0.0"
 dependencies = [
@@ -3713,10 +3738,12 @@ dependencies = [
  "axum",
  "hex",
  "http",
+ "http-body-util",
  "serde_json",
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "weldsuite-auth",
  "weldsuite-kit",

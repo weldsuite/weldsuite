@@ -27,6 +27,8 @@ import {
   recordOnlyTarget,
 } from './conformance';
 
+export { conformanceMasterDb } from './conformance';
+
 // One-time init: the `requirePermission` middleware throws if its DB
 // query factory was never registered. Tests pre-cache `userPermissions`
 // on the context (see `createTestApp`), so the factory is never actually

@@ -105,6 +105,224 @@
       ]
     },
     {
+      "name": "core: settings-profile",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/settings-profile/settings-profile.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/settings-profile/",
+        "apps/workers/app-api/src/services/settings-profile.ts",
+        "apps/workers/app-api/src/services/settings-profile-schema.ts",
+        "packages/clients/app-api-client/src/schemas/settings-profile.ts",
+        "rust/modules/core-team/src/groups/settings_profile.rs"
+      ]
+    },
+    {
+      "name": "core: user-preferences",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/user-preferences/user-preferences.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/user-preferences/",
+        "packages/core/db/src/lib/calendar-sync.ts",
+        "packages/clients/app-api-client/src/schemas/user-preferences.ts",
+        "rust/modules/core-team/src/groups/user_preferences.rs"
+      ]
+    },
+    {
+      "name": "core: notification-preferences",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/notification-preferences/integration.test.ts",
+        "src/routes/notification-preferences/notification-preferences.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/notification-preferences/",
+        "apps/workers/app-api/src/services/notification-preferences.ts",
+        "packages/clients/app-api-client/src/schemas/notification-preferences.ts",
+        "rust/modules/core-team/src/groups/notification_preferences.rs"
+      ]
+    },
+    {
+      "name": "core: push-tokens",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/push-tokens/push-tokens.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/push-tokens/",
+        "apps/workers/app-api/src/services/push-tokens.ts",
+        "packages/core/notifications/src/channels/push.ts",
+        "packages/core/notifications/src/channels/call-push.ts",
+        "packages/clients/app-api-client/src/schemas/push-tokens.ts",
+        "rust/modules/core-team/src/groups/push_tokens.rs"
+      ]
+    },
+    {
+      "name": "core: team-members (directory)",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/team-members/directory.integration.test.ts",
+        "src/routes/team-members/member-profile.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/team-members/",
+        "apps/workers/app-api/src/services/team/",
+        "packages/clients/app-api-client/src/schemas/team-members.ts",
+        "rust/modules/core-team/src/groups/team_members/"
+      ]
+    },
+    {
+      "name": "core: roles",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/roles/roles.test.ts",
+        "src/routes/roles/roles-routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/roles/",
+        "apps/workers/app-api/src/services/roles.ts",
+        "packages/core/permissions/src/",
+        "packages/domains/chat/src/weldchat-role-links.ts",
+        "packages/clients/app-api-client/src/schemas/roles.ts",
+        "rust/modules/core-team/src/groups/roles.rs"
+      ]
+    },
+    {
+      "name": "core: app-catalog",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/app-catalog/app-catalog.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/app-catalog/",
+        "apps/workers/app-api/src/routes/app-access/",
+        "apps/workers/app-api/src/services/app-catalog.ts",
+        "apps/workers/app-api/src/services/app-access.ts",
+        "apps/workers/app-api/src/services/partner/managed.ts",
+        "packages/clients/app-api-client/src/schemas/app-catalog.ts",
+        "packages/clients/app-api-client/src/schemas/reach.ts",
+        "rust/modules/core-team/src/groups/app_catalog.rs"
+      ]
+    },
+    {
+      "name": "core: workspace-settings",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/workspace-settings/workspace-settings.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/workspace-settings/",
+        "apps/workers/app-api/src/services/workspace-settings.ts",
+        "packages/clients/app-api-client/src/schemas/workspace-settings.ts",
+        "packages/clients/app-api-client/src/schemas/workspace-slug.ts",
+        "packages/clients/app-api-client/src/schemas/vat-number.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
+      "name": "core: account",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/account/account.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/account/",
+        "packages/clients/app-api-client/src/schemas/account.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
+      "name": "core: invitations",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/invitations/invitations.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/invitations/",
+        "apps/workers/app-api/src/services/member-link.ts",
+        "packages/clients/app-api-client/src/schemas/invitations.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
+      "name": "core: workspaces",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/workspaces/workspaces.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/workspaces/",
+        "packages/domains/core/src/workspaces.ts",
+        "packages/clients/app-api-client/src/schemas/workspaces.ts",
+        "rust/modules/core-team/"
+      ]
+    },
+    {
+      "name": "core: team-members (manage)",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/team-members/manage.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/team-members/",
+        "apps/workers/app-api/src/services/seat-limits.ts",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "apps/workers/app-api/src/services/invitation-redirect.ts",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/clients/app-api-client/src/schemas/team-members.ts",
+        "packages/clients/app-api-client/src/schemas/team-members-manage.ts",
+        "rust/modules/core-team/src/groups/team_members/",
+        "rust/modules/core-team/src/groups/seats.rs"
+      ]
+    },
+    {
+      "name": "core: member-limits",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/member-limits/member-limits.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/member-limits/",
+        "apps/workers/app-api/src/services/seat-limits.ts",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "packages/clients/app-api-client/src/schemas/member-limits.ts",
+        "rust/modules/core-team/src/groups/member_limits.rs",
+        "rust/modules/core-team/src/groups/seats.rs"
+      ]
+    },
+    {
+      "name": "core: my-role",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/my-role/my-role.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/my-role/",
+        "packages/core/permissions/src/",
+        "packages/clients/app-api-client/src/schemas/member-limits.ts",
+        "rust/modules/core-team/src/groups/my_role.rs"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",

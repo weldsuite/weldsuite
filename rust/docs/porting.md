@@ -119,18 +119,32 @@ templates).
    views of the buckets and KV (`write-isolation.ts`), then on Rust with the
    real ones, so both start from the same state and the test's assertions
    see Rust's writes. Status, body, schema and side effects (entity events,
-   realtime) must match. A write's body is compared with what differs by
-   construction between two runs normalised (`normalizeForDiff`): new ids,
-   timestamps, cursors, upload tokens and an upload key's random segment,
-   and what a signing route derives from the current second (an `expiresAt`
-   within two days of now, a signed URL's `exp` and `sig`). Rust's signature
-   is still checked: the reads that redeem it run on both backends.
-5. The harness shares what a test sets up: the tenant pglite, `masterDb` from
+   realtime, outbound calls) must match. A write's body is compared with what
+   differs by construction between two runs normalised (`normalizeForDiff`):
+   new ids, timestamps, cursors, a `Date.now()` inside a string, upload
+   tokens and an upload key's random segment, and what a signing route
+   derives from the current second (an `expiresAt` within two days of now, a
+   signed URL's `exp` and `sig`). Rust's signature is still checked: the
+   reads that redeem it run on both backends.
+5. Third-party APIs (Clerk's Backend API today) are ports
+   (`weldsuite_ports::Identity`). In conformance mode Rust's calls go through
+   the harness's outbound bridge (`outbound-bridge.ts`,
+   `conformance_outbound.rs`) into the test's own `fetch` stub, and the calls
+   both backends made are compared as a side effect (method, URL, body). A
+   stub answers both runs, so it must answer by URL and method
+   (`mockImplementation`), never by call order (`mockResolvedValueOnce`).
+6. Routes that write the master database: put `masterDb` (from
+   `createMasterPgliteDb()`) in the test context and mock `getMasterDb` to
+   return `conformanceMasterDb(masterDb)` (from
+   `@weldsuite/worker-kit/testing/conformance`). On a write the TypeScript
+   run then reads a copy of the master taken before either run, as it does
+   for the tenant database.
+7. The harness shares what a test sets up: the tenant pglite, `masterDb` from
    the test context, R2-shaped buckets in `env` (served over HTTP), and the
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see
    (a `vi.mock` of `getMasterDb`) needs the value in its context too.
-6. Workers KV is shared the same way. A KV-shaped binding in the test's
+8. Workers KV is shared the same way. A KV-shaped binding in the test's
    `env` (`get`/`put`/`delete`; the names in `KV_BINDINGS`, today
    `WORKSPACE_CACHE`) is served over HTTP by
    `packages/core/worker-kit/src/testing/kv-bridge.ts`: `GET /value?key=…`

@@ -22,7 +22,32 @@ config:
   logLevel: info
   # Refuse per-app permission denials instead of only logging them.
   permissionsAppEnforce: false
-  # Extra origins allowed as a session token's azp (comma separated).
+  # Who signs people in (ADR SEC-012): clerk (the Global edition's provider;
+  # its key goes in the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or
+  # clerkJwks below) or oidc (Zitadel, or the customer's own provider).
+  auth:
+    provider: clerk
+    oidc:
+      # Compared with the token's iss exactly; discovery reads
+      # <issuer>/.well-known/openid-configuration. Zitadel: https://auth.<domain>.
+      issuer: ""
+      # A token's aud must name one of these (comma separated). Zitadel: the
+      # WeldSuite project id; the platform asks for it with the
+      # urn:zitadel:iam:org:project:id:<project id>:aud scope. Quote Zitadel's
+      # 18-digit ids: unquoted, YAML reads them as (rounded) numbers.
+      audience: ""
+      # The claim naming the session's organization (the workspace).
+      # Zitadel sets urn:zitadel:iam:org:id when the platform asks for the
+      # urn:zitadel:iam:org:id:<org id> scope. For people in several
+      # workspaces: urn:zitadel:iam:org:project:<project id>:roles, narrowed
+      # by the urn:zitadel:iam:org:roles:id:<org id> scope.
+      orgClaim: urn:zitadel:iam:org:id
+      # Fetch the keys here instead of discovery's jwks_uri (optional).
+      jwksUrl: ""
+      # The platform's public client (PKCE), told to the frontends by
+      # /config.json (optional).
+      webClientId: ""
+  # Extra origins allowed as a Clerk session token's azp (comma separated).
   clerkAuthorizedParties: ""
   masterMaxConnections: 10
   # One connection per workspace database and up to 2,000 pools: the pair
@@ -92,6 +117,7 @@ config:
 #   CLERK_JWT_KEY                PEM public key of the Clerk instance; or
 #   CLERK_SECRET_KEY             fetch the keys from Clerk's Backend API; or
 #   CLERK_JWKS_URL               fetch them from a JWKS URL (or use clerkJwks)
+#                                (none of the CLERK_* with config.auth.provider: oidc)
 #   VALKEY_URL                   redis://… cache + realtime publish (optional)
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)

@@ -27,10 +27,67 @@ import {
   customObjectSchema,
   reorderResultSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
+import {
+  catalogAppDetailSchema,
+  catalogAppListSchema,
+  catalogCodesSchema,
+  installedCatalogAppSchema,
+} from '@weldsuite/app-api-client/schemas/app-catalog';
+import { appAccessViewOrNullSchema, appAccessViewSchema } from '@weldsuite/app-api-client/schemas/reach';
+import {
+  installableAppListSchema,
+  permissionCatalogSchema,
+  roleListSchema,
+  roleSummarySchema,
+} from '@weldsuite/app-api-client/schemas/roles';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
+import { accountDeletionStatusSchema, deleteAccountResultSchema } from '@weldsuite/app-api-client/schemas/account';
+import { acceptedInvitationSchema, invitationDetailsSchema } from '@weldsuite/app-api-client/schemas/invitations';
+import {
+  deleteWorkspaceResultSchema,
+  workspaceDeletionStatusSchema,
+  workspaceNameUpdatedSchema,
+  workspaceSettingsSchema,
+  workspaceSlugUpdatedSchema,
+} from '@weldsuite/app-api-client/schemas/workspace-settings';
+import { workspaceSummarySchema } from '@weldsuite/app-api-client/schemas/workspaces';
+import {
+  notificationPreferenceRefSchema,
+  notificationPreferenceSchema,
+} from '@weldsuite/app-api-client/schemas/notification-preferences';
+import {
+  pushTestResultSchema,
+  pushTokenRegisteredSchema,
+  pushTokenListSchema,
+  pushTokenUnregisteredSchema,
+} from '@weldsuite/app-api-client/schemas/push-tokens';
+import { selfAvatarSchema, selfProfileSchema } from '@weldsuite/app-api-client/schemas/settings-profile';
+import {
+  userFontSizeSchema,
+  userPreferencesSchema,
+  userThemeSchema,
+} from '@weldsuite/app-api-client/schemas/user-preferences';
+import {
+  commonConceptsResponseSchema,
+  memberActivityItemSchema,
+  memberAppAssignmentSchema,
+  memberAppToggleResultSchema,
+  memberNoteSchema,
+  memberPermissionsBreakdownSchema,
+  memberProfileSchema,
+  teamMemberListItemSchema,
+  teamMemberSelfSchema,
+} from '@weldsuite/app-api-client/schemas/team-members';
+import { memberLimitsSchema, myRoleSchema } from '@weldsuite/app-api-client/schemas/member-limits';
+import {
+  inviteMemberResultSchema,
+  resendInviteResultSchema,
+  teamMembersSyncResultSchema,
+  updateMemberResultSchema,
+} from '@weldsuite/app-api-client/schemas/team-members-manage';
 import {
   knowledgeFavoriteRefSchema,
   knowledgeFavoriteSchema,
@@ -97,6 +154,74 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/access-requests', envelope: 'single', data: accessRequestSchema },
   { method: 'PATCH', route: '/api/access-requests/:id', envelope: 'single', data: accessRequestSchema },
   { method: 'GET', route: '/api/access-requests/me/pending', envelope: 'list', data: accessRequestSchema },
+  // core: settings-profile
+  { method: 'GET', route: '/api/settings/profile', envelope: 'single', data: selfProfileSchema },
+  { method: 'PUT', route: '/api/settings/profile', envelope: 'single', data: selfProfileSchema },
+  { method: 'PUT', route: '/api/settings/profile/avatar', envelope: 'single', data: selfAvatarSchema },
+  // core: user-preferences
+  { method: 'GET', route: '/api/user-preferences', envelope: 'single', data: userPreferencesSchema },
+  { method: 'PUT', route: '/api/user-preferences', envelope: 'single', data: userPreferencesSchema },
+  { method: 'PATCH', route: '/api/user-preferences/theme', envelope: 'single', data: userThemeSchema },
+  { method: 'PATCH', route: '/api/user-preferences/font-size', envelope: 'single', data: userFontSizeSchema },
+  // core: notification-preferences
+  { method: 'GET', route: '/api/notification-preferences', envelope: 'list', data: notificationPreferenceSchema },
+  { method: 'GET', route: '/api/notification-preferences/:id', envelope: 'single', data: notificationPreferenceSchema },
+  { method: 'PUT', route: '/api/notification-preferences', envelope: 'single', data: notificationPreferenceSchema },
+  { method: 'PUT', route: '/api/notification-preferences/module/:module', envelope: 'single', data: notificationPreferenceSchema },
+  { method: 'POST', route: '/api/notification-preferences', envelope: 'single', data: notificationPreferenceRefSchema },
+  { method: 'PATCH', route: '/api/notification-preferences/:id', envelope: 'single', data: notificationPreferenceRefSchema },
+  // core: push-tokens
+  { method: 'GET', route: '/api/push-tokens', envelope: 'single', data: pushTokenListSchema },
+  { method: 'POST', route: '/api/push-tokens', envelope: 'single', data: pushTokenRegisteredSchema },
+  { method: 'POST', route: '/api/push-tokens/test', envelope: 'single', data: pushTestResultSchema },
+  { method: 'DELETE', route: '/api/push-tokens', envelope: 'single', data: pushTokenUnregisteredSchema },
+  // core: team-members (directory)
+  { method: 'GET', route: '/api/team-members/me', envelope: 'single', data: teamMemberSelfSchema },
+  { method: 'GET', route: '/api/team-members', envelope: 'list', data: teamMemberListItemSchema },
+  { method: 'GET', route: '/api/team-members/:id', envelope: 'single', data: teamMemberListItemSchema },
+  { method: 'GET', route: '/api/team-members/:id/permissions', envelope: 'single', data: memberPermissionsBreakdownSchema },
+  { method: 'GET', route: '/api/team-members/:id/apps', envelope: 'single', data: memberAppAssignmentSchema.array() },
+  { method: 'POST', route: '/api/team-members/:id/apps/toggle', envelope: 'single', data: memberAppToggleResultSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/profile', envelope: 'single', data: memberProfileSchema },
+  { method: 'PATCH', route: '/api/team-members/user/:userId/profile', envelope: 'single', data: memberProfileSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/notes', envelope: 'single', data: memberNoteSchema.nullable() },
+  { method: 'PUT', route: '/api/team-members/user/:userId/notes', envelope: 'single', data: memberNoteSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/common', envelope: 'single', data: commonConceptsResponseSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/activity', envelope: 'list', data: memberActivityItemSchema },
+  // core: roles
+  { method: 'GET', route: '/api/roles', envelope: 'single', data: roleListSchema },
+  { method: 'GET', route: '/api/roles/permission-catalog', envelope: 'single', data: permissionCatalogSchema },
+  { method: 'GET', route: '/api/roles/installable-apps', envelope: 'single', data: installableAppListSchema },
+  { method: 'GET', route: '/api/roles/:roleId', envelope: 'single', data: roleSummarySchema },
+  { method: 'POST', route: '/api/roles', envelope: 'single', data: roleSummarySchema },
+  { method: 'PUT', route: '/api/roles/:roleId', envelope: 'single', data: roleSummarySchema },
+  // core: app-catalog (and its access requests)
+  { method: 'GET', route: '/api/app-catalog', envelope: 'single', data: catalogAppListSchema },
+  { method: 'GET', route: '/api/app-catalog/categories', envelope: 'single', data: catalogCodesSchema },
+  { method: 'GET', route: '/api/app-catalog/beta', envelope: 'single', data: catalogCodesSchema },
+  { method: 'GET', route: '/api/app-catalog/:code', envelope: 'single', data: catalogAppDetailSchema },
+  { method: 'POST', route: '/api/app-catalog/:code/install', envelope: 'single', data: installedCatalogAppSchema },
+  { method: 'GET', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewOrNullSchema },
+  { method: 'POST', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewSchema },
+  // core: workspace settings, account, invitations, workspaces
+  { method: 'GET', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema.nullable() },
+  { method: 'PUT', route: '/api/workspace-settings', envelope: 'single', data: workspaceSettingsSchema },
+  { method: 'PUT', route: '/api/workspace-settings/name', envelope: 'single', data: workspaceNameUpdatedSchema },
+  { method: 'POST', route: '/api/workspace-settings/slug', envelope: 'single', data: workspaceSlugUpdatedSchema },
+  { method: 'GET', route: '/api/workspace-settings/deletion-status', envelope: 'single', data: workspaceDeletionStatusSchema },
+  { method: 'POST', route: '/api/workspace-settings/delete', envelope: 'single', data: deleteWorkspaceResultSchema },
+  { method: 'GET', route: '/api/account/deletion-status', envelope: 'single', data: accountDeletionStatusSchema },
+  { method: 'POST', route: '/api/account/delete', envelope: 'single', data: deleteAccountResultSchema },
+  { method: 'GET', route: '/api/invitations/:token', envelope: 'single', data: invitationDetailsSchema },
+  { method: 'POST', route: '/api/invitations/accept', envelope: 'single', data: acceptedInvitationSchema },
+  { method: 'GET', route: '/api/workspaces', envelope: 'single', data: workspaceSummarySchema.array() },
+  // core: team-members (manage), member-limits, my-role
+  { method: 'POST', route: '/api/team-members/sync', envelope: 'single', data: teamMembersSyncResultSchema },
+  { method: 'POST', route: '/api/team-members/invite', envelope: 'single', data: inviteMemberResultSchema },
+  { method: 'PATCH', route: '/api/team-members/:id', envelope: 'single', data: updateMemberResultSchema },
+  { method: 'POST', route: '/api/team-members/:id/resend-invite', envelope: 'single', data: resendInviteResultSchema },
+  { method: 'GET', route: '/api/member-limits', envelope: 'single', data: memberLimitsSchema },
+  { method: 'GET', route: '/api/my-role', envelope: 'single', data: myRoleSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },
