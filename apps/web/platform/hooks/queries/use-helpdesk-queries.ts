@@ -1,6 +1,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import type { AuditLogEntry } from '@/components/audit-timeline';

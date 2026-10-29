@@ -8,7 +8,7 @@
  * everything below this file is provider/transport-agnostic.
  */
 
-import { and, desc, eq, isNull, like, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, getTableColumns, isNull, like, or, sql, type SQL } from 'drizzle-orm';
 import { schema, masterSchema, getMasterDb } from '@weldsuite/worker-kit/db';
 import type { Database, MasterDatabase } from '@weldsuite/worker-kit/db';
 import type { Env } from '../../types';
@@ -19,7 +19,18 @@ import {
   hasAccessToAccount,
   isAdminOrOwner,
   userAccessCondition,
+  type MailPrincipal,
 } from '@weldsuite/mail-domain/access';
+import { ObjectMailAccess, type MailAccess } from '@weldsuite/mail-domain/store/access';
+import {
+  getMailDirectory,
+  type DirectoryAccount,
+  type DirectoryLabel,
+  type MailDirectoryEnv,
+} from '@weldsuite/mail-domain/store/directory';
+import { mailboxStubFor } from '@weldsuite/mail-domain/store/object';
+import { mailIndexFor } from '@weldsuite/mail-domain/mail-index/client';
+import type { MailboxRef } from '@weldsuite/mail-domain/store/types';
 import { clearCatchAllForAccount } from './domains';
 import { weldMailDomainFor } from './weldmail';
 import {
@@ -29,6 +40,21 @@ import {
 import { matchWorkspaceRef } from '@weldsuite/db/lib/workspace-ref';
 
 const { mailAccounts, mailDomains, mailLabels, hostDomains, workspaceMembers } = schema;
+
+/**
+ * `mail_accounts` columns safe to send to the browser: every column except
+ * the encrypted credentials (`accessToken`, `refreshToken`, `apiKey`,
+ * `passwordHash`) and `providerConfig`, which can carry an OAuth client id or
+ * other provider secrets. List and detail reads must select this, never `*`.
+ */
+const {
+  accessToken: _accessToken,
+  refreshToken: _refreshToken,
+  apiKey: _apiKey,
+  passwordHash: _passwordHash,
+  providerConfig: _providerConfig,
+  ...publicAccountColumns
+} = getTableColumns(mailAccounts);
 
 const BARE_WELDMAIL_DOMAINS = new Set([
   ...SHARED_WELDMAIL_APEXES,
@@ -165,7 +191,7 @@ export async function listMailAccounts(
 
   const [rows, countRes] = await Promise.all([
     db
-      .select()
+      .select(publicAccountColumns)
       .from(mailAccounts)
       .where(where)
       .orderBy(desc(mailAccounts.createdAt), desc(mailAccounts.id))
@@ -196,7 +222,7 @@ export async function getMailAccountStats(db: Database) {
 
 export async function getMailAccount(db: Database, id: string, userId: string) {
   const [row] = await db
-    .select()
+    .select(publicAccountColumns)
     .from(mailAccounts)
     .where(and(eq(mailAccounts.id, id), isNull(mailAccounts.deletedAt)))
     .limit(1);
@@ -217,6 +243,117 @@ export async function getMailAccountLabels(db: Database, accountId: string) {
 
   const labels = await db.select().from(mailLabels).where(eq(mailLabels.accountId, accountId));
   return labels;
+}
+
+// ---------------------------------------------------------------------------
+// Directory-served reads (object modes — design §6, §9 task D3)
+//
+// `postgres`/`shadow` keep querying `mail_accounts` directly, exactly as
+// above (the design: "postgres/shadow: wrap ../access.ts unchanged — no
+// directory, no KV"). `object`/`object-only` serve list/detail/labels from
+// the KV mailbox directory instead, with the same access filtering and
+// response shape and no tenant query on the open path. The route picks
+// which of the two paths to use via `readsFromObject(mode)`
+// (`@weldsuite/mail-domain/store/mode`).
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds this request's `MailAccess` from the KV directory. `isAdmin` must be
+ * the caller's own already-resolved permission check (the route's
+ * `requirePermission` already paid for it, via `getPermissionsFromContext`) —
+ * never a fresh tenant-DB lookup, which is exactly the Postgres round trip
+ * object modes exist to avoid on this path.
+ */
+export async function buildDirectoryMailAccess(
+  env: MailDirectoryEnv,
+  db: Database,
+  workspaceId: string,
+  userId: string,
+  isAdmin: boolean,
+): Promise<MailAccess> {
+  const directory = await getMailDirectory(env, workspaceId, db);
+  const principal: MailPrincipal = { kind: 'user', userId };
+  return new ObjectMailAccess(directory, principal, () => Promise.resolve(isAdmin));
+}
+
+function directoryAccountSortDesc(a: DirectoryAccount, b: DirectoryAccount): number {
+  if (a.createdAt !== b.createdAt) return a.createdAt > b.createdAt ? -1 : 1;
+  return a.id > b.id ? -1 : 1;
+}
+
+export interface DirectoryListResult {
+  data: DirectoryAccount[];
+  hasMore: boolean;
+  cursor: string | null;
+  totalCount: number;
+}
+
+/**
+ * In-memory mirror of `listMailAccounts`'s Postgres query (design §6:
+ * "filter in memory; the directory is small"), over an already
+ * access-filtered `DirectoryAccount[]`. Search/status/provider/cursor/limit
+ * semantics match the SQL above field for field — including the quirk that
+ * the cursor's pivot `createdAt`/`id` is resolved from `accessible` itself
+ * (the Postgres version resolves it from the whole table, independent of any
+ * filter), so a cursor pointing at an account the caller can no longer see
+ * (or that was deleted) is simply ignored rather than erroring.
+ */
+export function filterDirectoryAccounts(
+  accessible: DirectoryAccount[],
+  filters: Pick<MailAccountFilters, 'limit' | 'cursor' | 'search' | 'status' | 'provider'>,
+): DirectoryListResult {
+  const limit = Math.min(filters.limit ?? 25, 100);
+
+  let filtered = accessible;
+  if (filters.search) {
+    const term = filters.search;
+    filtered = filtered.filter((a) => a.name.includes(term) || a.email.includes(term));
+  }
+  if (filters.status) filtered = filtered.filter((a) => a.status === filters.status);
+  if (filters.provider) filtered = filtered.filter((a) => a.provider === filters.provider);
+
+  const sorted = [...filtered].sort(directoryAccountSortDesc);
+  const totalCount = sorted.length;
+
+  let paged = sorted;
+  if (filters.cursor) {
+    const pivot = accessible.find((a) => a.id === filters.cursor);
+    if (pivot) {
+      paged = sorted.filter(
+        (a) => a.createdAt < pivot.createdAt || (a.createdAt === pivot.createdAt && a.id < pivot.id),
+      );
+    }
+  }
+
+  const hasMore = paged.length > limit;
+  const data = hasMore ? paged.slice(0, limit) : paged;
+  const cursor = hasMore && data.length > 0 ? data.at(-1)!.id : null;
+
+  return { data, hasMore, cursor, totalCount };
+}
+
+/** Directory-served equivalent of `listMailAccounts`. `filters.scope` mirrors `MailAccess.accounts(scope)` exactly (see that method's own doc comment). */
+export async function listMailAccountsFromDirectory(
+  access: MailAccess,
+  filters: MailAccountFilters,
+): Promise<DirectoryListResult> {
+  const rows = await access.accounts(filters.scope === 'manage' ? 'manage' : 'open');
+  return filterDirectoryAccounts(rows, filters);
+}
+
+/** Directory-served equivalent of `getMailAccount`. `null` covers both "no such account" and "not yours", same as the Postgres version. */
+export async function getMailAccountFromDirectory(access: MailAccess, id: string): Promise<DirectoryAccount | null> {
+  if (!(await access.canOpen(id))) return null;
+  return access.account(id);
+}
+
+/** Directory-served equivalent of `getMailAccountLabels`. The route gates this on `access.canOpen(id)` first, same as it gates the Postgres version on `checkAccountAccess`. */
+export async function getMailAccountLabelsFromDirectory(
+  access: MailAccess,
+  accountId: string,
+): Promise<DirectoryLabel[] | null> {
+  if (!(await access.canOpen(accountId))) return null;
+  return access.labels(accountId);
 }
 
 // ---------------------------------------------------------------------------
@@ -589,6 +726,46 @@ export async function deleteMailAccount(env: Env, db: Database, id: string, user
   await clearCatchAllForAccount(env, db, id);
 
   return { found: true as const, account };
+}
+
+/**
+ * Best-effort mailbox teardown for a deleted (or WeldMail-released) account,
+ * in any mode that may have written the mailbox object (shadow and above —
+ * design §9 task D3). The account's Postgres soft-delete has already
+ * committed by the time a caller reaches this; a failure here is never a
+ * reason to fail that request.
+ *
+ * Two separate actions, both idempotent, both logged-not-thrown:
+ * - `destroy(ref)` accepts immediately and only *schedules* the object's own
+ *   teardown (R2 bodies, then its own `MailIndex.dropMailbox` call) on its
+ *   next alarm tick (`mailbox-object/destroy.ts`) — it does not drop the
+ *   index entry synchronously.
+ * - Calling `MailIndex.dropMailbox` directly here as well removes this
+ *   mailbox's correspondents/address-index data right away, rather than
+ *   waiting for the object's alarm to drain R2 first and reach that stage.
+ */
+export async function destroyMailboxObject(env: Env, ref: MailboxRef): Promise<void> {
+  try {
+    await mailboxStubFor(env, ref).destroy(ref);
+  } catch (err) {
+    console.error(
+      '[mail-accounts] mailbox object destroy failed (the object retries this on its own alarm):',
+      ref.workspaceId,
+      ref.accountId,
+      err instanceof Error ? err.message : err,
+    );
+  }
+  try {
+    const index = mailIndexFor(env, ref.workspaceId);
+    if (index) await index.dropMailbox(ref.workspaceId, ref.accountId);
+  } catch (err) {
+    console.error(
+      '[mail-accounts] MailIndex.dropMailbox failed:',
+      ref.workspaceId,
+      ref.accountId,
+      err instanceof Error ? err.message : err,
+    );
+  }
 }
 
 export async function assignMailAccountUsers(

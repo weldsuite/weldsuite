@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import { Trash2, UserPlus } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';

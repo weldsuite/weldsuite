@@ -299,6 +299,39 @@ describe('aggregateStats · mail counter', () => {
   });
 });
 
+// Bug fix: `url` used to be the attachment's raw `downloadUrl` — a bare
+// object-storage URL with no session, signature or expiry, so it bypassed
+// the mailbox-access check this view otherwise enforces. It must point at
+// the authenticated `GET /api/mail-attachments/:id/download` route instead,
+// like mail-api's own JSON responses do (`toPublicAttachment`). Declared
+// after the counter tests above: it seeds one more shared-mailbox
+// attachment, which those hard-coded counts don't expect.
+describe('aggregateAllFiles · mail attachment download URL', () => {
+  let attachmentId: string;
+
+  beforeAll(async () => {
+    attachmentId = generateId('matt');
+    await seedMailbox('bypass-url-test.pdf', { isShared: true }, {
+      id: attachmentId,
+      downloadUrl: 'https://public-bucket.example.com/leak-me.pdf',
+    });
+  });
+
+  it('never returns the raw downloadUrl', async () => {
+    const files = await aggregateAllFiles(db, { userId: MEMBER, source: 'mail', apiOrigin: 'https://app-api.weldsuite.org' });
+    const file = files.find((f) => f.id === attachmentId);
+    expect(file).toBeDefined();
+    expect(file?.url).not.toBe('https://public-bucket.example.com/leak-me.pdf');
+    expect(file?.url).toBe(`https://app-api.weldsuite.org/api/mail-attachments/${attachmentId}/download`);
+  });
+
+  it('returns no URL when there is no API origin to build one from', async () => {
+    const files = await aggregateAllFiles(db, { userId: MEMBER, source: 'mail' });
+    const file = files.find((f) => f.id === attachmentId);
+    expect(file?.url).toBeNull();
+  });
+});
+
 describe('normalizeGenericFiles · navigateTo', () => {
   function navigateTo(
     entityType: string,

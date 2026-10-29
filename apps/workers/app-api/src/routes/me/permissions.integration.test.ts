@@ -4,12 +4,17 @@
  * Returns the resolved grants plus the member's denies and `appEnforced`:
  * clients apply per-app checks only once the server enforces them, so the UI
  * never hides what the API still serves during the log-only rollout.
+ *
+ * A Rust conformance suite (rust/conformance/suites.json): everything here is
+ * behaviour any backend must match. The route's KV cache is a TypeScript
+ * implementation detail, tested in permissions-cache.integration.test.ts.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { meRoutes } from './index';
 import { createTestApp } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
@@ -30,8 +35,16 @@ beforeAll(async () => {
   } as typeof schema.workspaceMembers.$inferInsert);
 }, 60_000);
 
-async function fetchMe(env: Record<string, string> = {}) {
-  const t = createTestApp('/api/me', meRoutes, { context: { tenantDb: db, userId: 'user_me' }, env });
+type MemoryKv = ReturnType<typeof createMemoryKv>;
+
+async function fetchMe(
+  env: Record<string, string> = {},
+  opts: { userId?: string; cache?: MemoryKv } = {},
+) {
+  const t = createTestApp('/api/me', meRoutes, {
+    context: { tenantDb: db, userId: opts.userId ?? 'user_me' },
+    env: { ...env, WORKSPACE_CACHE: opts.cache ?? createMemoryKv() } as unknown as Record<string, string>,
+  });
   const res = await t.request('/api/me/permissions');
   expect(res.status).toBe(200);
   return ((await res.json()) as { data: Record<string, unknown> }).data;

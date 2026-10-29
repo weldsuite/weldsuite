@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
-import { useClerk, useOrganization } from '@clerk/clerk-react';
+import { useOrganization, useAuth } from '@/lib/auth';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { ArrowRight, Loader2, Search } from 'lucide-react';
 import { useI18n } from '@/lib/i18n/provider';
@@ -152,7 +152,7 @@ export function CommandPalette() {
   const router = useRouter();
   const { organization } = useOrganization();
   const workspaceId = organization?.id ?? null;
-  const { signOut } = useClerk();
+  const { signOut } = useAuth();
   const { can, isOwner } = usePermissions();
   const { data: installedApps = [] } = useInstalledApps();
   const { resolvedTheme, setTheme } = useTheme();

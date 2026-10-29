@@ -10,15 +10,41 @@
  * token has no person behind it and acts as the workspace: shared mailboxes
  * only. A mailbox outside the principal's reach answers 404, never 403, so a
  * key cannot probe which private mailboxes exist.
+ *
+ * Reads and organize ops go through `getWorkspaceMail` (design
+ * docs/plans/weldmail-mailbox-store-design.md, task D5) via
+ * `./mail-store-context`'s `workspaceMailFromContext`, so the shapes below also
+ * cover the store's row types (`MailMessageRecord`/`MailMessageListRow`), which
+ * carry a `threadKey` field `mail_messages` itself never had — stripped here so
+ * the public wire shape is unaffected by which mode served the request.
  */
 
 import type { Context } from 'hono';
 import { principalFromSession, type MailPrincipal } from '@weldsuite/mail-domain/access';
+import type { MailMessageListRow, MailMessageRecord } from '@weldsuite/mail-domain/store';
+import {
+  decodeMessageCursor,
+  decodeThreadCursor,
+  encodeMessageCursor,
+  encodeThreadCursor,
+} from '@weldsuite/mail-domain/store/cursor';
 import type { schema } from '../db';
 import type { HonoEnv } from '../types';
 
 type MessageRow = typeof schema.mailMessages.$inferSelect;
 type AttachmentRow = typeof schema.mailAttachments.$inferSelect;
+
+/** Either backend's row shape for one message, plus the store's `threadKey`. */
+type AnyMessageRow = (MessageRow | MailMessageRecord) & { threadKey?: string };
+
+/** `obj` without `keys` — an explicit drop instead of destructuring into unused `_name` bindings. */
+function omit<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const copy = { ...obj };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
+export { encodeMessageCursor, decodeMessageCursor, encodeThreadCursor, decodeThreadCursor };
 
 export function mailPrincipal(c: Context<HonoEnv>): MailPrincipal {
   return principalFromSession(c.get('apiSession'));
@@ -26,24 +52,88 @@ export function mailPrincipal(c: Context<HonoEnv>): MailPrincipal {
 
 /**
  * A message as the API returns it. Drops the raw RFC 822 source (large, and it
- * is the unsanitized original) and the provider bookkeeping columns.
+ * is the unsanitized original), the provider bookkeeping columns, and (when
+ * the row came from the mailbox store) its internal `threadKey`.
  */
-export function publicMessage(row: MessageRow) {
+export function publicMessage(row: MessageRow | MailMessageRecord) {
+  return omit(row as AnyMessageRow, [
+    'rawMessage',
+    'headers',
+    'triggerRunId',
+    'unsnoozeTriggerRunId',
+    'mailgunMessageId',
+    'mailcowMessageId',
+    'providerMessageId',
+    'sendProvider',
+    'idempotencyKey',
+    'customFields',
+    'deletedAt',
+    'threadKey',
+  ]);
+}
+
+/**
+ * A list row as the API returns it: the same narrow column set the legacy
+ * `listMessages`/`listThreadsByLabel` queries always selected (no body, no raw
+ * MIME, no provider bookkeeping) — picked explicitly from the store's wider
+ * `MailMessageListRow` (which, being `Omit<MailMessage, 'textBody' |
+ * 'htmlBody' | 'rawMessage' | 'headers' | 'customFields' | 'clickedLinks'>`,
+ * carries many columns this surface has never exposed) so switching a list
+ * endpoint onto the store never widens its public response.
+ */
+export function publicListMessage(row: MailMessageListRow) {
   const {
-    rawMessage: _raw,
-    headers: _headers,
-    triggerRunId: _trigger,
-    unsnoozeTriggerRunId: _unsnooze,
-    mailgunMessageId: _mailgun,
-    mailcowMessageId: _mailcow,
-    providerMessageId: _provider,
-    sendProvider: _sendProvider,
-    idempotencyKey: _idempotency,
-    customFields: _custom,
-    deletedAt: _deleted,
-    ...rest
+    id,
+    accountId,
+    messageId,
+    threadId,
+    from,
+    to,
+    cc,
+    subject,
+    preview,
+    sentDate,
+    receivedDate,
+    isRead,
+    isStarred,
+    isFlagged,
+    isImportant,
+    isDraft,
+    hasAttachments,
+    attachmentCount,
+    priority,
+    labels,
+    sizeBytes,
+    scheduledFor,
+    sendStatus,
+    createdAt,
   } = row;
-  return rest;
+  return {
+    id,
+    accountId,
+    messageId,
+    threadId,
+    from,
+    to,
+    cc,
+    subject,
+    preview,
+    sentDate,
+    receivedDate,
+    isRead,
+    isStarred,
+    isFlagged,
+    isImportant,
+    isDraft,
+    hasAttachments,
+    attachmentCount,
+    priority,
+    labels,
+    sizeBytes,
+    scheduledFor,
+    sendStatus,
+    createdAt,
+  };
 }
 
 /** An attachment's metadata. Never the storage path or a download URL. */
@@ -60,7 +150,14 @@ export function publicAttachment(row: AttachmentRow) {
   };
 }
 
-/** Thread lists page by offset; the cursor is that offset, opaque to callers. */
+/**
+ * Thread lists page by offset; the cursor is that offset, opaque to callers.
+ *
+ * Still decoded for a cursor a client already holds (design §5: "legacy
+ * `o:<offset>` is still decoded"); `mail-threads` now mints
+ * `encodeThreadCursor` (above) for new pages, which works in every mailbox
+ * store mode, not just `postgres`/`shadow`.
+ */
 export function encodeOffsetCursor(offset: number): string {
   return btoa(`o:${offset}`).replace(/=+$/, '');
 }

@@ -650,6 +650,16 @@ export const common = {
     },
     auth: {
       logoAlt: 'WeldSuite',
+      identityProvider: {
+        redirecting: 'Je wordt doorgestuurd om in te loggen...',
+        completing: 'Inloggen wordt afgerond...',
+        failed: 'Inloggen kon niet worden afgerond.',
+        retry: 'Opnieuw inloggen',
+        managedTitle: 'Beheerd door je identiteitsprovider',
+        managedDescription: 'Je wachtwoord, tweestapsverificatie, passkeys en sessies worden beheerd door de identiteitsprovider van je organisatie, niet in WeldSuite.',
+        openAccount: 'Accountinstellingen openen',
+        invitationsManaged: 'Lidmaatschap van werkruimtes wordt beheerd door de identiteitsprovider van je organisatie. Vraag je beheerder om toegang.',
+      },
       error: {
         alertTitle: 'Fout',
         tryAgain: 'Opnieuw proberen',

@@ -6,13 +6,18 @@
  * renaming it renames it on every message that carries it.
  *
  * Applying labels to messages is on `mail-messages` and `mail-threads`.
+ *
+ * Label definitions stay on Postgres in every mailbox-store mode (design
+ * docs/plans/weldmail-mailbox-store-design.md, task D5: "P rows" — `mail_labels`
+ * is config, not mail content); only the per-account access check goes through
+ * `getWorkspaceMail`'s `access`, so a workspace key and a private mailbox
+ * behave the same here as everywhere else in WeldMail.
  */
 
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { accessibleAccountIds, canOpenAccount } from '@weldsuite/mail-domain/access';
 import {
   createMailLabel,
   deleteMailLabel,
@@ -24,7 +29,7 @@ import {
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
-import { mailPrincipal } from '../../../lib/mail';
+import { workspaceMailFromContext } from '../../../lib/mail-store-context';
 
 const listQuery = z.object({
   accountId: z.string().optional(),
@@ -60,9 +65,10 @@ const app = new Hono<HonoEnv>();
 
 /** The label when it exists in a mailbox the caller can open. */
 async function reachableLabel(c: Context<HonoEnv>, id: string) {
-  const db = c.get('tenantDb');
-  const label = await getMailLabel(db, id);
-  if (!label || !(await canOpenAccount(db, label.accountId, mailPrincipal(c)))) return null;
+  const label = await getMailLabel(c.get('tenantDb'), id);
+  if (!label) return null;
+  const { access } = await workspaceMailFromContext(c);
+  if (!(await access.canOpen(label.accountId))) return null;
   return label;
 }
 
@@ -77,13 +83,13 @@ function labelErrorResponse(c: Context<HonoEnv>, err: unknown, id?: string) {
 app.get('/', requireScope('mail_labels:read'), zValidator('query', listQuery), async (c) => {
   const db = c.get('tenantDb');
   const { accountId, search } = c.req.valid('query');
-  const principal = mailPrincipal(c);
-  if (accountId && !(await canOpenAccount(db, accountId, principal))) {
+  const { access } = await workspaceMailFromContext(c);
+  if (accountId && !(await access.canOpen(accountId))) {
     return error.notFound(c, 'MailAccount', accountId);
   }
   const rows = await listMailLabels(db, {
     accountId,
-    accessibleAccountIds: accountId ? undefined : await accessibleAccountIds(db, principal),
+    accessibleAccountIds: accountId ? undefined : await access.accessibleAccountIds(),
   });
   // A mailbox has tens of labels, not thousands: filtering here is cheaper
   // than another query shape.
@@ -102,7 +108,8 @@ app.get('/:id', requireScope('mail_labels:read'), async (c) => {
 app.post('/', requireScope('mail_labels:write'), zValidator('json', createBody), async (c) => {
   const db = c.get('tenantDb');
   const body = c.req.valid('json');
-  if (!(await canOpenAccount(db, body.accountId, mailPrincipal(c)))) {
+  const { access } = await workspaceMailFromContext(c);
+  if (!(await access.canOpen(body.accountId))) {
     return error.notFound(c, 'MailAccount', body.accountId);
   }
   try {

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { Skeleton } from '@weldsuite/ui/components/skeleton';
 import { cn } from '@weldsuite/ui/lib/utils';
 import { useTheme } from '@/hooks/use-theme';

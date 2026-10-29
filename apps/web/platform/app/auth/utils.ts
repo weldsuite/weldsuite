@@ -1,4 +1,4 @@
-import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
+import { isClerkAPIResponseError } from '@/lib/auth/clerk';
 import type { ReadonlyURLSearchParams } from '@/lib/router';
 
 /**

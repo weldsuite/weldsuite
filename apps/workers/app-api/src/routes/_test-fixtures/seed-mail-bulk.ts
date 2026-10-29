@@ -10,6 +10,8 @@
 
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import type { MailEmailAddress } from '@weldsuite/db/schema/mail-messages';
+import type { IngestMessage } from '@weldsuite/mail-domain/store';
 
 type MailMessageInsert = typeof schema.mailMessages.$inferInsert;
 
@@ -86,4 +88,44 @@ export function buildSeedMailRows(options: SeedMailBulkOptions): MailMessageInse
     } as unknown as MailMessageInsert);
   }
   return rows;
+}
+
+/**
+ * The same rows as `IngestMessage`s, for seeding an object-mode mailbox
+ * through the store (docs/plans/weldmail-mailbox-store-design.md, task D6)
+ * instead of inserting them into Postgres directly. One-to-one with
+ * `buildSeedMailRows`'s output: every row that would have been an INSERT
+ * becomes one `ingest` op's message.
+ */
+export function toIngestMessages(rows: MailMessageInsert[]): IngestMessage[] {
+  return rows.map((row) => {
+    const sentDate = row.sentDate as Date;
+    const receivedDate = (row.receivedDate as Date | null | undefined) ?? null;
+    const createdAt = row.createdAt as Date;
+    const inReplyTo = (row.inReplyTo as string | null | undefined) ?? null;
+    return {
+      id: row.id as string,
+      source: 'inbound',
+      rfcMessageId: row.messageId as string,
+      threadId: (row.threadId as string | null | undefined) ?? null,
+      from: row.from as MailEmailAddress,
+      to: row.to as MailEmailAddress[],
+      subject: (row.subject as string | null | undefined) ?? null,
+      preview: (row.preview as string | null | undefined) ?? null,
+      content: {
+        text: (row.textBody as string | null | undefined) ?? null,
+        html: (row.htmlBody as string | null | undefined) ?? null,
+      },
+      sentAt: sentDate.getTime(),
+      receivedAt: receivedDate ? receivedDate.getTime() : null,
+      createdAt: createdAt.getTime(),
+      isRead: Boolean(row.isRead),
+      labels: (row.labels as string[] | undefined) ?? [],
+      isSpam: false,
+      inReplyTo,
+      isReply: inReplyTo != null,
+      attachments: [],
+      extra: { customFields: (row.customFields as Record<string, unknown> | undefined) ?? undefined },
+    };
+  });
 }

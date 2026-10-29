@@ -1,5 +1,23 @@
 /** Command-line options. Pure. */
 
+/**
+ * Where WeldMail sends are read from (design doc
+ * docs/plans/weldmail-mailbox-store-design.md §9 task E2):
+ *  - `postgres` (default): today's behaviour, unchanged — `mail_messages` for
+ *    every mailbox, no mail-store admin calls at all.
+ *  - `export`: every mailbox is read through the mail-store admin export
+ *    client instead, regardless of its stored mode. For a workspace known to
+ *    be fully object-backed, or to sanity-check the export path itself.
+ *  - `auto`: asks `GET /internal/mail-store/status/all` which mode each
+ *    mailbox is in; `object`/`object-only` mailboxes are read through the
+ *    export client, the rest stay on Postgres. Needs the admin env vars
+ *    (README.md); a workspace whose mode lookup fails falls back to
+ *    Postgres for that workspace, noted in its report entry.
+ */
+export type MailSource = 'postgres' | 'export' | 'auto';
+
+const MAIL_SOURCES: readonly MailSource[] = ['postgres', 'export', 'auto'];
+
 export interface CliOptions {
   days: number;
   /** Workspace id, slug or Clerk org id; null = every active workspace. */
@@ -14,6 +32,7 @@ export interface CliOptions {
   top: number;
   /** Free label for the report header ("test", "production"). */
   env: string | null;
+  mailSource: MailSource;
   help: boolean;
 }
 
@@ -36,6 +55,9 @@ Options:
                       and drop template text, for sharing aggregate numbers.
   --top <n>           Templates, domains and busiest days listed per workspace (default 5).
   --env <label>       Label for the report header, e.g. test or production.
+  --mail-source <s>   Where WeldMail sends are read from: postgres (default),
+                      export, or auto. export/auto need MAIL_STORE_ADMIN_URL,
+                      OUTBOUND_ADMIN_SECRET and MAIL_STORE_ADMIN_EMAIL (README.md).
   --help, -h          Show this help.
 
 The output holds customer data. Keep it out of the repository, tickets and chat.`;
@@ -52,6 +74,14 @@ function stringArg(flag: string, value: string | undefined): string {
   return value;
 }
 
+function mailSourceArg(flag: string, value: string | undefined): MailSource {
+  const raw = stringArg(flag, value);
+  if (!MAIL_SOURCES.includes(raw as MailSource)) {
+    throw new ArgsError(`${flag} must be one of ${MAIL_SOURCES.join(', ')}`);
+  }
+  return raw as MailSource;
+}
+
 export function parseArgs(argv: string[]): CliOptions {
   const options: CliOptions = {
     days: 30,
@@ -62,6 +92,7 @@ export function parseArgs(argv: string[]): CliOptions {
     redact: false,
     top: 5,
     env: null,
+    mailSource: 'postgres',
     help: false,
   };
 
@@ -100,6 +131,9 @@ export function parseArgs(argv: string[]): CliOptions {
         break;
       case '--env':
         options.env = stringArg(arg, argv[++i]);
+        break;
+      case '--mail-source':
+        options.mailSource = mailSourceArg(arg, argv[++i]);
         break;
       case '--help':
       case '-h':

@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -180,6 +181,18 @@ export const mailMessages = pgTable('mail_messages', {
   index('mail_messages_snoozed_until_idx').on(table.snoozedUntil),
   // Scheduled-send sweep queries this.
   index('mail_messages_scheduled_for_idx').on(table.scheduledFor),
+  // The thread list's per-account grouping key (`GROUP BY account_id,
+  // COALESCE(thread_id, id)` in `listThreadsByLabel`). An expression index,
+  // not a stored generated column: a generated column would rewrite the
+  // whole table under an exclusive lock
+  // (docs/plans/weldmail-mailbox-storage.md, phase 2 item 1).
+  index('mail_messages_account_thread_key_idx').on(
+    table.accountId,
+    sql`COALESCE(${table.threadId}, ${table.id})`,
+  ),
+  // The per-account message list, newest first (`listMessages`, and the
+  // thread list's lean message pull).
+  index('mail_messages_account_sent_date_idx').on(table.accountId, table.sentDate.desc()),
   // Dedup guard for idempotent sends (NULL keys are distinct in Postgres, so
   // this only constrains real client-provided keys).
   uniqueIndex('mail_messages_account_idempotency_idx').on(table.accountId, table.idempotencyKey),

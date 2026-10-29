@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import SlackListClient from './slack-list-client';
 import { ListDetailLayout } from '@/components/list-detail-layout';
 import { useConversations } from '@/hooks/queries/use-helpdesk-queries';

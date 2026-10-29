@@ -1,6 +1,6 @@
 
 import * as React from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { PageLoader } from '@/components/page-loader';
 import { TeamSection, type TeamMember } from '@/components/settings';

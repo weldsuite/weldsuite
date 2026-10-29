@@ -25,6 +25,7 @@ import type { Env, Variables } from '../../types';
 import { success, error, list, cursorPagination } from '@weldsuite/worker-kit/response';
 import * as service from '../../services/access-requests';
 import { schema } from '@weldsuite/worker-kit/db';
+import { bumpPermissionsVersion } from '@weldsuite/db/lib/permissions-cache';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -115,6 +116,9 @@ app.patch(
       if (result.kind === 'already_resolved') {
         return error.conflict(c, 'Access request has already been resolved');
       }
+
+      // An approval writes the permission onto the requester's member row.
+      if (result.grantedPermission) await bumpPermissionsVersion(c.env, c.get('workspaceId'));
 
       if (orgId && c.env.REALTIME) {
         const realtime = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });

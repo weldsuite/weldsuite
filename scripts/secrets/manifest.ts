@@ -639,8 +639,10 @@ export const manifest: Record<string, SecretEntry[]> = {
     "CLERK_SECRET_KEY",
     "CLERK_JWT_KEY",
     // Authorises the admin console's outbound-guard API (/internal/outbound/*;
-    // docs/plans/weldmail-outbound-abuse.md). The console (apps/web/admin)
-    // holds the same value in its own environment.
+    // docs/plans/weldmail-outbound-abuse.md) and the mailbox-store admin API
+    // (/internal/mail-store/*; docs/plans/weldmail-mailbox-store-design.md §9
+    // task C4) — same shared secret, both via lib/admin-auth.ts. The console
+    // (apps/web/admin) holds the same value in its own environment.
     "OUTBOUND_ADMIN_SECRET",
   ],
 

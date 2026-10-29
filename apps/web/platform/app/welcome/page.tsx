@@ -1,6 +1,6 @@
 
 import { useEffect } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useRouter, useSearchParams } from '@/lib/router';
 import { PageLoader } from '@/components/page-loader';
 import { WelcomeClient } from './welcome-client';

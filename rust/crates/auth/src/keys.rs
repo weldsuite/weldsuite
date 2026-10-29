@@ -6,11 +6,13 @@
 //!   `CLERK_SECRET_KEY`, or from any JWKS URL. Fetched on first use, reused
 //!   for an hour, and fetched again (at most every 30 seconds) when a token
 //!   names a key id the cached set doesn't have, which is how a key rotation
-//!   reaches us.
+//!   reaches us. After a failed fetch the next one waits 30 seconds too,
+//!   and the keys we have keep serving meanwhile.
 //!
-//! An OIDC provider's keys are fetched the same way, from the `jwks_uri` of
-//! its discovery document (`{issuer}/.well-known/openid-configuration`, read
-//! on first use and again after a failed key fetch) or a configured JWKS URL.
+//! An OIDC provider's keys are fetched the same way, back-off included, from
+//! the `jwks_uri` of its discovery document
+//! (`{issuer}/.well-known/openid-configuration`, read on first use and again
+//! after a failed key fetch) or a configured JWKS URL.
 //! Which rules a token is checked against, Clerk's or OIDC's, is part of the
 //! verifier too, so the middleware is the same for both.
 
@@ -30,7 +32,8 @@ pub const CLERK_JWKS_URL: &str = "https://api.clerk.com/v1/jwks";
 /// How long a fetched key set is reused.
 const KEYS_TTL: Duration = Duration::from_secs(3600);
 
-/// The least time between two fetches triggered by unknown key ids.
+/// The least time between two fetches triggered by unknown key ids, and
+/// after a failed one.
 const REFETCH_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Fetched keys and when they were fetched.
@@ -51,13 +54,28 @@ enum Source {
     },
 }
 
+/// The keys we have, and when a fetch last failed.
+#[derive(Default)]
+struct State {
+    fetched: Option<Fetched>,
+    failed_at: Option<Instant>,
+}
+
+impl State {
+    fn keys(&self) -> Option<Arc<KeySet>> {
+        self.fetched
+            .as_ref()
+            .map(|fetched| Arc::clone(&fetched.keys))
+    }
+}
+
 struct Remote {
     source: Source,
     /// [`REFETCH_INTERVAL`] unless changed with
     /// [`SessionVerifier::with_refetch_interval`].
     refetch_interval: Duration,
     client: reqwest::Client,
-    current: RwLock<Option<Fetched>>,
+    state: RwLock<State>,
     /// Serialises fetches, so a burst of requests fetches once.
     fetching: Mutex<()>,
 }
@@ -213,7 +231,8 @@ impl SessionVerifier {
     }
 
     /// How soon after a fetch a token with an unknown key id may trigger the
-    /// next one (30 seconds by default). No effect on fixed keys.
+    /// next one, and how long a failed fetch holds off the next (30 seconds
+    /// by default). No effect on fixed keys.
     #[must_use]
     pub fn with_refetch_interval(mut self, interval: Duration) -> Self {
         if let Keys::Remote(remote) = &mut self.keys {
@@ -267,7 +286,7 @@ impl Remote {
         Ok(Self {
             source,
             client: http_client()?,
-            current: RwLock::new(None),
+            state: RwLock::new(State::default()),
             fetching: Mutex::new(()),
             refetch_interval: REFETCH_INTERVAL,
         })
@@ -275,37 +294,38 @@ impl Remote {
 
     /// The current key set; fetched when there is none, when it is older than
     /// [`KEYS_TTL`], or when `refresh` asks and the last fetch is older than
-    /// the refetch interval.
+    /// the refetch interval. Never within the refetch interval of a failed
+    /// fetch: while the JWKS endpoint (or an OIDC discovery document) is down
+    /// or slow, every request would otherwise wait out a fetch of its own.
     async fn keys(&self, refresh: bool, rules: &Rules) -> Result<Arc<KeySet>, TokenError> {
-        if let Some(keys) = self.usable(refresh) {
-            return Ok(keys);
+        if let Some(cached) = self.cached(refresh) {
+            return cached;
         }
         let _guard = self.fetching.lock().await;
         // Another request may have fetched while this one waited.
-        if let Some(keys) = self.usable(refresh) {
-            return Ok(keys);
+        if let Some(cached) = self.cached(refresh) {
+            return cached;
         }
-        match self.fetch(rules).await {
+        let fetched = self.fetch(rules).await;
+        let mut state = self
+            .state
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match fetched {
             Ok(keys) => {
                 let keys = Arc::new(keys);
-                *self
-                    .current
-                    .write()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Fetched {
+                state.fetched = Some(Fetched {
                     keys: Arc::clone(&keys),
                     at: Instant::now(),
                 });
+                state.failed_at = None;
                 Ok(keys)
             }
             Err(error) => {
                 tracing::error!(%error, source = %self.describe(), "session keys: fetching the JWKS failed");
+                state.failed_at = Some(Instant::now());
                 // Keep serving with the keys we have, if any.
-                self.current
-                    .read()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .as_ref()
-                    .map(|fetched| Arc::clone(&fetched.keys))
-                    .ok_or(TokenError::UnknownKey)
+                state.keys().ok_or(TokenError::UnknownKey)
             }
         }
     }
@@ -317,19 +337,26 @@ impl Remote {
         }
     }
 
-    fn usable(&self, refresh: bool) -> Option<Arc<KeySet>> {
-        let current = self
-            .current
+    /// The answer without fetching, or `None` when it is time to fetch.
+    fn cached(&self, refresh: bool) -> Option<Result<Arc<KeySet>, TokenError>> {
+        let state = self
+            .state
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let fetched = current.as_ref()?;
+        if state
+            .failed_at
+            .is_some_and(|at| at.elapsed() < self.refetch_interval)
+        {
+            return Some(state.keys().ok_or(TokenError::UnknownKey));
+        }
+        let fetched = state.fetched.as_ref()?;
         let age = fetched.at.elapsed();
         let fresh = if refresh {
             age < self.refetch_interval
         } else {
             age < KEYS_TTL
         };
-        fresh.then(|| Arc::clone(&fetched.keys))
+        fresh.then(|| Ok(Arc::clone(&fetched.keys)))
     }
 
     async fn fetch(&self, rules: &Rules) -> Result<KeySet, KeyError> {

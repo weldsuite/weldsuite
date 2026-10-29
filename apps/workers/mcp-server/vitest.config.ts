@@ -17,6 +17,14 @@ export default defineConfig({
       // @weldsuite/smtp, which connects through `cloudflare:sockets`, a Workers-only
       // module. Nothing in this worker ever connects; the stub only lets it load.
       'cloudflare:sockets': path.resolve(__dirname, '../../../packages/core/smtp/src/testing/cloudflare-sockets-stub.ts'),
+      // Workers-only module; the object-mode mail tests pull in the C2 fakes
+      // (`@weldsuite/mail-domain/store/object/testing/fake-env`), which run
+      // the real `MailboxStoreObject` class (`extends DurableObject`). Same
+      // stub mail-api's own vitest config uses.
+      'cloudflare:workers': path.resolve(
+        __dirname,
+        '../../../packages/domains/mail/src/testing/cloudflare-workers-stub.ts',
+      ),
     },
   },
 });

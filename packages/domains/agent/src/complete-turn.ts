@@ -72,6 +72,11 @@ export interface AcceptedTurn {
   historyOffset: number;
   /** Permissions of the user driving the turn — narrows the agent's grants. */
   actorPermissions?: string[] | null;
+  /**
+   * The persona keys (`personaPermissionKeys`) the user holds, checked
+   * deny-aware by the route: what the default WeldAgent may look up for them.
+   */
+  personaPermissions?: string[] | null;
   /** The user's IANA timezone, when the client sent one. */
   timezone?: string | null;
 }
@@ -84,6 +89,7 @@ export interface AcceptedTurnRef {
   userMessageId: string;
   agentId: string | null;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
 }
 
@@ -204,8 +210,8 @@ async function generatePersonalReply(params: {
   workspaceId: string;
   userId: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  /** The user's permissions: what the default WeldAgent may look up for them. */
-  actorPermissions?: string[] | null;
+  /** The persona keys the user holds, deny-aware: what the default WeldAgent may look up for them. */
+  personaPermissions?: string[] | null;
   timezone?: string | null;
 }): Promise<TurnGeneratorResult> {
   if (!isGatewayConfigured(params.env)) {
@@ -226,7 +232,7 @@ async function generatePersonalReply(params: {
     workspaceId: params.workspaceId,
     userId: params.userId,
     env: params.env,
-    holds: holdsPermissions(params.actorPermissions ?? []),
+    holds: holdsPermissions(params.personaPermissions ?? []),
     sheets: { tagged: taggedSheetsIn(params.messages) },
     timezone: params.timezone,
   });
@@ -286,6 +292,7 @@ export async function defaultTurnGenerator(params: {
   agentId: string | null;
   conversationId?: string;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
   timeoutMs?: number;
 }): Promise<TurnGeneratorResult> {
@@ -341,7 +348,7 @@ export async function defaultTurnGenerator(params: {
     workspaceId: params.workspaceId,
     userId: params.userId,
     messages: params.messages,
-    actorPermissions: params.actorPermissions,
+    personaPermissions: params.personaPermissions,
     timezone: params.timezone,
   });
 }
@@ -359,6 +366,7 @@ export async function acceptConversationTurn(params: {
   content: string;
   agentId?: string;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
   /** When set, the bound agent must be one this viewer may use. */
   viewer?: AgentViewer;
@@ -441,6 +449,7 @@ export async function acceptConversationTurn(params: {
     chatMessages,
     historyOffset: history.offset,
     actorPermissions: params.actorPermissions ?? null,
+    personaPermissions: params.personaPermissions ?? null,
     timezone: params.timezone ?? null,
   };
 }
@@ -453,6 +462,7 @@ export function toAcceptedTurnRef(accepted: AcceptedTurn): AcceptedTurnRef {
     userMessageId: accepted.userMessage.id,
     agentId: accepted.boundAgentId,
     actorPermissions: accepted.actorPermissions ?? null,
+    personaPermissions: accepted.personaPermissions ?? null,
     timezone: accepted.timezone ?? null,
   };
 }
@@ -516,6 +526,7 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
     chatMessages: toModelHistory(history.rows),
     historyOffset: history.offset,
     actorPermissions: ref.actorPermissions ?? null,
+    personaPermissions: ref.personaPermissions ?? null,
     timezone: ref.timezone ?? null,
   };
 }
@@ -646,6 +657,7 @@ export async function finishAcceptedTurn(params: {
           agentId: input.agentId,
           conversationId: accepted.conversationId,
           actorPermissions: accepted.actorPermissions,
+          personaPermissions: accepted.personaPermissions,
           timezone: accepted.timezone,
           timeoutMs: params.timeoutMs,
         }));
@@ -713,6 +725,7 @@ export async function completeConversationTurn(params: {
   content: string;
   agentId?: string;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
   viewer?: AgentViewer;
   generate?: TurnGenerator;
@@ -728,6 +741,7 @@ export async function completeConversationTurn(params: {
     content: params.content,
     agentId: params.agentId,
     actorPermissions: params.actorPermissions,
+    personaPermissions: params.personaPermissions,
     timezone: params.timezone,
     viewer: params.viewer,
   });

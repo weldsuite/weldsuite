@@ -11,7 +11,7 @@
  */
 
 import { useMemo, useState, type ReactNode } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { MessageItem } from '@/app/weldchat/components/message-item';
