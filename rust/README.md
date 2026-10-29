@@ -7,9 +7,9 @@ self-hosted (Kubernetes). The design, the decisions and the phase plan live in
 the private docs repo: `design/platform/editions-and-self-hosting.md` and
 `editions-and-self-hosting-phases.md` in `weldsuite/weldsuite-documentation`.
 
-Status: **phase P0**. The workspace and its tooling are set up; the binary only
-prints its version. The first library crates (`kit`, `ports`, `db`) arrive in
-phase P1.
+Status: **phase P1** (foundations). `crates/kit` holds the response envelope,
+errors, ids, CORS and request ids. The binary only prints its version; `ports`,
+`db`, auth and the request pipeline come next.
 
 ## Layout
 
@@ -18,8 +18,10 @@ rust/
   Cargo.toml            workspace: shared package metadata, lints, dependency versions
   rust-toolchain.toml   pinned compiler (CI and local builds use the same one)
   deny.toml             cargo-deny: allowed licences, advisories, sources
+  clippy.toml           clippy settings (product names allowed in docs)
   bins/weldsuite/       the one binary (serve, consume, cron, migrate, admin commands)
-  crates/               library crates, from phase P1: kit, ports, adapters, db, modules/<module>
+  crates/kit/           response envelope, errors, ids, CORS, request id (worker-kit in TS)
+  crates/               more library crates in P1: ports, adapters, db, then modules/<module>
 ```
 
 ## Commands
