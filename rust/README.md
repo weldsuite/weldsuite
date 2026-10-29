@@ -30,6 +30,9 @@ rust/
   crates/auth/          Clerk session tokens (azp, clock skew, fva) and step-up second factor
   crates/permissions/   @weldsuite/permissions: matching, per-app checks, grants, resolution, route layer
   crates/db/            master DB, workspace → tenant pool, database_url decryption, permission lookups
+  crates/ports/         ports (cache, event bus, realtime, flags) and their in-memory test doubles
+  crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
+  crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, flags in the master DB
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          a local kind cluster smoke test (also run in CI)
 ```
@@ -46,9 +49,11 @@ pnpm rust:test    # tests
 pnpm rust:deny    # licences, advisories, duplicate crates, sources (needs cargo-deny)
 ```
 
-Or `cargo …` inside `rust/`. The `weldsuite-db` integration test needs a
-throwaway Postgres in `WELDSUITE_TEST_DATABASE_URL` (CI starts one); without
-it the test is skipped.
+Or `cargo …` inside `rust/`. The integration tests need throwaway services
+and are skipped without them: Postgres in `WELDSUITE_TEST_DATABASE_URL`
+(`weldsuite-db`, and the flag table of `weldsuite-adapters-oss`; CI starts
+one), Valkey in `WELDSUITE_TEST_VALKEY_URL` (`redis://…`) and NATS with
+JetStream in `WELDSUITE_TEST_NATS_URL` (`nats://…`).
 
 ## Running it
 
