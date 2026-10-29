@@ -29,7 +29,8 @@ weldsuite-sign = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }
 weldsuite-ports = { workspace = true }
-axum = { workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
+weldsuite-subscribers = { workspace = true }
+axum ={ workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
 base64 = { workspace = true, optional = true }
 form_urlencoded = { workspace = true, optional = true }
 http = { workspace = true }
