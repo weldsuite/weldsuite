@@ -2938,9 +2938,11 @@ name = "weldsuite-kit"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "form_urlencoded",
  "getrandom 0.4.3",
  "http",
  "http-body-util",
+ "regex",
  "serde",
  "serde_json",
  "tokio",

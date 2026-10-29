@@ -1,4 +1,4 @@
-//! Request body validation that answers like `zValidator('json', schema)`
+//! Request validation that answers like `zValidator('json' | 'query', schema)`
 //! (`@hono/zod-validator` 0.4 with Zod 3): a failure is `400` with the
 //! `safeParse` result as the body,
 //!
@@ -6,13 +6,19 @@
 //! { "success": false, "error": { "issues": [...], "name": "ZodError" } }
 //! ```
 //!
-//! and each issue carries Zod's own codes, fields and messages. Only the rules
-//! the ported routes use are here; add one when a route needs it, with a test
-//! against Zod's output.
+//! and each issue carries Zod's own codes, fields, messages and paths. A
+//! schema is read field by field, in the schema's order (Zod reports issues
+//! in that order); [`Issues::nested`] and [`Issues::list`] read objects and
+//! arrays inside the body with their paths. Only the rules the ported routes
+//! use are here; add one when a route needs it, with a test against Zod's
+//! output.
+
+use std::sync::LazyLock;
 
 use axum::Json;
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
+use regex::Regex;
 use serde_json::{Map, Value, json};
 
 /// Zod's name for a JSON value's type (`getParsedType`).
@@ -72,6 +78,62 @@ impl<T> Field<T> {
     }
 }
 
+/// A string's checks, in Zod's order: `.trim()` and `.toLowerCase()` change
+/// the value first, then the format, then the length.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Text {
+    pub trim: bool,
+    pub lowercase: bool,
+    pub format: Option<Format>,
+    pub min: Option<usize>,
+    pub max: Option<usize>,
+}
+
+impl Text {
+    /// `z.string().min(min).max(max)`.
+    pub const fn length(min: Option<usize>, max: Option<usize>) -> Self {
+        Self {
+            trim: false,
+            lowercase: false,
+            format: None,
+            min,
+            max,
+        }
+    }
+
+    /// `z.string().trim().min(min).max(max)`.
+    pub const fn trimmed(min: Option<usize>, max: Option<usize>) -> Self {
+        Self {
+            trim: true,
+            lowercase: false,
+            format: None,
+            min,
+            max,
+        }
+    }
+}
+
+/// String formats (`invalid_string` issues).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// `.email()`.
+    Email,
+    /// `.datetime({ offset: true })`.
+    DatetimeOffset,
+    /// `.regex(/^\d+$/)`.
+    Digits,
+}
+
+/// A number's checks: `z.number()` (`z.coerce.number()` when `coerce`),
+/// `.int()`, `.min()`, `.max()`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Number {
+    pub coerce: bool,
+    pub int: bool,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
 /// A failed validation: answers 400 with the `safeParse` result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Invalid(Vec<Value>);
@@ -86,20 +148,31 @@ impl IntoResponse for Invalid {
 /// Collects issues while a body is read; [`Issues::finish`] turns them into
 /// the 400 response.
 #[derive(Debug, Default)]
-pub struct Issues(Vec<Value>);
+pub struct Issues {
+    issues: Vec<Value>,
+    /// Where the fields being read sit in the body (`["fields", 2]`).
+    prefix: Vec<Value>,
+}
 
 impl Issues {
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.issues.is_empty()
     }
 
     /// `Err` (a 400 response) when anything was wrong.
     pub fn finish(self) -> Result<(), Invalid> {
-        if self.0.is_empty() {
+        if self.issues.is_empty() {
             Ok(())
         } else {
-            Err(Invalid(self.0))
+            Err(Invalid(self.issues))
         }
+    }
+
+    /// The path of `key` at the current depth.
+    fn path(&self, key: &str) -> Value {
+        let mut path = self.prefix.clone();
+        path.push(Value::String(key.to_owned()));
+        Value::Array(path)
     }
 
     fn invalid_type(&mut self, key: &str, expected: &str, value: Option<&Value>) {
@@ -109,23 +182,48 @@ impl Issues {
         } else {
             format!("Expected {expected}, received {received}")
         };
-        self.0.push(json!({
+        let path = self.path(key);
+        self.issues.push(json!({
             "code": "invalid_type",
             "expected": expected,
             "received": received,
-            "path": path(key),
+            "path": path,
             "message": message,
         }));
     }
 
     fn push_at(&mut self, path: &Value, expected: &str, value: &Value) {
         let received = parsed_type(Some(value));
-        self.0.push(json!({
+        self.issues.push(json!({
             "code": "invalid_type",
             "expected": expected,
             "received": received,
             "path": path,
             "message": format!("Expected {expected}, received {received}"),
+        }));
+    }
+
+    fn too_small(&mut self, path: &Value, kind: &str, minimum: &Value, message: &str) {
+        self.issues.push(json!({
+            "code": "too_small",
+            "minimum": minimum,
+            "type": kind,
+            "inclusive": true,
+            "exact": false,
+            "message": message,
+            "path": path,
+        }));
+    }
+
+    fn too_big(&mut self, path: &Value, kind: &str, maximum: &Value, message: &str) {
+        self.issues.push(json!({
+            "code": "too_big",
+            "maximum": maximum,
+            "type": kind,
+            "inclusive": true,
+            "exact": false,
+            "message": message,
+            "path": path,
         }));
     }
 
@@ -156,19 +254,13 @@ impl Issues {
         }
     }
 
-    /// The body as an object (`z.object(...)`), or an issue at the root.
+    /// The body as an object (`z.object(...)`), or an issue where it sits.
     pub fn object<'a>(&mut self, body: &'a Value) -> Option<&'a Map<String, Value>> {
         if let Value::Object(map) = body {
             return Some(map);
         }
-        let received = parsed_type(Some(body));
-        self.0.push(json!({
-            "code": "invalid_type",
-            "expected": "object",
-            "received": received,
-            "path": [],
-            "message": format!("Expected object, received {received}"),
-        }));
+        let path = Value::Array(self.prefix.clone());
+        self.push_at(&path, "object", body);
         None
     }
 
@@ -198,6 +290,17 @@ impl Issues {
         min: Option<usize>,
         max: Option<usize>,
     ) -> Field<String> {
+        self.text_with(body, key, presence, Text::length(min, max))
+    }
+
+    /// A string with `rules`, and `presence`.
+    pub fn text_with(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        rules: Text,
+    ) -> Field<String> {
         let value = body.get(key);
         if let Some(field) = self.left_out(key, "string", value, presence) {
             return field;
@@ -206,39 +309,55 @@ impl Issues {
             self.invalid_type(key, "string", value);
             return Field::Absent;
         };
+        let mut text = if rules.trim {
+            js_trim(text).to_owned()
+        } else {
+            text.clone()
+        };
+        if rules.lowercase {
+            text = text.to_lowercase();
+        }
+        let before = self.issues.len();
+        if let Some(format) = rules.format
+            && !format.matches(&text)
+        {
+            let (validation, message) = format.issue();
+            let path = self.path(key);
+            self.issues.push(json!({
+                "validation": validation,
+                "code": "invalid_string",
+                "message": message,
+                "path": path,
+            }));
+        }
         // Zod counts UTF-16 code units, as JavaScript's `length` does.
         let length = text.encode_utf16().count();
-        let before = self.0.len();
-        if let Some(min) = min
+        if let Some(min) = rules.min
             && length < min
         {
-            self.0.push(json!({
-                "code": "too_small",
-                "minimum": min,
-                "type": "string",
-                "inclusive": true,
-                "exact": false,
-                "message": format!("String must contain at least {min} character(s)"),
-                "path": path(key),
-            }));
+            let path = self.path(key);
+            self.too_small(
+                &path,
+                "string",
+                &json!(min),
+                &format!("String must contain at least {min} character(s)"),
+            );
         }
-        if let Some(max) = max
+        if let Some(max) = rules.max
             && length > max
         {
-            self.0.push(json!({
-                "code": "too_big",
-                "maximum": max,
-                "type": "string",
-                "inclusive": true,
-                "exact": false,
-                "message": format!("String must contain at most {max} character(s)"),
-                "path": path(key),
-            }));
+            let path = self.path(key);
+            self.too_big(
+                &path,
+                "string",
+                &json!(max),
+                &format!("String must contain at most {max} character(s)"),
+            );
         }
-        if self.0.len() > before {
+        if self.issues.len() > before {
             return Field::Absent;
         }
-        Field::Set(text.clone())
+        Field::Set(text)
     }
 
     /// `z.boolean()` with `presence`.
@@ -267,48 +386,113 @@ impl Issues {
         presence: Presence,
         min: Option<i64>,
     ) -> Field<i64> {
-        let value = body.get(key);
-        if let Some(field) = self.left_out(key, "number", value, presence) {
-            return field;
-        }
-        let Some(Value::Number(number)) = value else {
-            self.invalid_type(key, "number", value);
-            return Field::Absent;
+        #[allow(clippy::cast_precision_loss)]
+        let rules = Number {
+            int: true,
+            min: min.map(|min| min as f64),
+            ..Number::default()
         };
-        let float = number.as_f64().unwrap_or(f64::NAN);
-        let before = self.0.len();
-        // `1.0` is an integer to JavaScript.
-        #[allow(clippy::cast_possible_truncation)]
-        let integer = number
-            .as_i64()
-            .or_else(|| (float.fract() == 0.0 && float.abs() < 9.0e15).then_some(float as i64));
-        if integer.is_none() {
-            self.0.push(json!({
+        self.whole_number(body, key, presence, rules)
+    }
+
+    /// An integer with `rules` (`int` is implied), and `presence`.
+    pub fn whole_number(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        rules: Number,
+    ) -> Field<i64> {
+        let rules = Number { int: true, ..rules };
+        match self.number(body, key, presence, rules) {
+            // Checked as an integer of at most 2^53 above.
+            #[allow(clippy::cast_possible_truncation)]
+            Field::Set(number) => Field::Set(number as i64),
+            Field::Null => Field::Null,
+            Field::Absent => Field::Absent,
+        }
+    }
+
+    /// A number with `rules`, and `presence`.
+    pub fn number(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        rules: Number,
+    ) -> Field<f64> {
+        let value = body.get(key);
+        // `z.coerce.number()` runs `Number(value)` first, `undefined` included.
+        let number = if rules.coerce {
+            if value.is_none() && presence != Presence::Required {
+                return Field::Absent;
+            }
+            js_number_of(value)
+        } else {
+            if let Some(field) = self.left_out(key, "number", value, presence) {
+                return field;
+            }
+            let Some(Value::Number(number)) = value else {
+                self.invalid_type(key, "number", value);
+                return Field::Absent;
+            };
+            number.as_f64().unwrap_or(f64::NAN)
+        };
+        if number.is_nan() {
+            let path = self.path(key);
+            self.issues.push(json!({
+                "code": "invalid_type",
+                "expected": "number",
+                "received": "nan",
+                "path": path,
+                "message": "Expected number, received nan",
+            }));
+            return Field::Absent;
+        }
+        let before = self.issues.len();
+        // `Number.isInteger`; beyond 2^53 every double is one.
+        if rules.int && !(number.is_finite() && number.fract() == 0.0) {
+            let path = self.path(key);
+            self.issues.push(json!({
                 "code": "invalid_type",
                 "expected": "integer",
                 "received": "float",
                 "message": "Expected integer, received float",
-                "path": path(key),
+                "path": path,
             }));
         }
-        #[allow(clippy::cast_precision_loss)]
-        if let Some(min) = min
-            && float < min as f64
+        if let Some(min) = rules.min
+            && number < min
         {
-            self.0.push(json!({
-                "code": "too_small",
-                "minimum": min,
-                "type": "number",
-                "inclusive": true,
-                "exact": false,
-                "message": format!("Number must be greater than or equal to {min}"),
-                "path": path(key),
-            }));
+            let path = self.path(key);
+            self.too_small(
+                &path,
+                "number",
+                &js_number_json(min),
+                &format!(
+                    "Number must be greater than or equal to {}",
+                    js_number_text(min)
+                ),
+            );
         }
-        match integer {
-            Some(integer) if self.0.len() == before => Field::Set(integer),
-            _ => Field::Absent,
+        if let Some(max) = rules.max
+            && number > max
+        {
+            let path = self.path(key);
+            self.too_big(
+                &path,
+                "number",
+                &js_number_json(max),
+                &format!(
+                    "Number must be less than or equal to {}",
+                    js_number_text(max)
+                ),
+            );
         }
+        if self.issues.len() > before {
+            return Field::Absent;
+        }
+        Field::Set(number)
     }
 
     /// `z.array(z.record(z.unknown()))` with `presence`: a list of objects.
@@ -318,6 +502,23 @@ impl Issues {
         key: &str,
         presence: Presence,
     ) -> Field<Vec<Value>> {
+        self.list(body, key, presence, None, None, |issues, item| {
+            issues.object(item).map(|_| item.clone())
+        })
+    }
+
+    /// `z.array(item).min(min).max(max)` with `presence`. Zod checks the
+    /// length first, then reads every item; `read` gets each item with its
+    /// index already on the path, and answers `None` for an invalid one.
+    pub fn list<T>(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        min: Option<usize>,
+        max: Option<usize>,
+        mut read: impl FnMut(&mut Self, &Value) -> Option<T>,
+    ) -> Field<Vec<T>> {
         let value = body.get(key);
         if let Some(field) = self.left_out(key, "array", value, presence) {
             return field;
@@ -326,16 +527,71 @@ impl Issues {
             self.invalid_type(key, "array", value);
             return Field::Absent;
         };
-        let before = self.0.len();
+        let before = self.issues.len();
+        if let Some(min) = min
+            && items.len() < min
+        {
+            let path = self.path(key);
+            self.too_small(
+                &path,
+                "array",
+                &json!(min),
+                &format!("Array must contain at least {min} element(s)"),
+            );
+        }
+        if let Some(max) = max
+            && items.len() > max
+        {
+            let path = self.path(key);
+            self.too_big(
+                &path,
+                "array",
+                &json!(max),
+                &format!("Array must contain at most {max} element(s)"),
+            );
+        }
+        let mut out = Vec::with_capacity(items.len());
+        self.prefix.push(Value::String(key.to_owned()));
         for (index, item) in items.iter().enumerate() {
-            if !item.is_object() {
-                self.push_at(&json!([key, index]), "object", item);
+            self.prefix.push(json!(index));
+            let read = read(self, item);
+            self.prefix.pop();
+            if let Some(read) = read {
+                out.push(read);
             }
         }
-        if self.0.len() > before {
+        self.prefix.pop();
+        if self.issues.len() > before {
             return Field::Absent;
         }
-        Field::Set(items.clone())
+        Field::Set(out)
+    }
+
+    /// `z.object({...})` at `key`, with `presence`: `read` gets its fields
+    /// with the key already on the path.
+    pub fn nested<T>(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        read: impl FnOnce(&mut Self, &Map<String, Value>) -> T,
+    ) -> Field<T> {
+        let value = body.get(key);
+        if let Some(field) = self.left_out(key, "object", value, presence) {
+            return field;
+        }
+        let Some(Value::Object(fields)) = value else {
+            self.invalid_type(key, "object", value);
+            return Field::Absent;
+        };
+        let before = self.issues.len();
+        self.prefix.push(Value::String(key.to_owned()));
+        let read = read(self, fields);
+        self.prefix.pop();
+        if self.issues.len() > before {
+            return Field::Absent;
+        }
+        Field::Set(read)
     }
 
     /// `z.enum([...])` with `presence`.
@@ -360,11 +616,12 @@ impl Issues {
                 Field::Set(text.clone())
             }
             Some(Value::String(text)) => {
-                self.0.push(json!({
+                let path = self.path(key);
+                self.issues.push(json!({
                     "received": text,
                     "code": "invalid_enum_value",
                     "options": options,
-                    "path": path(key),
+                    "path": path,
                     "message": format!("Invalid enum value. Expected {expected}, received '{text}'"),
                 }));
                 Field::Absent
@@ -386,10 +643,144 @@ impl Issues {
         self.choice(body, key, Presence::Required, options)
             .into_option()
     }
+
+    #[cfg(test)]
+    fn take(self) -> Value {
+        Value::Array(self.issues)
+    }
 }
 
-fn path(key: &str) -> Value {
-    json!([key])
+impl Format {
+    fn issue(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Email => ("email", "Invalid email"),
+            Self::DatetimeOffset => ("datetime", "Invalid datetime"),
+            Self::Digits => ("regex", "Invalid"),
+        }
+    }
+
+    fn matches(self, text: &str) -> bool {
+        match self {
+            // Zod 3's email regex, minus its lookaheads (no leading dot, no
+            // two dots in a row), which Rust's regex has no syntax for.
+            Self::Email => !text.starts_with('.') && !text.contains("..") && EMAIL.is_match(text),
+            Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
+            Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
+        }
+    }
+}
+
+static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i-u)^([A-Z0-9_'+\-.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$")
+        .expect("the email pattern compiles")
+});
+
+/// Zod 3.25's `datetime({ offset: true })`: a date (leap years checked), a
+/// time with optional seconds and fraction, and `Z` or `±hh[:]mm`.
+static DATETIME_OFFSET: LazyLock<Regex> = LazyLock::new(|| {
+    let date = r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))";
+    let time = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
+    Regex::new(&format!(r"(?-u)^{date}T{time}([+-]\d{{2}}:?\d{{2}}|Z)$"))
+        .expect("the datetime pattern compiles")
+});
+
+/// `String.prototype.trim()`: JavaScript's whitespace, which is Unicode
+/// `White_Space` plus the BOM.
+fn js_trim(text: &str) -> &str {
+    text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+}
+
+/// `Number(value)` for what a body or query string holds.
+fn js_number_of(value: Option<&Value>) -> f64 {
+    match value {
+        None | Some(Value::Object(_)) => f64::NAN,
+        Some(Value::Null) => 0.0,
+        Some(Value::Bool(flag)) => f64::from(u8::from(*flag)),
+        Some(Value::Number(number)) => number.as_f64().unwrap_or(f64::NAN),
+        Some(Value::String(text)) => js_number(text),
+        // `Number([x])` is `Number(String(x))`; longer arrays are NaN.
+        Some(Value::Array(items)) => match items.as_slice() {
+            [] => 0.0,
+            [Value::String(text)] => js_number(text),
+            [item] => js_number_of(Some(item)),
+            _ => f64::NAN,
+        },
+    }
+}
+
+/// `Number(text)`: trimmed, empty is 0, decimal or `0x`/`0o`/`0b`, and
+/// `Infinity`. Anything else is NaN.
+fn js_number(text: &str) -> f64 {
+    let text = js_trim(text);
+    if text.is_empty() {
+        return 0.0;
+    }
+    let radix = [
+        ("0x", 16),
+        ("0X", 16),
+        ("0o", 8),
+        ("0O", 8),
+        ("0b", 2),
+        ("0B", 2),
+    ]
+    .into_iter()
+    .find_map(|(prefix, radix)| text.strip_prefix(prefix).map(|digits| (digits, radix)));
+    if let Some((digits, radix)) = radix {
+        #[allow(clippy::cast_precision_loss)]
+        return u64::from_str_radix(digits, radix).map_or(f64::NAN, |n| n as f64);
+    }
+    let (sign, unsigned) = match text.as_bytes()[0] {
+        b'-' => (-1.0, &text[1..]),
+        b'+' => (1.0, &text[1..]),
+        _ => (1.0, text),
+    };
+    if unsigned == "Infinity" {
+        return sign * f64::INFINITY;
+    }
+    // Rust also reads `inf` and `NaN`; JavaScript reads only digits here.
+    let numeric = unsigned
+        .bytes()
+        .all(|b| b.is_ascii_digit() || matches!(b, b'.' | b'e' | b'E' | b'+' | b'-'));
+    if !numeric
+        || !unsigned
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_digit() || b == b'.')
+    {
+        return f64::NAN;
+    }
+    unsigned.parse::<f64>().map_or(f64::NAN, |n| sign * n)
+}
+
+/// A bound in an issue, as JavaScript writes the number (`8`, not `8.0`).
+fn js_number_json(number: f64) -> Value {
+    #[allow(clippy::cast_possible_truncation)]
+    if number.fract() == 0.0 && number.abs() < 9.0e15 {
+        json!(number as i64)
+    } else {
+        json!(number)
+    }
+}
+
+fn js_number_text(number: f64) -> String {
+    js_number_json(number).to_string()
+}
+
+/// The query string as `zValidator('query', …)` sees it: one value is a
+/// string, a repeated key is an array of strings.
+pub fn query_values(query: Option<&str>) -> Map<String, Value> {
+    let mut out = Map::new();
+    for (key, value) in form_urlencoded::parse(query.unwrap_or_default().as_bytes()) {
+        let value = Value::String(value.into_owned());
+        match out.get_mut(key.as_ref()) {
+            None => {
+                out.insert(key.into_owned(), value);
+            }
+            Some(Value::Array(values)) => values.push(value),
+            Some(first) => *first = Value::Array(vec![first.take(), value]),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -405,7 +796,7 @@ mod tests {
         issues.string(object, "permission", true, Some(1), Some(100));
         issues.string(object, "pageLabel", false, None, Some(120));
         assert_eq!(
-            Value::Array(issues.0),
+            issues.take(),
             json!([{"code":"too_small","minimum":1,"type":"string","inclusive":true,"exact":false,"message":"String must contain at least 1 character(s)","path":["permission"]}])
         );
 
@@ -413,7 +804,7 @@ mod tests {
         let body = json!({});
         issues.string(issues_object(&body), "permission", true, None, None);
         assert_eq!(
-            Value::Array(issues.0),
+            issues.take(),
             json!([{"code":"invalid_type","expected":"string","received":"undefined","path":["permission"],"message":"Required"}])
         );
 
@@ -421,13 +812,16 @@ mod tests {
         let body = json!({ "status": "x" });
         issues.one_of(issues_object(&body), "status", &["approved", "denied"]);
         assert_eq!(
-            Value::Array(issues.0),
+            issues.take(),
             json!([{"received":"x","code":"invalid_enum_value","options":["approved","denied"],"path":["status"],"message":"Invalid enum value. Expected 'approved' | 'denied', received 'x'"}])
         );
 
         let mut issues = Issues::default();
         assert!(issues.object(&json!([1])).is_none());
-        assert_eq!(issues.0[0]["message"], "Expected object, received array");
+        assert_eq!(
+            issues.take()[0]["message"],
+            "Expected object, received array"
+        );
     }
 
     /// Zod 3's issues for the rules the know schemas use (run against `zod`
@@ -447,7 +841,7 @@ mod tests {
         );
         issues.text(fields, "parentId", Presence::Nullable, None, None);
         assert_eq!(
-            Value::Array(issues.0),
+            issues.take(),
             json!([{"code":"invalid_type","expected":"string","received":"undefined","path":["parentId"],"message":"Required"}])
         );
 
@@ -469,7 +863,7 @@ mod tests {
         issues.text(fields, "parentId", Presence::Nullable, None, None);
         issues.records(fields, "contentJson", Presence::Optional);
         assert_eq!(
-            Value::Array(issues.0),
+            issues.take(),
             json!([
                 {"code":"invalid_type","expected":"string","received":"null","path":["description"],"message":"Expected string, received null"},
                 {"code":"too_big","maximum":3,"type":"string","inclusive":true,"exact":false,"message":"String must contain at most 3 character(s)","path":["icon"]},
@@ -501,7 +895,7 @@ mod tests {
         );
         issues.records(fields, "contentJson", Presence::Optional);
         assert_eq!(
-            Value::Array(issues.0),
+            issues.take(),
             json!([
                 {"expected":"'open' | 'closed' | 'private'","received":"number","code":"invalid_type","path":["visibility"],"message":"Expected 'open' | 'closed' | 'private', received number"},
                 {"code":"invalid_type","expected":"number","received":"string","path":["sortOrder"],"message":"Expected number, received string"},
@@ -527,6 +921,298 @@ mod tests {
             Field::Set(vec![json!({ "type": "paragraph" })])
         );
         assert!(issues.is_empty());
+    }
+
+    const EMAIL_RULES: Text = Text {
+        trim: true,
+        lowercase: true,
+        format: Some(Format::Email),
+        min: None,
+        max: Some(10),
+    };
+
+    /// Zod 3.25.76 on sign's string rules (scratch script against `zod` in
+    /// app-api-client).
+    #[test]
+    fn trimmed_lowercased_and_formatted_strings_match_zod() {
+        let body = json!({ "email": "  A.B@Example.COM " });
+        let mut issues = Issues::default();
+        issues.text_with(
+            issues_object(&body),
+            "email",
+            Presence::Required,
+            EMAIL_RULES,
+        );
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"too_big","maximum":10,"type":"string","inclusive":true,"exact":false,"message":"String must contain at most 10 character(s)","path":["email"]}])
+        );
+
+        let body = json!({ "email": "not an email at all" });
+        let mut issues = Issues::default();
+        issues.text_with(
+            issues_object(&body),
+            "email",
+            Presence::Required,
+            EMAIL_RULES,
+        );
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"validation":"email","code":"invalid_string","message":"Invalid email","path":["email"]},
+                {"code":"too_big","maximum":10,"type":"string","inclusive":true,"exact":false,"message":"String must contain at most 10 character(s)","path":["email"]}
+            ])
+        );
+
+        for (email, ok) in [
+            ("a..b@x.io", false),
+            (".a@x.io", false),
+            ("a@x.c", false),
+            ("Ab@X.io", true),
+        ] {
+            let body = json!({ "email": email });
+            let mut issues = Issues::default();
+            let read = issues.text_with(
+                issues_object(&body),
+                "email",
+                Presence::Required,
+                Text {
+                    max: None,
+                    ..EMAIL_RULES
+                },
+            );
+            assert_eq!(issues.is_empty(), ok, "{email}");
+            if ok {
+                assert_eq!(read, Field::Set(email.to_lowercase()));
+            }
+        }
+
+        let body = json!({ "a": "   ", "b": "  abcdef ", "c": "  abc " });
+        let mut issues = Issues::default();
+        let fields = issues_object(&body);
+        issues.text_with(
+            fields,
+            "a",
+            Presence::Required,
+            Text::trimmed(Some(1), Some(5)),
+        );
+        issues.text_with(
+            fields,
+            "b",
+            Presence::Required,
+            Text::trimmed(Some(1), Some(5)),
+        );
+        assert_eq!(
+            issues.text_with(
+                fields,
+                "c",
+                Presence::Required,
+                Text::trimmed(Some(1), Some(5))
+            ),
+            Field::Set("abc".to_owned())
+        );
+        let issues = issues.take();
+        assert_eq!(issues[0]["code"], "too_small");
+        assert_eq!(issues[1]["code"], "too_big");
+    }
+
+    #[test]
+    fn datetimes_match_zod() {
+        for (at, ok) in [
+            ("2026-10-29T07:00:00Z", true),
+            ("2026-10-29T07:00:00.123+02:00", true),
+            ("2026-10-29T07:00Z", true),
+            ("2026-10-29T07:00:00+0200", true),
+            ("2026-10-29T07:00:00+02", false),
+            ("2026-10-29", false),
+            ("2026-02-29T00:00:00Z", false),
+            ("2024-02-29T00:00:00Z", true),
+            ("2026-10-29T24:00:00Z", false),
+            ("2026-10-29 07:00:00Z", false),
+            ("2026-10-29T07:00:00.Z", false),
+        ] {
+            assert_eq!(Format::DatetimeOffset.matches(at), ok, "{at}");
+        }
+        let body = json!({ "at": "2026-10-29" });
+        let mut issues = Issues::default();
+        let rules = Text {
+            format: Some(Format::DatetimeOffset),
+            ..Text::default()
+        };
+        issues.text_with(issues_object(&body), "at", Presence::Nullable, rules);
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"invalid_string","validation":"datetime","message":"Invalid datetime","path":["at"]}])
+        );
+    }
+
+    #[test]
+    fn numbers_and_coerced_query_numbers_match_zod() {
+        let body = json!({ "d": 91, "w": 7.5, "x": -0.1 });
+        let mut issues = Issues::default();
+        let fields = issues_object(&body);
+        let days = Number {
+            int: true,
+            min: Some(1.0),
+            max: Some(90.0),
+            ..Number::default()
+        };
+        issues.whole_number(fields, "d", Presence::Required, days);
+        issues.number(
+            fields,
+            "w",
+            Presence::Required,
+            Number {
+                min: Some(8.0),
+                ..Number::default()
+            },
+        );
+        issues.number(
+            fields,
+            "x",
+            Presence::Required,
+            Number {
+                min: Some(0.0),
+                ..Number::default()
+            },
+        );
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_big","maximum":90,"type":"number","inclusive":true,"exact":false,"message":"Number must be less than or equal to 90","path":["d"]},
+                {"code":"too_small","minimum":8,"type":"number","inclusive":true,"exact":false,"message":"Number must be greater than or equal to 8","path":["w"]},
+                {"code":"too_small","minimum":0,"type":"number","inclusive":true,"exact":false,"message":"Number must be greater than or equal to 0","path":["x"]}
+            ])
+        );
+
+        let limit = Number {
+            coerce: true,
+            int: true,
+            min: Some(1.0),
+            max: Some(200.0),
+        };
+        let digits = Text {
+            format: Some(Format::Digits),
+            ..Text::default()
+        };
+        let query = query_values(Some("limit=abc&cursor=1a&search=+abcd+"));
+        let mut issues = Issues::default();
+        issues.text_with(
+            &query,
+            "search",
+            Presence::Optional,
+            Text::trimmed(None, Some(3)),
+        );
+        issues.whole_number(&query, "limit", Presence::Optional, limit);
+        issues.text_with(&query, "cursor", Presence::Optional, digits);
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_big","maximum":3,"type":"string","inclusive":true,"exact":false,"message":"String must contain at most 3 character(s)","path":["search"]},
+                {"code":"invalid_type","expected":"number","received":"nan","path":["limit"],"message":"Expected number, received nan"},
+                {"validation":"regex","code":"invalid_string","message":"Invalid","path":["cursor"]}
+            ])
+        );
+
+        for (query, expected) in [
+            (
+                "limit=&cursor=10",
+                json!([{"code":"too_small","minimum":1,"type":"number","inclusive":true,"exact":false,"message":"Number must be greater than or equal to 1","path":["limit"]}]),
+            ),
+            (
+                "limit=2.5",
+                json!([{"code":"invalid_type","expected":"integer","received":"float","message":"Expected integer, received float","path":["limit"]}]),
+            ),
+            (
+                "limit=1&limit=2",
+                json!([{"code":"invalid_type","expected":"number","received":"nan","path":["limit"],"message":"Expected number, received nan"}]),
+            ),
+            (
+                "limit=201",
+                json!([{"code":"too_big","maximum":200,"type":"number","inclusive":true,"exact":false,"message":"Number must be less than or equal to 200","path":["limit"]}]),
+            ),
+        ] {
+            let query = query_values(Some(query));
+            let mut issues = Issues::default();
+            issues.whole_number(&query, "limit", Presence::Optional, limit);
+            issues.text_with(&query, "cursor", Presence::Optional, digits);
+            assert_eq!(issues.take(), expected);
+        }
+        let query = query_values(Some("limit=0x10"));
+        let mut issues = Issues::default();
+        assert_eq!(
+            issues.whole_number(&query, "limit", Presence::Optional, limit),
+            Field::Set(16)
+        );
+        assert_eq!(
+            issues.whole_number(&Map::new(), "limit", Presence::Optional, limit),
+            Field::Absent
+        );
+    }
+
+    #[test]
+    fn nested_objects_and_lists_carry_their_paths() {
+        let body = json!({ "source": { "entityType": "x" }, "fields": [{ "page": -1 }, { "page": 1, "label": " abcd " }, {}] });
+        let mut issues = Issues::default();
+        let fields = issues_object(&body);
+        issues.nested(fields, "source", Presence::Nullish, |issues, source| {
+            issues.choice(
+                source,
+                "entityType",
+                Presence::Required,
+                &["file", "company"],
+            );
+            issues.text(source, "entityId", Presence::Required, Some(1), Some(255));
+        });
+        issues.list(
+            fields,
+            "fields",
+            Presence::Required,
+            None,
+            Some(2),
+            |issues, item| {
+                let item = issues.object(item)?;
+                issues.integer(item, "page", Presence::Required, Some(0));
+                issues.text_with(
+                    item,
+                    "label",
+                    Presence::Nullish,
+                    Text::trimmed(None, Some(3)),
+                );
+                Some(())
+            },
+        );
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"received":"x","code":"invalid_enum_value","options":["file","company"],"path":["source","entityType"],"message":"Invalid enum value. Expected 'file' | 'company', received 'x'"},
+                {"code":"invalid_type","expected":"string","received":"undefined","path":["source","entityId"],"message":"Required"},
+                {"code":"too_big","maximum":2,"type":"array","inclusive":true,"exact":false,"message":"Array must contain at most 2 element(s)","path":["fields"]},
+                {"code":"too_small","minimum":0,"type":"number","inclusive":true,"exact":false,"message":"Number must be greater than or equal to 0","path":["fields",0,"page"]},
+                {"code":"too_big","maximum":3,"type":"string","inclusive":true,"exact":false,"message":"String must contain at most 3 character(s)","path":["fields",1,"label"]},
+                {"code":"invalid_type","expected":"number","received":"undefined","path":["fields",2,"page"],"message":"Required"}
+            ])
+        );
+
+        let body = json!({ "source": "file", "fields": "no" });
+        let mut issues = Issues::default();
+        let fields = issues_object(&body);
+        issues.nested(fields, "source", Presence::Nullish, |_, _| ());
+        issues.list(
+            fields,
+            "fields",
+            Presence::Required,
+            None,
+            Some(2),
+            |_, _| Some(()),
+        );
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"invalid_type","expected":"object","received":"string","path":["source"],"message":"Expected object, received string"},
+                {"code":"invalid_type","expected":"array","received":"string","path":["fields"],"message":"Expected array, received string"}
+            ])
+        );
     }
 
     fn issues_object(body: &Value) -> &Map<String, Value> {
