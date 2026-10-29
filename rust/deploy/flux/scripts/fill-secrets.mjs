@@ -7,6 +7,7 @@
 //
 //   FILES_S3_ACCESS_KEY_ID, FILES_S3_SECRET_ACCESS_KEY    the files bucket
 //   BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY  the backup bucket
+//   ZITADEL_SERVICE_TOKEN                                 the weldsuite service user's PAT
 //   GHCR_USER, GHCR_TOKEN                                 pulling private images
 //
 //   node rust/deploy/flux/scripts/fill-secrets.mjs rust/deploy/flux/secrets/test/secrets.sops.yaml
@@ -43,6 +44,7 @@ const PROVIDED = {
   'weldsuite-env/S3_SECRET_ACCESS_KEY': 'FILES_S3_SECRET_ACCESS_KEY',
   'postgres-backup-s3/ACCESS_KEY_ID': 'BACKUP_S3_ACCESS_KEY_ID',
   'postgres-backup-s3/ACCESS_SECRET_KEY': 'BACKUP_S3_SECRET_ACCESS_KEY',
+  'weldsuite-env/ZITADEL_SERVICE_TOKEN': 'ZITADEL_SERVICE_TOKEN',
 };
 
 function bareValue(secret, key) {
