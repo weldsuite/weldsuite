@@ -117,7 +117,9 @@ fn flow(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         });
     weldsuite_flow::routers(&flow, &state.permissions)
         .into_iter()
-        .fold(router, |router, (prefix, routes)| router.nest(prefix, routes))
+        .fold(router, |router, (prefix, routes)| {
+            router.nest(prefix, routes)
+        })
 }
 
 /// WeldFlow's handle on the app: events, files, the master database, jobs.
