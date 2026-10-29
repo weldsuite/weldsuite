@@ -21,6 +21,7 @@ publish = false
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-permissions = { path = "crates/permissions" }
 
 axum = { version = "0.8.9", default-features = false }
 getrandom = "0.4.3"

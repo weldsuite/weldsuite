@@ -3,5 +3,6 @@ doc-valid-idents = [
   "WeldSuite", "WeldPass", "WeldCRM", "WeldDesk", "WeldMail", "WeldFlow",
   "WeldConnect", "WeldStash", "WeldHost", "WeldBooks", "WeldMeet", "WeldChat",
   "WeldAgent", "WeldApps", "WeldSign", "WeldSheets", "WeldHR", "WeldReach",
+  "WeldObjects", "WeldCalendar", "WeldDrive", "WeldData",
   "RustSec", "..",
 ]
