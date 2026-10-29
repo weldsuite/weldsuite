@@ -15,18 +15,24 @@
 //! | [`Identity`] | Clerk's Backend API (`api.clerk.com/v1`, `@clerk/backend`), ADR SEC-012 | [`MemoryIdentity`] |
 //! | [`MailTransport`] | customer mail over the `SEND_EMAIL` binding (`@weldsuite/worker-email`), ADR MAIL-010 | [`RecordingMailTransport`] |
 //! | [`LedgerStore`] | the `OutboundLedger` / `OutboundPlatformBudget` Durable Objects' storage (MAIL-006) | [`MemoryLedgerStore`] |
+//! | [`DatabaseProvisioner`] | Neon provisioning (`@weldsuite/neon-provisioning`, workspace worker) | [`MemoryProvisioner`] |
+//! | [`BatchHandler`] | a Cloudflare Queues consumer (`queue(batch)`, `ack()`, `retry()`) | (call `handle` directly) |
+//! | [`Embeddings`] | Workers AI embeddings through the AI Gateway (`@weldsuite/ai`) | [`FakeEmbeddings`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
 //! (`impl Future + Send`). Those are not object safe, so each also has a
 //! `Dyn*` twin with boxed futures, implemented for every port, for state that
 //! picks its adapter at runtime: `Arc<dyn DynCache>` and friends implement the
-//! port trait again. [`Identity`] is object safe from the start (see its
-//! module).
+//! port trait again. [`Identity`] and [`DatabaseProvisioner`] are object safe
+//! from the start (see their modules).
 
 use std::fmt;
 use std::pin::Pin;
 
 pub mod cache;
+pub mod consume;
+pub mod database;
+pub mod embeddings;
 pub mod events;
 pub mod files;
 pub mod flags;
@@ -42,6 +48,12 @@ pub mod transport;
 pub mod video_rooms;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
+pub use consume::{BatchHandler, Delivery, Disposition};
+pub use database::{
+    DatabaseProvisioner, DatabaseUrl, MemoryProvisioner, Placement, ProvisionCall, ProvisionError,
+    ProvisionRequest, ProvisionedDatabase, Teardown,
+};
+pub use embeddings::{Embeddings, FakeEmbeddings};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
     ByteRange, DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions,
@@ -49,9 +61,10 @@ pub use files::{
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
-    Identity, IdentityCall, IdentityError, IdentityProvider, IdentityResult, Invitation, ListPage,
-    Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, Organization,
-    OrganizationChanges, OrganizationRef, User, UserProfile, with_identity,
+    ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
+    IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
+    NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
+    OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata, with_identity,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
@@ -65,7 +78,7 @@ pub use mail::{
 pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp};
 pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
-    DynRealtimePublisher, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
+    DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };
 pub use transport::{
     Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,

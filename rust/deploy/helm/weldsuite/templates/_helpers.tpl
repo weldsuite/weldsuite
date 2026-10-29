@@ -45,7 +45,11 @@ app.kubernetes.io/component: api
 {{- default (printf "%s-clerk-jwks" (include "weldsuite.fullname" .)) .Values.clerkJwks.existingConfigMap }}
 {{- end }}
 
-{{/* The environment of every container that runs the binary: serve and the cron jobs. */}}
+{{/*
+The environment of every container that runs the binary: the server, the
+cron jobs and the migration Job read the same settings
+(rust/bins/weldsuite/src/config.rs).
+*/}}
 {{- define "weldsuite.env" -}}
 - name: PORT
   value: "8080"
@@ -57,6 +61,17 @@ app.kubernetes.io/component: api
   value: {{ .Values.config.logLevel | quote }}
 - name: PERMISSIONS_APP_ENFORCE
   value: {{ .Values.config.permissionsAppEnforce | toString | quote }}
+{{- with .Values.config.edition }}
+{{- if not (has . (list "eu" "self-hosted")) }}
+{{- fail "config.edition must be eu or self-hosted" }}
+{{- end }}
+- name: EDITION
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.publicEnv }}
+- name: PUBLIC_ENV
+  value: {{ toJson . | quote }}
+{{- end }}
 {{- with .Values.config.auth }}
 - name: AUTH_PROVIDER
   value: {{ .provider | quote }}
@@ -149,6 +164,28 @@ app.kubernetes.io/component: api
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.identity.zitadel }}
+{{- if .apiUrl }}
+- name: ZITADEL_API_URL
+  value: {{ .apiUrl | quote }}
+- name: ZITADEL_PROJECT_ID
+  value: {{ required "config.identity.zitadel.projectId is required with config.identity.zitadel.apiUrl" .projectId | toString | quote }}
+{{- with .host }}
+- name: ZITADEL_HOST
+  value: {{ . | quote }}
+{{- end }}
+{{- with .inviteUrlTemplate }}
+- name: ZITADEL_INVITE_URL_TEMPLATE
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .Values.config.tenants.region }}
+- name: TENANT_REGION
+  value: {{ . | quote }}
+{{- end }}
+- name: FIELD_ENCRYPTION_AAD_WRITES
+  value: {{ .Values.config.aadWrites | toString | quote }}
 {{- with .Values.config.extraEnv }}
 {{- toYaml . | nindent 0 }}
 {{- end }}
@@ -159,6 +196,21 @@ helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/name: {{ include "weldsuite.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/component: cron
+app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
+{{/*
+The migration Job's labels: the release's, with its own component, so the
+Service, the PodDisruptionBudget and the NetworkPolicy (which select the api
+component) never pick its pod.
+*/}}
+{{- define "weldsuite.migrateLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: migrate
 app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
@@ -185,4 +237,16 @@ app.kubernetes.io/part-of: weldsuite
 {{- /* Where the portal reaches the server: its Service, unless set. */ -}}
 {{- define "weldsuite.signPortal.backendUrl" -}}
 {{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.signPortal.backendUrl }}
+{{- end }}
+
+{{/*
+The Secret the migration Job reads. A hook runs before the release's own
+resources exist, so a chart-made Secret (secret.values) gets a hook copy.
+*/}}
+{{- define "weldsuite.migrateSecretName" -}}
+{{- if .Values.secret.existingSecret }}
+{{- .Values.secret.existingSecret }}
+{{- else }}
+{{- printf "%s-migrate" (include "weldsuite.fullname" .) }}
+{{- end }}
 {{- end }}

@@ -33,9 +33,9 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             patch(access_requests::resolve).route_layer(state.permissions.require(["team:update"])),
         );
     // Core: WeldObjects, custom fields, object templates and grid views
-    // (P4, sub-phase 4e). Served in conformance builds while the port is
-    // checked; mounted unconditionally once complete.
-    let router = if cfg!(feature = "conformance") {
+    // (P4, sub-phase 4e). Served wherever core is marked ported, like every
+    // core area below.
+    let router = if mounts("core") {
         let objects = weldsuite_core_objects::CoreObjectsState {
             events: state.infra.events.clone(),
         };
@@ -69,6 +69,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = core_team(router, state);
+    let router = core_platform(router, state);
     let router = core_apps(router, state);
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
@@ -406,10 +407,9 @@ fn desk_http() -> weldsuite_desk_domain::http::DynDeskHttp {
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge
-/// `DELETE /api/files/:id` starts. Conformance builds only until complete,
-/// like [`core_team`].
+/// `DELETE /api/files/:id` starts. Mounted with core, like [`core_team`].
 fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let files = core_files_state(state);
@@ -445,8 +445,8 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// `/api/storage/upload/:token`, `/api/storage/private/*` and
 /// `/api/storage/public/*` (each checks its own credential), the CLI's
 /// device login (`/api/cli-auth/device`, `/api/cli-auth/token`) and the
-/// WeldApps bundle host (`/public/user-apps/*`). Empty until core files and
-/// WeldApps are mounted.
+/// WeldApps bundle host (`/public/user-apps/*`). Empty where core is not
+/// mounted.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
     let router = public_core(state);
     if mounts("mail") {
@@ -460,7 +460,7 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
 }
 
 fn public_core(state: &AppState) -> Router<AppState> {
-    if cfg!(feature = "conformance") {
+    if mounts("core") {
         let apps = core_apps_state(state);
         weldsuite_core_files::storage_public_router(core_files_state(state))
             .nest(
@@ -536,6 +536,28 @@ pub(crate) fn sign_state(state: &AppState) -> weldsuite_sign::SignState {
     }
 }
 
+/// WeldSign's signer portal at `/public/sign-portal` (ADR FE-017): outside
+/// the member pipeline, behind the portal's key; served with the sign
+/// module. Conformance builds take the test's databases, KV namespace and
+/// Workflow binding from its context.
+pub(crate) fn sign_portal(state: &AppState) -> Router<AppState> {
+    if !mounts("sign") {
+        return Router::new();
+    }
+    let portal = weldsuite_sign::PortalState::new(
+        sign_state(state),
+        Some(Arc::clone(&state.workspaces)),
+        state.sign_portal_secret.clone(),
+    );
+    let router = weldsuite_sign::portal_router(portal);
+    #[cfg(feature = "conformance")]
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance_portal::context,
+    ));
+    router
+}
+
 /// The private bucket and the legacy public one, when object storage is
 /// configured.
 fn file_stores(state: &AppState) -> Option<weldsuite_ports::FileStores> {
@@ -552,11 +574,11 @@ fn file_stores(state: &AppState) -> Option<weldsuite_ports::FileStores> {
 /// The team and settings routes of the core platform
 /// (`weldsuite-core-team`), each at its app-api prefix.
 ///
-/// Served in conformance builds only while the port is incomplete: core
-/// areas are mounted unconditionally once complete, which for this crate is
-/// when every group's suite passes with every route covered.
+/// Mounted wherever core is marked ported (`RUST_PORTED_MODULES` in
+/// `packages/core/api-modules`), which needs every core suite to pass with
+/// every route covered; conformance builds always mount it.
 fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let team = core_team_state(state);
@@ -571,6 +593,10 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         .nest(
             "/member-limits",
             weldsuite_core_team::member_limits(team.clone(), gate),
+        )
+        .nest(
+            "/prepaid-seats",
+            weldsuite_core_team::prepaid_seats(team.clone(), gate),
         )
         .nest(
             "/workspace-settings",
@@ -599,17 +625,82 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         .nest("/workspaces", weldsuite_core_team::workspaces(team, gate))
 }
 
+/// The smaller core platform route groups (`weldsuite-core-platform`), each
+/// at its app-api prefix: notifications, audit logs, API keys, the dashboard,
+/// credits, support, feature requests, SSO, auth sessions and the app store
+/// (P4, sub-phases 4b/4d).
+///
+/// Mounted with core, like [`core_team`].
+fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("core") {
+        return router;
+    }
+    let platform = weldsuite_core_platform::CorePlatformState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        cache: state.infra.cache.clone(),
+        master: state.workspaces.master().clone(),
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
+    };
+    let gate = &state.permissions;
+    router
+        .nest(
+            "/notifications",
+            weldsuite_core_platform::notifications(platform.clone(), gate),
+        )
+        .nest(
+            "/audit-logs",
+            weldsuite_core_platform::audit_logs(platform.clone(), gate),
+        )
+        .nest(
+            "/api-keys",
+            weldsuite_core_platform::api_keys(platform.clone(), gate),
+        )
+        .nest(
+            "/workspace-api-keys",
+            weldsuite_core_platform::workspace_api_keys(platform.clone(), gate),
+        )
+        .nest(
+            "/dashboard",
+            weldsuite_core_platform::dashboard(platform.clone(), gate),
+        )
+        .nest(
+            "/credits",
+            weldsuite_core_platform::credits(platform.clone(), gate),
+        )
+        .nest(
+            "/support",
+            weldsuite_core_platform::support(platform.clone(), gate),
+        )
+        .nest(
+            "/feature-requests",
+            weldsuite_core_platform::feature_requests(platform.clone(), gate),
+        )
+        .nest("/sso", weldsuite_core_platform::sso(platform.clone(), gate))
+        .nest(
+            "/auth-sessions",
+            weldsuite_core_platform::auth_sessions(platform.clone(), gate),
+        )
+        .nest(
+            "/appstore",
+            weldsuite_core_platform::appstore(platform, gate),
+        )
+}
+
 /// The routes that need a session but no workspace (app-api mounts them
 /// above its `/api/*` guard): `/api/account`, `/api/invitations`. Relative
 /// to `/api`; the server puts only the session layer in front of them.
 ///
-/// Conformance builds only, like [`core_team`].
+/// Mounted with core, like [`core_team`].
 pub(crate) fn account(state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
-        return Router::new();
+    let router = onboarding(state);
+    if !mounts("core") {
+        return router;
     }
     let team = core_team_state(state);
-    Router::new()
+    router
         .nest("/account", weldsuite_core_team::account(team.clone()))
         .nest("/invitations", weldsuite_core_team::invitations(team))
         .nest(
@@ -618,12 +709,75 @@ pub(crate) fn account(state: &AppState) -> Router<AppState> {
         )
 }
 
+/// `/api/onboarding` (`weldsuite-core-onboarding`, P4 4a): signup and the
+/// first workspace. Served in conformance builds, and wherever workspaces
+/// can be provisioned (`TENANT_SHARDS` set), which is what signing up on
+/// the Kubernetes editions needs; the provisioning job is registered there.
+fn onboarding(state: &AppState) -> Router<AppState> {
+    let provisioner = state.infra.provisioner.clone();
+    if !cfg!(feature = "conformance") && provisioner.is_none() {
+        return Router::new();
+    }
+    let tenants = onboarding_tenants(state);
+    let workspace_service = if let (Some(identity), Some(provisioner)) =
+        (&state.infra.identity, &provisioner)
+    {
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_core_onboarding::ProvisionJob::new(
+                state.workspaces.master().clone(),
+                Arc::clone(provisioner),
+                Arc::clone(&tenants),
+                Some(Arc::clone(identity)),
+            ));
+        Some(Arc::new(weldsuite_core_onboarding::WorkspaceService::new(
+            state.workspaces.master().clone(),
+            Arc::clone(identity),
+            Arc::clone(&state.infra.jobs),
+            state.infra.cache.clone(),
+        )))
+    } else {
+        if provisioner.is_some() {
+            tracing::warn!(
+                "TENANT_SHARDS is set but ZITADEL_API_URL is not: signup cannot create workspaces"
+            );
+        }
+        None
+    };
+    let onboarding = weldsuite_core_onboarding::OnboardingState {
+        events: state.infra.events.clone(),
+        master: state.workspaces.master().clone(),
+        tenants,
+        identity: state.infra.identity.clone(),
+        mail: state.infra.mail.clone(),
+        workspace_service,
+    };
+    Router::new().nest("/onboarding", weldsuite_core_onboarding::router(onboarding))
+}
+
+/// A workspace's tenant database for onboarding's job and `/finalize`,
+/// which run outside the tenant layer.
+fn onboarding_tenants(state: &AppState) -> weldsuite_core_onboarding::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
+}
+
 /// WeldApps (`weldsuite-core-apps`): `/api/user-apps` and the CLI login's
 /// approval, behind the session and workspace layers.
 ///
-/// Conformance builds only, like [`core_team`].
+/// Mounted with core, like [`core_team`].
 fn core_apps(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let apps = core_apps_state(state);
@@ -669,9 +823,9 @@ fn core_apps_state(state: &AppState) -> weldsuite_core_apps::CoreAppsState {
         workspaces: std::sync::Arc::clone(&state.workspaces),
         cache: state.infra.cache.clone(),
         files: file_stores(state),
-        // No identity provider on Kubernetes until the Zitadel adapter (P5,
-        // ADR SEC-012); conformance builds take the test's per request.
-        identity: None,
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
         http: std::sync::Arc::clone(http),
         env: std::sync::Arc::clone(env),
         gateway_tokens: std::sync::Arc::clone(gateway_tokens),
@@ -693,9 +847,9 @@ fn core_team_state(state: &AppState) -> weldsuite_core_team::CoreTeamState {
             }),
         master: state.workspaces.master().clone(),
         workspaces: std::sync::Arc::clone(&state.workspaces),
-        // No identity provider on Kubernetes until the Zitadel adapter (P5,
-        // ADR SEC-012); conformance builds take the test's per request.
-        identity: None,
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
     }
 }
 

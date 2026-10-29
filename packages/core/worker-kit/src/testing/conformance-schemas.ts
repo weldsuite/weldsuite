@@ -119,6 +119,27 @@ import {
 } from '@weldsuite/app-api-client/schemas/app-catalog';
 import { appAccessViewOrNullSchema, appAccessViewSchema } from '@weldsuite/app-api-client/schemas/reach';
 import {
+  apiKeySchema,
+  createdApiKeySchema,
+  workspaceApiKeySchema,
+} from '@weldsuite/app-api-client/schemas/api-keys';
+import {
+  createdFeatureRequestSchema,
+  featureRequestSchema,
+  featureRequestStatsSchema,
+  featureRequestVoteSchema,
+} from '@weldsuite/app-api-client/schemas/feature-requests';
+import {
+  creditAvailabilitySchema,
+  creditBalanceSchema,
+  creditCheckoutSessionSchema,
+  creditPackageSchema,
+  creditRatesSchema,
+  creditTransactionSchema,
+  creditUsageSchema,
+  subscriptionCreditsSchema,
+} from '@weldsuite/app-api-client/schemas/credits';
+import {
   installableAppListSchema,
   permissionCatalogSchema,
   roleListSchema,
@@ -136,10 +157,41 @@ import {
   sendMailResponseSchema,
 } from '@weldsuite/app-api-client/schemas/outbound-mail';
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
+import {
+  dashboardActivitySchema,
+  dashboardChartPointSchema,
+  installedAppCodeSchema,
+  onboardingChecklistDismissedSchema,
+  onboardingChecklistSchema,
+  sidebarBadgesSchema,
+} from '@weldsuite/app-api-client/schemas/dashboard';
+import {
+  supportChannelMemberSchema,
+  supportChannelWithMembersSchema,
+  supportMemberRemovedSchema,
+  supportMessagePageSchema,
+  supportMessageSchema,
+} from '@weldsuite/app-api-client/schemas/support';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
-import { accountDeletionStatusSchema, deleteAccountResultSchema } from '@weldsuite/app-api-client/schemas/account';
+import {
+  accountDeletionStatusSchema,
+  authSessionRevokedSchema,
+  authSessionsRevokedSchema,
+  deleteAccountResultSchema,
+} from '@weldsuite/app-api-client/schemas/account';
 import { acceptedInvitationSchema, invitationDetailsSchema } from '@weldsuite/app-api-client/schemas/invitations';
+import {
+  onboardingAvailableAppSchema,
+  onboardingCompleteResultSchema,
+  onboardingDatabaseStatusSchema,
+  onboardingInvitationsResultSchema,
+  onboardingOkSchema,
+  onboardingPartnerRequestSchema,
+  onboardingStatusSchema,
+  onboardingUserInfoSchema,
+  onboardingWorkspaceCreatedSchema,
+} from '@weldsuite/app-api-client/schemas/onboarding';
 import {
   deleteWorkspaceResultSchema,
   workspaceDeletionStatusSchema,
@@ -175,7 +227,8 @@ import {
   teamMemberListItemSchema,
   teamMemberSelfSchema,
 } from '@weldsuite/app-api-client/schemas/team-members';
-import { memberLimitsSchema, myRoleSchema } from '@weldsuite/app-api-client/schemas/member-limits';
+import { memberLimitsSchema, myRoleSchema, prepaidSeatsSchema } from '@weldsuite/app-api-client/schemas/member-limits';
+import { ssoBillingViewSchema, ssoConfigViewSchema } from '@weldsuite/app-api-client/schemas/sso';
 import {
   inviteMemberResultSchema,
   resendInviteResultSchema,
@@ -204,6 +257,10 @@ import {
   signEnvelopeSummarySchema,
   signEventListSchema,
   signFieldListSchema,
+  signPortalCodeSentSchema,
+  signPortalConsentedSchema,
+  signPortalEnvelopeSchema,
+  signPortalSessionResponseSchema,
   signRecipientDtoSchema,
   signRecipientSuggestionListSchema,
   signRemindResultSchema,
@@ -275,6 +332,20 @@ import {
   flowTaskStatusSchema,
   flowTaskUpdatedSchema,
 } from '@weldsuite/app-api-client/schemas/flow-responses';
+import {
+  notificationListItemSchema,
+  notificationRefSchema,
+  notificationRowSchema,
+  markedReadCountSchema,
+  unreadCountSchema,
+} from '@weldsuite/core-api-client/schemas/notifications';
+import { auditLogRefSchema, auditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
+import {
+  assignAllMembersResultSchema,
+  canManageAppsSchema,
+  myAppCodesSchema,
+  workspaceInstalledAppSchema,
+} from '@weldsuite/app-api-client/schemas/app-catalog';
 import {
   confirmUploadResponseSchema,
   filesAccessSchema,
@@ -599,6 +670,20 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/invitations/:token', envelope: 'single', data: invitationDetailsSchema },
   { method: 'POST', route: '/api/invitations/accept', envelope: 'single', data: acceptedInvitationSchema },
   { method: 'GET', route: '/api/workspaces', envelope: 'single', data: workspaceSummarySchema.array() },
+  // core: onboarding
+  { method: 'POST', route: '/api/onboarding/create-workspace', envelope: 'single', data: onboardingWorkspaceCreatedSchema },
+  { method: 'POST', route: '/api/onboarding/partner-request', envelope: 'single', data: onboardingPartnerRequestSchema },
+  { method: 'GET', route: '/api/onboarding/status', envelope: 'single', data: onboardingStatusSchema },
+  { method: 'GET', route: '/api/onboarding/database-status', envelope: 'single', data: onboardingDatabaseStatusSchema },
+  { method: 'GET', route: '/api/onboarding/user-info', envelope: 'single', data: onboardingUserInfoSchema },
+  { method: 'GET', route: '/api/onboarding/available-apps', envelope: 'array', data: onboardingAvailableAppSchema },
+  { method: 'POST', route: '/api/onboarding/profile', envelope: 'single', data: onboardingOkSchema },
+  { method: 'POST', route: '/api/onboarding/workspace', envelope: 'single', data: onboardingWorkspaceCreatedSchema },
+  { method: 'POST', route: '/api/onboarding/role', envelope: 'single', data: onboardingOkSchema },
+  { method: 'POST', route: '/api/onboarding/invitations', envelope: 'single', data: onboardingInvitationsResultSchema },
+  { method: 'POST', route: '/api/onboarding/complete', envelope: 'single', data: onboardingCompleteResultSchema },
+  { method: 'POST', route: '/api/onboarding/retry', envelope: 'single', data: onboardingOkSchema },
+  { method: 'POST', route: '/api/onboarding/finalize', envelope: 'single', data: onboardingOkSchema },
   // core: team-members (manage), member-limits, my-role
   { method: 'POST', route: '/api/team-members/sync', envelope: 'single', data: teamMembersSyncResultSchema },
   { method: 'POST', route: '/api/team-members/invite', envelope: 'single', data: inviteMemberResultSchema },
@@ -606,6 +691,72 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/team-members/:id/resend-invite', envelope: 'single', data: resendInviteResultSchema },
   { method: 'GET', route: '/api/member-limits', envelope: 'single', data: memberLimitsSchema },
   { method: 'GET', route: '/api/my-role', envelope: 'single', data: myRoleSchema },
+  // core: notifications
+  { method: 'GET', route: '/api/notifications', envelope: 'list', data: notificationListItemSchema },
+  { method: 'GET', route: '/api/notifications/unread-count', envelope: 'single', data: unreadCountSchema },
+  { method: 'POST', route: '/api/notifications/read-all', envelope: 'single', data: markedReadCountSchema },
+  { method: 'POST', route: '/api/notifications/:id/read', envelope: 'single', data: notificationRowSchema },
+  { method: 'GET', route: '/api/notifications/:id', envelope: 'single', data: notificationRowSchema },
+  { method: 'POST', route: '/api/notifications', envelope: 'single', data: notificationRefSchema },
+  { method: 'PATCH', route: '/api/notifications/:id', envelope: 'single', data: notificationRefSchema },
+  // core: audit-logs (the numbered pager adds `page`, `pageSize`, `totalPages` to the pagination)
+  { method: 'GET', route: '/api/audit-logs', envelope: 'list', data: auditLogSchema },
+  { method: 'GET', route: '/api/audit-logs/:entityType/:entityId', envelope: 'array', data: auditLogSchema },
+  { method: 'GET', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogSchema },
+  { method: 'POST', route: '/api/audit-logs', envelope: 'single', data: auditLogRefSchema },
+  { method: 'PATCH', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogRefSchema },
+  // core: appstore
+  { method: 'GET', route: '/api/appstore/my-apps', envelope: 'single', data: myAppCodesSchema },
+  { method: 'GET', route: '/api/appstore/installed-apps', envelope: 'array', data: workspaceInstalledAppSchema },
+  { method: 'GET', route: '/api/appstore/can-manage-apps', envelope: 'single', data: canManageAppsSchema },
+  {
+    method: 'POST',
+    route: '/api/appstore/apps/:appCode/assign-all-members',
+    envelope: 'single',
+    data: assignAllMembersResultSchema,
+  },
+  // core: api-keys (`{ data: T[] }` lists)
+  { method: 'GET', route: '/api/api-keys', envelope: 'array', data: apiKeySchema },
+  { method: 'GET', route: '/api/api-keys/:id', envelope: 'single', data: apiKeySchema },
+  { method: 'POST', route: '/api/api-keys', envelope: 'single', data: createdApiKeySchema },
+  { method: 'PATCH', route: '/api/api-keys/:id', envelope: 'single', data: apiKeySchema },
+  // core: workspace-api-keys
+  { method: 'GET', route: '/api/workspace-api-keys', envelope: 'array', data: workspaceApiKeySchema },
+  { method: 'GET', route: '/api/workspace-api-keys/:id', envelope: 'single', data: workspaceApiKeySchema },
+  { method: 'POST', route: '/api/workspace-api-keys', envelope: 'single', data: createdApiKeySchema },
+  { method: 'PUT', route: '/api/workspace-api-keys/:id', envelope: 'single', data: workspaceApiKeySchema },
+  // core: feature-requests
+  { method: 'GET', route: '/api/feature-requests', envelope: 'array', data: featureRequestSchema },
+  { method: 'GET', route: '/api/feature-requests/stats', envelope: 'single', data: featureRequestStatsSchema },
+  { method: 'POST', route: '/api/feature-requests', envelope: 'single', data: createdFeatureRequestSchema },
+  { method: 'POST', route: '/api/feature-requests/:id/vote', envelope: 'single', data: featureRequestVoteSchema },
+  // core: credits (`{ success, data }`; transactions page by `page`/`pageSize`)
+  { method: 'GET', route: '/api/credits/balance', envelope: 'single', data: creditBalanceSchema },
+  { method: 'GET', route: '/api/credits/transactions', envelope: 'single', data: creditTransactionSchema.array() },
+  { method: 'POST', route: '/api/credits/check', envelope: 'single', data: creditAvailabilitySchema },
+  { method: 'GET', route: '/api/credits/packages', envelope: 'single', data: creditPackageSchema.array() },
+  { method: 'GET', route: '/api/credits/rates', envelope: 'single', data: creditRatesSchema },
+  { method: 'GET', route: '/api/credits/usage', envelope: 'single', data: creditUsageSchema },
+  { method: 'GET', route: '/api/credits/subscription', envelope: 'single', data: subscriptionCreditsSchema },
+  { method: 'POST', route: '/api/credits/checkout', envelope: 'single', data: creditCheckoutSessionSchema },
+  // core: prepaid-seats
+  { method: 'GET', route: '/api/prepaid-seats', envelope: 'single', data: prepaidSeatsSchema },
+  // core: auth-sessions
+  { method: 'POST', route: '/api/auth-sessions/revoke-all', envelope: 'single', data: authSessionsRevokedSchema },
+  { method: 'POST', route: '/api/auth-sessions/:sessionId/revoke', envelope: 'single', data: authSessionRevokedSchema },
+  // core: sso (every configuration write answers with the configuration)
+  { method: 'GET', route: '/api/sso', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'PUT', route: '/api/sso/domain', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'DELETE', route: '/api/sso/domain', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'POST', route: '/api/sso/domain/verify', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'PUT', route: '/api/sso/connection', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'DELETE', route: '/api/sso/connection', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'POST', route: '/api/sso/connection/activate', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'POST', route: '/api/sso/connection/deactivate', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'GET', route: '/api/sso/billing', envelope: 'single', data: ssoBillingViewSchema },
+  { method: 'POST', route: '/api/sso/billing/subscribe', envelope: 'single', data: ssoBillingViewSchema },
+  { method: 'POST', route: '/api/sso/billing/cancel', envelope: 'single', data: ssoBillingViewSchema },
+  { method: 'POST', route: '/api/sso/billing/resume', envelope: 'single', data: ssoBillingViewSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },
@@ -659,6 +810,14 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/sign/templates/:id/documents', envelope: 'single', data: signDocumentDtoSchema },
   { method: 'POST', route: '/api/sign/templates/:id/documents/from-drive', envelope: 'single', data: signDocumentDtoSchema },
   { method: 'PUT', route: '/api/sign/templates/:id/documents/order', envelope: 'single', data: signDocumentListSchema },
+  // sign (WeldSign, the signer portal's calls: ADR FE-017)
+  { method: 'POST', route: '/public/sign-portal/session', envelope: 'single', data: signPortalSessionResponseSchema },
+  { method: 'POST', route: '/public/sign-portal/verify', envelope: 'single', data: signPortalSessionResponseSchema },
+  { method: 'POST', route: '/public/sign-portal/resend-code', envelope: 'single', data: signPortalCodeSentSchema },
+  { method: 'GET', route: '/public/sign-portal/envelope', envelope: 'single', data: signPortalEnvelopeSchema },
+  { method: 'POST', route: '/public/sign-portal/consent', envelope: 'single', data: signPortalConsentedSchema },
+  { method: 'POST', route: '/public/sign-portal/complete', envelope: 'single', data: signPortalEnvelopeSchema },
+  { method: 'POST', route: '/public/sign-portal/decline', envelope: 'single', data: signPortalEnvelopeSchema },
   // core: WeldObjects definitions
   { method: 'GET', route: '/api/custom-objects', envelope: 'list', data: customObjectSchema },
   { method: 'GET', route: '/api/custom-objects/:id', envelope: 'single', data: customObjectSchema },
@@ -695,6 +854,25 @@ const ROUTES: RouteSchema[] = [
   // core: grid views
   { method: 'GET', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
   { method: 'PUT', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
+  // core: dashboard
+  { method: 'GET', route: '/api/dashboard/chart', envelope: 'array', data: dashboardChartPointSchema },
+  { method: 'GET', route: '/api/dashboard/installed-apps', envelope: 'array', data: installedAppCodeSchema },
+  { method: 'GET', route: '/api/dashboard/activity', envelope: 'array', data: dashboardActivitySchema },
+  { method: 'GET', route: '/api/dashboard/sidebar-badges', envelope: 'single', data: sidebarBadgesSchema },
+  { method: 'GET', route: '/api/dashboard/onboarding-checklist', envelope: 'single', data: onboardingChecklistSchema },
+  {
+    method: 'POST',
+    route: '/api/dashboard/onboarding-checklist/dismiss',
+    envelope: 'single',
+    data: onboardingChecklistDismissedSchema,
+  },
+  // core: support
+  { method: 'GET', route: '/api/support/channel', envelope: 'single', data: supportChannelWithMembersSchema },
+  { method: 'GET', route: '/api/support/messages', envelope: 'single', data: supportMessagePageSchema },
+  { method: 'POST', route: '/api/support/messages', envelope: 'single', data: supportMessageSchema },
+  { method: 'GET', route: '/api/support/members', envelope: 'array', data: supportChannelMemberSchema },
+  { method: 'POST', route: '/api/support/members', envelope: 'array', data: supportChannelMemberSchema },
+  { method: 'DELETE', route: '/api/support/members/:userId', envelope: 'single', data: supportMemberRemovedSchema },
   // core: files (the lists page in memory: `{ success, data, pagination: { page, … } }`)
   { method: 'GET', route: '/api/files', envelope: 'single', data: unifiedFileSchema.array() },
   { method: 'GET', route: '/api/files/:id', envelope: 'single', data: driveFileSchema },

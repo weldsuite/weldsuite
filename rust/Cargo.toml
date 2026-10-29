@@ -28,7 +28,9 @@ weldsuite-chat-domain = { path = "crates/chat-domain" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
+weldsuite-core-onboarding = { path = "modules/core-onboarding" }
 weldsuite-core-files = { path = "modules/core-files" }
+weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
@@ -44,12 +46,15 @@ weldsuite-know = { path = "modules/know" }
 weldsuite-mail = { path = "modules/mail" }
 weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-pass = { path = "modules/pass" }
+weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-notifications = { path = "crates/notifications" }
+weldsuite-subscribers = { path = "crates/subscribers" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
 weldsuite-video-rooms = { path = "crates/video-rooms" }
+weldsuite-realtime = { path = "crates/realtime" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 async-nats = { version = "0.51.0", default-features = false }
@@ -87,12 +92,14 @@ sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }
 time = "0.3.55"
 tokio = "1.54.1"
+tokio-tungstenite = { version = "0.29.0", default-features = false }
 tokio-util = "0.7.19"
 tower = "0.5.3"
 tower-http = "0.7.1"
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
+unicode-normalization = "0.1.26"
 url = "2.5.8"
 uuid = "1.29.0"
 

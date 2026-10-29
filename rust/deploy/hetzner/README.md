@@ -54,7 +54,7 @@ differ.
 - An **age** key pair for SOPS: `age-keygen -o eu.agekey`. Keep the private
   key outside git (a password manager); the cluster gets a copy in step 6.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
-  `sops`, `age`, `hcloud-upload-image`, and `pnpm` for the migrations.
+  `sops`, `age` and `hcloud-upload-image`.
 - A read-only **deploy key** for this repository (Flux pulls; it never pushes).
 - Access to the `weldsuite` and `weldsuite-sign-portal` images (ghcr.io
   today, the EU registry later). Both build from `rust/Dockerfile` at the repo
@@ -180,8 +180,10 @@ default) organisation:
 
 1. **Project** `WeldSuite`, with the roles `admin` and `member` (Clerk's
    `org:admin` and `org:member` without the prefix). Turn on "Assert roles on
-   authentication" and "Check authorization on authentication", so only
-   people with a grant in some workspace can sign in. Its **resource id** is
+   authentication"; leave "Check authorization on authentication" **off**: a
+   person signs up before they have a workspace, and with it on Zitadel
+   refuses their first sign-in. Workspace access is the server's check (a
+   token names only organisations that granted the person a role). Its **resource id** is
    the tokens' audience: `ZITADEL_PROJECT_ID` in
    `flux/clusters/eu/cluster-settings.yaml` (quoted; it is 18 digits).
 2. **Web application** `platform` in the project: type *User Agent*,
@@ -206,62 +208,115 @@ default) organisation:
    MFA in the login policy, or let step-up send the user back through
    `prompt=login`.
 5. **Service user** for the server's identity adapter (`ZitadelIdentity`:
-   invitations, memberships, organisations): a machine user `weldsuite-api`
-   with the instance manager role `IAM_OWNER` and a personal access token.
-   Keep the token for when the team routes are ported (`ZITADEL_SERVICE_TOKEN`
-   in `weldsuite-env`); nothing reads it yet.
-6. **A workspace is a Zitadel organisation.** Until provisioning is ported
-   (P4 4a), per workspace: create the organisation, grant it the `WeldSuite`
-   project with both roles, grant its people a role, and store its
-   organisation id in the workspace row, where Global keeps the Clerk org id:
+   organisations, users, invitations, memberships, and the event store the
+   identity sync reads): a machine user `weldsuite-api` with the instance
+   manager role `IAM_OWNER` and a personal access token, in the instance's
+   default organisation (which owns the project). The token is
+   `ZITADEL_SERVICE_TOKEN` in `weldsuite-env`; the app's values point the
+   server at `http://zitadel.zitadel.svc:8080` with `auth.<domain>` as the
+   host (`config.identity`).
+6. **Self-registration**: in the default organisation's login settings,
+   allow users to register. People sign up there (the platform's "Sign up"
+   opens Zitadel's registration, `prompt=create`), and each workspace they
+   create becomes an organisation of its own (next section).
 
-   ```sql
-   update workspaces set clerk_org_id = '<zitadel org id>' where id = 'ws_…';
-   ```
-
-   The server looks a session's organisation up in `workspaces.clerk_org_id`
-   (or `workspaces.id`), so no schema change is needed.
+A workspace is a Zitadel organisation: its id is what `workspaces.clerk_org_id`
+holds, where Global keeps the Clerk org id, and the server looks a session's
+organisation up there (or in `workspaces.id`).
 
 The server fetches Zitadel's discovery document and keys from
 `https://auth.<domain>` through the load balancer. If pods can't reach it
 that way, set `config.auth.oidc.jwksUrl` to a URL they can; Zitadel picks its
 instance by host name, so an in-cluster URL needs that host.
 
+## Sign-up and the first workspace
+
+With `TENANT_SHARDS` and `ZITADEL_*` in `weldsuite-env` (secrets example),
+the server serves `/api/onboarding` and runs the provisioning job; the
+`identity-sync` CronJob (every minute), `workspace-deletion` (daily) and
+`workspace-teardown` (hourly) run with the same environment. What happens,
+so each step can be checked:
+
+1. The person registers at Zitadel and signs in to `app.<domain>`. Their
+   token names no organisation, so the platform shows onboarding.
+2. `POST /api/onboarding/workspace` (or `/create-workspace` for another one)
+   creates the organisation (`POST /v2/organizations`; a name another
+   organisation has becomes `Name (slug)` in Zitadel, the workspace keeps its
+   own), grants it the project with `admin` and `member`, makes the person
+   its `admin`, and writes the `workspaces` row (Free plan,
+   `provisioning_status = 'pending'`) with the person's `users` and
+   `user_workspaces` rows. Check: `select id, clerk_org_id, provisioning_status from workspaces order by created_at desc limit 5;`
+3. The `workspace.provision` job (on Restate) creates the database on a
+   shard (role, database, sealed URL, tenant migrations), adds the person as
+   OWNER, installs the apps they picked, and marks the workspace `ready`;
+   then the digest schedule and the first credits. The platform polls
+   `/api/onboarding/database-status`. A failure shows `failed` with the
+   reason in `provisioning_error`; "Retry" (`POST /api/onboarding/retry`)
+   starts it again. Restate's UI (`kubectl -n weldsuite port-forward svc/restate 9070`)
+   shows the invocation and each step.
+4. The platform asks Zitadel for a token scoped to the new organisation
+   (`urn:zitadel:iam:org:roles:id:<org id>`), and the person is in.
+
+Changes made in Zitadel's console (renames, removed members, deleted users
+or organisations) reach the databases through the `identity-sync` CronJob
+within a minute; its watermark is the `identity_sync.watermark` row in the
+master's `system_settings`. To run it by hand:
+`kubectl -n weldsuite create job --from=cronjob/weldsuite-identity-sync sync-now`.
+Organisations made in the console are not workspaces: only onboarding makes
+those.
+
 ## 8. The master database schema
 
-The `master` cluster starts with an empty `weldsuite_master` database. Apply
-the journaled master migrations, straight to the cluster (not through
-PgBouncer):
+The `master` cluster starts with an empty `weldsuite_master` database. The
+chart's migration Job builds it: Flux's first install runs
+`weldsuite migrate --master --tenants` as a pre-install hook, with the
+release's image and the `weldsuite-env` Secret, before any pod starts, and
+every upgrade runs it again first (`migrations` in
+`flux/apps/eu/values/weldsuite.yaml`). The migrations are built into the
+image, so there is nothing to apply by hand. Follow it with
 
 ```bash
-kubectl -n postgres port-forward service/master-rw 15432:5432 &
-MASTER_DATABASE_URL="postgres://weldsuite:<master owner password>@127.0.0.1:15432/weldsuite_master?sslmode=require" \
-  pnpm --filter @weldsuite/db db:migrate:master
+kubectl -n weldsuite get jobs -w                  # weldsuite-migrate, removed once it succeeded
+kubectl -n weldsuite logs -f job/weldsuite-migrate
 ```
 
-Run it again after every release that adds a master migration (the chart's
-migration Job is P5 work package 5.1).
+A failed Job stays, with its log, and fails the release; fix the cause and
+let Flux retry (`flux reconcile helmrelease weldsuite -n weldsuite`). To run
+it by hand against the live cluster, use a server pod, which has the same
+environment (the image has no shell):
+`kubectl -n weldsuite exec deploy/weldsuite -- /usr/local/bin/weldsuite migrate --dry-run`.
 
 ## Tenant databases
 
 Each workspace has its own database on a tenant shard (DATA-016); `tenants-1`
-is the first. Until the `DatabaseProvisioner` port exists (P4 4a), a
-workspace's database is made by hand:
+is the first. The `DatabaseProvisioner` port's CloudNativePG adapter
+(`rust/crates/adapters-oss/src/cnpg.rs`) makes them, called by the
+`workspace.provision` job on signup (above). What it does, so a database can
+be checked or made the same way by hand:
 
-```bash
-kubectl -n postgres port-forward service/tenants-1-rw 25432:5432 &
-psql "postgres://tenant:<tenant password>@127.0.0.1:25432/tenants?sslmode=require" \
-  -c 'CREATE DATABASE ws_<workspace id>'
-DATABASE_URL="postgres://tenant:<tenant password>@127.0.0.1:25432/ws_<workspace id>?sslmode=require" \
-  pnpm --filter @weldsuite/db exec drizzle-kit migrate --config=drizzle.config.ts
-```
+- It logs in to the shard's primary (`tenants-1-rw`) as `tenant`, which
+  needs `CREATEDB` and `CREATEROLE` (the `Cluster`'s `postInitSQL`; on a
+  cluster made before that, run `ALTER ROLE tenant CREATEDB CREATEROLE` once).
+- Role `role_<workspace id>` with a random password, database
+  `ws_<workspace id>` owned by it, `REVOKE ALL ON DATABASE … FROM PUBLIC`
+  (`vector` and `pg_trgm` come from `template1`).
+- The workspace's master row gets its placement (`neon_project_id` =
+  `cnpg:tenants-1`, `shared_project_id` = the shard's `neon_shared_projects`
+  row, which counts its databases, `neon_database_name`, `neon_role_name`)
+  and `database_url`:
+  `postgres://role_<id>:<password>@tenants-1-pooler.postgres.svc:5432/ws_<id>?sslmode=require`,
+  sealed with `DATABASE_ENCRYPTION_KEY_V2` (v3 with `FIELD_ENCRYPTION_AAD_WRITES`).
+  The server also reads a plain URL, as the kind smoke test does, but don't
+  store one in production.
+- Then the tenant migrations, as `weldsuite migrate` applies them. By hand,
+  for a database already placed and stored:
+  `kubectl -n weldsuite exec deploy/weldsuite -- /usr/local/bin/weldsuite migrate --tenants --only <workspace id>`.
 
-Its `workspaces.database_url` points at the pooler:
-`postgres://tenant:<password>@tenants-1-pooler.postgres.svc:5432/ws_<id>?sslmode=require`,
-encrypted with `DATABASE_ENCRYPTION_KEY` (the server also reads a plain URL,
-as the kind smoke test does, but don't store one in production). A new shard
-is another `Cluster` + `Pooler` + `ObjectStore` + `ScheduledBackup` copied
-from `tenants-1`.
+The provisioner's shards come from its configuration (`TENANT_SHARDS`, a
+JSON list: `name`, `adminUrl` to `<cluster>-rw` as `tenant`, `poolerHost`,
+optional `poolerPort`, `urlOptions`, `maxDatabases`). A new shard is another
+`Cluster` + `Pooler` + `ObjectStore` + `ScheduledBackup` copied from
+`tenants-1`, plus an entry there.
 
 ## Backups and restores
 
@@ -286,12 +341,16 @@ Be clear about this before anyone signs a contract:
   not available on this cluster (P4, P6, P8). The EU `/config.json` offers
   only ported modules.
 - **Sign-in.** The server verifies Zitadel's tokens (`AUTH_PROVIDER=oidc`,
-  step 7), but the frontends still use Clerk: the auth facade with runtime
-  config (P4 4.F1/4.F2/4.F5) is needed before anyone can sign in through
-  Zitadel. The Zitadel identity adapter exists; the team routes that call it
-  (invitations, members) are not ported yet.
-- **Workspace lifecycle.** Signup, onboarding and database provisioning
-  (P4 4a) are not ported; tenant databases are made by hand (above).
+  step 7) and the platform signs in through Zitadel with its auth facade
+  (OIDC with PKCE, from `/config.json`). The core team routes that call the
+  identity adapter (invitations, members) are still served in conformance
+  builds only.
+- **Workspace lifecycle.** Signup, onboarding, provisioning, the identity
+  sync and the deletion sweeps run (above). Not on this cluster: sample
+  data and the default helpdesk workflows (their modules aren't ported), the
+  WeldMail domain of a new workspace, Stripe, and a reseller's entry point
+  (partner onboarding runs on Global; only the provisioning job knows a
+  partner workspace).
 - **Frontends.** The server serves the platform SPA from its image at
   `app.<domain>` (built with `VITE_RUNTIME_CONFIG=on`: it reads
   `/config.json` and calls the API on its own origin). The sign portal runs

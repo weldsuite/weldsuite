@@ -74,20 +74,25 @@ export interface ApiModule {
   /**
    * Ported to the Rust backend (`rust/`, ADR API-014): its conformance suite
    * passes, so the Kubernetes editions (EU, self-hosted) serve it. The Rust
-   * server mounts only these, and their `/config.json` offers only these.
-   * Global ignores the flag: it always runs the TypeScript worker. Set it by
-   * adding the id to `RUST_PORTED_MODULES` (playbook step 6), then run
-   * `pnpm rust:catalogs`.
+   * server mounts only these, and their `/config.json` offers only these, so
+   * the platform hides every other module there (edition flags, P4 4.F3:
+   * `apps/web/platform/lib/edition.ts`). Global ignores the flag: it always
+   * runs the TypeScript workers. Set it by adding the id to
+   * `RUST_PORTED_MODULES` (playbook step 6), then run `pnpm rust:catalogs`.
    */
   rust: boolean;
 }
 
 /**
- * Modules the Rust backend serves (see `ApiModule.rust`). A module listed
- * here must have a suite in rust/conformance/suites.json; the Rust catalogs
- * tests check that.
+ * Modules the Rust backend serves (see `ApiModule.rust`): the core platform
+ * and the ported `weld*` modules. The one list both backends and the
+ * Kubernetes frontends read, through the catalog export
+ * (`rust/catalogs/api-modules.json`, `pnpm rust:catalogs`). A module listed
+ * here must have a suite in rust/conformance/suites.json (the Rust catalogs
+ * tests check that), and every route of its suites must be reached
+ * (`pnpm rust:conformance`).
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['know', 'pass', 'calendar']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['core', 'know', 'sign', 'pass', 'calendar']);
 
 const mod = (
   id: ApiModuleId,

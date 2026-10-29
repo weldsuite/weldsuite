@@ -11,6 +11,13 @@
 //!   (`apps/workers/calendar-api/src/cron/calendar-replan.ts`).
 //! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
 //!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
+//! - `identity-sync` (every minute): the identity provider's changes into
+//!   the master and tenant databases (what Clerk's webhooks do on Global;
+//!   `weldsuite_core_onboarding::IdentitySync`).
+//! - `workspace-deletion` (daily): workspaces past their scheduled deletion
+//!   (`workspace-worker/src/services/deletion-sweep.ts`).
+//! - `workspace-teardown` (hourly): deleted workspaces whose database
+//!   teardown never finished (`services/teardown-sweep.ts`).
 //!
 //! A job takes the same environment as `serve`. It prints what it did as one
 //! JSON line and exits 0 even when a workspace failed (the due index retries
@@ -46,12 +53,18 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle, mail-outbound-ledgers, calendar-replan, flow-file-purge";
+const JOBS: &str = "jobs: sign-lifecycle, identity-sync, workspace-deletion, workspace-teardown, mail-outbound-ledgers, calendar-replan, flow-file-purge";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
     let Some(
-        job @ ("sign-lifecycle" | "mail-outbound-ledgers" | "calendar-replan" | "flow-file-purge"),
+        job @ ("sign-lifecycle"
+        | "identity-sync"
+        | "workspace-deletion"
+        | "workspace-teardown"
+        | "mail-outbound-ledgers"
+        | "calendar-replan"
+        | "flow-file-purge"),
     ) = job
     else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
@@ -64,7 +77,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             return ExitCode::from(78); // EX_CONFIG
         }
     };
-    let telemetry = crate::telemetry::init(config.log_format);
+    let telemetry = crate::telemetry::init(config.log_format, "info");
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -77,6 +90,9 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
     };
     let run = async {
         match job {
+            "identity-sync" => identity_sync(config).await,
+            "workspace-deletion" => workspace_deletion(config).await,
+            "workspace-teardown" => workspace_teardown(config).await,
             "mail-outbound-ledgers" => mail_outbound_ledgers(config).await,
             "calendar-replan" => calendar_replan(config).await,
             "flow-file-purge" => flow_file_purge(config).await,
@@ -147,7 +163,8 @@ async fn sign_lifecycle(config: Config) -> Result<(), Box<dyn std::error::Error>
     ));
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = crate::infra::connect(&config.infra, &master, tracker.clone()).await?;
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
     let services = weldsuite_sign::Services {
@@ -264,5 +281,113 @@ async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error
         })
     );
     tracker.close();
+    Ok(())
+}
+
+/// The master pool and the identity provider and provisioner, for the
+/// workspace jobs.
+struct WorkspaceInfra {
+    master: weldsuite_db::PgPool,
+    workspaces: Arc<Workspaces>,
+    identity: Option<Arc<dyn weldsuite_ports::Identity>>,
+    provisioner: Option<Arc<dyn weldsuite_ports::DatabaseProvisioner>>,
+}
+
+fn workspace_infra(config: &Config) -> Result<WorkspaceInfra, Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let identity = config.infra.identity.as_ref().map(|settings| {
+        weldsuite_adapters_oss::ZitadelIdentity::new(weldsuite_adapters_oss::ZitadelOptions {
+            api_url: settings.api_url.clone(),
+            token: settings.token.clone(),
+            project_id: settings.project_id.clone(),
+            invite_url_template: settings.invite_url_template.clone(),
+            application_name: "WeldSuite".to_owned(),
+            host: settings.host.clone(),
+        })
+        .map(|identity| Arc::new(identity) as Arc<dyn weldsuite_ports::Identity>)
+    });
+    let identity = identity.transpose()?;
+    let provisioner = crate::infra::provisioner(&config.infra, &master, &config.keyring)?;
+    Ok(WorkspaceInfra {
+        master,
+        workspaces,
+        identity,
+        provisioner,
+    })
+}
+
+/// Tenant databases through the app's `Workspaces`, for the onboarding jobs.
+fn tenant_databases(workspaces: &Arc<Workspaces>) -> weldsuite_core_onboarding::TenantDatabases {
+    let workspaces = Arc::clone(workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
+}
+
+async fn identity_sync(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let infra = workspace_infra(&config)?;
+    let Some(identity) = infra.identity else {
+        return Err(
+            "identity-sync needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID"
+                .into(),
+        );
+    };
+    let sync = weldsuite_core_onboarding::IdentitySync::new(
+        infra.master,
+        identity,
+        tenant_databases(&infra.workspaces),
+        infra.provisioner,
+    );
+    let report = sync.run().await.map_err(|error| error.to_string())?;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "identity-sync", "result": report })
+    );
+    Ok(())
+}
+
+async fn workspace_deletion(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let infra = workspace_infra(&config)?;
+    let Some(identity) = infra.identity else {
+        return Err("workspace-deletion needs ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID".into());
+    };
+    let result =
+        weldsuite_core_onboarding::sweep_scheduled_deletions(&infra.master, &identity).await?;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "workspace-deletion", "result": result })
+    );
+    Ok(())
+}
+
+async fn workspace_teardown(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let infra = workspace_infra(&config)?;
+    let Some(provisioner) = infra.provisioner else {
+        tracing::info!("TENANT_SHARDS is not set: nothing to tear down");
+        return Ok(());
+    };
+    let result = weldsuite_core_onboarding::sweep_unfinished_teardowns(
+        &infra.master,
+        &provisioner,
+        weldsuite_core_onboarding::TEARDOWN_RETRY_AFTER,
+    )
+    .await;
+    println!(
+        "{}",
+        serde_json::json!({ "job": "workspace-teardown", "result": result })
+    );
     Ok(())
 }

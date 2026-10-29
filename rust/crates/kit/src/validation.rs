@@ -1074,6 +1074,31 @@ impl Issues {
         self.too_big(&path, "string", &json!(max), message);
     }
 
+    /// `z.string().length(length)` failing on `key` (a string of
+    /// `actual` UTF-16 units): Zod's exact-length issue, too short or too
+    /// long.
+    pub fn string_length(&mut self, key: &str, length: usize, actual: usize) {
+        if actual == length {
+            return;
+        }
+        let path = self.path(key);
+        let message = format!("String must contain exactly {length} character(s)");
+        let (code, bound) = if actual < length {
+            ("too_small", "minimum")
+        } else {
+            ("too_big", "maximum")
+        };
+        self.issues.push(json!({
+            "code": code,
+            bound: length,
+            "type": "string",
+            "inclusive": true,
+            "exact": true,
+            "message": message,
+            "path": path,
+        }));
+    }
+
     #[cfg(test)]
     fn take(self) -> Value {
         Value::Array(self.issues)
@@ -1171,22 +1196,26 @@ static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
         .expect("the email pattern compiles")
 });
 
-/// Zod 3.25's `datetime({ offset: true })`: a date (leap years checked), a
-/// time with optional seconds and fraction, and `Z` or `±hh[:]mm`.
+/// Zod 3.25's date in `datetime()`, leap years checked.
+const DATETIME_DATE: &str = r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))";
+/// Zod 3.25's time in `datetime()`: optional seconds and fraction.
+const DATETIME_TIME: &str = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
+
+/// Zod 3.25's `datetime({ offset: true })`: a date, a time, and `Z` or
+/// `±hh[:]mm`.
 static DATETIME_OFFSET: LazyLock<Regex> = LazyLock::new(|| {
-    let date = r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))";
-    let time = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
-    Regex::new(&format!(r"(?-u)^{date}T{time}([+-]\d{{2}}:?\d{{2}}|Z)$"))
+    Regex::new(&format!(
+        r"(?-u)^{DATETIME_DATE}T{DATETIME_TIME}([+-]\d{{2}}:?\d{{2}}|Z)$"
+    ))
+    .expect("the datetime pattern compiles")
+});
+
+/// Zod 3.25's `datetime()`: a date, a time, and `Z` (UTC only).
+static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"(?-u)^{DATETIME_DATE}T{DATETIME_TIME}Z$"))
         .expect("the datetime pattern compiles")
 });
 
-/// Zod 3.25's `datetime()`: the same date and time as
-/// [`DATETIME_OFFSET`], ending in `Z`.
-static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
-    let date = r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))";
-    let time = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
-    Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
-});
 
 /// `new Date(text).toISOString()` for an ISO date string, `None` for one
 /// JavaScript would read as an invalid date (or that is not ISO).
@@ -1425,6 +1454,21 @@ mod tests {
         assert_eq!(
             read(Value::Null).1,
             json!([{"code":"invalid_union","unionErrors":[{"issues":[{"expected":"'low' | 'medium' | 'high' | 'urgent' | 'critical'","received":"null","code":"invalid_type","path":["priority"],"message":"Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received null"}],"name":"ZodError"},{"issues":[{"received":null,"code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
+        );
+    }
+
+    #[test]
+    fn exact_lengths_like_zod() {
+        let mut issues = Issues::default();
+        issues.string_length("country", 2, 6);
+        issues.string_length("country", 2, 1);
+        issues.string_length("country", 2, 2);
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_big","maximum":2,"type":"string","inclusive":true,"exact":true,"message":"String must contain exactly 2 character(s)","path":["country"]},
+                {"code":"too_small","minimum":2,"type":"string","inclusive":true,"exact":true,"message":"String must contain exactly 2 character(s)","path":["country"]}
+            ])
         );
     }
 
@@ -1796,21 +1840,34 @@ mod tests {
         );
     }
 
+
     #[test]
     fn utc_datetimes_match_zod() {
-        // `z.string().datetime()`: only `Z`, no offset.
+        // z.string().datetime(), checked against Zod 3.25.
         for (at, ok) in [
             ("2026-10-29T07:00:00Z", true),
-            ("2026-10-29T07:00:00.123Z", true),
             ("2026-10-29T07:00Z", true),
+            ("2026-10-29T07:00:00.123456Z", true),
+            ("2024-02-29T00:00:00Z", true),
             ("2026-10-29T07:00:00.123+02:00", false),
             ("2026-10-29T07:00:00", false),
             ("2026-10-29", false),
-            ("2024-02-29T00:00:00Z", true),
             ("2026-02-29T00:00:00Z", false),
+            ("2026-10-29T07:00:00.Z", false),
         ] {
             assert_eq!(Format::Datetime.matches(at), ok, "{at}");
         }
+        let body = json!({ "expiresAt": "soon" });
+        let mut issues = Issues::default();
+        let rules = Text {
+            format: Some(Format::Datetime),
+            ..Text::default()
+        };
+        issues.text_with(issues_object(&body), "expiresAt", Presence::Optional, rules);
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"invalid_string","validation":"datetime","message":"Invalid datetime","path":["expiresAt"]}])
+        );
     }
 
     #[test]

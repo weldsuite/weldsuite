@@ -58,6 +58,10 @@ jobs:
       # (@weldsuite/emails) and the email strings. Rerun `pnpm rust:emails`.
       - name: Rust email templates are current
         run: pnpm rust:emails --check
+      # rust/crates/subscribers/tests/fixtures: what the TypeScript hub consumers
+      # do with the parity batches. Rerun `pnpm rust:subscriber-fixtures`.
+      - name: Rust subscriber fixtures are current
+        run: pnpm rust:subscriber-fixtures --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
@@ -126,6 +130,13 @@ jobs:
       - name: Test
         working-directory: rust
         run: cargo test --workspace --locked
+      # The realtime gateway against the platform's own WebSocket clients
+      # (@weldsuite/realtime), two pods on one Valkey.
+      - name: Realtime protocol parity
+        run: |
+          cargo build -p weldsuite --locked --manifest-path rust/Cargo.toml
+          pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
+            --pg postgres://weldsuite:weldsuite@127.0.0.1:5432/scratch --valkey "$WELDSUITE_TEST_VALKEY_URL"
       - name: Licences, advisories and sources
         working-directory: rust
         run: cargo deny check

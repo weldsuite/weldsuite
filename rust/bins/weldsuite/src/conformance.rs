@@ -85,6 +85,10 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         files: Some(Arc::new(MemoryFileStore::default())),
         public_files: Some(Arc::new(MemoryFileStore::default())),
         mail: Some(recorders.mail.clone()),
+        // The test's Clerk stub per request; no provisioning (the onboarding
+        // routes answer as app-api without its workspace worker).
+        identity: None,
+        provisioner: None,
     };
     (infra, recorders)
 }
@@ -100,10 +104,11 @@ fn realtime_path(channel: &str) -> String {
 }
 
 /// `GET /__conformance/side-effects`: everything recorded since the last call,
-/// after in-flight publishes finish.
+/// after in-flight work finishes: publishes, and jobs run in the process (a
+/// signed PDF built after the signer portal's last signature takes a while).
 pub(crate) async fn side_effects(State(state): State<AppState>) -> axum::Json<Value> {
     let tracker = state.infra.events.tracker();
-    for _ in 0..100 {
+    for _ in 0..3000 {
         if tracker.is_empty() {
             break;
         }
@@ -256,7 +261,7 @@ pub(crate) struct Pools {
     /// remembers between ticks: a new namespace starts empty, as in the test.
     caches: Mutex<HashMap<String, Arc<MemoryCache>>>,
     /// The test buckets' HTTP stores, by URL.
-    buckets: crate::conformance_files::BucketBridges,
+    pub(crate) buckets: crate::conformance_files::BucketBridges,
     /// The test KV namespaces' HTTP caches, by URL.
     kv: crate::conformance_kv::KvBridges,
     /// Session verifiers for the tests' own `CLERK_JWT_KEY`, by key.
@@ -324,15 +329,10 @@ impl Pools {
         extensions.insert(weldsuite_crm::RequestSequenceRuns(
             self.workflows.sequence_runs(&context.workflows),
         ));
-        // The identity provider answers from the test's fetch stub.
+        // The identity provider and the other third parties answer from the
+        // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {
-            extensions.insert(weldsuite_ports::IdentityProvider(
-                self.outbound.identity(bridge),
-            ));
-            // Expo's push API too (`POST /api/push-tokens/test`).
-            extensions.insert(self.outbound.expo(bridge));
-            // WeldApps' gateway forwards and lifecycle webhooks.
-            extensions.insert(self.outbound.apps_http(bridge));
+            self.outbound.extend(extensions, bridge);
             // Third-party HTTP of the ported modules (Expo push, APNs).
             extensions.insert(self.outbound.outbound_http(bridge));
             // WeldMail's MX lookups (DNS over HTTPS).
@@ -346,7 +346,7 @@ impl Pools {
         }
     }
 
-    fn get(&self, url: &str) -> Result<PgPool, ApiError> {
+    pub(crate) fn get(&self, url: &str) -> Result<PgPool, ApiError> {
         let mut pools = self
             .databases
             .lock()

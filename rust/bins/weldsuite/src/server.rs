@@ -33,6 +33,8 @@ use crate::infra::Infra;
 pub(crate) struct AppState {
     pub(crate) service: &'static str,
     pub(crate) environment: String,
+    /// The edition and public settings `/config.json` reports.
+    pub(crate) edition: Arc<crate::edition::EditionConfig>,
     pub(crate) workspaces: Arc<Workspaces>,
     /// Session tokens: the `/api` layer (not in conformance builds, which
     /// take the test's context) and the private-object read's bearer check.
@@ -50,6 +52,8 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
     pub(crate) sign_portal_url: Option<Arc<str>>,
+    /// `SIGN_PORTAL_SECRET`, the signer portal's key.
+    pub(crate) sign_portal_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
     /// `STORAGE_SIGNING_KEY`, for private-object cookies and signed URLs.
@@ -57,6 +61,8 @@ pub(crate) struct AppState {
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
     /// platform's client id. `None` with Clerk.
     pub(crate) public_auth: Option<Arc<serde_json::Value>>,
+    /// Where `/config.json` sends the frontends for realtime.
+    pub(crate) realtime: crate::realtime::PublicRealtime,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -132,6 +138,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/robots.txt", get(robots))
         .route("/config.json", get(config_json))
         .nest("/api", api)
+        .nest("/public/sign-portal", crate::routes::sign_portal(&state))
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn(bundle_host_guard))
@@ -281,7 +288,9 @@ async fn health(State(state): State<AppState>) -> Response {
 /// apps of any other module. Global never asks: it runs every module in
 /// TypeScript. With an OIDC provider, `auth` tells the frontends where to
 /// sign in (issuer, the platform's PKCE client id, the organization claim).
-async fn config_json(State(state): State<AppState>) -> Response {
+/// `realtimeUrl` is the WebSocket gateway on the same origin
+/// (`crate::realtime`).
+async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderMap) -> Response {
     let modules: Vec<&str> = std::iter::once("core")
         .chain(
             weldsuite_catalogs::api_modules()
@@ -295,8 +304,14 @@ async fn config_json(State(state): State<AppState>) -> Response {
         "version": env!("CARGO_PKG_VERSION"),
         "modules": modules,
     });
+    // Edition flags (4.F3): the edition, the features this backend lacks
+    // and the public settings (`crate::edition`).
+    state.edition.describe(&mut body);
     if let Some(auth) = &state.public_auth {
         body["auth"] = auth.as_ref().clone();
+    }
+    if let Some(url) = state.realtime.url(&headers) {
+        body["realtimeUrl"] = json!(url);
     }
     ([(header::CACHE_CONTROL, "no-cache")], Json(body)).into_response()
 }
@@ -396,6 +411,7 @@ mod tests {
         AppState {
             service: "weldsuite",
             environment: "test".to_owned(),
+            edition: Arc::default(),
             workspaces: Arc::new(Workspaces::new(
                 unreachable_master(),
                 Keyring::default(),
@@ -413,9 +429,11 @@ mod tests {
             )),
             sign_session_secret: None,
             sign_portal_url: None,
+            sign_portal_secret: None,
             files_public_url: None,
             storage_signing_key: None,
             public_auth: None,
+            realtime: crate::realtime::PublicRealtime::default(),
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]
@@ -494,8 +512,51 @@ mod tests {
             .iter()
             .filter(|m| m.rust)
             .count();
-        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
+        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported));
+        for module in ["core", "know", "sign"] {
+            assert!(
+                body["modules"]
+                    .as_array()
+                    .is_some_and(|modules| modules.contains(&json!(module))),
+                "{module} is offered"
+            );
+        }
         assert!(body.get("auth").is_none(), "Clerk setups add nothing");
+        assert!(
+            body.get("realtimeUrl").is_none(),
+            "no gateway without Valkey"
+        );
+    }
+
+    /// Edition flags (4.F3): the edition, the features the platform hides,
+    /// and the public settings only when some are set.
+    #[tokio::test]
+    async fn config_reports_the_edition_and_what_it_lacks() {
+        let (_, _, body) = call(state(), get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["edition"], "self-hosted");
+        let lacks = body["unavailableFeatures"].as_array().expect("list");
+        for feature in [
+            "sso-connections",
+            "billing",
+            "credit-top-up",
+            "desktop-sign-in",
+        ] {
+            assert!(lacks.contains(&json!(feature)), "{feature}");
+        }
+        assert!(body.get("env").is_none());
+
+        let mut state = state();
+        state.edition = Arc::new(crate::edition::EditionConfig {
+            edition: crate::edition::Edition::Eu,
+            public_env: [("VITE_MAPBOX_ACCESS_TOKEN".to_owned(), "pk.eu".to_owned())]
+                .into_iter()
+                .collect(),
+        });
+        let (_, _, body) = call(state, get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["edition"], "eu");
+        assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.
@@ -577,6 +638,23 @@ mod tests {
                 "{body}"
             );
         }
+    }
+
+    /// Core is marked ported, so a release build serves its routes too, not
+    /// only a conformance build: the CLI's device login is one of core's
+    /// public routes, which an unmounted core would leave to the session
+    /// guard.
+    #[tokio::test]
+    async fn core_routes_are_served() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/cli-auth/device")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+        let (status, _, body) = call(state(), request).await;
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert_ne!(status, StatusCode::NOT_FOUND, "{body}");
     }
 
     #[tokio::test]

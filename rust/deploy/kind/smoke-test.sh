@@ -1,22 +1,21 @@
 #!/usr/bin/env bash
 # Deploy the image and the Helm chart into a local kind cluster, with Postgres
-# (master + tenant built from the journaled migrations), Valkey and NATS, and
-# check the full request pipeline with a signed session token:
-# auth → workspace → tenant DB → licence → flags → permission → envelope,
-# a job run through Restate, the platform SPA from the image on the same
-# origin, the sign portal's container calling the server, then the same with
-# OIDC sign-in against a stand-in issuer.
+# (master + tenant built by the chart's migration Job, `weldsuite migrate`),
+# Valkey and NATS, and check the full request pipeline with a signed session
+# token: auth → workspace → tenant DB → licence → flags → permission →
+# envelope, a job run through Restate, the platform SPA from the image on the
+# same origin, the sign portal's container calling the server, then the same
+# with OIDC sign-in against a stand-in issuer, and (with a reachable Zitadel,
+# SMOKE_ZITADEL_*) sign-up and the first workspace's provisioning.
 #
 #   docker build -f rust/Dockerfile -t weldsuite:dev .
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
 #
-# Needs docker, kind, kubectl, helm, node and the repo's pnpm install (for the
-# migrations script). CI runs the same script.
+# Needs docker, kind, kubectl, helm and node. CI runs the same script.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-repo="$(cd "$here/../../.." && pwd)"
 chart="$here/../helm/weldsuite"
 cluster="${KIND_CLUSTER:-weldsuite-smoke}"
 image="${IMAGE:-weldsuite:dev}"
@@ -47,25 +46,40 @@ psql() {
   kubectl exec -i deployment/postgres -- psql -v ON_ERROR_STOP=1 -U weldsuite "$@"
 }
 psql -d master -c "create database tenant" >/dev/null
+# How many migrations a database's bookkeeping table records.
+recorded() {
+  psql -d "$1" -Atc "select count(*) from $2.__drizzle_migrations"
+}
 
-kubectl port-forward service/postgres 15432:5432 >/dev/null 2>&1 &
-forwards+=($!)
-sleep 3
-(cd "$repo" && pnpm exec tsx scripts/rust-test-db.ts \
-  --master postgres://weldsuite:weldsuite@127.0.0.1:15432/master \
-  --tenant postgres://weldsuite:weldsuite@127.0.0.1:15432/tenant)
-sed '/@@tenant@@/,$d' "$here/seed.sql" | psql -d master >/dev/null
-sed '1,/@@tenant@@/d' "$here/seed.sql" | psql -d tenant >/dev/null
-
-# ── the server ──────────────────────────────────────────────────────────────
+# ── the server and its migrations ───────────────────────────────────────────
+# The install's pre-install hook Job (`weldsuite migrate --master --tenants`)
+# builds the empty master database; there is no workspace yet.
 node "$here/mint-token.mjs" "$work" user_smoke org_smoke
 helm upgrade --install weldsuite "$chart" -f "$here/values.yaml" \
   --set-file "secret.values.CLERK_JWT_KEY=$work/public.pem" \
-  --wait --timeout 180s
+  --set image.repository="${image%:*}" --set-string image.tag="${image##*:}" \
+  --set signPortal.image.repository="${portal_image%:*}" \
+  --set-string signPortal.image.tag="${portal_image##*:}" \
+  --wait --timeout 300s
+master_migrations="$(recorded master drizzle)"
+echo "ok   install: the migration Job applied $master_migrations master migrations"
+[ "$master_migrations" -gt 0 ] || { echo "FAIL the master database was not migrated" >&2; exit 1; }
+
+# The smoke workspace, placed on the tenant database; an upgrade's
+# pre-upgrade hook Job then migrates that database too (and finds nothing
+# left to do on the master).
+sed '/@@tenant@@/,$d' "$here/seed.sql" | psql -d master >/dev/null
+helm upgrade weldsuite "$chart" --reuse-values --wait --timeout 300s
+tenant_migrations="$(recorded tenant public)"
+echo "ok   upgrade: the migration Job applied $tenant_migrations tenant migrations"
+[ "$tenant_migrations" -gt 0 ] || { echo "FAIL the tenant database was not migrated" >&2; exit 1; }
+[ "$(recorded master drizzle)" = "$master_migrations" ] || { echo "FAIL the master was migrated twice" >&2; exit 1; }
+sed '1,/@@tenant@@/d' "$here/seed.sql" | psql -d tenant >/dev/null
 kubectl rollout status deployment/weldsuite --timeout=120s
 
 kubectl port-forward service/weldsuite 18080:80 >/dev/null 2>&1 &
-forwards+=($!)
+api_forward=$!
+forwards+=("$api_forward")
 for _ in $(seq 1 30); do
   curl -fsS http://127.0.0.1:18080/livez >/dev/null 2>&1 && break
   sleep 1
@@ -216,7 +230,7 @@ helm upgrade weldsuite "$chart" --reuse-values \
   --set-string config.auth.oidc.webClientId=smoke-web \
   --wait --timeout 180s
 kubectl rollout status deployment/weldsuite --timeout=120s
-kill "${forwards[1]}" 2>/dev/null || true
+kill "$api_forward" 2>/dev/null || true
 kubectl port-forward service/weldsuite 18080:80 >/dev/null 2>&1 &
 forwards+=($!)
 for _ in $(seq 1 30); do
@@ -231,11 +245,111 @@ check GET /config.json 200
 contains '"provider":"oidc"'
 contains '"clientId":"smoke-web"'
 
+# ── Sign-up and the first workspace (P4 4a) ─────────────────────────────────
+# Only with a Zitadel the cluster can reach (SMOKE_ZITADEL_URL as the pods
+# see it, SMOKE_ZITADEL_LOCAL_URL as this script does, SMOKE_ZITADEL_HOST its
+# instance's host, SMOKE_ZITADEL_TOKEN an IAM_OWNER service user's token,
+# SMOKE_ZITADEL_PROJECT_ID the WeldSuite project with roles admin and
+# member); CI has none and skips it. A person Zitadel knows, signed in
+# without a workspace, creates one: the organization in Zitadel, the
+# workspace row, then the workspace.provision job (on Restate) puts its
+# database on the tenant shard (this Postgres) and makes them its owner; the
+# identity sync then runs once.
+if [ -n "${SMOKE_ZITADEL_URL:-}" ]; then
+  zitadel_local="${SMOKE_ZITADEL_LOCAL_URL:-$SMOKE_ZITADEL_URL}"
+  zitadel() {
+    curl -fsS -H "Authorization: Bearer $SMOKE_ZITADEL_TOKEN" -H 'Content-Type: application/json' "$@"
+  }
+  signup_email="kind-signup-$$@example.test"
+  signup_user="$(zitadel -X POST "$zitadel_local/v2/users/human" --data \
+    "{\"username\":\"$signup_email\",\"profile\":{\"givenName\":\"Kind\",\"familyName\":\"Signup\"},\"email\":{\"email\":\"$signup_email\",\"isVerified\":true}}" |
+    sed -n 's/.*"userId":"\([0-9]*\)".*/\1/p')"
+  # A token for them without an organization, from a fresh stand-in key.
+  mkdir -p "$work/signup"
+  node "$here/mint-token.mjs" "$work/signup" "$signup_user" - --oidc "$oidc_issuer" weldsuite-smoke
+  kubectl create configmap oidc-issuer \
+    --from-file=openid-configuration="$work/signup/openid-configuration" \
+    --from-file=keys="$work/signup/jwks.json" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl rollout restart deployment/oidc-issuer
+  kubectl rollout status deployment/oidc-issuer --timeout=120s
+  # The shard is this Postgres, as its superuser (--set-file: --set splits on commas).
+  printf '%s' '[{"name":"kind","adminUrl":"postgres://weldsuite:weldsuite@postgres:5432/master","poolerHost":"postgres","urlOptions":""}]' >"$work/shards.json"
+  helm upgrade weldsuite "$chart" --reuse-values \
+    --set config.identity.zitadel.apiUrl="$SMOKE_ZITADEL_URL" \
+    --set config.identity.zitadel.host="${SMOKE_ZITADEL_HOST:-}" \
+    --set-string config.identity.zitadel.projectId="$SMOKE_ZITADEL_PROJECT_ID" \
+    --set-string secret.values.ZITADEL_SERVICE_TOKEN="$SMOKE_ZITADEL_TOKEN" \
+    --set-string secret.values.DATABASE_ENCRYPTION_KEY_V2=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+    --set-file secret.values.TENANT_SHARDS="$work/shards.json" \
+    --set cron.jobs.identity-sync.enabled=true \
+    --wait --timeout 180s
+  # The keys the server fetched at start are the old ones.
+  kubectl rollout restart deployment/weldsuite
+  kubectl rollout status deployment/weldsuite --timeout=120s
+  kubectl port-forward service/weldsuite 18081:80 >/dev/null 2>&1 &
+  forwards+=($!)
+  for _ in $(seq 1 30); do
+    curl -fsS http://127.0.0.1:18081/livez >/dev/null 2>&1 && break
+    sleep 1
+  done
+  base=http://127.0.0.1:18081
+  token="$(cat "$work/signup/token")"
+  check GET /api/onboarding/status 200 auth
+  contains '"hasOrganization":false'
+  check POST /api/onboarding/workspace 200 auth '{"name":"Kind Signup","country":"NL"}'
+  contains '"success":true'
+  signup_ws="$(sed -n 's/.*"workspaceId":"\([^"]*\)".*/\1/p' "$work/body")"
+  signup_org="$(sed -n 's/.*"organizationId":"\([^"]*\)".*/\1/p' "$work/body")"
+  provisioned=""
+  for _ in $(seq 1 60); do
+    provisioned="$(psql -d master -Atc "select provisioning_status from workspaces where id = '$signup_ws'")"
+    if [ "$provisioned" = "ready" ] || [ "$provisioned" = "failed" ]; then break; fi
+    sleep 2
+  done
+  if [ "$provisioned" = "ready" ]; then
+    echo "ok   signup: workspace $signup_ws provisioned (organization $signup_org)"
+  else
+    echo "FAIL signup: workspace $signup_ws is $provisioned: $(psql -d master -Atc "select provisioning_error from workspaces where id = '$signup_ws'")" >&2
+    failed=1
+  fi
+  signup_db="$(psql -d master -Atc "select neon_database_name from workspaces where id = '$signup_ws'")"
+  owner="$(psql -d "$signup_db" -Atc "select role from workspace_members where user_id = '$signup_user'" 2>/dev/null || true)"
+  if [ "$owner" = "OWNER" ]; then
+    echo "ok   signup: $signup_db has its owner"
+  else
+    echo "FAIL signup: no owner in $signup_db ($owner)" >&2
+    failed=1
+  fi
+  kubectl create job --from=cronjob/weldsuite-identity-sync identity-sync-smoke >/dev/null
+  # The CronJob keeps few finished Jobs (its history limit may remove this one
+  # at once), so the run is checked by what it leaves: the watermark.
+  watermark=""
+  for _ in $(seq 1 60); do
+    watermark="$(psql -d master -Atc "select value from system_settings where key = 'identity_sync.watermark'")"
+    [ -n "$watermark" ] && break
+    sleep 2
+  done
+  if [ -n "$watermark" ]; then
+    echo "ok   identity sync: the provider's changes are handled up to $watermark"
+  else
+    echo "FAIL the identity sync left no watermark: $(kubectl logs job/identity-sync-smoke --tail=20 2>&1)" >&2
+    failed=1
+  fi
+  if [ -n "$signup_org" ]; then
+    zitadel -X DELETE -H "x-zitadel-orgid: $signup_org" "$zitadel_local/management/v1/orgs/me" >/dev/null || true
+  fi
+  zitadel -X DELETE "$zitadel_local/v2/users/$signup_user" >/dev/null || true
+  # The server restarted: keep the new forward for the rest of the run.
+else
+  echo "skip sign-up: SMOKE_ZITADEL_URL is not set"
+fi
+
 if [ "$failed" != "0" ]; then
   kubectl logs deployment/weldsuite --tail=80 >&2 || true
   kubectl logs deployment/restate --tail=40 >&2 || true
   exit 1
 fi
-curl -s http://127.0.0.1:18080/health
+curl -s "$base/health"
 echo
 echo "smoke test passed"

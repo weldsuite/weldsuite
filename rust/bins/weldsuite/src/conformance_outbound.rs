@@ -3,6 +3,7 @@
 //! (`packages/core/worker-kit/src/testing/outbound-bridge.ts`), which replays
 //! each call into the test's own `fetch` stub. Both backends then get the same
 //! answers from the same stub, and the harness compares the calls each made.
+//! Expo's push API and DNS-over-HTTPS lookups go the same way.
 //!
 //! This is test infrastructure, not a Clerk adapter for the Kubernetes
 //! editions (they get Zitadel in P5, ADR SEC-012): its job is to make exactly
@@ -20,8 +21,8 @@ use reqwest::{Client, Method};
 use serde_json::{Map, Value, json};
 use weldsuite_ports::{
     BoxFuture, Identity, IdentityError, IdentityResult, Invitation, ListPage, Listing, MemberUser,
-    Membership, NewInvitation, NewMembership, Organization, OrganizationChanges, OrganizationRef,
-    User, UserProfile,
+    Membership, NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
+    OrganizationRef, Session, User, UserChanges, UserProfile,
 };
 
 const CLERK_API: &str = "https://api.clerk.com/v1";
@@ -114,6 +115,7 @@ impl BridgedClerk {
                 .as_str()
                 .or_else(|| first["message"].as_str())
                 .map(str::to_owned),
+            body: Some(text),
         })
     }
 }
@@ -132,6 +134,8 @@ fn organization_from(value: &Value) -> Organization {
         name: text(&value["name"]),
         slug: optional_text(&value["slug"]),
         max_memberships: value["max_allowed_memberships"].as_i64(),
+        public_metadata: value["public_metadata"].clone(),
+        private_metadata: value["private_metadata"].clone(),
     }
 }
 
@@ -329,6 +333,9 @@ impl Identity for BridgedClerk {
                 "email_address": invitation.email_address,
                 "role": invitation.role,
             });
+            if let Some(inviter) = &invitation.inviter_user_id {
+                body["inviter_user_id"] = json!(inviter);
+            }
             if let Some(redirect) = &invitation.redirect_url {
                 body["redirect_url"] = json!(redirect);
             }
@@ -404,6 +411,36 @@ impl Identity for BridgedClerk {
         })
     }
 
+    fn sessions<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<Vec<Session>>> {
+        Box::pin(async move {
+            let path = format!(
+                "/sessions?user_id={}&status=active&limit=100",
+                encode_uri_component(user_id)
+            );
+            let body = self.call(Method::GET, &path, None).await?;
+            // Clerk answers a bare array or `{ data }`.
+            let items = body.as_array().or_else(|| body["data"].as_array());
+            Ok(items
+                .map(|items| items.iter().map(session_from).collect())
+                .unwrap_or_default())
+        })
+    }
+
+    fn session<'a>(&'a self, session_id: &'a str) -> BoxFuture<'a, IdentityResult<Session>> {
+        Box::pin(async move {
+            let path = format!("/sessions/{}", encode_uri_component(session_id));
+            let body = self.call(Method::GET, &path, None).await?;
+            Ok(session_from(&body))
+        })
+    }
+
+    fn revoke_session<'a>(&'a self, session_id: &'a str) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let path = format!("/sessions/{}/revoke", encode_uri_component(session_id));
+            self.call(Method::POST, &path, None).await.map(|_| ())
+        })
+    }
+
     fn user_profile<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<UserProfile>> {
         Box::pin(async move {
             let body = self
@@ -421,7 +458,98 @@ impl Identity for BridgedClerk {
                     })
                     .unwrap_or_default(),
                 primary_email_address_id: optional_text(&body["primary_email_address_id"]),
+                first_name: optional_text(&body["first_name"]),
+                last_name: optional_text(&body["last_name"]),
+                image_url: optional_text(&body["image_url"]),
             })
+        })
+    }
+
+    fn update_user<'a>(
+        &'a self,
+        user_id: &'a str,
+        changes: &'a UserChanges,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let mut body = Map::new();
+            if let Some(first) = &changes.first_name {
+                body.insert("first_name".to_owned(), json!(first));
+            }
+            if let Some(last) = &changes.last_name {
+                body.insert("last_name".to_owned(), json!(last));
+            }
+            self.call(
+                Method::PATCH,
+                &format!("/users/{user_id}"),
+                Some(Value::Object(body)),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn update_user_metadata<'a>(
+        &'a self,
+        user_id: &'a str,
+        public_metadata: &'a Value,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            self.call(
+                Method::PATCH,
+                &format!("/users/{user_id}/metadata"),
+                Some(json!({ "public_metadata": public_metadata })),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn create_organization<'a>(
+        &'a self,
+        organization: &'a NewOrganization,
+    ) -> BoxFuture<'a, IdentityResult<Organization>> {
+        Box::pin(async move {
+            let mut body = json!({ "name": organization.name });
+            if let Some(creator) = &organization.created_by {
+                body["created_by"] = json!(creator);
+            }
+            if let Some(metadata) = &organization.public_metadata {
+                body["public_metadata"] = metadata.clone();
+            }
+            if let Some(metadata) = &organization.private_metadata {
+                body["private_metadata"] = metadata.clone();
+            }
+            if let Some(slug) = &organization.slug {
+                body["slug"] = json!(slug);
+            }
+            let created = self
+                .call(Method::POST, "/organizations", Some(body))
+                .await?;
+            Ok(organization_from(&created))
+        })
+    }
+
+    fn update_organization_metadata<'a>(
+        &'a self,
+        org: &'a str,
+        public_metadata: Option<&'a Value>,
+        private_metadata: Option<&'a Value>,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let mut body = Map::new();
+            if let Some(metadata) = public_metadata {
+                body.insert("public_metadata".to_owned(), metadata.clone());
+            }
+            if let Some(metadata) = private_metadata {
+                body.insert("private_metadata".to_owned(), metadata.clone());
+            }
+            self.call(
+                Method::PATCH,
+                &format!("/organizations/{org}/metadata"),
+                Some(Value::Object(body)),
+            )
+            .await
+            .map(|_| ())
         })
     }
 
@@ -440,6 +568,14 @@ impl Identity for BridgedClerk {
                 .await?;
             Ok(text(&body["token"]))
         })
+    }
+}
+
+fn session_from(value: &Value) -> Session {
+    Session {
+        id: text(&value["id"]),
+        user_id: text(&value["user_id"]),
+        status: text(&value["status"]),
     }
 }
 
@@ -776,6 +912,33 @@ impl weldsuite_desk_domain::http::DeskHttp for BridgedDesk {
     }
 }
 
+/// DNS-over-HTTPS lookups (`/api/sso/domain/verify`) through the bridge: the
+/// GET goes to the test's fetch stub, which answers for the resolver.
+pub(crate) struct BridgedDns {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_core_platform::DnsTransport for BridgedDns {
+    fn get<'a>(&'a self, url: &'a str) -> BoxFuture<'a, Result<(u16, String), String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(url.as_bytes()).collect();
+            let response = self
+                .client
+                .get(format!("{}/fetch?url={encoded}", self.bridge))
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err("the test's fetch stub threw".to_owned());
+            }
+            let status = response.status().as_u16();
+            let text = response.text().await.map_err(|error| error.to_string())?;
+            Ok((status, text))
+        })
+    }
+}
+
 /// The bridged providers by bridge URL, made once per test process.
 #[derive(Default)]
 pub(crate) struct OutboundBridges {
@@ -835,6 +998,25 @@ impl OutboundBridges {
     /// WeldDesk's Discord and Slack calls behind the test's bridge.
     pub(crate) fn desk_http(&self, bridge: &str) -> weldsuite_desk_domain::http::RequestHttp {
         weldsuite_desk_domain::http::RequestHttp(Arc::new(BridgedDesk {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// Every bridged provider as a request extension: the [`Identity`]
+    /// provider, Expo's push API (`POST /api/push-tokens/test`),
+    /// DNS-over-HTTPS (`POST /api/sso/domain/verify`) and WeldApps' gateway
+    /// forwards and lifecycle webhooks.
+    pub(crate) fn extend(&self, extensions: &mut axum::http::Extensions, bridge: &str) {
+        extensions.insert(weldsuite_ports::IdentityProvider(self.identity(bridge)));
+        extensions.insert(self.expo(bridge));
+        extensions.insert(self.dns(bridge));
+        extensions.insert(self.apps_http(bridge));
+    }
+
+    /// The DNS-over-HTTPS resolver behind the test's bridge.
+    pub(crate) fn dns(&self, bridge: &str) -> weldsuite_core_platform::DnsGateway {
+        weldsuite_core_platform::DnsGateway(Arc::new(BridgedDns {
             bridge: bridge.trim_end_matches('/').to_owned(),
             client: self.client.clone(),
         }))

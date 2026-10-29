@@ -88,3 +88,51 @@ export interface BatchSuccessResponse {
   success: true;
   count: number;
 }
+
+// ============================================================================
+// App-API response schemas (/api/notifications, app-api routes/notifications)
+// ============================================================================
+
+/** A `notifications` row, as GET /:id and POST /:id/read answer it. */
+export const notificationRowSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  title: z.string(),
+  body: z.string().nullable(),
+  category: z.string(),
+  notificationType: z.string(),
+  entityType: z.string().nullable(),
+  entityId: z.string().nullable(),
+  actionUrl: z.string().nullable(),
+  actorType: z.string().nullable(),
+  actorId: z.string().nullable(),
+  icon: z.string().nullable(),
+  severity: z.string(),
+  data: z.record(z.unknown()).nullable(),
+  isRead: z.boolean(),
+  readAt: z.string().nullable(),
+  deliveredInApp: z.boolean(),
+  deliveredEmail: z.boolean(),
+  deliveredPush: z.boolean(),
+  createdAt: z.string(),
+  expiresAt: z.string().nullable(),
+  deletedAt: z.string().nullable(),
+});
+
+/** GET /: a row with its actor's name and picture (user actors with a member row only). */
+export const notificationListItemSchema = notificationRowSchema.extend({
+  actorName: z.string().nullable(),
+  actorAvatar: z.string().nullable(),
+});
+
+/** GET /unread-count. */
+export const unreadCountSchema = z.object({ count: z.number().int() });
+
+/** POST /read-all: how many rows it marked read. */
+export const markedReadCountSchema = z.object({ updated: z.number().int() });
+
+/** POST / and PATCH /:id: the row's id. */
+export const notificationRefSchema = z.object({ id: z.string() });
+
+export type NotificationRow = z.infer<typeof notificationRowSchema>;
+export type NotificationListItem = z.infer<typeof notificationListItemSchema>;

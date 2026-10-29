@@ -84,6 +84,11 @@ impl JetStreamEventBus {
     pub fn context(&self) -> &jetstream::Context {
         &self.context
     }
+
+    /// Whether the client is connected to a server right now (readiness).
+    pub fn is_connected(&self) -> bool {
+        self.context.client().connection_state() == async_nats::connection::State::Connected
+    }
 }
 
 /// The hub stream: every subject under `subject_prefix`, kept on disk for

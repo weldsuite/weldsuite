@@ -7,7 +7,8 @@
 # cross-compiles for the target, so an arm64 image doesn't build under
 # emulation, and the SPA is the same JavaScript for both.
 #
-# The context is the repo root, because the SPA builds in the pnpm workspace;
+# The context is the repo root, because the SPA builds in the pnpm workspace
+# and `weldsuite migrate` embeds the journaled Drizzle migrations;
 # rust/Dockerfile.dockerignore keeps it to what the stages read.
 #
 #   docker build -f rust/Dockerfile -t weldsuite:dev .
@@ -109,6 +110,12 @@ COPY rust/catalogs catalogs
 COPY rust/crates crates
 COPY rust/modules modules
 COPY rust/bins bins
+# The journaled migrations (packages/core/db/drizzle/{master,tenant}-migrations:
+# the SQL and each meta/_journal.json, not the snapshots), embedded in the
+# binary, so the image needs no files and no Node to migrate
+# (crates/migrations/build.rs).
+COPY packages/core/db/drizzle drizzle
+ENV WELDSUITE_DRIZZLE_DIR=/src/drizzle
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,id=weldsuite-target-${TARGETARCH} \
     target="$(cat /rust-target)" \

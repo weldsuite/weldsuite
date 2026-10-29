@@ -54,7 +54,7 @@
       "/public/partner-territories",
       "/public/user-apps"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "app-api"
   },
   {
@@ -609,7 +609,7 @@
     "prefixes": [
       "/api/sign"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "sign-api"
   },
   {

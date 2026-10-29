@@ -16,7 +16,7 @@
 //! as the Workflow instance id); each step is idempotent, so a failed email
 //! never rebuilds the PDF and a filing problem holds back nothing.
 //! [`finalize_request`] runs them in one go, the fallback without a jobs
-//! adapter. The signer portal (next stage) starts it with [`start_finalize`]
+//! adapter. The signer portal (`crate::portal`) starts it with [`start_finalize`]
 //! when the last signer finishes.
 
 use std::sync::Arc;
@@ -50,7 +50,7 @@ use crate::{SendContext, Services, SignError, SignResult, or_else, text};
 pub const FINALIZE_JOB: &str = "sign.finalize";
 
 /// `SIGN_DISCLOSURE_VERSION`: the electronic-signature disclosure signers agree to.
-const DISCLOSURE_VERSION: &str = "2026-10-24";
+pub(crate) const DISCLOSURE_VERSION: &str = "2026-10-24";
 
 /// What the job is started with (`FinalizeEnvelopeParams`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

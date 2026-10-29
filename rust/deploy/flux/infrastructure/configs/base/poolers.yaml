@@ -4,12 +4,21 @@
 #     named statements need it;
 #   - max_client_conn must cover pods x tenant pools (CloudNativePG leaves
 #     PgBouncer's default of 100, which one pod alone exceeds);
-#   - max_user_connections caps server connections under max_connections
-#     (all tenant databases share one role), so an idle database's
-#     connection can be closed to serve another.
+#   - max_user_connections caps server connections under max_connections,
+#     so an idle database's connection can be closed to serve another.
+#     S4 measured this with all tenant databases on one role. The
+#     provisioner now gives every workspace a role of its own (a leaked
+#     tenant URL opens one database, not all), which makes this cap per
+#     workspace: the total is bounded by default_pool_size per busy
+#     workspace instead. Re-run S4 with per-workspace roles before sizing a
+#     production shard.
 # The weldsuite server connects to the master through master-pooler and gets
 # tenant URLs (pointing at tenants-1-pooler) from workspaces.database_url.
 # (Not <cluster>-rw: CloudNativePG names the cluster's own Services that.)
+# A new workspace database needs no change here: CloudNativePG configures
+# PgBouncer with a wildcard database and auth_query logins (the
+# cnpg_pooler_pgbouncer role and user_search in the postgres database), so a
+# role and database the provisioner creates are reachable at once.
 apiVersion: postgresql.cnpg.io/v1
 kind: Pooler
 metadata:

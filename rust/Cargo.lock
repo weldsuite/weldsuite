@@ -201,6 +201,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
+ "base64 0.22.1",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -220,8 +221,10 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "serde_urlencoded",
+ "sha1 0.10.7",
  "sync_wrapper",
  "tokio",
+ "tokio-tungstenite",
  "tower",
  "tower-layer",
  "tower-service",
@@ -569,6 +572,12 @@ checksum = "a2376ffd6f96d8a9db59875b4b6b0237d6900b5baf64279714e05493ce64828a"
 dependencies = [
  "cmov",
 ]
+
+[[package]]
+name = "data-encoding"
+version = "2.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "defmt"
@@ -2760,6 +2769,17 @@ dependencies = [
 
 [[package]]
 name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest 0.10.7",
+]
+
+[[package]]
+name = "sha1"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
@@ -2999,7 +3019,7 @@ dependencies = [
  "log",
  "percent-encoding",
  "serde",
- "sha1",
+ "sha1 0.11.0",
  "sha2 0.11.1",
  "sqlx-core",
  "thiserror",
@@ -3276,6 +3296,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-tungstenite"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
+dependencies = [
+ "futures-util",
+ "log",
+ "tokio",
+ "tungstenite",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3450,6 +3482,22 @@ checksum = "9fe58ebd5edd976e0fe0f8a14d2a04b7c81ef153ea9a54eebc42e67c2c23b4e5"
 dependencies = [
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "tungstenite"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.5",
+ "sha1 0.10.7",
+ "thiserror",
 ]
 
 [[package]]
@@ -3778,6 +3826,8 @@ dependencies = [
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
+ "weldsuite-core-onboarding",
+ "weldsuite-core-platform",
  "weldsuite-core-team",
  "weldsuite-crm",
  "weldsuite-db",
@@ -3790,11 +3840,14 @@ dependencies = [
  "weldsuite-know",
  "weldsuite-mail",
  "weldsuite-mail-domain",
+ "weldsuite-migrations",
  "weldsuite-pass",
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-realtime",
  "weldsuite-sign",
+ "weldsuite-subscribers",
 ]
 
 [[package]]
@@ -3802,10 +3855,12 @@ name = "weldsuite-adapters-oss"
 version = "0.0.0"
 dependencies = [
  "async-nats",
+ "aws-lc-rs",
  "axum",
  "base64 0.22.1",
  "bytes",
  "futures-util",
+ "hex",
  "jiff",
  "lettre",
  "redis",
@@ -3819,7 +3874,10 @@ dependencies = [
  "tokio",
  "tracing",
  "weldsuite-catalogs",
+ "weldsuite-db",
  "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-migrations",
  "weldsuite-ports",
 ]
 
@@ -4024,6 +4082,49 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-core-onboarding"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "weldsuite-auth",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-core-platform"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "http",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -4305,6 +4406,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-migrations"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "hex",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "weldsuite-db",
+]
+
+[[package]]
 name = "weldsuite-notifications"
 version = "0.0.0"
 dependencies = [
@@ -4337,7 +4451,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "sha1",
+ "sha1 0.11.0",
  "sha2 0.11.1",
  "sqlx",
  "time",
@@ -4403,6 +4517,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-realtime"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "form_urlencoded",
+ "futures-util",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "uuid",
+ "weldsuite-adapters-oss",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-sign"
 version = "0.0.0"
 dependencies = [
@@ -4411,6 +4547,7 @@ dependencies = [
  "base64 0.22.1",
  "hex",
  "http",
+ "jiff",
  "lopdf",
  "png",
  "serde",
@@ -4418,6 +4555,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tower",
  "tracing",
  "weldsuite-auth",
  "weldsuite-catalogs",
@@ -4427,6 +4565,32 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-subscribers"
+version = "0.0.0"
+dependencies = [
+ "async-nats",
+ "aws-lc-rs",
+ "axum",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-adapters-oss",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 

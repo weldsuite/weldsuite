@@ -77,6 +77,10 @@ import {
   takeRustOutbound,
 } from './outbound-bridge';
 
+// The signer portal's doubles for Rust (ConformanceRequest.context).
+export { kvBucketUrl } from './bucket-bridge';
+export { workflowBridgeUrl } from './workflow-start-bridge';
+
 export interface ConformanceTarget {
   url: string;
   strict: boolean;
@@ -110,6 +114,14 @@ export const CONFORMANCE_HEADER = 'X-Weld-Conformance';
 export const ROUTE_HEADER = 'X-Weld-Route';
 
 /**
+ * Request header a test sets on a GET that writes (a record created on first
+ * access), so it is compared as a write: Rust on the database, TypeScript on a
+ * copy. Run as a read, TypeScript would create the record and Rust then find
+ * it. Neither backend reads it.
+ */
+export const CONFORMANCE_WRITE_HEADER = 'X-Weld-Conformance-Write';
+
+/**
  * Env bindings the Rust server honours per request in conformance mode.
  * `CLERK_JWT_KEY` (and `CLERK_AUTHORIZED_PARTIES`) let a test sign its own
  * session tokens for the routes that verify one themselves.
@@ -118,6 +130,7 @@ export const FORWARDED_ENV = [
   'PERMISSIONS_APP_ENFORCE',
   'SIGN_SESSION_SECRET',
   'SIGN_PORTAL_URL',
+  'SIGN_PORTAL_SECRET',
   'R2_PUBLIC_URL',
   'ENVIRONMENT',
   'PUBLIC_APP_URL',
@@ -361,6 +374,19 @@ export interface ConformanceRequest {
   ) => Promise<Response>;
   /** The Hono app's recording bindings. */
   sideEffects: SideEffectRecorder;
+  /**
+   * More of the test's doubles for Rust, beside the context's databases, env
+   * and buckets: the signer portal's KV namespace and Workflow binding
+   * (`{ cache, jobs }`, bridge URLs).
+   */
+  context?: Record<string, unknown>;
+  /** Response headers the two answers must agree on, besides status and body. */
+  compareHeaders?: readonly string[];
+  /**
+   * Masks, in both runs' side effects, what differs between the backends by
+   * construction for this caller only (a generated PDF's size).
+   */
+  normalizeEffects?: (effects: SideEffects) => SideEffects;
 }
 
 // ── the shared database ─────────────────────────────────────────────────────
@@ -439,6 +465,20 @@ export function conformanceMasterDb<T>(db: T): T {
   return (masterForTypeScript as T | undefined) ?? db;
 }
 
+/** The copy of the tenant database the TypeScript side of a write runs on, while it runs. */
+let tenantForTypeScript: Database | undefined;
+
+/**
+ * The tenant database a test's `getTenantDbForWorkspace` mock should hand out,
+ * for a route that opens the workspace's database itself instead of taking
+ * the context's: `getTenantDbForWorkspace: async () => conformanceTenantDb(tenant.db)`.
+ * Like {@link conformanceMasterDb}: the copy the TypeScript side of a write
+ * runs on while it runs, `db` itself at every other moment.
+ */
+export function conformanceTenantDb<T>(db: T): T {
+  return (tenantForTypeScript as T | undefined) ?? db;
+}
+
 // ── comparison ──────────────────────────────────────────────────────────────
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -452,6 +492,8 @@ const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
 const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+/** A WeldSign signer session: base64url JSON payload, then its HMAC-SHA-256. */
+const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /**
@@ -459,6 +501,13 @@ const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
  * 2286, not part of a longer number. Differs between two runs of a write.
  */
 const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
+/** An API key's display prefix (`wsk_` and the random key's first 8 hex characters). */
+const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
+/**
+ * A random token in hex (16 random bytes, e.g. an SSO domain's TXT record
+ * value), on its own or inside a string. New on every run of a write.
+ */
+const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /** The `<Date.now()>_<random UUID hex>` segment of a new upload's object key. */
@@ -522,6 +571,10 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
         .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
     );
   }
+  // A realtime room payload's `ts: Date.now()`.
+  if (isWrite && key === 'ts' && typeof value === 'number' && Number.isInteger(value) && value >= 1e12 && value < 1e13) {
+    return '<epoch-ms>';
+  }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
   // A realtime room message's `ts: Date.now()` (`RealtimePublisher#chatMessage`),
@@ -540,8 +593,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // `sign_envelope:completed` (the finalize job); the drawn content is
   // checked by rust/modules/sign's tests against pdf-lib's output.
   if (key === 'finalSha256' && SHA256_HEX.test(value)) return '<sha256>';
+  // A signer session carries its expiry, the run's clock plus two hours.
+  if (key === 'session' && SIGNER_SESSION.test(value)) return '<session>';
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
+  if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
@@ -555,13 +611,15 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   // Storage: upload tokens, an upload key's random segment and a signed
-  // URL's credential, then any other `Date.now()` (the key's segment holds one).
+  // URL's credential; then 16-byte hex tokens (an SSO domain's TXT value) and
+  // any other `Date.now()` (the key's segment holds one).
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
     // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
     .replace(CHAT_FILE_SEGMENT, '/files/<random>/')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
+    .replace(RANDOM_HEX, '<hex>')
     .replace(EPOCH_MS, '<epoch-ms>');
 }
 
@@ -833,11 +891,13 @@ async function runBoth(
     // TypeScript first, on the copies and on copy-on-write views of the
     // buckets and KV, so it starts from the state Rust then starts from.
     masterForTypeScript = masterClone?.db;
+    tenantForTypeScript = clone.db;
     let ts: Awaited<ReturnType<typeof typeScript>>;
     try {
       ts = await typeScript(clone.db, isolatedEnv(request.env));
     } finally {
       masterForTypeScript = undefined;
+      tenantForTypeScript = undefined;
     }
     return { ...ts, ...(await rustRun()) };
   } finally {
@@ -865,14 +925,19 @@ function workflowEffects(calls: WorkflowCall[]): Pick<SideEffects, 'workflows'> 
   return { workflows: [...calls].sort((a, b) => key(a).localeCompare(key(b))) };
 }
 
-/** Where the two runs differ: status, body, then side effects; null when they match. */
+/** Where the two runs differ: status, headers, body, then side effects; null when they match. */
 function compareRuns(
   { ts, rust, tsEffects, rustEffects }: Runs,
   isWrite: boolean,
   method: string,
   route: string | null,
+  options: Pick<ConformanceRequest, 'compareHeaders' | 'normalizeEffects'> = {},
 ): string | null {
   if (ts.status !== rust.status) return `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
+  for (const name of options.compareHeaders ?? []) {
+    const [a, b] = [ts.headers.get(name), rust.headers.get(name)];
+    if (a !== b) return `header ${name}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`;
+  }
   if (ts.json !== undefined || rust.json !== undefined) {
     // Values a route draws per run (./conformance-volatile.ts) are masked first.
     const body = firstDifference(
@@ -884,7 +949,8 @@ function compareRuns(
     return 'response bodies differ';
   }
   // New event ids and timestamps differ by construction, even on a read.
-  const effects = firstDifference(normalizeForDiff(tsEffects, true), normalizeForDiff(rustEffects, true));
+  const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
+  const effects = firstDifference(normalizeForDiff(own(tsEffects), true), normalizeForDiff(own(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;
 }
 
@@ -933,7 +999,10 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();
-  const isWrite = !SAFE_METHODS.has(method) || WRITING_READS.some((re) => re.test(input));
+  const isWrite =
+    !SAFE_METHODS.has(method) ||
+    WRITING_READS.some((re) => re.test(input)) ||
+    new Headers(init?.headers).has(CONFORMANCE_WRITE_HEADER);
 
   const client = pgliteClientOf(ctx.tenantDb);
   if (!client) {
@@ -941,7 +1010,7 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
       'Conformance mode needs a pglite tenantDb (createPgliteDb()): this test uses a mock database, which the Rust server cannot reach.',
     );
   }
-  const context = await testContext(ctx, env, await databaseUrlFor(client));
+  const context = { ...(await testContext(ctx, env, await databaseUrlFor(client))), ...request.context };
 
   // A request body can be read once: keep it as text or bytes for both runs.
   const headers = new Headers(init?.headers);
@@ -972,7 +1041,7 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     | undefined;
   if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
   const route = ts.headers.get(ROUTE_HEADER);
-  const difference = compareRuns(runs, isWrite, method, route);
+  const difference = compareRuns(runs, isWrite, method, route, request);
   const { schema, schemaError } = checkSchema(method, route, rust);
 
   if (target.reportDir) {

@@ -9,6 +9,13 @@ replicaCount: 2
 config:
   environment: production
   logFormat: json
+  # The EU edition, told to the platform by /config.json, which also offers
+  # only the modules this release ports to Rust and hides what it lacks.
+  edition: eu
+  # Public settings for the platform (/config.json `env`); empty ones are
+  # left out. The chart lists the names the server accepts.
+  publicEnv:
+    VITE_MAPBOX_ACCESS_TOKEN: "${MAPBOX_PUBLIC_TOKEN}"
   # Sign-in through the in-cluster Zitadel (ADR SEC-012). The project and the
   # platform's application are made once in Zitadel's console (Hetzner
   # runbook, step 7); their ids go in the cluster settings.
@@ -44,10 +51,24 @@ config:
   # Signing links point at the portal below.
   sign:
     portalUrl: https://sign.${DOMAIN}
+  # Signup and team changes go to the in-cluster Zitadel's management API
+  # as the weldsuite service user (ZITADEL_SERVICE_TOKEN in the Secret);
+  # Zitadel picks its instance by the external domain.
+  identity:
+    zitadel:
+      apiUrl: http://zitadel.zitadel.svc:8080
+      host: auth.${DOMAIN}
+      projectId: "${ZITADEL_PROJECT_ID}"
+  # New workspace databases on the tenant shards (TENANT_SHARDS in the
+  # Secret), their URLs sealed bound to the workspace.
+  tenants:
+    region: eu
+  aadWrites: true
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
-# SIGN_PORTAL_SECRET: secrets/examples/secrets.example.yaml.
+# SIGN_PORTAL_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS:
+# secrets/examples/secrets.example.yaml.
 secret:
   existingSecret: weldsuite-env
 
@@ -55,6 +76,32 @@ secret:
 # api.${DOMAIN} for clients that call the API by that name.
 spa:
   enabled: true
+
+# `weldsuite migrate --master --tenants` as a hook Job before every install
+# and upgrade Flux makes: the master database, then every workspace database
+# on the tenant shards, to the migrations built into the release's image. The
+# new pods roll out only once it succeeded. A failure fails the upgrade and
+# Flux rolls the release back; databases the Job already migrated stay
+# migrated (migrations are forward-only, so a release must keep working on
+# the schema its successor migrates to). Its deadline stays under the
+# HelmRelease's spec.timeout (../weldsuite.yaml).
+migrations:
+  enabled: true
+  args: ["--master", "--tenants"]
+  # Workspace databases migrated at once, across the shards' poolers.
+  concurrency: 4
+  activeDeadlineSeconds: 1500
+
+# The identity sync every minute (what Clerk's webhooks do on Global), the
+# scheduled workspace deletions daily, unfinished teardowns hourly.
+cron:
+  jobs:
+    identity-sync:
+      enabled: true
+    workspace-deletion:
+      enabled: true
+    workspace-teardown:
+      enabled: true
 
 ingress:
   enabled: true
@@ -113,3 +160,19 @@ resources:
     memory: 256Mi
   limits:
     memory: 1Gi
+
+# The entity-event subscribers on the in-cluster JetStream: audit log,
+# outgoing webhooks and realtime fan-out (VALKEY_URL is in the Secret). The
+# search-index subscriber stays off until an embeddings endpoint (EU model
+# provider, or bge-m3 in the cluster) is chosen: set consume.embeddings then.
+consume:
+  enabled: true
+  replicaCount: 2
+  # The hub and dead-letter streams on all three JetStream nodes.
+  streamReplicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi

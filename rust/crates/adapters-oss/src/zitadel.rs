@@ -25,6 +25,16 @@
 //! (the workspace sends its own notification). The membership cap is stored
 //! but not enforced by Zitadel; the seat check happens in WeldSuite.
 //!
+//! Onboarding and the identity sync (P4 4a):
+//!
+//! | Port call | Zitadel |
+//! |---|---|
+//! | `create_organization` | `POST /v2/organizations` (a taken name becomes `Name (slug)`, the name kept in `weldsuite.name`), the project granted with both role keys (cached), slug and metadata, the creator's `admin` grant; undone on a failure |
+//! | `update_organization_metadata` | the JSON in `weldsuite.public_metadata` / `weldsuite.private_metadata`, merged like Clerk's |
+//! | `user_profile`, `update_user` | `GET` / `PATCH /v2/users/{id}`: given and family name (an empty one is left as it is: Zitadel needs both), display name, the one email |
+//! | `update_user_metadata` | user metadata `weldsuite.public_metadata` (JSON), merged |
+//! | `changes_since` | `POST /admin/v1/events/_search` over the `user`, `org` and `usergrant` aggregates (`IAM_OWNER` or `IAM_OWNER_VIEWER`) |
+//!
 //! APIs used: Management API v1 for organizations, metadata and user grants
 //! (`x-zitadel-orgid` selects the organization), User API v2 for users and
 //! invite codes, and the Authorization API v2beta for one user's grants
@@ -40,13 +50,19 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use reqwest::Method;
 use serde_json::{Value, json};
 use weldsuite_ports::{
-    BoxFuture, Identity, IdentityError, IdentityResult, Invitation, ListPage, Listing, MemberUser,
-    Membership, NewInvitation, NewMembership, Organization, OrganizationChanges, OrganizationRef,
-    User,
+    BoxFuture, ChangeEvent, Identity, IdentityChange, IdentityError, IdentityResult, Invitation,
+    ListPage, Listing, MemberUser, Membership, NewInvitation, NewMembership, NewOrganization,
+    Organization, OrganizationChanges, OrganizationRef, User, UserChanges, UserProfile,
+    merge_metadata,
 };
 
 const SLUG_KEY: &str = "weldsuite.slug";
 const CAP_KEY: &str = "weldsuite.max_memberships";
+const NAME_KEY: &str = "weldsuite.name";
+const PUBLIC_METADATA_KEY: &str = "weldsuite.public_metadata";
+const PRIVATE_METADATA_KEY: &str = "weldsuite.private_metadata";
+/// Looks for an organization's project grant before concluding it has none.
+const GRANT_LOOKUPS: u32 = 8;
 /// Grants fetched per list call; a workspace's members fit many times over.
 const LIST_LIMIT: u32 = 1000;
 
@@ -90,6 +106,8 @@ pub struct ZitadelIdentity {
     client: reqwest::Client,
     /// Organization → its grant of the project (`None`: it owns the project).
     project_grants: Mutex<HashMap<String, Option<String>>>,
+    /// The organization that owns the project (where project grants are made).
+    project_owner: Mutex<Option<String>>,
 }
 
 impl std::fmt::Debug for ZitadelIdentity {
@@ -135,6 +153,7 @@ impl ZitadelIdentity {
             },
             client,
             project_grants: Mutex::new(HashMap::new()),
+            project_owner: Mutex::new(None),
         })
     }
 
@@ -170,6 +189,7 @@ impl ZitadelIdentity {
             .text()
             .await
             .map_err(|error| IdentityError::Unavailable(error.to_string()))?;
+        let raw = text.clone();
         let body: Value = if text.is_empty() {
             Value::Null
         } else {
@@ -199,6 +219,7 @@ impl ZitadelIdentity {
                 .get("message")
                 .and_then(Value::as_str)
                 .map(str::to_owned),
+            body: Some(raw),
         })
     }
 
@@ -213,18 +234,29 @@ impl ZitadelIdentity {
         {
             return Ok(grant.clone());
         }
-        let granted = self
-            .call(
-                Method::POST,
-                "/management/v1/granted_projects/_search",
-                Some(org),
-                Some(json!({})),
-            )
-            .await?;
-        let grant = results(&granted)
-            .iter()
-            .find(|project| str_field(project, "projectId") == Some(&self.options.project_id))
-            .and_then(|project| str_field(project, "grantId").map(str::to_owned));
+        // Zitadel's read side lags its writes: a grant made a moment ago
+        // (another process's onboarding) may not be listed yet.
+        let mut grant = None;
+        for attempt in 0..GRANT_LOOKUPS {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            let granted = self
+                .call(
+                    Method::POST,
+                    "/management/v1/granted_projects/_search",
+                    Some(org),
+                    Some(json!({})),
+                )
+                .await?;
+            grant = results(&granted)
+                .iter()
+                .find(|project| str_field(project, "projectId") == Some(&self.options.project_id))
+                .and_then(|project| str_field(project, "grantId").map(str::to_owned));
+            if grant.is_some() || self.project_owner().await.is_ok_and(|owner| owner == org) {
+                break;
+            }
+        }
         if grant.is_none() {
             // Not granted: fine when the organization owns the project.
             self.call(
@@ -240,6 +272,7 @@ impl ZitadelIdentity {
                 message: Some(
                     "the WeldSuite project is not granted to this organization".to_owned(),
                 ),
+                body: None,
             })?;
         }
         self.project_grants
@@ -524,14 +557,55 @@ impl ZitadelIdentity {
                 .and_then(|value| BASE64.decode(value).ok())
                 .and_then(|bytes| String::from_utf8(bytes).ok())
         };
+        let json_value = |key: &str| {
+            value(key)
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                .unwrap_or(Value::Null)
+        };
         Ok(Organization {
             id: str_field(organization, "id").unwrap_or(org).to_owned(),
-            name: str_field(organization, "name")
-                .unwrap_or_default()
-                .to_owned(),
+            // The workspace's own name when Zitadel's had to differ (names
+            // are unique per instance in Zitadel, not in WeldSuite).
+            name: value(NAME_KEY)
+                .or_else(|| str_field(organization, "name").map(str::to_owned))
+                .unwrap_or_default(),
             slug: value(SLUG_KEY),
             max_memberships: value(CAP_KEY).and_then(|cap| cap.parse().ok()),
+            public_metadata: json_value(PUBLIC_METADATA_KEY),
+            private_metadata: json_value(PRIVATE_METADATA_KEY),
         })
+    }
+
+    /// Rename the organization: `name`, or when another organization has
+    /// that name already, `name (suffix)`, with the name itself kept in
+    /// metadata (`weldsuite.name`) for [`Identity::organization`].
+    async fn rename(&self, org: &str, name: &str, suffix: &str) -> IdentityResult<()> {
+        let renamed = self
+            .call(
+                Method::PUT,
+                "/management/v1/orgs/me",
+                Some(org),
+                Some(json!({ "name": name })),
+            )
+            .await;
+        match renamed {
+            Ok(_) => self.set_metadata(org, NAME_KEY, None).await,
+            Err(error) if error.status() == Some(409) => {
+                self.call(
+                    Method::PUT,
+                    "/management/v1/orgs/me",
+                    Some(org),
+                    Some(json!({ "name": format!("{name} ({suffix})") })),
+                )
+                .await?;
+                self.set_metadata(org, NAME_KEY, Some(name)).await
+            }
+            // Renaming to its own name: nothing changed.
+            Err(error) if error.status() == Some(400) && error.code() == Some("ORG-4VSdf") => {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn update_organization_inner(
@@ -540,13 +614,8 @@ impl ZitadelIdentity {
         changes: &OrganizationChanges,
     ) -> IdentityResult<()> {
         if let Some(name) = &changes.name {
-            self.call(
-                Method::PUT,
-                "/management/v1/orgs/me",
-                Some(org),
-                Some(json!({ "name": name })),
-            )
-            .await?;
+            self.rename(org, name, changes.slug.as_deref().unwrap_or(org))
+                .await?;
         }
         if let Some(slug) = &changes.slug {
             self.set_metadata(org, SLUG_KEY, Some(slug)).await?;
@@ -621,6 +690,384 @@ impl ZitadelIdentity {
     }
 }
 
+/// User metadata key of a user's `public_metadata` (JSON).
+const USER_PUBLIC_METADATA_KEY: &str = "weldsuite.public_metadata";
+/// Aggregates the identity sync reads from the event store.
+const CHANGE_AGGREGATES: [&str; 3] = ["user", "org", "usergrant"];
+
+/// Onboarding and the identity sync: organizations, users and the change
+/// feed.
+impl ZitadelIdentity {
+    /// The organization that owns the WeldSuite project (the service user's
+    /// own, usually), where project grants to other organizations are made.
+    async fn project_owner(&self) -> IdentityResult<String> {
+        if let Some(owner) = self
+            .project_owner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
+            return Ok(owner);
+        }
+        let project = self
+            .call(
+                Method::GET,
+                &format!("/management/v1/projects/{}", self.options.project_id),
+                None,
+                None,
+            )
+            .await?;
+        let owner = project
+            .get("project")
+            .and_then(|project| project.get("details"))
+            .and_then(|details| str_field(details, "resourceOwner"))
+            .map(str::to_owned)
+            .ok_or_else(|| IdentityError::Unavailable("the project has no owner".to_owned()))?;
+        *self
+            .project_owner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(owner.clone());
+        Ok(owner)
+    }
+
+    /// Grant the project, with both role keys, to `org`, and remember the
+    /// grant. A grant made earlier (a retry) is found and reused.
+    async fn grant_project(&self, org: &str) -> IdentityResult<()> {
+        let owner = self.project_owner().await?;
+        if owner == org {
+            return Ok(());
+        }
+        let granted = self
+            .call(
+                Method::POST,
+                &format!("/management/v1/projects/{}/grants", self.options.project_id),
+                Some(&owner),
+                Some(json!({ "grantedOrgId": org, "roleKeys": ["admin", "member"] })),
+            )
+            .await;
+        match granted {
+            Ok(answer) => {
+                let grant = str_field(&answer, "grantId").map(str::to_owned);
+                self.project_grants
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(org.to_owned(), grant);
+                Ok(())
+            }
+            // Already granted: `project_grant` looks it up.
+            Err(error) if error.status() == Some(409) => self.project_grant(org).await.map(drop),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// `POST /v2/organizations`; a name another organization has already
+    /// (names are unique per Zitadel instance, not per WeldSuite) becomes
+    /// `name (suffix)`. Answers the id and whether the name had to change.
+    async fn add_organization(&self, name: &str, suffix: &str) -> IdentityResult<(String, bool)> {
+        let mut renamed = false;
+        for attempt in [name.to_owned(), format!("{name} ({suffix})")] {
+            match self
+                .call(
+                    Method::POST,
+                    "/v2/organizations",
+                    None,
+                    Some(json!({ "name": attempt })),
+                )
+                .await
+            {
+                Ok(created) => {
+                    let id = str_field(&created, "organizationId")
+                        .map(str::to_owned)
+                        .ok_or_else(|| {
+                            IdentityError::Unavailable("no organizationId in the answer".to_owned())
+                        })?;
+                    return Ok((id, renamed));
+                }
+                Err(error) if error.status() == Some(409) && !renamed => renamed = true,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(IdentityError::Unavailable(
+            "the organization name is taken".to_owned(),
+        ))
+    }
+
+    async fn create_organization_inner(
+        &self,
+        new: &NewOrganization,
+    ) -> IdentityResult<Organization> {
+        let suffix = new.slug.clone().unwrap_or_else(short_suffix);
+        let (org, renamed) = self.add_organization(&new.name, &suffix).await?;
+        // Everything after the organization exists: undo it on a failure, so
+        // a retry starts clean instead of leaving an organization nobody
+        // can see.
+        let finished = self.finish_organization(&org, new, renamed).await;
+        if let Err(error) = finished {
+            if let Err(cleanup) = self
+                .call(Method::DELETE, "/management/v1/orgs/me", Some(&org), None)
+                .await
+            {
+                tracing::warn!(%cleanup, org, "zitadel: could not remove a half-created organization");
+            }
+            self.project_grants
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .remove(&org);
+            return Err(error);
+        }
+        Ok(Organization {
+            id: org,
+            name: new.name.clone(),
+            slug: new.slug.clone(),
+            max_memberships: None,
+            public_metadata: new.public_metadata.clone().unwrap_or(Value::Null),
+            private_metadata: new.private_metadata.clone().unwrap_or(Value::Null),
+        })
+    }
+
+    async fn finish_organization(
+        &self,
+        org: &str,
+        new: &NewOrganization,
+        renamed: bool,
+    ) -> IdentityResult<()> {
+        self.grant_project(org).await?;
+        if renamed {
+            self.set_metadata(org, NAME_KEY, Some(&new.name)).await?;
+        }
+        if let Some(slug) = &new.slug {
+            self.set_metadata(org, SLUG_KEY, Some(slug)).await?;
+        }
+        for (key, metadata) in [
+            (PUBLIC_METADATA_KEY, &new.public_metadata),
+            (PRIVATE_METADATA_KEY, &new.private_metadata),
+        ] {
+            if let Some(metadata) = metadata.as_ref().filter(|m| m.is_object()) {
+                let cleaned = merge_metadata(&Value::Null, metadata);
+                self.set_metadata(org, key, Some(&cleaned.to_string()))
+                    .await?;
+            }
+        }
+        if let Some(creator) = &new.created_by {
+            self.add_grant(org, creator, "org:admin").await?;
+        }
+        Ok(())
+    }
+
+    /// Merge `patch` into the JSON stored under `key` (`null` removes a key).
+    async fn merge_org_metadata(&self, org: &str, key: &str, patch: &Value) -> IdentityResult<()> {
+        let current = self.organization_inner(org).await?;
+        let current = if key == PUBLIC_METADATA_KEY {
+            current.public_metadata
+        } else {
+            current.private_metadata
+        };
+        let merged = merge_metadata(&current, patch);
+        let empty = merged.as_object().is_none_or(serde_json::Map::is_empty);
+        let text = merged.to_string();
+        self.set_metadata(org, key, (!empty).then_some(text.as_str()))
+            .await
+    }
+
+    async fn user_profile_inner(&self, user_id: &str) -> IdentityResult<UserProfile> {
+        let found = self
+            .call(Method::GET, &format!("/v2/users/{user_id}"), None, None)
+            .await?;
+        let user = found.get("user").unwrap_or(&Value::Null);
+        let human = user.get("human");
+        let profile = human.and_then(|human| human.get("profile"));
+        let field = |name: &str| {
+            profile
+                .and_then(|profile| str_field(profile, name))
+                .map(str::to_owned)
+        };
+        let email = human
+            .and_then(|human| human.get("email"))
+            .and_then(|email| str_field(email, "email"))
+            .map(str::to_owned);
+        Ok(UserProfile {
+            id: str_field(user, "userId").unwrap_or(user_id).to_owned(),
+            // Zitadel has one address per user; it is the primary one.
+            email_addresses: email
+                .into_iter()
+                .map(|address| ("email".to_owned(), address))
+                .collect(),
+            primary_email_address_id: human
+                .and_then(|human| human.get("email"))
+                .and_then(|email| str_field(email, "email"))
+                .map(|_| "email".to_owned()),
+            first_name: field("givenName"),
+            last_name: field("familyName"),
+            image_url: field("avatarUrl"),
+        })
+    }
+
+    /// Zitadel needs both names to be non-empty, so an empty one is left as
+    /// it is; the display name follows the new names.
+    async fn update_user_inner(&self, user_id: &str, changes: &UserChanges) -> IdentityResult<()> {
+        let given = changes
+            .first_name
+            .as_deref()
+            .filter(|n| !n.trim().is_empty());
+        let family = changes
+            .last_name
+            .as_deref()
+            .filter(|n| !n.trim().is_empty());
+        if given.is_none() && family.is_none() {
+            return Ok(());
+        }
+        let current = self.user_profile_inner(user_id).await?;
+        let mut profile = serde_json::Map::new();
+        if let Some(given) = given {
+            profile.insert("givenName".to_owned(), json!(given));
+        }
+        if let Some(family) = family {
+            profile.insert("familyName".to_owned(), json!(family));
+        }
+        let display = [
+            given.map(str::to_owned).or(current.first_name),
+            family.map(str::to_owned).or(current.last_name),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+        if !display.is_empty() {
+            profile.insert("displayName".to_owned(), json!(display));
+        }
+        self.call(
+            Method::PATCH,
+            &format!("/v2/users/{user_id}"),
+            None,
+            Some(json!({ "human": { "profile": profile } })),
+        )
+        .await
+        .map(drop)
+    }
+
+    /// The JSON under `weldsuite.public_metadata` on the user (`Null` when
+    /// none).
+    async fn user_public_metadata(&self, user_id: &str) -> IdentityResult<Value> {
+        let found = self
+            .call(
+                Method::POST,
+                &format!("/v2/users/{user_id}/metadata/search"),
+                None,
+                Some(json!({})),
+            )
+            .await?;
+        Ok(found
+            .get("metadata")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .find(|entry| str_field(entry, "key") == Some(USER_PUBLIC_METADATA_KEY))
+            .and_then(|entry| str_field(entry, "value"))
+            .and_then(|value| BASE64.decode(value).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or(Value::Null))
+    }
+
+    async fn update_user_metadata_inner(&self, user_id: &str, patch: &Value) -> IdentityResult<()> {
+        let current = self.user_public_metadata(user_id).await?;
+        let merged = merge_metadata(&current, patch);
+        self.call(
+            Method::POST,
+            &format!("/v2/users/{user_id}/metadata"),
+            None,
+            Some(json!({ "metadata": [{
+                "key": USER_PUBLIC_METADATA_KEY,
+                "value": BASE64.encode(merged.to_string()),
+            }] })),
+        )
+        .await
+        .map(drop)
+    }
+
+    /// The event store of the user, organization and user-grant aggregates
+    /// (`POST /admin/v1/events/_search`, which needs `IAM_OWNER` or
+    /// `IAM_OWNER_VIEWER`). Its `since` is exclusive, so the search starts a
+    /// microsecond earlier: the port's `since` is inclusive (events of one
+    /// transaction share their time), and a change seen twice does no harm.
+    async fn changes_since_inner(
+        &self,
+        since: Option<&str>,
+        limit: u32,
+    ) -> IdentityResult<Vec<ChangeEvent>> {
+        let mut query = json!({
+            "aggregateTypes": CHANGE_AGGREGATES,
+            "asc": true,
+            "limit": limit,
+        });
+        if let Some(since) = since {
+            let at: jiff::Timestamp = since.parse().map_err(|_| {
+                IdentityError::Unavailable(format!("not an RFC 3339 time: {since}"))
+            })?;
+            let before = at
+                .checked_sub(jiff::SignedDuration::from_micros(1))
+                .unwrap_or(at);
+            query["range"] = json!({ "since": before.to_string() });
+        }
+        let found = self
+            .call(Method::POST, "/admin/v1/events/_search", None, Some(query))
+            .await?;
+        Ok(found
+            .get("events")
+            .and_then(Value::as_array)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .filter_map(|event| {
+                let at = str_field(event, "creationDate")?.to_owned();
+                let change = change_of(event, &self.options.project_id)?;
+                Some(ChangeEvent { at, change })
+            })
+            .collect())
+    }
+}
+
+/// What a stored event says changed; `None` for events of no interest
+/// (another project's grants, an event without an aggregate).
+fn change_of(event: &Value, project_id: &str) -> Option<IdentityChange> {
+    let kind = event
+        .get("type")
+        .and_then(|kind| str_field(kind, "type"))
+        .unwrap_or_default();
+    let aggregate = event.get("aggregate")?;
+    let aggregate_type = aggregate
+        .get("type")
+        .and_then(|kind| str_field(kind, "type"))?;
+    let id = str_field(aggregate, "id")?.to_owned();
+    let payload = event.get("payload").unwrap_or(&Value::Null);
+    match aggregate_type {
+        "user" => Some(IdentityChange::User {
+            user_id: id,
+            removed: kind == "user.removed",
+        }),
+        "org" => Some(IdentityChange::Organization {
+            org: id,
+            removed: kind == "org.removed",
+        }),
+        "usergrant" => {
+            // `changed` events carry no project id; the reconcile reads the
+            // current grants anyway.
+            if str_field(payload, "projectId").is_some_and(|project| project != project_id) {
+                return None;
+            }
+            Some(IdentityChange::Membership {
+                org: str_field(aggregate, "resourceOwner")?.to_owned(),
+                user_id: str_field(payload, "userId")?.to_owned(),
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Six random lowercase letters and digits: an organization name's suffix
+/// when no slug is given.
+fn short_suffix() -> String {
+    weldsuite_kit::random_string(6, "abcdefghijklmnopqrstuvwxyz0123456789")
+}
+
 impl Identity for ZitadelIdentity {
     fn organization<'a>(&'a self, org: &'a str) -> BoxFuture<'a, IdentityResult<Organization>> {
         Box::pin(self.organization_inner(org))
@@ -665,6 +1112,7 @@ impl Identity for ZitadelIdentity {
                     status: 400,
                     code: Some("already_a_member_in_organization".to_owned()),
                     message: None,
+                    body: None,
                 });
             }
             let id = self
@@ -783,6 +1231,60 @@ impl Identity for ZitadelIdentity {
                 .map(drop)
         })
     }
+
+    fn user_profile<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<UserProfile>> {
+        Box::pin(self.user_profile_inner(user_id))
+    }
+
+    fn update_user<'a>(
+        &'a self,
+        user_id: &'a str,
+        changes: &'a UserChanges,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(self.update_user_inner(user_id, changes))
+    }
+
+    fn update_user_metadata<'a>(
+        &'a self,
+        user_id: &'a str,
+        public_metadata: &'a Value,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(self.update_user_metadata_inner(user_id, public_metadata))
+    }
+
+    fn create_organization<'a>(
+        &'a self,
+        organization: &'a NewOrganization,
+    ) -> BoxFuture<'a, IdentityResult<Organization>> {
+        Box::pin(self.create_organization_inner(organization))
+    }
+
+    fn update_organization_metadata<'a>(
+        &'a self,
+        org: &'a str,
+        public_metadata: Option<&'a Value>,
+        private_metadata: Option<&'a Value>,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            if let Some(patch) = public_metadata {
+                self.merge_org_metadata(org, PUBLIC_METADATA_KEY, patch)
+                    .await?;
+            }
+            if let Some(patch) = private_metadata {
+                self.merge_org_metadata(org, PRIVATE_METADATA_KEY, patch)
+                    .await?;
+            }
+            Ok(())
+        })
+    }
+
+    fn changes_since<'a>(
+        &'a self,
+        since: Option<&'a str>,
+        limit: u32,
+    ) -> BoxFuture<'a, IdentityResult<Vec<ChangeEvent>>> {
+        Box::pin(self.changes_since_inner(since, limit))
+    }
 }
 
 fn not_found() -> IdentityError {
@@ -790,6 +1292,7 @@ fn not_found() -> IdentityError {
         status: 404,
         code: Some("resource_not_found".to_owned()),
         message: None,
+        body: None,
     }
 }
 
@@ -943,5 +1446,56 @@ mod tests {
         assert!(split_invitation_id("12").is_err());
         assert!(split_invitation_id(":2").is_err());
         assert_eq!(millis("1970-01-01T00:00:01.5Z"), Some(1500));
+    }
+
+    #[allow(clippy::needless_pass_by_value)] // reads like the JSON it builds
+    fn event(aggregate: &str, id: &str, owner: &str, kind: &str, payload: Value) -> Value {
+        json!({
+            "aggregate": { "id": id, "type": { "type": aggregate }, "resourceOwner": owner },
+            "creationDate": "2026-10-29T14:33:56.944508Z",
+            "type": { "type": kind },
+            "payload": payload,
+        })
+    }
+
+    #[test]
+    fn events_name_what_changed() {
+        let user = event("user", "u1", "o0", "user.removed", Value::Null);
+        assert_eq!(
+            change_of(&user, "p1"),
+            Some(IdentityChange::User {
+                user_id: "u1".to_owned(),
+                removed: true
+            })
+        );
+        let org = event("org", "o1", "o1", "org.metadata.set", json!({ "key": "k" }));
+        assert_eq!(
+            change_of(&org, "p1"),
+            Some(IdentityChange::Organization {
+                org: "o1".to_owned(),
+                removed: false
+            })
+        );
+        let grant = |payload| event("usergrant", "g1", "o1", "user.grant.added", payload);
+        assert_eq!(
+            change_of(&grant(json!({ "projectId": "p1", "userId": "u1" })), "p1"),
+            Some(IdentityChange::Membership {
+                org: "o1".to_owned(),
+                user_id: "u1".to_owned()
+            })
+        );
+        // Another project's grant; a changed grant names no project.
+        assert_eq!(
+            change_of(&grant(json!({ "projectId": "p2", "userId": "u1" })), "p1"),
+            None
+        );
+        assert!(change_of(&grant(json!({ "userId": "u1" })), "p1").is_some());
+        assert_eq!(
+            change_of(
+                &event("project", "p1", "o0", "project.added", Value::Null),
+                "p1"
+            ),
+            None
+        );
     }
 }

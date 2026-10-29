@@ -128,3 +128,39 @@ export const installedCatalogAppSchema = z.object({
   settings: z.record(z.unknown()).nullable(),
   installedAt: z.string().nullable(),
 });
+
+// ============================================================================
+// App store, workspace side — /api/appstore (app-api routes/appstore).
+// ============================================================================
+
+/** GET /api/appstore/my-apps: the app codes actively assigned to the caller. */
+export const myAppCodesSchema = z.array(z.string());
+
+/** GET /api/appstore/installed-apps: a whole `workspace_installed_apps` row. */
+export const workspaceInstalledAppSchema = z.object({
+  id: z.string(),
+  appCode: z.string(),
+  isActive: z.boolean(),
+  displayOrder: z.number().int().nullable(),
+  appType: z.string(),
+  userAppId: z.string().nullable(),
+  grantedScopes: z.array(z.string()).nullable(),
+  settings: z.record(z.unknown()).nullable(),
+  installedAt: z.string().nullable(),
+  installedBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** GET /api/appstore/can-manage-apps. */
+export const canManageAppsSchema = z.object({ canManage: z.boolean() });
+
+/** POST /api/appstore/apps/:appCode/assign-all-members: the canonical code and how many members it reached. */
+export const assignAllMembersResultSchema = z.object({
+  appCode: z.string(),
+  assignedCount: z.number().int(),
+});
+
+export type WorkspaceInstalledApp = z.infer<typeof workspaceInstalledAppSchema>;
+export type AssignAllMembersResult = z.infer<typeof assignAllMembersResultSchema>;

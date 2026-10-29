@@ -962,6 +962,210 @@
         "rust/modules/flow/",
         "rust/crates/flow-domain/"
       ]
+    },
+    {
+      "name": "core: dashboard",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/dashboard/dashboard.integration.test.ts",
+        "src/routes/dashboard/installed-apps.test.ts",
+        "src/routes/dashboard/onboarding-checklist.test.ts",
+        "src/routes/dashboard/permission-gates.test.ts",
+        "src/routes/dashboard/sidebar-badges.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/dashboard/",
+        "apps/workers/app-api/src/services/member-apps.ts",
+        "apps/workers/app-api/src/services/member-link.ts",
+        "packages/domains/mail/src/access.ts",
+        "packages/domains/mail/src/labels.ts",
+        "packages/clients/app-api-client/src/schemas/dashboard.ts",
+        "rust/modules/core-platform/src/groups/dashboard.rs"
+      ]
+    },
+    {
+      "name": "core: support",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/support/support.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/support/",
+        "packages/core/realtime/src/server/",
+        "packages/clients/app-api-client/src/schemas/support.ts",
+        "rust/modules/core-platform/src/groups/support.rs"
+      ]
+    },
+    {
+      "name": "core: prepaid-seats",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/prepaid-seats/prepaid-seats.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/prepaid-seats/",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "packages/clients/app-api-client/src/schemas/member-limits.ts",
+        "rust/modules/core-team/src/groups/prepaid_seats.rs",
+        "rust/modules/core-team/src/groups/seats.rs"
+      ]
+    },
+    {
+      "name": "core: auth-sessions",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/auth-sessions/auth-sessions.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/auth-sessions/",
+        "packages/clients/app-api-client/src/schemas/account.ts",
+        "rust/modules/core-platform/src/groups/auth_sessions.rs",
+        "rust/crates/ports/src/identity.rs",
+        "rust/bins/weldsuite/src/conformance_outbound.rs"
+      ]
+    },
+    {
+      "name": "core: sso",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/sso/sso.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/sso/",
+        "apps/workers/app-api/src/services/sso.ts",
+        "packages/domains/core/src/sso.ts",
+        "packages/clients/app-api-client/src/schemas/sso.ts",
+        "packages/core/worker-kit/src/dns-lookup.ts",
+        "rust/modules/core-platform/src/groups/sso.rs",
+        "rust/bins/weldsuite/src/conformance_outbound.rs"
+      ]
+    },
+    {
+      "name": "core: notifications",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/notifications/integration.test.ts",
+        "src/routes/notifications/notifications.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/notifications/",
+        "packages/clients/core-api-client/src/schemas/notifications.ts",
+        "rust/modules/core-platform/src/groups/notifications/"
+      ]
+    },
+    {
+      "name": "core: audit-logs",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/audit-logs/index.test.ts",
+        "src/routes/audit-logs/audit-logs.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/audit-logs/",
+        "packages/clients/core-api-client/src/schemas/audit-logs.ts",
+        "rust/modules/core-platform/src/groups/audit_logs.rs",
+        "rust/modules/core-platform/src/groups/notifications/body.rs"
+      ]
+    },
+    {
+      "name": "core: appstore",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/appstore/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/appstore/",
+        "apps/workers/app-api/src/lib/legacy-app-codes.ts",
+        "packages/clients/app-api-client/src/schemas/app-catalog.ts",
+        "rust/modules/core-platform/src/groups/appstore.rs"
+      ]
+    },
+    {
+      "name": "core: api-keys",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/api-keys/api-keys.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/api-keys/",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/core/db/src/lib/workspace-ref.ts",
+        "packages/clients/app-api-client/src/schemas/api-keys.ts",
+        "rust/modules/core-platform/src/groups/api_keys.rs"
+      ]
+    },
+    {
+      "name": "core: workspace-api-keys",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/workspace-api-keys/workspace-api-keys.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/workspace-api-keys/",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/core/db/src/lib/workspace-ref.ts",
+        "packages/clients/app-api-client/src/schemas/api-keys.ts",
+        "rust/modules/core-platform/src/groups/api_keys.rs",
+        "rust/modules/core-platform/src/groups/workspace_api_keys.rs"
+      ]
+    },
+    {
+      "name": "core: feature-requests",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/feature-requests/feature-requests.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/feature-requests/",
+        "packages/clients/app-api-client/src/schemas/feature-requests.ts",
+        "rust/modules/core-platform/src/groups/feature_requests.rs"
+      ]
+    },
+    {
+      "name": "core: credits",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/credits/credits.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/credits/",
+        "apps/workers/app-api/src/services/credits.ts",
+        "apps/workers/app-api/src/middleware/partner-managed.ts",
+        "apps/workers/app-api/src/services/partner/managed.ts",
+        "packages/core/credits/src/index.ts",
+        "packages/core/worker-kit/src/billing-worker.ts",
+        "packages/clients/app-api-client/src/schemas/credits.ts",
+        "rust/modules/core-platform/src/groups/credits.rs"
+      ]
+    },
+    {
+      "name": "core: onboarding",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/onboarding/onboarding.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/onboarding/",
+        "apps/workers/app-api/src/test/fake-clerk.ts",
+        "apps/workers/app-api/src/services/partner/",
+        "packages/clients/app-api-client/src/schemas/onboarding.ts",
+        "rust/modules/core-onboarding/",
+        "rust/crates/ports/src/identity.rs"
+      ]
     }
   ]
 }

@@ -1,6 +1,6 @@
 //! The `weldsuite` binary. One image runs every role through a subcommand:
-//! `serve` today; `consume`, `cron <job>` and the admin commands as they are
-//! ported.
+//! `serve`, `consume`, `cron <job>` and `migrate` today; the admin commands as
+//! they are ported.
 //!
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
@@ -18,9 +18,15 @@ mod conformance_mail;
 mod conformance_outbound;
 #[cfg(feature = "conformance")]
 mod conformance_workflows;
+#[cfg(feature = "conformance")]
+mod conformance_portal;
+mod consume;
 mod cron;
 mod desk_http;
+mod edition;
 mod infra;
+mod migrate;
+mod realtime;
 mod routes;
 mod server;
 mod spa;
@@ -41,7 +47,12 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
-  cron <job> run one scheduled job and exit: sign-lifecycle, mail-outbound-ledgers, calendar-replan, flow-file-purge
+  consume    run the entity-event subscribers on NATS JetStream
+  cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
+             workspace-deletion, workspace-teardown, mail-outbound-ledgers,
+             calendar-replan, flow-file-purge
+  migrate    apply the database migrations to the master and every tenant
+             database (weldsuite migrate --help)
   version    print the version and exit
   help       print this message and exit";
 
@@ -57,10 +68,12 @@ fn version() -> String {
 }
 
 fn main() -> ExitCode {
-    let command = std::env::args().nth(1);
-    match command.as_deref() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
         Some("serve") => serve(),
-        Some("cron") => cron::main(std::env::args().nth(2).as_deref()),
+        Some("consume") => consume::run(),
+        Some("cron") => cron::main(args.get(1).map(String::as_str)),
+        Some("migrate") => migrate::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS
@@ -84,7 +97,7 @@ fn serve() -> ExitCode {
             return ExitCode::from(78); // EX_CONFIG
         }
     };
-    let telemetry = telemetry::init(config.log_format);
+    let telemetry = telemetry::init(config.log_format, "info");
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -118,7 +131,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = infra::connect(&config.infra, workspaces.master(), tracker.clone()).await?;
+    let infra = infra::connect(
+        &config.infra,
+        workspaces.master(),
+        &config.keyring,
+        tracker.clone(),
+    )
+    .await?;
     #[cfg(feature = "conformance")]
     let (infra, recorders) = conformance::infra(tracker.clone());
     let flags = Arc::new(weldsuite_pipeline::FlagGate::new(
@@ -141,6 +160,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         service: "weldsuite",
         environment: config.environment.clone(),
+        edition: Arc::new(config.edition.clone()),
         workspaces: Arc::new(workspaces),
         verifier: Arc::new(verifier),
         permissions_app_enforce: config.permissions_app_enforce,
@@ -150,9 +170,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
+        sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
         storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
         public_auth,
+        realtime: realtime::PublicRealtime::from_config(&config),
         #[cfg(feature = "conformance")]
         recorders,
         #[cfg(feature = "conformance")]
@@ -161,12 +183,15 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let (stopping, stop) = tokio::sync::watch::channel(false);
     let jobs = serve_jobs(&config, &state, stop);
+    let gateway = realtime::start(&config, &state).await?;
+    let app = realtime::mount(router(state), gateway.as_ref());
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, spa::mount(router(state), spa))
+    axum::serve(listener, spa::mount(app, spa))
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
+            realtime::stop(gateway.as_ref()).await;
             let _ = stopping.send(true);
         })
         .await?;

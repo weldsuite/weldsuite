@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bucketUrlFor, bucketUrls, isBucketLike, type BucketLike } from './bucket-bridge';
+import { bucketUrlFor, bucketUrls, isBucketLike, kvBucketUrl, type BucketLike } from './bucket-bridge';
 
 /** The smallest stub a test brings: `get` answers only `{ body }`, no `head`. */
 function stubBucket() {
@@ -75,6 +75,23 @@ describe('bucket bridge', () => {
     expect([...new Uint8Array(await res.arrayBuffer())]).toEqual([9, 8]);
     const head = await fetch(`${base}/object?key=x`, { method: 'HEAD' });
     expect(head.headers.get('content-length')).toBe('2');
+  });
+
+  it('serves a KV namespace one value per object', async () => {
+    const store = new Map<string, string>();
+    const kv = {
+      get: async (key: string) => store.get(key) ?? null,
+      put: async (key: string, value: string) => void store.set(key, value),
+      delete: async (key: string) => void store.delete(key),
+    };
+    const base = await kvBucketUrl(kv);
+    expect(await kvBucketUrl(kv)).toBe(base);
+    const url = `${base}/object?key=${encodeURIComponent('sign:code:abc')}`;
+    expect((await fetch(url, { method: 'PUT', body: 'hash•1' })).status).toBe(204);
+    expect(store.get('sign:code:abc')).toBe('hash•1');
+    expect(await (await fetch(url)).text()).toBe('hash•1');
+    expect((await fetch(url, { method: 'DELETE' })).status).toBe(204);
+    expect((await fetch(url)).status).toBe(404);
   });
 
   it('starts one server per bucket and names only bucket bindings', async () => {

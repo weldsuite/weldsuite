@@ -21,7 +21,9 @@ weldsuite-catalogs = { workspace = true }
 weldsuite-chat = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
+weldsuite-core-onboarding = { workspace = true }
 weldsuite-core-files = { workspace = true }
+weldsuite-core-platform = { workspace = true }
 weldsuite-core-team = { workspace = true }
 weldsuite-crm = { workspace = true }
 weldsuite-db = { workspace = true }
@@ -35,11 +37,14 @@ weldsuite-know = { workspace = true }
 weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
+weldsuite-migrations = { workspace = true }
 weldsuite-sign = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }
+weldsuite-realtime = { workspace = true }
 weldsuite-ports = { workspace = true }
-axum = { workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
+weldsuite-subscribers = { workspace = true }
+axum ={ workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
 base64 = { workspace = true, optional = true }
 form_urlencoded = { workspace = true, optional = true }
 http = { workspace = true }

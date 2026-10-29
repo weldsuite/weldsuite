@@ -278,7 +278,7 @@ struct SeatRow {
 
 /// `getAccurateMemberCount`: the provider's count without members WeldSuite
 /// already removed (who are taken out of the provider), else the DB's.
-async fn accurate_member_count(
+pub(crate) async fn accurate_member_count(
     caller: &Caller,
     state: &CoreTeamState,
     idp: &dyn Identity,
@@ -540,7 +540,7 @@ fn advance(offset: &mut u32, items: usize, total: Option<u64>) -> bool {
 
 /// `countPendingSeatInvitations`: pending invitations that will take a paid
 /// seat; `None` when the provider can't be read.
-async fn pending_seat_invitations(idp: &dyn Identity, org: &str) -> Option<i64> {
+pub(crate) async fn pending_seat_invitations(idp: &dyn Identity, org: &str) -> Option<i64> {
     match count_pending_invitations(idp, org).await {
         Ok(count) => Some(count.others),
         Err(error) => {
