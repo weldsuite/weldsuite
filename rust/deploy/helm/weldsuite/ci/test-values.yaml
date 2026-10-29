@@ -8,6 +8,9 @@ secret:
     S3_SECRET_ACCESS_KEY: not-a-real-secret
     SIGN_PORTAL_SECRET: not-a-real-secret
 config:
+  edition: eu
+  publicEnv:
+    VITE_MAPBOX_ACCESS_TOKEN: pk.example
   sign:
     portalUrl: https://sign.example.org
   files:

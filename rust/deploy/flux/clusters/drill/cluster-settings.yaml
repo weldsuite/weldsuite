@@ -20,6 +20,9 @@ data:
   # application ids as the eu cluster (its issuer is auth.${DOMAIN} here).
   ZITADEL_PROJECT_ID: "000000000000000000"
   ZITADEL_WEB_CLIENT_ID: "000000000000000000"
+  # Mapbox's public token (pk.…) for maps and address search in the
+  # platform, served in /config.json; empty for none.
+  MAPBOX_PUBLIC_TOKEN: ""
   # The release this cluster runs: the chart from this tag, the image tag.
   WELDSUITE_GIT_TAG: weldsuite-v0.0.0
   WELDSUITE_IMAGE_TAG: 0.0.0
