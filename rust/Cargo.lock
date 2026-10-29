@@ -3782,6 +3782,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-know",
+ "weldsuite-mail",
  "weldsuite-mail-domain",
  "weldsuite-pass",
  "weldsuite-permissions",
@@ -4039,6 +4040,30 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-mail"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]

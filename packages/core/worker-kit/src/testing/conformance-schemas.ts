@@ -57,6 +57,14 @@ import {
   roleSummarySchema,
 } from '@weldsuite/app-api-client/schemas/roles';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
+import {
+  outboundInspectionSchema,
+  outboundPlatformStatusSchema,
+  outboundRefreshResultSchema,
+  outboundReviewResultSchema,
+  outboundSubscribeResultSchema,
+  outboundUsageSchema,
+} from '@weldsuite/app-api-client/schemas/outbound-mail';
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
@@ -437,6 +445,13 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/storage/access', envelope: 'single', data: filesAccessSchema },
   { method: 'POST', route: '/api/storage/sign', envelope: 'single', data: signedObjectUrlsSchema },
   { method: 'POST', route: '/api/storage/migrate-private', envelope: 'single', data: privateFilesMigrationBatchSchema },
+  // mail (outbound): the customer's sending limits and the guard's staff API
+  { method: 'GET', route: '/api/mail-sending/usage', envelope: 'single', data: outboundUsageSchema.nullable() },
+  { method: 'GET', route: '/internal/outbound/inspect', envelope: 'single', data: outboundInspectionSchema },
+  { method: 'POST', route: '/internal/outbound/refresh', envelope: 'single', data: outboundRefreshResultSchema },
+  { method: 'POST', route: '/internal/outbound/review', envelope: 'single', data: outboundReviewResultSchema },
+  { method: 'GET', route: '/internal/outbound/platform', envelope: 'single', data: outboundPlatformStatusSchema },
+  { method: 'POST', route: '/internal/outbound/sending-events/subscribe', envelope: 'single', data: outboundSubscribeResultSchema },
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

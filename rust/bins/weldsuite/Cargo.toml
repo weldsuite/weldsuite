@@ -27,6 +27,7 @@ weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-know = { workspace = true }
 weldsuite-pass = { workspace = true }
+weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
 weldsuite-sign = { workspace = true }
 weldsuite-permissions = { workspace = true }

@@ -105,7 +105,100 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = if mounts("mail") {
+        router.merge(weldsuite_mail::router(
+            mail_state(state),
+            &state.permissions,
+        ))
+    } else {
+        router
+    };
     core_files(router, state)
+}
+
+/// WeldMail's handle on the app: databases, cache, files, jobs, system mail,
+/// and the customer-mail transport and outbound ledgers ([`mail_outbound`]).
+pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
+    static ENV: OnceLock<Arc<std::collections::HashMap<String, String>>> = OnceLock::new();
+    weldsuite_mail::MailState {
+        events: state.infra.events.clone(),
+        master: Some(state.workspaces.master().clone()),
+        cache: state.infra.cache.clone(),
+        outbound: mail_outbound(state).0.clone(),
+        files: file_stores(state),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+        system_mail: state.infra.mail.clone(),
+        env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
+    }
+}
+
+/// Customer mail and the outbound guard's ledgers, made once per process
+/// (ADR MAIL-010):
+///
+/// - `MAIL_SMTP_URL`: the relay customer mail goes through, under its own
+///   identity (not `SMTP_URL`, which is system mail's). Unset: sends answer
+///   503, as the workers do without `SEND_EMAIL`.
+/// - the ledgers on Valkey (`VALKEY_URL`, keys under
+///   `VALKEY_LEDGER_PREFIX`, default `weldsuite:outbound:`), or in this
+///   process without it (one replica's worth); `MAIL_DAILY_QUOTA` arms the
+///   platform budget (`CF_EMAIL_DAILY_QUOTA` on Global).
+/// - an in-process backstop (30 sends a minute per sender) for when the
+///   ledgers can't be reached.
+///
+/// Conformance builds take the test's bindings per request instead.
+pub(crate) fn mail_outbound(
+    state: &AppState,
+) -> &'static (
+    weldsuite_mail_domain::outbound::OutboundBindings,
+    Arc<weldsuite_mail_domain::outbound::StoreLedger>,
+) {
+    use weldsuite_mail_domain::outbound::{
+        LedgerDeps, OutboundBindings, StoreLedger, WindowBackstop, clock,
+    };
+    static OUTBOUND: OnceLock<(OutboundBindings, Arc<StoreLedger>)> = OnceLock::new();
+    OUTBOUND.get_or_init(|| {
+        let read = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+        let transport = read("MAIL_SMTP_URL").and_then(|url| {
+            weldsuite_adapters_oss::SmtpMailTransport::from_url(&url)
+                .inspect_err(|error| tracing::error!(%error, "MAIL_SMTP_URL is not a relay URL"))
+                .ok()
+        });
+        if transport.is_none() {
+            tracing::warn!("MAIL_SMTP_URL is not set: customer mail cannot be sent");
+        }
+        let store: Arc<dyn weldsuite_ports::LedgerStore> = match read("VALKEY_URL").map(|url| {
+            weldsuite_adapters_oss::ValkeyLedgerStore::from_url(
+                &url,
+                read("VALKEY_LEDGER_PREFIX").unwrap_or_else(|| "weldsuite:outbound:".to_owned()),
+            )
+        }) {
+            Some(Ok(store)) => Arc::new(store),
+            Some(Err(error)) => {
+                tracing::error!(%error, "VALKEY_URL: the outbound ledgers stay in this process");
+                Arc::new(weldsuite_ports::MemoryLedgerStore::new())
+            }
+            None => Arc::new(weldsuite_ports::MemoryLedgerStore::new()),
+        };
+        let ledger = Arc::new(StoreLedger::new(LedgerDeps {
+            store,
+            master: Some(state.workspaces.master().clone()),
+            flags: Some(Arc::clone(&state.infra.flags)),
+            reviews: None,
+            daily_quota: read("MAIL_DAILY_QUOTA")
+                .and_then(|v| v.parse().ok())
+                .filter(|q| *q > 0),
+            clock: clock::system_clock(),
+        }));
+        let bindings = OutboundBindings {
+            transport: transport.map(|t| Arc::new(t) as Arc<dyn weldsuite_ports::MailTransport>),
+            ledger: Some(
+                Arc::clone(&ledger) as Arc<dyn weldsuite_mail_domain::outbound::OutboundLedger>
+            ),
+            platform: Some(ledger.platform()),
+            backstop: Some(Arc::new(WindowBackstop::default())),
+        };
+        (bindings, ledger)
+    })
 }
 
 /// WeldPass: the root keys (`WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2`)
@@ -162,6 +255,18 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// WeldApps bundle host (`/public/user-apps/*`). Empty until core files and
 /// WeldApps are mounted.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
+    let router = public_core(state);
+    if mounts("mail") {
+        router.nest(
+            "/internal/outbound",
+            weldsuite_mail::internal_outbound_router(mail_state(state)),
+        )
+    } else {
+        router
+    }
+}
+
+fn public_core(state: &AppState) -> Router<AppState> {
     if cfg!(feature = "conformance") {
         let apps = core_apps_state(state);
         weldsuite_core_files::storage_public_router(core_files_state(state))

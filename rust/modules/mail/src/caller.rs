@@ -1,0 +1,173 @@
+//! Who is asking, in which workspace, and which bindings the request uses:
+//! the request's own (conformance builds insert the test's env, master
+//! database, KV, buckets, transport and ledgers) ahead of the app's.
+
+use std::sync::Arc;
+
+use axum::extract::FromRequestParts;
+use http::request::Parts;
+use serde_json::Value;
+use weldsuite_auth::AuthContext;
+use weldsuite_catalogs::entity_events::EventName;
+use weldsuite_db::{MasterDb, PgPool, Tenant};
+use weldsuite_events::{EventContext, publish_entity_event};
+use weldsuite_kit::{ApiError, RequestEnv};
+use weldsuite_mail_domain::outbound::{OutboundBindings, OutboundGuard, RequestOutbound};
+use weldsuite_permissions::Permissions;
+use weldsuite_ports::{DynCache, FileStores, RequestCache};
+
+use crate::MailState;
+
+/// The request's view of the worker: its env and bindings, the app's where
+/// the request brings none. Also usable outside `/api` ([`Bindings`]).
+#[allow(dead_code)] // `files` is for the send routes (next)
+#[derive(Clone, Default)]
+pub(crate) struct Bindings {
+    pub(crate) env: Option<RequestEnv>,
+    master: Option<PgPool>,
+    cache: Option<Arc<dyn DynCache>>,
+    outbound: Option<OutboundBindings>,
+    files: Option<FileStores>,
+}
+
+impl Bindings {
+    pub(crate) fn from_parts(parts: &Parts) -> Self {
+        Self {
+            env: parts.extensions.get::<RequestEnv>().cloned(),
+            master: parts.extensions.get::<MasterDb>().map(|m| m.0.clone()),
+            cache: parts
+                .extensions
+                .get::<RequestCache>()
+                .map(|c| Arc::clone(&c.0)),
+            outbound: parts
+                .extensions
+                .get::<RequestOutbound>()
+                .map(|o| o.0.clone()),
+            files: parts.extensions.get::<FileStores>().cloned(),
+        }
+    }
+
+    /// An env value: the request's (conformance), else the app's.
+    pub(crate) fn env_value<'a>(&'a self, state: &'a MailState, name: &str) -> Option<&'a str> {
+        match &self.env {
+            Some(env) => env.get(name),
+            None => state.env.get(name).map(String::as_str),
+        }
+    }
+
+    /// The master database: the request's in conformance builds (only what
+    /// the test shares), else the app's.
+    pub(crate) fn master(&self, state: &MailState) -> Option<PgPool> {
+        if self.env.is_some() {
+            return self.master.clone();
+        }
+        self.master.clone().or_else(|| state.master.clone())
+    }
+
+    pub(crate) fn cache(&self, state: &MailState) -> Option<Arc<dyn DynCache>> {
+        self.cache.clone().or_else(|| state.cache.clone())
+    }
+
+    pub(crate) fn outbound(&self, state: &MailState) -> OutboundBindings {
+        self.outbound
+            .clone()
+            .unwrap_or_else(|| state.outbound.clone())
+    }
+
+    #[allow(dead_code)] // the send routes (next)
+    pub(crate) fn files(&self, state: &MailState) -> Option<FileStores> {
+        self.files.clone().or_else(|| state.files.clone())
+    }
+
+    /// The outbound guard as the worker builds it from its env: the master
+    /// database only when the worker has one (`DATABASE_URL_MASTER`; a test
+    /// that sets none gets the guard's fail-open answers, as in TypeScript).
+    pub(crate) fn guard(&self, state: &MailState) -> OutboundGuard {
+        let master = match &self.env {
+            Some(env) => env
+                .get("DATABASE_URL_MASTER")
+                .and_then(|_| self.master(state)),
+            None => self.master(state),
+        };
+        self.outbound(state).guard(master, self.cache(state))
+    }
+}
+
+/// A caller of an `/api` route.
+#[allow(dead_code)] // the send routes (next) read the rest
+pub(crate) struct Caller {
+    pub(crate) db: PgPool,
+    pub(crate) user_id: String,
+    /// `c.get('orgId')`.
+    pub(crate) org_id: Option<String>,
+    /// `c.get('workspaceId')`: `workspaces.id`.
+    pub(crate) workspace_id: String,
+    pub(crate) permissions: Option<Permissions>,
+    pub(crate) events: EventContext,
+    pub(crate) bindings: Bindings,
+}
+
+impl Caller {
+    /// `c.get('orgId')`, or `error.orgRequired`.
+    pub(crate) fn org(&self) -> Result<&str, ApiError> {
+        self.org_id
+            .as_deref()
+            .filter(|org| !org.is_empty())
+            .ok_or_else(ApiError::org_required)
+    }
+
+    /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
+    #[allow(dead_code)] // the send routes (next)
+    pub(crate) fn publish(
+        &self,
+        state: &MailState,
+        event: EventName,
+        entity_id: &str,
+        data: &Value,
+    ) {
+        publish_entity_event(&state.events, &self.events, event, entity_id, data);
+    }
+}
+
+/// Behind the session and tenant database layers; without them it is a
+/// routing mistake (500).
+impl<S: Send + Sync> FromRequestParts<S> for Caller {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        let auth = parts.extensions.get::<AuthContext>();
+        let tenant = parts.extensions.get::<Tenant>();
+        let caller = if let (Some(auth), Some(tenant)) = (auth, tenant) {
+            Ok(Self {
+                db: tenant.db.clone(),
+                user_id: auth.user_id.clone(),
+                org_id: auth.org_id.clone(),
+                workspace_id: tenant.workspace_id.clone(),
+                permissions: parts.extensions.get::<Permissions>().cloned(),
+                events: EventContext::for_request(auth, tenant),
+                bindings: Bindings::from_parts(parts),
+            })
+        } else {
+            tracing::error!("mail: a route without the session or tenant layer");
+            Err(ApiError::internal())
+        };
+        std::future::ready(caller)
+    }
+}
+
+/// The bindings of a request outside `/api` (no session).
+pub(crate) struct Outside(pub(crate) Bindings);
+
+impl<S: Send + Sync> FromRequestParts<S> for Outside {
+    type Rejection = ApiError;
+
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        std::future::ready(Ok(Self(Bindings::from_parts(parts))))
+    }
+}

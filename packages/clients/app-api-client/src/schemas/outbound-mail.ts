@@ -383,6 +383,55 @@ export interface OutboundUsage {
   coldOutreachCapped: boolean;
 }
 
+const usageWindowSchema = z.object({ used: z.number(), limit: z.number() });
+
+/** {@link OutboundUsage} as a schema, for the clients and the conformance suite. */
+export const outboundUsageSchema = z.object({
+  mode: z.enum(OUTBOUND_GUARD_MODES),
+  trustLevel: z.enum(OUTBOUND_TRUST_LEVELS),
+  state: z.enum(OUTBOUND_STATES),
+  stateReason: z.string().nullable(),
+  limits: outboundLimitsSchema,
+  workspace: z.object({
+    hour: z.number(),
+    day: usageWindowSchema,
+    firstContactDay: usageWindowSchema,
+    month: z.object({ used: z.number(), limit: z.number().nullable() }),
+  }),
+  senders: z.array(z.object({ email: z.string(), hour: usageWindowSchema, day: usageWindowSchema })),
+  deliveries7d: z.object({
+    delivered: z.number(),
+    hardBounces: z.number(),
+    softBounces: z.number(),
+    complaints: z.number(),
+    rejected: z.number(),
+  }),
+  coldOutreachCapped: z.boolean(),
+});
+
+/** Staff view of one workspace's ledger (`GET /internal/outbound/inspect`). */
+export const outboundInspectionSchema = z.object({
+  usage: outboundUsageSchema,
+  riskScore: z.number(),
+  riskReasons: z.array(z.string()),
+  shadowDenials7d: z.record(z.number()),
+});
+
+/** The platform budget (`GET /internal/outbound/platform`). */
+export const outboundPlatformStatusSchema = z.object({
+  tripped: z.boolean(),
+  recipients: z.number(),
+  quota: z.number().nullable(),
+  reason: z.string().nullable(),
+});
+
+/** `POST /internal/outbound/refresh`. */
+export const outboundRefreshResultSchema = z.object({ ok: z.literal(true) });
+/** `POST /internal/outbound/review`. */
+export const outboundReviewResultSchema = z.object({ queued: z.boolean() });
+/** `POST /internal/outbound/sending-events/subscribe`: per domain, whether it is subscribed. */
+export const outboundSubscribeResultSchema = z.object({ results: z.record(z.boolean()) });
+
 // ---------------------------------------------------------------------------
 // Admin console — policy and case updates
 // ---------------------------------------------------------------------------
