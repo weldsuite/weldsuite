@@ -21,6 +21,17 @@ describe('conformance comparison', () => {
     expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
   });
 
+  it("normalises a realtime room payload's Date.now() `ts` on writes only", () => {
+    const ts = { path: '/publish/support/org_1', body: { type: 'message', ts: 1793274036998, data: { size: 1793274036998 } } };
+    const rust = { path: '/publish/support/org_1', body: { type: 'message', ts: 1793274037012, data: { size: 1793274036998 } } };
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).toBe(
+      '$.body.ts: 1793274036998 vs 1793274037012',
+    );
+    // Only `ts`, and only a millisecond epoch.
+    expect(normalizeForDiff({ ts: 42, size: 1793274036998 }, true)).toEqual({ size: 1793274036998, ts: 42 });
+  });
+
   it('reports missing fields, extra fields and length differences', () => {
     expect(firstDifference({ a: 1 }, { a: 1, b: 2 })).toBe('$.b: undefined vs 2');
     expect(firstDifference({ a: [1] }, { a: [1, 2] })).toBe('$.a: 1 items vs 2');

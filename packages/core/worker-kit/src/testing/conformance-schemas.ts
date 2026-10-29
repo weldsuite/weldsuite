@@ -42,6 +42,21 @@ import {
 } from '@weldsuite/app-api-client/schemas/roles';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
+import {
+  dashboardActivitySchema,
+  dashboardChartPointSchema,
+  installedAppCodeSchema,
+  onboardingChecklistDismissedSchema,
+  onboardingChecklistSchema,
+  sidebarBadgesSchema,
+} from '@weldsuite/app-api-client/schemas/dashboard';
+import {
+  supportChannelMemberSchema,
+  supportChannelWithMembersSchema,
+  supportMemberRemovedSchema,
+  supportMessagePageSchema,
+  supportMessageSchema,
+} from '@weldsuite/app-api-client/schemas/support';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
 import { accountDeletionStatusSchema, deleteAccountResultSchema } from '@weldsuite/app-api-client/schemas/account';
@@ -270,6 +285,25 @@ const ROUTES: RouteSchema[] = [
   // core: grid views
   { method: 'GET', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
   { method: 'PUT', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
+  // core: dashboard
+  { method: 'GET', route: '/api/dashboard/chart', envelope: 'array', data: dashboardChartPointSchema },
+  { method: 'GET', route: '/api/dashboard/installed-apps', envelope: 'array', data: installedAppCodeSchema },
+  { method: 'GET', route: '/api/dashboard/activity', envelope: 'array', data: dashboardActivitySchema },
+  { method: 'GET', route: '/api/dashboard/sidebar-badges', envelope: 'single', data: sidebarBadgesSchema },
+  { method: 'GET', route: '/api/dashboard/onboarding-checklist', envelope: 'single', data: onboardingChecklistSchema },
+  {
+    method: 'POST',
+    route: '/api/dashboard/onboarding-checklist/dismiss',
+    envelope: 'single',
+    data: onboardingChecklistDismissedSchema,
+  },
+  // core: support
+  { method: 'GET', route: '/api/support/channel', envelope: 'single', data: supportChannelWithMembersSchema },
+  { method: 'GET', route: '/api/support/messages', envelope: 'single', data: supportMessagePageSchema },
+  { method: 'POST', route: '/api/support/messages', envelope: 'single', data: supportMessageSchema },
+  { method: 'GET', route: '/api/support/members', envelope: 'array', data: supportChannelMemberSchema },
+  { method: 'POST', route: '/api/support/members', envelope: 'array', data: supportChannelMemberSchema },
+  { method: 'DELETE', route: '/api/support/members/:userId', envelope: 'single', data: supportMemberRemovedSchema },
   // core: files (the lists page in memory: `{ success, data, pagination: { page, … } }`)
   { method: 'GET', route: '/api/files', envelope: 'single', data: unifiedFileSchema.array() },
   { method: 'GET', route: '/api/files/:id', envelope: 'single', data: driveFileSchema },

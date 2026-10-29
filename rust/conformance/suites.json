@@ -105,6 +105,41 @@
       ]
     },
     {
+      "name": "core: dashboard",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/dashboard/dashboard.integration.test.ts",
+        "src/routes/dashboard/installed-apps.test.ts",
+        "src/routes/dashboard/onboarding-checklist.test.ts",
+        "src/routes/dashboard/permission-gates.test.ts",
+        "src/routes/dashboard/sidebar-badges.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/dashboard/",
+        "apps/workers/app-api/src/services/member-apps.ts",
+        "apps/workers/app-api/src/services/member-link.ts",
+        "packages/domains/mail/src/access.ts",
+        "packages/domains/mail/src/labels.ts",
+        "packages/clients/app-api-client/src/schemas/dashboard.ts",
+        "rust/modules/core-platform/src/groups/dashboard.rs"
+      ]
+    },
+    {
+      "name": "core: support",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/support/support.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/support/",
+        "packages/core/realtime/src/server/",
+        "packages/clients/app-api-client/src/schemas/support.ts",
+        "rust/modules/core-platform/src/groups/support.rs"
+      ]
+    },
+    {
       "name": "core: settings-profile",
       "module": "core",
       "workspace": "apps/workers/app-api",
