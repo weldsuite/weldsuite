@@ -18,7 +18,7 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 import {
-  getSubscription,
+  locateSubscription,
   listSubscriptions,
   scanSubscriptions,
   unsubscribe,
@@ -86,14 +86,11 @@ app.post('/:id/unsubscribe', requirePermission('messages:update'), async (c) => 
   const userId = c.get('userId');
   const id = c.req.param('id');
 
-  const subscription = await getSubscription(db, id);
-  // Same 404 for missing and inaccessible so private accounts don't leak.
-  if (!subscription || !(await checkAccountAccess(db, subscription.accountId, userId))) {
-    return error.notFound(c, 'Subscription', id);
-  }
-
   try {
-    const { store, mode } = await workspaceMailFromContext(c);
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const subscription = await locateSubscription(db, userId, id, store, access, mode);
+    // Same 404 for missing and inaccessible so private accounts don't leak.
+    if (!subscription) return error.notFound(c, 'Subscription', id);
     const result = await unsubscribe(
       c.env,
       db,

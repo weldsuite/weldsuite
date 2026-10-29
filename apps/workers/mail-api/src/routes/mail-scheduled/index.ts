@@ -75,15 +75,11 @@ function mapScheduledError(c: Parameters<typeof error.badRequest>[0], err: MailS
 
 app.get('/', requirePermission('messages:read'), zValidator('query', listQuery), async (c) => {
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const filters = c.req.valid('query');
-    if (filters.accountId) {
-      const allowed = await checkAccountAccess(db, filters.accountId, userId);
-      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    }
-    const rows = await scheduled.listScheduled(db, filters);
-    return success(c, rows);
+    const { accountId } = c.req.valid('query');
+    const { store, access } = await workspaceMailFromContext(c);
+    const result = await scheduled.listScheduled(store, access, accountId);
+    if (!result.ok) return error.forbidden(c, 'Access to this mail account is not allowed');
+    return success(c, result.rows);
   } catch (err) {
     console.error('[app-api/mail-scheduled] list failed:', err);
     return error.internal(c, 'Failed to list scheduled emails');

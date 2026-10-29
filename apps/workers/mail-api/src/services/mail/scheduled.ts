@@ -29,7 +29,14 @@ import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
 import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
 import { locateStoredObject } from '@weldsuite/worker-kit/storage';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
-import type { IngestMessage, MailboxStore, MailStoreMode } from '@weldsuite/mail-domain/store/types';
+import type {
+  IngestMessage,
+  MailAccess,
+  MailboxStore,
+  MailMessageRecord,
+  MailStoreMode,
+  WorkspaceMailStore,
+} from '@weldsuite/mail-domain/store';
 
 const { mailAccounts, mailAttachments, mailMessages } = schema;
 type MailAccountRow = typeof mailAccounts.$inferSelect;
@@ -314,14 +321,38 @@ export async function scheduleEmail(
   };
 }
 
-export function listScheduled(db: Database, filters: { accountId?: string }) {
-  const conditions = [isNull(mailMessages.deletedAt), eq(mailMessages.sendStatus, 'scheduled')];
-  if (filters.accountId) conditions.push(eq(mailMessages.accountId, filters.accountId));
-  return db
-    .select()
-    .from(mailMessages)
-    .where(and(...conditions))
-    .orderBy(mailMessages.scheduledFor);
+export type ListScheduledResult =
+  | { ok: true; rows: MailMessageRecord[] }
+  | { ok: false };
+
+/**
+ * `GET /api/mail-scheduled`. One mailbox (`accountId` given): an explicit
+ * `canOpen` check, then that mailbox's own `listScheduled()` — `ok: false`
+ * when the caller may not open it, so the route can answer 403. Every
+ * mailbox (`accountId` omitted): `WorkspaceMailStore.listScheduled` over
+ * exactly `access.accessibleAccountIds()`, never every mailbox in the
+ * workspace.
+ *
+ * Bug fix (MAIL-003, like the ones already landed for labels/snooze): the
+ * unscoped case used to run an unfiltered `mail_messages` query — a leak in
+ * every mode, including `postgres` (the default), since nothing kept it to
+ * mailboxes the caller may open. Fixed here for every mode:
+ * `WorkspaceMailStore.listScheduled` (`store/router.ts`) dispatches Postgres
+ * vs. the mailbox object per mode on its own, so this one call is correct —
+ * and, in `postgres`/`shadow`, byte-identical to the pre-fix query's own
+ * shape — everywhere.
+ */
+export async function listScheduled(
+  store: WorkspaceMailStore,
+  access: MailAccess,
+  accountId?: string,
+): Promise<ListScheduledResult> {
+  if (accountId) {
+    if (!(await access.canOpen(accountId))) return { ok: false };
+    return { ok: true, rows: await store.mailbox(accountId).listScheduled() };
+  }
+  const scopedAccountIds = await access.accessibleAccountIds();
+  return { ok: true, rows: await store.listScheduled(scopedAccountIds) };
 }
 
 /**

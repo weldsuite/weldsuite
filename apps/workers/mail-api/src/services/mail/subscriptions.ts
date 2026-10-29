@@ -30,7 +30,9 @@ import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { sendAndPersist } from '@weldsuite/mail-domain/send';
 import { getRawMimeHeader } from '@weldsuite/mail-domain/store/bodies';
-import type { MailboxStore, MailStoreMode } from '@weldsuite/mail-domain/store/types';
+import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { readsFromObject } from '@weldsuite/mail-domain/store/mode';
+import type { MailAccess, MailboxStore, MailStoreMode, WorkspaceMailStore } from '@weldsuite/mail-domain/store';
 
 const { mailSubscriptions, mailMessages } = schema;
 
@@ -85,17 +87,44 @@ export function listSubscriptions(
 
 /**
  * Find a subscription by id alone, not yet knowing its account — the route's
- * way of answering "does this id exist, and which account does it belong to"
- * before it can check access. `MailboxStore`/`WorkspaceMailStore` have no
- * cross-account "locate a subscription" op (design task D1's own scope: list/
- * scan/unsubscribe, all already account-scoped by the time they run), so this
- * stays the direct-Postgres row in every mode — a store API gap, not a bug:
- * once the id resolves to an account, `unsubscribe` below writes through that
- * account's store.
+ * way of answering "does this id exist, and is it one this caller may open"
+ * before it unsubscribes it. Same 404 for missing and inaccessible either
+ * way, so a private mailbox never leaks through this id.
+ *
+ * `postgres`/`shadow`: the direct-Postgres row plus `checkAccountAccess`,
+ * unchanged — `WorkspaceMailStore` has no cross-account "locate a
+ * subscription" op (design task D1's own scope: list/scan/unsubscribe, all
+ * already account-scoped by the time they run), so there is no store call to
+ * make here even if one were wanted.
+ *
+ * `object`/`object-only`: `mail_subscriptions` is only ever written through a
+ * mailbox's own store (the `subscription.upsert`/`subscription.status` ops),
+ * so `object-only` never puts a row in Postgres at all — fall back to asking
+ * each mailbox the caller may open directly, via `MailboxStore.getSubscription`,
+ * until one answers. A workspace with dozens of shared mailboxes makes this
+ * more round trips than the Postgres path; `WorkspaceMailStore.getSubscription`
+ * (or `locateMessages`'s own cross-account shape, applied to subscriptions)
+ * would remove that — see this task's report.
  */
-export async function getSubscription(db: Database, id: string): Promise<MailSubscriptionRow | null> {
-  const [row] = await db.select().from(mailSubscriptions).where(eq(mailSubscriptions.id, id)).limit(1);
-  return row ?? null;
+export async function locateSubscription(
+  db: Database,
+  userId: string,
+  id: string,
+  store: WorkspaceMailStore,
+  access: MailAccess,
+  mode: MailStoreMode,
+): Promise<MailSubscriptionRow | null> {
+  if (!readsFromObject(mode)) {
+    const [row] = await db.select().from(mailSubscriptions).where(eq(mailSubscriptions.id, id)).limit(1);
+    if (!row || !(await checkAccountAccess(db, row.accountId, userId))) return null;
+    return row;
+  }
+  const accountIds = await access.accessibleAccountIds();
+  for (const accountId of accountIds) {
+    const row = await store.mailbox(accountId).getSubscription(id);
+    if (row) return row;
+  }
+  return null;
 }
 
 /** One scan candidate, whichever source it came from. */
