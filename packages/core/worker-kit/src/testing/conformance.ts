@@ -501,6 +501,8 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/** A WeldDesk helpdesk mail account id: `helpdesk_` and a generated id (`helpdesk_hd_<id>`). */
+const HELPDESK_ACCOUNT_ID = /^helpdesk_[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /**
  * `Date.now()` inside a string (a storage key, a URL): 13 digits from 2001 to
  * 2286, not part of a longer number. Differs between two runs of a write.
@@ -616,6 +618,7 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
+  if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
   // A taken channel slug gets the new channel's id appended
   // (`resolveChannelSlug`): `sales-ch_<id>`.
   if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
