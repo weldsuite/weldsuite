@@ -36,6 +36,7 @@ COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY .cargo .cargo
 COPY catalogs catalogs
 COPY crates crates
+COPY modules modules
 COPY bins bins
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,id=weldsuite-target-${TARGETARCH} \
