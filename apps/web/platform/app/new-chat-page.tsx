@@ -5,6 +5,7 @@ import { BreadcrumbHeader } from '@/components/breadcrumb-header';
 import { ModuleContent } from '@/components/layout/module-content';
 import { AgentChatInput } from '@/components/weldagent/agent-chat-input';
 import { AssistantMessage, TypingIndicator, UserMessage } from '@/components/weldagent/chat/chat-message';
+import { tagsAsText } from '@/components/weldagent/record-tags';
 import { getTranslations } from '@/lib/i18n';
 import { useWeldAgentChat, type ChatMessage } from '@/hooks/queries/use-ai-chat';
 import {
@@ -34,7 +35,7 @@ const routeApi = getRouteApi('/new-chat');
 
 /** Derive a short sidebar-friendly title from the first user message. */
 function deriveTitle(firstMessage: string): string {
-  const clean = firstMessage.replace(/\s+/g, ' ').trim();
+  const clean = tagsAsText(firstMessage).replace(/\s+/g, ' ').trim();
   return clean.slice(0, 60) || getTranslations('weldsuiteHome').page.breadcrumbNewChat;
 }
 

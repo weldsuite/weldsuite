@@ -1,47 +1,34 @@
 /**
  * The Expenses tab: the member's own declarations, and for people who approve
- * expenses a second view with the ones waiting for them.
+ * expenses a second tab with the ones waiting for them. Each list has a
+ * search field on top that narrows it as you type, and beside it a filter
+ * button whose sheet switches statuses (own claims) or categories (claims to
+ * approve) on and off.
  */
 
-import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { StyleSheet, Text } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import {
-  BedDouble,
-  Car,
-  GraduationCap,
-  Laptop,
-  Paperclip,
-  Receipt,
-  UtensilsCrossed,
-} from 'lucide-react-native';
-import type { HrDeclarationCategory, HrSelfDeclaration } from '@weldsuite/app-api-client/domains/weldhr';
-import { Button } from '@weldsuite/mobile-ui/components/Button';
-import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
-import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
+import { Paperclip } from 'lucide-react-native';
+import type { HrDeclarationListItem, HrSelfDeclaration } from '@weldsuite/app-api-client/domains/weldhr';
 
 import { ExpenseApprovals } from '@/components/Approvals';
 import { EmptyState } from '@/components/EmptyState';
-import { statusColor } from '@/components/HrRows';
+import { FilterSheet } from '@/components/FilterSheet';
+import { GroupedList } from '@/components/GroupedList';
+import { CategoryTile, statusColor } from '@/components/HrRows';
 import { MyHrGate, useSelfState } from '@/components/MyHrGate';
 import { QueryBody } from '@/components/QueryBody';
-import { Card, DetailRow, IconTile, List, Row } from '@/components/Row';
-import { Inset, Screen, Section, Segments, type SegmentOption } from '@/components/Screen';
+import { Card, DetailRow, Row } from '@/components/Row';
+import { ListSearch, NoMatches } from '@/components/ListSearch';
+import { Inset, Screen, Section, TabStrip, type SegmentOption } from '@/components/Screen';
 import { usePalette } from '@/hooks/use-palette';
-import { useCancelDeclaration, useDeclarations, useHrAccess, usePendingExpenses } from '@/hooks/use-weldhr-queries';
-import { formatDate, formatDay, formatMoney, withCount } from '@/lib/format';
+import { useDeclarations, useHrAccess, usePendingExpenses } from '@/hooks/use-weldhr-queries';
+import { filterChoices, isFiltered, NO_FILTER, passesFilter, type ExpenseFilter } from '@/lib/expense-filter';
+import { formatDay, formatMoney, withCount } from '@/lib/format';
 import { labelFor, useI18n } from '@/lib/i18n';
-import { openDocument } from '@/utils/open-document';
-
-/** An icon per category, so a list of claims scans without reading. */
-const CATEGORY_ICONS: Record<HrDeclarationCategory, typeof Receipt> = {
-  travel: Car,
-  meals: UtensilsCrossed,
-  accommodation: BedDouble,
-  equipment: Laptop,
-  training: GraduationCap,
-  other: Receipt,
-};
+import { matchesSearch } from '@/lib/search';
 
 type ExpensesView = 'mine' | 'approve';
 
@@ -72,26 +59,87 @@ export default function ExpensesScreen() {
     <Screen
       title={t.expenses.title}
       plain
-      segments={<Segments value={view} options={options} onChange={setChosen} />}
+      segments={<TabStrip value={view} options={options} onChange={setChosen} />}
       refreshing={declarations.isRefetching || pending.isRefetching}
       onRefresh={refresh}
     >
-      {view === 'mine' ? (
-        <MyHrGate state={state} onRetry={refresh}>
-          <MyExpenses canClaim={canClaim} turnedOff={state.status === 'ready' && !state.self.features.declarations} />
-        </MyHrGate>
-      ) : (
-        <QueryBody query={pending}>
-          {(rows) =>
-            rows.length === 0 ? (
-              <EmptyState illustration="check" title={t.team.nothingToApprove} description={t.team.nothingToApproveDescription} />
-            ) : (
-              <ExpenseApprovals declarations={rows} />
-            )
-          }
-        </QueryBody>
-      )}
+      {/* Keyed by the tab, so the other list fades in instead of popping in. */}
+      <Animated.View key={view} entering={FadeIn.duration(180)} style={styles.view}>
+        {view === 'mine' ? (
+          <MyHrGate state={state} onRetry={refresh}>
+            <MyExpenses canClaim={canClaim} turnedOff={state.status === 'ready' && !state.self.features.declarations} />
+          </MyHrGate>
+        ) : (
+          <QueryBody query={pending}>
+            {(rows) =>
+              rows.length === 0 ? (
+                <EmptyState
+                  illustration="check"
+                  title={t.team.nothingToApprove}
+                  description={t.team.nothingToApproveDescription}
+                />
+              ) : (
+                <ExpensesToApprove declarations={rows} />
+              )
+            }
+          </QueryBody>
+        )}
+      </Animated.View>
     </Screen>
+  );
+}
+
+/** The claims waiting for this approver, searchable by who made them and what for, filterable by category. */
+function ExpensesToApprove({ declarations }: Readonly<{ declarations: HrDeclarationListItem[] }>) {
+  const { t, intlLocale } = useI18n();
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<ExpenseFilter>(NO_FILTER);
+  const [filtering, setFiltering] = useState(false);
+  const shown = declarations.filter(
+    (row) =>
+      passesFilter(filter, row) &&
+      matchesSearch(search, [
+        row.employeeName,
+        row.description,
+        labelFor(t.declarationCategory, row.category),
+        formatMoney(row.amount, row.currency, intlLocale),
+        formatDay(row.expenseDate, intlLocale),
+      ]),
+  );
+
+  return (
+    <>
+      <ListSearch
+        value={search}
+        onChangeText={setSearch}
+        placeholder={t.expenses.search}
+        filtered={isFiltered(filter)}
+        onFilter={() => setFiltering(true)}
+        testID="approvals"
+      />
+      {shown.length === 0 ? (
+        <NoMatches
+          title={t.expenses.noResults}
+          description={t.expenses.noResultsDescription}
+          filtered={isFiltered(filter)}
+          onClearFilters={() => setFilter(NO_FILTER)}
+          onClearSearch={() => setSearch('')}
+        />
+      ) : (
+        <ExpenseApprovals declarations={shown} />
+      )}
+      {filtering ? (
+        <FilterSheet
+          options={filterChoices(declarations, filter).categories.map((category) => ({
+            value: category,
+            label: labelFor(t.declarationCategory, category),
+          }))}
+          off={filter.categories}
+          onApply={(categories) => setFilter({ ...filter, categories })}
+          onClose={() => setFiltering(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -100,12 +148,51 @@ function MyExpenses({ canClaim, turnedOff }: Readonly<{ canClaim: boolean; turne
   const { t, intlLocale } = useI18n();
   const router = useRouter();
   const declarations = useDeclarations();
-  const [selected, setSelected] = useState<HrSelfDeclaration | null>(null);
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<ExpenseFilter>(NO_FILTER);
+  const [filtering, setFiltering] = useState(false);
 
   return (
     <QueryBody query={declarations}>
       {({ declarations: rows, open }) => {
         const totals = open.filter((o) => o.pending > 0 || o.approved > 0);
+        // While searching or filtering the totals step aside, so the matches sit right under the field.
+        const showTotals = totals.length > 0 && search.trim().length === 0 && !isFiltered(filter);
+        const shown = rows.filter(
+          (row) =>
+            passesFilter(filter, row) &&
+            matchesSearch(search, [
+              row.description,
+              labelFor(t.declarationCategory, row.category),
+              labelFor(t.declarationStatus, row.status),
+              formatMoney(row.amount, row.currency, intlLocale),
+              formatDay(row.expenseDate, intlLocale),
+            ]),
+        );
+        let body: ReactNode;
+        if (rows.length === 0) {
+          body = (
+            <EmptyState
+              illustration="receipt"
+              title={t.expenses.noExpenses}
+              description={t.expenses.noExpensesDescription}
+              action={canClaim ? { label: t.expenses.newExpense, onPress: () => router.push('/expense/new') } : undefined}
+            />
+          );
+        } else if (shown.length === 0) {
+          body = (
+            <NoMatches
+              title={t.expenses.noResults}
+              description={t.expenses.noResultsDescription}
+              filtered={isFiltered(filter)}
+              onClearFilters={() => setFilter(NO_FILTER)}
+              onClearSearch={() => setSearch('')}
+            />
+          );
+        } else {
+          body = <DeclarationList declarations={shown} />;
+        }
+
         return (
           <>
             {turnedOff ? (
@@ -114,14 +201,28 @@ function MyExpenses({ canClaim, turnedOff }: Readonly<{ canClaim: boolean; turne
               </Inset>
             ) : null}
 
-            {totals.length > 0 ? (
-              <Section first>
-                <Card>
+            {rows.length > 0 ? (
+              <ListSearch
+                value={search}
+                onChangeText={setSearch}
+                placeholder={t.expenses.search}
+                filtered={isFiltered(filter)}
+                onFilter={() => setFiltering(true)}
+                testID="expenses"
+              />
+            ) : null}
+
+            {showTotals ? (
+              <Section first style={styles.afterSearch}>
+                {/* The search field's border, colour and width, so the two sit together. */}
+                <Card style={[styles.totals, { borderColor: palette.softBorder }]}>
                   <DetailRow
+                    smallLabel
                     label={t.expenses.awaiting}
                     value={totals.map((o) => formatMoney(o.pending, o.currency, intlLocale)).join(' · ')}
                   />
                   <DetailRow
+                    smallLabel
                     label={t.expenses.toBePaid}
                     value={totals.map((o) => formatMoney(o.approved, o.currency, intlLocale)).join(' · ')}
                   />
@@ -129,35 +230,19 @@ function MyExpenses({ canClaim, turnedOff }: Readonly<{ canClaim: boolean; turne
               </Section>
             ) : null}
 
-            {rows.length === 0 ? (
-              <EmptyState
-                illustration="receipt"
-                title={t.expenses.noExpenses}
-                description={t.expenses.noExpensesDescription}
-                action={canClaim ? { label: t.expenses.newExpense, onPress: () => router.push('/expense/new') } : undefined}
-              />
-            ) : (
-              <Section title={t.expenses.declarations} first={totals.length === 0}>
-                <List>
-                  {rows.map((row) => (
-                    <Row
-                      key={row.id}
-                      leading={<IconTile icon={CATEGORY_ICONS[row.category] ?? Receipt} />}
-                      title={row.description}
-                      subtitle={`${labelFor(t.declarationCategory, row.category)} • ${formatDay(row.expenseDate, intlLocale)}`}
-                      subtitleIcon={row.hasReceipt ? <Paperclip size={13} color={palette.muted} /> : null}
-                      value={formatMoney(row.amount, row.currency, intlLocale)}
-                      detail={labelFor(t.declarationStatus, row.status)}
-                      detailColor={statusColor(row.status, palette)}
-                      muted={row.status === 'cancelled'}
-                      onPress={() => setSelected(row)}
-                    />
-                  ))}
-                </List>
-              </Section>
-            )}
+            {body}
 
-            {selected ? <DeclarationSheet declaration={selected} onClose={() => setSelected(null)} /> : null}
+            {filtering ? (
+              <FilterSheet
+                options={filterChoices(rows, filter).statuses.map((status) => ({
+                  value: status,
+                  label: labelFor(t.declarationStatus, status),
+                }))}
+                off={filter.statuses}
+                onApply={(statuses) => setFilter({ ...filter, statuses })}
+                onClose={() => setFiltering(false)}
+              />
+            ) : null}
           </>
         );
       }}
@@ -165,112 +250,45 @@ function MyExpenses({ canClaim, turnedOff }: Readonly<{ canClaim: boolean; turne
   );
 }
 
-function DeclarationSheet({ declaration, onClose }: Readonly<{ declaration: HrSelfDeclaration; onClose: () => void }>) {
+/** Absence's list: the status in its colour under the title, the amount and the day on the right; a claim opens its page. */
+function DeclarationList({ declarations }: Readonly<{ declarations: HrSelfDeclaration[] }>) {
   const palette = usePalette();
-  const { t, format, intlLocale } = useI18n();
-  const toast = useToast();
-  const cancel = useCancelDeclaration();
-  const [opening, setOpening] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const Icon = CATEGORY_ICONS[declaration.category] ?? Receipt;
-
-  const viewReceipt = async () => {
-    setOpening(true);
-    const ok = await openDocument({
-      path: `/weldhr/me/declarations/${encodeURIComponent(declaration.id)}/receipt`,
-      fileName: declaration.receiptFileName || `receipt-${declaration.expenseDate}.jpg`,
-    });
-    setOpening(false);
-    if (!ok) toast.error(t.expenses.receiptFailed);
-  };
-
-  const withdraw = () => {
-    cancel.mutate(declaration.id, {
-      onSuccess: () => {
-        toast.success(t.expenses.cancelled);
-        onClose();
-      },
-      onError: (err) => toast.error((err as Error).message || t.common.somethingWrong),
-    });
-  };
-
+  const { t, intlLocale } = useI18n();
+  const router = useRouter();
   return (
-    <Sheet visible onClose={onClose} title={declaration.description} heightRatio={0.6}>
-      <View style={styles.sheet}>
-        <View style={styles.sheetTop}>
-          <IconTile icon={Icon} size={46} />
-          <View style={styles.flex}>
-            <Text style={[styles.sheetAmount, { color: palette.text }]}>
-              {formatMoney(declaration.amount, declaration.currency, intlLocale)}
-            </Text>
-            <Text style={[styles.sheetSub, { color: palette.muted }]}>
-              {labelFor(t.declarationCategory, declaration.category)} • {formatDate(declaration.expenseDate, intlLocale)}
-            </Text>
-          </View>
-          <Text style={[styles.sheetStatus, { color: statusColor(declaration.status, palette) }]}>
-            {labelFor(t.declarationStatus, declaration.status)}
-          </Text>
-        </View>
-        {declaration.paidAt ? (
-          <Text style={[styles.sheetSub, { color: palette.muted }]}>
-            {format(t.expenses.paidOn, { date: formatDate(declaration.paidAt, intlLocale) })}
-          </Text>
-        ) : null}
-        {declaration.reviewNote ? (
-          <View style={[styles.note, styles.noteBox, { backgroundColor: palette.tile }]}>
-            <Text style={[styles.noteText, { color: palette.text }]}>
-              {format(t.expenses.reviewNote, { note: declaration.reviewNote })}
-            </Text>
-          </View>
-        ) : null}
-
-        {declaration.hasReceipt ? (
-          <Button
-            title={t.expenses.viewReceipt}
-            variant="secondary"
-            leftIcon={<Paperclip size={16} color={palette.text} />}
-            onPress={viewReceipt}
-            loading={opening}
-            fullWidth
-          />
-        ) : (
-          <Text style={[styles.sheetSub, { color: palette.muted }]}>{t.expenses.noReceipt}</Text>
-        )}
-
-        {declaration.status === 'pending' && confirming ? (
-          <View style={styles.confirm}>
-            <Text style={[styles.confirmText, { color: palette.text }]}>{t.expenses.cancelTitle}</Text>
-            <View style={styles.confirmButtons}>
-              <Button title={t.expenses.keep} variant="secondary" onPress={() => setConfirming(false)} style={styles.flex} />
-              <Button
-                title={t.expenses.cancelConfirm}
-                variant="destructive"
-                onPress={withdraw}
-                loading={cancel.isPending}
-                style={styles.flex}
-              />
-            </View>
-          </View>
-        ) : null}
-        {declaration.status === 'pending' && !confirming ? (
-          <Button title={t.expenses.cancelConfirm} variant="ghost" onPress={() => setConfirming(true)} fullWidth />
-        ) : null}
-      </View>
-    </Sheet>
+    <GroupedList
+      groups={[
+        {
+          key: 'declarations',
+          title: t.expenses.declarations,
+          figure: String(declarations.length),
+          children: declarations.map((row) => (
+            <Row
+              key={row.id}
+              leading={<CategoryTile category={row.category} />}
+              title={row.description}
+              titleLines={1}
+              subtitle={labelFor(t.declarationStatus, row.status)}
+              subtitleColor={statusColor(row.status, palette)}
+              subtitleIcon={row.hasReceipt ? <Paperclip size={13} color={palette.muted} /> : null}
+              value={formatMoney(row.amount, row.currency, intlLocale)}
+              detail={formatDay(row.expenseDate, intlLocale)}
+              muted={row.status === 'cancelled'}
+              onPress={() => router.push({ pathname: '/expense/[id]', params: { id: row.id } })}
+            />
+          )),
+        },
+      ]}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
+  // Grows like the page does, so an empty state still centres in it.
+  view: { flexGrow: 1 },
+  afterSearch: { marginTop: 14 },
+  // A full point, like the search field, instead of the cards' hairline.
+  totals: { borderWidth: 1 },
   note: { marginTop: 8 },
-  noteBox: { borderRadius: 12, padding: 12, marginTop: 0 },
   noteText: { fontSize: 14, lineHeight: 20 },
-  sheet: { gap: 16, paddingBottom: 8 },
-  sheetTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  sheetAmount: { fontSize: 26, fontWeight: '700', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
-  sheetSub: { fontSize: 14, marginTop: 2 },
-  sheetStatus: { fontSize: 15, fontWeight: '600' },
-  confirm: { gap: 10 },
-  confirmText: { fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  confirmButtons: { flexDirection: 'row', gap: 10 },
 });

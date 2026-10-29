@@ -12,6 +12,7 @@ export const en = {
     save: 'Save',
     submit: 'Submit',
     close: 'Close',
+    clear: 'Clear',
     retry: 'Try again',
     dash: '—',
     somethingWrong: 'Something went wrong. Pull down to try again.',
@@ -21,6 +22,12 @@ export const en = {
     today: 'Today',
     tomorrow: 'Tomorrow',
     total: 'Total',
+    filter: 'Filter',
+    enableAll: 'Enable all',
+    disableAll: 'Disable all',
+    apply: 'Apply',
+    clearSearch: 'Clear search',
+    clearFilters: 'Clear filters',
     /** Hours and minutes worked: "7h 30m". */
     hm: '{h}h {m}m',
   },
@@ -41,10 +48,23 @@ export const en = {
     title: 'Create your workspace',
     description:
       'To get started with WeldHR, create your workspace on our website. Once your workspace is ready, come back here to sign in.',
-    goToWebsite: 'Go to weldsuite.com',
+    goToWebsite: 'Go to app.weldsuite.org',
     created: "I've created my workspace",
     checking: 'Checking...',
     signOut: 'Sign out',
+  },
+
+  deleteAccount: {
+    action: 'Delete account',
+    title: 'Delete your account?',
+    message:
+      'This permanently deletes the WeldSuite account {email} and removes you from every workspace. It cannot be undone. Your employer keeps your employee record, payslips and requests, as the law requires; ask HR about those.',
+    confirm: 'Delete account',
+    workspacesDeleted: 'You are the only member of {workspaces}, so that is deleted too.',
+    blockedTitle: 'Hand over your workspaces first',
+    blockedMessage:
+      'You are the only admin of {workspaces}, which still has other members. Make someone else an admin, or remove the members, on app.weldsuite.org. Then you can delete your account.',
+    failed: 'Your account could not be deleted. Try again, or email privacy@weldsuite.com.',
   },
 
   /** Shown when the member has no (active) employee record or no My HR access. */
@@ -84,6 +104,13 @@ export const en = {
     newExpense: 'New expense',
     imBetter: "I'm better",
     requestShift: 'Request a shift',
+    requestShiftHint: 'Ask to work an extra shift',
+    reportSickHint: 'Let your manager know',
+    imBetterHint: 'End your sick report',
+    newExpenseHint: 'Claim back costs with a receipt',
+    uploadReceipt: 'Upload receipt',
+    uploadReceiptHint: 'Pick a photo of a receipt',
+    photoReceipt: 'Take a photo of a receipt',
     openShiftsToSignUp: { one: '{count} open shift to sign up for', other: '{count} open shifts to sign up for' },
     unreadAnnouncements: { one: '{count} unread announcement', other: '{count} unread announcements' },
   },
@@ -192,6 +219,9 @@ export const en = {
     cancelled: 'Expense withdrawn',
     paidOn: 'Paid on {date}',
     reviewNote: 'Note: {note}',
+    search: 'Search expenses',
+    noResults: 'No expenses found',
+    noResultsDescription: 'Try another word, amount or category.',
   },
 
   expenseForm: {
@@ -210,6 +240,7 @@ export const en = {
     receiptType: 'Use a JPG, PNG or WebP photo, or a PDF.',
     receiptSize: 'The receipt is larger than 10 MB.',
     cameraDenied: 'Allow camera access in Settings to photograph receipts.',
+    noCamera: 'This device has no camera. Choose a photo instead.',
     libraryDenied: 'Allow photo access in Settings to attach receipts.',
     amountInvalid: 'Enter an amount above zero.',
     descriptionRequired: 'Say what the expense was for.',
@@ -295,6 +326,7 @@ export const en = {
     employeeNumberLabel: 'Employee number',
     signOut: 'Sign out',
     version: 'Version {version}',
+    versionLabel: 'Version',
   },
 
   schedule: {
@@ -307,6 +339,7 @@ export const en = {
     planned: '{hours} planned',
     worked: 'Worked {range}',
     workedOfPlanned: '{worked} of {planned}',
+    hoursOff: '{hours} off',
     notClockedIn: 'Not clocked in',
     withoutShift: 'No shift',
   },
@@ -318,7 +351,6 @@ export const en = {
     time: 'Time',
     length: 'Length',
     work: 'Work',
-    company: 'Company',
     notes: 'Note',
     planned: 'Planned',
     breaks: 'Breaks',
@@ -423,10 +455,25 @@ export const en = {
     by: 'By {name}',
     notFound: 'This announcement is no longer there',
     justNow: 'Just now',
-    minutesAgo: '{count} min ago',
-    hoursAgo: '{count} h ago',
+    minutesAgo: '{count}m',
+    hoursAgo: '{count}h',
     yesterday: 'Yesterday',
-    daysAgo: '{count} days ago',
+    daysAgo: '{count}d',
+  },
+
+  announcementForm: {
+    title: 'New announcement',
+    titleLabel: 'Title',
+    titlePlaceholder: 'What is this about?',
+    body: 'Message',
+    bodyPlaceholder: 'Write your announcement',
+    pinned: 'Pin to the top',
+    pinnedHint: 'Pinned announcements stay above newer ones.',
+    notify: 'Send a push notification',
+    notifyHint: 'Everyone gets it once in the WeldHR app.',
+    post: 'Post',
+    posted: 'Announcement posted',
+    failed: 'Could not post this announcement.',
   },
 
   location: {
@@ -452,6 +499,15 @@ export const en = {
     note: 'Note',
     balance: 'Balance {year}',
     cancel: 'Cancel leave',
+  },
+
+  expenseDetail: {
+    title: 'Expense',
+    notFound: 'This expense is no longer there',
+    submitted: 'Submitted',
+    reviewed: 'Reviewed',
+    paid: 'Paid out',
+    note: 'Note',
   },
 
   sickDetail: {
@@ -486,14 +542,17 @@ export const en = {
     waiting: 'Waiting for approval',
     left: 'Left',
     openRequests: 'Requests',
-    noOpenRequests: 'No open requests',
     reviewed: 'Reviewed',
-    nothingReviewed: 'Nothing reviewed yet',
     sickLeave: 'Sick leave',
     reportSick: 'Report sick',
-    noSickLeave: 'No sick leave',
     nobodyAbsent: 'Nobody is absent',
     nobodyAbsentDescription: 'Approved leave and sick reports show up here',
+    noAbsence: 'No absence in {year}',
+    leaveDays: '{days} leave',
+    sickDays: '{days} sick',
+    search: 'Search requests',
+    noResults: 'No requests found',
+    noResultsDescription: 'Try another name, date or type of leave.',
   },
 
   attendanceStatus: {

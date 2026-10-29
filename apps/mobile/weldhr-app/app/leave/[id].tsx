@@ -15,7 +15,7 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 import { EmptyState } from '@/components/EmptyState';
 import { LeaveTypeTile, statusColor } from '@/components/HrRows';
 import { QueryBody } from '@/components/QueryBody';
-import { Card, DetailRow, Row } from '@/components/Row';
+import { Card, DetailRow, Row, ROW_TILE } from '@/components/Row';
 import { Screen, Section } from '@/components/Screen';
 import { usePalette } from '@/hooks/use-palette';
 import { useCancelLeave, useLeave } from '@/hooks/use-weldhr-queries';
@@ -83,9 +83,9 @@ function LeaveDetail({ data, id }: Readonly<{ data: HrSelfLeave; id: string }>) 
   return (
     <>
       <Section first>
-        <Card>
+        <Card open>
           <Row
-            leading={<LeaveTypeTile color={request.leaveTypeColor ?? type?.color ?? null} />}
+            leading={<LeaveTypeTile color={request.leaveTypeColor ?? type?.color ?? null} size={ROW_TILE} />}
             title={request.leaveTypeName ?? type?.name ?? t.absence.leave}
             subtitle={labelFor(t.leaveStatus, request.status)}
             subtitleColor={statusColor(request.status, palette)}
@@ -97,7 +97,7 @@ function LeaveDetail({ data, id }: Readonly<{ data: HrSelfLeave; id: string }>) 
       </Section>
 
       <Section title={t.absence.leave}>
-        <Card>
+        <Card open>
           {facts.map((fact) => (
             <DetailRow key={fact.label} label={fact.label} value={fact.value} />
           ))}
@@ -106,7 +106,7 @@ function LeaveDetail({ data, id }: Readonly<{ data: HrSelfLeave; id: string }>) 
 
       {balance ? (
         <Section title={format(t.leaveDetail.balance, { year: today.slice(0, 4) })}>
-          <Card>
+          <Card open>
             <DetailRow label={t.absence.allowance} value={days(balance.allowance)} />
             <DetailRow label={t.absence.taken} value={days(balance.used)} />
             <DetailRow label={t.absence.waiting} value={days(balance.pending)} />

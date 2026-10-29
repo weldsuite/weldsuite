@@ -6,6 +6,7 @@
 
 import type { Database } from '../db';
 import type { MailStoreModeEnv } from '@weldsuite/mail-domain/store/mode';
+import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 
 export type WorkflowDb = Database;
 
@@ -91,6 +92,8 @@ export interface WorkflowEnv extends MailStoreModeEnv {
   EXECUTE_WORKFLOW?: {
     create: (init: { id?: string; params: Record<string, unknown> }) => Promise<unknown>;
   };
+  /** Usage meters (`@weldsuite/credits/meters`), hosted by mail-api: counts runs against the plan. */
+  USAGE_METER?: UsageMeterEnv['USAGE_METER'];
   // D1 schedule index — always-on timing layer for the schedule sweep
   // (see cron/schedule-sweep.ts + schedule-index.ts).
   SCHEDULE_INDEX?: D1Database;

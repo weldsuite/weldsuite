@@ -9,7 +9,7 @@
  *               mention). Listed before people: a chat has few of them, and
  *               below eight people they would be scrolled out of sight.
  *  2. People  — workspace members
- *  3. Records — federated search across all 13 entity types
+ *  3. Records — federated search across every record type (spreadsheets included)
  *
  * Records are gated on `query.length >= 2` to avoid noise when the user has
  * just typed `@`.

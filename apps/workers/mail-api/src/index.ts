@@ -104,6 +104,10 @@ export { OutboundLedger, OutboundPlatformBudget } from '@weldsuite/mail-domain/o
 // reach them only through `env.MAILBOX_STORE`/`env.MAIL_INDEX`.
 export { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
 export { MailIndex } from '@weldsuite/mail-domain/mail-index';
+// Usage meters (@weldsuite/credits/meters): one per workspace, counting plan
+// allowances and paying overage from the credit wallet. Hosted here (module
+// workers deploy first); the metering workers bind it by script_name.
+export { UsageMeter } from '@weldsuite/credits/meter-object';
 
 /** Queues this worker consumes, by name prefix (the suffix is the environment). */
 const OUTBOUND_REVIEW_QUEUE = 'mail-outbound-review-';

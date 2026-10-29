@@ -3,6 +3,7 @@ import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
 import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
 import type { MailIndex } from '@weldsuite/mail-domain/mail-index';
+import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 
 /**
  * crm-api bindings: the kit's (auth, tenant DB, flags) plus only what
@@ -81,6 +82,10 @@ export interface Env extends KitEnv {
    * never reads or writes a message body directly.
    */
   MAIL_STORAGE?: R2Bucket;
+  // --- Usage meters (@weldsuite/credits/meters) ----------------------------
+  /** mail-api's `UsageMeter` Durable Object (`script_name` binding): plan allowances
+   *  and overage per workspace. Unset: metering fails open. */
+  USAGE_METER?: UsageMeterEnv['USAGE_METER'];
 
   // --- AI (@weldsuite/ai) — Cloudflare AI Gateway, ai_generate / ai_classify
   // steps. See packages/core/ai/src/config.ts for the full list of recognised keys.

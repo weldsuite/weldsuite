@@ -82,6 +82,10 @@ on:
         description: 'WeldDesk'
         type: boolean
         default: false
+      weldhr:
+        description: 'WeldHR'
+        type: boolean
+        default: false
       auto-submit:
         description: 'Production channel only: upload to TestFlight (iOS) and the Play internal testing track (Android) when the build finishes. Needs `ascAppId` in eas.json + store credentials on EAS. Releasing to the public stays manual.'
         type: boolean
@@ -114,6 +118,7 @@ jobs:
           WELDAGENT: ${{ inputs.weldagent }}
           WELDCALENDAR: ${{ inputs.weldcalendar }}
           WELDDESK: ${{ inputs.welddesk }}
+          WELDHR: ${{ inputs.weldhr }}
           CHANNEL: ${{ inputs.channel }}
           PLATFORM: ${{ inputs.platform }}
           BUILDER: ${{ inputs.builder }}
@@ -131,6 +136,7 @@ jobs:
           add "$WELDAGENT" weldagent
           add "$WELDCALENDAR" weldcalendar
           add "$WELDDESK" welddesk
+          add "$WELDHR" weldhr
 
           if [ ${#apps[@]} -eq 0 ]; then
             echo "::error title=No apps selected::Tick at least one app to build."

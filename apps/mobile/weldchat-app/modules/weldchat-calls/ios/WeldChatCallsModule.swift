@@ -33,6 +33,11 @@ public class WeldChatCallsModule: Module {
       CallService.shared.voipToken
     }
 
+    /// False in mainland China (MIIT): JS rings in-app and drops the call token.
+    Function("isCallKitAvailable") { () -> Bool in
+      CallService.isCallKitAllowed
+    }
+
     /// Ring through CallKit for a ring JS learned about (the realtime socket).
     Function("reportIncomingCall") { (payload: [String: Any]) in
       let strings = payload.compactMapValues { $0 as? String }

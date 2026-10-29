@@ -52,7 +52,11 @@ export type CreditServiceType =
   | 'data_enrichment'
   | 'social_post'
   | 'meeting_transcription'
-  | 'meeting_summary';
+  | 'meeting_summary'
+  // Usage meters past the plan allowance (./meters.ts)
+  | 'workflow_run'
+  | 'sign_request'
+  | 'email';
 
 export type CreditGrantType = 'purchase' | 'refund' | 'adjustment' | 'monthly_allocation';
 

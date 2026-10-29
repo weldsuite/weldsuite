@@ -1314,7 +1314,7 @@ testFixturesRoutes.post(
       accountEmail: account.email,
       marker: TEST_MARKER,
       now: new Date(),
-      batch: `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`,
+      batch: `${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 8)}`,
     });
     const chunk = seedInsertChunkSize(body.bodyBytes);
 

@@ -49,7 +49,7 @@ vi.mock('@weldsuite/realtime/server', () => ({
   },
 }));
 
-const { postAgentChatMessage, startAgentWorkingIndicator } = await import('./post-agent-message');
+const { extractChatMentions, postAgentChatMessage, startAgentWorkingIndicator } = await import('./post-agent-message');
 
 const env = { REALTIME: { fetch: async () => new Response('ok') } };
 let db: Database;
@@ -202,5 +202,25 @@ describe('startAgentWorkingIndicator', () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await stop();
     expect(rtCalls).toEqual([]);
+  });
+});
+
+describe('extractChatMentions', () => {
+  it('lists the people and agents a message names, once each', () => {
+    expect(extractChatMentions('hi <@user_1> and <@agt_1:Helper>, again <@user_1> <@everyone>')).toEqual([
+      'user_1',
+      'agt_1',
+    ]);
+  });
+
+  it('skips the records a message points at, a spreadsheet included', () => {
+    // `<@type:id|Label>` is a record reference: its type word is not a user id.
+    expect(
+      extractChatMentions('see <@sheet:sht_1|Budget>, <@ticket:tkt_1|Broken pump> and <@user_1>'),
+    ).toEqual(['user_1']);
+  });
+
+  it('keeps the extra ids it is handed', () => {
+    expect(extractChatMentions('<@sheet:sht_1|Budget>', ['user_2'])).toEqual(['user_2']);
   });
 });

@@ -76,6 +76,7 @@ class WeldChatCallsModule : Module() {
     // iOS-only (PushKit / CallKit); kept so JS can call one API on both platforms.
     Function("getVoipToken") { null as String? }
     Function("reportIncomingCall") { _: Map<String, Any?> -> }
+    Function("isCallKitAvailable") { false }
   }
 }
 

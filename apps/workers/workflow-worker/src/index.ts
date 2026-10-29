@@ -18,6 +18,7 @@ import { RealtimePublisher } from '@weldsuite/realtime/server';
 import { secretMatches } from '@weldsuite/db/lib/timing-safe';
 import { getTenantDbForWorkspace, schema, type Database } from './db';
 import { generateId } from './lib/id';
+import { meterRun } from './lib/meter-run';
 import type { TriggerType, WorkflowEnv, WorkflowDefinition, WorkflowRunContext } from './engine/types';
 import { makeStepRuntime } from './engine/step-runtime';
 import { notifyRunFinished } from './engine/run-notifications';
@@ -171,6 +172,21 @@ export class ExecuteWorkflowWorkflow extends WorkflowEntrypoint<Env, ExecuteWork
     });
     if (executionId === null) {
       return { skipped: true, reason: 'Execution was cancelled before it started' };
+    }
+
+    // Count the run against the plan's workflow-run allowance; past it the
+    // wallet pays, or the run is refused. Test runs and helpdesk automations
+    // are not metered.
+    if (!params.isTest && params.source !== 'helpdesk') {
+      const refusal = await step.do('meter-run', () => meterRun(this.env, params.workspaceId, executionId, params.userId));
+      if (refusal) {
+        await step.do('refuse-run', async () => {
+          const db = await getTenantDbForWorkspace(this.env, params.workspaceId);
+          await cancelQueuedExecutionRow(db, executionId, refusal);
+        });
+        await rt?.workflowExecutionEvent(params.workspaceId, executionId, 'failed', { executionId, error: refusal });
+        return { skipped: true, reason: refusal };
+      }
     }
 
     const enrichedTriggerData = buildTriggerData(params.triggerType || 'manual', params.triggerData, {

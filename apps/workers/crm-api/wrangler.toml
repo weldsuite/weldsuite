@@ -121,6 +121,13 @@ binding = "MAIL_STORAGE"
 bucket_name = "weldsuite-mail-dev"
 jurisdiction = "eu"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-dev"
+
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "1101"
@@ -206,6 +213,13 @@ binding = "MAIL_STORAGE"
 bucket_name = "weldsuite-mail-test"
 jurisdiction = "eu"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[env.test.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-test"
+
 [[env.test.ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "2101"
@@ -290,6 +304,13 @@ script_name = "weldsuite-mail-api"
 binding = "MAIL_STORAGE"
 bucket_name = "weldsuite-mail"
 jurisdiction = "eu"
+
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[env.production.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api"
 
 [[env.production.ratelimits]]
 name = "OUTBOUND_BACKSTOP"

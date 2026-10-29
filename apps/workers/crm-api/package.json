@@ -19,6 +19,7 @@
     "@weldsuite/app-api-client": "workspace:*",
     "@weldsuite/core-api-client": "workspace:*",
     "@weldsuite/core-domain": "workspace:*",
+    "@weldsuite/credits": "workspace:*",
     "@weldsuite/crm-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",

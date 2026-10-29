@@ -1,15 +1,16 @@
 /**
- * One of my shifts, opened from Schedule or Home: when it is and what for,
- * its breaks (the planned one, time clocked out in between, a break HR
- * recorded), what was clocked on it, and what it pays. Hours clocked without
- * a shift open here too, by the record's id, without the planned part.
+ * One of my shifts, opened from Schedule or Home: when it is and what for at
+ * the top, then its breaks (the planned one, time clocked out in between, a
+ * break HR recorded), what was clocked on it, and what it pays, as open rows
+ * like Schedule's. Hours clocked without a shift open here too, by the
+ * record's id, without the planned part.
  *
  * It reads the week the shift is in (`day`), the same query Schedule shows,
  * so it opens at once from there.
  */
 
 import { useEffect, useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Clock, Coffee } from 'lucide-react-native';
 import type { HrSelfAttendance } from '@weldsuite/app-api-client/domains/weldhr';
@@ -109,26 +110,42 @@ function ShiftDetail({ data, id }: Readonly<{ data: HrSelfAttendance; id: string
 
   const { status, tint: statusTint } = shiftStatus({ open: Boolean(open), worked, started, t, palette });
 
+  // What and where: the work and the client, else the workspace, as on Home.
+  const place = shift ? [shift.workType, company].filter(Boolean).join(' · ') || workspace : t.schedule.withoutShift;
+
   return (
     <>
-      <Section first>
-        <Card>
-          <Row
-            bar={swatchFor(company ?? workspace)}
-            title={
-              shift
+      <View style={styles.hero}>
+        <View style={[styles.heroBar, { backgroundColor: swatchFor(company ?? workspace) }]} />
+        <View style={styles.flex}>
+          <View style={styles.heroTitleRow}>
+            <Text style={[styles.heroTitle, { color: palette.text }]} numberOfLines={1}>
+              {shift
                 ? timeRange(shift.startsAt, shift.endsAt, intlLocale)
-                : timeRange(loose!.clockIn, loose!.clockOut, intlLocale)
-            }
-            subtitle={status}
-            subtitleColor={statusTint}
-            value={shift ? hours(plannedMinutes(shift)) : hours(workedMinutes)}
-            detail={shift ? shift.workType : t.schedule.withoutShift}
-          />
-        </Card>
-      </Section>
+                : timeRange(loose!.clockIn, loose!.clockOut, intlLocale)}
+            </Text>
+            <Text style={[styles.heroLength, { color: palette.muted }]}>
+              {shift ? hours(plannedMinutes(shift)) : hours(workedMinutes)}
+            </Text>
+          </View>
+          {place ? (
+            <Text style={[styles.heroLine, { color: palette.muted }]} numberOfLines={1}>
+              {place}
+            </Text>
+          ) : null}
+          <Text style={[styles.heroStatus, { color: statusTint }]} numberOfLines={1}>
+            {status}
+          </Text>
+        </View>
+      </View>
 
-      {shift ? <ShiftFacts shift={shift} company={company} /> : null}
+      {shift?.notes ? (
+        <Section title={t.shift.notes}>
+          <Inset>
+            <Text style={[styles.notes, { color: palette.text }]}>{shift.notes}</Text>
+          </Inset>
+        </Section>
+      ) : null}
 
       <Breaks shift={shift} worked={worked} minutes={minutes} />
 
@@ -171,7 +188,7 @@ function Worked({
   const { t, format, intlLocale } = useI18n();
   return (
     <Section title={t.shift.worked}>
-      <Card>
+      <Card open>
         {worked.length === 0 ? <EmptyRow icon={Clock} title={t.schedule.notClockedIn} /> : null}
         {worked.map((record) => {
           const since = isOpen(record) ? record.clockIn : null;
@@ -197,28 +214,6 @@ function Worked({
           .map((record) => (
             <DetailRow key={`${record.id}-note`} label={t.shift.notes} value={record.notes!} />
           ))}
-      </Card>
-    </Section>
-  );
-}
-
-/** When the shift is (the date is the page's title), how long, what for and where. */
-function ShiftFacts({ shift, company }: Readonly<{ shift: MyShift; company: string | null }>) {
-  const { t, intlLocale } = useI18n();
-  const facts = [
-    { label: t.shift.time, value: timeRange(shift.startsAt, shift.endsAt, intlLocale) },
-    { label: t.shift.length, value: formatHoursMinutes(minutesBetween(shift.startsAt, shift.endsAt), t.common.hm) },
-    { label: t.shift.work, value: shift.workType ?? null },
-    { label: t.shift.company, value: company },
-    { label: t.shift.notes, value: shift.notes },
-  ].filter((fact): fact is { label: string; value: string } => Boolean(fact.value));
-
-  return (
-    <Section title={t.shift.details}>
-      <Card>
-        {facts.map((fact) => (
-          <DetailRow key={fact.label} label={fact.label} value={fact.value} />
-        ))}
       </Card>
     </Section>
   );
@@ -254,7 +249,7 @@ function Breaks({
 
   return (
     <Section title={t.shift.breaks}>
-      <Card>
+      <Card open>
         {none ? <EmptyRow icon={Coffee} title={t.shift.noBreak} /> : null}
         {planned
           ? breakRow('planned', timeRange(planned.start, planned.end, intlLocale), t.shift.plannedBreak, minutesBetween(planned.start, planned.end))
@@ -316,7 +311,7 @@ function Pay({
 
   return (
     <Section title={t.shift.pay}>
-      <Card>
+      <Card open>
         <DetailRow label={t.shift.hourlyRate} value={rate != null ? format(t.shift.perHour, { amount: money(rate) }) : t.shift.noRate} />
         {rows.map((row) => (
           <DetailRow key={row.label} label={row.label} value={row.value} />
@@ -327,6 +322,17 @@ function Pay({
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  // No box: the bar in the shift's colour lines up with the section titles.
+  hero: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginTop: 12 },
+  // From the top of the time's figures to the status line's baseline, not their line boxes.
+  heroBar: { width: 5, borderRadius: 2.5, marginTop: 7, marginBottom: 4.5 },
+  heroTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, height: 28 },
+  heroTitle: { flex: 1, fontSize: 20, fontWeight: '700', letterSpacing: -0.3, fontVariant: ['tabular-nums'] },
+  heroLength: { fontSize: 15, fontVariant: ['tabular-nums'] },
+  heroLine: { fontSize: 15, lineHeight: 20, marginTop: 2 },
+  heroStatus: { fontSize: 15, lineHeight: 20, marginTop: 2 },
+  notes: { fontSize: 15, lineHeight: 21 },
   hint: { marginTop: 8 },
   hintText: { fontSize: 13, lineHeight: 18 },
 });

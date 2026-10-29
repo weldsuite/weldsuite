@@ -1,10 +1,9 @@
 /**
  * An announcement in a list: its tile (a pin for a pinned one, a megaphone for
- * the rest, with a dot while unread), the title over the start of the text,
- * and when it was published and by whom on the right.
+ * the rest), the title over the start of the text, and when it was published
+ * on the right; on a light blue while unread.
  */
 
-import { StyleSheet, View } from 'react-native';
 import { Megaphone, Pin } from 'lucide-react-native';
 import type { HrSelfAnnouncement } from '@weldsuite/app-api-client/domains/weldhr';
 
@@ -14,7 +13,7 @@ import { formatDate } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import { IconTile, Row } from './Row';
 
-/** "3 h ago", "Yesterday", or the date once it is a week old. */
+/** "11m", "3h", "Yesterday", "4d", or the date once it is a week old. */
 export function useAgeLabel(): (publishedAt: string) => string {
   const { t, format, intlLocale } = useI18n();
   return (publishedAt) => {
@@ -46,24 +45,17 @@ export function AnnouncementRow({
 
   return (
     <Row
-      leading={
-        <View>
-          <IconTile icon={announcement.pinned ? Pin : Megaphone} />
-          {unread ? <View style={[styles.dot, { backgroundColor: palette.accent, borderColor: palette.surface }]} /> : null}
-        </View>
-      }
+      // White on the light blue of an unread row, where the grey tile would fade into it.
+      leading={<IconTile icon={announcement.pinned ? Pin : Megaphone} background={unread ? palette.surface : undefined} />}
+      top
+      unread={unread}
       title={announcement.title}
       subtitle={bodyPreview(announcement.body)}
       subtitleLines={2}
       value={ageLabel(announcement.publishedAt)}
-      detail={announcement.createdByName ?? undefined}
-      detailColor={palette.muted}
+      smallValue
       onPress={onPress}
       testID={`announcement-${announcement.id}`}
     />
   );
 }
-
-const styles = StyleSheet.create({
-  dot: { position: 'absolute', top: -3, right: -3, width: 12, height: 12, borderRadius: 6, borderWidth: 2 },
-});

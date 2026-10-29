@@ -1,6 +1,6 @@
 /**
- * Home: the workspace at the top (tap for the menu with the profile and the
- * workspaces), the next shift in a flat grey card with the clock button,
+ * Home: the workspace at the top (tap for the profile, where it switches
+ * workspaces), the next shift with the clock button straight on the page,
  * then My schedule and My absences as lists on the page, without a box.
  * Where the workspace requires being at a work location, clocking asks the
  * phone for its position first (hooks/use-clock-location.ts).
@@ -32,13 +32,13 @@ import { MyHrGate, useSelfState, type LinkedSelf } from '@/components/MyHrGate';
 import { ListSkeleton } from '@/components/QueryBody';
 import { Card, EmptyRow, IconTile, Row } from '@/components/Row';
 import { Screen, Section } from '@/components/Screen';
-import { WorkspaceMenu } from '@/components/WorkspaceMenu';
+import { WorkspaceHeading } from '@/components/WorkspaceMenu';
 import { swatchFor } from '@/constants/brand';
 import { useClockLocation } from '@/hooks/use-clock-location';
 import { usePalette } from '@/hooks/use-palette';
 import { useAbsences, useClock, useLeave, useOverview } from '@/hooks/use-weldhr-queries';
 import { addDays, dayOf, todayIso } from '@/lib/dates';
-import { formatDay, formatLongDay, formatTime, formatTimer } from '@/lib/format';
+import { formatDay, formatLongDay, formatTime, formatTimer, RANGE } from '@/lib/format';
 import { useI18n } from '@/lib/i18n';
 import type { Translations } from '@/lib/i18n/locales/en';
 import type { ClockLocation } from '@/lib/location';
@@ -76,7 +76,7 @@ export default function HomeScreen() {
   return (
     <Screen
       title={t.tabs.home}
-      heading={<WorkspaceMenu />}
+      heading={<WorkspaceHeading />}
       sheet={false}
       refreshing={state.isRefetching || overview.isRefetching}
       onRefresh={refresh}
@@ -125,7 +125,7 @@ function HomeBody({ self }: Readonly<{ self: LinkedSelf }>) {
       ) : null}
 
       <Section title={t.home.mySchedule} large first={!showHero}>
-        <Card style={styles.open}>
+        <Card open>
           {shifts.length === 0 ? (
             <EmptyRow icon={CalendarClock} title={t.home.noShifts} onPress={() => router.navigate('/schedule')} />
           ) : (
@@ -171,7 +171,7 @@ function MyAbsences({ canRequest }: Readonly<{ canRequest: boolean }>) {
 
   return (
     <Section title={format(t.home.myAbsences, { year })} large>
-      <Card style={styles.open}>
+      <Card open>
         {current ? (
           <SickRow absence={current} onPress={() => router.push({ pathname: '/sick/[id]', params: { id: current.id } })} />
         ) : null}
@@ -208,7 +208,7 @@ function ToDo({
   if (openTasks === 0 && toAcknowledge === 0 && openShifts === 0 && unreadAnnouncements === 0) return null;
   return (
     <Section title={t.home.toDo} large>
-      <Card style={styles.open}>
+      <Card open>
         {unreadAnnouncements > 0 ? (
           <Row
             leading={<IconTile icon={Megaphone} />}
@@ -254,10 +254,10 @@ function ToDo({
 
 type HeroShift = { id: string; startsAt: string; endsAt: string; companyName: string | null };
 
-/** "09:00 – 17:00" and "Workspace | Client", the lines under a shift's title. */
+/** "09:00 - 17:00" and "Workspace | Client", the lines under a shift's title. */
 function shiftLines(shift: HeroShift, workspace: string | undefined, locale: string): string[] {
   return [
-    `${formatTime(shift.startsAt, locale)} – ${formatTime(shift.endsAt, locale)}`,
+    `${formatTime(shift.startsAt, locale)}${RANGE}${formatTime(shift.endsAt, locale)}`,
     [workspace, shift.companyName].filter(Boolean).join(' | '),
   ].filter(Boolean);
 }
@@ -353,7 +353,7 @@ function ShiftHero({
 
   return (
     <View style={styles.heroWrap}>
-      <View style={[styles.hero, { backgroundColor: palette.tile }]}>
+      <View style={styles.hero}>
         <View style={styles.heroTop}>
           <View style={[styles.heroBar, { backgroundColor: bar }]} />
           <View style={styles.flex}>
@@ -500,7 +500,7 @@ function ClockButtons({
           style={({ pressed }) => [
             styles.clockButton,
             styles.switchButton,
-            { backgroundColor: palette.surface, opacity: pressed ? 0.75 : 1 },
+            { backgroundColor: palette.control, opacity: pressed ? 0.75 : 1 },
           ]}
         >
           <Text style={[styles.switchText, { color: palette.text }]}>{t.home.switchShift}</Text>
@@ -552,9 +552,11 @@ function SwitchShiftSheet({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  heroWrap: { paddingHorizontal: 16, marginTop: 14 },
-  // 16pt all round; the bar and the buttons share the left edge.
-  hero: { borderRadius: 16, overflow: 'hidden', padding: 16, gap: 16 },
+  // A block of its own: as far under the header and above My schedule as the
+  // sections below are from each other (46⅓pt from text to text).
+  heroWrap: { paddingHorizontal: 16, marginTop: 113 / 3, marginBottom: 43 / 3 },
+  // Straight on the page, no card; the bar and the buttons share the left edge.
+  hero: { gap: 16 },
   heroTop: { flexDirection: 'row', gap: 12, alignItems: 'stretch' },
   heroBar: { width: 5, borderRadius: 2.5 },
   // The title and, while clocked in, "Since 13:04" share one 26pt line.
@@ -584,6 +586,4 @@ const styles = StyleSheet.create({
   switchHint: { fontSize: 14, lineHeight: 20, marginBottom: 12 },
   switchSpinner: { marginTop: 14 },
   addCard: { marginHorizontal: 0, marginTop: 4 },
-  // Home's sections have no box: the rows line up with the section title, dividers between them.
-  open: { marginHorizontal: 0, borderWidth: 0, borderRadius: 0 },
 });

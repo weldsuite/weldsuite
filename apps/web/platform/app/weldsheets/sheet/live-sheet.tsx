@@ -26,6 +26,7 @@ import { DownloadMenu } from './download-menu';
 import { PeerAvatars } from './peer-avatars';
 import { DataPanel, useDataSources } from './data-panel';
 import { VersionsPanel, versionsQueryKey } from './versions-panel';
+import { SheetAgentContext } from './sheet-agent-context';
 
 /** How often, at most, this person's cursor goes out to the others. */
 const PRESENCE_MS = 120;
@@ -259,6 +260,7 @@ export function LiveSheet({ sheetId, embedded = false, onBack }: { sheetId: stri
         )}
         <ShareDialog target={shareTarget} onOpenChange={(open) => !open && setShareTarget(null)} />
       </SheetHeader>
+      <SheetAgentContext controller={controller} sheetId={sheetId} name={name || tw.home.untitled} />
       <div className="min-h-0 flex-1">
         <SheetEditor
           controller={controller}

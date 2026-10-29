@@ -36,6 +36,7 @@ import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
 import { isManagedAgentsConfigured } from './managed-agents';
 import { asText } from '@weldsuite/text';
 import { buildPersonaCall, holdsPermissions, personaReplyText } from './persona';
+import { describeUserTags, taggedSheetsIn } from './record-tokens';
 
 export class ConversationNotFoundError extends Error {
   constructor(conversationId: string) {
@@ -218,13 +219,15 @@ async function generatePersonalReply(params: {
   const credits = params.env.WORKSPACE_CACHE
     ? toCreditStates(await readGatewayCreditSnapshot(params.env.WORKSPACE_CACHE))
     : [];
-  // Read-only lookups, limited to what this user may read themselves.
+  // Read-only lookups, limited to what this user may read themselves, and the
+  // spreadsheets they tagged.
   const persona = await buildPersonaCall({
     db: params.db,
     workspaceId: params.workspaceId,
     userId: params.userId,
     env: params.env,
     holds: holdsPermissions(params.actorPermissions ?? []),
+    sheets: { tagged: taggedSheetsIn(params.messages) },
     timezone: params.timezone,
   });
 
@@ -247,7 +250,7 @@ async function generatePersonalReply(params: {
       generateText({
         model: resolved,
         system: persona.system,
-        messages: params.messages,
+        messages: describeUserTags(params.messages),
         tools: persona.tools,
         stopWhen: persona.stopWhen,
         maxRetries: 1,
