@@ -209,8 +209,13 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
           env: env as unknown as Record<string, unknown>,
           input,
           init,
-          runTypeScript: async (tenantDb, path, requestInit) =>
-            buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
+          runTypeScript: async (tenantDb, path, requestInit, runEnv) =>
+            buildApp(tenantDb).request(
+              path,
+              requestInit,
+              runEnv ?? (env as unknown as Record<string, unknown>),
+              executionCtx,
+            ),
           sideEffects: sideEffects!,
         });
       }
