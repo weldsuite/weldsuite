@@ -117,6 +117,13 @@ describe('POST, PATCH and DELETE /api/notification-preferences', () => {
     expect(row).toMatchObject({ userId: ERIN, defaultEmail: true, soundEnabled: true, modulePreferences: null });
   });
 
+  it('a second row for the same user fails (the user id is unique)', async () => {
+    const res = await app(ERIN, 'general:create').request('/api/notification-preferences', send('POST', {}));
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toBe('Failed to create notification preference');
+  });
+
   it('needs general:create to create', async () => {
     const res = await app('user_np_nobody', 'general:read').request('/api/notification-preferences', send('POST', {}));
     expect(res.status).toBe(403);
@@ -197,17 +204,5 @@ describe('PUT /api/notification-preferences', () => {
       mail: { enabled: false, inApp: false, email: false, push: false, desktop: false },
     });
     expect(body.data.defaultEmail).toBe(true);
-  });
-});
-
-// Last on purpose: a statement that fails in the database leaves the Rust
-// server's pglite-socket connection out of step (conformance mode), so no
-// request may follow it in this file.
-describe('POST /api/notification-preferences · database failure', () => {
-  it('a second row for the same user fails (the user id is unique)', async () => {
-    const res = await app(ERIN, 'general:create').request('/api/notification-preferences', send('POST', {}));
-    expect(res.status).toBe(500);
-    const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toBe('Failed to create notification preference');
   });
 });

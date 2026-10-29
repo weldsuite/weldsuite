@@ -120,6 +120,15 @@ templates).
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see
    (a `vi.mock` of `getMasterDb`) needs the value in its context too.
+8. Database errors work as they do on Postgres: a route may hit a unique
+   violation or any other failing statement, and later requests in the same
+   file still run on the same connection. Port the TypeScript behaviour
+   as it is (a plain insert that fails, not an `on conflict do nothing`
+   stand-in), and keep such tests where they belong in the file. pglite 0.4
+   answers a failed extended-protocol message with an extra ReadyForQuery,
+   which put sqlx's connection out of step; the harness serves pglite
+   through `wireCompatiblePglite` (`packages/core/worker-kit/src/testing/pglite-wire.ts`),
+   which drops it, so each Sync gets exactly one.
 
 ## Jobs, crons and generated files
 
