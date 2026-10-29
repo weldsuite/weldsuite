@@ -26,6 +26,12 @@ substitute() {
   sed -e "$script"
 }
 
+# SOPS-encrypted Secrets carry a top-level `sops:` block that Flux removes
+# when it decrypts them; the strict Secret schema would refuse it.
+strip_sops() {
+  awk '/^sops:/{skip=1; next} skip && /^[^ ]/{skip=0} !skip'
+}
+
 echo "== OpenTofu"
 tofu -chdir=hetzner fmt -check -recursive
 tofu -chdir=hetzner init -backend=false -input=false >/dev/null
@@ -45,7 +51,7 @@ for dir in \
   flux/secrets/drill \
   flux/secrets/test; do
   echo "-- $dir"
-  kubectl kustomize "$dir" | substitute | kc -
+  kubectl kustomize "$dir" | strip_sops | substitute | kc -
 done
 echo "-- secret templates"
 kc flux/secrets/examples/secrets.example.yaml

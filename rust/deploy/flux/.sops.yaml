@@ -5,14 +5,15 @@
 #
 # Replace the recipient with your cluster's age public key
 # (`age-keygen -o eu.agekey`, then the "public key" line). The drill gets
-# its own key.
+# its own key. The paths match either separator: sops on Windows matches the
+# file's path with backslashes.
 creation_rules:
-  - path_regex: secrets/eu/.*\.sops\.yaml$
+  - path_regex: secrets[/\\]eu[/\\].*\.sops\.yaml$
     encrypted_regex: ^(data|stringData)$
     age: age1replace0with0the0eu0cluster0public0key0000000000000000000000000
-  - path_regex: secrets/drill/.*\.sops\.yaml$
+  - path_regex: secrets[/\\]drill[/\\].*\.sops\.yaml$
     encrypted_regex: ^(data|stringData)$
     age: age1replace0with0the0drill0cluster0public0key00000000000000000000000
-  - path_regex: secrets/test/.*\.sops\.yaml$
+  - path_regex: secrets[/\\]test[/\\].*\.sops\.yaml$
     encrypted_regex: ^(data|stringData)$
     age: age1cedpt4fl6qgcrczn7tfvjte7vy8qxksag7eqkjef58wdyd9v8dlq7wdkzn
