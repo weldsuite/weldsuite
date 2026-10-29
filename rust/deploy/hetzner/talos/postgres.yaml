@@ -1,5 +1,7 @@
 # The CloudNativePG pool: only Postgres (and its poolers' replicas, which
-# tolerate the taint) runs here, on the node's local NVMe.
-machine:
-  nodeTaints:
-    node.weldsuite.org/postgres: "true:NoSchedule"
+# tolerate the taint) runs here, on the node's local NVMe. (KubeNodeConfig in
+# Talos 1.14; machine.nodeTaints is refused next to it.)
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+taints:
+  node.weldsuite.org/postgres: "true:NoSchedule"

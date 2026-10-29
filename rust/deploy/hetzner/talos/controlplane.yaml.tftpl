@@ -1,18 +1,29 @@
 # Control-plane nodes: the API answers on the load balancer's addresses, etcd
 # peers over the private network, and no workloads run here unless the
-# cluster has no workers (a small test cluster, worker_count = 0).
+# cluster has no workers (a small test cluster, worker_count = 0). The API
+# server's names are in KubeAPIServerConfig in Talos 1.14 (common.yaml.tftpl).
 machine:
   certSANs:
 %{ for san in cert_sans ~}
     - ${san}
 %{ endfor ~}
 cluster:
-  apiServer:
-    certSANs:
-%{ for san in cert_sans ~}
-      - ${san}
-%{ endfor ~}
   etcd:
     advertisedSubnets:
       - ${nodes_subnet}
-  allowSchedulingOnControlPlanes: ${allow_scheduling}
+---
+apiVersion: v1alpha1
+kind: KubeAPIServerConfig
+certExtraSANs:
+%{ for san in cert_sans ~}
+  - ${san}
+%{ endfor ~}
+%{ if allow_scheduling ~}
+---
+# Workloads on the control plane: drop the taint the generated config sets.
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+taints:
+  node-role.kubernetes.io/control-plane:
+    $patch: delete
+%{ endif ~}
