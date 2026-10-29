@@ -138,6 +138,33 @@ pub struct Number {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Invalid(Vec<Value>);
 
+impl Invalid {
+    /// Zod's `error.flatten()`: messages of root issues in `formErrors`, the
+    /// rest by their first path segment in `fieldErrors`, in issue order.
+    pub fn flatten(&self) -> Value {
+        let mut form_errors = Vec::new();
+        let mut field_errors = Map::new();
+        for issue in &self.0 {
+            let message = issue["message"].clone();
+            match issue["path"].get(0) {
+                Some(first) => {
+                    let key = first
+                        .as_str()
+                        .map_or_else(|| first.to_string(), str::to_owned);
+                    if let Value::Array(messages) = field_errors
+                        .entry(key)
+                        .or_insert_with(|| Value::Array(Vec::new()))
+                    {
+                        messages.push(message);
+                    }
+                }
+                None => form_errors.push(message),
+            }
+        }
+        json!({ "formErrors": form_errors, "fieldErrors": field_errors })
+    }
+}
+
 impl IntoResponse for Invalid {
     fn into_response(self) -> Response {
         let body = json!({ "success": false, "error": { "issues": self.0, "name": "ZodError" } });
@@ -157,6 +184,22 @@ pub struct Issues {
 impl Issues {
     pub fn is_empty(&self) -> bool {
         self.issues.is_empty()
+    }
+
+    /// How many issues so far: where the next field's issues start, for
+    /// [`Issues::custom_message`].
+    pub fn count(&self) -> usize {
+        self.issues.len()
+    }
+
+    /// A check's custom message (`.min(1, 'Name is required')`): every issue
+    /// with `code` added since `from` gets `message`.
+    pub fn custom_message(&mut self, from: usize, code: &str, message: &str) {
+        for issue in self.issues.iter_mut().skip(from) {
+            if issue["code"] == code {
+                issue["message"] = Value::String(message.to_owned());
+            }
+        }
     }
 
     /// `Err` (a 400 response) when anything was wrong.
