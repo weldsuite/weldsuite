@@ -16,7 +16,6 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::ChatState;
 use crate::access::{Caller, answer, validate_query};
-use crate::groups::channels::context_or_none;
 
 pub(crate) fn directories_router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -32,7 +31,10 @@ pub(crate) fn search_router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatStat
 where
     Q: PermissionQueries + 'static,
 {
-    Router::new().route("/", get(search).route_layer(gate.require(["messages:read"])))
+    Router::new().route(
+        "/",
+        get(search).route_layer(gate.require(["messages:read"])),
+    )
 }
 
 /// `GET /api/chat-directories/channels`: live, unarchived channels the
@@ -69,15 +71,19 @@ async fn directory_channels(caller: Caller, RawQuery(raw): RawQuery) -> Response
             .filter(|r| r.4 == "entity")
             .map(|r| r.0.clone())
             .collect();
-        let context = caller.context_can();
-        let can = context_or_none(&context);
+        let can = caller.context_can();
         let unreadable =
-            unreadable_record_chat_ids(&caller.db, &caller.user_id, &entity_ids, Some(&can)).await?;
+            unreadable_record_chat_ids(&caller.db, &caller.user_id, &entity_ids, Some(&can))
+                .await?;
         let channels: Vec<Value> = rows
             .into_iter()
             .filter(|r| !unreadable.contains(&r.0))
             .map(|(id, name, description, members, kind, joined)| {
-                let kind = if kind == "public" || kind == "private" { kind } else { "public".to_owned() };
+                let kind = if kind == "public" || kind == "private" {
+                    kind
+                } else {
+                    "public".to_owned()
+                };
                 json!({
                     "id": id,
                     "name": name,
@@ -105,8 +111,13 @@ struct SearchQuery {
     limit: i64,
 }
 
-fn read_search(issues: &mut weldsuite_kit::validation::Issues, values: &Map<String, Value>) -> SearchQuery {
-    let q = issues.string(values, "q", true, Some(1), None).unwrap_or_default();
+fn read_search(
+    issues: &mut weldsuite_kit::validation::Issues,
+    values: &Map<String, Value>,
+) -> SearchQuery {
+    let q = issues
+        .string(values, "q", true, Some(1), None)
+        .unwrap_or_default();
     let channel_id = issues.string(values, "channelId", false, None, None);
     let author_id = issues.string(values, "authorId", false, None, None);
     let datetime = Text {
@@ -167,8 +178,7 @@ async fn search(caller: Caller, RawQuery(raw): RawQuery) -> Response {
                 .bind(&caller.user_id)
                 .fetch_all(&caller.db)
                 .await?;
-        let context = caller.context_can();
-        let can = context_or_none(&context);
+        let can = caller.context_can();
         let unreadable = unreadable_record_chat_ids(&caller.db, &caller.user_id, &member, Some(&can)).await?;
         let public: Vec<String> = sqlx::query_scalar(
             "select id from chat_channels where type = 'public' and deleted_at is null",

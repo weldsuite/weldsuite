@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use weldsuite_chat_domain::Realtime;
 use weldsuite_kit::generate_id;
-use weldsuite_ports::{BoxFuture, DynRealtimePublisher, Job, JobContext, JobError, StepRetry, step};
+use weldsuite_ports::{
+    BoxFuture, DynRealtimePublisher, Job, JobContext, JobError, StepRetry, step,
+};
 
 use crate::util::now;
 
@@ -50,10 +52,12 @@ pub(crate) async fn live_message_channel(
     db: &PgPool,
     message_id: &str,
 ) -> Result<Option<String>, sqlx::Error> {
-    sqlx::query_scalar("select channel_id from chat_messages where id = $1 and deleted_at is null limit 1")
-        .bind(message_id)
-        .fetch_optional(db)
-        .await
+    sqlx::query_scalar(
+        "select channel_id from chat_messages where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(message_id)
+    .fetch_optional(db)
+    .await
 }
 
 /// `pinMessage`: the message pinned now by `user_id`, until `expires_at`.
@@ -78,11 +82,18 @@ pub(crate) async fn pin_message(
     .bind(expires_at)
     .execute(db)
     .await?;
-    Ok(Some(pin_result(message_id, &channel_id, Some((&at, user_id, expires_at)))))
+    Ok(Some(pin_result(
+        message_id,
+        &channel_id,
+        Some((&at, user_id, expires_at)),
+    )))
 }
 
 /// `unpinMessage`.
-pub(crate) async fn unpin_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub(crate) async fn unpin_message(
+    db: &PgPool,
+    message_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let Some(channel_id) = live_message_channel(db, message_id).await? else {
         return Ok(None);
     };
@@ -196,33 +207,38 @@ impl Job for UnpinExpiredMessageJob {
     ) -> BoxFuture<'a, Result<(), JobError>> {
         Box::pin(async move {
             let text = |key: &str| payload[key].as_str().unwrap_or_default().to_owned();
-            let (workspace, channel, message, expires) =
-                (text("workspaceId"), text("channelId"), text("messageId"), text("expiresAt"));
+            let (workspace, channel, message, expires) = (
+                text("workspaceId"),
+                text("channelId"),
+                text("messageId"),
+                text("expiresAt"),
+            );
             let retry = StepRetry::exponential(3, std::time::Duration::from_secs(5));
             let tenants = &self.tenants;
             let unpinned: bool = step(ctx, "unpin-message", retry, || {
-                let (workspace, message, expires) = (workspace.clone(), message.clone(), expires.clone());
+                let (workspace, message, expires) =
+                    (workspace.clone(), message.clone(), expires.clone());
                 async move {
-                let db = (tenants)(workspace.clone())
+                    let db = (tenants)(workspace.clone())
+                        .await
+                        .map_err(JobError::failed)?;
+                    let row: Option<(bool, Option<String>)> = sqlx::query_as(
+                        "select is_pinned, to_jsonb(pin_expires_at) #>> '{}' from chat_messages
+                     where id = $1 limit 1",
+                    )
+                    .bind(&message)
+                    .fetch_optional(&db)
                     .await
                     .map_err(JobError::failed)?;
-                let row: Option<(bool, Option<String>)> = sqlx::query_as(
-                    "select is_pinned, to_jsonb(pin_expires_at) #>> '{}' from chat_messages
-                     where id = $1 limit 1",
-                )
-                .bind(&message)
-                .fetch_optional(&db)
-                .await
-                .map_err(JobError::failed)?;
-                let still_this_pin = row.is_some_and(|(pinned, at)| {
-                    pinned
-                        && at.as_deref().map(crate::util::ms_timestamp).as_deref()
-                            == weldsuite_kit::validation::js_date_iso(&expires).as_deref()
-                });
-                if !still_this_pin {
-                    return Ok(false);
-                }
-                sqlx::query(
+                    let still_this_pin = row.is_some_and(|(pinned, at)| {
+                        pinned
+                            && at.as_deref().map(crate::util::ms_timestamp).as_deref()
+                                == weldsuite_kit::validation::js_date_iso(&expires).as_deref()
+                    });
+                    if !still_this_pin {
+                        return Ok(false);
+                    }
+                    sqlx::query(
                     "update chat_messages set is_pinned = false, pinned_at = null, pinned_by = null,
                         pin_expires_at = null, updated_at = $2::timestamp
                      where id = $1",
@@ -232,7 +248,7 @@ impl Job for UnpinExpiredMessageJob {
                 .execute(&db)
                 .await
                 .map_err(JobError::failed)?;
-                Ok(true)
+                    Ok(true)
                 }
             })
             .await?;

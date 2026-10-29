@@ -17,7 +17,9 @@ pub struct AgentRoomPolicy {
 /// `parseAgentRoomPolicy(metadata)`.
 pub fn parse_agent_room_policy(metadata: Option<&Value>) -> AgentRoomPolicy {
     let fields = metadata.and_then(Value::as_object);
-    let raw_policy = fields.and_then(|m| m.get("agentReplyPolicy")).and_then(Value::as_str);
+    let raw_policy = fields
+        .and_then(|m| m.get("agentReplyPolicy"))
+        .and_then(Value::as_str);
     let agent_reply_policy = match raw_policy {
         Some(policy @ ("always" | "none" | "mentions")) => policy.to_owned(),
         _ => DEFAULT_AGENT_REPLY_POLICY.to_owned(),

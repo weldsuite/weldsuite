@@ -52,11 +52,12 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let channel = q.get("channelId").filter(|c| !c.is_empty()).cloned();
     let cursor = match q.get("cursor").filter(|c| !c.is_empty()) {
         Some(cursor) => {
-            let row: Result<Option<(String, String)>, sqlx::Error> =
-                sqlx::query_as("select created_at::text, id from chat_drafts where id = $1 limit 1")
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await;
+            let row: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
+                "select created_at::text, id from chat_drafts where id = $1 limit 1",
+            )
+            .bind(cursor)
+            .fetch_optional(&caller.db)
+            .await;
             match row {
                 Ok(row) => row.map(|(at, id)| (ms_timestamp(&at), id)),
                 Err(error) => return unhandled(error.into()),
@@ -132,6 +133,7 @@ fn read_draft(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, Val
 }
 
 /// A body value as a text column parameter (`undefined` → not set).
+#[allow(clippy::option_option)]
 fn text_of(value: Option<&Value>) -> Option<Option<String>> {
     match value {
         None => None,
@@ -160,7 +162,10 @@ async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
             .filter(|v| !v.is_null())
             .or_else(|| data.get("body"));
         if is_empty_draft(content, data.get("attachments")) {
-            let channel = data.get("channelId").and_then(Value::as_str).map(str::to_owned);
+            let channel = data
+                .get("channelId")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let parent = data
                 .get("threadParentMessageId")
                 .and_then(Value::as_str)
@@ -208,7 +213,12 @@ async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
     answer(result, "Failed to create chat draft")
 }
 
-async fn update_one(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn update_one(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let data = match validate(&headers, &body, read_draft) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
@@ -218,7 +228,9 @@ async fn update_one(caller: Caller, Path(id): Path<String>, headers: HeaderMap, 
             return Err(ChatError::not_found("Chat draft", Some(&id)));
         };
         let next_content = data.get("content").or_else(|| existing.get("content"));
-        let next_attachments = data.get("attachments").or_else(|| existing.get("attachments"));
+        let next_attachments = data
+            .get("attachments")
+            .or_else(|| existing.get("attachments"));
         if is_empty_draft(next_content, next_attachments) {
             sqlx::query("delete from chat_drafts where id = $1 and user_id = $2")
                 .bind(&id)

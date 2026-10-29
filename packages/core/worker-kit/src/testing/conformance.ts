@@ -902,9 +902,6 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
   const route = ts.headers.get(ROUTE_HEADER);
   const difference = compareRuns(runs, isWrite, method, route);
-  if (difference && process.env.CONFORMANCE_DUMP_EFFECTS) {
-    console.log('TS-EFFECTS', JSON.stringify(runs.tsEffects), '\nRUST-EFFECTS', JSON.stringify(runs.rustEffects));
-  }
   const { schema, schemaError } = checkSchema(method, route, rust);
 
   if (target.reportDir) {

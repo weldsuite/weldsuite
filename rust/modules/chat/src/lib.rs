@@ -15,6 +15,8 @@
 //! goes through the realtime port with the TypeScript payloads, and
 //! notifications through `weldsuite-notifications`.
 
+#![allow(clippy::too_many_lines, clippy::type_complexity)]
+
 mod access;
 mod followers;
 mod forward;

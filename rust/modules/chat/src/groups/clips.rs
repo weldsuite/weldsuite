@@ -45,7 +45,9 @@ async fn clip_of(
     attachment_id: &str,
 ) -> ChatResult<(Vec<Value>, usize)> {
     if !can_access_channel(&caller.db, channel_id, &caller.user_id, None).await? {
-        return Err(ChatError::forbidden("You do not have access to this channel"));
+        return Err(ChatError::forbidden(
+            "You do not have access to this channel",
+        ));
     }
     let row: Option<Option<Value>> = sqlx::query_scalar(
         "select attachments from chat_messages
@@ -63,7 +65,8 @@ async fn clip_of(
         .unwrap_or_default();
     let index = attachments.iter().position(|a| {
         a["id"].as_str() == Some(attachment_id)
-            && a.as_object().is_some_and(|fields| fields.contains_key("clipType"))
+            && a.as_object()
+                .is_some_and(|fields| fields.contains_key("clipType"))
     });
     let Some(index) = index else {
         return Err(ChatError::not_found("Clip attachment", Some(attachment_id)));
@@ -71,13 +74,19 @@ async fn clip_of(
     Ok((attachments, index))
 }
 
-async fn save(caller: &Caller, message_id: &str, attachments: Vec<Value>) -> Result<(), sqlx::Error> {
-    sqlx::query("update chat_messages set attachments = $2, updated_at = $3::timestamp where id = $1")
-        .bind(message_id)
-        .bind(Value::Array(attachments))
-        .bind(now())
-        .execute(&caller.db)
-        .await?;
+async fn save(
+    caller: &Caller,
+    message_id: &str,
+    attachments: Vec<Value>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "update chat_messages set attachments = $2, updated_at = $3::timestamp where id = $1",
+    )
+    .bind(message_id)
+    .bind(Value::Array(attachments))
+    .bind(now())
+    .execute(&caller.db)
+    .await?;
     Ok(())
 }
 
@@ -90,8 +99,12 @@ async fn transcribe(
     body: Bytes,
 ) -> Response {
     let input = validate(&headers, &body, |issues, body| {
-        let message = issues.string(body, "messageId", true, None, None).unwrap_or_default();
-        let attachment = issues.string(body, "attachmentId", true, None, None).unwrap_or_default();
+        let message = issues
+            .string(body, "messageId", true, None, None)
+            .unwrap_or_default();
+        let attachment = issues
+            .string(body, "attachmentId", true, None, None)
+            .unwrap_or_default();
         (message, attachment)
     });
     let (message_id, attachment_id) = match input {
@@ -132,11 +145,14 @@ async fn update_transcript(
     body: Bytes,
 ) -> Response {
     let input = validate(&headers, &body, |issues, body| {
-        let attachment = issues.string(body, "attachmentId", true, None, None).unwrap_or_default();
-        let transcript = match issues.nested(body, "transcript", Presence::Required, read_transcript) {
-            Field::Set(transcript) => transcript,
-            _ => Value::Null,
-        };
+        let attachment = issues
+            .string(body, "attachmentId", true, None, None)
+            .unwrap_or_default();
+        let transcript =
+            match issues.nested(body, "transcript", Presence::Required, read_transcript) {
+                Field::Set(transcript) => transcript,
+                _ => Value::Null,
+            };
         (attachment, transcript)
     });
     let (attachment_id, transcript) = match input {

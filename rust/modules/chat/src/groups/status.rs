@@ -46,9 +46,7 @@ fn millis_of(iso: &str) -> Option<i64> {
 
 /// `isStatusExpired(expiresAt, now)`.
 fn is_expired(expires_at: Option<&str>, now: i64) -> bool {
-    expires_at
-        .and_then(millis_of)
-        .is_some_and(|at| at <= now)
+    expires_at.and_then(millis_of).is_some_and(|at| at <= now)
 }
 
 /// `chosenStatusFromStored(stored, expiresAt, now)`.
@@ -166,7 +164,10 @@ struct StatusBody {
     expires_at: Option<String>,
 }
 
-fn read_status(issues: &mut weldsuite_kit::validation::Issues, body: &Map<String, Value>) -> StatusBody {
+fn read_status(
+    issues: &mut weldsuite_kit::validation::Issues,
+    body: &Map<String, Value>,
+) -> StatusBody {
     let status = issues.one_of(body, "status", &CHOICES).unwrap_or_default();
     let text = issues.string(body, "statusText", false, None, Some(255));
     let emoji = issues.string(body, "statusEmoji", false, None, Some(50));
@@ -232,7 +233,13 @@ async fn set_status(
             "updatedAt": at,
         });
         Caller::realtime(&state)
-            .workspace(&org, PRESENCE_TOPIC, "status_changed", change.clone(), &caller.user_id)
+            .workspace(
+                &org,
+                PRESENCE_TOPIC,
+                "status_changed",
+                change.clone(),
+                &caller.user_id,
+            )
             .await;
         let mut answer_body = change;
         answer_body["manualStatus"] = Value::from(input.status);

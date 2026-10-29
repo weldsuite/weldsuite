@@ -141,7 +141,11 @@ async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
         let message_id = issues.string(body, "messageId", true, Some(1), None);
         let channel_id = issues.string(body, "channelId", true, Some(1), None);
         let note = issues.string(body, "note", false, None, None);
-        (message_id.unwrap_or_default(), channel_id.unwrap_or_default(), note)
+        (
+            message_id.unwrap_or_default(),
+            channel_id.unwrap_or_default(),
+            note,
+        )
     });
     let (message_id, channel_id, note) = match input {
         Ok(input) => input,
@@ -188,7 +192,12 @@ async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
     answer(result, "Failed to create chat bookmark")
 }
 
-async fn update_one(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn update_one(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let note = validate(&headers, &body, |issues, body| {
         issues.text(body, "note", Presence::Nullish, None, None)
     });

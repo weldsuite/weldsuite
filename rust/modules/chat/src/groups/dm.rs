@@ -37,7 +37,10 @@ where
             axum::routing::post(create_dm).route_layer(gate.require(["messages:create"])),
         )
         .route("/{id}", get(resolve_dm).route_layer(read()))
-        .route("/{id}", delete(leave_dm).route_layer(gate.require(["messages:delete"])))
+        .route(
+            "/{id}",
+            delete(leave_dm).route_layer(gate.require(["messages:delete"])),
+        )
         .route("/{id}/archive", patch(archive).route_layer(update()))
         .route("/{id}/unarchive", patch(unarchive).route_layer(update()))
         .route("/{id}/pin", patch(pin).route_layer(update()))
@@ -45,7 +48,11 @@ where
 
 /// The members of a DM with their names (`fullMembers`); `with_reads` adds
 /// role and read cursor.
-async fn full_members(caller: &Caller, channel_id: &str, with_reads: bool) -> Result<Vec<Value>, sqlx::Error> {
+async fn full_members(
+    caller: &Caller,
+    channel_id: &str,
+    with_reads: bool,
+) -> Result<Vec<Value>, sqlx::Error> {
     let rows: Vec<Value> = if with_reads {
         sqlx::query_scalar(
             "select jsonb_build_object('userId', chat_channel_members.user_id,
@@ -123,7 +130,10 @@ async fn list(caller: Caller) -> Response {
                 .filter(|m| m["userId"].as_str() != Some(caller.user_id.as_str()))
                 .cloned()
                 .collect();
-            let muted = memberships.iter().find(|(c, _)| *c == id).is_some_and(|(_, m)| *m);
+            let muted = memberships
+                .iter()
+                .find(|(c, _)| *c == id)
+                .is_some_and(|(_, m)| *m);
             result.push(with_fields(
                 Some(channel),
                 vec![
@@ -147,7 +157,10 @@ fn sort_code_units(ids: &mut [String]) {
 }
 
 /// The existing DM with exactly `participants` (sorted), if any.
-async fn existing_dm(caller: &Caller, participants: &[String]) -> Result<Option<String>, sqlx::Error> {
+async fn existing_dm(
+    caller: &Caller,
+    participants: &[String],
+) -> Result<Option<String>, sqlx::Error> {
     let mine: Vec<String> =
         sqlx::query_scalar("select channel_id from chat_channel_members where user_id = $1")
             .bind(&caller.user_id)
@@ -179,7 +192,11 @@ async fn existing_dm(caller: &Caller, participants: &[String]) -> Result<Option<
 }
 
 /// A new DM channel with `participants` as members.
-async fn insert_dm(caller: &Caller, name: &str, participants: &[String]) -> Result<String, sqlx::Error> {
+async fn insert_dm(
+    caller: &Caller,
+    name: &str,
+    participants: &[String],
+) -> Result<String, sqlx::Error> {
     let id = generate_id("ch");
     let at = now();
     sqlx::query(
@@ -249,12 +266,22 @@ async fn member_name(caller: &Caller, user_id: &str) -> Result<Option<String>, s
 }
 
 /// `POST /`: the DM with these people, created when there is none.
-async fn create_dm(State(state): State<ChatState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn create_dm(
+    State(state): State<ChatState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let user_ids = validate(&headers, &body, |issues, body| {
         issues
-            .list(body, "userIds", Presence::Required, Some(1), None, |issues, item| {
-                issues.item_text(item, Text::length(Some(1), None))
-            })
+            .list(
+                body,
+                "userIds",
+                Presence::Required,
+                Some(1),
+                None,
+                |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+            )
             .into_option()
             .unwrap_or_default()
     });
@@ -273,7 +300,11 @@ async fn create_dm(State(state): State<ChatState>, caller: Caller, headers: Head
                 all.push(id);
             }
         }
-        let others: Vec<String> = all.iter().filter(|id| **id != caller.user_id).cloned().collect();
+        let others: Vec<String> = all
+            .iter()
+            .filter(|id| **id != caller.user_id)
+            .cloned()
+            .collect();
         if !others.is_empty() {
             let known: Vec<String> =
                 sqlx::query_scalar("select user_id from workspace_members where user_id = any($1)")
@@ -293,7 +324,11 @@ async fn create_dm(State(state): State<ChatState>, caller: Caller, headers: Head
         if let Some(existing) = existing_dm(&caller, &sorted).await? {
             let members = full_members(&caller, &existing, false).await?;
             let channel = channel_row(&caller.db, &existing).await?;
-            return Ok(Data(with_fields(channel, vec![("members", Value::Array(members))])).into_response());
+            return Ok(Data(with_fields(
+                channel,
+                vec![("members", Value::Array(members))],
+            ))
+            .into_response());
         }
         let names: Vec<Option<String>> = if others.is_empty() {
             Vec::new()
@@ -308,7 +343,11 @@ async fn create_dm(State(state): State<ChatState>, caller: Caller, headers: Head
             .map(|n| n.unwrap_or_else(|| "Unknown".to_owned()))
             .collect::<Vec<_>>()
             .join(", ");
-        let name = if joined.is_empty() { "Direct Message".to_owned() } else { joined };
+        let name = if joined.is_empty() {
+            "Direct Message".to_owned()
+        } else {
+            joined
+        };
         let id = insert_dm(&caller, &name, &all).await?;
         let channel = channel_row(&caller.db, &id).await?;
         let members = full_members(&caller, &id, false).await?;
@@ -316,14 +355,22 @@ async fn create_dm(State(state): State<ChatState>, caller: Caller, headers: Head
             .await?
             .unwrap_or_else(|| "Someone".to_owned());
         notify_new_dm(&caller, &state, &org, &others, &sender, &id).await;
-        Ok(Created(with_fields(channel, vec![("members", Value::Array(members))])).into_response())
+        Ok(Created(with_fields(
+            channel,
+            vec![("members", Value::Array(members))],
+        ))
+        .into_response())
     }
     .await;
     answer(result, "Failed to create DM")
 }
 
 /// `GET /:targetUserId`: the caller's 1:1 DM with someone, created on first use.
-async fn resolve_dm(State(state): State<ChatState>, caller: Caller, Path(target): Path<String>) -> Response {
+async fn resolve_dm(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(target): Path<String>,
+) -> Response {
     let org = match caller.org() {
         Ok(org) => org.to_owned(),
         Err(error) => return error.respond(""),
@@ -344,15 +391,22 @@ async fn resolve_dm(State(state): State<ChatState>, caller: Caller, Path(target)
                 .filter(|m| m["userId"].as_str() != Some(caller.user_id.as_str()))
                 .cloned()
                 .collect();
-            let mut fields = vec![("members", Value::Array(members)), ("otherMembers", Value::Array(others))];
+            let mut fields = vec![
+                ("members", Value::Array(members)),
+                ("otherMembers", Value::Array(others)),
+            ];
             if reads {
                 fields.push((
                     "lastReadAt",
-                    current.as_ref().map_or(Value::Null, |m| m["lastReadAt"].clone()),
+                    current
+                        .as_ref()
+                        .map_or(Value::Null, |m| m["lastReadAt"].clone()),
                 ));
                 fields.push((
                     "lastReadMessageId",
-                    current.as_ref().map_or(Value::Null, |m| m["lastReadMessageId"].clone()),
+                    current
+                        .as_ref()
+                        .map_or(Value::Null, |m| m["lastReadMessageId"].clone()),
                 ));
             }
             with_fields(channel, fields)
@@ -370,7 +424,9 @@ async fn resolve_dm(State(state): State<ChatState>, caller: Caller, Path(target)
         if target_member.is_none() && target != caller.user_id {
             return Err(ChatError::not_found("User", Some(&target)));
         }
-        let name = target_member.flatten().unwrap_or_else(|| "Direct Message".to_owned());
+        let name = target_member
+            .flatten()
+            .unwrap_or_else(|| "Direct Message".to_owned());
         let id = insert_dm(&caller, &name, &all).await?;
         let channel = channel_row(&caller.db, &id).await?;
         let members = full_members(&caller, &id, true).await?;
@@ -378,7 +434,15 @@ async fn resolve_dm(State(state): State<ChatState>, caller: Caller, Path(target)
             let initiator = member_name(&caller, &caller.user_id)
                 .await?
                 .unwrap_or_else(|| "Someone".to_owned());
-            notify_new_dm(&caller, &state, &org, std::slice::from_ref(&target), &initiator, &id).await;
+            notify_new_dm(
+                &caller,
+                &state,
+                &org,
+                std::slice::from_ref(&target),
+                &initiator,
+                &id,
+            )
+            .await;
         }
         Ok(Created(answer_for(channel, members, false)).into_response())
     }
@@ -399,7 +463,11 @@ async fn has_membership(caller: &Caller, channel_id: &str) -> Result<bool, sqlx:
 
 /// `setDmArchived`: the channel-level flag, for a member.
 async fn set_archived(state: &ChatState, caller: &Caller, id: &str, archived: bool) -> Response {
-    let fallback = if archived { "Failed to archive DM" } else { "Failed to unarchive DM" };
+    let fallback = if archived {
+        "Failed to archive DM"
+    } else {
+        "Failed to unarchive DM"
+    };
     let result = async {
         if !has_membership(caller, id).await? {
             return Err(ChatError::not_found("Channel", Some(id)));
@@ -420,11 +488,19 @@ async fn set_archived(state: &ChatState, caller: &Caller, id: &str, archived: bo
     answer(result, fallback)
 }
 
-async fn archive(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn archive(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     set_archived(&state, &caller, &id, true).await
 }
 
-async fn unarchive(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn unarchive(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     set_archived(&state, &caller, &id, false).await
 }
 
@@ -463,11 +539,19 @@ async fn pin(
         let mut pinned_by: Vec<String> = meta
             .get("pinnedBy")
             .and_then(Value::as_array)
-            .map(|items| items.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned)).collect())
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
+                    .collect()
+            })
             .unwrap_or_default();
         if pinned {
             let mut unique: Vec<String> = Vec::new();
-            for user in pinned_by.into_iter().chain(std::iter::once(caller.user_id.clone())) {
+            for user in pinned_by
+                .into_iter()
+                .chain(std::iter::once(caller.user_id.clone()))
+            {
                 if !unique.contains(&user) {
                     unique.push(user);
                 }
@@ -477,12 +561,14 @@ async fn pin(
             pinned_by.retain(|user| *user != caller.user_id);
         }
         meta.insert("pinnedBy".to_owned(), Value::from(pinned_by));
-        sqlx::query("update chat_channels set metadata = $2, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(Value::Object(meta))
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+        sqlx::query(
+            "update chat_channels set metadata = $2, updated_at = $3::timestamp where id = $1",
+        )
+        .bind(&id)
+        .bind(Value::Object(meta))
+        .bind(now())
+        .execute(&caller.db)
+        .await?;
         caller.publish(&state, CHAT_CHANNEL_UPDATED, &id, &json!({ "id": id }));
         Ok(Data(json!({ "id": id, "isPinned": pinned })).into_response())
     }
@@ -491,7 +577,11 @@ async fn pin(
 }
 
 /// `DELETE /:channelId`: the caller leaves the DM.
-async fn leave_dm(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn leave_dm(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         if !has_membership(&caller, &id).await? {
             return Err(ChatError::not_found("Channel", Some(&id)));

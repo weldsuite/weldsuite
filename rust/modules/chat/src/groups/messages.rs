@@ -26,7 +26,9 @@ use crate::access::{Caller, ChatError, answer, unhandled, validate};
 use crate::groups::channels::feature_error;
 use crate::pins::{UNPIN_EXPIRED_MESSAGE_JOB, pin_message, post_pin_notice, unpin_message};
 use crate::post::{PostInput, channel_feature_flags, post_chat_message};
-use crate::util::{consume_rate_limit, list_limit, list_response, ms_timestamp, now, page, query_map};
+use crate::util::{
+    consume_rate_limit, list_limit, list_response, ms_timestamp, now, page, query_map,
+};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -36,17 +38,32 @@ where
     let update = || gate.require(["messages:update"]);
     Router::new()
         .route("/", get(list).route_layer(read()))
-        .route("/", post(create_one).route_layer(gate.require(["channels:create"])))
-        .route("/pinned", get(pinned).route_layer(gate.require(["messages:read"])))
-        .route("/upload", post(upload).route_layer(gate.require(["messages:create"])))
+        .route(
+            "/",
+            post(create_one).route_layer(gate.require(["channels:create"])),
+        )
+        .route(
+            "/pinned",
+            get(pinned).route_layer(gate.require(["messages:read"])),
+        )
+        .route(
+            "/upload",
+            post(upload).route_layer(gate.require(["messages:create"])),
+        )
         .route("/{id}", get(detail).route_layer(read()))
         .route("/{id}", patch(update_one).route_layer(update()))
-        .route("/{id}", delete(remove_one).route_layer(gate.require(["messages:delete"])))
+        .route(
+            "/{id}",
+            delete(remove_one).route_layer(gate.require(["messages:delete"])),
+        )
         .route(
             "/{id}/reactions",
             post(add_reaction).route_layer(gate.require(["messages:create"])),
         )
-        .route("/{id}/reactions/{emoji}", delete(remove_reaction).route_layer(update()))
+        .route(
+            "/{id}/reactions/{emoji}",
+            delete(remove_reaction).route_layer(update()),
+        )
         .route("/{id}/pin", post(pin).delete(unpin).route_layer(update()))
 }
 
@@ -71,11 +88,12 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let parent = q.get("parentId").filter(|p| !p.is_empty()).cloned();
     let cursor = match q.get("cursor").filter(|c| !c.is_empty()) {
         Some(cursor) => {
-            let row: Result<Option<(String, String)>, sqlx::Error> =
-                sqlx::query_as("select created_at::text, id from chat_messages where id = $1 limit 1")
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await;
+            let row: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
+                "select created_at::text, id from chat_messages where id = $1 limit 1",
+            )
+            .bind(cursor)
+            .fetch_optional(&caller.db)
+            .await;
             match row {
                 Ok(row) => row.map(|(at, id)| (ms_timestamp(&at), id)),
                 Err(error) => return unhandled(error.into()),
@@ -218,7 +236,9 @@ async fn create_one(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_message_body(issues, body, false)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_message_body(issues, body, false)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -239,8 +259,16 @@ async fn create_one(
         Ok(false) => return forbidden_channel().respond(""),
         Err(error) => return unhandled(error.into()),
     }
-    if !consume_rate_limit(&caller, &state, &format!("msg:{org}:{}", caller.user_id), 60).await {
-        return ApiError::bad_request("Too many messages — slow down and try again").into_response();
+    if !consume_rate_limit(
+        &caller,
+        &state,
+        &format!("msg:{org}:{}", caller.user_id),
+        60,
+    )
+    .await
+    {
+        return ApiError::bad_request("Too many messages — slow down and try again")
+            .into_response();
     }
     match post_chat_message(&caller, &state, &org, &channel, message_input(&data)).await {
         Ok(message) => {
@@ -265,7 +293,9 @@ async fn update_one(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_message_body(issues, body, true)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_message_body(issues, body, true)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -273,7 +303,10 @@ async fn update_one(
         let Some(existing) = live_message(&caller, &id).await? else {
             return Err(ChatError::not_found("Chat message", Some(&id)));
         };
-        let channel = existing["channelId"].as_str().unwrap_or_default().to_owned();
+        let channel = existing["channelId"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         if !can_access_channel(&caller.db, &channel, &caller.user_id, None).await? {
             return Err(ChatError::not_found("Chat message", Some(&id)));
         }
@@ -342,7 +375,11 @@ async fn update_one(
 }
 
 /// `DELETE /:id`: the author or a channel moderator soft-deletes it.
-async fn remove_one(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove_one(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = live_message(&caller, &id).await? else {
             return Err(ChatError::not_found("Chat message", Some(&id)));
@@ -410,7 +447,9 @@ async fn toggle_reaction(
             .entry(emoji.to_owned())
             .or_insert_with(|| Value::Array(Vec::new()));
         if let Value::Array(list) = users
-            && !list.iter().any(|u| u.as_str() == Some(caller.user_id.as_str()))
+            && !list
+                .iter()
+                .any(|u| u.as_str() == Some(caller.user_id.as_str()))
         {
             list.push(Value::from(caller.user_id.as_str()));
         }
@@ -430,7 +469,9 @@ async fn toggle_reaction(
     .bind(now())
     .execute(&caller.db)
     .await?;
-    Ok(Some(json!({ "messageId": id, "channelId": channel, "reactions": reactions })))
+    Ok(Some(
+        json!({ "messageId": id, "channelId": channel, "reactions": reactions }),
+    ))
 }
 
 /// `POST /:id/reactions`.
@@ -442,7 +483,9 @@ async fn add_reaction(
     body: Bytes,
 ) -> Response {
     let emoji = validate(&headers, &body, |issues, body| {
-        issues.string(body, "emoji", true, Some(1), Some(50)).unwrap_or_default()
+        issues
+            .string(body, "emoji", true, Some(1), Some(50))
+            .unwrap_or_default()
     });
     let emoji = match emoji {
         Ok(emoji) => emoji,
@@ -454,8 +497,16 @@ async fn add_reaction(
         Err(error) => return unhandled(error.into()),
     }
     let org = caller.org_id.clone().unwrap_or_else(|| "x".to_owned());
-    if !consume_rate_limit(&caller, &state, &format!("react:{org}:{}", caller.user_id), 120).await {
-        return ApiError::bad_request("Too many reactions — slow down and try again").into_response();
+    if !consume_rate_limit(
+        &caller,
+        &state,
+        &format!("react:{org}:{}", caller.user_id),
+        120,
+    )
+    .await
+    {
+        return ApiError::bad_request("Too many reactions — slow down and try again")
+            .into_response();
     }
     let result = async {
         let Some(channel) = crate::pins::live_message_channel(&caller.db, &id).await? else {
@@ -464,7 +515,9 @@ async fn add_reaction(
         if let Some((_, _, reactions_on, _)) = channel_feature_flags(&caller.db, &channel).await?
             && !reactions_on
         {
-            return Err(ChatError::bad_request("Reactions are disabled in this channel"));
+            return Err(ChatError::bad_request(
+                "Reactions are disabled in this channel",
+            ));
         }
         let Some(result) = toggle_reaction(&caller, &id, &emoji, true).await? else {
             return Err(ChatError::not_found("Chat message", Some(&id)));
@@ -531,7 +584,12 @@ async fn remove_reaction(
 }
 
 /// `POST /:id/pin`: optional `{ expiresAt, notify }`.
-async fn pin(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>, body: Bytes) -> Response {
+async fn pin(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    body: Bytes,
+) -> Response {
     match can_access_message(&caller.db, &id, &caller.user_id, None).await {
         Ok(true) => {}
         Ok(false) => return ChatError::not_found("Chat message", Some(&id)).respond(""),
@@ -549,16 +607,26 @@ async fn pin(State(state): State<ChatState>, caller: Caller, Path(id): Path<Stri
         let expires_iso = match expires_at.as_deref().filter(|e| !e.is_empty()) {
             Some(text) => match js_date_iso(text) {
                 Some(iso) => Some(iso),
-                None => return Err(ChatError::api(ApiError::internal().with_message("Failed to pin message"))),
+                None => {
+                    return Err(ChatError::api(
+                        ApiError::internal().with_message("Failed to pin message"),
+                    ));
+                }
             },
             None => None,
         };
-        let Some(result) = pin_message(&caller.db, &id, &caller.user_id, expires_iso.as_deref()).await? else {
+        let Some(result) =
+            pin_message(&caller.db, &id, &caller.user_id, expires_iso.as_deref()).await?
+        else {
             return Err(ChatError::not_found("Chat message", Some(&id)));
         };
         let channel = result["channelId"].as_str().unwrap_or_default().to_owned();
         if let (Some(expires), Some(jobs), true) = (&expires_iso, &state.jobs, state.unpin_jobs) {
-            let at = time::OffsetDateTime::parse(expires, &time::format_description::well_known::Rfc3339).ok();
+            let at = time::OffsetDateTime::parse(
+                expires,
+                &time::format_description::well_known::Rfc3339,
+            )
+            .ok();
             let delay = at
                 .map(|at| (at - time::OffsetDateTime::now_utc()).whole_milliseconds())
                 .and_then(|ms| u64::try_from(ms).ok())
@@ -586,7 +654,15 @@ async fn pin(State(state): State<ChatState>, caller: Caller, Path(id): Path<Stri
             &json!({ "id": id, "channelId": channel }),
         );
         if notify {
-            match post_pin_notice(&caller.db, &Caller::realtime(&state), &channel, &id, &caller.user_id).await {
+            match post_pin_notice(
+                &caller.db,
+                &Caller::realtime(&state),
+                &channel,
+                &id,
+                &caller.user_id,
+            )
+            .await
+            {
                 Ok(notice) => caller.publish(
                     &state,
                     CHAT_MESSAGE_CREATED,
@@ -677,7 +753,11 @@ fn sanitize_file_name(name: &str) -> String {
         .collect();
     let trimmed = replaced.trim_start_matches('.');
     let kept = &trimmed[trimmed.len().saturating_sub(200)..];
-    if kept.is_empty() { "file".to_owned() } else { kept.to_owned() }
+    if kept.is_empty() {
+        "file".to_owned()
+    } else {
+        kept.to_owned()
+    }
 }
 
 /// A 32-character hex key segment.
@@ -687,7 +767,9 @@ fn random_segment() -> String {
 
 /// The multipart `file` (first) and `channelId` fields; `None` when the body
 /// is not multipart.
-async fn upload_fields(request: Request) -> Option<(Option<(String, String, Vec<u8>)>, Option<String>)> {
+async fn upload_fields(
+    request: Request,
+) -> Option<(Option<(String, String, Vec<u8>)>, Option<String>)> {
     let mut multipart = Multipart::from_request(request, &()).await.ok()?;
     let mut file = None;
     let mut channel = None;
@@ -721,9 +803,15 @@ async fn upload(State(state): State<ChatState>, caller: Caller, request: Request
         return ApiError::org_required().into_response();
     };
     let Some(store) = caller.public_store(&state) else {
-        return ApiError::internal().with_message("Storage is not configured").into_response();
+        return ApiError::internal()
+            .with_message("Storage is not configured")
+            .into_response();
     };
-    let internal = || ApiError::internal().with_message("Failed to upload file").into_response();
+    let internal = || {
+        ApiError::internal()
+            .with_message("Failed to upload file")
+            .into_response()
+    };
     let Some((file, channel)) = upload_fields(request).await else {
         return internal();
     };
@@ -734,7 +822,11 @@ async fn upload(State(state): State<ChatState>, caller: Caller, request: Request
     if bytes.len() > MAX_UPLOAD_BYTES {
         return ApiError::bad_request("File exceeds the 50MB limit").into_response();
     }
-    let Some(public_url) = caller.env(&state, "R2_PUBLIC_URL").filter(|u| !u.is_empty()).map(str::to_owned) else {
+    let Some(public_url) = caller
+        .env(&state, "R2_PUBLIC_URL")
+        .filter(|u| !u.is_empty())
+        .map(str::to_owned)
+    else {
         return ApiError::internal()
             .with_message("File storage is not configured for this environment")
             .into_response();
@@ -747,14 +839,26 @@ async fn upload(State(state): State<ChatState>, caller: Caller, request: Request
             if !can_access_channel(&caller.db, channel, &caller.user_id, None).await? {
                 return Err(forbidden_channel());
             }
-            if let Some((_, attachments_on, _, _)) = channel_feature_flags(&caller.db, channel).await?
+            if let Some((_, attachments_on, _, _)) =
+                channel_feature_flags(&caller.db, channel).await?
                 && !attachments_on
             {
-                return Err(ChatError::bad_request("Attachments are disabled in this channel"));
+                return Err(ChatError::bad_request(
+                    "Attachments are disabled in this channel",
+                ));
             }
         }
-        if !consume_rate_limit(&caller, &state, &format!("upload:{org}:{}", caller.user_id), 30).await {
-            return Err(ChatError::bad_request("Too many uploads — slow down and try again"));
+        if !consume_rate_limit(
+            &caller,
+            &state,
+            &format!("upload:{org}:{}", caller.user_id),
+            30,
+        )
+        .await
+        {
+            return Err(ChatError::bad_request(
+                "Too many uploads — slow down and try again",
+            ));
         }
         let safe_channel: String = channel
             .as_deref()
@@ -762,16 +866,24 @@ async fn upload(State(state): State<ChatState>, caller: Caller, request: Request
             .chars()
             .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
             .collect();
-        let safe_channel = if safe_channel.is_empty() { "general".to_owned() } else { safe_channel };
+        let safe_channel = if safe_channel.is_empty() {
+            "general".to_owned()
+        } else {
+            safe_channel
+        };
         let key = format!(
             "workspaces/{org}/chat/{safe_channel}/files/{}/{}",
             random_segment(),
             sanitize_file_name(&name)
         );
-        let mime = if kind.is_empty() { "application/octet-stream".to_owned() } else { kind.clone() };
+        let mime = if kind.is_empty() {
+            "application/octet-stream".to_owned()
+        } else {
+            kind.clone()
+        };
         let size = bytes.len();
         store
-            .put_boxed(&key, bytes.into(), &PutOptions::content_type(mime.clone()))
+            .put_boxed(&key, bytes, &PutOptions::content_type(mime.clone()))
             .await
             .map_err(|error| {
                 tracing::error!(%error, "[app-api/chat-messages] upload failed");

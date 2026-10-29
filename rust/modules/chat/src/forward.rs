@@ -61,7 +61,10 @@ pub(crate) async fn forward_message(
     .fetch_optional(db)
     .await?;
     if member.is_none() || !can_access_channel(db, source_channel_id, user_id, None).await? {
-        return Ok(Err((403, "You do not have access to this message".to_owned())));
+        return Ok(Err((
+            403,
+            "You do not have access to this message".to_owned(),
+        )));
     }
     let source: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(m) from chat_messages m
@@ -103,7 +106,9 @@ pub(crate) async fn forward_message(
         }
         snapshot.insert(
             "createdAt".to_owned(),
-            Value::from(ms_timestamp(source["created_at"].as_str().unwrap_or_default())),
+            Value::from(ms_timestamp(
+                source["created_at"].as_str().unwrap_or_default(),
+            )),
         );
         if !source["attachments"].is_null() {
             snapshot.insert("attachments".to_owned(), text("attachments"));
@@ -148,7 +153,10 @@ pub(crate) async fn forward_message(
         .map(String::as_str)
         .collect();
     if !missing.is_empty() {
-        return Ok(Err((404, format!("Channel(s) not found: {}", missing.join(", ")))));
+        return Ok(Err((
+            404,
+            format!("Channel(s) not found: {}", missing.join(", ")),
+        )));
     }
     let non_public: Vec<String> = unique
         .iter()
@@ -159,7 +167,10 @@ pub(crate) async fn forward_message(
     if !inaccessible.is_empty() {
         return Ok(Err((
             403,
-            format!("You are not a member of {} target channel(s)", inaccessible.len()),
+            format!(
+                "You are not a member of {} target channel(s)",
+                inaccessible.len()
+            ),
         )));
     }
     let record_targets: Vec<String> = unique
@@ -171,7 +182,10 @@ pub(crate) async fn forward_message(
     if !unreadable.is_empty() {
         return Ok(Err((
             403,
-            format!("You do not have access to {} target channel(s)", unreadable.len()),
+            format!(
+                "You do not have access to {} target channel(s)",
+                unreadable.len()
+            ),
         )));
     }
 

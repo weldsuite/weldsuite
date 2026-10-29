@@ -97,6 +97,7 @@ fn mention_label(body: &str, names: &HashMap<String, String>) -> String {
 
 /// `formatMessagePreview`: tokens as `@Name`, inline files dropped, runs of
 /// spaces folded, at most 100 characters.
+#[allow(clippy::implicit_hasher)]
 pub fn format_message_preview(content: &str, names: &HashMap<String, String>) -> String {
     let without_files = FILE_TOKEN.replace_all(content, "");
     let labelled = MENTION_TOKEN.replace_all(&without_files, |caps: &regex::Captures<'_>| {
@@ -229,10 +230,14 @@ pub fn js_number(value: f64) -> Value {
     serde_json::Number::from_f64(value).map_or(Value::Null, Value::Number)
 }
 
-static NOT_SLUG: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[^a-z0-9\s-]").expect("the slug pattern compiles"));
+/// JavaScript's `\s`, spelled out: the workspace builds `regex` without its
+/// Unicode classes, so `\s` itself does not compile.
+const JS_SPACE: &str = r"\t\n\x0B\x0C\r \x{A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}\x{FEFF}";
+static NOT_SLUG: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!("[^a-z0-9{JS_SPACE}-]")).expect("the slug pattern compiles")
+});
 static SPACES: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\s+").expect("the spaces pattern compiles"));
+    LazyLock::new(|| Regex::new(&format!("[{JS_SPACE}]+")).expect("the spaces pattern compiles"));
 static DASHES: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"-+").expect("the dashes pattern compiles"));
 
@@ -258,9 +263,15 @@ mod tests {
             format_message_preview("hi <@user_1>  and <@task:t1|Fix it> <@file:a1>", &names),
             "hi @Ann and @Fix it"
         );
-        assert_eq!(format_message_preview("<@user_2> <@everyone>", &names), "@unknown @everyone");
+        assert_eq!(
+            format_message_preview("<@user_2> <@everyone>", &names),
+            "@unknown @everyone"
+        );
         let long = "x".repeat(120);
-        assert_eq!(format_message_preview(&long, &names), format!("{}...", "x".repeat(100)));
+        assert_eq!(
+            format_message_preview(&long, &names),
+            format!("{}...", "x".repeat(100))
+        );
     }
 
     #[test]

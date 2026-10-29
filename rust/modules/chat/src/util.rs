@@ -10,8 +10,8 @@ use time::OffsetDateTime;
 use weldsuite_events::iso_timestamp;
 use weldsuite_kit::{List, Pagination};
 
-use crate::access::Caller;
 use crate::ChatState;
+use crate::access::Caller;
 
 /// `new Date()` as Drizzle writes it (UTC, milliseconds).
 pub(crate) fn now() -> String {
@@ -27,7 +27,8 @@ pub(crate) fn now_ms() -> i64 {
 pub(crate) fn query_map(raw: Option<&str>) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for (key, value) in form_urlencoded::parse(raw.unwrap_or_default().as_bytes()) {
-        out.entry(key.into_owned()).or_insert_with(|| value.into_owned());
+        out.entry(key.into_owned())
+            .or_insert_with(|| value.into_owned());
     }
     out
 }
@@ -100,6 +101,7 @@ pub(crate) fn ms_timestamp(text: &str) -> String {
 
 /// `consumeChatRateLimit(env, key, max)`: a fixed one-minute window in the
 /// workspace cache. No cache, or a cache that fails, allows the request.
+#[allow(clippy::cast_precision_loss)]
 pub(crate) async fn consume_rate_limit(
     caller: &Caller,
     state: &ChatState,
@@ -134,7 +136,11 @@ pub(crate) async fn consume_rate_limit(
             return Ok::<bool, weldsuite_ports::PortError>(false);
         }
         count += 1.0;
-        #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
         let ttl = ((reset_at - now as f64) / 1000.0).ceil().max(1.0) as u64;
         let text = json!({
             "count": weldsuite_chat_domain::text::js_number(count),

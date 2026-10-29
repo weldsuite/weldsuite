@@ -14,7 +14,10 @@ pub struct AgentViewer {
 }
 
 /// `agentViewerFor(userId, permissions)`: `granterHolds(permissions, 'weldagent:manage')`.
-pub fn agent_viewer_for<P: PermissionSubject + ?Sized>(user_id: &str, permissions: Option<&P>) -> AgentViewer {
+pub fn agent_viewer_for<P: PermissionSubject + ?Sized>(
+    user_id: &str,
+    permissions: Option<&P>,
+) -> AgentViewer {
     let can_manage_all = permissions.is_some_and(|p| {
         has_permission(p.permissions(), "weldagent:manage")
             || has_app_permission(p, "weldagent:manage", None)
@@ -47,5 +50,9 @@ pub async fn inaccessible_agent_ids(
     .bind(&viewer.user_id)
     .fetch_all(db)
     .await?;
-    Ok(agent_ids.iter().filter(|id| !ok.contains(id)).cloned().collect())
+    Ok(agent_ids
+        .iter()
+        .filter(|id| !ok.contains(id))
+        .cloned()
+        .collect())
 }

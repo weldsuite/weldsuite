@@ -103,8 +103,11 @@ impl Realtime {
 
     /// `publishChatChannelUpdated(channelId, data)`.
     pub async fn channel_updated(&self, channel_id: &str, data: Value) {
-        self.chat(channel_id, json!({ "type": "channel:updated", "data": data }))
-            .await;
+        self.chat(
+            channel_id,
+            json!({ "type": "channel:updated", "data": data }),
+        )
+        .await;
     }
 
     /// `publishChatUnreadUpdate`: `unread_update` on the user's topic.

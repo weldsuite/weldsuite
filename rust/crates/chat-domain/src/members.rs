@@ -7,7 +7,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use weldsuite_kit::generate_id;
 
-use crate::text::{js_prefix, js_len, slugify_channel_name};
+use crate::text::{js_len, js_prefix, slugify_channel_name};
 
 /// What a new channel is made of (`CreateChannelInput`).
 #[derive(Debug, Clone, Default)]
@@ -43,13 +43,12 @@ pub async fn resolve_channel_slug(
     if base.is_empty() {
         return Ok(channel_id.to_owned());
     }
-    let clash: Option<String> = sqlx::query_scalar(
-        "select id from chat_channels where slug = $1 and id <> $2 limit 1",
-    )
-    .bind(&base)
-    .bind(channel_id)
-    .fetch_optional(db)
-    .await?;
+    let clash: Option<String> =
+        sqlx::query_scalar("select id from chat_channels where slug = $1 and id <> $2 limit 1")
+            .bind(&base)
+            .bind(channel_id)
+            .fetch_optional(db)
+            .await?;
     if clash.is_none() {
         return Ok(base);
     }

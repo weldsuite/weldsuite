@@ -25,10 +25,19 @@ where
     let read = || gate.require(["channels:read"]);
     Router::new()
         .route("/", get(list).route_layer(read()))
-        .route("/", post(create_one).route_layer(gate.require(["channels:create"])))
+        .route(
+            "/",
+            post(create_one).route_layer(gate.require(["channels:create"])),
+        )
         .route("/{id}", get(detail).route_layer(read()))
-        .route("/{id}", patch(update_one).route_layer(gate.require(["channels:update"])))
-        .route("/{id}", delete(remove_one).route_layer(gate.require(["channels:delete"])))
+        .route(
+            "/{id}",
+            patch(update_one).route_layer(gate.require(["channels:update"])),
+        )
+        .route(
+            "/{id}",
+            delete(remove_one).route_layer(gate.require(["channels:delete"])),
+        )
 }
 
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -40,11 +49,12 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         .map(|s| format!("%{s}%"));
     let cursor = match q.get("cursor").filter(|c| !c.is_empty()) {
         Some(cursor) => {
-            let row: Result<Option<(String, String)>, sqlx::Error> =
-                sqlx::query_as("select created_at::text, id from chat_sections where id = $1 limit 1")
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await;
+            let row: Result<Option<(String, String)>, sqlx::Error> = sqlx::query_as(
+                "select created_at::text, id from chat_sections where id = $1 limit 1",
+            )
+            .bind(cursor)
+            .fetch_optional(&caller.db)
+            .await;
             match row {
                 Ok(row) => row.map(|(at, id)| (ms_timestamp(&at), id)),
                 Err(error) => return unhandled(error.into()),
@@ -102,9 +112,19 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// `createChatSectionSchema` (`.partial()` when `partial`): the columns it sets.
-fn read_section(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> (Option<String>, Option<i64>) {
-    let presence = if partial { Presence::Optional } else { Presence::Required };
-    let name = issues.text(body, "name", presence, Some(1), Some(255)).into_option();
+fn read_section(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: bool,
+) -> (Option<String>, Option<i64>) {
+    let presence = if partial {
+        Presence::Optional
+    } else {
+        Presence::Required
+    };
+    let name = issues
+        .text(body, "name", presence, Some(1), Some(255))
+        .into_option();
     // `userId` is validated and not stored (no such column).
     let _ = issues.text(body, "userId", Presence::Nullish, None, None);
     let position = match issues.integer(body, "position", Presence::Optional, None) {
@@ -115,7 +135,9 @@ fn read_section(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -
 }
 
 async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    let (name, position) = match validate(&headers, &body, |issues, body| read_section(issues, body, false)) {
+    let (name, position) = match validate(&headers, &body, |issues, body| {
+        read_section(issues, body, false)
+    }) {
         Ok(input) => input,
         Err(error) => return error.respond(""),
     };
@@ -138,8 +160,15 @@ async fn create_one(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
     answer(result, "Failed to create chat section")
 }
 
-async fn update_one(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
-    let (name, position) = match validate(&headers, &body, |issues, body| read_section(issues, body, true)) {
+async fn update_one(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let (name, position) = match validate(&headers, &body, |issues, body| {
+        read_section(issues, body, true)
+    }) {
         Ok(input) => input,
         Err(error) => return error.respond(""),
     };

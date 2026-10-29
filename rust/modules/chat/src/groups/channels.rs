@@ -24,9 +24,7 @@ use weldsuite_chat_domain::members::{
 use weldsuite_chat_domain::policy::merge_agent_room_policy;
 use weldsuite_chat_domain::publish::object;
 use weldsuite_chat_domain::text::build_message_preview;
-use weldsuite_chat_domain::{
-    Can, can_access_channel, is_channel_moderator, unreadable_record_chat_ids,
-};
+use weldsuite_chat_domain::{can_access_channel, is_channel_moderator, unreadable_record_chat_ids};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -34,7 +32,9 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use crate::ChatState;
 use crate::access::{Caller, ChatError, ChatResult, answer, unhandled, validate, validate_query};
 use crate::post::{PostError, PostInput, post_chat_message};
-use crate::util::{consume_rate_limit, list_limit, list_response, ms_timestamp, now, page, query_map};
+use crate::util::{
+    consume_rate_limit, list_limit, list_response, ms_timestamp, now, page, query_map,
+};
 
 pub(crate) fn router<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<ChatState>
 where
@@ -68,7 +68,10 @@ where
             "/{id}/members/{user_id}",
             delete(remove_member).route_layer(update()),
         )
-        .route("/{id}/read-receipts", get(read_receipts).route_layer(read()))
+        .route(
+            "/{id}/read-receipts",
+            get(read_receipts).route_layer(read()),
+        )
         .route(
             "/{id}/messages/{message_id}/forward",
             post(forward).route_layer(gate.require(["messages:create"])),
@@ -138,7 +141,10 @@ async fn list(State(state): State<ChatState>, caller: Caller, RawQuery(raw): Raw
         },
         None => None,
     };
-    answer(list_inner(&caller, &q, limit, types, cursor).await, "Failed to list channels")
+    answer(
+        list_inner(&caller, &q, limit, types, cursor).await,
+        "Failed to list channels",
+    )
 }
 
 async fn channel_cursor(
@@ -212,7 +218,7 @@ async fn list_inner(
         .collect();
     let can = caller.context_can();
     let unreadable =
-        unreadable_record_chat_ids(&caller.db, &caller.user_id, &entity_ids, Some(&context_or_none(&can))).await?;
+        unreadable_record_chat_ids(&caller.db, &caller.user_id, &entity_ids, Some(&can)).await?;
     let visible: Vec<Value> = data
         .into_iter()
         .filter(|r| !r["id"].as_str().is_some_and(|id| unreadable.contains(id)))
@@ -240,14 +246,6 @@ async fn list_inner(
         })
         .collect();
     Ok(list_response(items, total, has_more, next))
-}
-
-/// A `Can` for the request's permissions; without them, one that answers no.
-pub(crate) fn context_or_none<'a>(can: &'a Option<Can<'a>>) -> Can<'a> {
-    match can {
-        Some(Can::Context(permissions)) => Can::Context(permissions),
-        _ => Can::Denied,
-    }
 }
 
 /// `callerChannelState`: the caller's mute flag and read cursor per channel.
@@ -366,7 +364,12 @@ fn hops(issues: &mut Issues, body: &Map<String, Value>) -> Option<i64> {
 
 fn read_create(issues: &mut Issues, body: &Map<String, Value>) -> CreateBody {
     let name = issues
-        .text_with(body, "name", Presence::Required, Text::trimmed(Some(1), Some(255)))
+        .text_with(
+            body,
+            "name",
+            Presence::Required,
+            Text::trimmed(Some(1), Some(255)),
+        )
         .into_option()
         .unwrap_or_default();
     let description = issues.string(body, "description", false, None, None);
@@ -433,10 +436,22 @@ async fn create_one(
         }
         let created = create_channel(&caller.db, &caller.user_id, &input.channel, &now()).await?;
         let realtime = Caller::realtime(&state);
-        let channel_id = created.channel["id"].as_str().unwrap_or_default().to_owned();
-        let channel_name = created.channel["name"].as_str().unwrap_or_default().to_owned();
-        for uid in created.member_user_ids.iter().filter(|u| !u.starts_with("agt_")) {
-            realtime.channel_new(&org, uid, &channel_id, &channel_name).await;
+        let channel_id = created.channel["id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let channel_name = created.channel["name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        for uid in created
+            .member_user_ids
+            .iter()
+            .filter(|u| !u.starts_with("agt_"))
+        {
+            realtime
+                .channel_new(&org, uid, &channel_id, &channel_name)
+                .await;
         }
         caller.publish(
             &state,
@@ -461,7 +476,12 @@ struct UpdateBody {
 fn read_update(issues: &mut Issues, body: &Map<String, Value>) -> UpdateBody {
     let mut set: Vec<(&'static str, Value)> = Vec::new();
     let name = issues
-        .text_with(body, "name", Presence::Optional, Text::trimmed(Some(1), Some(255)))
+        .text_with(
+            body,
+            "name",
+            Presence::Optional,
+            Text::trimmed(Some(1), Some(255)),
+        )
         .into_option();
     if let Some(name) = &name {
         set.push(("name", Value::from(name.as_str())));
@@ -529,7 +549,10 @@ async fn update_one(
         Ok(input) => input,
         Err(error) => return error.respond("Failed to update channel"),
     };
-    answer(update_inner(&state, &caller, &id, input).await, "Failed to update channel")
+    answer(
+        update_inner(&state, &caller, &id, input).await,
+        "Failed to update channel",
+    )
 }
 
 async fn update_inner(
@@ -631,7 +654,11 @@ async fn update_inner(
 }
 
 /// `DELETE /:id`: owners and admins soft-delete a channel.
-async fn remove_one(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove_one(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         if live_channel(&caller, &id).await?.is_none() {
             return Err(ChatError::not_found("Channel", Some(&id)));
@@ -662,7 +689,11 @@ async fn remove_one(State(state): State<ChatState>, caller: Caller, Path(id): Pa
 }
 
 /// `GET /:channelId/messages`: top-level messages, `before` older, `after` newer.
-async fn list_messages(caller: Caller, Path(id): Path<String>, RawQuery(raw): RawQuery) -> Response {
+async fn list_messages(
+    caller: Caller,
+    Path(id): Path<String>,
+    RawQuery(raw): RawQuery,
+) -> Response {
     let query = validate_query(raw.as_deref(), |issues, values| {
         let before = issues.string(values, "before", false, None, None);
         let after = issues.string(values, "after", false, None, None);
@@ -698,11 +729,12 @@ async fn list_messages(caller: Caller, Path(id): Path<String>, RawQuery(raw): Ra
             let message = message.to_owned();
             let db = caller.db.clone();
             async move {
-                let at: Option<String> =
-                    sqlx::query_scalar("select created_at::text from chat_messages where id = $1 limit 1")
-                        .bind(&message)
-                        .fetch_optional(&db)
-                        .await?;
+                let at: Option<String> = sqlx::query_scalar(
+                    "select created_at::text from chat_messages where id = $1 limit 1",
+                )
+                .bind(&message)
+                .fetch_optional(&db)
+                .await?;
                 Ok::<_, sqlx::Error>(at.map(|at| ms_timestamp(&at)))
             }
         };
@@ -738,7 +770,10 @@ async fn list_messages(caller: Caller, Path(id): Path<String>, RawQuery(raw): Ra
         };
         let rows: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
         let (messages, has_more, next) = page(rows, limit);
-        Ok(Data(json!({ "messages": messages, "hasMore": has_more, "nextCursor": next })).into_response())
+        Ok(
+            Data(json!({ "messages": messages, "hasMore": has_more, "nextCursor": next }))
+                .into_response(),
+        )
     }
     .await;
     answer(result, "Failed to fetch messages")
@@ -753,8 +788,13 @@ pub(crate) fn read_attachment(issues: &mut Issues, item: &Value) -> Option<Value
             out.insert(key.to_owned(), Value::from(text));
         }
     }
-    if let Field::Set(size) = issues.number(fields, "fileSize", Presence::Required, Number::default()) {
-        out.insert("fileSize".to_owned(), weldsuite_chat_domain::text::js_number(size));
+    if let Field::Set(size) =
+        issues.number(fields, "fileSize", Presence::Required, Number::default())
+    {
+        out.insert(
+            "fileSize".to_owned(),
+            weldsuite_chat_domain::text::js_number(size),
+        );
     }
     for key in ["mimeType", "url"] {
         if let Some(text) = issues.string(fields, key, true, None, None) {
@@ -765,14 +805,22 @@ pub(crate) fn read_attachment(issues: &mut Issues, item: &Value) -> Option<Value
         out.insert("thumbnailUrl".to_owned(), Value::from(text));
     }
     if let Some(kind) = issues
-        .choice(fields, "clipType", Presence::Optional, &["audio", "video", "screen"])
+        .choice(
+            fields,
+            "clipType",
+            Presence::Optional,
+            &["audio", "video", "screen"],
+        )
         .into_option()
     {
         out.insert("clipType".to_owned(), Value::from(kind));
     }
-    if let Field::Set(duration) =
-        issues.number(fields, "durationSeconds", Presence::Optional, Number::default())
-    {
+    if let Field::Set(duration) = issues.number(
+        fields,
+        "durationSeconds",
+        Presence::Optional,
+        Number::default(),
+    ) {
         out.insert(
             "durationSeconds".to_owned(),
             weldsuite_chat_domain::text::js_number(duration),
@@ -803,15 +851,22 @@ pub(crate) fn read_transcript(issues: &mut Issues, fields: &Map<String, Value>) 
     if let Some(text) = issues.string(fields, "fullText", false, None, None) {
         out.insert("fullText".to_owned(), Value::from(text));
     }
-    if let Field::Set(segments) =
-        issues.list(fields, "segments", Presence::Optional, None, None, |issues, item| {
+    if let Field::Set(segments) = issues.list(
+        fields,
+        "segments",
+        Presence::Optional,
+        None,
+        None,
+        |issues, item| {
             let segment = issues.object(item)?;
             let mut out = Map::new();
             if let Some(text) = issues.string(segment, "text", true, None, None) {
                 out.insert("text".to_owned(), Value::from(text));
             }
             for key in ["startTime", "endTime"] {
-                if let Field::Set(n) = issues.number(segment, key, Presence::Required, Number::default()) {
+                if let Field::Set(n) =
+                    issues.number(segment, key, Presence::Required, Number::default())
+                {
                     out.insert(key.to_owned(), weldsuite_chat_domain::text::js_number(n));
                 }
             }
@@ -819,8 +874,8 @@ pub(crate) fn read_transcript(issues: &mut Issues, fields: &Map<String, Value>) 
                 out.insert("timestamp".to_owned(), Value::from(stamp));
             }
             Some(Value::Object(out))
-        })
-    {
+        },
+    ) {
         out.insert("segments".to_owned(), Value::Array(segments));
     }
     if let Some(text) = issues.string(fields, "errorMessage", false, None, None) {
@@ -834,7 +889,14 @@ fn read_send(issues: &mut Issues, body: &Map<String, Value>) -> PostInput {
     let html_content = issues.string(body, "htmlContent", false, None, None);
     let parent_id = issues.string(body, "parentId", false, None, None);
     let attachments = issues
-        .list(body, "attachments", Presence::Optional, None, None, read_attachment)
+        .list(
+            body,
+            "attachments",
+            Presence::Optional,
+            None,
+            None,
+            read_attachment,
+        )
         .into_option();
     let mentions = string_list(issues, body, "mentions");
     let reply_to_id = issues.string(body, "replyToId", false, None, None);
@@ -890,8 +952,16 @@ async fn send_message(
         Ok(false) => return forbidden_channel().respond(""),
         Err(error) => return unhandled(error.into()),
     }
-    if !consume_rate_limit(&caller, &state, &format!("msg:{org}:{}", caller.user_id), 60).await {
-        return ApiError::bad_request("Too many messages — slow down and try again").into_response();
+    if !consume_rate_limit(
+        &caller,
+        &state,
+        &format!("msg:{org}:{}", caller.user_id),
+        60,
+    )
+    .await
+    {
+        return ApiError::bad_request("Too many messages — slow down and try again")
+            .into_response();
     }
     match post_chat_message(&caller, &state, &org, &id, input).await {
         Ok(message) => Created(message).into_response(),
@@ -953,9 +1023,12 @@ async fn members(caller: Caller, Path(id): Path<String>) -> Response {
                     row["name"] = Value::from(agent.map_or("Agent", |a| a.0.as_str()));
                     row["email"] = Value::Null;
                     row["picture"] = Value::Null;
-                    row["agentIcon"] = agent.and_then(|a| a.1.clone()).map_or(Value::Null, Value::from);
-                    row["agentDescription"] =
-                        agent.and_then(|a| a.2.clone()).map_or(Value::Null, Value::from);
+                    row["agentIcon"] = agent
+                        .and_then(|a| a.1.clone())
+                        .map_or(Value::Null, Value::from);
+                    row["agentDescription"] = agent
+                        .and_then(|a| a.2.clone())
+                        .map_or(Value::Null, Value::from);
                 }
                 row
             })
@@ -976,9 +1049,14 @@ async fn add_members(
 ) -> Response {
     let input = validate(&headers, &body, |issues, body| {
         let user_ids = issues
-            .list(body, "userIds", Presence::Required, Some(1), None, |issues, item| {
-                issues.item_text(item, Text::length(Some(1), None))
-            })
+            .list(
+                body,
+                "userIds",
+                Presence::Required,
+                Some(1),
+                None,
+                |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+            )
             .into_option()
             .unwrap_or_default();
         let member_type = issues
@@ -1001,10 +1079,17 @@ async fn add_members(
         Err(error) => return unhandled(error.into()),
     }
     if member_type == "agent" {
-        let viewer = agent_viewer_for(&caller.user_id, caller.permissions.as_ref().map(|p| p.resolved()));
+        let viewer = agent_viewer_for(
+            &caller.user_id,
+            caller
+                .permissions
+                .as_ref()
+                .map(weldsuite_permissions::Permissions::resolved),
+        );
         match inaccessible_agent_ids(&caller.db, &user_ids, &viewer).await {
             Ok(blocked) if !blocked.is_empty() => {
-                return ChatError::forbidden("You do not have access to one of these agents").respond("");
+                return ChatError::forbidden("You do not have access to one of these agents")
+                    .respond("");
             }
             Ok(_) => {}
             Err(error) => return unhandled(error.into()),
@@ -1020,10 +1105,11 @@ async fn add_members(
         let Some(name) = name else {
             return Err(ChatError::not_found("Channel", Some(&id)));
         };
-        let added = match add_channel_members(&caller.db, &id, &user_ids, &member_type, &now()).await? {
-            AddMembers::Refused(message) => return Err(ChatError::bad_request(message)),
-            AddMembers::Added { added_user_ids } => added_user_ids,
-        };
+        let added =
+            match add_channel_members(&caller.db, &id, &user_ids, &member_type, &now()).await? {
+                AddMembers::Refused(message) => return Err(ChatError::bad_request(message)),
+                AddMembers::Added { added_user_ids } => added_user_ids,
+            };
         let realtime = Caller::realtime(&state);
         for uid in &added {
             realtime.member(&id, uid, "joined").await;
@@ -1034,7 +1120,12 @@ async fn add_members(
             }
         }
         for _ in &added {
-            caller.publish(&state, CHAT_CHANNEL_JOINED, &id, &json!({ "id": id, "name": name }));
+            caller.publish(
+                &state,
+                CHAT_CHANNEL_JOINED,
+                &id,
+                &json!({ "id": id, "name": name }),
+            );
         }
         Ok(Created(json!({ "channelId": id, "addedCount": added.len() })).into_response())
     }
@@ -1054,8 +1145,7 @@ async fn resolve_agent_room(caller: &Caller, channel_id: &str) -> ChatResult<Str
     let Some((name, kind, entity_type, entity_id)) = channel else {
         return Err(ChatError::not_found("Channel", Some(channel_id)));
     };
-    let context = caller.context_can();
-    let can = context_or_none(&context);
+    let can = caller.context_can();
     if !can_access_channel(&caller.db, channel_id, &caller.user_id, Some(&can)).await? {
         return Err(forbidden_channel());
     }
@@ -1068,7 +1158,8 @@ async fn resolve_agent_room(caller: &Caller, channel_id: &str) -> ChatResult<Str
         let provider = entity_type.as_deref().and_then(entity::provider);
         let writable = match (provider, entity_id.as_deref().filter(|e| !e.is_empty())) {
             (Some(provider), Some(entity_id)) => {
-                can_post_in_record_chat(provider, &caller.db, &caller.user_id, entity_id, &can).await?
+                can_post_in_record_chat(provider, &caller.db, &caller.user_id, entity_id, &can)
+                    .await?
             }
             _ => false,
         };
@@ -1091,9 +1182,14 @@ async fn invite_agents(
 ) -> Response {
     let input = validate(&headers, &body, |issues, body| {
         issues
-            .list(body, "agentIds", Presence::Required, Some(1), Some(10), |issues, item| {
-                issues.item_starts_with(item, "agt_")
-            })
+            .list(
+                body,
+                "agentIds",
+                Presence::Required,
+                Some(1),
+                Some(10),
+                |issues, item| issues.item_starts_with(item, "agt_"),
+            )
             .into_option()
             .unwrap_or_default()
     });
@@ -1116,10 +1212,17 @@ async fn invite_agents(
         Ok(name) => name,
         Err(error) => return unhandled(error),
     };
-    let viewer = agent_viewer_for(&caller.user_id, caller.permissions.as_ref().map(|p| p.resolved()));
+    let viewer = agent_viewer_for(
+        &caller.user_id,
+        caller
+            .permissions
+            .as_ref()
+            .map(weldsuite_permissions::Permissions::resolved),
+    );
     match inaccessible_agent_ids(&caller.db, &agent_ids, &viewer).await {
         Ok(blocked) if !blocked.is_empty() => {
-            return ChatError::forbidden("You do not have access to one of these agents").respond("");
+            return ChatError::forbidden("You do not have access to one of these agents")
+                .respond("");
         }
         Ok(_) => {}
         Err(error) => return unhandled(error.into()),
@@ -1134,7 +1237,12 @@ async fn invite_agents(
             realtime.member(&id, agent, "joined").await;
         }
         if !added.is_empty() {
-            caller.publish(&state, CHAT_CHANNEL_JOINED, &id, &json!({ "id": id, "name": name }));
+            caller.publish(
+                &state,
+                CHAT_CHANNEL_JOINED,
+                &id,
+                &json!({ "id": id, "name": name }),
+            );
         }
         Ok(Created(json!({ "channelId": id, "addedAgentIds": added })).into_response())
     }
@@ -1165,7 +1273,13 @@ async fn remove_agent(
         Ok(live) => live,
         Err(error) => return unhandled(error.into()),
     };
-    let viewer = agent_viewer_for(&caller.user_id, caller.permissions.as_ref().map(|p| p.resolved()));
+    let viewer = agent_viewer_for(
+        &caller.user_id,
+        caller
+            .permissions
+            .as_ref()
+            .map(weldsuite_permissions::Permissions::resolved),
+    );
     if live.is_some() {
         match inaccessible_agent_ids(&caller.db, std::slice::from_ref(&agent_id), &viewer).await {
             Ok(blocked) if !blocked.is_empty() => {
@@ -1182,8 +1296,15 @@ async fn remove_agent(
         {
             return Err(ChatError::not_found("Agent", Some(&agent_id)));
         }
-        Caller::realtime(&state).member(&id, &agent_id, "left").await;
-        caller.publish(&state, CHAT_CHANNEL_LEFT, &id, &json!({ "id": id, "name": name }));
+        Caller::realtime(&state)
+            .member(&id, &agent_id, "left")
+            .await;
+        caller.publish(
+            &state,
+            CHAT_CHANNEL_LEFT,
+            &id,
+            &json!({ "id": id, "name": name }),
+        );
         Ok(Data(json!({ "channelId": id, "agentId": agent_id, "removed": true })).into_response())
     }
     .await;
@@ -1200,7 +1321,9 @@ async fn join(State(state): State<ChatState>, caller: Caller, Path(id): Path<Str
             Err(message) => Err(ChatError::bad_request(message)),
             Ok(true) => Ok(Data(json!({ "channelId": id, "alreadyMember": true })).into_response()),
             Ok(false) => {
-                Caller::realtime(&state).member(&id, &caller.user_id, "joined").await;
+                Caller::realtime(&state)
+                    .member(&id, &caller.user_id, "joined")
+                    .await;
                 caller.publish(&state, CHAT_CHANNEL_JOINED, &id, &json!({ "id": id }));
                 Ok(Created(json!({ "channelId": id, "joined": true })).into_response())
             }
@@ -1214,7 +1337,9 @@ async fn join(State(state): State<ChatState>, caller: Caller, Path(id): Path<Str
 async fn leave(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>) -> Response {
     let result = async {
         let Some((_, role)) = get_membership(&caller.db, &id, &caller.user_id).await? else {
-            return Err(ChatError::bad_request("You are not a member of this channel"));
+            return Err(ChatError::bad_request(
+                "You are not a member of this channel",
+            ));
         };
         if role == "owner" {
             return Err(ChatError::bad_request(
@@ -1222,7 +1347,9 @@ async fn leave(State(state): State<ChatState>, caller: Caller, Path(id): Path<St
             ));
         }
         remove_channel_member_by_user_id(&caller.db, &id, &caller.user_id, &now()).await?;
-        Caller::realtime(&state).member(&id, &caller.user_id, "left").await;
+        Caller::realtime(&state)
+            .member(&id, &caller.user_id, "left")
+            .await;
         caller.publish(&state, CHAT_CHANNEL_LEFT, &id, &json!({ "id": id }));
         Ok(Data(json!({ "channelId": id, "left": true })).into_response())
     }
@@ -1307,9 +1434,14 @@ async fn forward(
 ) -> Response {
     let input = validate(&headers, &body, |issues, body| {
         let targets = issues
-            .list(body, "targetChannelIds", Presence::Required, Some(1), None, |issues, item| {
-                issues.item_text(item, Text::length(Some(1), None))
-            })
+            .list(
+                body,
+                "targetChannelIds",
+                Presence::Required,
+                Some(1),
+                None,
+                |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+            )
             .into_option()
             .unwrap_or_default();
         let comment = issues.string(body, "comment", false, None, None);
@@ -1399,7 +1531,9 @@ async fn mark_read(
     }
     let result = async {
         if let Some(before) = before.as_deref().filter(|b| !b.is_empty()) {
-            return match crate::reads::mark_unread_from(&caller.db, &id, &caller.user_id, before).await? {
+            return match crate::reads::mark_unread_from(&caller.db, &id, &caller.user_id, before)
+                .await?
+            {
                 Some(result) => Ok(Data(result).into_response()),
                 None => Err(ChatError::not_found("Message", Some(before))),
             };

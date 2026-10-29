@@ -133,7 +133,11 @@ fn file_record(row: FileRow) -> FileRecord {
     }
 }
 
-async fn load_files(db: &PgPool, kind: Provider, ids: &[String]) -> Result<Vec<FileRecord>, sqlx::Error> {
+async fn load_files(
+    db: &PgPool,
+    kind: Provider,
+    ids: &[String],
+) -> Result<Vec<FileRecord>, sqlx::Error> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -214,6 +218,7 @@ impl Provider {
 
     /// `resolve(ctx)`: the new chat's display name and first followers, or
     /// `None` when the record is missing or deleted.
+    #[allow(clippy::too_many_lines, clippy::type_complexity)]
     pub async fn resolve(
         self,
         db: &PgPool,
@@ -222,17 +227,25 @@ impl Provider {
     ) -> Result<Option<ResolvedEntity>, sqlx::Error> {
         match self {
             Self::Company => {
-                let row: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> =
-                    sqlx::query_as(
-                        "select display_name, name, owner_id, account_manager_id from companies
+                let row: Option<(
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                )> = sqlx::query_as(
+                    "select display_name, name, owner_id, account_manager_id from companies
                          where id = $1 and deleted_at is null limit 1",
-                    )
-                    .bind(entity_id)
-                    .fetch_optional(db)
-                    .await?;
+                )
+                .bind(entity_id)
+                .fetch_optional(db)
+                .await?;
                 Ok(row.map(|(display_name, name, owner, manager)| {
                     let mut members = Vec::new();
-                    for id in [owner, manager].into_iter().flatten().filter(|i| !i.is_empty()) {
+                    for id in [owner, manager]
+                        .into_iter()
+                        .flatten()
+                        .filter(|i| !i.is_empty())
+                    {
                         push_unique(&mut members, &id);
                     }
                     ResolvedEntity {
@@ -274,24 +287,31 @@ impl Provider {
                 }))
             }
             Self::Contact => {
-                let row: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
-                    sqlx::query_as(
-                        "select display_name, first_name, last_name, full_name, email from people
+                let row: Option<(
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                    Option<String>,
+                )> = sqlx::query_as(
+                    "select display_name, first_name, last_name, full_name, email from people
                          where id = $1 and deleted_at is null limit 1",
-                    )
-                    .bind(entity_id)
-                    .fetch_optional(db)
-                    .await?;
-                Ok(row.map(|(display_name, first, last, full, email)| ResolvedEntity {
-                    display_name: person_display_name(
-                        display_name.as_deref(),
-                        full.as_deref(),
-                        first.as_deref(),
-                        last.as_deref(),
-                        email.as_deref(),
-                    ),
-                    default_member_ids: vec![acting_user_id.to_owned()],
-                }))
+                )
+                .bind(entity_id)
+                .fetch_optional(db)
+                .await?;
+                Ok(
+                    row.map(|(display_name, first, last, full, email)| ResolvedEntity {
+                        display_name: person_display_name(
+                            display_name.as_deref(),
+                            full.as_deref(),
+                            first.as_deref(),
+                            last.as_deref(),
+                            email.as_deref(),
+                        ),
+                        default_member_ids: vec![acting_user_id.to_owned()],
+                    }),
+                )
             }
             Self::Domain => {
                 let row: Option<String> = sqlx::query_scalar(
@@ -306,14 +326,19 @@ impl Provider {
                 }))
             }
             Self::Task => {
-                let row: Option<(String, Option<String>, Option<Value>, Option<String>, Option<Value>)> =
-                    sqlx::query_as(
-                        "select title, assignee_id, assignee_ids, reporter_id, watchers from tasks
+                let row: Option<(
+                    String,
+                    Option<String>,
+                    Option<Value>,
+                    Option<String>,
+                    Option<Value>,
+                )> = sqlx::query_as(
+                    "select title, assignee_id, assignee_ids, reporter_id, watchers from tasks
                          where id = $1 and deleted_at is null limit 1",
-                    )
-                    .bind(entity_id)
-                    .fetch_optional(db)
-                    .await?;
+                )
+                .bind(entity_id)
+                .fetch_optional(db)
+                .await?;
                 Ok(row.map(|(title, assignee, assignees, reporter, watchers)| {
                     let mut members = Vec::new();
                     if let Some(id) = assignee.filter(|i| !i.is_empty()) {
@@ -426,7 +451,9 @@ impl Provider {
             }
             Self::Task => visible_tasks(db, acting_user_id, can, entity_ids).await,
             Self::Project => visible_projects(db, acting_user_id, can, entity_ids).await,
-            Self::Sheet | Self::Doc => visible_files(self, db, acting_user_id, can, entity_ids).await,
+            Self::Sheet | Self::Doc => {
+                visible_files(self, db, acting_user_id, can, entity_ids).await
+            }
         }
     }
 
@@ -746,7 +773,10 @@ async fn visible_tasks(
     }
     if !via_project.is_empty() {
         let project_ids: Vec<String> = crate::access::unique_ids(
-            &via_project.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>(),
+            &via_project
+                .iter()
+                .map(|(_, p)| p.clone())
+                .collect::<Vec<_>>(),
         );
         let scope_all = can.can("projects:scope:all").await?;
         let open = open_project_ids(db, user_id, &project_ids, scope_all).await?;
@@ -787,7 +817,10 @@ async fn visible_files(
     }
     if !in_projects.is_empty() {
         let project_ids = crate::access::unique_ids(
-            &in_projects.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>(),
+            &in_projects
+                .iter()
+                .map(|(_, p)| p.clone())
+                .collect::<Vec<_>>(),
         );
         let projects = visible_projects(db, user_id, can, &project_ids).await?;
         for (id, project) in in_projects {

@@ -543,9 +543,8 @@ impl Issues {
             return Field::Set(iso);
         }
         let path = self.path(key);
-        self.issues.push(
-            json!({ "code": "invalid_date", "path": path, "message": "Invalid date" }),
-        );
+        self.issues
+            .push(json!({ "code": "invalid_date", "path": path, "message": "Invalid date" }));
         Field::Absent
     }
 
@@ -946,8 +945,7 @@ impl Format {
     fn issue(self) -> (&'static str, &'static str) {
         match self {
             Self::Email => ("email", "Invalid email"),
-            Self::DatetimeOffset => ("datetime", "Invalid datetime"),
-            Self::Datetime => ("datetime", "Invalid datetime"),
+            Self::DatetimeOffset | Self::Datetime => ("datetime", "Invalid datetime"),
             Self::Digits => ("regex", "Invalid"),
             Self::Url => ("url", "Invalid url"),
         }
@@ -1077,7 +1075,15 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let mp = (5 * doy + 2) / 153;
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    (if month <= 2 { yoe + era * 400 + 1 } else { yoe + era * 400 }, month, day)
+    (
+        if month <= 2 {
+            yoe + era * 400 + 1
+        } else {
+            yoe + era * 400
+        },
+        month,
+        day,
+    )
 }
 
 /// `Date.parse(text)` for ISO strings: `YYYY-MM-DD` (UTC) and
@@ -1097,7 +1103,12 @@ fn js_date_millis(text: &str) -> Option<f64> {
     };
     let (year, month, day) = (number(1), number(2), number(3));
     let (hour, minute, second) = (number(4), number(5), number(6));
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 24 || minute > 59 || second > 59 {
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 24
+        || minute > 59
+        || second > 59
+    {
         return None;
     }
     let millis: i64 = caps.get(7).map_or(0, |m| {
@@ -1114,7 +1125,8 @@ fn js_date_millis(text: &str) -> Option<f64> {
         }
     };
     let days = days_from_civil(year, month, day);
-    let total = ((days * 24 + hour) * 60 + minute - offset_minutes) * 60_000 + second * 1000 + millis;
+    let total =
+        ((days * 24 + hour) * 60 + minute - offset_minutes) * 60_000 + second * 1000 + millis;
     #[allow(clippy::cast_precision_loss)]
     Some(total as f64)
 }

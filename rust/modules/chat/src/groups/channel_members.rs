@@ -188,7 +188,9 @@ async fn create_one(
     let input = validate(&headers, &body, |issues, body| {
         let channel_id = issues.string(body, "channelId", true, Some(1), None);
         let user_id = issues.string(body, "userId", true, Some(1), None);
-        let role = issues.choice(body, "role", Presence::Optional, &ROLES).into_option();
+        let role = issues
+            .choice(body, "role", Presence::Optional, &ROLES)
+            .into_option();
         let member_type = issues
             .choice(body, "memberType", Presence::Optional, &["user", "agent"])
             .into_option();
@@ -214,8 +216,13 @@ async fn create_one(
     }
     let prepared: ChatResult<Option<String>> = async {
         if member_type == "agent" {
-            let viewer =
-                agent_viewer_for(&caller.user_id, caller.permissions.as_ref().map(|p| p.resolved()));
+            let viewer = agent_viewer_for(
+                &caller.user_id,
+                caller
+                    .permissions
+                    .as_ref()
+                    .map(weldsuite_permissions::Permissions::resolved),
+            );
             if !inaccessible_agent_ids(&caller.db, std::slice::from_ref(&target), &viewer)
                 .await?
                 .is_empty()
@@ -275,20 +282,28 @@ async fn create_one(
         let realtime = Caller::realtime(&state);
         realtime.member(&channel_id, &target, "joined").await;
         if member_type == "user" {
-            match sqlx::query_scalar::<_, String>("select name from chat_channels where id = $1 limit 1")
-                .bind(&channel_id)
-                .fetch_optional(&caller.db)
-                .await
+            match sqlx::query_scalar::<_, String>(
+                "select name from chat_channels where id = $1 limit 1",
+            )
+            .bind(&channel_id)
+            .fetch_optional(&caller.db)
+            .await
             {
                 Ok(name) => {
                     realtime
                         .channel_new(&org, &target, &channel_id, &name.unwrap_or_default())
                         .await;
                 }
-                Err(error) => tracing::error!(%error, "[app-api/channel-members] realtime publish failed"),
+                Err(error) => {
+                    tracing::error!(%error, "[app-api/channel-members] realtime publish failed");
+                }
             }
         }
-        Ok((StatusCode::CREATED, axum::Json(json!({ "data": { "id": id } }))).into_response())
+        Ok((
+            StatusCode::CREATED,
+            axum::Json(json!({ "data": { "id": id } })),
+        )
+            .into_response())
     }
     .await;
     answer(result, "Failed to create channel member")
@@ -301,8 +316,12 @@ async fn update_one(
     body: Bytes,
 ) -> Response {
     let input = validate(&headers, &body, |issues, body| {
-        let role = issues.choice(body, "role", Presence::Optional, &ROLES).into_option();
-        let muted = issues.boolean(body, "isMuted", Presence::Optional).into_option();
+        let role = issues
+            .choice(body, "role", Presence::Optional, &ROLES)
+            .into_option();
+        let muted = issues
+            .boolean(body, "isMuted", Presence::Optional)
+            .into_option();
         let preference = issues
             .choice(
                 body,
@@ -325,7 +344,10 @@ async fn update_one(
         let Some(existing) = member_row(&caller, &id).await? else {
             return Err(ChatError::not_found("Channel member", Some(&id)));
         };
-        let channel = existing["channelId"].as_str().unwrap_or_default().to_owned();
+        let channel = existing["channelId"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         let is_self = existing["userId"].as_str() == Some(caller.user_id.as_str());
         let is_mod = is_channel_moderator(&caller.db, &channel, &caller.user_id).await?;
         if !is_self && !is_mod {
@@ -335,7 +357,9 @@ async fn update_one(
         if let Some(role) = role
             && is_mod
             && (role != "owner"
-                || get_channel_role(&caller.db, &channel, &caller.user_id).await?.as_deref()
+                || get_channel_role(&caller.db, &channel, &caller.user_id)
+                    .await?
+                    .as_deref()
                     == Some("owner"))
         {
             set_role = Some(role);
@@ -376,19 +400,28 @@ async fn update_one(
     answer(result, "Failed to update channel member")
 }
 
-async fn remove_one(State(state): State<ChatState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove_one(
+    State(state): State<ChatState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = member_row(&caller, &id).await? else {
             return Err(ChatError::not_found("Channel member", Some(&id)));
         };
-        let channel = existing["channelId"].as_str().unwrap_or_default().to_owned();
+        let channel = existing["channelId"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         let user = existing["userId"].as_str().unwrap_or_default().to_owned();
         let is_self = user == caller.user_id;
         if !is_self && !is_channel_moderator(&caller.db, &channel, &caller.user_id).await? {
             return Err(ChatError::forbidden("You cannot remove this member"));
         }
         remove_channel_member_by_user_id(&caller.db, &channel, &user, &now()).await?;
-        Caller::realtime(&state).member(&channel, &user, "left").await;
+        Caller::realtime(&state)
+            .member(&channel, &user, "left")
+            .await;
         Ok(NoContent.into_response())
     }
     .await;

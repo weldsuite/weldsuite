@@ -23,7 +23,7 @@ use weldsuite_chat_domain::entity::{self, Provider, can_access_entity, can_post_
 use weldsuite_chat_domain::members::{AddMembers, add_channel_members, channel_row};
 use weldsuite_chat_domain::text::{mention_bodies, slugify_channel_name};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
-use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
+use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::ChatState;
@@ -32,7 +32,6 @@ use crate::followers::{
     add_followers, announce_new_followers, default_followers_who_may_open, remove_follower,
     set_followed_channels_muted,
 };
-use crate::groups::channels::{context_or_none, read_attachment};
 use crate::post::{PostError, PostInput, post_chat_message};
 use crate::util::{list_response, now};
 
@@ -48,8 +47,14 @@ where
             "/{entity_type}/mute",
             patch(mute).route_layer(gate.require(["channels:update"])),
         )
-        .route("/{entity_type}/{entity_id}/channel", get(channel).route_layer(read()))
-        .route("/{entity_type}/{entity_id}/comments", get(comments).route_layer(read()))
+        .route(
+            "/{entity_type}/{entity_id}/channel",
+            get(channel).route_layer(read()),
+        )
+        .route(
+            "/{entity_type}/{entity_id}/comments",
+            get(comments).route_layer(read()),
+        )
         .route(
             "/{entity_type}/{entity_id}/messages",
             post(send).route_layer(gate.require(["messages:create"])),
@@ -58,7 +63,10 @@ where
             "/{entity_type}/{entity_id}/follow",
             post(follow).delete(unfollow).route_layer(read()),
         )
-        .route("/{entity_type}/{entity_id}/detail", get(detail).route_layer(read()))
+        .route(
+            "/{entity_type}/{entity_id}/detail",
+            get(detail).route_layer(read()),
+        )
 }
 
 fn unknown_type(entity_type: &str) -> ChatError {
@@ -66,20 +74,29 @@ fn unknown_type(entity_type: &str) -> ChatError {
 }
 
 /// `resolveAccess`: the provider, when the caller may see the record.
-async fn resolve_access(caller: &Caller, entity_type: &str, entity_id: &str) -> ChatResult<Provider> {
+async fn resolve_access(
+    caller: &Caller,
+    entity_type: &str,
+    entity_id: &str,
+) -> ChatResult<Provider> {
     let Some(provider) = entity::provider(entity_type) else {
         return Err(unknown_type(entity_type));
     };
-    let context = caller.context_can();
-    let can = context_or_none(&context);
+    let can = caller.context_can();
     if !can_access_entity(provider, &caller.db, &caller.user_id, entity_id, &can).await? {
-        return Err(ChatError::forbidden("You do not have access to this entity"));
+        return Err(ChatError::forbidden(
+            "You do not have access to this entity",
+        ));
     }
     Ok(provider)
 }
 
 /// `findEntityChannel`: the live chat of a record.
-async fn find_entity_channel(caller: &Caller, entity_type: &str, entity_id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn find_entity_channel(
+    caller: &Caller,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(c) from chat_channels c
          where c.entity_type = $1 and c.entity_id = $2 and c.deleted_at is null limit 1",
@@ -92,7 +109,11 @@ async fn find_entity_channel(caller: &Caller, entity_type: &str, entity_id: &str
 }
 
 /// A soft-deleted chat still holding the record's slot, latest first.
-async fn find_deleted_channel(caller: &Caller, entity_type: &str, entity_id: &str) -> Result<Option<String>, sqlx::Error> {
+async fn find_deleted_channel(
+    caller: &Caller,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar(
         "select id from chat_channels
          where entity_type = $1 and entity_id = $2 and deleted_at is not null
@@ -108,7 +129,11 @@ async fn find_deleted_channel(caller: &Caller, entity_type: &str, entity_id: &st
 fn record_slug(name: &str, suffix: &str) -> String {
     let base = slugify_channel_name(name);
     let base: String = base.chars().take(200).collect();
-    let base = if base.is_empty() { "entity".to_owned() } else { base };
+    let base = if base.is_empty() {
+        "entity".to_owned()
+    } else {
+        base
+    };
     format!("{base}-{suffix}").chars().take(255).collect()
 }
 
@@ -119,8 +144,14 @@ async fn initial_followers(
     entity_id: &str,
     defaults: &[String],
 ) -> Result<Vec<String>, sqlx::Error> {
-    let mut ids =
-        default_followers_who_may_open(&caller.db, entity_type, entity_id, &caller.user_id, defaults).await?;
+    let mut ids = default_followers_who_may_open(
+        &caller.db,
+        entity_type,
+        entity_id,
+        &caller.user_id,
+        defaults,
+    )
+    .await?;
     ids.push(caller.user_id.clone());
     Ok(ids)
 }
@@ -132,7 +163,11 @@ struct GetOrCreate {
 }
 
 /// `getOrCreateEntityChannel`.
-async fn get_or_create(caller: &Caller, provider: Provider, entity_id: &str) -> ChatResult<GetOrCreate> {
+async fn get_or_create(
+    caller: &Caller,
+    provider: Provider,
+    entity_id: &str,
+) -> ChatResult<GetOrCreate> {
     let entity_type = provider.type_name();
     if let Some(channel) = find_entity_channel(caller, entity_type, entity_id).await? {
         return Ok(GetOrCreate {
@@ -142,11 +177,21 @@ async fn get_or_create(caller: &Caller, provider: Provider, entity_id: &str) -> 
         });
     }
     // `throw new Error(`Entity … not found`)`: the route's 500.
-    let Some(resolved) = provider.resolve(&caller.db, &caller.user_id, entity_id).await? else {
+    let Some(resolved) = provider
+        .resolve(&caller.db, &caller.user_id, entity_id)
+        .await?
+    else {
         return Err(ChatError::Database(sqlx::Error::RowNotFound));
     };
     if let Some(deleted) = find_deleted_channel(caller, entity_type, entity_id).await? {
-        let followers = add_followers(&caller.db, &deleted, &initial_followers(caller, entity_type, entity_id, &resolved.default_member_ids).await?, Some(&caller.user_id)).await?;
+        let followers = add_followers(
+            &caller.db,
+            &deleted,
+            &initial_followers(caller, entity_type, entity_id, &resolved.default_member_ids)
+                .await?,
+            Some(&caller.user_id),
+        )
+        .await?;
         sqlx::query(
             "update chat_channels set deleted_at = null, name = $2, entity_display_name = $2,
                 icon = null, updated_at = $3::timestamp where id = $1",
@@ -157,7 +202,9 @@ async fn get_or_create(caller: &Caller, provider: Provider, entity_id: &str) -> 
         .execute(&caller.db)
         .await?;
         return Ok(GetOrCreate {
-            channel: channel_row(&caller.db, &deleted).await?.unwrap_or(Value::Null),
+            channel: channel_row(&caller.db, &deleted)
+                .await?
+                .unwrap_or(Value::Null),
             created: false,
             new_followers: followers,
         });
@@ -179,7 +226,13 @@ async fn get_or_create(caller: &Caller, provider: Provider, entity_id: &str) -> 
     .bind(&at)
     .execute(&caller.db)
     .await?;
-    let followers = add_followers(&caller.db, &id, &initial_followers(caller, entity_type, entity_id, &resolved.default_member_ids).await?, Some(&caller.user_id)).await?;
+    let followers = add_followers(
+        &caller.db,
+        &id,
+        &initial_followers(caller, entity_type, entity_id, &resolved.default_member_ids).await?,
+        Some(&caller.user_id),
+    )
+    .await?;
     Ok(GetOrCreate {
         channel: channel_row(&caller.db, &id).await?.unwrap_or(Value::Null),
         created: true,
@@ -188,7 +241,12 @@ async fn get_or_create(caller: &Caller, provider: Provider, entity_id: &str) -> 
 }
 
 /// `publishEntityEvent(chat_channel, action, { id, name, type })`.
-fn publish_channel_event(state: &ChatState, caller: &Caller, event: weldsuite_catalogs::entity_events::EventName, channel: &Value) {
+fn publish_channel_event(
+    state: &ChatState,
+    caller: &Caller,
+    event: weldsuite_catalogs::entity_events::EventName,
+    channel: &Value,
+) {
     let id = channel["id"].as_str().unwrap_or_default();
     caller.publish(
         state,
@@ -234,7 +292,9 @@ async fn keep_visible(
         let set = match providers.iter().find(|p| p.type_name() == kind) {
             Some(provider) => {
                 let unique = weldsuite_chat_domain::access::unique_ids(&ids);
-                provider.filter_visible(&caller.db, &caller.user_id, can, &unique).await?
+                provider
+                    .filter_visible(&caller.db, &caller.user_id, can, &unique)
+                    .await?
             }
             None => HashSet::new(),
         };
@@ -243,7 +303,8 @@ async fn keep_visible(
     Ok(rows
         .into_iter()
         .filter(|row| {
-            let (Some(kind), Some(id)) = (row["entityType"].as_str(), row["entityId"].as_str()) else {
+            let (Some(kind), Some(id)) = (row["entityType"].as_str(), row["entityId"].as_str())
+            else {
                 return false;
             };
             visible
@@ -271,7 +332,12 @@ fn read_list(issues: &mut Issues, values: &Map<String, Value>) -> ListQuery {
         .into_option()
         .unwrap_or_else(|| "following".to_owned());
     let search = issues
-        .text_with(values, "search", Presence::Optional, Text::trimmed(None, Some(200)))
+        .text_with(
+            values,
+            "search",
+            Presence::Optional,
+            Text::trimmed(None, Some(200)),
+        )
         .into_option();
     let cursor = issues.string(values, "cursor", false, None, Some(30));
     let limit = issues
@@ -323,8 +389,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         }
     }
     let result = async {
-        let context = caller.context_can();
-        let can = context_or_none(&context);
+        let can = caller.context_can();
         let providers = permitted(providers, &can).await?;
         if providers.is_empty() {
             return Ok(list_response(Vec::new(), 0, false, None));
@@ -436,7 +501,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 }
 
 /// `callerState`: following, mute, read cursor and mentions per channel.
-async fn caller_state(caller: &Caller, ids: &[String]) -> Result<Vec<(String, Value)>, sqlx::Error> {
+async fn caller_state(
+    caller: &Caller,
+    ids: &[String],
+) -> Result<Vec<(String, Value)>, sqlx::Error> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -469,8 +537,7 @@ async fn caller_state(caller: &Caller, ids: &[String]) -> Result<Vec<(String, Va
 /// `GET /summary`: per type, followed chats, unread and mentions.
 async fn summary(caller: Caller) -> Response {
     let result = async {
-        let context = caller.context_can();
-        let can = context_or_none(&context);
+        let can = caller.context_can();
         let providers = permitted(entity::record_chat_providers().collect(), &can).await?;
         if providers.is_empty() {
             return Ok(Data(Vec::<Value>::new()).into_response());
@@ -544,7 +611,9 @@ async fn mute(
         Err(error) => return error.respond(""),
     };
     let result = async {
-        let ids = set_followed_channels_muted(&caller.db, &caller.user_id, provider.type_name(), muted).await?;
+        let ids =
+            set_followed_channels_muted(&caller.db, &caller.user_id, provider.type_name(), muted)
+                .await?;
         for id in &ids {
             caller.publish(&state, CHAT_CHANNEL_UPDATED, id, &json!({ "id": id }));
         }
@@ -555,7 +624,10 @@ async fn mute(
 }
 
 /// `GET /:entityType/:entityId/channel`: the chat, or `null` before its first message.
-async fn channel(caller: Caller, Path((entity_type, entity_id)): Path<(String, String)>) -> Response {
+async fn channel(
+    caller: Caller,
+    Path((entity_type, entity_id)): Path<(String, String)>,
+) -> Response {
     let result = async {
         let provider = resolve_access(&caller, &entity_type, &entity_id).await?;
         let channel = find_entity_channel(&caller, provider.type_name(), &entity_id).await?;
@@ -567,7 +639,10 @@ async fn channel(caller: Caller, Path((entity_type, entity_id)): Path<(String, S
 
 /// `GET /:entityType/:entityId/comments`: the comment threads (messages with
 /// `metadata.anchor`), oldest first, then their replies.
-async fn comments(caller: Caller, Path((entity_type, entity_id)): Path<(String, String)>) -> Response {
+async fn comments(
+    caller: Caller,
+    Path((entity_type, entity_id)): Path<(String, String)>,
+) -> Response {
     let result = async {
         let provider = resolve_access(&caller, &entity_type, &entity_id).await?;
         let channel = find_entity_channel(&caller, provider.type_name(), &entity_id).await?;
@@ -612,17 +687,30 @@ async fn comments(caller: Caller, Path((entity_type, entity_id)): Path<(String, 
 }
 
 fn read_send(issues: &mut Issues, body: &Map<String, Value>) -> PostInput {
-    let content = issues.string(body, "content", true, Some(1), None).unwrap_or_default();
+    let content = issues
+        .string(body, "content", true, Some(1), None)
+        .unwrap_or_default();
     let html_content = issues.string(body, "htmlContent", false, None, None);
-    let parent_id = issues.text(body, "parentId", Presence::Nullish, None, None).into_option();
+    let parent_id = issues
+        .text(body, "parentId", Presence::Nullish, None, None)
+        .into_option();
     let mentions = issues
-        .list(body, "mentions", Presence::Optional, None, None, |issues, item| {
-            issues.item_text(item, Text::default())
-        })
+        .list(
+            body,
+            "mentions",
+            Presence::Optional,
+            None,
+            None,
+            |issues, item| issues.item_text(item, Text::default()),
+        )
         .into_option();
     let _ = issues.boolean(body, "mentionsEveryone", Presence::Optional);
-    let attachments = issues.records(body, "attachments", Presence::Optional).into_option();
-    let metadata = match issues.nested(body, "metadata", Presence::Optional, |_, fields| fields.clone()) {
+    let attachments = issues
+        .records(body, "attachments", Presence::Optional)
+        .into_option();
+    let metadata = match issues.nested(body, "metadata", Presence::Optional, |_, fields| {
+        fields.clone()
+    }) {
         Field::Set(fields) => Some(Value::Object(fields)),
         _ => None,
     };
@@ -641,16 +729,30 @@ fn read_send(issues: &mut Issues, body: &Map<String, Value>) -> PostInput {
 /// `extractChatMentions(content, extra)`: user and agent ids.
 fn extract_chat_mentions(content: &str, extra: &[String]) -> Vec<String> {
     const SEARCH_ENTITY_TYPES: [&str; 14] = [
-        "contact", "customer", "lead", "opportunity", "ticket", "article", "product", "order",
-        "invoice", "bill", "project", "task", "sheet", "domain",
+        "contact",
+        "customer",
+        "lead",
+        "opportunity",
+        "ticket",
+        "article",
+        "product",
+        "order",
+        "invoice",
+        "bill",
+        "project",
+        "task",
+        "sheet",
+        "domain",
     ];
     let mut found: Vec<String> = extra.to_vec();
     for body in mention_bodies(content) {
-        let (id, had_colon) = body.split_once(':').map_or((body.as_str(), false), |(id, _)| (id, true));
+        let (id, had_colon) = body
+            .split_once(':')
+            .map_or((body.as_str(), false), |(id, _)| (id, true));
         if !id.is_empty()
             && id != "everyone"
             && !id.starts_with("entity:")
-            && !(had_colon && SEARCH_ENTITY_TYPES.contains(&id))
+            && (!had_colon || !SEARCH_ENTITY_TYPES.contains(&id))
             && !found.iter().any(|f| f == id)
         {
             found.push(id.to_owned());
@@ -660,14 +762,22 @@ fn extract_chat_mentions(content: &str, extra: &[String]) -> Vec<String> {
 }
 
 /// `addMentionedAgents`: agents tagged in a record chat join it.
-async fn add_mentioned_agents(caller: &Caller, state: &ChatState, channel_id: &str, input: &PostInput) -> ChatResult<()> {
+async fn add_mentioned_agents(
+    caller: &Caller,
+    state: &ChatState,
+    channel_id: &str,
+    input: &PostInput,
+) -> ChatResult<()> {
     if !caller.can("weldagent:use") {
         return Ok(());
     }
-    let mentioned: Vec<String> = extract_chat_mentions(&input.content, input.mentions.as_deref().unwrap_or_default())
-        .into_iter()
-        .filter(|id| id.starts_with("agt_"))
-        .collect();
+    let mentioned: Vec<String> = extract_chat_mentions(
+        &input.content,
+        input.mentions.as_deref().unwrap_or_default(),
+    )
+    .into_iter()
+    .filter(|id| id.starts_with("agt_"))
+    .collect();
     if mentioned.is_empty() {
         return Ok(());
     }
@@ -677,13 +787,25 @@ async fn add_mentioned_agents(caller: &Caller, state: &ChatState, channel_id: &s
     .bind(channel_id)
     .fetch_all(&caller.db)
     .await?;
-    let candidates: Vec<String> = mentioned.into_iter().filter(|id| !existing.contains(id)).collect();
+    let candidates: Vec<String> = mentioned
+        .into_iter()
+        .filter(|id| !existing.contains(id))
+        .collect();
     if candidates.is_empty() {
         return Ok(());
     }
-    let viewer = agent_viewer_for(&caller.user_id, caller.permissions.as_ref().map(|p| p.resolved()));
+    let viewer = agent_viewer_for(
+        &caller.user_id,
+        caller
+            .permissions
+            .as_ref()
+            .map(weldsuite_permissions::Permissions::resolved),
+    );
     let blocked = inaccessible_agent_ids(&caller.db, &candidates, &viewer).await?;
-    let allowed: Vec<String> = candidates.into_iter().filter(|id| !blocked.contains(id)).collect();
+    let allowed: Vec<String> = candidates
+        .into_iter()
+        .filter(|id| !blocked.contains(id))
+        .collect();
     if allowed.is_empty() {
         return Ok(());
     }
@@ -718,10 +840,12 @@ async fn send(
     let mut channel_id: Option<String> = None;
     let result: ChatResult<Response> = async {
         let provider = resolve_access(&caller, &entity_type, &entity_id).await?;
-        let context = caller.context_can();
-        let can = context_or_none(&context);
-        if !can_post_in_record_chat(provider, &caller.db, &caller.user_id, &entity_id, &can).await? {
-            return Err(ChatError::forbidden("You may read this chat but not write in it"));
+        let can = caller.context_can();
+        if !can_post_in_record_chat(provider, &caller.db, &caller.user_id, &entity_id, &can).await?
+        {
+            return Err(ChatError::forbidden(
+                "You may read this chat but not write in it",
+            ));
         }
         let got = get_or_create(&caller, provider, &entity_id).await?;
         let id = got.channel["id"].as_str().unwrap_or_default().to_owned();
@@ -737,12 +861,21 @@ async fn send(
             Err(PostError::Database(error)) => return Err(ChatError::Database(error)),
         };
         let name = got.channel["name"].as_str().unwrap_or_default().to_owned();
-        announce_new_followers(&Caller::realtime(&state), &org, &id, &name, &got.new_followers).await;
+        announce_new_followers(
+            &Caller::realtime(&state),
+            &org,
+            &id,
+            &name,
+            &got.new_followers,
+        )
+        .await;
         if got.created {
             publish_channel_event(&state, &caller, CHAT_CHANNEL_CREATED, &got.channel);
         }
-        Ok(Created(json!({ "channel": got.channel, "message": message, "createdChannel": got.created }))
-            .into_response())
+        Ok(Created(
+            json!({ "channel": got.channel, "message": message, "createdChannel": got.created }),
+        )
+        .into_response())
     }
     .await;
     answer(result, "Failed to post entity message")
@@ -762,7 +895,8 @@ async fn follow(
         let provider = resolve_access(&caller, &entity_type, &entity_id).await?;
         let got = get_or_create(&caller, provider, &entity_id).await?;
         let id = got.channel["id"].as_str().unwrap_or_default().to_owned();
-        let added = add_followers(&caller.db, &id, std::slice::from_ref(&caller.user_id), None).await?;
+        let added =
+            add_followers(&caller.db, &id, std::slice::from_ref(&caller.user_id), None).await?;
         let mut announced: Vec<String> = Vec::new();
         for user in got.new_followers.iter().chain(added.iter()) {
             if !announced.contains(user) {
@@ -777,8 +911,10 @@ async fn follow(
         if got.created || !added.is_empty() {
             publish_channel_event(&state, &caller, CHAT_CHANNEL_JOINED, &got.channel);
         }
-        Ok(Data(json!({ "channel": got.channel, "following": true, "createdChannel": got.created }))
-            .into_response())
+        Ok(Data(
+            json!({ "channel": got.channel, "following": true, "createdChannel": got.created }),
+        )
+        .into_response())
     }
     .await;
     answer(result, "Failed to follow entity channel")
@@ -797,7 +933,9 @@ async fn unfollow(
         if let Some(channel) = find_entity_channel(&caller, &entity_type, &entity_id).await? {
             let id = channel["id"].as_str().unwrap_or_default().to_owned();
             if remove_follower(&caller.db, &id, &caller.user_id).await? {
-                Caller::realtime(&state).member(&id, &caller.user_id, "left").await;
+                Caller::realtime(&state)
+                    .member(&id, &caller.user_id, "left")
+                    .await;
                 publish_channel_event(&state, &caller, CHAT_CHANNEL_LEFT, &channel);
             }
         }
@@ -808,7 +946,10 @@ async fn unfollow(
 }
 
 /// `GET /:entityType/:entityId/detail`: the record panel.
-async fn detail(caller: Caller, Path((entity_type, entity_id)): Path<(String, String)>) -> Response {
+async fn detail(
+    caller: Caller,
+    Path((entity_type, entity_id)): Path<(String, String)>,
+) -> Response {
     if let Some(provider) = entity::provider(&entity_type)
         && matches!(provider, Provider::Company | Provider::Person)
     {

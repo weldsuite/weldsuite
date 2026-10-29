@@ -38,7 +38,12 @@ fn filter_types(filter: &str) -> Vec<String> {
         "mentions" => &["chat_mention"],
         "replies" => &["chat_thread_reply"],
         "dms" => &["chat_dm"],
-        _ => &["chat_mention", "chat_dm", "chat_thread_reply", "chat_missed_call"],
+        _ => &[
+            "chat_mention",
+            "chat_dm",
+            "chat_thread_reply",
+            "chat_missed_call",
+        ],
     };
     types.iter().map(|t| (*t).to_owned()).collect()
 }
@@ -47,7 +52,9 @@ fn filter_types(filter: &str) -> Vec<String> {
 fn decode_cursor(cursor: &str) -> Option<(String, String)> {
     let bytes = STANDARD
         .decode(cursor.trim_end_matches('='))
-        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(cursor.trim_end_matches('=')))
+        .or_else(|_| {
+            base64::engine::general_purpose::STANDARD_NO_PAD.decode(cursor.trim_end_matches('='))
+        })
         .ok()?;
     let value: Value = serde_json::from_slice(&bytes).ok()?;
     let created = value["createdAt"].as_str()?;
@@ -143,24 +150,43 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         };
         let items: Vec<Value> = rows
             .into_iter()
-            .map(|(id, kind, title, body, entity_type, entity_id, actor, action, read_at, created_at, channel_id, channel_name)| {
-                let message_id = if entity_type.as_deref() == Some("message") { entity_id } else { None };
-                json!({
-                    "id": id,
-                    "type": kind,
-                    "title": title,
-                    "body": body,
-                    "channelId": channel_id,
-                    "channelName": channel_name,
-                    "messageId": message_id,
-                    "actorId": actor,
-                    "actorName": null,
-                    "actorAvatarUrl": null,
-                    "actionUrl": action,
-                    "readAt": read_at.map(|at| ms_timestamp(&at)),
-                    "createdAt": ms_timestamp(&created_at),
-                })
-            })
+            .map(
+                |(
+                    id,
+                    kind,
+                    title,
+                    body,
+                    entity_type,
+                    entity_id,
+                    actor,
+                    action,
+                    read_at,
+                    created_at,
+                    channel_id,
+                    channel_name,
+                )| {
+                    let message_id = if entity_type.as_deref() == Some("message") {
+                        entity_id
+                    } else {
+                        None
+                    };
+                    json!({
+                        "id": id,
+                        "type": kind,
+                        "title": title,
+                        "body": body,
+                        "channelId": channel_id,
+                        "channelName": channel_name,
+                        "messageId": message_id,
+                        "actorId": actor,
+                        "actorName": null,
+                        "actorAvatarUrl": null,
+                        "actionUrl": action,
+                        "readAt": read_at.map(|at| ms_timestamp(&at)),
+                        "createdAt": ms_timestamp(&created_at),
+                    })
+                },
+            )
             .collect();
         Ok(list_response(items, total, has_more, next))
     }

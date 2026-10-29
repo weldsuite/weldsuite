@@ -35,13 +35,14 @@ pub(crate) async fn can_write_project(
     if deleted {
         return Ok(false);
     }
-    let is_manager = manager.as_deref().is_some_and(|m| !m.is_empty() && m == user_id);
+    let is_manager = manager
+        .as_deref()
+        .is_some_and(|m| !m.is_empty() && m == user_id);
     let project_role = member_role
         .map(|role| role.unwrap_or_default().to_lowercase())
         .filter(|role| !role.is_empty());
     let role = project_role.or_else(|| is_manager.then(|| "owner".to_owned()));
-    let is_admin =
-        scope_all || is_manager || matches!(role.as_deref(), Some("owner" | "admin"));
+    let is_admin = scope_all || is_manager || matches!(role.as_deref(), Some("owner" | "admin"));
     Ok(is_admin || role.as_deref() == Some("member"))
 }
 
@@ -83,10 +84,7 @@ pub(crate) async fn project_stats(db: &PgPool, project_id: &str) -> Result<Value
     let progress = if countable <= 0 {
         "0.00".to_owned()
     } else {
-        format!(
-            "{:.2}",
-            f64::from(completed) / f64::from(countable) * 100.0
-        )
+        format!("{:.2}", f64::from(completed) / f64::from(countable) * 100.0)
     };
     let minutes: f64 = minutes
         .flatten()

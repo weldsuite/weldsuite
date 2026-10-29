@@ -62,8 +62,8 @@ impl Caller {
 
     /// The request's permissions as a [`Can`] (`{ can: (p) => hasContextPermission(c, p) }`).
     /// Without resolved permissions every check fails, as TypeScript's does.
-    pub fn context_can(&self) -> Option<Can<'_>> {
-        self.permissions.as_ref().map(Can::Context)
+    pub fn context_can(&self) -> Can<'_> {
+        self.permissions.as_ref().map_or(Can::Denied, Can::Context)
     }
 
     /// `orgId` or the 400 `error.orgRequired(c)`.
@@ -230,13 +230,13 @@ impl From<ApiError> for ChatError {
 pub type ChatResult<T> = Result<T, ChatError>;
 
 /// The route's answer, or its failure with `fallback` as the 500's message.
-pub fn answer(result: ChatResult<Response>, fallback: &str) -> Response {
+pub(crate) fn answer(result: ChatResult<Response>, fallback: &str) -> Response {
     result.unwrap_or_else(|error| error.respond(fallback))
 }
 
 /// A database error outside the route's own try/catch: Hono's error
 /// handler answers 500 with its default message.
-pub fn unhandled(error: ChatError) -> Response {
+pub(crate) fn unhandled(error: ChatError) -> Response {
     match error {
         ChatError::Response(response) => *response,
         ChatError::Database(error) => {
@@ -247,7 +247,7 @@ pub fn unhandled(error: ChatError) -> Response {
 }
 
 /// `zValidator('json', schema)`: the body read by `read`, or the 400.
-pub fn validate<T>(
+pub(crate) fn validate<T>(
     headers: &HeaderMap,
     body: &Bytes,
     read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
@@ -266,7 +266,7 @@ pub fn validate<T>(
 }
 
 /// `zValidator('query', schema)`.
-pub fn validate_query<T>(
+pub(crate) fn validate_query<T>(
     query: Option<&str>,
     read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
 ) -> ChatResult<T> {

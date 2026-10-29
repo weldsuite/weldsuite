@@ -9,18 +9,18 @@ use weldsuite_chat_domain::entity::{self, can_post_in_record_chat};
 use weldsuite_chat_domain::policy::parse_agent_room_policy;
 use weldsuite_chat_domain::publish::object;
 use weldsuite_chat_domain::text::{
-    build_message_preview, build_reply_reference, js_len, js_prefix, js_trim,
-    mention_bodies, read_reply_reference,
+    build_message_preview, build_reply_reference, js_len, js_prefix, js_trim, mention_bodies,
+    read_reply_reference,
 };
 use weldsuite_chat_domain::{Can, Realtime};
 use weldsuite_kit::generate_id;
-use weldsuite_notifications::{create_and_deliver, chat as notify};
+use weldsuite_notifications::{chat as notify, create_and_deliver};
 use weldsuite_ports::JobRequest;
 
 use crate::ChatState;
 use crate::access::Caller;
 use crate::followers::{announce_new_followers, follow_record_chat_on_post};
-use crate::util::{ms_timestamp, now};
+use crate::util::now;
 
 /// Most files one message may carry.
 pub(crate) const MAX_MESSAGE_ATTACHMENTS: usize = 10;
@@ -340,7 +340,15 @@ pub(crate) async fn post_chat_message(
     }
     let mut reply_mentions: Vec<String> = Vec::new();
     if let Some(reply_to) = input.reply_to_id.as_deref().filter(|r| !r.is_empty()) {
-        type Target = (String, String, String, Option<String>, String, bool, Option<Value>);
+        type Target = (
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            bool,
+            Option<Value>,
+        );
         let target: Option<Target> = sqlx::query_as(
             "select id, author_id, author_name, author_avatar, content, has_attachments, metadata
              from chat_messages where id = $1 and channel_id = $2 and deleted_at is null limit 1",
@@ -391,8 +399,7 @@ pub(crate) async fn post_chat_message(
     }
     let mentions_everyone = all_mentions.iter().any(|m| m == "everyone");
     let attachments_json = input.attachments.clone().map(Value::Array);
-    let mentions_json =
-        (!all_mentions.is_empty()).then(|| Value::from(all_mentions.clone()));
+    let mentions_json = (!all_mentions.is_empty()).then(|| Value::from(all_mentions.clone()));
     sqlx::query(
         "insert into chat_messages
             (id, channel_id, author_id, author_name, author_avatar, content, html_content,
@@ -418,25 +425,32 @@ pub(crate) async fn post_chat_message(
     .await?;
 
     let preview = build_message_preview(db, &input.content).await;
-    let channel: Option<(String, String, Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "update chat_channels set last_message_at = $2::timestamp, last_message_preview = $3,
+    let channel: Option<(
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    )> = sqlx::query_as(
+        "update chat_channels set last_message_at = $2::timestamp, last_message_preview = $3,
                 message_count = message_count + 1, updated_at = $2::timestamp
              where id = $1
              returning type, name, entity_type, entity_id, entity_display_name",
-        )
-        .bind(channel_id)
-        .bind(&at)
-        .bind(&preview)
-        .fetch_optional(db)
-        .await?;
-    let channel = channel.map(|(kind, name, entity_type, entity_id, entity_display_name)| ChannelRef {
-        kind,
-        name,
-        entity_type,
-        entity_id,
-        entity_display_name,
-    });
+    )
+    .bind(channel_id)
+    .bind(&at)
+    .bind(&preview)
+    .fetch_optional(db)
+    .await?;
+    let channel = channel.map(
+        |(kind, name, entity_type, entity_id, entity_display_name)| ChannelRef {
+            kind,
+            name,
+            entity_type,
+            entity_id,
+            entity_display_name,
+        },
+    );
 
     if let Some(channel) = &channel
         && let (Some(entity_type), Some(entity_id)) =
@@ -470,8 +484,15 @@ pub(crate) async fn post_chat_message(
             .filter(|m| is_notifiable_mention(m, author_id))
             .cloned()
             .collect();
-        match follow_record_chat_on_post(db, channel_id, entity_type, entity_id, author_id, &mentioned)
-            .await
+        match follow_record_chat_on_post(
+            db,
+            channel_id,
+            entity_type,
+            entity_id,
+            author_id,
+            &mentioned,
+        )
+        .await
         {
             Ok(added) => new_followers = added,
             Err(error) => tracing::error!(%error, "[app-api/chat] record chat follow failed"),
@@ -492,26 +513,30 @@ pub(crate) async fn post_chat_message(
     let notifier = caller.notifier(state);
     if let Some(parent) = input.parent_id.as_deref().filter(|p| !p.is_empty()) {
         notify_thread_reply(
-            db, &realtime, &notifier, org_id, channel_id, author_id, &author_name, &id, &preview,
-            parent, &at,
+            db,
+            &realtime,
+            &notifier,
+            org_id,
+            channel_id,
+            author_id,
+            &author_name,
+            &id,
+            &preview,
+            parent,
+            &at,
         )
         .await?;
     }
 
-    let message: Value = sqlx::query_scalar(
-        "select to_jsonb(m) from chat_messages m where m.id = $1 limit 1",
-    )
-    .bind(&id)
-    .fetch_optional(db)
-    .await?
-    .map(weldsuite_db::js_row)
-    .unwrap_or(Value::Null);
+    let message: Value =
+        sqlx::query_scalar("select to_jsonb(m) from chat_messages m where m.id = $1 limit 1")
+            .bind(&id)
+            .fetch_optional(db)
+            .await?
+            .map_or(Value::Null, weldsuite_db::js_row);
 
     if realtime.is_on() {
-        let reply = metadata
-            .as_ref()
-            .and_then(read_reply_reference)
-            .cloned();
+        let reply = metadata.as_ref().and_then(read_reply_reference).cloned();
         realtime
             .message(
                 channel_id,
@@ -525,9 +550,16 @@ pub(crate) async fn post_chat_message(
                     ("authorType", Some(Value::from("user"))),
                     (
                         "threadId",
-                        input.parent_id.clone().filter(|p| !p.is_empty()).map(Value::from),
+                        input
+                            .parent_id
+                            .clone()
+                            .filter(|p| !p.is_empty())
+                            .map(Value::from),
                     ),
-                    ("attachments", realtime_attachments(input.attachments.as_ref())),
+                    (
+                        "attachments",
+                        realtime_attachments(input.attachments.as_ref()),
+                    ),
                     ("replyTo", reply),
                 ]),
             )
@@ -541,11 +573,29 @@ pub(crate) async fn post_chat_message(
     }
 
     if input.parent_id.as_deref().is_none_or(str::is_empty) {
-        notify_dm_recipients(db, &notifier, org_id, channel_id, author_id, &author_name, &preview, &all_mentions).await;
+        notify_dm_recipients(
+            db,
+            &notifier,
+            org_id,
+            channel_id,
+            author_id,
+            &author_name,
+            &preview,
+            &all_mentions,
+        )
+        .await;
     }
 
     notify_mentioned_users(
-        db, &realtime, &notifier, org_id, channel_id, author_id, &author_name, &id, &preview,
+        db,
+        &realtime,
+        &notifier,
+        org_id,
+        channel_id,
+        author_id,
+        &author_name,
+        &id,
+        &preview,
         &all_mentions,
     )
     .await;
@@ -554,8 +604,16 @@ pub(crate) async fn post_chat_message(
         fan_out_unread_updates(db, &realtime, org_id, channel_id, author_id).await;
     }
 
-    dispatch_agent_room_replies(caller, state, org_id, channel_id, &id, &input.content, &all_mentions)
-        .await?;
+    dispatch_agent_room_replies(
+        caller,
+        state,
+        org_id,
+        channel_id,
+        &id,
+        &input.content,
+        &all_mentions,
+    )
+    .await?;
 
     Ok(message)
 }
@@ -626,7 +684,14 @@ async fn notify_thread_reply(
     }
     for participant in others {
         let params = notify::thread_reply(
-            org_id, participant, author_id, author_name, channel_id, parent_id, message_id, preview,
+            org_id,
+            participant,
+            author_id,
+            author_name,
+            channel_id,
+            parent_id,
+            message_id,
+            preview,
         );
         if let Err(error) = create_and_deliver(db, notifier, &params).await {
             tracing::error!(%error, "[app-api/chat] thread reply notification failed");
@@ -661,9 +726,10 @@ async fn notify_dm_recipients(
                 .bind(channel_id)
                 .fetch_all(db)
                 .await?;
-        for member in members.iter().filter(|m| {
-            *m != author_id && !all_mentions.contains(m) && !m.starts_with("agt_")
-        }) {
+        for member in members
+            .iter()
+            .filter(|m| *m != author_id && !all_mentions.contains(m) && !m.starts_with("agt_"))
+        {
             let params = notify::dm(org_id, member, author_id, author_name, channel_id, preview);
             if let Err(error) = create_and_deliver(db, notifier, &params).await {
                 tracing::error!(%error, "[app-api/chat] DM notification failed");
@@ -724,7 +790,13 @@ async fn notify_mentioned_users(
     }
     for mentioned in notifiable {
         let params = notify::mention(
-            org_id, mentioned, author_id, author_name, channel_id, message_id, preview,
+            org_id,
+            mentioned,
+            author_id,
+            author_name,
+            channel_id,
+            message_id,
+            preview,
         );
         if let Err(error) = create_and_deliver(db, notifier, &params).await {
             tracing::error!(%error, "[app-api/chat] mention notification failed");
@@ -752,7 +824,9 @@ async fn fan_out_unread_updates(
                 if user_id == author_id || member_type == "agent" {
                     continue;
                 }
-                realtime.unread_update(org_id, &user_id, channel_id, 1).await;
+                realtime
+                    .unread_update(org_id, &user_id, channel_id, 1)
+                    .await;
             }
         }
         Err(error) => tracing::error!(%error, "[app-api/chat] unread fan-out failed"),
@@ -808,9 +882,4 @@ async fn dispatch_agent_room_replies(
         tracing::error!(%error, "[app-api/chat] agent mention dispatch failed");
     }
     Ok(())
-}
-
-/// A row's `created_at` at milliseconds, for keyset cursors.
-pub(crate) fn cursor_time(text: &str) -> String {
-    ms_timestamp(text)
 }

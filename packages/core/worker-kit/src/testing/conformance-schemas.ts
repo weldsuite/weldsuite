@@ -505,7 +505,6 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/channel-members/:id', envelope: 'single', data: chatChannelMemberRowSchema },
   { method: 'POST', route: '/api/channel-members', envelope: 'single', data: chatIdSchema },
   { method: 'PATCH', route: '/api/channel-members/:id', envelope: 'single', data: chatIdSchema },
-  // chat (chat-api)
   { method: 'GET', route: '/api/chat-bookmarks', envelope: 'list', data: chatBookmarkSchema },
   { method: 'GET', route: '/api/chat-bookmarks/:id', envelope: 'single', data: chatBookmarkSchema },
   { method: 'POST', route: '/api/chat-bookmarks', envelope: 'single', data: chatBookmarkCreatedSchema },
@@ -521,7 +520,6 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/chat-status', envelope: 'array', data: chatMemberStatusSchema },
   { method: 'PUT', route: '/api/chat-status', envelope: 'single', data: chatStatusSetSchema },
   { method: 'DELETE', route: '/api/chat-status', envelope: 'single', data: chatStatusClearedSchema },
-  // chat (chat-api)
   { method: 'GET', route: '/api/chat-messages', envelope: 'list', data: chatMessageRowSchema },
   { method: 'GET', route: '/api/chat-messages/pinned', envelope: 'array', data: chatMessageRowSchema },
   { method: 'GET', route: '/api/chat-messages/:id', envelope: 'single', data: chatMessageRowSchema },
@@ -532,7 +530,6 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/chat-messages/:id/pin', envelope: 'single', data: chatPinResultSchema },
   { method: 'DELETE', route: '/api/chat-messages/:id/pin', envelope: 'single', data: chatPinResultSchema },
   { method: 'POST', route: '/api/chat-messages/upload', envelope: 'single', data: chatUploadSchema },
-  // chat (chat-api)
   { method: 'GET', route: '/api/chat-activity', envelope: 'list', data: chatActivityItemSchema },
   { method: 'GET', route: '/api/chat-activity/unread-count', envelope: 'single', data: chatUnreadCountSchema },
   { method: 'GET', route: '/api/chat-dm', envelope: 'array', data: chatDmChannelSchema },
@@ -543,7 +540,6 @@ const ROUTES: RouteSchema[] = [
   { method: 'PATCH', route: '/api/chat-dm/:channelId/pin', envelope: 'single', data: chatDmPinnedSchema },
   { method: 'GET', route: '/api/chat-directories/channels', envelope: 'array', data: chatDirectoryChannelSchema },
   { method: 'GET', route: '/api/chat-search', envelope: 'single', data: chatSearchResultSchema },
-  // chat (chat-api)
   { method: 'GET', route: '/api/chat-entity-channels', envelope: 'list', data: chatRecordChatSchema },
   { method: 'GET', route: '/api/chat-entity-channels/summary', envelope: 'array', data: chatRecordChatSummarySchema },
   { method: 'PATCH', route: '/api/chat-entity-channels/:entityType/mute', envelope: 'single', data: chatRecordChatsMutedSchema },
@@ -600,7 +596,6 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/weldpass/vaults/:vaultId/items/:itemId/versions', envelope: 'array', data: weldpassItemVersionSchema },
   { method: 'POST', route: '/api/weldpass/vaults/:vaultId/items/:itemId/restore', envelope: 'single', data: weldpassItemSchema },
   { method: 'POST', route: '/api/weldpass/vaults/:vaultId/items/:itemId/move', envelope: 'single', data: weldpassItemSchema },
-  // chat (chat-api)
   { method: 'POST', route: '/api/chat-clips/:channelId', envelope: 'single', data: chatClipTranscribingSchema },
   { method: 'PATCH', route: '/api/chat-clips/:channelId/:messageId/transcript', envelope: 'single', data: chatClipTranscriptSchema },
 ];
