@@ -55,6 +55,12 @@ import { maskVolatile } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 import {
+  type WorkflowCall,
+  recordTypeScriptWorkflowCalls,
+  takeRustWorkflowCalls,
+  workflowUrls,
+} from './workflow-bridge';
+import {
   type LedgerCall,
   ledgerUrls,
   recordTypeScriptLedgerCalls,
@@ -173,6 +179,8 @@ export interface SideEffects {
   sendEmail?: SendRecord[];
   /** Calls to the outbound guard's ledgers (./ledger-bridge.ts). */
   ledger?: LedgerCall[];
+  /** Calls to Workflow bindings (`EXECUTE_SEQUENCE`, ./workflow-bridge.ts). */
+  workflows?: WorkflowCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -634,6 +642,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     // Customer mail through its `SEND_EMAIL` stub, guard calls to its ledgers.
     sendEmail: await sendEmailUrl(env),
     ledgers: await ledgerUrls(env),
+    // Its Workflow bindings (runs started and woken).
+    workflows: await workflowUrls(env),
   };
 }
 
@@ -666,6 +676,7 @@ async function runBoth(
   takeRustOutbound();
   takeRustSends();
   takeRustLedgerCalls();
+  takeRustWorkflowCalls();
 
   // The Hono app's run, its `waitUntil` work included, with its outbound calls,
   // its customer mail and its ledger calls.
@@ -673,9 +684,10 @@ async function runBoth(
     const base = env ?? request.env;
     const sends = recordTypeScriptSends(base);
     const ledger = recordTypeScriptLedgerCalls(sends.env);
+    const workflows = recordTypeScriptWorkflowCalls(ledger.env);
     const { result, calls } = await recordOutbound(async () => {
       // The test's own env when there was nothing to wrap, as before.
-      const ts = await runTypeScript(db, ledger.env === base ? env : ledger.env);
+      const ts = await runTypeScript(db, workflows.env === base ? env : workflows.env);
       return { ts, effects: await request.sideEffects.drain() };
     });
     return {
@@ -684,6 +696,7 @@ async function runBoth(
         ...result.effects,
         outbound: sortOutbound(calls),
         ...mailEffects(sends.finish(), ledger.finish()),
+        ...workflowEffects(workflows.finish()),
       },
       tsMail: request.sideEffects.lastMail(),
     };
@@ -698,6 +711,7 @@ async function runBoth(
         ...side.effects,
         outbound: sortOutbound(takeRustOutbound()),
         ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
+        ...workflowEffects(takeRustWorkflowCalls()),
       },
       rustMail: side.mail,
     };
@@ -734,6 +748,17 @@ function mailEffects(sends: SendRecord[], calls: LedgerCall[]): Pick<SideEffects
     ...(sends.length > 0 ? { sendEmail: sortSends(sends) } : {}),
     ...(calls.length > 0 ? { ledger: sortLedgerCalls(calls) } : {}),
   };
+}
+
+/**
+ * Workflow binding calls as a side effect, present only when there were any,
+ * sorted by their normalised form: concurrent starts land in any order, and
+ * an enrollment's id is new per run.
+ */
+function workflowEffects(calls: WorkflowCall[]): Pick<SideEffects, 'workflows'> {
+  if (calls.length === 0) return {};
+  const key = (call: WorkflowCall) => JSON.stringify(normalizeForDiff(call, true));
+  return { workflows: [...calls].sort((a, b) => key(a).localeCompare(key(b))) };
 }
 
 /** Where the two runs differ: status, body, then side effects; null when they match. */

@@ -563,6 +563,16 @@ impl Issues {
             .push(json!({ "code": "custom", "message": message, "path": path }));
     }
 
+    /// `z.object({...}).refine(check, message)` failing: a `custom` issue
+    /// at the object's own path (`[]` for the body). Zod runs the refinement
+    /// only when no field failed its type check (a `.min()` failing does not
+    /// stop it).
+    pub fn custom_here(&mut self, message: &str) {
+        let path = self.path_at(None);
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
     /// `z.discriminatedUnion(key, [...])` given an object whose `key` is not
     /// one of `options` (missing included): Zod's only issue for it, at the
     /// discriminator's path. Read the union with [`Issues::nested`] (or

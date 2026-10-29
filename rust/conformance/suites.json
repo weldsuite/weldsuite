@@ -644,6 +644,23 @@
         "rust/modules/crm/",
         "rust/crates/crm-domain/"
       ]
+    },
+    {
+      "name": "crm: sequences",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/sequences/integration.test.ts",
+        "src/routes/sequences/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/sequences/",
+        "packages/clients/core-api-client/src/schemas/sequences.ts",
+        "packages/core/worker-kit/src/testing/workflow-bridge.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/",
+        "rust/bins/weldsuite/src/conformance_workflows.rs"
+      ]
     }
   ]
 }

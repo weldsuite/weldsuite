@@ -192,6 +192,20 @@ templates).
   built; one run per key (the Workflow instance id), one `step` per `step.do`
   with its retries. Conformance builds run jobs in the process, on the tracker
   `/__conformance/side-effects` waits for.
+- `step.sleep(name, ms)` is `JobContext::sleep` (a durable timer on
+  Restate). `step.waitForEvent(name, { type, timeout })` with a route's
+  `instance.sendEvent({ type })` is `JobContext::wait_for_signal` and
+  `Jobs::signal(job, key, type)`: a signal that finds no parked wait is kept
+  for an hour, and a timeout answers `false`, not an error.
+  `weldsuite_crm_domain::sequence_run::ExecuteSequenceJob` is the example.
+- A route that calls a Workflow binding itself (`env.X.create`, `get`,
+  `sendEvent`) reaches the test's fake in conformance through
+  `workflow-bridge.ts` (add the binding to `WORKFLOW_BINDINGS`; Rust side
+  `conformance_workflows.rs`, which inserts the request's binding, or none),
+  and both runs' calls are compared as `workflows` side effects. The
+  TypeScript run calls the fake's implementations without its mocks
+  recording them, so the test's assertions see Rust's calls; a fake must
+  answer by method and id, never by call order.
 - A Workflow that opens with `step.sleepUntil(date)` is a delayed start, at
   the `create()` call that TypeScript makes: `JobRequest::with_delay` /
   `starting_at`. Restate holds the invocation durably until it is due; the
