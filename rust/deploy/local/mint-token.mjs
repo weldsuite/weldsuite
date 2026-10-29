@@ -9,6 +9,7 @@
 // - .local/weldsuite-local.postman_environment.json: baseUrl, and Clerk-shaped
 //   session tokens for the seeded admin and member (seed/tenant.sql), valid for
 //   [days] (default 30). Import it into Postman next to the collection.
+// - .local/admin-token.txt and .local/member-token.txt: the same two tokens.
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -59,7 +60,14 @@ const environment = {
 };
 const envPath = path.join(here, '.local', 'weldsuite-local.postman_environment.json');
 writeFileSync(envPath, JSON.stringify(environment, null, 2));
+// The same tokens as plain text, to paste into Postman's Bearer Token field.
+const adminPath = path.join(here, '.local', 'admin-token.txt');
+const memberPath = path.join(here, '.local', 'member-token.txt');
+writeFileSync(adminPath, admin);
+writeFileSync(memberPath, member);
 
 console.log(`key:         ${path.join(keys, 'jwks.json')} (the server reads this)`);
 console.log(`environment: ${envPath}`);
-console.log(`tokens for user_admin and user_member, valid until ${new Date(exp * 1000).toISOString()}`);
+console.log(`admin token: ${adminPath}`);
+console.log(`member token: ${memberPath}`);
+console.log(`valid until ${new Date(exp * 1000).toISOString()}`);
