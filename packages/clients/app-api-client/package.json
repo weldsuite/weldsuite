@@ -66,6 +66,8 @@
     "./schemas/search": "./src/schemas/search.ts",
     "./schemas/workspace-settings": "./src/schemas/workspace-settings.ts",
     "./schemas/workspace-slug": "./src/schemas/workspace-slug.ts",
+    "./schemas/workspaces": "./src/schemas/workspaces.ts",
+    "./schemas/invitations": "./src/schemas/invitations.ts",
     "./schemas/vat-number": "./src/schemas/vat-number.ts",
     "./schemas/auth-desktop": "./src/schemas/auth-desktop.ts",
     "./schemas/commerce-portal": "./src/schemas/commerce-portal.ts",
