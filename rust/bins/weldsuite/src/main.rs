@@ -22,7 +22,7 @@ use std::sync::atomic::AtomicBool;
 use weldsuite_auth::{ClerkVerifier, SessionVerifier};
 use weldsuite_db::{Workspaces, master_pool};
 
-use crate::config::{ClerkKey, Config};
+use crate::config::{AuthConfig, ClerkKey, Config};
 use crate::server::{AppState, router, shutdown_signal};
 
 const USAGE: &str = "\
@@ -95,13 +95,8 @@ fn serve() -> ExitCode {
 }
 
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let parties = config.authorized_parties.clone();
-    let verifier: SessionVerifier = match &config.clerk_key {
-        ClerkKey::Pem(pem) => ClerkVerifier::from_pem(pem, parties.as_deref())?.into(),
-        ClerkKey::Jwks(jwks) => ClerkVerifier::from_jwks(jwks, parties.as_deref())?.into(),
-        ClerkKey::JwksUrl(url) => SessionVerifier::remote(url.clone(), None, parties)?,
-        ClerkKey::SecretKey(secret) => SessionVerifier::clerk_backend_api(secret.clone(), parties)?,
-    };
+    let (verifier, public_auth) = session_verifier(&config.auth)?;
+    tracing::info!(provider = verifier.provider(), "sign-in");
 
     // Lazy: the pod starts and reports not-ready until the database answers,
     // instead of crash-looping while it comes up.
@@ -131,6 +126,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         permissions: AppState::permission_gate(config.permissions_app_enforce),
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
+        public_auth,
         #[cfg(feature = "conformance")]
         recorders,
     };
@@ -159,6 +155,47 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// The session verifier for the configured provider, and what `/config.json`
+/// tells the frontends about sign-in (nothing for Clerk, whose frontends
+/// carry their own key).
+fn session_verifier(
+    auth: &AuthConfig,
+) -> Result<(SessionVerifier, Option<Arc<serde_json::Value>>), weldsuite_auth::KeyError> {
+    match auth {
+        AuthConfig::Clerk {
+            key,
+            authorized_parties,
+        } => {
+            let parties = authorized_parties.clone();
+            let verifier = match key {
+                ClerkKey::Pem(pem) => ClerkVerifier::from_pem(pem, parties.as_deref())?.into(),
+                ClerkKey::Jwks(jwks) => ClerkVerifier::from_jwks(jwks, parties.as_deref())?.into(),
+                ClerkKey::JwksUrl(url) => SessionVerifier::remote(url.clone(), None, parties)?,
+                ClerkKey::SecretKey(secret) => {
+                    SessionVerifier::clerk_backend_api(secret.clone(), parties)?
+                }
+            };
+            Ok((verifier, None))
+        }
+        AuthConfig::Oidc {
+            settings,
+            web_client_id,
+        } => {
+            let public = serde_json::json!({
+                "provider": "oidc",
+                "issuer": settings.issuer,
+                "clientId": web_client_id,
+                "audience": settings.audiences.first(),
+                "orgClaim": settings.org_claim,
+            });
+            Ok((
+                SessionVerifier::oidc(settings.clone())?,
+                Some(Arc::new(public)),
+            ))
+        }
+    }
 }
 
 /// With Restate configured: serve the jobs service on `JOBS_PORT` until

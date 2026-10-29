@@ -22,6 +22,9 @@ time = { workspace = true, features = ["formatting", "macros", "parsing"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true, features = ["http1", "tokio"] }
+http-body-util = { workspace = true }
+tower = { workspace = true, features = ["util"] }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }
 # rt-multi-thread, sync and time: the spike tool in examples/tenant_bench.
