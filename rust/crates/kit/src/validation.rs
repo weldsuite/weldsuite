@@ -122,6 +122,8 @@ pub enum Format {
     DatetimeOffset,
     /// `.regex(/^\d+$/)`.
     Digits,
+    /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
+    Url,
 }
 
 /// A number's checks: `z.number()` (`z.coerce.number()` when `coerce`),
@@ -683,6 +685,7 @@ impl Format {
             Self::Email => ("email", "Invalid email"),
             Self::DatetimeOffset => ("datetime", "Invalid datetime"),
             Self::Digits => ("regex", "Invalid"),
+            Self::Url => ("url", "Invalid url"),
         }
     }
 
@@ -693,8 +696,72 @@ impl Format {
             Self::Email => !text.starts_with('.') && !text.contains("..") && EMAIL.is_match(text),
             Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
+            Self::Url => js_url_parses(text),
         }
     }
+}
+
+/// Whether `new URL(text)` (WHATWG URL, no base) would succeed, as Zod 3's
+/// `.url()` checks: a scheme, and for the special schemes a valid host.
+/// Covers what profile links and the like send; exotic hosts (IDNA,
+/// percent-encoded labels, IPv4 shorthands) are judged by their characters.
+pub fn js_url_parses(text: &str) -> bool {
+    // The parser strips leading/trailing C0 controls and spaces, and every
+    // tab and newline.
+    let trimmed = text.trim_matches(|c: char| c <= ' ');
+    let cleaned: String = trimmed
+        .chars()
+        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+        .collect();
+    let Some((scheme, rest)) = cleaned.split_once(':') else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    let scheme_ok = chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'));
+    if !scheme_ok {
+        return false;
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    if !matches!(scheme.as_str(), "http" | "https" | "ws" | "wss" | "ftp") {
+        // `file:` and the non-special schemes take any rest.
+        return true;
+    }
+    let after = rest.trim_start_matches(['/', '\\']);
+    let authority = after
+        .split(['/', '\\', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let (host, port) = if host_port.starts_with('[') {
+        match host_port.find(']') {
+            Some(end) => (&host_port[..=end], &host_port[end + 1..]),
+            None => return false,
+        }
+    } else {
+        match host_port.rsplit_once(':') {
+            Some((host, port)) => (host, port),
+            None => (host_port, ""),
+        }
+    };
+    let port = port.strip_prefix(':').unwrap_or(port);
+    let port_ok = port.is_empty()
+        || (port.bytes().all(|b| b.is_ascii_digit())
+            && port.parse::<u32>().is_ok_and(|p| p <= 65535));
+    if host.is_empty() || !port_ok {
+        return false;
+    }
+    if host.starts_with('[') {
+        return host.ends_with(']') && host.len() > 2;
+    }
+    !host.chars().any(|c| {
+        c <= ' '
+            || c == '\u{7f}'
+            || matches!(
+                c,
+                '#' | '%' | '/' | ':' | '<' | '>' | '?' | '@' | '[' | '\\' | ']' | '^' | '|'
+            )
+    })
 }
 
 static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
@@ -813,6 +880,35 @@ pub fn query_values(query: Option<&str>) -> Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn urls_parse_like_new_url() {
+        for valid in [
+            "https://ann.example",
+            "https://github.com/cy?tab=1#top",
+            "http://user:pw@host:8080/x",
+            "mailto:bob@acme.test",
+            "localhost:3000",
+            "  https://a.test  ",
+            "http://[::1]:80/",
+            "file:///etc/hosts",
+        ] {
+            assert!(js_url_parses(valid), "{valid}");
+        }
+        for invalid in [
+            "not a url",
+            "example.com",
+            "/relative",
+            "http://",
+            "https://exa mple.com",
+            "http://a.test:99999",
+            "http://a.test:8o",
+            "1http://a.test",
+            "",
+        ] {
+            assert!(!js_url_parses(invalid), "{invalid}");
+        }
+    }
 
     /// Issues Zod 3 produced for the same input (`safeParse`, JSON-serialised).
     #[test]
