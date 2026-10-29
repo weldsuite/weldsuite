@@ -24,6 +24,7 @@ weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-files = { path = "modules/core-files" }
+weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-emails = { path = "crates/emails" }
