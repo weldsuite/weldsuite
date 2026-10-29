@@ -26,6 +26,8 @@ pub mod cache;
 pub mod events;
 pub mod files;
 pub mod flags;
+pub mod in_process_jobs;
+pub mod jobs;
 pub mod realtime;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
@@ -35,6 +37,11 @@ pub use files::{
     get_stored, is_safe_key, unsafe_key,
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
+pub use in_process_jobs::InProcessJobs;
+pub use jobs::{
+    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, StepFn, StepRetry,
+    step,
+};
 pub use realtime::{
     DynRealtimePublisher, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };

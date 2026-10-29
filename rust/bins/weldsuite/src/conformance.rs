@@ -59,7 +59,15 @@ pub(crate) struct Recorders {
 /// Infrastructure that records instead of publishing.
 pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
     let recorders = Recorders::default();
+    let job_registry = crate::infra::job_registry();
     let infra = Infra {
+        // Jobs run in the process, as the workers run them in `waitUntil`
+        // without a Workflow binding in their tests.
+        jobs: Arc::new(weldsuite_ports::InProcessJobs::new(
+            job_registry.clone(),
+            tracker.clone(),
+        )),
+        job_registry,
         events: EntityEventPublisher::new(Some(recorders.events.clone()), tracker),
         realtime: Some(recorders.realtime.clone()),
         cache: Some(Arc::new(MemoryCache::default())),

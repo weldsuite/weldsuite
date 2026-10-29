@@ -2,7 +2,8 @@
 # Deploy the image and the Helm chart into a local kind cluster, with Postgres
 # (master + tenant built from the journaled migrations), Valkey and NATS, and
 # check the full request pipeline with a signed session token:
-# auth → workspace → tenant DB → licence → flags → permission → envelope.
+# auth → workspace → tenant DB → licence → flags → permission → envelope,
+# and a job run through Restate.
 #
 #   docker build -t weldsuite:dev rust
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
@@ -34,7 +35,7 @@ kind load docker-image "$image" --name "$cluster"
 
 # ── services ────────────────────────────────────────────────────────────────
 kubectl apply -f "$here/postgres.yaml" -f "$here/services.yaml"
-for deployment in postgres valkey nats s3; do
+for deployment in postgres valkey nats s3 restate; do
   kubectl rollout status "deployment/$deployment" --timeout=180s
 done
 
@@ -116,8 +117,27 @@ check GET /api/knowledge/spaces 200 auth
 contains '"kind":"personal"'
 contains '"name":"Smoke space"'
 
+# Jobs: the pod registered its endpoint with Restate; a call through the
+# ingress runs the no-op job and answers when it has finished.
+kubectl port-forward service/restate 18180:8080 >/dev/null 2>&1 &
+forwards+=($!)
+job_ok=0
+for _ in $(seq 1 60); do
+  status="$(curl -s -o "$work/body" -w '%{http_code}' -X POST http://127.0.0.1:18180/WeldsuiteJobs/run \
+    -H 'Content-Type: application/json' --data '{"name":"weldsuite.noop","key":"smoke","payload":{"from":"kind"}}' || true)"
+  if [ "$status" = "200" ]; then job_ok=1; break; fi
+  sleep 2
+done
+if [ "$job_ok" = "1" ]; then
+  echo "ok   job weldsuite.noop ran on restate"
+else
+  echo "FAIL the no-op job did not run through restate: $status $(head -c 300 "$work/body")" >&2
+  failed=1
+fi
+
 if [ "$failed" != "0" ]; then
   kubectl logs deployment/weldsuite --tail=80 >&2 || true
+  kubectl logs deployment/restate --tail=40 >&2 || true
   exit 1
 fi
 curl -s http://127.0.0.1:18080/health

@@ -11,6 +11,10 @@ config:
   shutdownDelaySeconds: 1
   nats:
     ensureStreams: true
+  jobs:
+    restate:
+      ingressUrl: http://restate:8080
+      adminUrl: http://restate:9070
   files:
     endpoint: http://s3:9000
     privateBucket: weldsuite-private
