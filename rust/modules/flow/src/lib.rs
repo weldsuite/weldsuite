@@ -15,11 +15,21 @@
 mod rows;
 
 mod custom_values;
+mod documents;
+mod goals;
 mod import_jobs;
 mod import_tasks;
 mod js;
+mod labels;
 mod members;
+mod messages;
+mod milestones;
+mod project_files;
 mod projects;
+pub mod purge;
+mod sprints;
+mod stages;
+mod whiteboards;
 
 pub use import_tasks::{IMPORT_TASKS_JOB, ImportParams, ImportTasksJob, TenantDatabases};
 
@@ -57,6 +67,8 @@ pub struct FlowState {
     pub master: Option<PgPool>,
     /// Starts durable jobs (`flow.import-tasks`).
     pub jobs: Option<Arc<dyn DynJobs>>,
+    /// The public bucket's own URL (`R2_PUBLIC_URL`), for new documents' links.
+    pub public_files_url: Option<Arc<str>>,
 }
 
 impl std::fmt::Debug for FlowState {
@@ -81,8 +93,19 @@ where
     Q: PermissionQueries + 'static,
 {
     vec![
+        ("/documents", documents::documents_router(state.clone(), gate)),
+        ("/goals", goals::router(state.clone(), gate)),
+        ("/milestones", milestones::router(state.clone(), gate)),
+        ("/project-files", project_files::router(state.clone(), gate)),
+        ("/project-labels", labels::router(state.clone(), gate)),
+        ("/project-documents", documents::project_documents_router(state.clone(), gate)),
         ("/project-members", members::router(state.clone(), gate)),
+        ("/project-messages", messages::router(state.clone(), gate)),
+        ("/project-pipeline-stages", stages::router(state.clone(), gate)),
+        ("/project-sheets", documents::project_sheets_router(state.clone(), gate)),
         ("/projects", projects::router(state.clone(), gate)),
+        ("/sprints", sprints::router(state.clone(), gate)),
+        ("/whiteboards", whiteboards::router(state.clone(), gate)),
     ]
 }
 
@@ -429,4 +452,79 @@ impl Query {
     pub(crate) fn values(&self) -> &Map<String, Value> {
         &self.0
     }
+}
+
+/// `accessibleProjectIds(c)` as the SQL of [`in_accessible!`] binds it:
+/// `(true, [])` for scope:all, else `(false, ids)` with `['']` for none
+/// (`inArray(col, [''])` matches nothing).
+pub(crate) async fn access_scope(caller: &Caller) -> Result<(bool, Vec<String>), sqlx::Error> {
+    Ok(match caller.accessible_project_ids().await? {
+        None => (true, Vec::new()),
+        Some(ids) if ids.is_empty() => (false, vec![String::new()]),
+        Some(ids) => (false, ids),
+    })
+}
+
+/// The keyset cursor row (`select createdAt, id where id = cursor`):
+/// `created_at` as Drizzle reads it back (milliseconds), and the id.
+/// `sql` selects `id` and `to_jsonb(created_at) #>> '{}'` by `$1`.
+pub(crate) async fn keyset_cursor(
+    db: &PgPool,
+    sql: &'static str,
+    cursor: &str,
+) -> Result<Option<(String, String)>, sqlx::Error> {
+    let row: Option<(String, Option<String>)> =
+        sqlx::query_as(sql).bind(cursor).fetch_optional(db).await?;
+    Ok(row.and_then(|(id, created)| {
+        created
+            .as_deref()
+            .and_then(weldsuite_db::js_timestamp)
+            .map(|at| (at, id))
+    }))
+}
+
+/// `Math.min(q.limit ? Number.parseInt(q.limit, 10) : 25, 100)`; `None`
+/// is NaN (the query then fails, a 500).
+pub(crate) fn list_limit(q: &Query, fallback: i64, max: i64) -> Option<i64> {
+    match q.present("limit") {
+        Some(raw) => weldsuite_flow_domain::js::parse_int(raw).map(|n| n.min(max)),
+        None => Some(fallback.min(max)),
+    }
+}
+
+/// A page of `limit + 1` rows: `(rows, hasMore, nextCursor)` with the last
+/// row's id as the cursor.
+pub(crate) fn page(mut rows: Vec<Value>, limit: i64) -> (Vec<Value>, bool, Option<String>) {
+    let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > limit;
+    if has_more {
+        rows.truncate(usize::try_from(limit).unwrap_or(0));
+    }
+    let cursor = if has_more {
+        rows.last()
+            .and_then(|row| row["id"].as_str())
+            .map(str::to_owned)
+    } else {
+        None
+    };
+    (rows, has_more, cursor)
+}
+
+/// `list(c, rows, cursorPagination(totalCount, hasMore, cursor))`.
+pub(crate) fn paged(rows: Vec<Value>, total: i64, has_more: bool, cursor: Option<String>) -> Response {
+    weldsuite_kit::List::new(
+        rows,
+        weldsuite_kit::Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
+    )
+    .into_response()
+}
+
+/// `error.forbidden(c, message)`.
+pub(crate) fn forbidden(message: &str) -> Response {
+    ApiError::forbidden().with_message(message).into_response()
+}
+
+/// A list without paging: `list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null })`.
+pub(crate) fn all_rows(rows: Vec<Value>) -> Response {
+    let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
+    weldsuite_kit::List::new(rows, weldsuite_kit::Pagination::new(total, false, None)).into_response()
 }

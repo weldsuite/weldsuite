@@ -125,8 +125,12 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
     weldsuite_flow::FlowState {
         events: state.infra.events.clone(),
         files: file_stores(state),
-        master: Some(state.workspaces.master().clone()),
+        // Conformance builds have no master database of their own: a test
+        // that shares one hands it in per request (`MasterDb`), as the
+        // workers write their due index only when bound.
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
         jobs: Some(Arc::clone(&state.infra.jobs)),
+        public_files_url: state.files_public_url.clone(),
     }
 }
 

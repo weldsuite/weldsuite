@@ -313,6 +313,11 @@ impl Pools {
         let options: PgConnectOptions = url
             .parse()
             .map_err(|_| ApiError::bad_request("conformance: databaseUrl is not a Postgres URL"))?;
+        // Unnamed statements, as Drizzle sends them: a statement sqlx keeps
+        // prepared moves to Postgres's generic plan after five runs, and an
+        // unordered query (no `order by`) can then return its rows in
+        // another order than the TypeScript run's custom plan.
+        let options = options.statement_cache_capacity(0);
         let pool = PgPoolOptions::new()
             .max_connections(1)
             .idle_timeout(None)

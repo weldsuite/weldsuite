@@ -228,3 +228,204 @@ export const flowMemberUpdateSchema = z
     isActive: z.boolean().optional(),
   })
   .strict();
+
+// ── sprints, milestones, goals, whiteboards ────────────────────────────────
+
+/** A sprint row. */
+export const flowSprintSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    name: z.string(),
+    goal: nullableString,
+    status: z.string(),
+    startDate: nullableString,
+    endDate: nullableString,
+    startedAt: nullableString,
+    completedAt: nullableString,
+    velocity: z.number().int().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+/** A milestone row with its task counters computed on read. */
+export const flowMilestoneSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    name: z.string(),
+    description: nullableString,
+    dueDate: z.string(),
+    completedAt: nullableString,
+    status: z.string(),
+    progress: z.string(),
+    totalTasks: z.number().int(),
+    completedTasks: z.number().int(),
+    ownerId: nullableString,
+    isKeyMilestone: z.boolean().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+/** A `project_goals` row (one project's goals canvas). */
+export const flowGoalRowSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    mission: z.unknown(),
+    goals: z.array(z.unknown()).nullable(),
+    lastEditedBy: nullableString,
+    createdAt: nullableString,
+    updatedAt: nullableString,
+  })
+  .passthrough();
+
+/** `GET /api/goals/by-project/:projectId`. */
+export const flowGoalsCanvasSchema = z.object({ mission: z.unknown(), goals: z.array(z.unknown()) });
+
+/** `POST /api/goals`: the canvas row and the new card. */
+export const flowGoalCreatedSchema = z.object({ id: z.string(), goalId: z.string() });
+
+/** A whiteboard row. */
+export const flowWhiteboardSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    name: z.string(),
+    elements: z.array(z.unknown()).nullable(),
+    version: z.number().int(),
+    lastEditedBy: nullableString,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+// ── labels, pipeline stages, messages ──────────────────────────────────────
+
+/** A project label row (`usageCount` on the list). */
+export const flowLabelSchema = z
+  .object({
+    id: z.string(),
+    projectId: nullableString,
+    name: z.string(),
+    color: z.string(),
+    usageCount: z.number().int().optional(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+
+/** What a label create or update echoes. */
+export const flowLabelWriteSchema = z
+  .object({ id: z.string(), name: z.string().optional(), color: z.string().optional(), projectId: nullableString.optional() })
+  .passthrough();
+
+/** A pipeline stage row (`usageCount` on the list). */
+export const flowStageSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    name: z.string(),
+    color: nullableString,
+    position: z.number().int(),
+    systemStatus: z.string(),
+    usageCount: z.number().int().optional(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+
+/** `PATCH /api/project-pipeline-stages/reorder`. */
+export const flowReorderedSchema = z.object({ reordered: z.literal(true) });
+
+/** A project message row. */
+export const flowMessageSchema = z
+  .object({
+    id: z.string(),
+    projectId: nullableString,
+    conversationId: z.string(),
+    senderId: z.string(),
+    message: z.string(),
+    messageType: z.string(),
+    replyToId: nullableString,
+    editedAt: nullableString,
+    isRead: z.boolean(),
+    reactions: z.record(z.array(z.string())).nullable(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+
+/** `POST /api/project-messages`. */
+export const flowMessageCreatedSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  senderId: z.string(),
+  message: z.string(),
+});
+
+/** `PATCH /api/project-messages/:id`: the change, echoed. */
+export const flowMessageUpdatedSchema = z
+  .object({ id: z.string(), message: z.string().optional(), isPinned: z.boolean().optional() })
+  .strict();
+
+/** `POST /api/project-messages/:id/reactions`. */
+export const flowMessageReactionsSchema = z.object({ id: z.string(), reactions: z.record(z.array(z.string())) });
+
+// ── files and documents ────────────────────────────────────────────────────
+
+/** A `project_files` row (a file or a folder). */
+export const flowProjectFileSchema = z
+  .object({
+    id: z.string(),
+    projectId: nullableString,
+    parentId: nullableString,
+    fileName: z.string(),
+    mimeType: z.string(),
+    fileSize: z.number().int(),
+    storagePath: z.string(),
+    fileType: z.string(),
+    isFolder: z.boolean(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+
+/** A drive `files` row (project documents and sheets). */
+export const flowDriveFileSchema = z
+  .object({
+    id: z.string(),
+    fileName: z.string(),
+    mimeType: z.string(),
+    fileSize: z.number().int(),
+    fileType: z.string(),
+    folderId: nullableString,
+    entityType: nullableString,
+    entityId: nullableString,
+    createdAt: z.string(),
+  })
+  .passthrough();
+
+/** A `docs` row (BlockNote JSON of a document from before WeldDocs). */
+export const flowDocSchema = z
+  .object({
+    id: z.string(),
+    fileId: z.string(),
+    content: z.array(z.record(z.unknown())).nullable(),
+    updatedById: nullableString,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+/** A document version in the history list. */
+export const flowDocVersionSummarySchema = z.object({
+  id: z.string(),
+  fileId: z.string(),
+  label: nullableString,
+  createdById: nullableString,
+  createdAt: z.string(),
+});
+
+/** A whole document version. */
+export const flowDocVersionSchema = flowDocVersionSummarySchema.extend({
+  content: z.array(z.record(z.unknown())),
+});

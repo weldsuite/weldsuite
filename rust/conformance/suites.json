@@ -555,6 +555,42 @@
       ]
     },
     {
+      "name": "flow: project resources",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/milestones/integration.test.ts",
+        "src/routes/milestones/stats.integration.test.ts",
+        "src/routes/sprints/integration.test.ts",
+        "src/routes/project-labels/duplicates.integration.test.ts",
+        "src/routes/project-pipeline-stages/integration.test.ts",
+        "src/routes/project-pipeline-stages/index.test.ts",
+        "src/routes/project-files/integration.test.ts",
+        "src/routes/goals/integration.test.ts",
+        "src/routes/documents/index.integration.test.ts",
+        "src/routes/coverage.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/milestones/",
+        "apps/workers/flow-api/src/routes/sprints/",
+        "apps/workers/flow-api/src/routes/project-labels/",
+        "apps/workers/flow-api/src/routes/project-pipeline-stages/",
+        "apps/workers/flow-api/src/routes/project-files/",
+        "apps/workers/flow-api/src/routes/project-messages/",
+        "apps/workers/flow-api/src/routes/project-documents/",
+        "apps/workers/flow-api/src/routes/project-sheets/",
+        "apps/workers/flow-api/src/routes/documents/",
+        "apps/workers/flow-api/src/routes/goals/",
+        "apps/workers/flow-api/src/routes/whiteboards/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "flow: cross-cutting",
       "module": "flow",
       "workspace": "apps/workers/flow-api",

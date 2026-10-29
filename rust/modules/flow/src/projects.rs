@@ -414,16 +414,32 @@ async fn active_members(
         Option<String>,
         Option<String>,
     );
-    let rows: Vec<Row> = sqlx::query_as(
-        "select pm.user_id, pm.role, pm.allocation_percentage::text, wm.hours_per_week::text,
-                wm.name, wm.email, wm.picture
-         from project_members pm
-         left join workspace_members wm on pm.user_id = wm.user_id
-         where pm.project_id = any($1) and pm.is_active = true and pm.deleted_at is null",
-    )
-    .bind(project_ids)
-    .fetch_all(db)
-    .await?;
+    // Unordered, so the plan decides the order: one project is an equality
+    // (Postgres reads `in ($1)` as `= $1`, which plans differently from
+    // `= any($1)`), several an array, as Drizzle's `inArray` sends them.
+    let rows: Vec<Row> = if let [project_id] = project_ids {
+        sqlx::query_as(
+            "select pm.user_id, pm.role, pm.allocation_percentage::text, wm.hours_per_week::text,
+                    wm.name, wm.email, wm.picture
+             from project_members pm
+             left join workspace_members wm on pm.user_id = wm.user_id
+             where pm.project_id = $1 and pm.is_active = true and pm.deleted_at is null",
+        )
+        .bind(project_id)
+        .fetch_all(db)
+        .await?
+    } else {
+        sqlx::query_as(
+            "select pm.user_id, pm.role, pm.allocation_percentage::text, wm.hours_per_week::text,
+                    wm.name, wm.email, wm.picture
+             from project_members pm
+             left join workspace_members wm on pm.user_id = wm.user_id
+             where pm.project_id = any($1) and pm.is_active = true and pm.deleted_at is null",
+        )
+        .bind(project_ids)
+        .fetch_all(db)
+        .await?
+    };
     Ok(rows
         .into_iter()
         .map(
@@ -513,6 +529,16 @@ fn or_text(value: &Value, fallback: &str) -> Value {
     }
 }
 
+/// A task as the workload overview selects it.
+macro_rules! overview_task {
+    () => {
+        "jsonb_build_object('id', t.id, 'number', t.number, 'key', t.key, 'title', t.title,
+                'projectId', t.project_id, 'assigneeId', t.assignee_id, 'status', t.status,
+                'priority', t.priority, 'startDate', t.start_date, 'dueDate', t.due_date,
+                'estimatedHours', t.estimated_hours::text, 'actualHours', t.actual_hours::text)"
+    };
+}
+
 async fn workload_overview(caller: Caller) -> Response {
     reply(overview(&caller).await, "Failed to fetch workload overview")
 }
@@ -552,18 +578,28 @@ async fn overview(caller: &Caller) -> Reply {
             unique.push((member, allocation));
         }
     }
-    let tasks: Vec<Value> = sqlx::query_scalar(
-        "select jsonb_build_object('id', t.id, 'number', t.number, 'key', t.key, 'title', t.title,
-                'projectId', t.project_id, 'assigneeId', t.assignee_id, 'status', t.status,
-                'priority', t.priority, 'startDate', t.start_date, 'dueDate', t.due_date,
-                'estimatedHours', t.estimated_hours::text, 'actualHours', t.actual_hours::text)
-         from tasks t
-         where t.project_id = any($1) and t.deleted_at is null
-           and t.status not in ('done', 'cancelled')",
-    )
-    .bind(&ids)
-    .fetch_all(db)
-    .await?;
+    // One project is an equality, several an array (see `active_members`).
+    let tasks: Vec<Value> = if let [project_id] = ids.as_slice() {
+        sqlx::query_scalar(concat!(
+            "select ",
+            overview_task!(),
+            " from tasks t where t.project_id = $1 and t.deleted_at is null",
+            " and t.status not in ('done', 'cancelled')"
+        ))
+        .bind(project_id)
+        .fetch_all(db)
+        .await?
+    } else {
+        sqlx::query_scalar(concat!(
+            "select ",
+            overview_task!(),
+            " from tasks t where t.project_id = any($1) and t.deleted_at is null",
+            " and t.status not in ('done', 'cancelled')"
+        ))
+        .bind(&ids)
+        .fetch_all(db)
+        .await?
+    };
     let tasks: Vec<Value> = tasks.into_iter().map(js_row).collect();
     let name_of = |task: &Value| {
         names
@@ -1196,7 +1232,7 @@ macro_rules! json_col {
 /// The body as Drizzle would bind it to the columns: whole numbers as
 /// integers (`String(1)` is `"1"`), objects and arrays as their JSON text
 /// for text columns.
-fn bindable(values: &Map<String, Value>) -> Value {
+pub(crate) fn bindable(values: &Map<String, Value>) -> Value {
     Value::Object(
         values
             .iter()
