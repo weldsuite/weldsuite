@@ -121,8 +121,8 @@ and the pod is not draining). `/health` keeps the workers' JSON.
 Not there yet: OIDC providers other than Clerk (ADR SEC-012, phase P5), the
 Neon API fallback for a workspace without a stored `database_url` (the
 Kubernetes editions always store it), Clerk member linking on
-`/api/me/permissions`, and a master-database flag table (`FEATURE_FLAGS=master-db`
-reads `feature_flag_overrides`, which has no migration yet).
+`/api/me/permissions`, and an admin screen for `feature_flag_overrides` (the table
+that `FEATURE_FLAGS=master-db` reads; set rows with SQL for now).
 
 ## Rules
 
