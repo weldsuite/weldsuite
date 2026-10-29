@@ -25,7 +25,26 @@ See `docs/plans/weldsign.md`.
 
 Layout: pages and server routes in `src/routes/`, the signer UI in
 `components/` (all client-side, as before), server-only code in
-`lib/server/`.
+`lib/server/`. The routes run the operations through
+`lib/server/signer-portal.ts`, which picks where they run (below).
+
+## On Kubernetes (EU, self-hosted)
+
+There are no Cloudflare bindings there, so the portal is a thin client (ADR
+FE-017): `SIGN_PORTAL_BACKEND=rust` makes the same routes call the Rust
+backend's `/public/sign-portal/*` endpoints at `SIGN_PORTAL_BACKEND_URL`,
+with the shared `SIGN_PORTAL_SECRET` and the signer's IP from
+`X-Forwarded-For` (`SIGN_PORTAL_TRUSTED_PROXIES` proxies counted from the
+right, 1 for the ingress). The client and its contract:
+`@weldsuite/sign-domain/portal-client`. Unset, the Worker runs the domain code
+as above; Global never sets it.
+
+`pnpm build:node` (`vite build --mode node`) is the Node build: no Cloudflare
+plugin, `lib/server/runtime.node.ts` instead of `runtime.ts` (so no Workers
+code), every dependency bundled. `node node/server.mjs` serves it
+(`PORT`, `/healthz` for the probes). The image is the `sign-portal` target of
+`rust/Dockerfile`; the Helm chart in `rust/deploy/helm/weldsuite` runs it
+(`signPortal.*`).
 
 ## Running locally
 

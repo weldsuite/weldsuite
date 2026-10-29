@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@weldsuite/ui/components/confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';

@@ -28,6 +28,12 @@ function lastCall(fn: ReturnType<typeof mockFetch>) {
   return { url, init, body: JSON.parse(String(init.body)) };
 }
 
+/** Like `lastCall`, but for GET/DELETE requests that send no body. */
+function lastCallNoBody(fn: ReturnType<typeof mockFetch>) {
+  const [url, init] = fn.mock.calls.at(-1) as [string, RequestInit];
+  return { url, init };
+}
+
 const baseArgs = {
   accountId: 'acc_1',
   to: ['someone@example.com'],
@@ -191,5 +197,94 @@ describe('mailApi send denials (outbound guard)', () => {
 
     expect(result.errorCode).toBe('PARTIALLY_SENT');
     expect(result.errorDetails).toEqual(details);
+  });
+});
+
+describe('mailApi.messages accountId locate hint (mailbox-store design §5)', () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends ?accountId= on get/update/delete/add-label/remove-label', async () => {
+    const fetchMock = mockFetch();
+
+    await mailApi.messages.get('acc_1', 'msg_1');
+    expect(lastCallNoBody(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1?accountId=acc_1`);
+
+    await mailApi.messages.update('acc_1', 'msg_1', { isRead: true });
+    expect(lastCall(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1?accountId=acc_1`);
+    expect(lastCall(fetchMock).init.method).toBe('PATCH');
+
+    await mailApi.messages.delete('acc_1', 'msg_1');
+    expect(lastCallNoBody(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1?accountId=acc_1`);
+    expect(lastCallNoBody(fetchMock).init.method).toBe('DELETE');
+
+    await mailApi.messages.addLabel('acc_1', 'msg_1', 'STARRED');
+    expect(lastCall(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1/labels/add?accountId=acc_1`);
+
+    await mailApi.messages.removeLabel('acc_1', 'msg_1', 'STARRED');
+    expect(lastCall(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1/labels/remove?accountId=acc_1`);
+  });
+
+  it('omits the hint entirely when the caller has no accountId yet (back-compat fan-out)', async () => {
+    const fetchMock = mockFetch();
+
+    await mailApi.messages.get('', 'msg_1');
+    expect(lastCallNoBody(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1`);
+
+    await mailApi.messages.delete('', 'msg_1');
+    expect(lastCallNoBody(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1`);
+  });
+
+  it('carries the hint through every request archive/restore make (labels add then remove)', async () => {
+    const fetchMock = mockFetch({ data: { id: 'msg_1', labels: [] } });
+
+    await mailApi.messages.archive('acc_1', 'msg_1');
+
+    const urls = fetchMock.mock.calls.map(([url]) => url as string);
+    expect(urls).toEqual([
+      `${BASE}/mail-messages/msg_1/labels/add?accountId=acc_1`,
+      `${BASE}/mail-messages/msg_1/labels/remove?accountId=acc_1`,
+    ]);
+  });
+
+  it('carries the hint through restore (adds INBOX)', async () => {
+    const fetchMock = mockFetch({ data: { id: 'msg_1', labels: [] } });
+
+    await mailApi.messages.restore('acc_1', 'msg_1');
+
+    expect(lastCall(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1/labels/add?accountId=acc_1`);
+  });
+
+  it('carries the hint through spam/unspam (PATCH isSpam)', async () => {
+    const fetchMock = mockFetch({ data: { id: 'msg_1' } });
+
+    await mailApi.messages.spam('acc_1', 'msg_1', true);
+    expect(lastCall(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1?accountId=acc_1`);
+    expect(lastCall(fetchMock).body).toEqual({ isSpam: true });
+
+    await mailApi.messages.spam('acc_1', 'msg_1', false);
+    expect(lastCall(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1?accountId=acc_1`);
+    expect(lastCall(fetchMock).body).toEqual({ isSpam: false });
+  });
+
+  it('carries the hint through trash (the bulk endpoint), as an additive query param', async () => {
+    const fetchMock = mockFetch({ data: { affected: 1 } });
+
+    await mailApi.messages.trash('acc_1', 'msg_1');
+
+    const { url, body } = lastCall(fetchMock);
+    expect(url).toBe(`${BASE}/mail-messages/bulk?accountId=acc_1`);
+    expect(body).toEqual({ messageIds: ['msg_1'], action: 'trash' });
+  });
+
+  it('move() forwards the same hint for every action', async () => {
+    const fetchMock = mockFetch({ data: { id: 'msg_1', labels: [] } });
+
+    await mailApi.messages.move('acc_1', 'msg_1', 'inbox');
+    expect(lastCall(fetchMock).url).toBe(`${BASE}/mail-messages/msg_1/labels/add?accountId=acc_1`);
   });
 });

@@ -65,6 +65,9 @@ your shell, or run through Doppler, e.g.
 | `DATABASE_ENCRYPTION_KEY` (+ `DATABASE_ENCRYPTION_KEY_V2`) | when tenant URLs are stored encrypted (production) | Decrypts `workspaces.database_url`, as the tenant migration runner does. |
 | `NEON_API_KEY` | when a workspace has no stored URL | Fallback: asks Neon for the connection string. |
 | `CLOUDFLARE_API_TOKEN` | `--cloudflare` | Token with **Account Analytics Read** and **Zone Read** on WeldSuite's Cloudflare account. |
+| `MAIL_STORE_ADMIN_URL` | `--mail-source export` or `auto` | The mail-api origin to call for mailbox-store admin requests, e.g. `https://mail-api-test.weldsuite.org` (no trailing slash). |
+| `OUTBOUND_ADMIN_SECRET` | `--mail-source export` or `auto` | Shared secret for mail-api's staff API (`apps/workers/mail-api/src/lib/admin-auth.ts`), sent as `x-admin-secret`. Same secret the admin console and `routes/internal-mail-store`/`routes/internal-outbound` check against — ask ops for the value, never guess or reuse a different worker's secret. |
+| `MAIL_STORE_ADMIN_EMAIL` | `--mail-source export` or `auto` | The acting operator's email, sent as `x-admin-email` so mail-api's audit log lines (never this tool's own output) can attribute the calls. |
 
 `CF_ACCOUNT_ID` is not needed: Email Sending analytics are zone-level datasets.
 
@@ -80,9 +83,61 @@ your shell, or run through Doppler, e.g.
 | `--redact` | off | Replace workspace names, mailboxes and domains with labels and drop template text, to share aggregate numbers. |
 | `--top <n>` | 5 | Templates, domains and busiest days listed per workspace in the markdown. |
 | `--env <label>` | none | Label printed in the report header. |
+| `--mail-source <s>` | `postgres` | Where WeldMail sends are read from: `postgres`, `export` or `auto` — see below. |
 
 The exit code is 1 when a workspace could not be audited (the report still lists
 the others and names the failure), 2 for bad options.
+
+### Running it against object-mode workspaces
+
+WeldMail is moving mailboxes behind a Durable Object store, one workspace at a
+time (`docs/plans/weldmail-mailbox-store-design.md`, flag
+`weldmail-mailbox-store`). In `object`/`object-only` mode a workspace's tenant
+`mail_messages` table can be a lagging secondary or, in `object-only` mode,
+never written at all — reading it straight out of Postgres would silently
+undercount or miss that workspace's sends. This tool runs locally against
+Neon, not inside a Cloudflare Worker, so it cannot address a mailbox's Durable
+Object directly; instead it calls mail-api's staff API
+(`apps/workers/mail-api/src/routes/internal-mail-store/index.ts`, the same
+secret-plus-identity auth as the admin console) to page that mail through
+`GET /internal/mail-store/export`.
+
+`--mail-source` picks how a mailbox's sends are read:
+
+- **`postgres`** (default): unchanged — `mail_messages` for every mailbox, no
+  mail-store admin calls at all. Safe for every environment today.
+- **`auto`**: for each workspace, asks `GET /internal/mail-store/status/all`
+  which mode each mailbox is stored in. Mailboxes in `object`/`object-only`
+  mode are read through the export client instead of Postgres; everything
+  else keeps today's path. If the mode lookup itself fails (bad URL, network,
+  mail-api down), that workspace falls back to pure Postgres and the report
+  notes it rather than failing the run.
+- **`export`**: forces every mailbox of every audited workspace through the
+  export client, regardless of its stored mode. Useful to sanity-check the
+  export path itself, or for a workspace already known to be fully
+  object-backed.
+
+```bash
+pnpm audit:outbound -- --env test --mail-source auto --workspace ws_2abc
+```
+
+Needs `MAIL_STORE_ADMIN_URL`, `OUTBOUND_ADMIN_SECRET` and
+`MAIL_STORE_ADMIN_EMAIL` (above) for `export`/`auto`; `postgres` needs none of
+them.
+
+Two things are different for mail read this way, both called out in the
+report's per-workspace notes when it happens:
+
+- **No body content.** The export route never returns message bodies (the
+  object has none to give), so template fingerprinting and the content screen
+  see no content for these sends — they're still counted, just not clustered
+  or scored.
+- **First contact** is still computed from `mail_correspondents` /
+  `mail_messages` in Postgres (unaffected by this task): for an `object-only`
+  workspace, the trigger that keeps `mail_correspondents` current no longer
+  fires on inbound mail, so that number can be stale for those workspaces
+  until the ledger work lands. The sent-side counts this tool exists for are
+  unaffected.
 
 ## Privacy
 
@@ -183,4 +238,6 @@ pnpm --filter outbound-audit type-check
 The aggregation, scoring and rendering (`mail-aggregate.ts`, `automation.ts`,
 `limits.ts`, `cloudflare.ts`, `score.ts`, `assemble.ts`, `report.ts`,
 `redact.ts`) are pure and unit-tested. `tenant-queries.ts` and `master.ts` hold
-the SQL; `index.ts` wires them together.
+the SQL; `mail-store-client.ts` holds the mail-api admin HTTP client
+(`--mail-source export`/`auto`, unit-tested with a mocked `fetch`); `index.ts`
+wires them together.

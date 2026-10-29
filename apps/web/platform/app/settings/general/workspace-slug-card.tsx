@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2 } from 'lucide-react';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import {
   AlertDialog,
   AlertDialogAction,

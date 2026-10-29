@@ -2,6 +2,8 @@ import type { TenantTier } from '@weldsuite/db/schema/master';
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { FlagshipBinding } from '@weldsuite/feature-flags/server';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
+import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+import type { MailIndex } from '@weldsuite/mail-domain/mail-index';
 import type { AppAccess } from '@weldsuite/worker-kit/app-access';
 import type { Database } from './db';
 
@@ -56,8 +58,20 @@ export interface Env extends Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUN
   // routes answering 503 and changes nothing else.
   /** Cloudflare `[[send_email]]` binding for outbound mail (same as mail-api's). */
   SEND_EMAIL?: SendEmail;
-  /** KV cache for recipient MX lookups (mail-api's namespace, so the cache is shared). */
+  /** KV cache for recipient MX lookups (mail-api's namespace, so the cache is shared). Also the mailbox directory cache in `object`/`object-only` mode (design §6). */
   WORKSPACE_CACHE?: KVNamespace;
+
+  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  // Read by `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
+  // (`lib/mail-store-context.ts`). Unset ⇒ `resolveMailStoreMode` treats the
+  // workspace as `postgres`, so these three go unread until mail-api's
+  // Durable Objects are actually bound (design §8).
+  /** mail-api's mailbox Durable Object, bound by `script_name` (one object per mailbox, always reached through `.jurisdiction('eu')`). */
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
+  /** mail-api's per-workspace correspondent/address index, bound by `script_name`. Optional everywhere: `recentAddresses`/`messagesByCounterparty` fall back to scanning every accessible mailbox without it. */
+  MAIL_INDEX?: DurableObjectNamespace<MailIndex>;
+  /** EU-jurisdiction bucket for message bodies and raw MIME (decision 7) — only read by `object`/`object-only` mode's `getMessage({ bodies: true })`. */
+  MAIL_STORAGE?: R2Bucket;
 
   // --- Outbound mail guard (@weldsuite/mail-domain/outbound) ----------------
   // `OUTBOUND_LEDGER`, `OUTBOUND_PLATFORM` and `OUTBOUND_BACKSTOP` come from

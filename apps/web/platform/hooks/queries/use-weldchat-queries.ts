@@ -14,7 +14,7 @@
 
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData, type QueryClient, type QueryKey, type InfiniteData } from '@tanstack/react-query';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, CreateDmRequest } from '@/lib/api/domains/weldchat';

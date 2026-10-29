@@ -13,40 +13,34 @@
  * accounts the principal can open, and a message elsewhere is a 404.
  *
  * Reply and forward live in `mail-sending`, which only the public API mounts.
+ *
+ * Reads and organize ops go through `getWorkspaceMail`'s `store`/`access`
+ * (design docs/plans/weldmail-mailbox-store-design.md, task D5), via
+ * `../../../lib/mail-store-context`'s `workspaceMailFromContext`, so this
+ * route works the same in every mailbox-store mode. A message outside the
+ * caller's reach is a 404 in every mode — this surface never answered 403 for
+ * "exists, but closed to you" (no existence leak), so there is no
+ * postgres-vs-object branching to make here unlike the platform's own routes.
  */
 
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, inArray, isNull } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { accessibleAccountIds, canOpenAccount, emailEventData } from '@weldsuite/mail-domain/access';
-import {
-  addMessageLabels,
-  bulkUpdateMessages,
-  getMessage,
-  getMessageAccountId,
-  listMessages,
-  removeMessageLabels,
-  softDeleteMessage,
-  updateMessage,
-} from '@weldsuite/mail-domain/messages';
-import { isLocationLabel, moveMessagesToLocation, normalizeLabel, SYSTEM_LABELS } from '@weldsuite/mail-domain/labels';
-import { listAttachmentsForMessage } from '@weldsuite/mail-domain/attachments';
-import { schema } from '../../../db';
+import { emailEventData } from '@weldsuite/mail-domain/access';
+import { isLocationLabel, normalizeLabel, SYSTEM_LABELS } from '@weldsuite/mail-domain/labels';
+import type {
+  FlagPatch,
+  MailboxOp,
+  MessageCursor,
+  MessageListQuery,
+  WorkspaceMailStore,
+} from '@weldsuite/mail-domain/store';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
-import { mailPrincipal, parseBoolFlag, publicAttachment, publicMessage } from '../../../lib/mail';
-
-const { mailMessages } = schema;
-
-const LOCATIONS = {
-  inbox: SYSTEM_LABELS.INBOX,
-  archive: SYSTEM_LABELS.ARCHIVE,
-  trash: SYSTEM_LABELS.TRASH,
-  spam: SYSTEM_LABELS.SPAM,
-} as const;
+import { parseBoolFlag, publicAttachment, publicListMessage, publicMessage } from '../../../lib/mail';
+import { workspaceMailFromContext } from '../../../lib/mail-store-context';
 
 const boolFlag = z.enum(['true', 'false']).optional();
 
@@ -92,6 +86,13 @@ const labelsBody = z
 
 const moveBody = z.object({ location: z.enum(['inbox', 'archive', 'trash', 'spam']) });
 
+const LOCATIONS = {
+  inbox: SYSTEM_LABELS.INBOX,
+  archive: SYSTEM_LABELS.ARCHIVE,
+  trash: SYSTEM_LABELS.TRASH,
+  spam: SYSTEM_LABELS.SPAM,
+} as const;
+
 const BULK_ACTIONS = [
   'markRead',
   'markUnread',
@@ -113,11 +114,40 @@ const bulkBody = z.object({
 const app = new Hono<HonoEnv>();
 
 /** The message's account when the caller may open it, otherwise null (→ 404). */
-async function reachableAccountId(c: Context<HonoEnv>, id: string): Promise<string | null> {
-  const db = c.get('tenantDb');
-  const accountId = await getMessageAccountId(db, id);
-  if (!accountId || !(await canOpenAccount(db, accountId, mailPrincipal(c)))) return null;
-  return accountId;
+async function reachableAccountId(store: WorkspaceMailStore, accessibleIds: string[], id: string): Promise<string | null> {
+  if (accessibleIds.length === 0) return null;
+  return (await store.locateMessages([id], accessibleIds)).get(id) ?? null;
+}
+
+/**
+ * The bare message-id cursor this surface has always sent and received (the
+ * legacy `listMessages`: look the id up, page strictly before its
+ * `sentDate`). Resolved by locating the id's mailbox within the accounts
+ * already in scope — a cursor id outside that scope simply starts the list
+ * over rather than reproducing an unscoped-by-access lookup, which no caller
+ * actually depends on: every cursor a client holds came from a message this
+ * same endpoint already served it.
+ *
+ * `includeDeleted: true` because the message the cursor points at may have
+ * been deleted since the page it came from was served — the row is only used
+ * for its `sentDate` sort position, never returned to the caller. A client
+ * that deletes every message it processes and keeps paging would otherwise
+ * never resolve the cursor and loop back to page 1 forever.
+ */
+async function resolveLegacyCursor(
+  store: WorkspaceMailStore,
+  accountIds: string[],
+  cursorId: string | undefined,
+): Promise<MessageCursor | undefined> {
+  if (!cursorId || accountIds.length === 0) return undefined;
+  const ownerId =
+    accountIds.length === 1
+      ? accountIds[0]!
+      : (await store.locateMessages([cursorId], accountIds, undefined, { includeDeleted: true })).get(cursorId);
+  if (!ownerId) return undefined;
+  const [row] = await store.mailbox(ownerId).getMessages([cursorId], { includeDeleted: true });
+  if (!row?.sentDate) return undefined;
+  return { sentAt: new Date(row.sentDate).getTime(), id: cursorId };
 }
 
 /** A content-free `email` event: label and bulk changes need ids, nothing more. */
@@ -132,22 +162,23 @@ function publishIdOnly(c: Context<HonoEnv>, id: string, accountId: string, actio
 }
 
 app.get('/', requireScope('mail_messages:read'), zValidator('query', listQuery), async (c) => {
-  const db = c.get('tenantDb');
   const q = c.req.valid('query');
-  const principal = mailPrincipal(c);
+  const { store, access } = await workspaceMailFromContext(c);
 
-  if (q.accountId && !(await canOpenAccount(db, q.accountId, principal))) {
-    return error.notFound(c, 'MailAccount', q.accountId);
+  let accountIds: string[];
+  if (q.accountId) {
+    if (!(await access.canOpen(q.accountId))) return error.notFound(c, 'MailAccount', q.accountId);
+    accountIds = [q.accountId];
+  } else {
+    accountIds = await access.accessibleAccountIds();
+    if (accountIds.length === 0) return list(c, [], cursorPagination(0, false, null));
   }
-  const scope = q.accountId ? undefined : await accessibleAccountIds(db, principal);
-  if (scope && scope.length === 0) return list(c, [], cursorPagination(0, false, null));
 
   const label = q.label ? normalizeLabel(q.label) : undefined;
-  const result = await listMessages(db, {
-    accountId: q.accountId,
-    accessibleAccountIds: scope,
-    cursor: q.cursor,
-    limit: q.limit,
+  const cursor = await resolveLegacyCursor(store, accountIds, q.cursor);
+  const query: MessageListQuery = {
+    limit: q.limit ?? 50,
+    cursor,
     search: q.search,
     from: q.from,
     label,
@@ -158,68 +189,120 @@ app.get('/', requireScope('mail_messages:read'), zValidator('query', listQuery),
     hasAttachments: parseBoolFlag(q.hasAttachments),
     excludeTrash: q.includeTrash !== 'true' && label !== SYSTEM_LABELS.TRASH,
     excludeSpam: q.includeSpam !== 'true' && label !== SYSTEM_LABELS.SPAM,
-  });
-  return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
+  };
+  const result =
+    accountIds.length === 1
+      ? await store.mailbox(accountIds[0]!).listMessages(query)
+      : await store.listMessages(accountIds, query);
+
+  const data = result.data.map(publicListMessage);
+  const nextCursorId = result.nextCursor?.id ?? null;
+  return list(c, data, cursorPagination(result.totalCount, nextCursorId !== null, nextCursorId));
 });
 
 app.post('/bulk', requireScope('mail_messages:write'), zValidator('json', bulkBody), async (c) => {
-  const db = c.get('tenantDb');
   const { ids, action } = c.req.valid('json');
   const unique = [...new Set(ids)];
+  const { store, access } = await workspaceMailFromContext(c);
 
   // Every id must be a live message in a mailbox the caller can open; one that
-  // isn't fails the whole request rather than being silently skipped.
-  const rows = await db
-    .select({ id: mailMessages.id, accountId: mailMessages.accountId })
-    .from(mailMessages)
-    .where(and(inArray(mailMessages.id, unique), isNull(mailMessages.deletedAt)));
-  const reachable = new Set(await accessibleAccountIds(db, mailPrincipal(c)));
-  const accountOf = new Map(rows.filter((r) => reachable.has(r.accountId)).map((r) => [r.id, r.accountId]));
+  // isn't fails the whole request rather than being silently skipped (no
+  // existence leak either way — both "doesn't exist" and "not yours" land
+  // here as a `locateMessages` miss).
+  const accessibleIds = await access.accessibleAccountIds();
+  const accountOf = await store.locateMessages(unique, accessibleIds);
   const missing = unique.find((id) => !accountOf.has(id));
   if (missing) return error.notFound(c, 'Message', missing);
 
-  switch (action) {
-    case 'archive':
-      await moveMessagesToLocation(db, unique, SYSTEM_LABELS.ARCHIVE);
-      break;
-    case 'spam':
-      await moveMessagesToLocation(db, unique, SYSTEM_LABELS.SPAM);
-      break;
-    default:
-      await bulkUpdateMessages(db, unique, action);
+  const byAccount = new Map<string, string[]>();
+  for (const [id, accountId] of accountOf) {
+    const forAccount = byAccount.get(accountId) ?? [];
+    forAccount.push(id);
+    byAccount.set(accountId, forAccount);
+  }
+  for (const [accountId, accountMessageIds] of byAccount) {
+    await store.mailbox(accountId).apply(bulkOpFor(action, accountMessageIds));
   }
 
   for (const id of unique) publishIdOnly(c, id, accountOf.get(id)!, action === 'delete' ? 'deleted' : 'updated');
   return success(c, { affected: unique.length, action });
 });
 
+/** `BulkAction` → the `MailboxOp` it compiles to, one call per mailbox. */
+function bulkOpFor(action: z.infer<typeof bulkBody>['action'], ids: string[]): MailboxOp {
+  switch (action) {
+    case 'markRead':
+      return { kind: 'flags', ids, patch: { isRead: true }, semantics: 'bulk' };
+    case 'markUnread':
+      return { kind: 'flags', ids, patch: { isRead: false }, semantics: 'bulk' };
+    case 'star':
+      return { kind: 'labels.add', ids, labels: [SYSTEM_LABELS.STARRED], semantics: 'bulk' };
+    case 'unstar':
+      return { kind: 'labels.remove', ids, labels: [SYSTEM_LABELS.STARRED], semantics: 'bulk' };
+    case 'flag':
+      return { kind: 'flags', ids, patch: { isFlagged: true }, semantics: 'bulk' };
+    case 'unflag':
+      return { kind: 'flags', ids, patch: { isFlagged: false }, semantics: 'bulk' };
+    case 'archive':
+      return { kind: 'move', ids, location: SYSTEM_LABELS.ARCHIVE };
+    case 'spam':
+      return { kind: 'move', ids, location: SYSTEM_LABELS.SPAM };
+    case 'trash':
+      return { kind: 'move', ids, location: SYSTEM_LABELS.TRASH };
+    case 'restore':
+      return { kind: 'move', ids, location: SYSTEM_LABELS.INBOX };
+    case 'delete':
+      return { kind: 'delete', ids, hard: false };
+  }
+}
+
 app.get('/:id', requireScope('mail_messages:read'), zValidator('query', getQuery), async (c) => {
   const id = c.req.param('id');
-  if (!(await reachableAccountId(c, id))) return error.notFound(c, 'Message', id);
-  const row = await getMessage(c.get('tenantDb'), id);
+  const { store, access } = await workspaceMailFromContext(c);
+  const accountId = await reachableAccountId(store, await access.accessibleAccountIds(), id);
+  if (!accountId) return error.notFound(c, 'Message', id);
+  const row = await store.mailbox(accountId).getMessage(id, { bodies: true, attachments: true });
   if (!row) return error.notFound(c, 'Message', id);
   const { attachments, ...message } = row;
   const textOnly = c.req.valid('query').includeHtml === 'false' && !!message.textBody?.trim();
   return success(c, {
     ...publicMessage(message),
     ...(textOnly ? { htmlBody: null } : {}),
-    attachments: attachments.filter((a) => !a.deletedAt).map(publicAttachment),
+    attachments: (attachments ?? []).filter((a) => !a.deletedAt).map(publicAttachment),
   });
 });
 
 app.get('/:id/attachments', requireScope('mail_attachments:read'), async (c) => {
   const id = c.req.param('id');
-  if (!(await reachableAccountId(c, id))) return error.notFound(c, 'Message', id);
-  const rows = await listAttachmentsForMessage(c.get('tenantDb'), id);
+  const { store, access } = await workspaceMailFromContext(c);
+  const accountId = await reachableAccountId(store, await access.accessibleAccountIds(), id);
+  if (!accountId) return error.notFound(c, 'Message', id);
+  const rows = await store.mailbox(accountId).listAttachments(id);
   return list(c, rows.map(publicAttachment), cursorPagination(rows.length, false, null));
 });
+
+/** The flag keys `updateBody` may carry, in the shape `MailboxOp`'s `flags` op wants. */
+function flagPatchFrom(data: z.infer<typeof updateBody>): FlagPatch {
+  const patch: FlagPatch = {};
+  if (data.isRead !== undefined) patch.isRead = data.isRead;
+  if (data.isStarred !== undefined) patch.isStarred = data.isStarred;
+  if (data.isFlagged !== undefined) patch.isFlagged = data.isFlagged;
+  if (data.isImportant !== undefined) patch.isImportant = data.isImportant;
+  return patch;
+}
 
 app.patch('/:id', requireScope('mail_messages:write'), zValidator('json', updateBody), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  if (!(await reachableAccountId(c, id))) return error.notFound(c, 'Message', id);
-  const after = await updateMessage(db, id, c.req.valid('json'));
-  if (!after) return error.notFound(c, 'Message', id);
+  const { store, access } = await workspaceMailFromContext(c);
+  const accountId = await reachableAccountId(store, await access.accessibleAccountIds(), id);
+  if (!accountId) return error.notFound(c, 'Message', id);
+  const data = c.req.valid('json');
+  const result = await store
+    .mailbox(accountId)
+    .apply({ kind: 'flags', ids: [id], patch: flagPatchFrom(data), semantics: 'single' });
+  if (!result.applied.includes(id)) return error.notFound(c, 'Message', id);
+  const after = await store.mailbox(accountId).getMessage(id, { bodies: true });
   publishEntityEvent({
     c,
     entityType: 'email',
@@ -227,19 +310,19 @@ app.patch('/:id', requireScope('mail_messages:write'), zValidator('json', update
     action: 'updated',
     data: await emailEventData(db, {
       id,
-      accountId: after.accountId,
-      subject: after.subject ?? null,
-      from: (after.from as { email?: string } | null)?.email ?? null,
-      to: (after.to as { email?: string }[] | null)?.map((t) => t.email ?? '').filter(Boolean) ?? null,
+      accountId,
+      subject: after?.subject ?? null,
+      from: (after?.from as { email?: string } | null)?.email ?? null,
+      to: (after?.to as { email?: string }[] | null)?.map((t) => t.email ?? '').filter(Boolean) ?? null,
     }),
   });
-  return success(c, publicMessage(after));
+  return success(c, publicMessage(after!));
 });
 
 app.post('/:id/labels', requireScope('mail_messages:write'), zValidator('json', labelsBody), async (c) => {
-  const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const accountId = await reachableAccountId(c, id);
+  const { store, access } = await workspaceMailFromContext(c);
+  const accountId = await reachableAccountId(store, await access.accessibleAccountIds(), id);
   if (!accountId) return error.notFound(c, 'Message', id);
 
   const body = c.req.valid('json');
@@ -250,10 +333,28 @@ app.post('/:id/labels', requireScope('mail_messages:write'), zValidator('json', 
     return error.badRequest(c, `${location} is a location, not a label. Use POST /v1/mail-messages/${id}/move.`);
   }
 
-  let labels: string[] | null = null;
-  if (add.length) labels = await addMessageLabels(db, id, add);
-  if (remove.length) labels = await removeMessageLabels(db, id, remove);
-  if (labels === null) return error.notFound(c, 'Message', id);
+  // Existence/applied comes from `result.applied` (populated by every backend);
+  // the labels VALUE to report is read from wherever the backend put it —
+  // `result.labels[id]` (postgres) or the full `result.message.labels` (the
+  // object store's single-id label ops return the row instead of a labels
+  // map; see the task report's "store API gaps"). Conflating "no labels map"
+  // with "not found", the way a naive `labels === null` check would, 404s a
+  // successful object-mode write.
+  let applied = false;
+  let labels: string[] = [];
+  if (add.length) {
+    const result = await store.mailbox(accountId).apply({ kind: 'labels.add', ids: [id], labels: add, semantics: 'single' });
+    if (result.applied.includes(id)) applied = true;
+    labels = result.labels?.[id] ?? (result.message?.labels as string[] | null | undefined) ?? labels;
+  }
+  if (remove.length) {
+    const result = await store
+      .mailbox(accountId)
+      .apply({ kind: 'labels.remove', ids: [id], labels: remove, semantics: 'single' });
+    if (result.applied.includes(id)) applied = true;
+    labels = result.labels?.[id] ?? (result.message?.labels as string[] | null | undefined) ?? labels;
+  }
+  if (!applied) return error.notFound(c, 'Message', id);
 
   publishIdOnly(c, id, accountId, 'updated');
   return success(c, { id, labels });
@@ -261,10 +362,11 @@ app.post('/:id/labels', requireScope('mail_messages:write'), zValidator('json', 
 
 app.post('/:id/move', requireScope('mail_messages:write'), zValidator('json', moveBody), async (c) => {
   const id = c.req.param('id');
-  const accountId = await reachableAccountId(c, id);
+  const { store, access } = await workspaceMailFromContext(c);
+  const accountId = await reachableAccountId(store, await access.accessibleAccountIds(), id);
   if (!accountId) return error.notFound(c, 'Message', id);
   const { location } = c.req.valid('json');
-  await moveMessagesToLocation(c.get('tenantDb'), [id], LOCATIONS[location]);
+  await store.mailbox(accountId).apply({ kind: 'move', ids: [id], location: LOCATIONS[location] });
   publishIdOnly(c, id, accountId, 'updated');
   return success(c, { id, location });
 });
@@ -272,15 +374,18 @@ app.post('/:id/move', requireScope('mail_messages:write'), zValidator('json', mo
 app.delete('/:id', requireScope('mail_messages:write'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  if (!(await reachableAccountId(c, id))) return error.notFound(c, 'Message', id);
-  const deleted = await softDeleteMessage(db, id);
-  if (!deleted) return error.notFound(c, 'Message', id);
+  const { store, access } = await workspaceMailFromContext(c);
+  const accountId = await reachableAccountId(store, await access.accessibleAccountIds(), id);
+  if (!accountId) return error.notFound(c, 'Message', id);
+  const [before] = await store.mailbox(accountId).getMessages([id]);
+  const result = await store.mailbox(accountId).apply({ kind: 'delete', ids: [id], hard: false });
+  if (!result.applied.includes(id)) return error.notFound(c, 'Message', id);
   publishEntityEvent({
     c,
     entityType: 'email',
     entityId: id,
     action: 'deleted',
-    data: await emailEventData(db, { id, accountId: deleted.accountId, subject: deleted.subject, from: null, to: null }),
+    data: await emailEventData(db, { id, accountId, subject: before?.subject ?? null, from: null, to: null }),
   });
   return noContent(c);
 });

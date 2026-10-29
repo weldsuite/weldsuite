@@ -59,7 +59,7 @@ import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { usePathname, useRouter } from '@/lib/router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { findDmChannelIdForUser, resolveOneToOneDmTarget } from '../lib/dm-links';
 import { parseWeldChatPath } from '../lib/route-segments';

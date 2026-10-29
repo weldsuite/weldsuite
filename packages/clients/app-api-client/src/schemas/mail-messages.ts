@@ -80,6 +80,8 @@ export const listMailMessagesQuery = z.object({
   hasAttachments: z.coerce.boolean().optional(),
   threadId: z.string().optional(),
   label: z.string().optional(),
+  /** Exact address match — the CRM Emails tab (mailbox-store design §5). */
+  counterparty: z.string().min(1).optional(),
 });
 
 export type UpdateMailMessageInput = z.infer<typeof updateMailMessageSchema>;

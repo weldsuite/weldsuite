@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
-import { useSignUp, useAuth } from '@clerk/clerk-react';
+import { useAuth, ClerkOnly } from '@/lib/auth';
+import { useSignUp } from '@/lib/auth/clerk';
 import { useSearchParams, Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
@@ -11,6 +12,7 @@ import { getClerkErrorMessage } from '../../utils';
 import { getTranslations } from '@/lib/i18n';
 import { useOpenAIPixel } from '@/hooks/use-openai-pixel';
 import { markSignupIntent, measureRegistrationCompleted } from '@/lib/openai-ads';
+import { HostedSignInRedirect } from '@/components/auth/identity-provider-screens';
 
 function GoogleIcon({ className }: Readonly<{ className?: string }>) {
   return (
@@ -25,7 +27,7 @@ function GoogleIcon({ className }: Readonly<{ className?: string }>) {
 
 type RegisterStep = 'form' | 'verify';
 
-export default function RegisterPage() {
+function ClerkRegisterPage() {
   const t = getTranslations('common');
   const searchParams = useSearchParams();
   const prefillEmail = searchParams.get('email');
@@ -530,5 +532,14 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+/** Clerk's own screen; providers that host sign-in themselves (OIDC) get hosted sign in redirect instead. */
+export default function RegisterPage() {
+  return (
+    <ClerkOnly fallback={<HostedSignInRedirect intent="sign-up" />}>
+      <ClerkRegisterPage />
+    </ClerkOnly>
   );
 }

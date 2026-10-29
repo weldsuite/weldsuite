@@ -24,6 +24,9 @@
     "jsx": "react-jsx",
     "incremental": true,
     "paths": {
+      "@boot": [
+        "./src/boot/global.tsx"
+      ],
       "@/*": [
         "./*"
       ]

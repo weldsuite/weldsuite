@@ -35,7 +35,8 @@ servers later; only this OpenTofu module is replaced by Talos on bare metal.
 | Valkey | chart 0.12.0 (Valkey 9.1.2) | One primary, ACL auth |
 | Restate | chart 1.7.13 | One node to start |
 | Zitadel | chart 10.4.0 (v4.19.2) | `auth.<domain>`, own CNPG cluster |
-| weldsuite | this repository | `api.<domain>`, 2-6 replicas |
+| weldsuite | this repository | `app.<domain>` (the platform SPA and its API on one origin) and `api.<domain>`, 2-6 replicas |
+| weldsuite sign portal | this repository | `sign.<domain>`, 2 replicas (Node; ADR FE-017) |
 
 Every version is pinned and was released at least two weeks before it was
 pinned. `validate.sh` fails when a HelmRelease's pin and the one it checks
@@ -55,7 +56,10 @@ differ.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
   `sops`, `age`, `hcloud-upload-image`, and `pnpm` for the migrations.
 - A read-only **deploy key** for this repository (Flux pulls; it never pushes).
-- Access to the `weldsuite` image (ghcr.io today, the EU registry later).
+- Access to the `weldsuite` and `weldsuite-sign-portal` images (ghcr.io
+  today, the EU registry later). Both build from `rust/Dockerfile` at the repo
+  root: `docker build -f rust/Dockerfile .` (the server, with the platform SPA
+  in `/srv/spa`) and `--target sign-portal`.
 
 ## 1. Talos image
 
@@ -130,7 +134,9 @@ a time.
   # list secrets.sops.yaml in secrets/eu/kustomization.yaml, commit
   ```
 
-  `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`; the
+  `DATABASE_ENCRYPTION_KEY` decrypts `workspaces.database_url`;
+  `SIGN_PORTAL_SECRET` is shared by the server and the sign portal (the
+  server trusts the signer's IP the portal reports only next to it); the
   Zitadel masterkey is exactly 32 characters. Losing either makes stored data
   unreadable: keep them in the password manager too.
 - The Traefik values trust PROXY headers from `10.10.0.0/16`; change them in
@@ -139,8 +145,8 @@ a time.
 
 ## 5. DNS
 
-Create the records `tofu output dns_records` prints (A and AAAA for `api.`,
-`auth.`, `sign.` → the ingress load balancer) at the DNS provider. cert-manager
+Create the records `tofu output dns_records` prints (A and AAAA for `app.`,
+`api.`, `auth.`, `sign.` → the ingress load balancer) at the DNS provider. cert-manager
 issues certificates once they resolve. (external-dns is not installed: a
 handful of static records doesn't need it.)
 
@@ -286,9 +292,14 @@ Be clear about this before anyone signs a contract:
   (invitations, members) are not ported yet.
 - **Workspace lifecycle.** Signup, onboarding and database provisioning
   (P4 4a) are not ported; tenant databases are made by hand (above).
-- **Frontends.** The SPA, the sign portal and the help center are not part of
-  this cluster yet (Bunny.net edge for the SPA, the portal as a Node
-  container; P3/P6).
+- **Frontends.** The server serves the platform SPA from its image at
+  `app.<domain>` (built with `VITE_RUNTIME_CONFIG=on`: it reads
+  `/config.json` and calls the API on its own origin). The sign portal runs
+  at `sign.<domain>`, but the server's `/public/sign-portal/*` endpoints it
+  calls are not ported yet, so a signing link answers "not found" until they
+  are. Not here yet: the help center, a CDN (Bunny.net) in front of
+  `app.<domain>`, and `/config.json`'s `env` map for the public keys Global
+  bakes in (Stripe, Mapbox, the portal URLs), so those features are off.
 - **Billing.** Mollie for the EU edition (P5, needs a BILL ADR). No billing
   runs here.
 - **Other EU services** in the design: system email (SMTP adapter in progress

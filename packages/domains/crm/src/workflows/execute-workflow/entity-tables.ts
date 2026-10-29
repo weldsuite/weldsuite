@@ -6,7 +6,11 @@
  * (W4 legacy-worker phase-out) — only the schema import path changed.
  */
 
-import { schema } from '@weldsuite/worker-kit/db';
+import { and, eq, getTableColumns, getTableName, inArray, isNull, sql } from 'drizzle-orm';
+import { selectableColumns, sensitiveColumnsOf } from '@weldsuite/db/lib/sensitive-columns';
+import { schema, getWorkspaceForOrg, type Database } from '@weldsuite/worker-kit/db';
+import type { DbEnv } from '@weldsuite/worker-kit/env';
+import { resolveMailStoreMode, readsFromObject, type MailStoreModeEnv } from '@weldsuite/mail-domain/store/mode';
 
 const entityTableMap: Record<string, any> = {
   // CRM
@@ -87,4 +91,249 @@ export function getEntityTable(entityType: string): any {
 export function getEntityIdPrefix(entityType: string): string {
   const normalizedType = entityType.toLowerCase().replaceAll('-', '_');
   return entityIdPrefixMap[normalizedType] || normalizedType.slice(0, 3);
+}
+
+/**
+ * Column map for the record actions' `select` / `returning`: the table's own
+ * columns without any ciphertext (TIN, SSN, account numbers, credentials) or
+ * mail account secrets. A sequence step's output is persisted and can reach
+ * AI prompts and webhooks, so a record action must never read those columns,
+ * whichever table it targets. `undefined` when the table has none (selects
+ * everything). Typed `any` like the rest of this file: Drizzle's overloads
+ * cannot express a runtime table.
+ */
+export function getEntityColumns(table: any): any {
+  return selectableColumns(getTableName(table), getTableColumns(table));
+}
+
+// ---------------------------------------------------------------------------
+// MAIL-003 for generic record actions
+// ---------------------------------------------------------------------------
+
+/**
+ * Mail entities a sequence's generic `create_record` / `update_record` /
+ * `delete_record` / `query_data` steps can reach, and the column each uses to
+ * tie back to a mailbox. `mail_account` IS the mailbox; `mail_message` and
+ * `mail_folder` belong to one through `accountId`.
+ */
+const MAIL_ENTITY_ACCOUNT_COLUMN: Record<string, 'id' | 'accountId'> = {
+  mail_account: 'id',
+  mail_message: 'accountId',
+  mail_folder: 'accountId',
+};
+
+function mailAccountColumnOf(entityType: string): 'id' | 'accountId' | undefined {
+  return MAIL_ENTITY_ACCOUNT_COLUMN[entityType.toLowerCase().replaceAll('-', '_')];
+}
+
+/**
+ * MAIL-003 (`@weldsuite/mail-domain/access`) says mailbox access follows
+ * sharing and per-user assignment, and the admin/owner role alone never opens
+ * a private mailbox. A sequence run acts for no member, so it can satisfy
+ * neither test. The least-breaking scope left for a *generic* record action is
+ * "shared mailboxes only" — the same scope a workspace API key or WeldApp
+ * token gets (`MailPrincipal.kind === 'workspace'` in mail-domain/access).
+ * Dedicated mail actions that already run as a member (`send_email`, …) are
+ * untouched; this only gates the generic CRUD actions in `action-handlers.ts`.
+ *
+ * Returns the extra WHERE condition for `update_record` / `delete_record` /
+ * `query_data` (AND it with the caller's other conditions), or `undefined`
+ * when `entityType` isn't one of the mail entities above. `mail_account`
+ * checks its own `isShared`; `mail_message` / `mail_folder` check it through
+ * the pre-fetched set of shared account ids. `table`/return typed `any` like
+ * the rest of this file: Drizzle's overloads cannot express a runtime table.
+ */
+export async function sharedMailboxCondition(
+  db: Database,
+  entityType: string,
+  table: any,
+): Promise<any> {
+  const column = mailAccountColumnOf(entityType);
+  if (!column) return undefined;
+  if (column === 'id') return eq(table.isShared, true);
+
+  const shared = await db
+    .select({ id: schema.mailAccounts.id })
+    .from(schema.mailAccounts)
+    .where(and(eq(schema.mailAccounts.isShared, true), isNull(schema.mailAccounts.deletedAt)));
+  const ids = shared.map((row) => row.id);
+  // No shared mailbox must mean no rows, never "no filter" — mirrors
+  // `accountScopeCondition` in `@weldsuite/mail-domain/access`.
+  return ids.length === 0 ? sql`false` : inArray(table.accountId, ids);
+}
+
+/**
+ * A generic record action must never set a mail account's credentials,
+ * through `create_record` or `update_record` alike. The public mail-api
+ * route doesn't even expose these fields (`CreateMailAccountInput` /
+ * `UpdateMailAccountInput` have no `accessToken` / `refreshToken` / `apiKey` /
+ * `passwordHash` / `providerConfig`), so there is no legitimate way for a
+ * sequence to reach them generically either. Sourced from the same list
+ * `getEntityColumns` already strips on read (`@weldsuite/db/lib/
+ * sensitive-columns`), so the read and write guards can't drift apart.
+ * A no-op for every entity type but `mail_account`.
+ */
+export function assertNoMailAccountCredentialWrite(entityType: string, data: Record<string, unknown>): void {
+  if (mailAccountColumnOf(entityType) !== 'id') return;
+  const offending = sensitiveColumnsOf('mail_accounts').filter((key) => key in data);
+  if (offending.length > 0) {
+    throw new Error(
+      `Cannot set ${offending.join(', ')} on mail_account through a generic record action`,
+    );
+  }
+}
+
+/**
+ * Shared by {@link assertMailEntityCreatable} (create) and
+ * {@link assertMailEntityUpdatable} (update): a write must never flip
+ * `mail_account.isShared` to `false`, nor point a `mail_message` /
+ * `mail_folder` at an account that isn't shared. `requireAccountColumn` is
+ * true for create, which has no existing row to fall back on; false for
+ * update, where the account-linking column is only checked when the step's
+ * `data` actually sets it — leaving it unset is already covered by
+ * {@link sharedMailboxCondition} on the WHERE clause, which only ever matches
+ * a row that started in a shared mailbox.
+ */
+async function assertMailEntityWriteData(
+  db: Database,
+  entityType: string,
+  data: Record<string, unknown>,
+  { requireAccountColumn }: { requireAccountColumn: boolean },
+): Promise<void> {
+  assertNoMailAccountCredentialWrite(entityType, data);
+  const column = mailAccountColumnOf(entityType);
+  if (!column) return;
+  if (column === 'id') {
+    if ('isShared' in data && data.isShared !== true) {
+      throw new Error(
+        'A workflow can only write a shared mail account: there is no workspace member to assign a private one to',
+      );
+    }
+    return;
+  }
+
+  if (!(column in data)) {
+    if (!requireAccountColumn) return;
+    throw new Error(`${entityType} requires ${column}`);
+  }
+
+  const accountId = data[column];
+  if (typeof accountId !== 'string' || !accountId) {
+    throw new Error(`${entityType} requires ${column}`);
+  }
+  const [account] = await db
+    .select({ isShared: schema.mailAccounts.isShared })
+    .from(schema.mailAccounts)
+    .where(and(eq(schema.mailAccounts.id, accountId), isNull(schema.mailAccounts.deletedAt)));
+  if (!account?.isShared) {
+    throw new Error(
+      `Mail account ${accountId} is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)`,
+    );
+  }
+}
+
+/**
+ * `create_record` has no existing row to test, so it validates the write
+ * instead: `mail_message` / `mail_folder` must name an existing shared
+ * account; `mail_account` may only be created shared in the first place
+ * (there is no workspace member for a sequence to assign a private one to —
+ * see {@link mailEntityCreateOverrides}). Throws when the data doesn't satisfy
+ * that; a no-op for every other entity type.
+ */
+export async function assertMailEntityCreatable(
+  db: Database,
+  entityType: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  return assertMailEntityWriteData(db, entityType, data, { requireAccountColumn: true });
+}
+
+/**
+ * `update_record`'s create-side counterpart. `sharedMailboxCondition` on the
+ * WHERE clause only proves the row *being updated* started in a shared
+ * mailbox — it says nothing about the incoming `data`, so without this a
+ * sequence could move a `mail_message` / `mail_folder` onto a private
+ * `accountId`, or flip a `mail_account`'s `isShared` to `false`, by targeting
+ * a row that was shared and writing it private in the same step. Runs the
+ * same checks as {@link assertMailEntityCreatable}, but only against the
+ * fields the update actually sets: a `data` that leaves `accountId` /
+ * `isShared` untouched is already scoped correctly by the WHERE clause. A
+ * no-op for every entity type but `mail_account` / `mail_message` /
+ * `mail_folder`.
+ */
+export async function assertMailEntityUpdatable(
+  db: Database,
+  entityType: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  return assertMailEntityWriteData(db, entityType, data, { requireAccountColumn: false });
+}
+
+/**
+ * `mail_account` always creates shared — see {@link assertMailEntityCreatable}.
+ * Spread into the insert data AFTER the caller's own `data`, so it wins over
+ * whatever the step passed (or the schema's `isShared: false` default).
+ */
+export function mailEntityCreateOverrides(entityType: string): Record<string, unknown> | undefined {
+  return mailAccountColumnOf(entityType) === 'id' ? { isShared: true } : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// MAIL-009 for generic record actions: `mail_message` can move off Postgres
+// ---------------------------------------------------------------------------
+
+/** The error every refused `mail_message` generic record action throws. */
+export const MAIL_MESSAGE_OBJECT_STORE_ERROR =
+  "Mail messages can't be read or changed by generic record actions for this workspace; use the mail actions instead.";
+
+/**
+ * MAIL-009 (`weldmail-mailbox-store` Flagship flag,
+ * `@weldsuite/mail-domain/store/mode`): once a workspace's mail reads from the
+ * per-mailbox object (`object` / `object-only`), the engine's Drizzle
+ * `mail_messages` table no longer points at the truth — it's a stale copy in
+ * `object` mode, and in `object-only` mode it stops being written at all. A
+ * generic `create_record` / `update_record` / `delete_record` / `query_data`
+ * step must refuse rather than silently read or write that row; `postgres`
+ * and `shadow` keep Postgres as (one of) the source(s) of truth, so they are
+ * unaffected. A no-op for every entity type but `mail_message` — `mail_account`
+ * and `mail_folder` are directory/structure rows the object move doesn't touch.
+ *
+ * Resolved once per action run (one call per `create_record` / `update_record`
+ * / `delete_record` / `query_data` invocation, before any DB access for a
+ * `mail_message`). `ctx.tenant.workspaceId` is the Clerk org id, not
+ * `workspaces.id` (docs/plans/workspace-id-standardization.md); it's resolved
+ * to the canonical id via `getWorkspaceForOrg` (`@weldsuite/worker-kit/db`),
+ * which reuses the same KV-cached lookup `execute-sequence.ts` already pays
+ * for when it opens the tenant DB through `getTenantDbForWorkspace` — the same
+ * module, same cache key — so this call is typically an isolate-memory hit,
+ * not even a KV read.
+ *
+ * Fails open to `postgres` (today's behaviour, no refusal) — same rule
+ * `resolveMailStoreMode` itself applies to a Flagship evaluation error — when
+ * the workspace id or the mode can't be resolved at all (no `WORKSPACE_CACHE`
+ * / `DATABASE_URL_MASTER` bound, e.g. a unit test; a master-DB hiccup). A
+ * worker that can't tell where mail lives must keep reading/writing Postgres,
+ * not turn into "every mail_message action in this workspace is refused".
+ */
+export async function assertMailMessageStoreIsPostgres(
+  env: DbEnv & MailStoreModeEnv,
+  entityType: string,
+  workspaceRef: string,
+): Promise<void> {
+  if (entityType.toLowerCase().replaceAll('-', '_') !== 'mail_message') return;
+
+  let readsFromMailboxObject: boolean;
+  try {
+    const { id: workspaceId } = await getWorkspaceForOrg(env, workspaceRef);
+    const mode = await resolveMailStoreMode(env, workspaceId);
+    readsFromMailboxObject = readsFromObject(mode);
+  } catch (err) {
+    console.warn(
+      '[crm-domain:mail-message-guard] could not resolve the mail store mode, assuming postgres:',
+      err instanceof Error ? err.message : err,
+    );
+    return;
+  }
+
+  if (readsFromMailboxObject) throw new Error(MAIL_MESSAGE_OBJECT_STORE_ERROR);
 }

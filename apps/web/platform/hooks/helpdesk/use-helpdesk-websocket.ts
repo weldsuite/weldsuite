@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import { useTopic } from '@weldsuite/realtime/react';
 

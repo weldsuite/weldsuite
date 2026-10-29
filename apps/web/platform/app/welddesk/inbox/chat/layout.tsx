@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import ChatListClient from './chat-list-client';
 import { ListDetailLayout } from '@/components/list-detail-layout';
 import { useConversations } from '@/hooks/queries/use-helpdesk-queries';

@@ -23,6 +23,7 @@
     "./mail": "./src/mail.ts",
     "./pdf-render": "./src/pdf-render.ts",
     "./portal": "./src/portal.ts",
+    "./portal-client": "./src/portal-client.ts",
     "./recipients": "./src/recipients.ts",
     "./schedule": "./src/schedule.ts",
     "./sending": "./src/sending.ts",

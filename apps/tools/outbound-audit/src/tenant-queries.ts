@@ -69,21 +69,38 @@ export async function loadMailDomains(tx: Tx): Promise<MailDomainRow[]> {
   return rows.map((row) => ({ ...row }));
 }
 
-/** SENT copies that went out in the window (scheduled, cancelled and failed scheduled sends excluded). */
-function sentFilter(tx: Tx, window: Window) {
+/**
+ * SENT copies that went out in the window (scheduled, cancelled and failed
+ * scheduled sends excluded). `excludeAccountIds` leaves out mailboxes this
+ * tool is reading through the mail-store export client instead (design doc
+ * §9 task E2): their `mail_messages` row may be a lagging secondary
+ * (`object` mode) or never written at all (`object-only`), so including them
+ * here would double-count or silently miss their sends.
+ */
+function sentFilter(tx: Tx, window: Window, excludeAccountIds: readonly string[] = []) {
+  const excludeClause =
+    excludeAccountIds.length > 0
+      ? tx`AND m.account_id <> ALL(${tx.array([...excludeAccountIds])}::text[])`
+      : tx``;
   return tx`m.source = 'sent'
     AND m.sent_date >= (${window.since.toISOString()}::timestamptz AT TIME ZONE 'UTC')
     AND m.sent_date <= (${window.until.toISOString()}::timestamptz AT TIME ZONE 'UTC')
     AND (m.send_status IS NULL OR m.send_status NOT IN ('scheduled', 'cancelled', 'failed'))
-    AND coalesce(m.is_draft, false) = false`;
+    AND coalesce(m.is_draft, false) = false
+    ${excludeClause}`;
 }
 
 /** Every recipient address of the window's sends, parsed exactly as the aggregation parses them. */
-export async function collectSentRecipients(tx: Tx, window: Window, into: Set<string>): Promise<void> {
+export async function collectSentRecipients(
+  tx: Tx,
+  window: Window,
+  into: Set<string>,
+  excludeAccountIds: readonly string[] = [],
+): Promise<void> {
   await tx<{ to: unknown; cc: unknown; bcc: unknown }[]>`
     SELECT m."to" AS "to", m.cc AS cc, m.bcc AS bcc
     FROM mail_messages m
-    WHERE ${sentFilter(tx, window)}`.cursor(CURSOR_ROWS * 4, (rows) => {
+    WHERE ${sentFilter(tx, window, excludeAccountIds)}`.cursor(CURSOR_ROWS * 4, (rows) => {
     for (const row of rows) {
       for (const field of [row.to, row.cc, row.bcc]) for (const entry of parseAddressList(field)) into.add(entry.email);
     }
@@ -116,7 +133,12 @@ export async function loadFirstInbound(tx: Tx, emails: string[], useCorresponden
   return result;
 }
 
-export async function streamSentMessages(tx: Tx, window: Window, onRow: (row: SentMessageRow) => void): Promise<void> {
+export async function streamSentMessages(
+  tx: Tx,
+  window: Window,
+  onRow: (row: SentMessageRow) => void,
+  excludeAccountIds: readonly string[] = [],
+): Promise<void> {
   await tx<SentMessageRow[]>`
     SELECT m.id,
            m.account_id AS "accountId",
@@ -131,7 +153,7 @@ export async function streamSentMessages(tx: Tx, window: Window, onRow: (row: Se
            left(m.text_body, ${TEXT_BODY_CHARS}::int) AS "textBody",
            left(m.html_body, ${HTML_BODY_CHARS}::int) AS "htmlBody"
     FROM mail_messages m
-    WHERE ${sentFilter(tx, window)}
+    WHERE ${sentFilter(tx, window, excludeAccountIds)}
     ORDER BY m.sent_date, m.id`.cursor(CURSOR_ROWS, (rows) => {
     for (const row of rows) onRow(row);
   });

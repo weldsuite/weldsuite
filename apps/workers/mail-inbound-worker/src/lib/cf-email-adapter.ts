@@ -65,8 +65,21 @@ function toParsedEmail(p: ParsedInboundEmail, envelopeTo?: string): ParsedEmail 
     spfStatus: toSecurityStatus(p.spfStatus),
     dkimStatus: toSecurityStatus(p.dkimStatus),
     dmarcStatus: toSecurityStatus(p.dmarcStatus),
+    // `rawMessage` stays as it was (always undefined here): it feeds a
+    // Postgres text column workspace mail no longer writes raw MIME to
+    // (docs/plans/weldmail-mailbox-store-design.md decision 4). The bytes
+    // `storeEmail` actually persists (to R2) come from `rawMessageBytes`
+    // below — CloudflareReceiveProvider always hands back an `ArrayBuffer`
+    // (receive.ts), which `typeof p.rawEmail === 'string'` here always missed.
     rawMessage: typeof p.rawEmail === 'string' ? p.rawEmail : undefined,
+    rawMessageBytes: toRawMessageBytes(p.rawEmail),
   };
+}
+
+/** `p.rawEmail` as bytes, whichever shape the provider gave it in. */
+function toRawMessageBytes(raw: ArrayBuffer | string | undefined): ArrayBuffer | undefined {
+  if (raw === undefined) return undefined;
+  return typeof raw === 'string' ? (new TextEncoder().encode(raw).buffer as ArrayBuffer) : raw;
 }
 
 function toParsedAttachment(att: ParsedInboundEmail['attachments'][number]): ParsedAttachment {

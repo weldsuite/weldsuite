@@ -84,13 +84,20 @@ export function createSqliteD1(...setupSql: string[]): D1Database {
   return d1 as unknown as D1Database;
 }
 
-/** Minimal in-memory KVNamespace (get/put/delete of strings). */
+/**
+ * Minimal in-memory KVNamespace (get/put/delete of strings). `get(key, 'json')`
+ * parses the stored value, matching the real binding, so a cache that stores
+ * JSON (e.g. resolved permissions) round-trips through this fake correctly;
+ * `expirationTtl` on `put` is accepted and ignored (no expiry simulated).
+ */
 export function createMemoryKv(): KVNamespace & { store: Map<string, string> } {
   const store = new Map<string, string>();
   const kv = {
     store,
-    async get(key: string) {
-      return store.get(key) ?? null;
+    async get(key: string, type?: 'text' | 'json') {
+      const value = store.get(key);
+      if (value === undefined) return null;
+      return type === 'json' ? JSON.parse(value) : value;
     },
     async put(key: string, value: string) {
       store.set(key, value);

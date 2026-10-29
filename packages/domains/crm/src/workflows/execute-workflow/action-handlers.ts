@@ -19,11 +19,22 @@
 import { eq, and, isNull, asc, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getEntityTable, getEntityIdPrefix } from './entity-tables';
+import type { DbEnv } from '@weldsuite/worker-kit/env';
+import {
+  getEntityTable,
+  getEntityColumns,
+  getEntityIdPrefix,
+  assertMailEntityCreatable,
+  assertMailEntityUpdatable,
+  assertMailMessageStoreIsPostgres,
+  mailEntityCreateOverrides,
+  sharedMailboxCondition,
+} from './entity-tables';
 import * as cfEmail from '@weldsuite/worker-email';
 import type { WorkerEmailEnv } from '@weldsuite/worker-email';
 import type { AiBillingEnv } from '@weldsuite/core-domain/ai-billing';
 import { guardedSend, type OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
+import type { MailStoreModeEnv } from '@weldsuite/mail-domain/store/mode';
 import type { NeonHttpDatabase } from 'drizzle-orm/neon-http';
 import { asText } from '@weldsuite/text';
 
@@ -37,12 +48,22 @@ export type WorkflowDb = NeonHttpDatabase<typeof schema>;
  * The bindings the action handlers read. Any worker Env with them fits:
  * SEND_EMAIL (send_email), the OUTBOUND_* guard bindings (send_email; the guard
  * also reads the DbEnv ones), REALTIME (helpdesk conversation events),
- * DATABASE_URL_MASTER (AI credit metering), and the AI gateway keys
- * `@weldsuite/ai` reads from the same env (CF_ACCOUNT_ID, AI_GATEWAY_API_TOKEN, …).
+ * DATABASE_URL_MASTER (AI credit metering), the AI gateway keys
+ * `@weldsuite/ai` reads from the same env (CF_ACCOUNT_ID, AI_GATEWAY_API_TOKEN, …),
+ * `DbEnv` (`WORKSPACE_CACHE` + `NEON_API_KEY`, alongside `DATABASE_URL_MASTER`
+ * above) and `FLAGSHIP` (MailStoreModeEnv) for the generic record actions'
+ * MAIL-009 guard, which resolves `ctx.tenant.workspaceId` to `workspaces.id`
+ * and evaluates the `weldmail-mailbox-store` flag (`./entity-tables.ts`).
+ * crm-api — the only host today — already has both: it resolves its tenant DB
+ * through `@weldsuite/worker-kit/db` (so `DbEnv` is already satisfied) and
+ * declares `[[env.test/production.flagship]]` in its `wrangler.toml` with the
+ * same Flagship app id as mail-api.
  */
 export interface ActionEnv
   extends WorkerEmailEnv,
     AiBillingEnv,
+    DbEnv,
+    MailStoreModeEnv,
     Pick<OutboundGuardEnv, 'OUTBOUND_LEDGER' | 'OUTBOUND_PLATFORM' | 'OUTBOUND_BACKSTOP'> {
   /** realtime-worker service binding. */
   REALTIME?: Fetcher;
@@ -246,14 +267,31 @@ async function handleCreateRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
 
+  // MAIL-009: a workspace whose mail lives in the mailbox object refuses a
+  // generic mail_message action outright, before anything touches Postgres.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
+
+  // MAIL-003: a sequence has no member to assign a private mailbox to, so a
+  // generic create of a mail entity only ever targets a shared one.
+  await assertMailEntityCreatable(ctx.db, entityType, data);
+
   const table = getEntityTable(entityType);
   const idPrefix = getEntityIdPrefix(entityType);
-  const insertData: Record<string, unknown> = { id: generateId(idPrefix), ...data, createdAt: new Date(), updatedAt: new Date() };
+  const insertData: Record<string, unknown> = {
+    id: generateId(idPrefix),
+    ...data,
+    ...mailEntityCreateOverrides(entityType),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
   if ('workspaceId' in table) insertData.workspaceId = ctx.tenant.workspaceId;
 
   // `table` is dynamically resolved (any), so drizzle's insert typing
   // degrades to a non-iterable union — normalise the returning() shape.
-  const created = (await ctx.db.insert(table).values(insertData).returning()) as unknown as Record<string, unknown>[];
+  const created = (await ctx.db
+    .insert(table)
+    .values(insertData)
+    .returning(getEntityColumns(table))) as unknown as Record<string, unknown>[];
   return { created: true, record: created[0] };
 }
 
@@ -263,12 +301,28 @@ async function handleUpdateRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const data = (inputs.data || inputs.fields || {}) as Record<string, unknown>;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
+  // MAIL-009: see handleCreateRecord.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
+  // MAIL-003: the WHERE-clause scope below only proves the *existing* row is
+  // in a shared mailbox; this validates the incoming `data` the same way
+  // handleCreateRecord validates a create, so a step can't move a mail_message
+  // into a private mailbox or flip a mail_account private via an update. Also
+  // covers mail_account's credential columns (update included).
+  await assertMailEntityUpdatable(ctx.db, entityType, data);
 
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];
   if ('workspaceId' in table) whereConditions.push(eq(table.workspaceId, ctx.tenant.workspaceId));
+  // MAIL-003: a generic update of a mail entity only reaches a shared mailbox;
+  // anything else resolves no row and falls into the "not found" branch below.
+  const mailCondition = await sharedMailboxCondition(ctx.db, entityType, table);
+  if (mailCondition) whereConditions.push(mailCondition);
 
-  const [updated] = await ctx.db.update(table).set({ ...data, updatedAt: new Date() }).where(and(...whereConditions)).returning();
+  const [updated] = await ctx.db
+    .update(table)
+    .set({ ...data, updatedAt: new Date() })
+    .where(and(...whereConditions))
+    .returning(getEntityColumns(table));
   if (!updated) throw new Error(`Record ${recordId} not found`);
   return { updated: true, record: updated };
 }
@@ -279,10 +333,15 @@ async function handleDeleteRecord(inputs: Record<string, unknown>, ctx: ActionCo
   const hardDelete = inputs.hardDelete === true;
   if (!entityType) throw new Error('Entity type is required');
   if (!recordId) throw new Error('Record ID is required');
+  // MAIL-009: see handleCreateRecord.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
 
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];
   if ('workspaceId' in table) whereConditions.push(eq(table.workspaceId, ctx.tenant.workspaceId));
+  // MAIL-003: same shared-mailbox-only scope as update_record.
+  const mailCondition = await sharedMailboxCondition(ctx.db, entityType, table);
+  if (mailCondition) whereConditions.push(mailCondition);
 
   if (hardDelete) {
     await ctx.db.delete(table).where(and(...whereConditions));
@@ -295,13 +354,22 @@ async function handleDeleteRecord(inputs: Record<string, unknown>, ctx: ActionCo
 async function handleQueryData(inputs: Record<string, unknown>, ctx: ActionContext): Promise<unknown> {
   const entityType = asText(inputs.entity || inputs.entityType || '');
   if (!entityType) throw new Error('Entity type is required');
+  // MAIL-009: see handleCreateRecord.
+  await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
 
   const table = getEntityTable(entityType);
+  // MAIL-003: same shared-mailbox-only scope as update_record.
+  const mailCondition = await sharedMailboxCondition(ctx.db, entityType, table);
   const filters = (inputs.filters || inputs.where || {}) as Record<string, unknown>;
   const limit = Number(inputs.limit) || 100;
   const offset = Number(inputs.offset) || 0;
 
-  const records = await ctx.db.select().from(table).where(isNull(table.deletedAt)).limit(limit).offset(offset);
+  const records = await ctx.db
+    .select(getEntityColumns(table))
+    .from(table)
+    .where(mailCondition ? and(isNull(table.deletedAt), mailCondition) : isNull(table.deletedAt))
+    .limit(limit)
+    .offset(offset);
 
   let filteredRecords = records;
   for (const [key, value] of Object.entries(filters)) {

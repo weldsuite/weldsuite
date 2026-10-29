@@ -251,6 +251,23 @@ describe('GET /:id/download', () => {
   it('answers 404 when the object is gone', async () => {
     expect((await api(MEMBER)(`/${missingObjectAttachment}/download`)).status).toBe(404);
   });
+
+  it("answers 404 for an attachment whose owning message has since been soft-deleted, even though the attachment row itself has no deletedAt", async () => {
+    const key = `workspaces/${ORG}/mail/attachments/msg/3_softdeleted.txt`;
+    objects.set(key, 'hello soft-deleted');
+    const account = await seedAccount({ isShared: true });
+    const message = await seedMessage(account);
+    const attachment = await seedAttachment(message, key);
+
+    // Reachable before the message is deleted — sanity check this isn't 404 for some other reason.
+    expect((await api(MEMBER)(`/${attachment}`)).status).toBe(200);
+    expect((await api(MEMBER)(`/${attachment}/download`)).status).toBe(200);
+
+    await db.update(mailMessages).set({ deletedAt: new Date() }).where(eq(mailMessages.id, message));
+
+    expect((await api(MEMBER)(`/${attachment}`)).status).toBe(404);
+    expect((await api(MEMBER)(`/${attachment}/download`)).status).toBe(404);
+  });
 });
 
 describe('storagePath is confined to the workspace', () => {

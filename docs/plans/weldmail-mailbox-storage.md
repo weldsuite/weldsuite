@@ -1,7 +1,8 @@
 # WeldMail storage: faster cold opens, then mailboxes in Durable Objects
 
-Status (2026-10-28): plan agreed; phase 0's instrumentation is built (see
-"Phase 0 → As built"), its baseline runs are not done yet. The owner committed to the
+Status (2026-10-28): phase 0 is built (its baseline runs are not done yet);
+phases 1–6 are built behind the `weldmail-mailbox-store` flag, default
+`postgres` (see "As built: phases 1–6"). The owner committed to the
 mailbox Durable Object (see "Owner answers"), recorded as ADR
 [MAIL-009](https://github.com/weldsuite/weldsuite-documentation/blob/main/adr/MAIL-009-mailbox-contents-in-a-durable-object-per-mailbox.md)
 (Proposed). Surveyed on `develop` at `520e1fd48`. It builds on ADR
@@ -468,6 +469,106 @@ objects):
   so this has to be in place before phase 6 starts.
 - The database move tool (DATA-016) no longer copies mail.
 
+## As built: phases 1–6 (2026-10-28)
+
+Everything below ships in one PR with the Flagship flag `weldmail-mailbox-store`
+at `postgres` for every workspace, so merging changes no behaviour until a
+workspace is switched. The implementation design, with the binding decisions
+on top, is [weldmail-mailbox-store-design.md](weldmail-mailbox-store-design.md).
+
+### Where things live
+
+| Piece | Code |
+|---|---|
+| Phase 1 server (lean thread list, batching, stats) | `packages/domains/mail/src/{threads,messages,db-batch}.ts` |
+| Permission cache, workspace lookup sharing | `packages/core/worker-kit/src/{permission-cache,db}.ts`, `packages/core/db/src/lib/permissions-cache.ts` |
+| Phase 1 client | `apps/web/platform/app/weldmail/lib/{landing-redirect,label-route-prefetch,mail-gate}.ts`, `hooks/use-app-prefetch.ts`, `lib/persisted-query-cache.ts` |
+| Indexes (tenant migration 0233) | `packages/core/db/src/schema/mail-messages.ts` |
+| Store contracts and shared rules | `packages/domains/mail/src/store/{types,model,cursor,merge,fts-query,thread-summary,thread-match,bodies}.ts` |
+| Postgres store | `packages/domains/mail/src/store/postgres/` |
+| Mailbox object (SQLite, EU) | `packages/domains/mail/src/mailbox-object/` (schema, writes, reads, alarm, outbox, destroy, backfill, parity, reverse sync); hosted by mail-api as `MailboxStoreObject` |
+| Mail index object (EU) | `packages/domains/mail/src/mail-index/` (`MailIndex`: correspondents, address index) |
+| Client, fan-out, router, access, directory | `packages/domains/mail/src/store/{object/*,router,access,directory,parity,mode,index}.ts` (`getWorkspaceMail`) |
+| Cross-store contract suite | `packages/domains/mail/src/store/contract.test.ts` |
+| Staff routes | mail-api `/internal/mail-store/*` (`OUTBOUND_ADMIN_SECRET`) |
+
+### Where it differs from the phases above
+
+- **Phase 2 shrank.** Bodies and raw MIME live at fixed R2 keys
+  (`mail/<workspaceId>/<accountId>/<messageId>/{body.html,body.txt,raw.eml}`),
+  so the `body_key` and `search_text` columns were not needed. The approved
+  tenant migration is two indexes on `mail_messages`.
+- **A new EU bucket** (owner, 2026-10-28): bodies and raw MIME go to
+  `weldsuite-mail` / `weldsuite-mail-test` (`jurisdiction = "eu"`, binding
+  `MAIL_STORAGE`), not to `weldsuite-storage`, which is not EU-pinned.
+  Attachments stay in `weldsuite-storage` for now.
+- **The mail index is its own EU object** (`MailIndex`, `mbxidx:<ws>`), not
+  tables in the OutboundLedger, which is not in the EU jurisdiction.
+- **Search** in the object: trigram FTS over subject and addresses (substring
+  matches like today) and token-prefix FTS over the first 8 KB of body text.
+- **Raw MIME** was never stored for Cloudflare-routed mail; it is now written
+  to the EU bucket for every inbound message, in every mode.
+
+### Rollout runbook
+
+Before the PR deploys (ops, once per environment):
+
+1. Create the EU buckets: `wrangler r2 bucket create weldsuite-mail-test
+   --jurisdiction eu` and `weldsuite-mail` for production. Every mail worker
+   binds `MAIL_STORAGE` to them; the deploy fails if they don't exist.
+2. Create the Flagship flag `weldmail-mailbox-store` (string, default
+   `postgres`) in the test and production Flagship apps.
+3. Deploy mail-api before the workers that bind its Durable Objects by
+   `script_name` (migration tag `mailbox-v1` adds `MailboxStoreObject` and
+   `MailIndex`).
+
+Per workspace (start with WeldSuite's own, then QA, then customers):
+
+1. **`shadow`.** Writes go to both stores; reads stay on Postgres. The first
+   use of each mailbox starts its backfill (or start it with
+   `POST /internal/mail-store/backfill`). Watch
+   `GET /internal/mail-store/status/all?workspaceId=` until every mailbox is
+   `ready`, and the parity sampler's log lines.
+2. **Full parity.** `POST /internal/mail-store/parity` per mailbox (with
+   `repair: true` to fix Postgres-side differences). Expect only the
+   normalised differences (see the design's Decisions block).
+3. **`object`.** Reads come from the objects, writes still go to both.
+   Measure with the phase 0 timing; compare with the baseline.
+4. **`object-only`**, only once every mailbox is ready. Postgres stops
+   receiving mail for that workspace.
+
+Rolling back from `object` or `object-only`: switch the flag to `shadow`
+first, then run `POST /internal/mail-store/reverse-sync` per mailbox with
+`since` = when the workspace left `shadow`, until it reports `done`. Only then
+switch to `postgres`. The steps are also in
+`packages/domains/mail/src/mailbox-object/reverse-sync.ts`.
+
+### Known limits in this PR
+
+- **Unified views and partial failures.** If one mailbox object fails, a
+  cross-mailbox list (unified inbox, badge) returns the other mailboxes and
+  logs the failure; the response does not tell the user a mailbox is missing.
+- **Drive** lists at most 2,000 recent mail attachments in object modes
+  (postgres mode is unchanged).
+- **Test fixtures.** In `object-only`, `/test-fixtures/reset` cannot pick out
+  seeded messages inside a reused (non-fixture) mailbox.
+- **Moving an attachment** between two different mailboxes is not supported
+  in object modes.
+- **Search** in object modes matches substrings in subject and addresses but
+  whole-word prefixes in body text ("voice" no longer finds "invoice" in a
+  body).
+- **Workflows.** Generic record actions on `mail_message` are refused in
+  `object` and `object-only`; mail workflows must use the mail actions. Before
+  switching a workspace, check whether any of its workflows use them.
+
+### Later (not in this PR)
+
+- The migration that drops the old mail tables and the 0214 correspondents
+  trigger, once every workspace runs `object-only` (needs owner approval).
+- Draining the object's `pg_drift` list back to Postgres automatically; today
+  reverse sync and parity cover it.
+- Consumer WeldMail (personal-api).
+
 ## Out of scope
 
 - **Consumer WeldMail** (`apps/web/weldmail`, personal-api, the personal DB's
@@ -539,6 +640,24 @@ inline in the inbound handler.
 - The mail sidebar fetches accounts twice, once outside React Query (phase 1
   item 9).
 - A thread-list read runs two `UPDATE`s (phase 1 item 2).
+
+Found and fixed while building phases 1–6:
+
+- **Scheduled mail could silently never be sent.** A thread-list read marked a
+  scheduled message `sent` once its time had passed; the scheduled-send
+  Workflow (which wakes at or after that time, and can defer up to 24 h on a
+  sending limit) then skipped it as already handled.
+- `GET /api/mail-accounts` returned stored credentials (tokens, API keys,
+  password hashes, provider config); workflow generic CRUD on `mail_account`
+  could read and write them. `mail_accounts` is now in `SENSITIVE_COLUMNS`,
+  which also strips those key names from every entity event payload.
+- `GET /api/mail-labels` and `/api/mail-snooze/snoozed` without `accountId`
+  showed private mailboxes' labels, counts and snoozed mail.
+- crm-api recent-correspondents read any mailbox without an access check.
+- Drive listed mail attachments with their public storage URL.
+- Workflow generic CRUD on mail entities ignored mailbox access; it is now
+  limited to shared mailboxes.
+- Deleting a label left differently-cased copies on messages.
 
 ## Docs to update
 

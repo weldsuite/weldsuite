@@ -311,11 +311,18 @@ async fn a_discovery_document_for_another_issuer_is_refused() {
         vec![text("project")],
     ))
     .expect("verifier");
+    for _ in 0..3 {
+        assert_eq!(
+            verifier.verify(token("valid"), now()).await,
+            Err(TokenError::UnknownKey)
+        );
+    }
+    // The failed fetch holds off the next, as for Clerk's JWKS.
     assert_eq!(
-        verifier.verify(token("valid"), now()).await,
-        Err(TokenError::UnknownKey)
+        provider.discovery_hits.load(Ordering::SeqCst),
+        1,
+        "one discovery, not one per request"
     );
-    assert_eq!(provider.discovery_hits.load(Ordering::SeqCst), 1);
     assert_eq!(
         provider.jwks_hits.load(Ordering::SeqCst),
         0,

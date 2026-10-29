@@ -92,12 +92,15 @@ export interface DraftInput {
   isForward?: boolean;
 }
 
-export async function createDraft(db: Database, data: DraftInput) {
-  const id = generateId('draft');
-  const now = new Date();
+export async function createDraft(db: Database, data: DraftInput & { id?: string }, now: Date = new Date()) {
+  const { id: suppliedId, ...rest } = data;
+  // Accept a pre-generated id (the store's `draft.create` op, design task B4,
+  // mints the id before the first store write, like `ingest`) — defaulting
+  // to a fresh one keeps every existing caller working unchanged.
+  const id = suppliedId ?? generateId('draft');
   await db.insert(mailDrafts).values({
     id,
-    ...data,
+    ...rest,
     hasAttachments: (data.attachmentIds?.length ?? 0) > 0,
     attachmentCount: data.attachmentIds?.length ?? 0,
     lastAutoSavedAt: now,
@@ -108,7 +111,7 @@ export async function createDraft(db: Database, data: DraftInput) {
   return row!;
 }
 
-export async function updateDraft(db: Database, id: string, data: Partial<DraftInput>) {
+export async function updateDraft(db: Database, id: string, data: Partial<DraftInput>, now: Date = new Date()) {
   const [existing] = await db
     .select()
     .from(mailDrafts)
@@ -116,7 +119,7 @@ export async function updateDraft(db: Database, id: string, data: Partial<DraftI
     .limit(1);
   if (!existing) return null;
 
-  const patch: Record<string, unknown> = { updatedAt: new Date(), lastAutoSavedAt: new Date() };
+  const patch: Record<string, unknown> = { updatedAt: now, lastAutoSavedAt: now };
   for (const [k, v] of Object.entries(data)) if (v !== undefined) patch[k] = v;
   if (data.attachmentIds !== undefined) {
     patch.hasAttachments = data.attachmentIds.length > 0;
@@ -131,7 +134,7 @@ export async function updateDraft(db: Database, id: string, data: Partial<DraftI
   return { before: existing, after: after! };
 }
 
-export async function softDeleteDraft(db: Database, id: string) {
+export async function softDeleteDraft(db: Database, id: string, now: Date = new Date()) {
   const [existing] = await db
     .select({ id: mailDrafts.id, accountId: mailDrafts.accountId })
     .from(mailDrafts)
@@ -140,7 +143,7 @@ export async function softDeleteDraft(db: Database, id: string) {
   if (!existing) return null;
   await db
     .update(mailDrafts)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .set({ deletedAt: now, updatedAt: now })
     .where(eq(mailDrafts.id, id));
   return existing;
 }

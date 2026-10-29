@@ -3,10 +3,12 @@
 # (master + tenant built from the journaled migrations), Valkey and NATS, and
 # check the full request pipeline with a signed session token:
 # auth → workspace → tenant DB → licence → flags → permission → envelope,
-# a job run through Restate, then the same with OIDC sign-in against a
-# stand-in issuer.
+# a job run through Restate, the platform SPA from the image on the same
+# origin, the sign portal's container calling the server, then the same with
+# OIDC sign-in against a stand-in issuer.
 #
-#   docker build -t weldsuite:dev rust
+#   docker build -f rust/Dockerfile -t weldsuite:dev .
+#   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
 #
 # Needs docker, kind, kubectl, helm, node and the repo's pnpm install (for the
@@ -18,6 +20,7 @@ repo="$(cd "$here/../../.." && pwd)"
 chart="$here/../helm/weldsuite"
 cluster="${KIND_CLUSTER:-weldsuite-smoke}"
 image="${IMAGE:-weldsuite:dev}"
+portal_image="${PORTAL_IMAGE:-weldsuite-sign-portal:dev}"
 work="$(mktemp -d)"
 forwards=()
 
@@ -32,7 +35,7 @@ if ! kind get clusters | grep -qx "$cluster"; then
   kind create cluster --name "$cluster" --wait 120s
 fi
 kubectl config use-context "kind-$cluster" >/dev/null
-kind load docker-image "$image" --name "$cluster"
+kind load docker-image "$image" "$portal_image" --name "$cluster"
 
 # ── services ────────────────────────────────────────────────────────────────
 kubectl apply -f "$here/postgres.yaml" -f "$here/services.yaml"
@@ -70,12 +73,13 @@ done
 
 token="$(cat "$work/token")"
 failed=0
+base=http://127.0.0.1:18080
 check() {
   local method="$1" path="$2" expected="$3" auth="${4:-}" body="${5:-}" status
-  local args=(-s -o "$work/body" -w '%{http_code}' -X "$method")
+  local args=(-s -o "$work/body" -D "$work/headers" -w '%{http_code}' -X "$method")
   [ -n "$auth" ] && args+=(-H "Authorization: Bearer $token")
   [ -n "$body" ] && args+=(-H 'Content-Type: application/json' --data "$body")
-  status="$(curl "${args[@]}" "http://127.0.0.1:18080$path")"
+  status="$(curl "${args[@]}" "$base$path")"
   if [ "$status" != "$expected" ]; then
     echo "FAIL $method $path: $status, expected $expected: $(head -c 300 "$work/body")" >&2
     failed=1
@@ -89,11 +93,19 @@ contains() {
     failed=1
   fi
 }
+# header <name> <text>: the last answer's header holds the text.
+header() {
+  if ! tr -d '\r' <"$work/headers" | grep -qi "^$1:.*$2"; then
+    echo "FAIL the last answer's $1 has no $2: $(tr -d '\r' <"$work/headers" | grep -i "^$1:" || echo none)" >&2
+    failed=1
+  fi
+}
 
 check GET /livez 200
 check GET /readyz 200
 check GET /health 200
-check GET /nope 404
+check GET /public/nope 404
+contains '"NOT_FOUND"'
 check GET /api/me/permissions 401
 # The signed-in member: session → workspace → tenant database → permissions.
 check GET /api/me/permissions 200 auth
@@ -135,6 +147,52 @@ else
   echo "FAIL the no-op job did not run through restate: $status $(head -c 300 "$work/body")" >&2
   failed=1
 fi
+
+# ── The platform SPA (spa.rs) ───────────────────────────────────────────────
+# The image's build, on the API's origin: index.html for the root and any
+# client route, revalidated; hashed assets cached for good and precompressed;
+# a missing asset a 404, never HTML; /config.json still the server's.
+check GET / 200
+contains '<div id="root">'
+header cache-control no-cache
+check GET /weldcrm/contacts 200
+contains '<div id="root">'
+asset="$(grep -o '/assets/index-[A-Za-z0-9_-]*\.js' "$work/body" | head -n 1)"
+check GET "${asset:-/assets/no-entry-chunk-in-index.js}" 200
+header cache-control immutable
+header content-type javascript
+encoding="$(curl -s -o /dev/null -D - -H 'Accept-Encoding: br, gzip' "$base$asset" | tr -d '\r' | awk -F': ' 'tolower($1)=="content-encoding"{print $2}')"
+if [ "$encoding" = br ]; then
+  echo "ok   GET $asset precompressed (br)"
+else
+  echo "FAIL GET $asset: content-encoding '$encoding', expected br" >&2
+  failed=1
+fi
+check GET /assets/index-0ld0ld0l.js 404
+header cache-control no-store
+check GET /config.json 200
+contains '"backend":"rust"'
+
+# ── The sign portal (ADR FE-017) ────────────────────────────────────────────
+# Its container renders the signer pages and calls the server's
+# /public/sign-portal/* with the shared secret. Those endpoints are not
+# ported yet (rust/modules/sign), so the server's 404 comes back through the
+# portal for now; check for the portal's answers once they are.
+kubectl rollout status deployment/weldsuite-sign-portal --timeout=120s
+kubectl port-forward service/weldsuite-sign-portal 18081:80 >/dev/null 2>&1 &
+forwards+=($!)
+for _ in $(seq 1 30); do
+  curl -fsS http://127.0.0.1:18081/healthz >/dev/null 2>&1 && break
+  sleep 1
+done
+base=http://127.0.0.1:18081
+check GET /healthz 200
+check GET /r/smoke-link-token 200
+contains '<html'
+header x-frame-options DENY
+check POST /api/session 404 "" '{"token":"smoke-link-token"}'
+contains '"NOT_FOUND"'
+base=http://127.0.0.1:18080
 
 # ── OIDC sign-in (ADR SEC-012) ──────────────────────────────────────────────
 # The same server switched to AUTH_PROVIDER=oidc against a stand-in issuer

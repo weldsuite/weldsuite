@@ -21,6 +21,17 @@ import { scoreInboundSpam } from './lib/spam-filter';
 import type { ForwardableEmailMessage } from '@weldsuite/email/providers/cloudflare';
 import { sql } from 'drizzle-orm';
 import { getMasterDb } from './db';
+import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+
+/**
+ * Structural Flagship binding — only the `getStringValue` method
+ * `resolveMailStoreMode` (`@weldsuite/mail-domain/store/mode`) needs, so this
+ * worker avoids a hard dependency on `@weldsuite/feature-flags` for reading
+ * one flag, the same reason `store/mode.ts`'s own local `FlagshipLike` does.
+ */
+interface FlagshipLike {
+  getStringValue(key: string, defaultValue: string, context?: Record<string, unknown>): Promise<string>;
+}
 
 // Environment bindings
 export interface Env {
@@ -34,6 +45,17 @@ export interface Env {
   NEON_API_KEY: string;
   // R2 storage for mail attachments
   STORAGE: R2Bucket;
+  /**
+   * EU-jurisdiction R2 bucket for raw MIME and bodies
+   * (docs/plans/weldmail-mailbox-store-design.md decision 7). Required, not
+   * optional: `getWorkspaceMail`'s env type (`@weldsuite/mail-domain/store`)
+   * declares it non-optional even though it goes unused while every
+   * workspace resolves to `postgres` mode — a deploy-time prerequisite
+   * (design §8), like `MAILBOX_STORE` below.
+   */
+  MAIL_STORAGE: R2Bucket;
+  /** The mailbox Durable Object, owned by mail-api; reached by `script_name` (design §8). */
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
   R2_PUBLIC_URL?: string;
   // Service bindings
   REALTIME: Fetcher;
@@ -47,6 +69,8 @@ export interface Env {
    */
   ENTITY_EVENTS?: Queue;
   ENVIRONMENT: string;
+  /** The `weldmail-mailbox-store` rollout flag + mail-store mode per workspace (design §2.2, §8). */
+  FLAGSHIP?: FlagshipLike;
   // Encryption key for stored database connection strings
   DATABASE_ENCRYPTION_KEY?: string;
   DATABASE_ENCRYPTION_KEY_V2?: string;
@@ -156,7 +180,7 @@ async function emailHandler(
   const { email, attachments } = adapted;
 
   try {
-    const result = await processInboundEmail(env, email, attachments);
+    const result = await processInboundEmail(env, email, attachments, ctx);
     console.log(`[Email] Processed: ${result.stored} stored, ${result.notified} notified`);
 
     // Skip WeldDesk / accounting fan-out for mail the heuristic filter

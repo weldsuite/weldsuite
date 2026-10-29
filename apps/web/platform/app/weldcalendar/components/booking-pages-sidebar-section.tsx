@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CalendarDays, Link2, MoreVertical, Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react';
 import { useNavigate } from '@tanstack/react-router';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import { Badge } from '@weldsuite/ui/components/badge';
 import { Button } from '@weldsuite/ui/components/button';
 import {

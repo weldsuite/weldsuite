@@ -105,6 +105,25 @@ namespace_id = "1101"
   limit = 30
   period = 60
 
+# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D5): read
+# by `@weldsuite/mail-domain/store`'s `getWorkspaceMail` through the v1 mail
+# routes. mail-api hosts the Durable Object; bound here by `script_name`,
+# always reached through `.jurisdiction('eu')` (ADR MAIL-009). Unset in no
+# environment: `resolveMailStoreMode` treats a missing binding as `postgres`
+# regardless, same as the FLAGSHIP-less behaviour above.
+[[durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-dev"
+
+# EU-jurisdiction bucket for message bodies and raw MIME (decision 7) — only
+# read by `object`/`object-only` mode's `getMessage({ bodies: true })`. A local
+# `wrangler dev` simulates R2 regardless of this name.
+[[r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-dev"
+jurisdiction = "eu"
+
 # Entity-event hub (Phase 2). Fed by publishEntityEvent; hub fans out to
 # audit / analytics / search. Realtime stays a direct service binding.
 [[queues.producers]]
@@ -249,6 +268,17 @@ namespace_id = "2101"
   limit = 30
   period = 60
 
+# Mailbox store (test): mail-api's Durable Object (design §8).
+[[env.test.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-test"
+jurisdiction = "eu"
+
 # Master Postgres over Hyperdrive — required for api_key_registry lookups in auth.
 # weldsuite-master-test (the test master's pooler endpoint).
 [[env.test.hyperdrive]]
@@ -320,6 +350,17 @@ namespace_id = "3101"
   [env.production.ratelimits.simple]
   limit = 30
   period = 60
+
+# Mailbox store (production): mail-api's Durable Object (design §8).
+[[env.production.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api"
+
+[[env.production.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail"
+jurisdiction = "eu"
 
 [[env.production.hyperdrive]]
 binding = "HYPERDRIVE_MASTER"

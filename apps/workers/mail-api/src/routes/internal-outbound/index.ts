@@ -16,7 +16,6 @@
  */
 
 import { Hono } from 'hono';
-import { createMiddleware } from 'hono/factory';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
@@ -24,42 +23,10 @@ import { getMasterDb, masterSchema } from '@weldsuite/worker-kit/db';
 import { ledgerKeyFor, type LedgerSubject } from '@weldsuite/mail-domain/outbound';
 import { subscribeSendingEvents } from '@weldsuite/worker-email';
 import { error, success } from '@weldsuite/worker-kit/response';
+import { adminAuth, type AdminAuthVariables } from '../../lib/admin-auth';
 import type { Env } from '../../types';
 
-/** A short secret is a misconfiguration, not a credential. */
-const MIN_SECRET_LENGTH = 32;
-const adminEmail = z.string().email().max(255);
-
-async function sha256(value: string): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
-}
-
-/** Constant-time comparison: both sides are hashed to equal length first. */
-async function secretsMatch(provided: string, expected: string): Promise<boolean> {
-  const [a, b] = await Promise.all([sha256(provided), sha256(expected)]);
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
-  return diff === 0;
-}
-
-type AdminVariables = { adminEmail: string };
-
-const adminAuth = () =>
-  createMiddleware<{ Bindings: Env; Variables: AdminVariables }>(async (c, next) => {
-    const expected = c.env.OUTBOUND_ADMIN_SECRET;
-    if (!expected || expected.length < MIN_SECRET_LENGTH) {
-      return c.json({ error: { code: 'NOT_CONFIGURED', message: 'The outbound admin API is not configured' } }, 503);
-    }
-    if (!(await secretsMatch(c.req.header('x-admin-secret') ?? '', expected))) {
-      return c.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, 401);
-    }
-    const email = c.req.header('x-admin-email')?.trim().toLowerCase();
-    if (!email || !adminEmail.safeParse(email).success) {
-      return c.json({ error: { code: 'BAD_REQUEST', message: 'x-admin-email must identify the acting admin' } }, 400);
-    }
-    c.set('adminEmail', email);
-    await next();
-  });
+type AdminVariables = AdminAuthVariables;
 
 const app = new Hono<{ Bindings: Env; Variables: AdminVariables }>();
 app.use('*', adminAuth());

@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { CheckCircle2, Loader2 } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import {

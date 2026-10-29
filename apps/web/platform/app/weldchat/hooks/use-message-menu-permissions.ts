@@ -1,4 +1,4 @@
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
 import {

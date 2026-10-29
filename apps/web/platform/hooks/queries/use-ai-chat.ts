@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { apiUrl } from '@/lib/api/public-env';
 import { randomSuffix } from '@/lib/random';
 import { questionMarkersToText } from '@weldsuite/app-api-client/schemas/weldagent-questions';

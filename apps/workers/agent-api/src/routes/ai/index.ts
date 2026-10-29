@@ -50,11 +50,11 @@ import {
 import { getAgent } from '@weldsuite/agent-domain/agents';
 import { canAccessAgent } from '@weldsuite/agent-domain/access';
 import { agentViewer } from '../../services/weldagent/viewer';
+import { personaPermissions } from '../../services/weldagent/persona-permissions';
 import { streamAgentChat, runAgentOnce } from '@weldsuite/agent-domain/executor';
 import {
   buildPersonaCall,
   createPersonaTextTransform,
-  personaPermissionKeys,
   personaReplyText,
   sumStepUsage,
   type PermissionCheck,
@@ -241,12 +241,7 @@ function splitChatMessages(
  * keys its tools need, checked deny-aware like any route, never an agent's grants.
  */
 async function personaPermissionCheck(c: AppContext): Promise<PermissionCheck> {
-  const held = new Set<string>();
-  await Promise.all(
-    personaPermissionKeys().map(async (key) => {
-      if (await hasContextPermission(c, key)) held.add(key);
-    }),
-  );
+  const held = new Set(await personaPermissions(c));
   return (key) => held.has(key);
 }
 

@@ -8,28 +8,29 @@
  *
  * Uploading files for a new message (`POST /`) lives in `mail-sending`, which
  * only the public API mounts.
+ *
+ * Locating an attachment goes through `getWorkspaceMail`'s `store`
+ * (`WorkspaceMailStore.locateAttachment`, design task D5): a fan-out over the
+ * caller's accessible mailboxes rather than a direct `mail_messages` join, so
+ * it works the same in every mailbox-store mode.
  */
 
 import { Hono, type Context } from 'hono';
-import { getAttachment } from '@weldsuite/mail-domain/attachments';
-import { canOpenAccount } from '@weldsuite/mail-domain/access';
-import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
 import { error, success } from '../../../lib/response';
-import { mailPrincipal, publicAttachment } from '../../../lib/mail';
+import { publicAttachment } from '../../../lib/mail';
+import { workspaceMailFromContext } from '../../../lib/mail-store-context';
 import { getStoredObject } from '@weldsuite/worker-kit/storage';
 
 const app = new Hono<HonoEnv>();
 
 /** The attachment when its message is in a mailbox the caller can open. */
 async function reachableAttachment(c: Context<HonoEnv>, id: string) {
-  const db = c.get('tenantDb');
-  const row = await getAttachment(db, id);
-  if (!row) return null;
-  const accountId = await getMessageAccountId(db, row.messageId);
-  if (!accountId || !(await canOpenAccount(db, accountId, mailPrincipal(c)))) return null;
-  return row;
+  const { store, access } = await workspaceMailFromContext(c);
+  const accessibleIds = await access.accessibleAccountIds();
+  if (accessibleIds.length === 0) return null;
+  return store.locateAttachment(id, accessibleIds);
 }
 
 /** RFC 6266 filename, with an ASCII fallback for old clients. */
@@ -40,25 +41,25 @@ function contentDisposition(fileName: string): string {
 
 app.get('/:id', requireScope('mail_attachments:read'), async (c) => {
   const id = c.req.param('id');
-  const row = await reachableAttachment(c, id);
-  if (!row) return error.notFound(c, 'MailAttachment', id);
-  return success(c, publicAttachment(row));
+  const located = await reachableAttachment(c, id);
+  if (!located) return error.notFound(c, 'MailAttachment', id);
+  return success(c, publicAttachment(located.attachment));
 });
 
 app.get('/:id/download', requireScope('mail_attachments:read'), async (c) => {
   const id = c.req.param('id');
-  const row = await reachableAttachment(c, id);
-  if (!row?.storagePath) return error.notFound(c, 'MailAttachment', id);
+  const located = await reachableAttachment(c, id);
+  if (!located?.attachment.storagePath) return error.notFound(c, 'MailAttachment', id);
   if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) {
     return c.json({ error: { code: 'STORAGE_UNAVAILABLE', message: 'File storage is not configured' } }, 503);
   }
-  const obj = await getStoredObject(c.env, row.storagePath);
+  const obj = await getStoredObject(c.env, located.attachment.storagePath);
   if (!obj) return error.notFound(c, 'MailAttachment', id);
   return new Response(obj.body, {
     headers: {
-      'Content-Type': row.contentType || obj.httpMetadata?.contentType || 'application/octet-stream',
+      'Content-Type': located.attachment.contentType || obj.httpMetadata?.contentType || 'application/octet-stream',
       'Content-Length': String(obj.size),
-      'Content-Disposition': contentDisposition(row.fileName),
+      'Content-Disposition': contentDisposition(located.attachment.fileName),
       'Cache-Control': 'private, no-store',
       'X-Content-Type-Options': 'nosniff',
     },

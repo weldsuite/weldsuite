@@ -111,9 +111,20 @@ PR that touches the module, so a feature lands in both backends.
 ## Running it
 
 ```bash
-docker build -t weldsuite:dev rust
-rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate
+docker build -f rust/Dockerfile -t weldsuite:dev .                                       # from the repo root: the server and the platform SPA
+docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .     # the WeldSign signer portal (Node, ADR FE-017)
+rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate, the SPA, the portal
 ```
+
+The image carries the platform SPA, built with `VITE_RUNTIME_CONFIG=on`, in
+`/srv/spa`, and the server serves it for every path its routes don't answer
+(`bins/weldsuite/src/spa.rs`): `index.html` for client routes (revalidated),
+hashed `/assets/*` cached for a year and precompressed (`.br`, `.gz`), the
+build's `_headers` rules, a 404 for a missing asset. `/api`, `/public`,
+`/config.json` and the probes keep precedence, so the platform and its API
+share one origin and the app finds the API through `/config.json`
+(`"backend": "rust"`). The build context is the repo root, trimmed by
+`rust/Dockerfile.dockerignore`.
 
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
 environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`,
@@ -139,6 +150,8 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
 | `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
 | `STORAGE_SIGNING_KEY` | signs the files cookie and the signed URLs that open private objects (`/api/storage`); the same value as app-api's, so either backend accepts the other's. Unset: `POST /api/storage/access` and `/sign` answer 503, and a private object opens only with a session token |
+| `SPA_DIR` | serve the built SPA in this directory for every path the routes don't answer; the image sets `/srv/spa`, empty serves the API alone |
+| `EXTERNAL_API_URL`, `USER_APP_BUNDLE_SIGNING_KEY` (else `INTERNAL_API_SECRET`), `USER_APP_BUNDLE_ORIGIN`, `USER_APP_FRAME_ANCESTORS`, `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS` | WeldApps: where the app gateway forwards to (external-api), the bundle-link signing secret (the same value as app-api's, so links open on either backend), the dedicated bundle origin, extra `frame-ancestors`, and the workspaces whose apps are first-party (all optional; without a signing secret, private bundles fail closed) |
 | `FEATURE_FLAGS` (`defaults`/`master-db`), `FEATURE_FLAGS_REFRESH_SECONDS` | where flag values come from |
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |

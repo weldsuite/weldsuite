@@ -77,7 +77,7 @@ import { OverviewTab as MemberOverviewTab } from '@/components/team-member-panel
 import { getRoleLabel } from '@/components/team-member-panel/role-label';
 import { CommonTab as MemberCommonTab } from '@/components/team-member-panel/tabs/common-tab';
 import { ActivityTab as MemberActivityTab } from '@/components/team-member-panel/tabs/activity-tab';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { APP_REGISTRY } from '@/lib/apps/app-registry';
 import { useTheme } from '@/hooks/use-theme';

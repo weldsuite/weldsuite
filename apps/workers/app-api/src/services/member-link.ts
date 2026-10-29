@@ -20,6 +20,7 @@
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { schema, type getTenantDbForWorkspace } from '@weldsuite/worker-kit/db';
 import { releaseRemovedMemberUserId } from '@weldsuite/db/lib/workspace-members';
+import { bumpPermissionsVersion } from '@weldsuite/db/lib/permissions-cache';
 import { autoJoinUserToPublicChannels } from '@weldsuite/chat-domain/weldchat-auto-join';
 import { applyRoleChangeToChannels } from '@weldsuite/chat-domain/weldchat-role-links';
 import {
@@ -124,6 +125,11 @@ async function findPendingMember(
  * the cached memberType. The update only applies while the row still holds
  * the userId it was read with, so two requests racing to link the same
  * member activate it once. Returns whether this call did the update.
+ *
+ * `workspaceId` (`workspaces.id`) is optional only because a couple of call
+ * sites still scan multiple orgs without it resolved yet; when given, the
+ * permission cache is bumped so this member's first resolution (previously
+ * either absent or a cached "no member") isn't served stale.
  */
 async function activatePendingMember(
   env: Env,
@@ -132,6 +138,7 @@ async function activatePendingMember(
   userId: string,
   membership: ClerkOrgMembership,
   pending: WorkspaceMemberRow,
+  workspaceId?: string,
 ): Promise<boolean> {
   const name = [membership.public_user_data.first_name, membership.public_user_data.last_name]
     .filter(Boolean).join(' ') || null;
@@ -170,7 +177,9 @@ async function activatePendingMember(
   // Invalidate the memberType cache so the next request reads the
   // freshly activated row instead of a stale (or missing) value.
   await env.WORKSPACE_CACHE.delete(`member-type:${orgId}:${userId}`).catch(() => {});
-  return updated.length > 0;
+  const didUpdate = updated.length > 0;
+  if (didUpdate && workspaceId) await bumpPermissionsVersion(env, workspaceId);
+  return didUpdate;
 }
 
 /** Join the freshly activated member to the workspace's public channels (non-fatal). */
@@ -246,6 +255,9 @@ async function applyRoleChannels(
  * Link `userId` to its invited row in this org (found by invitation `token`
  * when given, else by the membership's email) and wire up channels. Returns
  * the row as it was before linking, or null when nothing was linked.
+ *
+ * `workspaceId` (`workspaces.id`), when known, bumps the permission cache
+ * after the activating write (see `activatePendingMember`).
  */
 export async function linkInvitedMember(
   env: Env,
@@ -253,12 +265,13 @@ export async function linkInvitedMember(
   membership: ClerkOrgMembership,
   userId: string,
   token: string | null,
+  workspaceId?: string,
 ): Promise<WorkspaceMemberRow | null> {
   const orgId = membership.organization.id;
   const pending = await findPendingMember(tenantDb, token, membership.public_user_data.identifier);
   if (!pending) return null;
 
-  if (!(await activatePendingMember(env, tenantDb, orgId, userId, membership, pending))) return null;
+  if (!(await activatePendingMember(env, tenantDb, orgId, userId, membership, pending, workspaceId))) return null;
   await joinPublicChannels(env, tenantDb, orgId, userId, pending.memberType);
   if (pending.roleId) await applyRoleChannels(env, tenantDb, orgId, userId, pending.roleId);
   return pending;
@@ -278,6 +291,7 @@ export async function ensureMemberLinked(
   tenantDb: TenantDb,
   orgId: string,
   userId: string,
+  workspaceId?: string,
 ): Promise<void> {
   try {
     const [existing] = await tenantDb
@@ -294,7 +308,7 @@ export async function ensureMemberLinked(
     if (!memberships) return;
 
     const membership = memberships.find((m) => m.organization.id === orgId);
-    if (membership && (await linkInvitedMember(env, tenantDb, membership, userId, null))) {
+    if (membership && (await linkInvitedMember(env, tenantDb, membership, userId, null, workspaceId))) {
       console.log(`[app-api/member-link] Linked unlinked invited member for user ${userId} in org ${orgId}`);
       return;
     }

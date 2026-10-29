@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { weldchatEntityApi, type EntityChannel } from '@/lib/api/domains/weldchat-entity';
 import { MessageItem } from '@/app/weldchat/components/message-item';
 import { MessageList } from '@/app/weldchat/components/message-list';

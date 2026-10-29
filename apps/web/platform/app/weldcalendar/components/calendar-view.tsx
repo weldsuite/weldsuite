@@ -112,7 +112,7 @@ import { formatEventWhen } from '../lib/event-when';
 import { getCurrentSlot, getNotifiableGuests, isSameSlot } from '../lib/event-reschedule';
 import { isEditableTarget, isEscapeHandledElsewhere } from '../lib/escape-guard';
 import { useSearchCalendarEvents } from '@/hooks/queries/use-calendar-queries';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { CalendarSearchResults } from './calendar-search-results';
 import { RescheduleNotifyDialog } from './reschedule-notify-dialog';
 import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
