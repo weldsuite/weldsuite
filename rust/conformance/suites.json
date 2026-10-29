@@ -532,6 +532,36 @@
         "rust/modules/sign/",
         "rust/crates/emails/"
       ]
+    },
+    {
+      "name": "desk: help center and ticket records",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/helpdesk-faqs/routes.test.ts",
+        "src/routes/helpdesk-news/routes.test.ts",
+        "src/routes/helpdesk-announcements/routes.test.ts",
+        "src/routes/helpdesk-feedback/routes.test.ts",
+        "src/routes/helpdesk-reviews/routes.test.ts",
+        "src/routes/slas/routes.test.ts",
+        "src/routes/ticket-notes/routes.test.ts",
+        "src/routes/ticket-messages/routes.test.ts",
+        "src/routes/satisfaction-surveys/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/helpdesk-faqs/",
+        "apps/workers/desk-api/src/routes/helpdesk-news/",
+        "apps/workers/desk-api/src/routes/helpdesk-announcements/",
+        "apps/workers/desk-api/src/routes/helpdesk-feedback/",
+        "apps/workers/desk-api/src/routes/helpdesk-reviews/",
+        "apps/workers/desk-api/src/routes/slas/",
+        "apps/workers/desk-api/src/routes/ticket-notes/",
+        "apps/workers/desk-api/src/routes/ticket-messages/",
+        "apps/workers/desk-api/src/routes/satisfaction-surveys/",
+        "apps/workers/desk-api/src/test/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/"
+      ]
     }
   ]
 }

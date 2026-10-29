@@ -157,6 +157,17 @@ import {
   privateFilesMigrationBatchSchema,
   signedObjectUrlsSchema,
 } from '@weldsuite/core-api-client/schemas/storage';
+// desk: the plain CRUD route files
+import { deskIdRefSchema } from '@weldsuite/core-api-client/schemas/desk-common';
+import { helpdeskFaqSchema } from '@weldsuite/core-api-client/schemas/helpdesk-faqs';
+import { helpdeskNewsItemSchema } from '@weldsuite/core-api-client/schemas/helpdesk-news';
+import { helpdeskAnnouncementSchema } from '@weldsuite/core-api-client/schemas/helpdesk-announcements';
+import { helpdeskFeedbackItemSchema } from '@weldsuite/core-api-client/schemas/helpdesk-feedback';
+import { helpdeskReviewSchema } from '@weldsuite/core-api-client/schemas/helpdesk-reviews';
+import { slaSchema } from '@weldsuite/core-api-client/schemas/slas';
+import { ticketNoteSchema } from '@weldsuite/core-api-client/schemas/ticket-notes';
+import { ticketMessageSchema } from '@weldsuite/core-api-client/schemas/ticket-messages';
+import { satisfactionSurveySchema } from '@weldsuite/core-api-client/schemas/satisfaction-surveys';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -406,6 +417,43 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/storage/access', envelope: 'single', data: filesAccessSchema },
   { method: 'POST', route: '/api/storage/sign', envelope: 'single', data: signedObjectUrlsSchema },
   { method: 'POST', route: '/api/storage/migrate-private', envelope: 'single', data: privateFilesMigrationBatchSchema },
+  // desk: the plain CRUD route files (list, detail, create, update; delete is a 204)
+  { method: 'GET', route: '/api/helpdesk-faqs', envelope: 'list', data: helpdeskFaqSchema },
+  { method: 'GET', route: '/api/helpdesk-faqs/:id', envelope: 'single', data: helpdeskFaqSchema },
+  { method: 'POST', route: '/api/helpdesk-faqs', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-faqs/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-news', envelope: 'list', data: helpdeskNewsItemSchema },
+  { method: 'GET', route: '/api/helpdesk-news/:id', envelope: 'single', data: helpdeskNewsItemSchema },
+  { method: 'POST', route: '/api/helpdesk-news', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-news/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-announcements', envelope: 'list', data: helpdeskAnnouncementSchema },
+  { method: 'GET', route: '/api/helpdesk-announcements/:id', envelope: 'single', data: helpdeskAnnouncementSchema },
+  { method: 'POST', route: '/api/helpdesk-announcements', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-announcements/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-feedback', envelope: 'list', data: helpdeskFeedbackItemSchema },
+  { method: 'GET', route: '/api/helpdesk-feedback/:id', envelope: 'single', data: helpdeskFeedbackItemSchema },
+  { method: 'POST', route: '/api/helpdesk-feedback', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-feedback/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-reviews', envelope: 'list', data: helpdeskReviewSchema },
+  { method: 'GET', route: '/api/helpdesk-reviews/:id', envelope: 'single', data: helpdeskReviewSchema },
+  { method: 'POST', route: '/api/helpdesk-reviews', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-reviews/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/slas', envelope: 'list', data: slaSchema },
+  { method: 'GET', route: '/api/slas/:id', envelope: 'single', data: slaSchema },
+  { method: 'POST', route: '/api/slas', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/slas/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/ticket-notes', envelope: 'list', data: ticketNoteSchema },
+  { method: 'GET', route: '/api/ticket-notes/:id', envelope: 'single', data: ticketNoteSchema },
+  { method: 'POST', route: '/api/ticket-notes', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/ticket-notes/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/ticket-messages', envelope: 'list', data: ticketMessageSchema },
+  { method: 'GET', route: '/api/ticket-messages/:id', envelope: 'single', data: ticketMessageSchema },
+  { method: 'POST', route: '/api/ticket-messages', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/ticket-messages/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/satisfaction-surveys', envelope: 'list', data: satisfactionSurveySchema },
+  { method: 'GET', route: '/api/satisfaction-surveys/:id', envelope: 'single', data: satisfactionSurveySchema },
+  { method: 'POST', route: '/api/satisfaction-surveys', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/satisfaction-surveys/:id', envelope: 'single', data: deskIdRefSchema },
 ];
 
 /** null when valid, else why not. */

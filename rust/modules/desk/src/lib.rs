@@ -11,6 +11,13 @@
 //! TypeScript worker's; its tests run against this crate in the `desk`
 //! conformance suites (`rust/conformance/suites.json`).
 
+mod crud;
+mod js;
+mod simple;
+mod table;
+#[rustfmt::skip]
+mod tables;
+
 use std::sync::Arc;
 
 use axum::Router;
@@ -72,8 +79,26 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
-    let _ = gate;
-    Router::new().with_state(state)
+    Router::new()
+        .nest("/helpdesk-faqs", crud::routes(&simple::FAQS, gate))
+        .nest("/helpdesk-news", crud::routes(&simple::NEWS, gate))
+        .nest(
+            "/helpdesk-announcements",
+            crud::routes(&simple::ANNOUNCEMENTS, gate),
+        )
+        .nest("/helpdesk-feedback", crud::routes(&simple::FEEDBACK, gate))
+        .nest("/helpdesk-reviews", crud::routes(&simple::REVIEWS, gate))
+        .nest("/slas", crud::routes(&simple::SLA, gate))
+        .nest("/ticket-notes", crud::routes(&simple::TICKET_NOTES, gate))
+        .nest(
+            "/ticket-messages",
+            crud::routes(&simple::TICKET_MESSAGES, gate),
+        )
+        .nest(
+            "/satisfaction-surveys",
+            crud::routes(&simple::SURVEYS, gate),
+        )
+        .with_state(state)
 }
 
 /// Who is asking, in which workspace, with what permissions.
