@@ -66,6 +66,23 @@ jobs:
     defaults:
       run:
         working-directory: rust
+    # The weldsuite-db integration test runs against this.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: weldsuite
+          POSTGRES_PASSWORD: weldsuite
+          POSTGRES_DB: weldsuite
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U weldsuite"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      WELDSUITE_TEST_DATABASE_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/weldsuite
     steps:
       - uses: actions/checkout@v4
       - name: Install the pinned toolchain
@@ -84,6 +101,39 @@ jobs:
         run: cargo test --workspace --locked
       - name: Licences, advisories and sources
         run: cargo deny check
+
+  # The image and the Helm chart, deployed into a kind cluster
+  # (rust/deploy/kind/smoke-test.sh).
+  rust-image:
+    name: Rust image and chart
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust
+          load: true
+          tags: weldsuite:dev
+          cache-from: type=gha,scope=rust-image
+          cache-to: type=gha,mode=max,scope=rust-image
+      - name: The image runs
+        run: docker run --rm weldsuite:dev version
+      - uses: azure/setup-helm@v4
+      - name: Lint the chart
+        run: |
+          helm lint rust/deploy/helm/weldsuite -f rust/deploy/helm/weldsuite/ci/test-values.yaml
+          helm template smoke rust/deploy/helm/weldsuite -f rust/deploy/helm/weldsuite/ci/test-values.yaml > /dev/null
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: weldsuite-smoke
+      - name: Deploy into kind and check it
+        env:
+          KIND_CLUSTER: weldsuite-smoke
+          KEEP_CLUSTER: "1"
+        run: rust/deploy/kind/smoke-test.sh
 
   # app-api plus every module worker and domain is ~17 minutes of tsc.
   # Four-wide on one runner is already at that machine's CPU limit (~5 min).

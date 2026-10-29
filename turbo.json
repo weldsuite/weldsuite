@@ -100,6 +100,7 @@
       "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml", "rust/clippy.toml", "rust/.cargo/config.toml", "rust/catalogs/*.json", "rust/crates/*/tests/fixtures/*"]
     },
     "//#rust:test": {
+      "env": ["WELDSUITE_TEST_DATABASE_URL"],
       "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml", "rust/clippy.toml", "rust/.cargo/config.toml", "rust/catalogs/*.json", "rust/crates/*/tests/fixtures/*"]
     },
     "//#rust:deny": {

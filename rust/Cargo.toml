@@ -20,20 +20,26 @@ publish = false
 [workspace.dependencies]
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-catalogs = { path = "crates/catalogs" }
+weldsuite-db = { path = "crates/db" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-permissions = { path = "crates/permissions" }
 
+aws-lc-rs = "1.19.0"
 axum = { version = "0.8.9", default-features = false }
 getrandom = "0.4.3"
+hex = "0.4.3"
 http = "1.5.0"
 http-body-util = "0.1.5"
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }
+time = "0.3.55"
 tokio = "1.54.1"
 tower = "0.5.3"
 tower-http = "0.7.1"
 tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false }
 uuid = "1.29.0"
 
 [workspace.lints.rust]
