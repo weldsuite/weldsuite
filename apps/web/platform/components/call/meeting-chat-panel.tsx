@@ -8,7 +8,7 @@
 
 import { useMemo, useCallback } from 'react';
 import { useTranslations } from '@weldsuite/i18n/client';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@/lib/auth';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {

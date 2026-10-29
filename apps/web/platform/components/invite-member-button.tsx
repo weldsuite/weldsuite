@@ -9,7 +9,7 @@ import {
   TooltipTrigger,
 } from '@weldsuite/ui/components/tooltip';
 import { InviteMemberDialog } from './invite-member-dialog';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { useI18n } from '@/lib/i18n/provider';
 

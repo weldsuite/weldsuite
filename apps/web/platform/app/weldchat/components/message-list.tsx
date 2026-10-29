@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { getTranslations } from '@/lib/i18n';
 import {
   useMessages,

@@ -13,7 +13,7 @@ import { PermissionProvider } from '@weldsuite/permissions/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { appFromPathname } from '@/lib/apps/current-app';
 import { usePathname } from '@/lib/router';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 
 interface PermissionResponse {
   permissions: string[];

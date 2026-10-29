@@ -3,7 +3,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useParams } from '@/lib/router';
 import { useNavigate } from '@tanstack/react-router';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { usePreviewMode } from '@/contexts/preview-mode-context';
 import { useMessageDeepLink } from '../lib/message-search';
 import { dmRedirectTarget } from '../lib/dm-redirect';

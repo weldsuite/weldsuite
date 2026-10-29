@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from '@/lib/router';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@weldsuite/ui/components/button';
 import { Toggle } from '@weldsuite/ui/components/toggle';

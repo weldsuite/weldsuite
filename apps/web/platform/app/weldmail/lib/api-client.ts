@@ -21,6 +21,7 @@
 import type { Mail } from '@/lib/api/types/apps/mail.types';
 import { apiUrl } from '@/lib/api/public-env';
 import { asText } from '@weldsuite/text';
+import { getAuthToken } from '@/lib/auth';
 
 const APP_BASE = '/api';
 
@@ -40,11 +41,6 @@ export interface ApiResponse<T> {
   errorDetails?: unknown;
 }
 
-async function getAuthToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  const clerk = (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } }).Clerk;
-  return clerk?.session ? clerk.session.getToken() : null;
-}
 
 interface AppApiSuccess<T> {
   /** Single-item envelope shape. */

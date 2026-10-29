@@ -8,7 +8,7 @@ import { WorkflowEditorClient, WorkflowEditorShell } from '@/components/workflow
 import type { WorkflowEditorShellProps } from '@/components/workflow-editor/workflow-editor-shell';
 import { EditorWizardNav } from '@/components/editor-wizard-nav';
 import { AlertTriangle, GitPullRequest, History, RotateCw, Settings } from 'lucide-react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n/provider';
 import {
   WELDCONNECT_ACTION_TYPES,

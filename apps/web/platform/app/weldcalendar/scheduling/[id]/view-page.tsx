@@ -6,7 +6,7 @@ import {
   startOfWeek,
   addDays,
 } from 'date-fns';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import { toast } from 'sonner';
 import { ChevronLeft, ChevronRight, Copy, Search } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';

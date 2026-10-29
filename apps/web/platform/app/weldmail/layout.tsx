@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useAppAccess } from '@/hooks/use-app-access';
 import { installedAppsKeys } from '@/hooks/use-installed-apps';
 import type { InstalledApp } from '@/lib/api/apps';
