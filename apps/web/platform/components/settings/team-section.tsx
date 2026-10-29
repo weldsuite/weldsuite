@@ -39,6 +39,7 @@ import { InviteMemberDialog } from "@/components/invite-member-dialog"
 import { Alert, AlertDescription } from "@weldsuite/ui/components/alert"
 import { Progress } from "@weldsuite/ui/components/progress"
 import { Link } from '@/lib/router';
+import { isFeatureAvailable } from '@/lib/edition';
 import { FilterPills, type ActiveFilter, type FilterConfig } from '@/components/entity-list';
 import { useWorkspaceRoles } from '@/hooks/queries/use-settings-queries';
 
@@ -266,6 +267,8 @@ export function TeamSection({
   // Calculate member limit status
   const isAtLimit = memberLimit !== null && memberLimit !== undefined && totalCount >= memberLimit
   const isNearLimit = memberLimit !== null && memberLimit !== undefined && totalCount >= memberLimit * 0.8 && !isAtLimit
+  // Edition flags (4.F3): no plans page to send anyone to without billing.
+  const billingAvailable = isFeatureAvailable('billing')
   const usagePercentage = memberLimit ? Math.min(100, (totalCount / memberLimit) * 100) : 0
   const filteredUsers = React.useMemo(
     () => filterMembers(users, searchQuery, activeFilters),
@@ -303,12 +306,14 @@ export function TeamSection({
               {t('sweep.settings.team.limitReached', { count: memberLimit })}
               {planName && ` (${t('sweep.settings.team.planSuffix', { plan: planName })})`}
             </span>
-            <Button variant="outline" size="sm" asChild className="ml-4">
-              <Link href="/settings/plans">
-                {t('sweep.settings.team.upgradePlan')}
-                <ArrowUpRight className="h-3 w-3 ml-1" />
-              </Link>
-            </Button>
+            {billingAvailable && (
+              <Button variant="outline" size="sm" asChild className="ml-4">
+                <Link href="/settings/plans">
+                  {t('sweep.settings.team.upgradePlan')}
+                  <ArrowUpRight className="h-3 w-3 ml-1" />
+                </Link>
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -320,12 +325,14 @@ export function TeamSection({
             <span>
               {t('sweep.settings.team.nearLimit', { count: totalCount, max: memberLimit, percent: Math.round(usagePercentage) })}
             </span>
-            <Button variant="outline" size="sm" asChild className="ml-4 border-yellow-300 hover:bg-yellow-100 dark:border-yellow-700 dark:hover:bg-yellow-900">
-              <Link href="/settings/plans">
-                {t('sweep.settings.team.viewPlans')}
-                <ArrowUpRight className="h-3 w-3 ml-1" />
-              </Link>
-            </Button>
+            {billingAvailable && (
+              <Button variant="outline" size="sm" asChild className="ml-4 border-yellow-300 hover:bg-yellow-100 dark:border-yellow-700 dark:hover:bg-yellow-900">
+                <Link href="/settings/plans">
+                  {t('sweep.settings.team.viewPlans')}
+                  <ArrowUpRight className="h-3 w-3 ml-1" />
+                </Link>
+              </Button>
+            )}
           </AlertDescription>
         </Alert>
       )}
@@ -391,7 +398,7 @@ export function TeamSection({
         </div>
         {canManageMembers && (
           <>
-            {isAtLimit && (
+            {isAtLimit && billingAvailable && (
               <Button variant="outline" size="sm" asChild>
                 <Link href="/settings/plans">
                   <ArrowUpRight className="h-3 w-3 mr-1" />

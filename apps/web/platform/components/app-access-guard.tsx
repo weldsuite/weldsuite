@@ -7,7 +7,8 @@ import { useIsEmployeeMember, useIsGuest } from '@/hooks/use-current-member';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getAppPermissionObjects } from '@/lib/apps/app-permission-objects';
 import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
-import { isModuleOffered } from '@/lib/edition';
+import { isRouteOffered } from '@/lib/edition-routes';
+import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 
 // `/documents` is the shared full-screen document editor — an app-agnostic
 // surface keyed by file id, reachable from WeldFlow, WeldDrive, etc. Its first
@@ -20,9 +21,6 @@ import { isModuleOffered } from '@/lib/edition';
 // The host page does its own is-installed check against useInstalledUserApps,
 // and /apps/manage gates itself on the weldapps:develop permission.
 const ALWAYS_ALLOWED_PREFIXES = ['/settings', '/appstore', '/onboarding', '/agents', '/new-chat', '/documents', '/apps', '/preview'];
-
-/** WeldAgent's pages: workspace-level rather than an installed app, served by the agent module. */
-const AGENT_PREFIXES = ['/agents', '/new-chat'];
 
 /**
  * Path prefixes EXTERNAL_GUEST users can navigate to in v1. Anything else
@@ -95,9 +93,6 @@ function employeeRedirect(pathname: string, installedApps: InstalledAppList): Ac
 
 /** Members: the app behind the path must be installed and readable. */
 function memberRedirect(pathname: string, installedApps: InstalledAppList, perms: Permissions): AccessRedirect | null {
-  // Edition flags (4.F3): WeldAgent's pages need the agent module.
-  if (!isModuleOffered('agent') && matchesPrefix(pathname, AGENT_PREFIXES)) return { to: '/' };
-
   // Always allow root and system paths
   if (pathname === '/' || matchesPrefix(pathname, ALWAYS_ALLOWED_PREFIXES)) return null;
 
@@ -167,8 +162,12 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
   const isEmployeeMember = useIsEmployeeMember();
   const t = useTranslations();
   const { data: canManageApps } = useCanManageApps();
+  // Edition flags (4.F3): a page of a module or feature this deployment
+  // doesn't serve says so in place, for everyone, instead of redirecting.
+  const offered = isRouteOffered(pathname);
 
   useEffect(() => {
+    if (!offered) return;
     if (isLoading || perms?.isLoading) return;
     // Wait for the installed-apps query to actually resolve. `data` is
     // undefined while the query is disabled (e.g. orgId briefly falsy
@@ -186,7 +185,8 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
       notifyUnavailableApp(redirect.notInstalledApp, canManageApps === true, t, () => router.push('/appstore'));
     }
     router.replace(redirect.to);
-  }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t, canManageApps]);
+  }, [offered, pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t, canManageApps]);
 
+  if (!offered) return <EditionUnavailablePage />;
   return <>{children}</>;
 }

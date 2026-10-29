@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { getTranslations } from '@/lib/i18n';
+import { isModuleOffered } from '@/lib/edition';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Textarea } from '@weldsuite/ui/components/textarea';
@@ -577,7 +578,8 @@ export function EventDialog({ open, onOpenChange, event, defaultStart, defaultEn
                 form.setValue('isVirtual', v);
                 if (v) {
                   // No meeting is created here: it is created when the form is submitted.
-                  if (!form.watch('meetingUrl')) setAddWeldMeet(true);
+                  // Edition flags (4.F3): without WeldMeet the link is typed in.
+                  if (!form.watch('meetingUrl') && isModuleOffered('meet')) setAddWeldMeet(true);
                 } else {
                   form.setValue('meetingUrl', '');
                   setAddWeldMeet(false);

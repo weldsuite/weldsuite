@@ -3,6 +3,7 @@ import { GlobalNotificationsPanel } from '@/components/global-notifications-pane
 import { GlobalAgentShortcut } from '@/components/global-agent-shortcut';
 import { useCalendarDrawerOpen } from '@/hooks/use-calendar-drawer-open';
 import { useNotificationsPanelOpen } from '@/hooks/use-notifications-panel-open';
+import { isModuleOffered } from '@/lib/edition';
 
 /**
  * Renders the top-nav drawers (calendar / notifications / agent) as in-flow
@@ -21,15 +22,18 @@ export function DrawerHost() {
 
   return (
     <>
-      <GlobalCalendarDrawer
-        isOpen={showCalendar}
-        onClose={() => setShowCalendar(false)}
-      />
+      {/* Edition flags (4.F3): drawers of modules this deployment doesn't serve stay out. */}
+      {isModuleOffered('calendar') && (
+        <GlobalCalendarDrawer
+          isOpen={showCalendar}
+          onClose={() => setShowCalendar(false)}
+        />
+      )}
       <GlobalNotificationsPanel
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
       />
-      <GlobalAgentShortcut />
+      {isModuleOffered('agent') && <GlobalAgentShortcut />}
     </>
   );
 }

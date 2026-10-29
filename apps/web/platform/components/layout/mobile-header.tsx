@@ -7,6 +7,7 @@ import { useMobileNav } from '@/contexts/mobile-nav-context';
 import { useWeldMeetCallOptional } from '@/contexts/weldmeet-call-context';
 import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { cn } from '@/lib/utils';
+import { isModuleOffered } from '@/lib/edition';
 import { useTheme } from '@/hooks/use-theme';
 
 interface MobileHeaderProps {
@@ -87,24 +88,27 @@ export function MobileHeader({ className }: Readonly<MobileHeaderProps>) {
           </>
         )}
       </div>
-      <Button
-        onClick={toggleWeldAgent}
-        variant={showWeldAgent ? "default" : "outline"}
-        size="sm"
-        className={cn(
-          "gap-2 shadow-none",
-          isGlass && !showWeldAgent && "bg-white/15 hover:bg-white/25 backdrop-blur-md border-white/20 text-white",
-          showWeldAgent && "bg-primary text-primary-foreground hover:bg-primary/90"
-        )}
-      >
-        <img
-          src="/assets/images/weldagent/icon.svg"
-          alt="WeldAgent"
-          width={16}
-          height={16}
-          className="h-4 w-4"
-        />
-      </Button>
+      {/* Edition flags (4.F3): WeldAgent needs the agent module. */}
+      {isModuleOffered('agent') && (
+        <Button
+          onClick={toggleWeldAgent}
+          variant={showWeldAgent ? "default" : "outline"}
+          size="sm"
+          className={cn(
+            "gap-2 shadow-none",
+            isGlass && !showWeldAgent && "bg-white/15 hover:bg-white/25 backdrop-blur-md border-white/20 text-white",
+            showWeldAgent && "bg-primary text-primary-foreground hover:bg-primary/90"
+          )}
+        >
+          <img
+            src="/assets/images/weldagent/icon.svg"
+            alt="WeldAgent"
+            width={16}
+            height={16}
+            className="h-4 w-4"
+          />
+        </Button>
+      )}
     </header>
   );
 }
