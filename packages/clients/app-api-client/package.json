@@ -102,6 +102,8 @@
     "./schemas/weldconnect-templates": "./src/schemas/weldconnect-templates.ts",
     "./schemas/app-catalog": "./src/schemas/app-catalog.ts",
     "./schemas/credits": "./src/schemas/credits.ts",
+    "./schemas/api-keys": "./src/schemas/api-keys.ts",
+    "./schemas/feature-requests": "./src/schemas/feature-requests.ts",
     "./schemas/plan-country-pricing": "./src/schemas/plan-country-pricing.ts",
     "./schemas/partners": "./src/schemas/partners.ts",
     "./domains/ai": "./src/domains/ai.ts",
