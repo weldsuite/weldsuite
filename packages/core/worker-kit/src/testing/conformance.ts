@@ -582,6 +582,11 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
   if (GENERATED_TICKET_NUMBER.test(value)) return 'TKT-<generated>';
+  return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
+}
+
+/** Credentials and digests a write answers with, by their key; undefined when none applies. */
+function normalizeSignedValue(value: string, key: string | undefined): string | undefined {
   // WeldSign's signed PDF: pdf-lib and lopdf write different bytes for the
   // same drawn content (object numbers, number formatting, compression), so
   // its SHA-256 differs by construction. It reaches a side effect only in
@@ -593,6 +598,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
+  return undefined;
+}
+
+/** Timestamps, generated ids and the links and slugs that carry one; undefined when none applies. */
+function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
@@ -605,6 +615,11 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // A realtime publish to a room the request just created (`/publish/chat/ch_<id>`).
   if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
   if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
+  return undefined;
+}
+
+/** Random segments anywhere in a string. */
+function normalizeRandomParts(value: string): string {
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential; then 16-byte hex tokens (an SSO domain's TXT value) and
   // any other `Date.now()` (the key's segment holds one).

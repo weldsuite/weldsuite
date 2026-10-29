@@ -46,10 +46,10 @@ describe('/api/chat-sections', () => {
     const page = await sections().request('/api/chat-sections?limit=2');
     expect(page.status).toBe(200);
     const body = (await page.json()) as { data: Array<{ id: string }>; pagination: { cursor: string | null; totalCount: number } };
-    expect(body.data.length).toBe(2);
+    expect(body.data).toHaveLength(2);
     expect(body.pagination.totalCount).toBe(3);
     const next = await sections().request(`/api/chat-sections?cursor=${body.pagination.cursor}`);
-    expect(((await next.json()) as { data: unknown[] }).data.length).toBe(1);
+    expect(((await next.json()) as { data: unknown[] }).data).toHaveLength(1);
     const found = await sections().request('/api/chat-sections?search=Cust');
     expect(((await found.json()) as { data: Array<{ name: string }> }).data[0]?.name).toBe('Customers');
 

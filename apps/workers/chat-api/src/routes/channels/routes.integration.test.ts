@@ -290,11 +290,11 @@ describe('/api/channel-members', () => {
     const res = await members(BOB).request(`/api/channel-members?channelId=${publicId}&limit=2`);
     expect(res.status).toBe(200);
     const page = (await res.json()) as { data: Array<{ id: string }>; pagination: { cursor: string | null } };
-    expect(page.data.length).toBe(2);
+    expect(page.data).toHaveLength(2);
     const next = await members(BOB).request(`/api/channel-members?channelId=${publicId}&cursor=${page.pagination.cursor}`);
     expect(next.status).toBe(200);
     const filtered = await members(BOB).request(`/api/channel-members?channelId=${publicId}&userId=${ANN}`);
-    expect(((await filtered.json()) as { data: unknown[] }).data.length).toBe(1);
+    expect(((await filtered.json()) as { data: unknown[] }).data).toHaveLength(1);
     expect((await members(BOB).request(`/api/channel-members?channelId=${privateId}`)).status).toBe(403);
   });
 
