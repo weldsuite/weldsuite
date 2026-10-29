@@ -23,7 +23,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
-import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
+import { conformanceMasterDb, conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import { memoryCodeAttempts } from '@weldsuite/sign-domain/code-attempts.memory';
@@ -67,11 +67,12 @@ vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
     releaseOutbound: vi.fn(async () => undefined),
   };
 });
-// The lifecycle routes open the master DB themselves.
+// The lifecycle routes open the master DB themselves. In conformance mode the
+// TypeScript side of a write gets a copy taken before Rust wrote the shared one.
 const dbs = vi.hoisted(() => ({ master: null as unknown }));
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => dbs.master };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(dbs.master) };
 });
 
 /**
