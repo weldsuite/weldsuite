@@ -671,6 +671,22 @@
       ]
     },
     {
+      "name": "mail: templates, rules, campaigns",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-templates/routes.test.ts",
+        "src/routes/mail-rules/routes.test.ts",
+        "src/routes/mail-campaigns/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
       "name": "crm: sequences",
       "module": "crm",
       "workspace": "apps/workers/crm-api",

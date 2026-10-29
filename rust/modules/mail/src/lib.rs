@@ -103,6 +103,9 @@ where
         .merge(routes::mail_drafts::routes(state.clone(), gate))
         .merge(routes::mail_snooze::routes(state.clone(), gate))
         .merge(routes::mail_threads::routes(state.clone(), gate))
+        .merge(routes::mail_templates::routes(state.clone(), gate))
+        .merge(routes::mail_rules::routes(state.clone(), gate))
+        .merge(routes::mail_campaigns::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 
