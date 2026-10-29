@@ -3654,6 +3654,8 @@ dependencies = [
  "weldsuite-core-objects",
  "weldsuite-core-team",
  "weldsuite-db",
+ "weldsuite-desk",
+ "weldsuite-desk-domain",
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
@@ -3841,6 +3843,42 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-pipeline",
+]
+
+[[package]]
+name = "weldsuite-desk"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-desk-domain"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
 ]
 
 [[package]]

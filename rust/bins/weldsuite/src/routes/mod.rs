@@ -97,7 +97,34 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = desk(router, state);
     core_files(router, state)
+}
+
+/// WeldDesk (`weldsuite-desk`): desk-api's paths under `/api`
+/// (`/tickets`, `/conversations`, `/desk/*`, `/helpdesk-*`, …), merged at
+/// their own prefixes as the worker mounts them.
+fn desk(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("desk") {
+        return router;
+    }
+    router.merge(weldsuite_desk::router(
+        desk_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldDesk's handle on the app. The helpdesk workflow engine is not ported:
+/// its port answers as the worker does without `HELPDESK_WORKFLOW`.
+fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
+    weldsuite_desk::DeskState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        files: file_stores(state),
+        cache: state.infra.cache.clone(),
+        mail: state.infra.mail.clone(),
+        workflow: Arc::new(weldsuite_desk_domain::workflow::Unavailable),
+    }
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge
