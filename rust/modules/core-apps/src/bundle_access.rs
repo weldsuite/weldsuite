@@ -14,13 +14,14 @@
 //! Also here: the dedicated bundle origin and the `frame-ancestors` of
 //! bundle responses.
 
+use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 use aws_lc_rs::{hkdf, hmac};
 use base64::Engine;
 use base64::alphabet::URL_SAFE;
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, URL_SAFE_NO_PAD};
 use base64::engine::DecodePaddingMode;
+use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, URL_SAFE_NO_PAD};
 use regex::Regex;
 use sqlx::PgPool;
 use weldsuite_ports::DynCache;
@@ -225,7 +226,11 @@ pub(crate) async fn workspace_may_use_bundle_cached(
 }
 
 /// Drop the cached verdict after an install, uninstall or delete.
-pub(crate) async fn invalidate_bundle_access(cache: &dyn DynCache, app_id: &str, workspace_id: &str) {
+pub(crate) async fn invalidate_bundle_access(
+    cache: &dyn DynCache,
+    app_id: &str,
+    workspace_id: &str,
+) {
     if let Err(error) = cache
         .delete_boxed(&bundle_access_cache_key(app_id, workspace_id))
         .await
@@ -241,11 +246,14 @@ pub(crate) fn encode_uri_component(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.bytes() {
         if byte.is_ascii_alphanumeric()
-            || matches!(byte, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
         {
             out.push(char::from(byte));
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
     }
     out
@@ -253,7 +261,10 @@ pub(crate) fn encode_uri_component(text: &str) -> String {
 
 /// The unsigned bundle path of a public, approved app.
 pub(crate) fn plain_bundle_path(code: &str) -> String {
-    format!("/public/user-apps/{}/index.html", encode_uri_component(code))
+    format!(
+        "/public/user-apps/{}/index.html",
+        encode_uri_component(code)
+    )
 }
 
 /// The signed bundle path of a non-public app.
@@ -378,7 +389,10 @@ static FRAME_ANCESTOR_SOURCE: LazyLock<Regex> = LazyLock::new(|| {
 /// `frame-ancestors` of every bundle response: the platform origins plus
 /// `USER_APP_FRAME_ANCESTORS`, never `*`.
 pub(crate) fn bundle_frame_ancestors<'a>(env: impl Fn(&str) -> Option<&'a str>) -> String {
-    let mut sources: Vec<String> = FRAME_ANCESTOR_ORIGINS.iter().map(|s| (*s).to_owned()).collect();
+    let mut sources: Vec<String> = FRAME_ANCESTOR_ORIGINS
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
     for source in env("USER_APP_FRAME_ANCESTORS")
         .unwrap_or_default()
         .split(|c: char| c == ',' || c.is_whitespace())
@@ -438,18 +452,26 @@ mod tests {
         );
         assert_eq!(split_bundle_path("s/other/x.js"), (None, "s/other/x.js"));
         assert_eq!(split_bundle_path(""), (None, ""));
-        assert_eq!(plain_bundle_path("my app"), "/public/user-apps/my%20app/index.html");
+        assert_eq!(
+            plain_bundle_path("my app"),
+            "/public/user-apps/my%20app/index.html"
+        );
     }
 
     #[test]
     fn bundle_origins() {
-        let set = |value: &'static str| move |key: &str| (key == "USER_APP_BUNDLE_ORIGIN").then_some(value);
+        let set = |value: &'static str| {
+            move |key: &str| (key == "USER_APP_BUNDLE_ORIGIN").then_some(value)
+        };
         assert_eq!(resolve_bundle_origin(|_| None, "x"), BundleOrigin::Unset);
         assert_eq!(
             resolve_bundle_origin(set("https://{code}.weldappcontent.net"), "pubapp"),
             BundleOrigin::Ok("https://pubapp.weldappcontent.net".to_owned())
         );
-        assert_eq!(resolve_bundle_origin(set("not a url"), "x"), BundleOrigin::Invalid);
+        assert_eq!(
+            resolve_bundle_origin(set("not a url"), "x"),
+            BundleOrigin::Invalid
+        );
         assert_eq!(
             resolve_bundle_origin(set("http://weldappcontent.net"), "x"),
             BundleOrigin::Invalid

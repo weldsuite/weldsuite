@@ -25,7 +25,12 @@ pub(crate) fn router() -> Router<CoreAppsState> {
     Router::new().route("/ticket", post(ticket))
 }
 
-async fn ticket(State(state): State<CoreAppsState>, caller: SignedIn, headers: HeaderMap, body: Bytes) -> Response {
+async fn ticket(
+    State(state): State<CoreAppsState>,
+    caller: SignedIn,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     answer(
         async {
             let requested = validate(&headers, &body, schemas::desktop_ticket)?;

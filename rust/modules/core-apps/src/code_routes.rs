@@ -75,7 +75,10 @@ where
             "/code/{code}/session-token",
             post(session_token).route_layer(read()),
         )
-        .route("/code/{code}/bundle-url", post(bundle_url).route_layer(read()))
+        .route(
+            "/code/{code}/bundle-url",
+            post(bundle_url).route_layer(read()),
+        )
         .route(
             "/code/{code}/gateway/{*rest}",
             // `any` has no per-method routes for a `route_layer`: every
@@ -84,7 +87,10 @@ where
                 .layer::<_, std::convert::Infallible>(read())
                 .layer::<_, std::convert::Infallible>(DefaultBodyLimit::disable()),
         )
-        .route("/code/{code}/dev-session", get(dev_session).route_layer(read()))
+        .route(
+            "/code/{code}/dev-session",
+            get(dev_session).route_layer(read()),
+        )
         .route(
             "/code/{code}/dev-session",
             axum::routing::put(put_dev_session)
@@ -340,7 +346,9 @@ async fn gateway_token(
             Err(error) => tracing::error!(%error, "core-apps: gateway cache read failed"),
         }
     }
-    let Some(install) = resolve_active_install(master, &caller.db, &caller.workspace_id, code).await? else {
+    let Some(install) =
+        resolve_active_install(master, &caller.db, &caller.workspace_id, code).await?
+    else {
         return Ok(None);
     };
     let minted = mint_app_token(
@@ -367,7 +375,11 @@ async fn gateway_token(
     {
         let text = serde_json::to_string(&entry).unwrap_or_default();
         if let Err(error) = cache
-            .put_boxed(&key, &text, Some(Duration::from_secs(u64::try_from(ttl).unwrap_or(60))))
+            .put_boxed(
+                &key,
+                &text,
+                Some(Duration::from_secs(u64::try_from(ttl).unwrap_or(60))),
+            )
             .await
         {
             tracing::error!(%error, "core-apps: gateway cache write failed");
@@ -449,6 +461,10 @@ async fn forward(
         .await
 }
 
+/// `error.internal(c, …)` of the gateway.
+const GATEWAY_FAILED: &str = "App gateway request failed";
+
+#[allow(clippy::too_many_lines)] // the route's steps, in the TypeScript order
 async fn gateway(
     State(state): State<CoreAppsState>,
     caller: Caller,
@@ -492,7 +508,8 @@ async fn gateway(
             let body = if method == "GET" || method == "HEAD" {
                 None
             } else {
-                let too_large = || ApiError::bad_request("Request body too large for the app gateway");
+                let too_large =
+                    || ApiError::bad_request("Request body too large for the app gateway");
                 let declared = request
                     .headers()
                     .get(http::header::CONTENT_LENGTH)
@@ -508,37 +525,63 @@ async fn gateway(
                     .map_err(|_| AppsError::api(too_large()))?;
                 (!bytes.is_empty()).then_some(bytes)
             };
-            let query = uri.query().filter(|q| !q.is_empty()).map(|q| format!("?{q}"));
+            let query = uri
+                .query()
+                .filter(|q| !q.is_empty())
+                .map(|q| format!("?{q}"));
             let path_and_query = format!("{path}{}", query.unwrap_or_default());
 
-            const FAILED: &str = "App gateway request failed";
             let master = caller.master(&state);
             let cache = caller.overrides.cache(&state).ok();
             let not_installed = || AppsError::api(ApiError::not_found("App install", Some(&code)));
             let token = gateway_token(&state, &master, &caller, cache.as_deref(), &code)
                 .await
-                .or_internal(FAILED)?
+                .or_internal(GATEWAY_FAILED)?
                 .ok_or_else(not_installed)?;
-            let mut upstream = forward(&state, &caller, &method, &path_and_query, &headers, body.as_ref(), &token)
-                .await
-                .or_internal(FAILED)?;
+            let mut upstream = forward(
+                &state,
+                &caller,
+                &method,
+                &path_and_query,
+                &headers,
+                body.as_ref(),
+                &token,
+            )
+            .await
+            .or_internal(GATEWAY_FAILED)?;
             if upstream.status == 401 {
                 // The cached token was revoked or expired early: resolve the
                 // install again, once.
-                drop_gateway_token(&state, cache.as_deref(), &gateway_cache_key(&caller.workspace_id, &code)).await;
+                drop_gateway_token(
+                    &state,
+                    cache.as_deref(),
+                    &gateway_cache_key(&caller.workspace_id, &code),
+                )
+                .await;
                 let token = gateway_token(&state, &master, &caller, cache.as_deref(), &code)
                     .await
-                    .or_internal(FAILED)?
+                    .or_internal(GATEWAY_FAILED)?
                     .ok_or_else(not_installed)?;
-                upstream = forward(&state, &caller, &method, &path_and_query, &headers, body.as_ref(), &token)
-                    .await
-                    .or_internal(FAILED)?;
+                upstream = forward(
+                    &state,
+                    &caller,
+                    &method,
+                    &path_and_query,
+                    &headers,
+                    body.as_ref(),
+                    &token,
+                )
+                .await
+                .or_internal(GATEWAY_FAILED)?;
             }
-            let status = StatusCode::from_u16(upstream.status).or_internal(FAILED)?;
+            let status = StatusCode::from_u16(upstream.status).or_internal(GATEWAY_FAILED)?;
             let mut response = Response::new(Body::from(upstream.body));
             *response.status_mut() = status;
             for name in FORWARDED_RESPONSE_HEADERS {
-                if let Some((_, value)) = upstream.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))
+                if let Some((_, value)) = upstream
+                    .headers
+                    .iter()
+                    .find(|(n, _)| n.eq_ignore_ascii_case(name))
                     && let Ok(value) = HeaderValue::from_str(value)
                 {
                     response
@@ -584,7 +627,11 @@ fn session_view(url: &str, expires_at: &str) -> Option<Value> {
 }
 
 /// The app with `code` the caller's workspace owns (live apps only).
-async fn owned_app_by_code(master: &PgPool, code: &str, workspace_id: &str) -> Result<Option<String>, sqlx::Error> {
+async fn owned_app_by_code(
+    master: &PgPool,
+    code: &str,
+    workspace_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar(
         "select id from user_apps
          where code = $1 and owner_workspace_id = $2 and deleted_at is null limit 1",
@@ -595,7 +642,11 @@ async fn owned_app_by_code(master: &PgPool, code: &str, workspace_id: &str) -> R
     .await
 }
 
-async fn dev_session(State(state): State<CoreAppsState>, caller: Caller, Path(code): Path<String>) -> Response {
+async fn dev_session(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    Path(code): Path<String>,
+) -> Response {
     answer(
         async {
             const FAILED: &str = "Failed to fetch preview session";
@@ -724,7 +775,11 @@ async fn delete_dev_session(
     answer(delete_session(&state, &caller, &code).await)
 }
 
-async fn delete_session(state: &CoreAppsState, caller: &Caller, code: &str) -> AppsResult<Response> {
+async fn delete_session(
+    state: &CoreAppsState,
+    caller: &Caller,
+    code: &str,
+) -> AppsResult<Response> {
     const FAILED: &str = "Failed to clear preview session";
     let master = caller.master(state);
     let app_id = owned_app_by_code(&master, code, &caller.workspace_id)
@@ -751,7 +806,15 @@ mod tests {
     fn gateway_paths_stay_under_v1() {
         assert_eq!(normalize_gateway_path("/v1/contacts"), Some("/v1/contacts"));
         assert_eq!(normalize_gateway_path("/v1/a%20b"), Some("/v1/a%20b"));
-        for bad in ["/v2/x", "/v1", "/v1/a//b", "/v1/a%2Fb", "/v1/%2e%2e/x", "/v1/a\\b", "/v1/%zz"] {
+        for bad in [
+            "/v2/x",
+            "/v1",
+            "/v1/a//b",
+            "/v1/a%2Fb",
+            "/v1/%2e%2e/x",
+            "/v1/a\\b",
+            "/v1/%zz",
+        ] {
             assert_eq!(normalize_gateway_path(bad), None, "{bad}");
         }
     }

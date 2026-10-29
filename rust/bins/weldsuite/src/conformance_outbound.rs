@@ -451,13 +451,12 @@ pub(crate) struct BridgedHttp {
 }
 
 impl weldsuite_core_apps::HttpTransport for BridgedHttp {
-    fn send<'a>(
-        &'a self,
+    fn send(
+        &self,
         request: weldsuite_core_apps::OutboundRequest,
-    ) -> BoxFuture<'a, Result<weldsuite_core_apps::OutboundResponse, String>> {
+    ) -> BoxFuture<'_, Result<weldsuite_core_apps::OutboundResponse, String>> {
         Box::pin(async move {
-            let encoded: String =
-                form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
             let method =
                 Method::from_bytes(request.method.as_bytes()).map_err(|error| error.to_string())?;
             let mut outgoing = self

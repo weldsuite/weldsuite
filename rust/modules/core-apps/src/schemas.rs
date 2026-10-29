@@ -52,7 +52,13 @@ fn icon_ok(value: &str) -> bool {
 }
 
 /// A refinement on `key`, run when the value got past its type check.
-fn refine(issues: &mut Issues, body: &Map<String, Value>, key: &str, ok: fn(&str) -> bool, message: &str) {
+fn refine(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    key: &str,
+    ok: fn(&str) -> bool,
+    message: &str,
+) {
     if let Some(Value::String(value)) = body.get(key)
         && !ok(value)
     {
@@ -73,16 +79,31 @@ fn code(issues: &mut Issues, body: &Map<String, Value>) -> Field<String> {
 }
 
 /// `z.array(scopeSchema).max(50)`.
-fn scope_list(issues: &mut Issues, body: &Map<String, Value>, key: &str, presence: Presence) -> Field<Vec<String>> {
+fn scope_list(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    key: &str,
+    presence: Presence,
+) -> Field<Vec<String>> {
     issues.list(body, key, presence, None, Some(50), |issues, item| {
-        issues.item_pattern(item, Text::length(Some(1), Some(100)), is_scope, SCOPE_MESSAGE)
+        issues.item_pattern(
+            item,
+            Text::length(Some(1), Some(100)),
+            is_scope,
+            SCOPE_MESSAGE,
+        )
     })
 }
 
 fn screenshots(issues: &mut Issues, body: &Map<String, Value>) -> Field<Vec<String>> {
-    issues.list(body, "screenshots", Presence::Optional, None, Some(8), |issues, item| {
-        issues.item_text(item, url_text(2000))
-    })
+    issues.list(
+        body,
+        "screenshots",
+        Presence::Optional,
+        None,
+        Some(8),
+        |issues, item| issues.item_text(item, url_text(2000)),
+    )
 }
 
 // ── POST /api/user-apps ──────────────────────────────────────────────────────
@@ -111,7 +132,13 @@ pub(crate) fn create_app(issues: &mut Issues, body: &Map<String, Value>) -> Crea
     let screenshots = screenshots(issues, body);
     let webhook_url = issues.text_with(body, "webhookUrl", Presence::Optional, url_text(2000));
     refine(issues, body, "icon", icon_ok, ICON_MESSAGE);
-    refine(issues, body, "webhookUrl", is_safe_lifecycle_webhook_url, WEBHOOK_MESSAGE);
+    refine(
+        issues,
+        body,
+        "webhookUrl",
+        is_safe_lifecycle_webhook_url,
+        WEBHOOK_MESSAGE,
+    );
     CreateApp {
         code: code.into_option().unwrap_or_default(),
         name: name.into_option().unwrap_or_default(),
@@ -151,7 +178,13 @@ pub(crate) fn update_app(issues: &mut Issues, body: &Map<String, Value>) -> Upda
     let screenshots = screenshots(issues, body);
     let webhook_url = issues.text_with(body, "webhookUrl", Presence::Nullish, url_text(2000));
     refine(issues, body, "icon", icon_ok, ICON_MESSAGE);
-    refine(issues, body, "webhookUrl", is_safe_lifecycle_webhook_url, WEBHOOK_MESSAGE);
+    refine(
+        issues,
+        body,
+        "webhookUrl",
+        is_safe_lifecycle_webhook_url,
+        WEBHOOK_MESSAGE,
+    );
     UpdateApp {
         name,
         description,
@@ -268,6 +301,7 @@ pub(crate) fn manifest(json: &Value) -> Result<Value, Value> {
     }
 }
 
+#[allow(clippy::too_many_lines)] // one block per manifest field, in the schema's order
 fn read_manifest(issues: &mut Issues, body: &Map<String, Value>) {
     let _ = code(issues, body);
     let _ = issues.text(body, "name", Presence::Required, Some(1), Some(100));
@@ -286,85 +320,117 @@ fn read_manifest(issues: &mut Issues, body: &Map<String, Value>) {
     );
     let _ = issues.text(body, "entrypoint", Presence::Optional, None, Some(255));
     let _ = scope_list(issues, body, "scopes", Presence::Optional);
-    let _ = issues.list(body, "collections", Presence::Optional, None, Some(50), |issues, item| {
-        let fields = issues.object(item)?;
-        let _ = issues.pattern(
-            fields,
-            "name",
-            Presence::Required,
-            Some(1),
-            Some(100),
-            |text| SLUG.is_match(text),
-            SLUG_MESSAGE,
-        );
-        let _ = issues.text(fields, "description", Presence::Optional, None, Some(500));
-        Some(())
-    });
-    let _ = issues.list(body, "agentTools", Presence::Optional, None, Some(50), |issues, item| {
-        let fields = issues.object(item)?;
-        let _ = issues.pattern(
-            fields,
-            "name",
-            Presence::Required,
-            Some(1),
-            Some(64),
-            |text| SNAKE.is_match(text),
-            "lowercase snake_case",
-        );
-        let _ = issues.text(fields, "description", Presence::Required, Some(1), Some(1000));
-        let _ = issues.nested(fields, "parameters", Presence::Optional, |_, _| ());
-        let _ = issues.nested(fields, "action", Presence::Required, |issues, action| {
-            let _ = issues.choice(
-                action,
-                "type",
+    let _ = issues.list(
+        body,
+        "collections",
+        Presence::Optional,
+        None,
+        Some(50),
+        |issues, item| {
+            let fields = issues.object(item)?;
+            let _ = issues.pattern(
+                fields,
+                "name",
                 Presence::Required,
-                &[
-                    "storage.list",
-                    "storage.create",
-                    "storage.update",
-                    "storage.delete",
-                    "api.request",
-                ],
+                Some(1),
+                Some(100),
+                |text| SLUG.is_match(text),
+                SLUG_MESSAGE,
             );
-            let _ = issues.text(action, "collection", Presence::Optional, None, Some(100));
-            let _ = issues.choice(
-                action,
-                "method",
-                Presence::Optional,
-                &["GET", "POST", "PATCH", "PUT", "DELETE"],
+            let _ = issues.text(fields, "description", Presence::Optional, None, Some(500));
+            Some(())
+        },
+    );
+    let _ = issues.list(
+        body,
+        "agentTools",
+        Presence::Optional,
+        None,
+        Some(50),
+        |issues, item| {
+            let fields = issues.object(item)?;
+            let _ = issues.pattern(
+                fields,
+                "name",
+                Presence::Required,
+                Some(1),
+                Some(64),
+                |text| SNAKE.is_match(text),
+                "lowercase snake_case",
             );
-            let _ = issues.text(action, "path", Presence::Optional, None, Some(500));
-        });
-        Some(())
-    });
-    let _ = issues.list(body, "navigation", Presence::Optional, None, Some(50), |issues, item| {
-        let fields = issues.object(item)?;
-        let _ = issues.pattern(
-            fields,
-            "id",
-            Presence::Required,
-            Some(1),
-            Some(50),
-            |text| SLUG.is_match(text),
-            SLUG_MESSAGE,
-        );
-        let _ = issues.text(fields, "label", Presence::Required, Some(1), Some(100));
-        let _ = issues.pattern(
-            fields,
-            "path",
-            Presence::Required,
-            Some(1),
-            Some(100),
-            |text| NAV_PATH.is_match(text),
-            "app-relative path starting with /",
-        );
-        let _ = issues.text(fields, "icon", Presence::Optional, None, Some(50));
-        let _ = issues.text(fields, "permission", Presence::Optional, None, Some(100));
-        let _ = issues.text(fields, "group", Presence::Optional, None, Some(100));
-        Some(())
-    });
+            let _ = issues.text(
+                fields,
+                "description",
+                Presence::Required,
+                Some(1),
+                Some(1000),
+            );
+            let _ = issues.nested(fields, "parameters", Presence::Optional, |_, _| ());
+            let _ = issues.nested(fields, "action", Presence::Required, |issues, action| {
+                let _ = issues.choice(
+                    action,
+                    "type",
+                    Presence::Required,
+                    &[
+                        "storage.list",
+                        "storage.create",
+                        "storage.update",
+                        "storage.delete",
+                        "api.request",
+                    ],
+                );
+                let _ = issues.text(action, "collection", Presence::Optional, None, Some(100));
+                let _ = issues.choice(
+                    action,
+                    "method",
+                    Presence::Optional,
+                    &["GET", "POST", "PATCH", "PUT", "DELETE"],
+                );
+                let _ = issues.text(action, "path", Presence::Optional, None, Some(500));
+            });
+            Some(())
+        },
+    );
+    let _ = issues.list(
+        body,
+        "navigation",
+        Presence::Optional,
+        None,
+        Some(50),
+        |issues, item| {
+            let fields = issues.object(item)?;
+            let _ = issues.pattern(
+                fields,
+                "id",
+                Presence::Required,
+                Some(1),
+                Some(50),
+                |text| SLUG.is_match(text),
+                SLUG_MESSAGE,
+            );
+            let _ = issues.text(fields, "label", Presence::Required, Some(1), Some(100));
+            let _ = issues.pattern(
+                fields,
+                "path",
+                Presence::Required,
+                Some(1),
+                Some(100),
+                |text| NAV_PATH.is_match(text),
+                "app-relative path starting with /",
+            );
+            let _ = issues.text(fields, "icon", Presence::Optional, None, Some(50));
+            let _ = issues.text(fields, "permission", Presence::Optional, None, Some(100));
+            let _ = issues.text(fields, "group", Presence::Optional, None, Some(100));
+            Some(())
+        },
+    );
     let _ = issues.nested(body, "pricing", Presence::Optional, |issues, pricing| {
-        let _ = issues.choice(pricing, "type", Presence::Required, &["free", "subscription"]);
+        let _ = issues.choice(
+            pricing,
+            "type",
+            Presence::Required,
+            &["free", "subscription"],
+        );
         let _ = issues.number(
             pricing,
             "monthlyPrice",
@@ -376,7 +442,8 @@ fn read_manifest(issues: &mut Issues, body: &Map<String, Value>) {
             },
         );
         // `.length(3)`: only the message reaches the flattened issues.
-        if let Field::Set(currency) = issues.text(pricing, "currency", Presence::Optional, None, None)
+        if let Field::Set(currency) =
+            issues.text(pricing, "currency", Presence::Optional, None, None)
             && currency.encode_utf16().count() != 3
         {
             issues.custom("currency", "String must contain exactly 3 character(s)");
@@ -386,12 +453,22 @@ fn read_manifest(issues: &mut Issues, body: &Map<String, Value>) {
     let _ = issues.text_with(body, "privacyUrl", Presence::Optional, url_text(2000));
     let _ = screenshots(issues, body);
     let _ = issues.text_with(body, "webhookUrl", Presence::Optional, url_text(2000));
-    refine(issues, body, "webhookUrl", is_safe_lifecycle_webhook_url, WEBHOOK_MESSAGE);
+    refine(
+        issues,
+        body,
+        "webhookUrl",
+        is_safe_lifecycle_webhook_url,
+        WEBHOOK_MESSAGE,
+    );
     let _ = issues.boolean(body, "mobile", Presence::Optional);
 }
 
 /// Keep `keys` of `object` (in that order), each through `inner`.
-fn keep(object: &Map<String, Value>, keys: &[&str], inner: impl Fn(&str, &Value) -> Value) -> Value {
+fn keep(
+    object: &Map<String, Value>,
+    keys: &[&str],
+    inner: impl Fn(&str, &Value) -> Value,
+) -> Value {
     let mut out = Map::new();
     for key in keys {
         if let Some(value) = object.get(*key) {
@@ -448,21 +525,25 @@ fn strip_manifest(json: &Value) -> Value {
         ],
         |key, value| match key {
             "collections" => keep_items(value, &["name", "description"], same),
-            "agentTools" => keep_items(value, &["name", "description", "parameters", "action"], |key, value| {
-                match (key, value) {
+            "agentTools" => keep_items(
+                value,
+                &["name", "description", "parameters", "action"],
+                |key, value| match (key, value) {
                     ("action", Value::Object(action)) => {
                         keep(action, &["type", "collection", "method", "path"], same)
                     }
                     _ => value.clone(),
-                }
-            }),
+                },
+            ),
             "navigation" => keep_items(
                 value,
                 &["id", "label", "path", "icon", "permission", "group"],
                 same,
             ),
             "pricing" => match value {
-                Value::Object(pricing) => keep(pricing, &["type", "monthlyPrice", "currency"], same),
+                Value::Object(pricing) => {
+                    keep(pricing, &["type", "monthlyPrice", "currency"], same)
+                }
                 other => other.clone(),
             },
             _ => value.clone(),
@@ -549,7 +630,11 @@ mod tests {
 
     #[test]
     fn icons_refine_after_their_checks() {
-        assert!(icon_ok("Rocket") && icon_ok("https://cdn.example.com/logo.png") && icon_ok("/logo.svg"));
+        assert!(
+            icon_ok("Rocket")
+                && icon_ok("https://cdn.example.com/logo.png")
+                && icon_ok("/logo.svg")
+        );
         assert!(!icon_ok("  ") && !icon_ok(&"a".repeat(60)));
     }
 }

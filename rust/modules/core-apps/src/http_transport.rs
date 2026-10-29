@@ -28,10 +28,7 @@ pub struct OutboundResponse {
 
 /// Sends a request; `Err` is a connection-level failure (`fetch` throwing).
 pub trait HttpTransport: Send + Sync {
-    fn send<'a>(
-        &'a self,
-        request: OutboundRequest,
-    ) -> BoxFuture<'a, Result<OutboundResponse, String>>;
+    fn send(&self, request: OutboundRequest) -> BoxFuture<'_, Result<OutboundResponse, String>>;
 }
 
 /// The transport a request uses in place of the app's, as a request
@@ -73,10 +70,7 @@ impl Default for ReqwestTransport {
 }
 
 impl HttpTransport for ReqwestTransport {
-    fn send<'a>(
-        &'a self,
-        request: OutboundRequest,
-    ) -> BoxFuture<'a, Result<OutboundResponse, String>> {
+    fn send(&self, request: OutboundRequest) -> BoxFuture<'_, Result<OutboundResponse, String>> {
         Box::pin(async move {
             let method = reqwest::Method::from_bytes(request.method.as_bytes())
                 .map_err(|error| error.to_string())?;

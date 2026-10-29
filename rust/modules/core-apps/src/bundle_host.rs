@@ -13,12 +13,12 @@
 //! so sandboxed iframes can load sibling assets. Service worker scripts are
 //! refused.
 
+use aws_lc_rs::digest;
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{OriginalUri, Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use aws_lc_rs::digest;
 use http::header::{CACHE_CONTROL, CONTENT_TYPE, ETAG, HOST};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::Value;
@@ -113,7 +113,13 @@ pub(crate) fn request_origin(headers: &HeaderMap) -> String {
     format!("{scheme}://{}", host.to_ascii_lowercase())
 }
 
-async fn handle(state: &CoreAppsState, public: &Public, headers: &HeaderMap, code: &str, rest: &str) -> Response {
+async fn handle(
+    state: &CoreAppsState,
+    public: &Public,
+    headers: &HeaderMap,
+    code: &str,
+    rest: &str,
+) -> Response {
     match serve(state, public, headers, code, rest).await {
         Ok(response) => response,
         Err(error) => {
@@ -127,6 +133,7 @@ async fn handle(state: &CoreAppsState, public: &Public, headers: &HeaderMap, cod
     }
 }
 
+#[allow(clippy::too_many_lines)] // the route's steps, in the TypeScript order
 async fn serve(
     state: &CoreAppsState,
     public: &Public,
@@ -144,11 +151,7 @@ async fn serve(
         ));
     };
     // A service worker would outlive the bundle on this origin.
-    if headers
-        .get("service-worker")
-        .and_then(|v| v.to_str().ok())
-        == Some("script")
-    {
+    if headers.get("service-worker").and_then(|v| v.to_str().ok()) == Some("script") {
         return Ok(json_error(
             StatusCode::FORBIDDEN,
             "FORBIDDEN",
@@ -184,7 +187,12 @@ async fn serve(
             return Ok(app_not_found(code));
         };
         let app_id = field("appId");
-        let (workspace_id, expires_at) = match verify_bundle_capability(env, &app_id, token, now_ms()) {
+        let (workspace_id, expires_at) = match verify_bundle_capability(
+            env,
+            &app_id,
+            token,
+            now_ms(),
+        ) {
             Ok(verdict) => verdict,
             Err(LinkRefusal::Expired) => {
                 return Ok(json_error(
@@ -195,14 +203,17 @@ async fn serve(
             }
             Err(refusal) => {
                 if refusal == LinkRefusal::Unconfigured {
-                    tracing::error!("core-apps: no bundle signing secret configured; refusing a gated bundle");
+                    tracing::error!(
+                        "core-apps: no bundle signing secret configured; refusing a gated bundle"
+                    );
                 }
                 return Ok(app_not_found(code));
             }
         };
-        let allowed = workspace_may_use_bundle_cached(&master, cache.as_ref(), &app_id, &workspace_id)
-            .await
-            .map_err(|error| error.to_string())?;
+        let allowed =
+            workspace_may_use_bundle_cached(&master, cache.as_ref(), &app_id, &workspace_id)
+                .await
+                .map_err(|error| error.to_string())?;
         if !allowed {
             return Ok(app_not_found(code));
         }
@@ -220,7 +231,11 @@ async fn serve(
     if !weldsuite_ports::files::is_safe_key(&key) {
         return Ok(not_found("Asset not found"));
     }
-    let Some(object) = storage.get_boxed(&key).await.map_err(|error| error.to_string())? else {
+    let Some(object) = storage
+        .get_boxed(&key)
+        .await
+        .map_err(|error| error.to_string())?
+    else {
         return Ok(not_found("Asset not found"));
     };
 
@@ -268,7 +283,10 @@ async fn serve(
             // link's expiry, and only the origin as Referer.
             let remaining = ((until - now_ms()).div_euclid(1000)).max(0);
             let value = if is_hashed_asset(&serve_path) {
-                format!("private, max-age={}", remaining.min(MAX_PRIVATE_CACHE_SECONDS))
+                format!(
+                    "private, max-age={}",
+                    remaining.min(MAX_PRIVATE_CACHE_SECONDS)
+                )
             } else {
                 "private, no-cache".to_owned()
             };

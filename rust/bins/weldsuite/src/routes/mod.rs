@@ -18,6 +18,7 @@ use weldsuite_ports::{DynCache, MemoryCache};
 use crate::server::AppState;
 
 /// Every ported route, relative to `/api`.
+#[allow(clippy::too_many_lines)] // one block per mounted module or core area
 pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = Router::new()
         .route("/me/permissions", get(me::permissions))

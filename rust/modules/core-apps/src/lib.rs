@@ -175,8 +175,8 @@ where
 /// `bundleHostRejection`: with a dedicated bundle origin
 /// (`USER_APP_BUNDLE_ORIGIN`), the bundle host answers nothing but bundles.
 /// The 404 for a request on it outside `/public/user-apps/`, else `None`.
-pub fn bundle_host_rejection(
-    env: &HashMap<String, String>,
+pub fn bundle_host_rejection<H: std::hash::BuildHasher>(
+    env: &HashMap<String, String, H>,
     headers: &http::HeaderMap,
     path: &str,
 ) -> Option<axum::response::Response> {

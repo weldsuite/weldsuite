@@ -62,7 +62,7 @@ fn scope_covers(granted: &[String], scope: &str) -> bool {
     match scope.find(':') {
         Some(idx) if idx > 0 => {
             let wildcard = format!("{}:*", &scope[..idx]);
-            granted.iter().any(|g| *g == wildcard)
+            granted.contains(&wildcard)
         }
         _ => false,
     }
@@ -98,7 +98,8 @@ pub(crate) fn union_scopes(a: &[String], b: &[String]) -> Vec<String> {
 /// `scopeSchema`'s pattern.
 pub(crate) fn is_scope(text: &str) -> bool {
     static SCOPE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"^[a-z][a-z0-9_-]*:(\*|[a-z][a-z0-9_:-]*)$|^\*$").expect("the scope pattern compiles")
+        Regex::new(r"^[a-z][a-z0-9_-]*:(\*|[a-z][a-z0-9_:-]*)$|^\*$")
+            .expect("the scope pattern compiles")
     });
     SCOPE.is_match(text)
 }
@@ -160,6 +161,17 @@ fn hostname(url: &url::Url) -> String {
     url.host_str().unwrap_or_default().to_ascii_lowercase()
 }
 
+/// Hosts a lifecycle webhook may never reach.
+const BLOCKED_WEBHOOK_HOSTS: [&str; 7] = [
+    "localhost",
+    "metadata",
+    "metadata.google.internal",
+    "metadata.goog",
+    "kubernetes.default",
+    "kubernetes.default.svc",
+    "kubernetes.default.svc.cluster.local",
+];
+
 /// A lifecycle webhook may only go to a public https host with a DNS name
 /// (`isSafeAppLifecycleWebhookUrl`).
 pub(crate) fn is_safe_lifecycle_webhook_url(raw: &str) -> bool {
@@ -174,19 +186,10 @@ pub(crate) fn is_safe_lifecycle_webhook_url(raw: &str) -> bool {
     if host.is_empty() {
         return false;
     }
-    const BLOCKED: [&str; 7] = [
-        "localhost",
-        "metadata",
-        "metadata.google.internal",
-        "metadata.goog",
-        "kubernetes.default",
-        "kubernetes.default.svc",
-        "kubernetes.default.svc.cluster.local",
-    ];
-    if BLOCKED.contains(&host)
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host.ends_with(".internal")
+    // `.localhost`, `.local` and `.internal` names: the last label.
+    let top_label = host.rsplit_once('.').map(|(_, label)| label);
+    if BLOCKED_WEBHOOK_HOSTS.contains(&host)
+        || matches!(top_label, Some("localhost" | "local" | "internal"))
     {
         return false;
     }
@@ -244,11 +247,20 @@ mod tests {
 
     #[test]
     fn scopes_cover_by_wildcard() {
-        assert!(is_scope_superset(&list(&["crm:*"]), &list(&["crm:read", "crm:write"])));
+        assert!(is_scope_superset(
+            &list(&["crm:*"]),
+            &list(&["crm:read", "crm:write"])
+        ));
         assert!(is_scope_superset(&list(&["*"]), &list(&["tickets:read"])));
-        assert!(!is_scope_superset(&list(&["crm:read"]), &list(&["crm:write"])));
+        assert!(!is_scope_superset(
+            &list(&["crm:read"]),
+            &list(&["crm:write"])
+        ));
         assert_eq!(
-            diff_scopes(&list(&["crm:read", "tickets:read", "tickets:read"]), &list(&["crm:read"])),
+            diff_scopes(
+                &list(&["crm:read", "tickets:read", "tickets:read"]),
+                &list(&["crm:read"])
+            ),
             list(&["tickets:read"])
         );
         assert_eq!(
@@ -261,7 +273,10 @@ mod tests {
 
     #[test]
     fn bundle_files() {
-        assert_eq!(content_type_for("assets/index-abcdef12.JS"), Some("text/javascript; charset=utf-8"));
+        assert_eq!(
+            content_type_for("assets/index-abcdef12.JS"),
+            Some("text/javascript; charset=utf-8")
+        );
         assert_eq!(content_type_for("README"), None);
         assert!(is_hashed_asset("assets/index-abcdef12.js"));
         assert!(!is_hashed_asset("index.html"));
@@ -274,7 +289,9 @@ mod tests {
 
     #[test]
     fn url_allowlists() {
-        assert!(is_safe_lifecycle_webhook_url("https://hooks.example.com/weld"));
+        assert!(is_safe_lifecycle_webhook_url(
+            "https://hooks.example.com/weld"
+        ));
         for bad in [
             "http://hooks.example.com",
             "https://localhost/x",
@@ -287,9 +304,13 @@ mod tests {
             assert!(!is_safe_lifecycle_webhook_url(bad), "{bad}");
         }
         assert!(is_allowed_dev_session_url("http://localhost:5173/"));
-        assert!(is_allowed_dev_session_url("https://abc.trycloudflare.com/app/"));
+        assert!(is_allowed_dev_session_url(
+            "https://abc.trycloudflare.com/app/"
+        ));
         assert!(!is_allowed_dev_session_url("https://evil.example.com/"));
-        assert!(!is_allowed_dev_session_url("https://user:pass@abc.ngrok.io/"));
+        assert!(!is_allowed_dev_session_url(
+            "https://user:pass@abc.ngrok.io/"
+        ));
         assert!(!is_allowed_dev_session_url("http://abc.ngrok.io/"));
         assert_eq!(
             origin_of("https://abc.trycloudflare.com/app/").as_deref(),

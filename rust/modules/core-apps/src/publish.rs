@@ -17,8 +17,7 @@ use weldsuite_ports::DynCache;
 use crate::access::now;
 use crate::http_transport::{HttpTransport, OutboundRequest};
 use crate::scopes::{
-    diff_scopes, is_native_only, is_reserved, is_safe_lifecycle_webhook_url, random_hex,
-    sha256_hex,
+    diff_scopes, is_native_only, is_reserved, is_safe_lifecycle_webhook_url, random_hex, sha256_hex,
 };
 
 /// A row from `to_jsonb`, as Drizzle returns it.
@@ -149,15 +148,15 @@ impl From<sqlx::Error> for PublishError {
 /// `publishAppVersion`: supersede the live version, publish this one, take
 /// the app's columns from its manifest, and queue new scopes on every
 /// active install.
+#[allow(clippy::too_many_lines)] // the service's steps, in the TypeScript order
 pub(crate) async fn publish_app_version(
     master: &PgPool,
     app_id: &str,
     version_id: &str,
     manifest: Option<&Value>,
 ) -> Result<Vec<InstallNeedingConsent>, PublishError> {
-    let manifest = match manifest {
-        Some(manifest @ Value::Object(_)) => manifest,
-        _ => return Err(PublishError::NoManifest(version_id.to_owned())),
+    let Some(manifest @ Value::Object(_)) = manifest else {
+        return Err(PublishError::NoManifest(version_id.to_owned()));
     };
     let now = now();
     sqlx::query(
@@ -337,12 +336,13 @@ pub(crate) async fn resolve_bundle_for_code(
     let Some((app_id, Some(version_id), true, false, visibility, review_status)) = app else {
         return Ok(None);
     };
-    let version: Option<(String, String)> =
-        sqlx::query_as("select bundle_key, entrypoint from user_app_versions where id = $1 limit 1")
-            .bind(&version_id)
-            .fetch_optional(master)
-            .await
-            .map_err(ResolveError::Database)?;
+    let version: Option<(String, String)> = sqlx::query_as(
+        "select bundle_key, entrypoint from user_app_versions where id = $1 limit 1",
+    )
+    .bind(&version_id)
+    .fetch_optional(master)
+    .await
+    .map_err(ResolveError::Database)?;
     let Some((bundle_key, entrypoint)) = version else {
         return Ok(None);
     };
@@ -410,6 +410,7 @@ fn is_adoptable(app: &Value) -> bool {
 }
 
 /// `adoptSystemInstallInTenant`.
+#[allow(clippy::too_many_lines)] // the service's steps, in the TypeScript order
 pub(crate) async fn adopt_system_install(
     master: &PgPool,
     tenant: &PgPool,
@@ -533,7 +534,10 @@ pub(crate) async fn adopt_system_install(
 }
 
 /// Official public apps that could claim one of `codes` (`findOfficialAppsForCodes`).
-async fn official_apps_for_codes(master: &PgPool, codes: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+async fn official_apps_for_codes(
+    master: &PgPool,
+    codes: &[String],
+) -> Result<Vec<Value>, sqlx::Error> {
     if codes.is_empty() {
         return Ok(Vec::new());
     }
@@ -612,7 +616,8 @@ pub(crate) async fn sweep_adopt_system_installs(
     installed_by: String,
 ) {
     let code = text(&app, "code").to_owned();
-    if is_native_only(&code) || (text(&app, "publisherType") != "weldsuite" && !is_reserved(&code)) {
+    if is_native_only(&code) || (text(&app, "publisherType") != "weldsuite" && !is_reserved(&code))
+    {
         return;
     }
     let rows: Vec<(String, Option<String>)> = match sqlx::query_as(
@@ -633,11 +638,15 @@ pub(crate) async fn sweep_adopt_system_installs(
             .filter(|org| !org.is_empty())
             .unwrap_or_else(|| workspace_id.clone());
         let result = match workspaces.tenant(&reference).await {
-            Ok(tenant) => {
-                adopt_system_install(&master, &tenant.db, &app, &workspace_id, Some(&installed_by))
-                    .await
-                    .map_err(|error| error.to_string())
-            }
+            Ok(tenant) => adopt_system_install(
+                &master,
+                &tenant.db,
+                &app,
+                &workspace_id,
+                Some(&installed_by),
+            )
+            .await
+            .map_err(|error| error.to_string()),
             Err(error) => Err(error.to_string()),
         };
         match result {
@@ -645,7 +654,11 @@ pub(crate) async fn sweep_adopt_system_installs(
             Ok(_) => {}
             Err(error) => {
                 failed += 1;
-                tracing::error!(error, workspace_id, "core-apps: adopt sweep failed for a workspace");
+                tracing::error!(
+                    error,
+                    workspace_id,
+                    "core-apps: adopt sweep failed for a workspace"
+                );
             }
         }
     }

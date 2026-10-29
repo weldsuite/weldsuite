@@ -24,7 +24,9 @@ use weldsuite_kit::{ApiError, Data};
 use weldsuite_ports::DynCache;
 
 use crate::CoreAppsState;
-use crate::access::{AppsError, AppsResult, Caller, OrInternal, Public, answer, now, now_ms, validate};
+use crate::access::{
+    AppsError, AppsResult, Caller, OrInternal, Public, answer, now, now_ms, validate,
+};
 use crate::bundle_access::encode_uri_component;
 use crate::schemas;
 use crate::scopes::{random_hex, sha256_hex};
@@ -94,6 +96,14 @@ fn default_external_api_url(environment: Option<&str>) -> &'static str {
     }
 }
 
+/// The developer portals a login may send the developer to.
+const ALLOWED_LOGIN_HOSTS: [&str; 4] = [
+    "developer.weldsuite.org",
+    "developer-test.weldsuite.org",
+    "localhost",
+    "127.0.0.1",
+];
+
 /// `resolveLoginUrl`: only first-party developer portals (no open redirect).
 fn resolve_login_url(requested: Option<&str>, environment: Option<&str>) -> String {
     let fallback = if is_test_environment(environment) {
@@ -105,14 +115,8 @@ fn resolve_login_url(requested: Option<&str>, environment: Option<&str>) -> Stri
     let Some(Ok(mut url)) = requested.map(url::Url::parse) else {
         return fallback;
     };
-    const ALLOWED: [&str; 4] = [
-        "developer.weldsuite.org",
-        "developer-test.weldsuite.org",
-        "localhost",
-        "127.0.0.1",
-    ];
     let host = url.host_str().unwrap_or_default().to_owned();
-    let allowed = ALLOWED.contains(&host.as_str());
+    let allowed = ALLOWED_LOGIN_HOSTS.contains(&host.as_str());
     if url.scheme() != "https" && !(url.scheme() == "http" && allowed) {
         return fallback;
     }
@@ -126,7 +130,11 @@ fn resolve_login_url(requested: Option<&str>, environment: Option<&str>) -> Stri
 }
 
 /// Both keys of a session, for `ttl_seconds`.
-async fn put_session(cache: &dyn DynCache, session: &Value, ttl_seconds: i64) -> Result<(), String> {
+async fn put_session(
+    cache: &dyn DynCache,
+    session: &Value,
+    ttl_seconds: i64,
+) -> Result<(), String> {
     let ttl = Some(Duration::from_secs(u64::try_from(ttl_seconds).unwrap_or(0)));
     let device_code = session["deviceCode"].as_str().unwrap_or_default();
     let user_code = session["userCode"].as_str().unwrap_or_default();
@@ -140,8 +148,15 @@ async fn put_session(cache: &dyn DynCache, session: &Value, ttl_seconds: i64) ->
         .map_err(|e| e.to_string())
 }
 
-async fn session_by_device(cache: &dyn DynCache, device_code: &str) -> Result<Option<Value>, String> {
-    match cache.get_boxed(&device_key(device_code)).await.map_err(|e| e.to_string())? {
+async fn session_by_device(
+    cache: &dyn DynCache,
+    device_code: &str,
+) -> Result<Option<Value>, String> {
+    match cache
+        .get_boxed(&device_key(device_code))
+        .await
+        .map_err(|e| e.to_string())?
+    {
         Some(text) => serde_json::from_str::<Value>(&text)
             .map(|value| (!value.is_null()).then_some(value))
             .map_err(|e| e.to_string()),
@@ -151,7 +166,12 @@ async fn session_by_device(cache: &dyn DynCache, device_code: &str) -> Result<Op
 
 // ── POST /device ─────────────────────────────────────────────────────────────
 
-async fn device(State(state): State<CoreAppsState>, public: Public, headers: HeaderMap, body: Bytes) -> Response {
+async fn device(
+    State(state): State<CoreAppsState>,
+    public: Public,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     answer(
         async {
             let requested = validate(&headers, &body, schemas::cli_device)?;
@@ -187,7 +207,12 @@ async fn device(State(state): State<CoreAppsState>, public: Public, headers: Hea
 
 // ── POST /token ──────────────────────────────────────────────────────────────
 
-async fn token(State(state): State<CoreAppsState>, public: Public, headers: HeaderMap, body: Bytes) -> Response {
+async fn token(
+    State(state): State<CoreAppsState>,
+    public: Public,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     answer(
         async {
             let device_code = validate(&headers, &body, schemas::cli_token)?;
@@ -196,10 +221,16 @@ async fn token(State(state): State<CoreAppsState>, public: Public, headers: Head
                 .await
                 .map_err(|e| AppsError::internal("Internal Server Error", e))?;
             let Some(session) = session else {
-                return Err(ApiError::bad_request("Device code expired or unknown. Run weld login again.").into());
+                return Err(ApiError::bad_request(
+                    "Device code expired or unknown. Run weld login again.",
+                )
+                .into());
             };
             if session["status"] == "pending" {
-                return Ok(Data(json!({ "status": "pending", "interval": CLI_AUTH_POLL_INTERVAL_SECONDS })).into_response());
+                return Ok(Data(
+                    json!({ "status": "pending", "interval": CLI_AUTH_POLL_INTERVAL_SECONDS }),
+                )
+                .into_response());
             }
             // One-shot: gone before the key is handed over.
             for key in [
@@ -213,7 +244,16 @@ async fn token(State(state): State<CoreAppsState>, public: Public, headers: Head
             }
             let mut out = Map::new();
             out.insert("status".to_owned(), json!("complete"));
-            for key in ["apiKey", "keyId", "keyPrefix", "orgId", "orgName", "userId", "email", "apiUrl"] {
+            for key in [
+                "apiKey",
+                "keyId",
+                "keyPrefix",
+                "orgId",
+                "orgName",
+                "userId",
+                "email",
+                "apiUrl",
+            ] {
                 if let Some(value) = session.get(key) {
                     out.insert(key.to_owned(), value.clone());
                 }
@@ -278,11 +318,22 @@ async fn unregister_api_key(master: &PgPool, tenant_key_id: &str) {
     }
 }
 
-async fn approve(State(state): State<CoreAppsState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn approve(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     answer(approve_with(&state, &caller, &headers, &body).await)
 }
 
-async fn approve_with(state: &CoreAppsState, caller: &Caller, headers: &HeaderMap, body: &Bytes) -> AppsResult<Response> {
+#[allow(clippy::too_many_lines)] // the route's steps, in the TypeScript order
+async fn approve_with(
+    state: &CoreAppsState,
+    caller: &Caller,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> AppsResult<Response> {
     const FAILED: &str = "Failed to authorize the CLI";
     let raw_code = validate(headers, body, schemas::cli_approve)?;
     let Some(org_id) = caller.org_id.clone().filter(|org| !org.is_empty()) else {
@@ -301,7 +352,10 @@ async fn approve_with(state: &CoreAppsState, caller: &Caller, headers: &HeaderMa
         None => None,
     };
     let Some(session) = session else {
-        return Err(ApiError::bad_request("Code expired or unknown. Run weld login again in the terminal.").into());
+        return Err(ApiError::bad_request(
+            "Code expired or unknown. Run weld login again in the terminal.",
+        )
+        .into());
     };
     if session["status"] == "complete" {
         return Ok(Data(json!({ "status": "complete", "alreadyApproved": true })).into_response());
@@ -363,8 +417,14 @@ async fn approve_with(state: &CoreAppsState, caller: &Caller, headers: &HeaderMa
                 org_name = json!(org.name);
             }
             (user, org) => {
-                let error = user.err().map(|e| e.to_string()).or_else(|| org.err().map(|e| e.to_string()));
-                tracing::warn!(error, "core-apps: could not load the identity provider's labels");
+                let error = user
+                    .err()
+                    .map(|e| e.to_string())
+                    .or_else(|| org.err().map(|e| e.to_string()));
+                tracing::warn!(
+                    error,
+                    "core-apps: could not load the identity provider's labels"
+                );
             }
         }
     }
@@ -424,7 +484,10 @@ mod tests {
             resolve_login_url(Some("https://evil.example.com"), Some("test")),
             "https://developer-test.weldsuite.org"
         );
-        assert_eq!(resolve_login_url(None, Some("production")), "https://developer.weldsuite.org");
+        assert_eq!(
+            resolve_login_url(None, Some("production")),
+            "https://developer.weldsuite.org"
+        );
         assert_eq!(
             resolve_login_url(Some("http://developer.weldsuite.org"), None),
             "http://developer.weldsuite.org"

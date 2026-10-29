@@ -33,8 +33,8 @@ use crate::publish::{
 };
 use crate::schemas;
 use crate::scopes::{
-    content_type_for, diff_scopes, is_reserved, is_safe_bundle_path, is_scope_superset,
-    random_hex, sha256_hex, union_scopes,
+    content_type_for, diff_scopes, is_reserved, is_safe_bundle_path, is_scope_superset, random_hex,
+    sha256_hex, union_scopes,
 };
 
 const MAX_BUNDLE_FILES: usize = 500;
@@ -93,7 +93,11 @@ where
 // ── shared reads ─────────────────────────────────────────────────────────────
 
 /// An app the workspace owns (soft-deleted excluded).
-async fn owned_app(master: &PgPool, id: &str, workspace_id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn owned_app(
+    master: &PgPool,
+    id: &str,
+    workspace_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let found: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         app_json!(),
@@ -126,16 +130,18 @@ fn is_installable_here(app: &Value, workspace_id: &str) -> bool {
 
 /// `invalidateAssetCache`: never fails the route.
 async fn drop_asset_cache(caller: &Caller, state: &CoreAppsState, code: &str) {
-    match caller.overrides.cache(state) {
-        Ok(cache) => invalidate_asset_cache(cache.as_ref(), code).await,
-        Err(_) => tracing::error!("core-apps: asset cache invalidation failed: no cache"),
+    if let Ok(cache) = caller.overrides.cache(state) {
+        invalidate_asset_cache(cache.as_ref(), code).await;
+    } else {
+        tracing::error!("core-apps: asset cache invalidation failed: no cache");
     }
 }
 
 async fn drop_bundle_access(caller: &Caller, state: &CoreAppsState, app_id: &str) {
-    match caller.overrides.cache(state) {
-        Ok(cache) => invalidate_bundle_access(cache.as_ref(), app_id, &caller.workspace_id).await,
-        Err(_) => tracing::error!("core-apps: bundle access invalidation failed: no cache"),
+    if let Ok(cache) = caller.overrides.cache(state) {
+        invalidate_bundle_access(cache.as_ref(), app_id, &caller.workspace_id).await;
+    } else {
+        tracing::error!("core-apps: bundle access invalidation failed: no cache");
     }
 }
 
@@ -167,7 +173,11 @@ fn first_query(values: &Map<String, Value>, key: &str) -> Option<String> {
 
 // ── GET / ────────────────────────────────────────────────────────────────────
 
-async fn list(State(state): State<CoreAppsState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn list(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     answer(
         async {
             let master = caller.master(&state);
@@ -249,11 +259,15 @@ async fn create(
         async {
             let data = validate(&headers, &body, schemas::create_app)?;
             let official = is_official_publisher_workspace(
-                caller.overrides.env(&state, "WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS"),
+                caller
+                    .overrides
+                    .env(&state, "WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS"),
                 &caller.workspace_id,
             );
             if is_reserved(&data.code) && !official {
-                return Err(ApiError::conflict(format!("App code '{}' is reserved", data.code)).into());
+                return Err(
+                    ApiError::conflict(format!("App code '{}' is reserved", data.code)).into(),
+                );
             }
             let master = caller.master(&state);
             let taken: Option<String> =
@@ -263,9 +277,11 @@ async fn create(
                     .await
                     .or_internal("Failed to create app")?;
             if taken.is_some() {
-                return Err(
-                    ApiError::conflict(format!("App code '{}' is already taken", data.code)).into(),
-                );
+                return Err(ApiError::conflict(format!(
+                    "App code '{}' is already taken",
+                    data.code
+                ))
+                .into());
             }
             let now = now();
             let created: Value = sqlx::query_scalar(concat!(
@@ -458,9 +474,14 @@ async fn installed(State(state): State<CoreAppsState>, caller: Caller) -> Respon
             let master = caller.master(&state);
             // First-party installs become hosted apps once an official app
             // owns their sidenav code.
-            adopt_official_system_installs(&master, &caller.db, &caller.workspace_id, Some(&caller.user_id))
-                .await
-                .or_internal("Failed to list installed apps")?;
+            adopt_official_system_installs(
+                &master,
+                &caller.db,
+                &caller.workspace_id,
+                Some(&caller.user_id),
+            )
+            .await
+            .or_internal("Failed to list installed apps")?;
             let rows: Vec<Value> = sqlx::query_scalar(
                 "select to_jsonb(w) from workspace_installed_apps w
                  where w.app_type = 'user' and w.is_active = true and w.deleted_at is null",
@@ -533,7 +554,7 @@ async fn developer_account(State(state): State<CoreAppsState>, caller: Caller) -
             .fetch_optional(&caller.master(&state))
             .await
             .or_internal("Failed to fetch developer account")?;
-            Ok(Data(account.map(row).unwrap_or(Value::Null)).into_response())
+            Ok(Data(account.map_or(Value::Null, row)).into_response())
         }
         .await,
     )
@@ -541,7 +562,11 @@ async fn developer_account(State(state): State<CoreAppsState>, caller: Caller) -
 
 // ── one app ──────────────────────────────────────────────────────────────────
 
-async fn detail(State(state): State<CoreAppsState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn detail(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     answer(
         async {
             let app = owned_app(&caller.master(&state), &id, &caller.workspace_id)
@@ -635,7 +660,11 @@ async fn update(
     )
 }
 
-async fn remove(State(state): State<CoreAppsState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     answer(
         async {
             const FAILED: &str = "Failed to delete app";
@@ -708,7 +737,11 @@ async fn remove(State(state): State<CoreAppsState>, caller: Caller, Path(id): Pa
 
 // ── versions ─────────────────────────────────────────────────────────────────
 
-async fn versions(State(state): State<CoreAppsState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn versions(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     answer(
         async {
             let master = caller.master(&state);
@@ -752,7 +785,9 @@ async fn form_data(request: Request) -> Option<Vec<(String, FormValue)>> {
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
     if content_type.starts_with("application/x-www-form-urlencoded") {
-        let body = axum::body::to_bytes(request.into_body(), MAX_UPLOAD_BODY).await.ok()?;
+        let body = axum::body::to_bytes(request.into_body(), MAX_UPLOAD_BODY)
+            .await
+            .ok()?;
         return Some(
             form_urlencoded::parse(&body)
                 .map(|(k, v)| (k.into_owned(), FormValue::Text(v.into_owned())))
@@ -789,7 +824,10 @@ struct Upload {
     bundle_size: usize,
 }
 
-fn validate_bundle_files(files: &[(String, Option<String>, Vec<u8>)], bundle_size: usize) -> Option<String> {
+fn validate_bundle_files(
+    files: &[(String, Option<String>, Vec<u8>)],
+    bundle_size: usize,
+) -> Option<String> {
     if files.is_empty() {
         return Some("At least one bundle file is required".to_owned());
     }
@@ -822,7 +860,9 @@ async fn parse_upload(request: Request, app_code: &str) -> Result<Upload, ApiErr
     };
     let first = |key: &str| entries.iter().find(|(name, _)| name == key).map(|(_, v)| v);
     let Some(FormValue::Text(raw)) = first("manifest") else {
-        return Err(ApiError::bad_request("Missing 'manifest' field (JSON string)"));
+        return Err(ApiError::bad_request(
+            "Missing 'manifest' field (JSON string)",
+        ));
     };
     let Ok(json) = serde_json::from_str::<Value>(raw) else {
         return Err(ApiError::bad_request("Field 'manifest' is not valid JSON"));
@@ -892,6 +932,7 @@ async fn mirror_owner_install_scopes(
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // the route's steps, in the TypeScript order
 async fn upload_version(
     State(state): State<CoreAppsState>,
     caller: Caller,
@@ -1037,7 +1078,9 @@ async fn submit(
                     .await
                     .or_internal(FAILED)?;
             if version.is_none() {
-                return Err(ApiError::bad_request("Upload a version before submitting for review").into());
+                return Err(
+                    ApiError::bad_request("Upload a version before submitting for review").into(),
+                );
             }
             let official = text(&app, "publisherType") == "weldsuite";
             let updated: Value = sqlx::query_scalar(concat!(
@@ -1101,7 +1144,9 @@ async fn review(
             .await
             .or_internal(FAILED)?;
             if admin.is_none() {
-                return Err(ApiError::forbidden().with_message("Platform staff only").into());
+                return Err(ApiError::forbidden()
+                    .with_message("Platform staff only")
+                    .into());
             }
             let app: Option<Value> = sqlx::query_scalar(concat!(
                 "select ",
@@ -1140,9 +1185,14 @@ async fn review(
                 .await
                 .or_internal(FAILED)?;
                 if let Some(candidate) = candidate {
-                    publish_app_version(&master, &id, text(&candidate, "id"), candidate.get("manifest"))
-                        .await
-                        .or_internal(FAILED)?;
+                    publish_app_version(
+                        &master,
+                        &id,
+                        text(&candidate, "id"),
+                        candidate.get("manifest"),
+                    )
+                    .await
+                    .or_internal(FAILED)?;
                 }
             }
             // Approved: the bundle may now be public; rejected: it needs a
@@ -1157,7 +1207,7 @@ async fn review(
             .fetch_optional(&master)
             .await
             .or_internal(FAILED)?;
-            let updated = updated.map(row).unwrap_or(Value::Null);
+            let updated = updated.map_or(Value::Null, row);
             caller.publish(&state, USER_APP_UPDATED, &id, &updated);
             if approved && text(&updated, "publisherType") == "weldsuite" {
                 state.events.tracker().spawn(sweep_adopt_system_installs(
@@ -1175,7 +1225,13 @@ async fn review(
 
 // ── installs ─────────────────────────────────────────────────────────────────
 
-fn lifecycle_payload(event: &str, app_id: &str, app_code: &str, workspace_id: &str, occurred_at: &str) -> Value {
+fn lifecycle_payload(
+    event: &str,
+    app_id: &str,
+    app_code: &str,
+    workspace_id: &str,
+    occurred_at: &str,
+) -> Value {
     json!({
         "event": event,
         "appId": app_id,
@@ -1185,6 +1241,7 @@ fn lifecycle_payload(event: &str, app_id: &str, app_code: &str, workspace_id: &s
     })
 }
 
+#[allow(clippy::too_many_lines)] // the route's steps, in the TypeScript order
 async fn install(
     State(state): State<CoreAppsState>,
     caller: Caller,
@@ -1371,7 +1428,11 @@ async fn install(
     )
 }
 
-async fn uninstall(State(state): State<CoreAppsState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn uninstall(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     answer(
         async {
             const FAILED: &str = "Failed to uninstall app";
@@ -1602,7 +1663,11 @@ async fn create_oauth_client(
     )
 }
 
-async fn oauth_client(State(state): State<CoreAppsState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn oauth_client(
+    State(state): State<CoreAppsState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     answer(
         async {
             const FAILED: &str = "Failed to fetch OAuth client";
