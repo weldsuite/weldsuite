@@ -73,3 +73,58 @@ export interface CatalogAppInstallation {
   installedAt: string | Date | null;
   settings: Record<string, unknown> | null;
 }
+
+// The same shapes as Zod schemas, for checking responses (the conformance
+// suite validates the Rust backend's answers with them).
+
+const accessStatusOrNone = z.enum(['requested', 'approved', 'rejected', 'suspended', 'revoked', 'none']);
+
+export const catalogAppItemSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  description: z.string(),
+  icon: z.string(),
+  category: z.string(),
+  path: z.string(),
+  overview: z.string().nullable(),
+  features: z.array(z.string()),
+  howItWorks: z.array(z.object({ title: z.string(), description: z.string() })),
+  version: z.string().nullable(),
+  provider: z.string().nullable(),
+  isInstalled: z.boolean(),
+  verified: z.boolean(),
+  releasedAt: z.string().nullable(),
+  websiteUrl: z.string().nullable(),
+  documentationUrl: z.string().nullable(),
+  contactUrl: z.string().nullable(),
+  requiresApproval: z.boolean().optional(),
+  accessStatus: accessStatusOrNone.optional(),
+});
+
+/** GET /: the catalog, not paginated. */
+export const catalogAppListSchema = z.array(catalogAppItemSchema);
+
+/** GET /categories and GET /beta. */
+export const catalogCodesSchema = z.array(z.string());
+
+export const catalogAppInstallationSchema = z.object({
+  id: z.string(),
+  installedAt: z.string().nullable(),
+  settings: z.record(z.unknown()).nullable(),
+});
+
+/** GET /:code. */
+export const catalogAppDetailSchema = catalogAppItemSchema.extend({
+  installation: catalogAppInstallationSchema.nullable(),
+});
+
+/** POST /:code/install. */
+export const installedCatalogAppSchema = z.object({
+  id: z.string(),
+  appCode: z.string(),
+  isActive: z.boolean(),
+  displayOrder: z.number().int().nullable(),
+  settings: z.record(z.unknown()).nullable(),
+  installedAt: z.string().nullable(),
+});
