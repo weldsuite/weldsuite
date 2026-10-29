@@ -48,14 +48,35 @@ const SELECT_WORKSPACE: &str = "
     limit 1";
 
 /// Tuning for [`Workspaces`].
+///
+/// The pool defaults come from spike S4 (`rust/docs/spikes.md`): one process
+/// with 2,000 workspace databases behind `PgBouncer` in transaction mode, 300
+/// of them active. The pooler keeps server connections per database, so every
+/// connection a tenant pool can open is a server connection the pooler may
+/// have to log in for; and a pool cap below the number of busy workspaces
+/// makes the LRU evict pools that are still in use.
+///
+/// The pooler must support protocol-level prepared statements
+/// (`PgBouncer` 1.21 or newer with `max_prepared_statements` > 0; 200 is the
+/// default from 1.24, and what CloudNativePG's Pooler runs): sqlx prepares
+/// every query with binds, and without that support a transaction-mode pooler
+/// hands a statement to a backend that never saw it, which fails or, for
+/// unnamed statements, returns another query's rows (spike S3).
 #[derive(Debug, Clone)]
 pub struct WorkspaceConfig {
     /// How long a resolved workspace is reused before the master DB is read
     /// again; bounds how late a suspension or licence change takes effect.
     pub cache_ttl: Duration,
-    /// Connections per tenant pool.
+    /// Connections per tenant pool. Default 1: with more, concurrent requests
+    /// of one workspace hold several pooler server connections, the pooler's
+    /// server budget runs out across databases and requests wait on constant
+    /// re-logins (at 5 always, at 2 in some runs). The cost of 1 is that a
+    /// workspace's queries queue behind each other within a pod, so one slow
+    /// query delays the next request of the same workspace.
     pub tenant_max_connections: u32,
     /// Tenant pools kept open at once; the least recently used is closed.
+    /// Default 2,000: it has to cover every workspace a pod serves, since an
+    /// evicted pool that is still in use reconnects on its next request.
     pub max_tenant_pools: usize,
     /// How long a request waits for a tenant connection.
     pub acquire_timeout: Duration,
@@ -67,8 +88,8 @@ impl Default for WorkspaceConfig {
     fn default() -> Self {
         Self {
             cache_ttl: Duration::from_secs(300),
-            tenant_max_connections: 5,
-            max_tenant_pools: 200,
+            tenant_max_connections: 1,
+            max_tenant_pools: 2_000,
             acquire_timeout: Duration::from_secs(5),
             idle_timeout: Duration::from_secs(300),
         }
@@ -349,4 +370,19 @@ struct WorkspaceRow {
     licence_apps: Option<Value>,
     partner_status: Option<String>,
     database_move_in_progress: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pool defaults are the ones spike S4 measured (rust/docs/spikes.md);
+    /// change them with a new measurement, not by feel.
+    #[test]
+    fn pool_defaults_follow_the_s4_spike() {
+        let config = WorkspaceConfig::default();
+        assert_eq!(config.tenant_max_connections, 1);
+        assert_eq!(config.max_tenant_pools, 2_000);
+        assert_eq!(config.idle_timeout, Duration::from_secs(300));
+    }
 }

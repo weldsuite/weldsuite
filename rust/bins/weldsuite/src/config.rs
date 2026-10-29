@@ -195,8 +195,8 @@ impl Config {
 
         let port = number(&mut problems, "PORT", 8080);
         let master_max_connections = number(&mut problems, "DATABASE_MASTER_MAX_CONNECTIONS", 10);
-        let tenant_max_connections = number(&mut problems, "TENANT_POOL_MAX_CONNECTIONS", 5);
-        let max_tenant_pools = number(&mut problems, "TENANT_POOLS_MAX", 200);
+        let tenant_max_connections = number(&mut problems, "TENANT_POOL_MAX_CONNECTIONS", 1);
+        let max_tenant_pools = number(&mut problems, "TENANT_POOLS_MAX", 2000);
         let cache_ttl = number(&mut problems, "WORKSPACE_CACHE_TTL_SECONDS", 300);
         let shutdown_delay = number(&mut problems, "SHUTDOWN_DELAY_SECONDS", 5);
         let flags_refresh = number(&mut problems, "FEATURE_FLAGS_REFRESH_SECONDS", 30);

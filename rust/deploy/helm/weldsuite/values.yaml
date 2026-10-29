@@ -25,8 +25,14 @@ config:
   # Extra origins allowed as a session token's azp (comma separated).
   clerkAuthorizedParties: ""
   masterMaxConnections: 10
-  tenantPoolMaxConnections: 5
-  tenantPoolsMax: 200
+  # One connection per workspace database and up to 2,000 pools: the pair
+  # that held 300 active workspaces through PgBouncer in spike S4
+  # (rust/docs/spikes.md). More connections per pool exhaust the pooler's
+  # server connections. The CloudNativePG Pooler needs max_client_conn >=
+  # pods x pools and a max_user_connections cap under Postgres's
+  # max_connections; leave max_prepared_statements at its default (S3).
+  tenantPoolMaxConnections: 1
+  tenantPoolsMax: 2000
   workspaceCacheTtlSeconds: 300
   # /readyz fails this long before the server stops accepting connections,
   # so the Service stops sending traffic first. Keep it below
