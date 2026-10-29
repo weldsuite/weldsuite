@@ -1,0 +1,20 @@
+# Restate: durable jobs (the Workflows' replacement; sign's finalisation
+# first). One node on local storage to start; a three-node replicated
+# cluster is an open decision (README.md).
+replicaCount: 1
+env:
+  - name: RESTATE_LOG_FORMAT
+    value: json
+  - name: RESTATE_CLUSTER_NAME
+    value: weldsuite
+  - name: RESTATE_ROCKSDB_TOTAL_MEMORY_SIZE
+    value: 1536Mi
+resources:
+  requests:
+    cpu: 500m
+    memory: 2Gi
+  limits:
+    memory: 4Gi
+storage:
+  size: 20Gi
+  storageClassName: openebs-hostpath

@@ -1,0 +1,120 @@
+# The drill cluster (rust/deploy/hetzner/DRILL.md): the eu layers, with Postgres
+# restored from the latest production backup. In order: chart sources, operators and the
+# ingress, the encrypted secrets, Postgres and the issuer, the services, and
+# the weldsuite server. `flux bootstrap ... --path=rust/deploy/flux/clusters/drill`
+# applies this directory (README.md, step 6).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: sources
+  namespace: flux-system
+spec:
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/sources
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: controllers
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: sources
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/controllers
+  prune: true
+  wait: true
+  timeout: 15m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: secrets
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: controllers
+  interval: 1h
+  path: ./rust/deploy/flux/secrets/drill
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: configs
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: secrets
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/configs/drill
+  prune: false
+  wait: true
+  timeout: 30m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: services
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: configs
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/services
+  prune: true
+  wait: true
+  timeout: 20m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: services
+  interval: 10m
+  path: ./rust/deploy/flux/apps/eu
+  prune: true
+  wait: true
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-settings

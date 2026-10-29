@@ -1,0 +1,56 @@
+image:
+  repository: ghcr.io/weldsuite/weldsuite
+  tag: ${WELDSUITE_IMAGE_TAG}
+imagePullSecrets:
+  - name: registry
+
+replicaCount: 2
+
+config:
+  environment: production
+  logFormat: json
+  # Flag values from the master database (feature_flag_overrides).
+  featureFlags: master-db
+  nats:
+    # Creates the entity-event stream on start (three replicas on the
+    # three-node JetStream cluster).
+    ensureStreams: true
+  files:
+    endpoint: ${FILES_S3_ENDPOINT}
+    region: ${FILES_S3_REGION}
+    privateBucket: ${FILES_BUCKET_PRIVATE}
+    forcePathStyle: false
+
+# DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
+# CLERK_JWKS_URL, VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys,
+# SIGN_SESSION_SECRET: secrets/examples/weldsuite-env.yaml.
+secret:
+  existingSecret: weldsuite-env
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: api.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: weldsuite-api-tls
+      hosts:
+        - api.${DOMAIN}
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
