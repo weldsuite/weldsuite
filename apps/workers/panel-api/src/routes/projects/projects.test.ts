@@ -748,6 +748,21 @@ describe('registry sync under failures and races', () => {
     expect(await registryRow(project.id)).toMatchObject({ token: rotated.token });
   });
 
+  it('orders versions by the row, not by the clock of the worker that wrote it', async () => {
+    const project = await newProject();
+    // The last write committed with a timestamp ahead of this worker's clock.
+    const ahead = new Date(Date.now() + 60_000);
+    await db.update(panelProjects).set({ updatedAt: ahead }).where(eq(panelProjects.id, project.id));
+    await master.update(panelProjectRegistry).set({ updatedAt: ahead }).where(eq(panelProjectRegistry.projectId, project.id));
+
+    const paused = await data<PanelProjectDto>(
+      await app().request(`${BASE}/${project.id}/settings`, json({ status: 'paused' }, 'PATCH')),
+    );
+    expect(new Date(paused.updatedAt).getTime()).toBeGreaterThan(ahead.getTime());
+    expect(await registryRow(project.id)).toMatchObject({ status: 'paused' });
+    expect(kvRecord(project.token)?.status).toBe('paused');
+  });
+
   it('finishes a delete whose collector update failed when it is repeated', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const project = await newProject();

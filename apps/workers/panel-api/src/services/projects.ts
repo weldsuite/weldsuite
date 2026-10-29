@@ -31,6 +31,13 @@ const RECEIVING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const live = isNull(panelProjects.deletedAt);
 
+/**
+ * A write's `updatedAt`, worked out in the UPDATE under the row lock: always
+ * later than the row's last one, whatever the worker clocks say. The registry
+ * sync orders a project's versions by it (./project-registry).
+ */
+const nextUpdatedAt = sql<Date>`greatest(now(), ${panelProjects.updatedAt} + interval '1 millisecond')`;
+
 export function toProjectDto(project: PanelProject): PanelProjectDto {
   return {
     id: project.id,
@@ -115,7 +122,7 @@ export async function updateProject(
       ...(patch.name !== undefined && { name: patch.name }),
       ...(patch.kind !== undefined && { kind: patch.kind }),
       ...(patch.allowedDomains !== undefined && { allowedDomains: unique(patch.allowedDomains) }),
-      updatedAt: new Date(),
+      updatedAt: nextUpdatedAt,
     })
     .where(and(eq(panelProjects.id, id), live))
     .returning();
@@ -141,7 +148,7 @@ export async function updateProjectSettings(
       ...(patch.settings !== undefined && {
         settings: sql`${panelProjects.settings} || ${JSON.stringify(patch.settings)}::jsonb`,
       }),
-      updatedAt: new Date(),
+      updatedAt: nextUpdatedAt,
     })
     .where(and(eq(panelProjects.id, id), live))
     .returning();
@@ -168,7 +175,7 @@ export async function rotateProjectToken(
 
   const [project] = await db
     .update(panelProjects)
-    .set({ token: generateProjectToken(), updatedAt: new Date() })
+    .set({ token: generateProjectToken(), updatedAt: nextUpdatedAt })
     .where(and(eq(panelProjects.id, id), eq(panelProjects.token, current.token), live))
     .returning();
   if (!project) return (await getProject(db, id)) ? 'conflict' : 'not_found';
@@ -187,10 +194,9 @@ export async function deleteProject(
   registry: ProjectRegistry,
   id: string,
 ): Promise<PanelProject | null> {
-  const now = new Date();
   const [project] = await db
     .update(panelProjects)
-    .set({ deletedAt: now, updatedAt: now })
+    .set({ deletedAt: new Date(), updatedAt: nextUpdatedAt })
     .where(and(eq(panelProjects.id, id), live))
     .returning();
   if (!project) {

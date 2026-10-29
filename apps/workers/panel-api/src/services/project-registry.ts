@@ -8,7 +8,7 @@
  * repeating it (or by the next change to the project).
  */
 
-import { eq, lte } from 'drizzle-orm';
+import { eq, lte, sql } from 'drizzle-orm';
 import { masterSchema, type AnyMasterDatabase } from '@weldsuite/worker-kit/db';
 import type { PanelProject } from '@weldsuite/db/schema';
 import { projectKvKey, toProjectRecord } from '@weldsuite/panel-domain/registry';
@@ -108,11 +108,14 @@ export async function syncProjectRegistry(
  */
 export async function removeProjectFromRegistry(registry: ProjectRegistry, project: PanelProject): Promise<void> {
   const before = await registryRow(registry, project.id);
-  const now = new Date();
   // Marked first: a sync still running sees the deletion and takes back what it put.
+  // The deleted row's `updatedAt` is its last version, so no earlier sync applies after this.
   await registry.masterDb
     .update(panelProjectRegistry)
-    .set({ deletedAt: now, updatedAt: now })
+    .set({
+      deletedAt: new Date(),
+      updatedAt: sql`greatest(${panelProjectRegistry.updatedAt}, ${project.updatedAt.toISOString()}::timestamptz)`,
+    })
     .where(eq(panelProjectRegistry.projectId, project.id));
   await deleteTokens(registry, [project.token, before?.token]);
 }
