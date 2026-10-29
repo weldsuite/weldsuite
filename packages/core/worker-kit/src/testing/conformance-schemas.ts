@@ -46,6 +46,24 @@ import {
   knowledgeTeammateSchema,
   knowledgeTrashedPageSchema,
 } from '@weldsuite/core-api-client/schemas/knowledge';
+import {
+  deletedResultSchema,
+  driveFileSchema,
+  moveFileResultSchema,
+  pinFileResultSchema,
+  starFileResultSchema,
+  unifiedFileSchema,
+} from '@weldsuite/core-api-client/schemas/files';
+import { driveFolderSchema } from '@weldsuite/core-api-client/schemas/folders';
+import { driveItemSharingSchema } from '@weldsuite/core-api-client/schemas/drive-shares';
+import {
+  driveStatsSchema,
+  driveTrashSchema,
+  emptiedResultSchema,
+  restoredResultSchema,
+  sharedWithMeSchema,
+} from '@weldsuite/core-api-client/schemas/drive';
+import { searchResultGroupSchema } from '@weldsuite/app-api-client/schemas/search';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -127,6 +145,40 @@ const ROUTES: RouteSchema[] = [
   // core: grid views
   { method: 'GET', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
   { method: 'PUT', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
+  // core: files (the lists page in memory: `{ success, data, pagination: { page, … } }`)
+  { method: 'GET', route: '/api/files', envelope: 'single', data: unifiedFileSchema.array() },
+  { method: 'GET', route: '/api/files/:id', envelope: 'single', data: driveFileSchema },
+  { method: 'POST', route: '/api/files', envelope: 'single', data: driveFileSchema },
+  { method: 'PATCH', route: '/api/files/:id', envelope: 'single', data: driveFileSchema },
+  { method: 'DELETE', route: '/api/files/:id', envelope: 'single', data: deletedResultSchema },
+  { method: 'POST', route: '/api/files/:id/star', envelope: 'single', data: starFileResultSchema },
+  { method: 'POST', route: '/api/files/:id/pin', envelope: 'single', data: pinFileResultSchema },
+  { method: 'PUT', route: '/api/files/:id/content', envelope: 'single', data: driveFileSchema },
+  { method: 'POST', route: '/api/files/:id/move', envelope: 'single', data: moveFileResultSchema },
+  { method: 'GET', route: '/api/files/:id/shares', envelope: 'single', data: driveItemSharingSchema },
+  { method: 'PUT', route: '/api/files/:id/shares/:userId', envelope: 'single', data: driveItemSharingSchema },
+  { method: 'DELETE', route: '/api/files/:id/shares/:userId', envelope: 'single', data: driveItemSharingSchema.nullable() },
+  // core: folders
+  { method: 'GET', route: '/api/folders', envelope: 'single', data: driveFolderSchema.array() },
+  { method: 'GET', route: '/api/folders/:id', envelope: 'single', data: driveFolderSchema },
+  { method: 'POST', route: '/api/folders', envelope: 'single', data: driveFolderSchema },
+  { method: 'PATCH', route: '/api/folders/:id', envelope: 'single', data: driveFolderSchema },
+  { method: 'DELETE', route: '/api/folders/:id', envelope: 'single', data: deletedResultSchema },
+  { method: 'GET', route: '/api/folders/:id/shares', envelope: 'single', data: driveItemSharingSchema },
+  { method: 'PUT', route: '/api/folders/:id/shares/:userId', envelope: 'single', data: driveItemSharingSchema },
+  { method: 'DELETE', route: '/api/folders/:id/shares/:userId', envelope: 'single', data: driveItemSharingSchema.nullable() },
+  // core: drive
+  { method: 'GET', route: '/api/drive/all', envelope: 'single', data: unifiedFileSchema.array() },
+  { method: 'GET', route: '/api/drive/stats', envelope: 'single', data: driveStatsSchema },
+  { method: 'GET', route: '/api/drive/shared', envelope: 'single', data: sharedWithMeSchema },
+  { method: 'GET', route: '/api/drive/trash', envelope: 'single', data: driveTrashSchema },
+  { method: 'POST', route: '/api/drive/trash/restore/file/:id', envelope: 'single', data: restoredResultSchema },
+  { method: 'POST', route: '/api/drive/trash/restore/folder/:id', envelope: 'single', data: restoredResultSchema },
+  { method: 'DELETE', route: '/api/drive/trash/file/:id', envelope: 'single', data: deletedResultSchema },
+  { method: 'DELETE', route: '/api/drive/trash/folder/:id', envelope: 'single', data: deletedResultSchema },
+  { method: 'DELETE', route: '/api/drive/trash/empty', envelope: 'single', data: emptiedResultSchema },
+  // core: search (`{ data: groups, query, permittedTypes, understanding }`)
+  { method: 'POST', route: '/api/search', envelope: 'single', data: searchResultGroupSchema.array() },
 ];
 
 /** null when valid, else why not. */

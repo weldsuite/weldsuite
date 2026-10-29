@@ -363,6 +363,53 @@ pub fn effective_folder_access(
     )
 }
 
+/// The general access that applies to an item: its own, or a stricter one
+/// on the folders above it (`effectiveGeneralAccess`).
+pub fn effective_general_access(
+    index: &DriveAccessIndex,
+    own: DriveGeneralAccess,
+    parent_id: Option<&str>,
+) -> DriveGeneralAccess {
+    stricter(own, container_chain(index, parent_id).general)
+}
+
+/// Whether the caller may see a file, answered as `visibleFilesCondition`
+/// answers it in SQL (the lists that paginate in the database): a module's
+/// file, the caller's own, one shared with them, one in a folder they reach,
+/// or one open to the workspace in an open folder (or in My Drive). A file
+/// whose folder is missing from the tree is only visible through the first
+/// three.
+pub fn file_visible(index: &DriveAccessIndex, file: &DriveFileRef) -> bool {
+    if index.caller.is_admin || is_module_file(file.entity_type.as_deref()) {
+        return true;
+    }
+    let user_id = index.caller.user_id.as_deref();
+    if user_id.is_some() && file.uploaded_by_id.as_deref() == user_id {
+        return true;
+    }
+    if index.file_shares.contains_key(&file.id) {
+        return true;
+    }
+    let folder = file
+        .folder_id
+        .as_deref()
+        .and_then(|id| index.folders.get(id));
+    if let Some(folder) = folder
+        && container_chain(index, Some(&folder.id)).grant.is_some()
+    {
+        return true;
+    }
+    if file.general_access == DriveGeneralAccess::Restricted {
+        return false;
+    }
+    match file.folder_id.as_deref() {
+        None => true,
+        Some(_) => folder.is_some_and(|folder| {
+            container_chain(index, Some(&folder.id)).general != DriveGeneralAccess::Restricted
+        }),
+    }
+}
+
 /// The ids of the folders the caller may see, by id (the TypeScript returns
 /// them in the database's row order, which is unspecified).
 pub fn visible_folder_ids(index: &DriveAccessIndex) -> Vec<String> {

@@ -48,6 +48,8 @@ pub(crate) struct AppState {
     pub(crate) flags: Arc<FlagGate>,
     /// `SIGN_SESSION_SECRET`, for WeldSign.
     pub(crate) sign_session_secret: Option<Arc<str>>,
+    /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
+    pub(crate) files_public_url: Option<Arc<str>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -335,6 +337,7 @@ mod tests {
                 None,
             )),
             sign_session_secret: None,
+            files_public_url: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
         }
