@@ -38,7 +38,7 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
-  cron <job> run one scheduled job and exit: sign-lifecycle
+  cron <job> run one scheduled job and exit: sign-lifecycle, mail-outbound-ledgers
   version    print the version and exit
   help       print this message and exit";
 
