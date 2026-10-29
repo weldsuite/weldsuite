@@ -33,9 +33,9 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             patch(access_requests::resolve).route_layer(state.permissions.require(["team:update"])),
         );
     // Core: WeldObjects, custom fields, object templates and grid views
-    // (P4, sub-phase 4e). Served in conformance builds while the port is
-    // checked; mounted unconditionally once complete.
-    let router = if cfg!(feature = "conformance") {
+    // (P4, sub-phase 4e). Served wherever core is marked ported, like every
+    // core area below.
+    let router = if mounts("core") {
         let objects = weldsuite_core_objects::CoreObjectsState {
             events: state.infra.events.clone(),
         };
@@ -102,10 +102,9 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge
-/// `DELETE /api/files/:id` starts. Conformance builds only until complete,
-/// like [`core_team`].
+/// `DELETE /api/files/:id` starts. Mounted with core, like [`core_team`].
 fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let files = core_files_state(state);
@@ -141,10 +140,10 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// `/api/storage/upload/:token`, `/api/storage/private/*` and
 /// `/api/storage/public/*` (each checks its own credential), the CLI's
 /// device login (`/api/cli-auth/device`, `/api/cli-auth/token`) and the
-/// WeldApps bundle host (`/public/user-apps/*`). Empty until core files and
-/// WeldApps are mounted.
+/// WeldApps bundle host (`/public/user-apps/*`). Empty where core is not
+/// mounted.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
-    if cfg!(feature = "conformance") {
+    if mounts("core") {
         let apps = core_apps_state(state);
         weldsuite_core_files::storage_public_router(core_files_state(state))
             .nest(
@@ -258,11 +257,11 @@ fn file_stores(state: &AppState) -> Option<weldsuite_ports::FileStores> {
 /// The team and settings routes of the core platform
 /// (`weldsuite-core-team`), each at its app-api prefix.
 ///
-/// Served in conformance builds only while the port is incomplete: core
-/// areas are mounted unconditionally once complete, which for this crate is
-/// when every group's suite passes with every route covered.
+/// Mounted wherever core is marked ported (`RUST_PORTED_MODULES` in
+/// `packages/core/api-modules`), which needs every core suite to pass with
+/// every route covered; conformance builds always mount it.
 fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let team = core_team_state(state);
@@ -314,10 +313,9 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// credits, support, feature requests, SSO, auth sessions and the app store
 /// (P4, sub-phases 4b/4d).
 ///
-/// Served in conformance builds only while the port is checked; mounted
-/// unconditionally once every group's suite passes with every route covered.
+/// Mounted with core, like [`core_team`].
 fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let platform = weldsuite_core_platform::CorePlatformState {
@@ -378,10 +376,10 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
 /// above its `/api/*` guard): `/api/account`, `/api/invitations`. Relative
 /// to `/api`; the server puts only the session layer in front of them.
 ///
-/// Conformance builds only, like [`core_team`].
+/// Mounted with core, like [`core_team`].
 pub(crate) fn account(state: &AppState) -> Router<AppState> {
     let router = onboarding(state);
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let team = core_team_state(state);
@@ -460,9 +458,9 @@ fn onboarding_tenants(state: &AppState) -> weldsuite_core_onboarding::TenantData
 /// WeldApps (`weldsuite-core-apps`): `/api/user-apps` and the CLI login's
 /// approval, behind the session and workspace layers.
 ///
-/// Conformance builds only, like [`core_team`].
+/// Mounted with core, like [`core_team`].
 fn core_apps(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    if !cfg!(feature = "conformance") {
+    if !mounts("core") {
         return router;
     }
     let apps = core_apps_state(state);

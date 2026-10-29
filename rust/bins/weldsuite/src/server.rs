@@ -636,6 +636,23 @@ mod tests {
         }
     }
 
+    /// Core is marked ported, so a release build serves its routes too, not
+    /// only a conformance build: the CLI's device login is one of core's
+    /// public routes, which an unmounted core would leave to the session
+    /// guard.
+    #[tokio::test]
+    async fn core_routes_are_served() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/cli-auth/device")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+        let (status, _, body) = call(state(), request).await;
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert_ne!(status, StatusCode::NOT_FOUND, "{body}");
+    }
+
     #[tokio::test]
     async fn first_party_origins_pass_cors() {
         let request = Request::builder()
