@@ -41,7 +41,8 @@ use weldsuite_kit::ApiError;
 use weldsuite_permissions::{AppContext, Permissions, ResolvedPermissions};
 use weldsuite_pipeline::Flags;
 use weldsuite_ports::{
-    DefaultFlags, FlagContext, MemoryCache, RecordingEventBus, RecordingRealtime, StaticFlags,
+    DefaultFlags, FlagContext, MemoryCache, MemoryFileStore, RecordingEventBus, RecordingRealtime,
+    StaticFlags,
 };
 
 use crate::infra::Infra;
@@ -62,6 +63,8 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         realtime: Some(recorders.realtime.clone()),
         cache: Some(Arc::new(MemoryCache::default())),
         flags: Arc::new(DefaultFlags),
+        files: Some(Arc::new(MemoryFileStore::default())),
+        public_files: Some(Arc::new(MemoryFileStore::default())),
     };
     (infra, recorders)
 }

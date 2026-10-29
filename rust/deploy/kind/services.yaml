@@ -1,5 +1,6 @@
-# Valkey and NATS JetStream for the kind smoke test, so the server connects
-# its real adapters (cache, realtime publish, entity events). Throwaway: no
+# Valkey, NATS JetStream and RustFS (S3) for the kind smoke test, so the
+# server connects its real adapters (cache, realtime publish, entity events,
+# files). Throwaway: no
 # volumes, no auth. Real clusters run them from the full chart (phase P5).
 apiVersion: apps/v1
 kind: Deployment
@@ -66,3 +67,38 @@ spec:
   ports:
     - name: client
       port: 4222
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: s3 }
+  template:
+    metadata:
+      labels: { app: s3 }
+    spec:
+      containers:
+        # RustFS: an S3-compatible store (Apache-2.0). MinIO no longer
+        # publishes community images.
+        - name: rustfs
+          image: rustfs/rustfs:1.0.1
+          env:
+            - { name: RUSTFS_ACCESS_KEY, value: weldsuite }
+            - { name: RUSTFS_SECRET_KEY, value: weldsuite-kind }
+          ports:
+            - containerPort: 9000
+          readinessProbe:
+            httpGet: { path: /health, port: 9000 }
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+spec:
+  selector: { app: s3 }
+  ports:
+    - port: 9000

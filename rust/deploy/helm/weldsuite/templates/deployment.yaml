@@ -92,6 +92,22 @@ spec:
               value: {{ .Values.config.nats.entityEventsSubject | quote }}
             - name: NATS_ENSURE_STREAMS
               value: {{ .Values.config.nats.ensureStreams | toString | quote }}
+            {{- with .Values.config.files }}
+            {{- if .endpoint }}
+            - name: S3_ENDPOINT
+              value: {{ .endpoint | quote }}
+            - name: S3_REGION
+              value: {{ .region | quote }}
+            - name: S3_BUCKET_PRIVATE
+              value: {{ required "config.files.privateBucket is required with config.files.endpoint" .privateBucket | quote }}
+            {{- if .publicBucket }}
+            - name: S3_BUCKET_PUBLIC
+              value: {{ .publicBucket | quote }}
+            {{- end }}
+            - name: S3_FORCE_PATH_STYLE
+              value: {{ .forcePathStyle | toString | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.clerkJwks.enabled }}
             - name: CLERK_JWKS_FILE
               value: /etc/weldsuite/clerk/jwks.json

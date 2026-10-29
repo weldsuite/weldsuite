@@ -52,6 +52,18 @@ config:
     entityEventsSubject: entity-events
     # Create or update the entity-event stream at start.
     ensureStreams: false
+  # Object storage over the S3 API (MinIO, RustFS, Garage, Ceph RGW, Hetzner
+  # Object Storage, AWS): the workers' R2 buckets. Leave endpoint empty for
+  # none (file routes then fail). The keys go in the Secret below.
+  files:
+    endpoint: ""
+    region: us-east-1
+    # Everything a member or signer must be authorised to read.
+    privateBucket: weldsuite-private
+    # Read only, for objects stored before the private bucket (optional).
+    publicBucket: ""
+    # Path-style URLs; MinIO, RustFS, Garage and endpoints reached by IP need them.
+    forcePathStyle: false
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -68,6 +80,7 @@ config:
 #   VALKEY_URL                   redis://… cache + realtime publish (optional)
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
+#   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in

@@ -69,21 +69,26 @@ jobs:
     env:
       # The integration tests run against these (started below): a scratch
       # database, the master + tenant schema built from the journaled
-      # migrations, Valkey and NATS JetStream.
+      # migrations, Valkey, NATS JetStream and an S3 store (RustFS).
       WELDSUITE_TEST_DATABASE_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/scratch
       WELDSUITE_TEST_MASTER_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/master
       WELDSUITE_TEST_TENANT_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/tenant
       WELDSUITE_TEST_VALKEY_URL: redis://127.0.0.1:6379
       WELDSUITE_TEST_NATS_URL: nats://127.0.0.1:4222
+      WELDSUITE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      WELDSUITE_TEST_S3_ACCESS_KEY_ID: weldsuite
+      WELDSUITE_TEST_S3_SECRET_ACCESS_KEY: weldsuite-ci
     steps:
       - uses: actions/checkout@v4
-      - name: Start Postgres (pgvector), Valkey and NATS
+      - name: Start Postgres (pgvector), Valkey, NATS and RustFS (S3)
         run: |
           set -euo pipefail
           docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=weldsuite -e POSTGRES_PASSWORD=weldsuite -e POSTGRES_DB=scratch pgvector/pgvector:pg17
           docker run -d --name valkey -p 6379:6379 valkey/valkey:8-alpine
           docker run -d --name nats -p 4222:4222 nats:2-alpine -js
+          docker run -d --name s3 -p 9000:9000 -e RUSTFS_ACCESS_KEY=weldsuite -e RUSTFS_SECRET_KEY=weldsuite-ci rustfs/rustfs:1.0.1
           for _ in $(seq 1 60); do docker exec pg pg_isready -U weldsuite >/dev/null 2>&1 && break; sleep 1; done
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/health >/dev/null 2>&1 && break; sleep 1; done
           sleep 2
           docker exec pg psql -U weldsuite -d scratch -c "create database master" -c "create database tenant"
       - uses: ./.github/actions/setup-monorepo

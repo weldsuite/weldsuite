@@ -11,11 +11,17 @@ config:
   shutdownDelaySeconds: 1
   nats:
     ensureStreams: true
+  files:
+    endpoint: http://s3:9000
+    privateBucket: weldsuite-private
+    forcePathStyle: true
 secret:
   values:
     DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/master
     VALKEY_URL: redis://valkey:6379
     NATS_URL: nats://nats:4222
+    S3_ACCESS_KEY_ID: weldsuite
+    S3_SECRET_ACCESS_KEY: weldsuite-kind
     CLERK_JWT_KEY: set by smoke-test.sh
 podDisruptionBudget:
   enabled: false

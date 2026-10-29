@@ -1,6 +1,6 @@
 //! The services behind the ports, connected at start from [`InfraConfig`]:
 //! Valkey for cache and realtime, NATS `JetStream` for entity events, the
-//! master database (or the catalog defaults) for feature flags. A service that
+//! master database (or the catalog defaults) for feature flags, S3 for files. A service that
 //! isn't configured is left out, and what it carries is skipped with a
 //! warning, as the workers behave without the binding.
 //!
@@ -12,12 +12,14 @@
 use std::sync::Arc;
 
 use weldsuite_adapters_oss::{
-    JetStreamEventBus, MasterDbFlagSource, NatsOptions, ValkeyCache, ValkeyRealtime,
+    JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore, ValkeyCache, ValkeyRealtime,
     connect_valkey, entity_events_stream_config,
 };
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
-use weldsuite_ports::{DefaultFlags, DynCache, DynEventBus, DynFlagSource, DynRealtimePublisher};
+use weldsuite_ports::{
+    DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynRealtimePublisher,
+};
 
 use crate::config::{FlagSourceKind, InfraConfig};
 
@@ -31,6 +33,12 @@ pub(crate) struct Infra {
     /// Not read by a ported route yet; know-api (P3) is the first.
     pub(crate) cache: Option<Arc<dyn DynCache>>,
     pub(crate) flags: Arc<dyn DynFlagSource>,
+    /// The private bucket (the workers' `PRIVATE_STORAGE`). Not read by a
+    /// ported route yet; sign (P3) is the first.
+    pub(crate) files: Option<Arc<dyn DynFileStore>>,
+    /// The legacy public bucket (`STORAGE`), read only, for objects stored
+    /// before the private one existed (`get_stored`).
+    pub(crate) public_files: Option<Arc<dyn DynFileStore>>,
 }
 
 impl std::fmt::Debug for Infra {
@@ -39,6 +47,8 @@ impl std::fmt::Debug for Infra {
             .field("events", &self.events)
             .field("realtime", &self.realtime.is_some())
             .field("cache", &self.cache.is_some())
+            .field("files", &self.files.is_some())
+            .field("public_files", &self.public_files.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -52,6 +62,8 @@ impl Infra {
             events: EntityEventPublisher::new(None, tracker),
             realtime: None,
             cache: None,
+            files: None,
+            public_files: None,
             flags: Arc::new(DefaultFlags),
         }
     }
@@ -103,6 +115,30 @@ async fn event_bus(config: &InfraConfig) -> Result<Option<Arc<dyn DynEventBus>>,
     Ok(Some(Arc::new(bus)))
 }
 
+/// The private and public file stores. Nothing is sent until a route uses
+/// one, so a wrong key shows up in that route's logs, not at start.
+type FileStores = (Option<Arc<dyn DynFileStore>>, Option<Arc<dyn DynFileStore>>);
+
+fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
+    let Some(files) = &config.files else {
+        tracing::warn!("S3_ENDPOINT is not set: no file storage, file routes will fail");
+        return Ok((None, None));
+    };
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+    let private: Arc<dyn DynFileStore> =
+        Arc::new(S3FileStore::new(&files.private, client.clone())?);
+    let public = match files.public() {
+        Some(options) => {
+            Some(Arc::new(S3FileStore::new(&options, client)?) as Arc<dyn DynFileStore>)
+        }
+        None => None,
+    };
+    Ok((Some(private), public))
+}
+
 /// Connect what `config` names. Fails when a configured service can't be
 /// reached at start, so a misconfigured pod crash-loops visibly instead of
 /// dropping events.
@@ -121,11 +157,14 @@ pub(crate) async fn connect(
         )),
     };
     let (cache, realtime) = valkey.map_or((None, None), |v| (Some(v.cache), Some(v.realtime)));
+    let (files, public_files) = file_stores(config)?;
     Ok(Infra {
         events: EntityEventPublisher::new(bus, tracker)
             .with_subject_prefix(&config.nats_subject_prefix),
         realtime,
         cache,
         flags,
+        files,
+        public_files,
     })
 }

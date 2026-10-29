@@ -39,13 +39,14 @@ rust/
   crates/db/            master DB, workspace → tenant pool, database_url decryption, Postgres errors,
                         atomically, Drizzle-shaped rows, permission lookups
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
-  crates/ports/         ports (cache, event bus, realtime, flags) and their recording test doubles
+  crates/ports/         ports (cache, event bus, realtime, flags, files) and their test doubles
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
-  crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, flags in the master DB
+  crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, flags in the master DB,
+                        files over the S3 API
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know
   deploy/helm/weldsuite the Helm chart
-  deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, the chart, a signed request
+  deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), the chart, a signed request
 ```
 
 ## Commands
@@ -73,6 +74,7 @@ The integration tests need throwaway services and are skipped without them:
 | `WELDSUITE_TEST_MASTER_URL`, `WELDSUITE_TEST_TENANT_URL` | Postgres with pgvector, built by `pnpm exec tsx scripts/rust-test-db.ts` from the journaled migrations | the SQL against the real schema |
 | `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters |
 | `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter |
+| `WELDSUITE_TEST_S3_ENDPOINT` (+ `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`) | an S3 store, e.g. `docker run -p 9000:9000 rustfs/rustfs:1.0.1` | S3 file store |
 
 CI (`Rust · checks`) starts all of them.
 
@@ -96,7 +98,7 @@ PR that touches the module, so a feature lands in both backends.
 
 ```bash
 docker build -t weldsuite:dev rust
-rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + the chart; a signed request through the pipeline
+rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + the chart; a signed request through the pipeline
 ```
 
 The server reads environment variables only (`bins/weldsuite/src/config.rs`):
@@ -110,6 +112,7 @@ The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache and realtime publish (optional) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `FEATURE_FLAGS` (`defaults`/`master-db`), `FEATURE_FLAGS_REFRESH_SECONDS` | where flag values come from |
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |
