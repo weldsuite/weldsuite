@@ -143,6 +143,11 @@ pub struct Number {
 pub struct Invalid(Vec<Value>);
 
 impl Invalid {
+    /// The issues, as Zod lists them.
+    pub fn issues(&self) -> &[Value] {
+        &self.0
+    }
+
     /// Zod's `error.flatten()`: messages of root issues in `formErrors`, the
     /// rest by their first path segment in `fieldErrors`, in issue order.
     pub fn flatten(&self) -> Value {
@@ -369,6 +374,33 @@ impl Issues {
             .into_option()
     }
 
+    /// An array item as `z.string()` with `rules` then `.regex(pattern,
+    /// message)` (`z.array(z.string().min(1).regex(...))`), reported at the
+    /// item's own path; `None` when invalid. As in [`Issues::pattern`],
+    /// every failing check is reported.
+    pub fn item_pattern(
+        &mut self,
+        item: &Value,
+        rules: Text,
+        matches: impl Fn(&str) -> bool,
+        message: &str,
+    ) -> Option<String> {
+        let text = self.item_text(item, rules);
+        if let Value::String(raw) = item
+            && !matches(raw)
+        {
+            let path = self.path_at(None);
+            self.issues.push(json!({
+                "validation": "regex",
+                "code": "invalid_string",
+                "message": message,
+                "path": path,
+            }));
+            return None;
+        }
+        text
+    }
+
     fn text_at(
         &mut self,
         key: Option<&str>,
@@ -473,6 +505,13 @@ impl Issues {
         let path = self.path(key);
         self.issues
             .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
+    /// A failed `.max(maximum, message)` on the number at `key`: read the
+    /// number without its `max`, then call this when it is above `maximum`.
+    pub fn number_too_big(&mut self, key: &str, maximum: f64, message: &str) {
+        let path = self.path(key);
+        self.too_big(&path, "number", &js_number_json(maximum), message);
     }
 
     /// `z.boolean()` with `presence`.

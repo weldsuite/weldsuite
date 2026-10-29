@@ -76,8 +76,8 @@ fn body_json(headers: &HeaderMap, body: &Bytes) -> TeamResult<Value> {
 
 /// Drop the cached tenant lookup of an org (`wsx:<org>` and the old
 /// `ws:<org>`). Best effort.
-async fn invalidate_workspace_cache(state: &CoreTeamState, org: &str) {
-    let Some(cache) = &state.cache else {
+async fn invalidate_workspace_cache(state: &CoreTeamState, caller: &Caller, org: &str) {
+    let Some(cache) = caller.cache(state) else {
         return;
     };
     for key in [format!("wsx:{org}"), format!("ws:{org}")] {
@@ -542,7 +542,7 @@ async fn run_rename(
         }
     }
 
-    invalidate_workspace_cache(state, &org).await;
+    invalidate_workspace_cache(state, caller, &org).await;
     caller.publish(
         state,
         WORKSPACE_SETTINGS_UPDATED,
@@ -795,7 +795,7 @@ async fn run_change_slug(
         });
     }
 
-    invalidate_workspace_cache(state, &org).await;
+    invalidate_workspace_cache(state, caller, &org).await;
     caller.publish(
         state,
         WORKSPACE_SETTINGS_UPDATED,
@@ -934,7 +934,7 @@ async fn run_delete(
         .await
         .map_err(failed)?;
 
-    invalidate_workspace_cache(state, &org).await;
+    invalidate_workspace_cache(state, caller, &org).await;
     caller.publish(
         state,
         WORKSPACE_SETTINGS_DELETED,

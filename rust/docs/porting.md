@@ -60,6 +60,14 @@ templates).
 - Entity events: `publish_entity_event` with the catalog constant
   (`weldsuite_catalogs::entity_events::*`) and exactly the TS `data` object.
 - Fire-and-forget work (`waitUntil`) runs on `state.events.tracker()`.
+- Routes the worker mounts ahead of `clerkMiddleware`, because they check
+  their own credential (an upload token, a files cookie, a signed URL): the
+  module exposes a second router at their full `/api/...` paths
+  (`core_files::storage_public_router`), and `routes::public` merges it into
+  the root router in `server.rs`, outside the session and tenant layers.
+  Conformance builds give those routes only what the test shares (its env,
+  buckets, KV, and a `SessionVerifier` for its own `CLERK_JWT_KEY`), through
+  `conformance::public`.
 
 ## SQL
 
@@ -100,8 +108,17 @@ templates).
    `CONFORMANCE_TARGET=rust CONFORMANCE_STRICT=0 CONFORMANCE_REPORT_DIR=<dir>`
    (`pnpm rust:conformance` does the whole thing; `--no-build` reuses the
    binary). Every request runs on both backends: a read on the shared pglite,
-   a write on Rust first and TypeScript on a copy. Status, body, schema and
-   side effects (entity events, realtime) must match.
+   a write on TypeScript first, on a copy of the database and copy-on-write
+   views of the buckets and KV (`write-isolation.ts`), then on Rust with the
+   real ones, so both start from the same state and the test's assertions
+   see Rust's writes. Status, body, schema and side effects (entity events,
+   realtime, outbound calls) must match. A write's body is compared with what
+   differs by construction between two runs normalised (`normalizeForDiff`):
+   new ids, timestamps, cursors, a `Date.now()` inside a string, upload
+   tokens and an upload key's random segment, and what a signing route
+   derives from the current second (an `expiresAt` within two days of now, a
+   signed URL's `exp` and `sig`). Rust's signature is still checked: the
+   reads that redeem it run on both backends.
 5. Third-party APIs (Clerk's Backend API today) are ports
    (`weldsuite_ports::Identity`). In conformance mode Rust's calls go through
    the harness's outbound bridge (`outbound-bridge.ts`,
@@ -113,14 +130,26 @@ templates).
    `createMasterPgliteDb()`) in the test context and mock `getMasterDb` to
    return `conformanceMasterDb(masterDb)` (from
    `@weldsuite/worker-kit/testing/conformance`). On a write the TypeScript
-   run then reads a copy of the master taken before Rust ran, as it does for
-   the tenant database.
+   run then reads a copy of the master taken before either run, as it does
+   for the tenant database.
 7. The harness shares what a test sets up: the tenant pglite, `masterDb` from
    the test context, R2-shaped buckets in `env` (served over HTTP), and the
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see
    (a `vi.mock` of `getMasterDb`) needs the value in its context too.
-8. Database errors work as they do on Postgres: a route may hit a unique
+8. Workers KV is shared the same way. A KV-shaped binding in the test's
+   `env` (`get`/`put`/`delete`; the names in `KV_BINDINGS`, today
+   `WORKSPACE_CACHE`) is served over HTTP by
+   `packages/core/worker-kit/src/testing/kv-bridge.ts`: `GET /value?key=…`
+   (the value as text, 404 when missing), `PUT /value?key=…&ttl=<seconds>`
+   (`expirationTtl`; left out for no expiry), `DELETE /value?key=…`. Its URL
+   travels in the context's `kv` (`{ WORKSPACE_CACHE: url }`), and
+   conformance builds insert a `weldsuite_ports::RequestCache` over it
+   (`bins/weldsuite/src/conformance_kv.rs`). A module that reads the cache
+   takes the request's `RequestCache` first and its state's cache
+   otherwise, as it does with `FileStores`. Another namespace needs its name
+   in `KV_BINDINGS` and in `KvBridges::request_cache`.
+9. Database errors work as they do on Postgres: a route may hit a unique
    violation or any other failing statement, and later requests in the same
    file still run on the same connection. Port the TypeScript behaviour
    as it is (a plain insert that fails, not an `on conflict do nothing`
@@ -137,6 +166,11 @@ templates).
   built; one run per key (the Workflow instance id), one `step` per `step.do`
   with its retries. Conformance builds run jobs in the process, on the tracker
   `/__conformance/side-effects` waits for.
+- A Workflow that opens with `step.sleepUntil(date)` is a delayed start, at
+  the `create()` call that TypeScript makes: `JobRequest::with_delay` /
+  `starting_at`. Restate holds the invocation durably until it is due; the
+  in-process adapter waits in a task, and a restart loses it.
+  `core_files::TrashPurgeJob` (the 30-day trash purge) is the example.
 - A Cron Trigger is a `weldsuite cron <name>` subcommand
   (`bins/weldsuite/src/cron.rs`) and an entry in the chart's `cron.jobs`. A
   due-index sweep uses `weldsuite_db::due_index::run_sweep` (rows keyed by

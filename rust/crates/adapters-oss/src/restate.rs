@@ -62,6 +62,7 @@ impl RestateJobs {
 
     async fn send(&self, request: JobRequest) -> Result<(), PortError> {
         let idempotency_key = format!("{}:{}", request.name, request.key);
+        let url = send_url(&self.ingress_url, request.delay);
         let call = JobCall {
             name: request.name,
             key: request.key,
@@ -69,7 +70,7 @@ impl RestateJobs {
         };
         let response = self
             .client
-            .post(format!("{}/{JOBS_SERVICE}/run/send", self.ingress_url))
+            .post(url)
             .header("idempotency-key", idempotency_key)
             .header("content-type", "application/json")
             .body(serde_json::to_vec(&call)?)
@@ -85,6 +86,17 @@ impl RestateJobs {
             "restate ingress answered {status}: {}",
             body.chars().take(300).collect::<String>()
         )))
+    }
+}
+
+/// The ingress URL that starts a job: `…/WeldsuiteJobs/run/send`, with
+/// `?delay=<ms>ms` for a delayed start, which Restate keeps durably and
+/// invokes when it is due (the 30-day trash purge waits there, not in a pod).
+fn send_url(ingress_url: &str, delay: Option<Duration>) -> String {
+    let base = format!("{ingress_url}/{JOBS_SERVICE}/run/send");
+    match delay {
+        Some(delay) if !delay.is_zero() => format!("{base}?delay={}ms", delay.as_millis()),
+        _ => base,
     }
 }
 
@@ -221,5 +233,72 @@ pub async fn register_deployment(
         );
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(Duration::from_secs(10));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    use super::*;
+
+    #[test]
+    fn delayed_starts_ask_restate_to_wait() {
+        let ingress = "http://restate:8080";
+        assert_eq!(
+            send_url(ingress, None),
+            "http://restate:8080/WeldsuiteJobs/run/send"
+        );
+        assert_eq!(
+            send_url(ingress, Some(Duration::ZERO)),
+            "http://restate:8080/WeldsuiteJobs/run/send"
+        );
+        assert_eq!(
+            send_url(ingress, Some(Duration::from_hours(30 * 24))),
+            "http://restate:8080/WeldsuiteJobs/run/send?delay=2592000000ms"
+        );
+    }
+
+    /// The request a delayed start sends, read off a socket standing in for
+    /// the ingress.
+    #[tokio::test]
+    async fn a_delayed_start_sends_the_delay_and_the_idempotency_key() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let address = listener.local_addr().expect("address");
+        let ingress = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut seen = Vec::new();
+            let mut buffer = [0u8; 4096];
+            while !String::from_utf8_lossy(&seen).contains("\"payload\"") {
+                let read = socket.read(&mut buffer).await.expect("read");
+                if read == 0 {
+                    break;
+                }
+                seen.extend_from_slice(&buffer[..read]);
+            }
+            socket
+                .write_all(b"HTTP/1.1 202 Accepted\r\ncontent-length: 0\r\n\r\n")
+                .await
+                .expect("write");
+            String::from_utf8_lossy(&seen).into_owned()
+        });
+        let jobs = RestateJobs::new(&format!("http://{address}/"), reqwest::Client::new());
+        let request = JobRequest::new(
+            "core.trash-purge",
+            "trash-file_1-1",
+            &serde_json::json!({ "fileId": "file_1" }),
+        )
+        .expect("a request")
+        .with_delay(Duration::from_millis(1500));
+        jobs.start(request).await.expect("accepted");
+        let sent = ingress.await.expect("ingress").to_ascii_lowercase();
+        assert!(
+            sent.starts_with("post /weldsuitejobs/run/send?delay=1500ms http/1.1"),
+            "{sent}"
+        );
+        assert!(
+            sent.contains("idempotency-key: core.trash-purge:trash-file_1-1"),
+            "{sent}"
+        );
     }
 }

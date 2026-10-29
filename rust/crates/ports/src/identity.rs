@@ -348,6 +348,45 @@ pub trait Identity: Send + Sync {
         let _ = session_id;
         sessions_unsupported()
     }
+
+    /// A user's profile (`users.getUser`): the email addresses, for a label.
+    /// Providers without the call answer [`IdentityError::Unavailable`].
+    fn user_profile<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<UserProfile>> {
+        let _ = user_id;
+        Box::pin(async { Err(IdentityError::Unavailable("no user profiles".to_owned())) })
+    }
+
+    /// A short-lived, single-use sign-in token for `user_id`
+    /// (`signInTokens.createSignInToken`), as the desktop shell's handoff
+    /// uses. Providers without one answer [`IdentityError::Unavailable`].
+    fn create_sign_in_token<'a>(
+        &'a self,
+        user_id: &'a str,
+        expires_in_seconds: u32,
+    ) -> BoxFuture<'a, IdentityResult<String>> {
+        let _ = (user_id, expires_in_seconds);
+        Box::pin(async { Err(IdentityError::Unavailable("no sign-in tokens".to_owned())) })
+    }
+}
+
+/// A user's email addresses, as [`Identity::user_profile`] reads them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UserProfile {
+    pub id: String,
+    /// `(id, address)`, in the provider's order.
+    pub email_addresses: Vec<(String, String)>,
+    pub primary_email_address_id: Option<String>,
+}
+
+impl UserProfile {
+    /// The primary address, else the first one.
+    pub fn primary_email(&self) -> Option<&str> {
+        self.email_addresses
+            .iter()
+            .find(|(id, _)| Some(id) == self.primary_email_address_id.as_ref())
+            .or_else(|| self.email_addresses.first())
+            .map(|(_, address)| address.as_str())
+    }
 }
 
 /// The provider a request uses: the app's, or (conformance mode) the

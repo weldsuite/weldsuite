@@ -15,13 +15,18 @@
  * 1. The test's pglite database is served over the Postgres wire protocol
  *    (`@electric-sql/pglite-socket`), so Rust queries the same seeded state.
  *    Its R2 bucket bindings (`PRIVATE_STORAGE`, `STORAGE`) are served over
- *    HTTP (./bucket-bridge.ts), so Rust reads and writes the same objects.
+ *    HTTP (./bucket-bridge.ts), so Rust reads and writes the same objects,
+ *    and so is its KV namespace (`WORKSPACE_CACHE`, ./kv-bridge.ts).
  * 2. The request goes to Rust with the test's context (user, org, workspace,
  *    pre-resolved permissions, database URL) in `X-Weld-Conformance`. Only a
- *    server built with the `conformance` Cargo feature reads it.
+ *    server built with the `conformance` Cargo feature reads it. An absolute
+ *    URL keeps its origin: Rust gets it as `X-Forwarded-Host`/`-Proto`, the
+ *    Hono app the URL itself.
  * 3. The same request runs on the Hono app: for a read on the same database
- *    first; for a write on a clone of it taken before Rust runs, so both start
- *    from the same state and the test's own assertions see Rust's writes.
+ *    first; for a write first too, but on a clone of the database and with
+ *    copy-on-write views of the buckets and KV (./write-isolation.ts), so
+ *    both start from the same state and only Rust's writes reach the test's
+ *    database and stubs, which its own assertions then check.
  * 4. Status and JSON are compared (ids, timestamps and cursors normalised for
  *    writes), the body is validated against the route's Zod schema when one is
  *    registered (./conformance-schemas.ts), and the outcome is recorded.
@@ -42,6 +47,9 @@ import { pgliteClientOf } from './pglite';
 import { wireCompatiblePglite } from './pglite-wire';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
+import { kvUrls } from './kv-bridge';
+import { isolatedEnv } from './write-isolation';
+import { maskVolatile } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import {
   type OutboundCall,
@@ -91,7 +99,11 @@ export const ROUTE_HEADER = 'X-Weld-Route';
  */
 export const CONFORMANCE_WRITE_HEADER = 'X-Weld-Conformance-Write';
 
-/** Env bindings the Rust server honours per request in conformance mode. */
+/**
+ * Env bindings the Rust server honours per request in conformance mode.
+ * `CLERK_JWT_KEY` (and `CLERK_AUTHORIZED_PARTIES`) let a test sign its own
+ * session tokens for the routes that verify one themselves.
+ */
 export const FORWARDED_ENV = [
   'PERMISSIONS_APP_ENFORCE',
   'SIGN_SESSION_SECRET',
@@ -99,6 +111,17 @@ export const FORWARDED_ENV = [
   'R2_PUBLIC_URL',
   'ENVIRONMENT',
   'PUBLIC_APP_URL',
+  'STORAGE_SIGNING_KEY',
+  'CLERK_JWT_KEY',
+  'CLERK_AUTHORIZED_PARTIES',
+  // WeldApps: bundle link signing, the bundle origin, the publisher allowlist
+  // and where the app gateway forwards to.
+  'INTERNAL_API_SECRET',
+  'USER_APP_BUNDLE_SIGNING_KEY',
+  'USER_APP_BUNDLE_ORIGIN',
+  'USER_APP_FRAME_ANCESTORS',
+  'WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS',
+  'EXTERNAL_API_URL',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -257,8 +280,13 @@ export interface ConformanceRequest {
   env: Record<string, unknown>;
   input: string;
   init: RequestInit | undefined;
-  /** Run the request on the Hono app, against `tenantDb`. */
-  runTypeScript: (tenantDb: Database, input: string, init?: RequestInit) => Promise<Response>;
+  /** Run the request on the Hono app, against `tenantDb`, with `env` in place of the test's when given. */
+  runTypeScript: (
+    tenantDb: Database,
+    input: string,
+    init?: RequestInit,
+    env?: Record<string, unknown>,
+  ) => Promise<Response>;
   /** The Hono app's recording bindings. */
   sideEffects: SideEffectRecorder;
 }
@@ -360,11 +388,29 @@ const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
  * value), on its own or inside a string. New on every run of a write.
  */
 const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
+/** An upload token (`upl_` and 32 random characters), alone or in a URL. */
+const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
+/** The `<Date.now()>_<random UUID hex>` segment of a new upload's object key. */
+const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
+/** A signed object URL's credential (`?exp=<seconds>&sig=<HMAC>`). */
+const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
+/** Seconds either side of now an `expiresAt` may be, to count as one minted by the request. */
+const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
+
+/** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
+function isMintedExpiry(value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return Math.abs(value - Math.floor(Date.now() / 1000)) <= EXPIRY_WINDOW_SECONDS;
+}
 
 /**
  * Sorted keys, and for writes the values that differ by construction between
- * two runs (new ids, timestamps, cursors) replaced by placeholders. Reads run
- * on the same rows, so they are compared exactly.
+ * two runs replaced by placeholders: new ids, timestamps, cursors, upload
+ * tokens and the random segment of an upload's key, and what a signing
+ * route derives from the current second (an `expiresAt` near now, a signed
+ * URL's `exp` and `sig`). Reads run on the same rows, so they are compared
+ * exactly; a signature the Rust run minted is still checked, by the reads
+ * that use it, which both backends verify.
  */
 export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string): unknown {
   if (Array.isArray(value)) return value.map((item) => normalizeForDiff(item, isWrite));
@@ -380,6 +426,7 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
     return '<epoch-ms>';
   }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
+  if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
   return value;
 }
 
@@ -397,7 +444,15 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (GENERATED_ID.test(value)) return '<id>';
-  return value.replace(RANDOM_HEX, '<hex>').replace(EPOCH_MS, '<epoch-ms>');
+  // Storage: upload tokens, an upload key's random segment and a signed
+  // URL's credential; then 16-byte hex tokens (an SSO domain's TXT value) and
+  // any other `Date.now()` (the key's segment holds one).
+  return value
+    .replace(UPLOAD_TOKEN, '<upload-token>')
+    .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
+    .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
+    .replace(RANDOM_HEX, '<hex>')
+    .replace(EPOCH_MS, '<epoch-ms>');
 }
 
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */
@@ -537,6 +592,11 @@ export async function recordOnlyRequest(
 
 // ── the request ─────────────────────────────────────────────────────────────
 
+/** The origin a request is addressed to: its own for an absolute URL, `http://localhost` for a path. */
+function originOf(input: string): URL {
+  return new URL(/^https?:\/\//.test(input) ? input : 'http://localhost/');
+}
+
 function pathOf(input: string): string {
   if (/^https?:\/\//.test(input)) {
     const url = new URL(input);
@@ -567,6 +627,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     env: forwardedEnv(env),
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
+    // And its KV namespace, so Rust shares its keys.
+    kv: await kvUrls(env),
     // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
     outbound: await outboundBridgeUrl(),
   };
@@ -584,15 +646,16 @@ interface Runs {
 
 /**
  * Both runs from the same starting state: a read runs TypeScript and then
- * Rust on the test's database; a write runs Rust on it (the test's own
- * assertions then see Rust's writes) and TypeScript on a copy taken first.
+ * Rust on the test's database; a write runs TypeScript first on a copy of
+ * it, with copy-on-write views of the buckets and KV, then Rust on the
+ * real ones (the test's own assertions then see Rust's writes).
  */
 async function runBoth(
   request: ConformanceRequest,
   client: PGliteClient,
   isWrite: boolean,
   runRust: () => Promise<Captured>,
-  runTypeScript: (db: Database) => Promise<Captured>,
+  runTypeScript: (db: Database, env?: Record<string, unknown>) => Promise<Captured>,
 ): Promise<Runs> {
   // Start both recordings empty.
   await request.sideEffects.drain();
@@ -600,9 +663,9 @@ async function runBoth(
   takeRustOutbound();
 
   // The Hono app's run, its `waitUntil` work included, with its outbound calls.
-  const typeScript = async (db: Database) => {
+  const typeScript = async (db: Database, env?: Record<string, unknown>) => {
     const { result, calls } = await recordOutbound(async () => {
-      const ts = await runTypeScript(db);
+      const ts = await runTypeScript(db, env);
       return { ts, effects: await request.sideEffects.drain() };
     });
     return {
@@ -631,13 +694,16 @@ async function runBoth(
   const masterClient = request.ctx.masterDb ? pgliteClientOf(request.ctx.masterDb) : undefined;
   const masterClone = masterClient ? await cloneDatabase(masterClient, 'master') : undefined;
   try {
-    const rust = await rustRun();
+    // TypeScript first, on the copies and on copy-on-write views of the
+    // buckets and KV, so it starts from the state Rust then starts from.
     masterForTypeScript = masterClone?.db;
+    let ts: Awaited<ReturnType<typeof typeScript>>;
     try {
-      return { ...rust, ...(await typeScript(clone.db)) };
+      ts = await typeScript(clone.db, isolatedEnv(request.env));
     } finally {
       masterForTypeScript = undefined;
     }
+    return { ...ts, ...(await rustRun()) };
   } finally {
     await clone.close();
     await masterClone?.close();
@@ -645,10 +711,19 @@ async function runBoth(
 }
 
 /** Where the two runs differ: status, body, then side effects; null when they match. */
-function compareRuns({ ts, rust, tsEffects, rustEffects }: Runs, isWrite: boolean): string | null {
+function compareRuns(
+  { ts, rust, tsEffects, rustEffects }: Runs,
+  isWrite: boolean,
+  method: string,
+  route: string | null,
+): string | null {
   if (ts.status !== rust.status) return `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
   if (ts.json !== undefined || rust.json !== undefined) {
-    const body = firstDifference(normalizeForDiff(ts.json, isWrite), normalizeForDiff(rust.json, isWrite));
+    // Values a route draws per run (./conformance-volatile.ts) are masked first.
+    const body = firstDifference(
+      normalizeForDiff(maskVolatile(method, route, ts.json), isWrite),
+      normalizeForDiff(maskVolatile(method, route, rust.json), isWrite),
+    );
     if (body) return body;
   } else if (Buffer.compare(ts.bytes, rust.bytes) !== 0) {
     return 'response bodies differ';
@@ -704,23 +779,26 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const body = await replayableBody(init?.body, headers);
   const rustHeaders = new Headers(headers);
   rustHeaders.set(CONFORMANCE_HEADER, Buffer.from(JSON.stringify(context)).toString('base64'));
-  // The Hono app sees `http://localhost/...`; tell Rust the same origin, as
-  // an ingress would, so URLs built from it (private object URLs) match.
-  rustHeaders.set('X-Forwarded-Host', 'localhost');
-  rustHeaders.set('X-Forwarded-Proto', 'http');
+  // The Hono app sees the test's URL (`http://localhost/...` for a bare
+  // path); tell Rust the same origin, as an ingress would, so URLs built
+  // from it (private object URLs, the files cookie's `Secure`) match.
+  const origin = originOf(request.input);
+  rustHeaders.set('X-Forwarded-Host', origin.host);
+  rustHeaders.set('X-Forwarded-Proto', origin.protocol.replace(/:$/, ''));
+  const tsInput = /^https?:\/\//.test(request.input) ? request.input : input;
 
   const runs = await runBoth(
     request,
     client,
     isWrite,
     () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body }).then(capture),
-    (db) => request.runTypeScript(db, input, { ...init, method, headers, body }).then(capture),
+    (db, runEnv) => request.runTypeScript(db, tsInput, { ...init, method, headers, body }, runEnv).then(capture),
   );
   const { ts, rust } = runs;
   // The test reads Rust's mail, as it reads Rust's response.
   request.sideEffects.adoptMail(runs.tsMail, runs.rustMail);
   const route = ts.headers.get(ROUTE_HEADER);
-  const difference = compareRuns(runs, isWrite);
+  const difference = compareRuns(runs, isWrite, method, route);
   const { schema, schemaError } = checkSchema(method, route, rust);
 
   if (target.reportDir) {

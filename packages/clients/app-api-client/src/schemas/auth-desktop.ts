@@ -17,6 +17,13 @@ export const createDesktopTicketInput = z.object({
 
 export type CreateDesktopTicketInput = z.infer<typeof createDesktopTicketInput>;
 
+/** `POST /api/auth-desktop/ticket`. */
+export const desktopTicketSchema = z.object({
+  ticket: z.string(),
+  expiresAt: z.number(),
+  returnTo: z.string(),
+});
+
 export interface DesktopTicket {
   ticket: string;
   expiresAt: number;

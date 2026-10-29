@@ -32,14 +32,13 @@ type Error = Box<dyn std::error::Error>;
 pub(crate) struct Infra {
     pub(crate) events: EntityEventPublisher,
     pub(crate) realtime: Option<Arc<dyn DynRealtimePublisher>>,
-    /// Not read by a ported route yet; know-api (P3) is the first.
+    /// Upload tokens (`/api/storage`); without Valkey they stay in process.
     pub(crate) cache: Option<Arc<dyn DynCache>>,
     pub(crate) flags: Arc<dyn DynFlagSource>,
-    /// The private bucket (the workers' `PRIVATE_STORAGE`). Not read by a
-    /// ported route yet; sign (P3) is the first.
+    /// The private bucket (the workers' `PRIVATE_STORAGE`).
     pub(crate) files: Option<Arc<dyn DynFileStore>>,
-    /// The legacy public bucket (`STORAGE`), read only, for objects stored
-    /// before the private one existed (`get_stored`).
+    /// The public bucket (`STORAGE`): public uploads (avatars, logos), and
+    /// objects stored before the private one existed (`get_stored`).
     pub(crate) public_files: Option<Arc<dyn DynFileStore>>,
     /// Starts durable jobs (the workers' Workflows): Restate, or in process.
     pub(crate) jobs: Arc<dyn DynJobs>,

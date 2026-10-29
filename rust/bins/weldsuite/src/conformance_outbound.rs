@@ -22,7 +22,7 @@ use serde_json::{Map, Value, json};
 use weldsuite_ports::{
     BoxFuture, Identity, IdentityError, IdentityResult, Invitation, ListPage, Listing, MemberUser,
     Membership, NewInvitation, NewMembership, Organization, OrganizationChanges, OrganizationRef,
-    Session, User,
+    Session, User, UserProfile,
 };
 
 const CLERK_API: &str = "https://api.clerk.com/v1";
@@ -434,6 +434,44 @@ impl Identity for BridgedClerk {
             self.call(Method::POST, &path, None).await.map(|_| ())
         })
     }
+
+    fn user_profile<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<UserProfile>> {
+        Box::pin(async move {
+            let body = self
+                .call(Method::GET, &format!("/users/{user_id}"), None)
+                .await?;
+            Ok(UserProfile {
+                id: text(&body["id"]),
+                email_addresses: body["email_addresses"]
+                    .as_array()
+                    .map(|addresses| {
+                        addresses
+                            .iter()
+                            .map(|a| (text(&a["id"]), text(&a["email_address"])))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                primary_email_address_id: optional_text(&body["primary_email_address_id"]),
+            })
+        })
+    }
+
+    fn create_sign_in_token<'a>(
+        &'a self,
+        user_id: &'a str,
+        expires_in_seconds: u32,
+    ) -> BoxFuture<'a, IdentityResult<String>> {
+        Box::pin(async move {
+            let body = self
+                .call(
+                    Method::POST,
+                    "/sign_in_tokens",
+                    Some(json!({ "user_id": user_id, "expires_in_seconds": expires_in_seconds })),
+                )
+                .await?;
+            Ok(text(&body["token"]))
+        })
+    }
 }
 
 fn session_from(value: &Value) -> Session {
@@ -441,6 +479,60 @@ fn session_from(value: &Value) -> Session {
         id: text(&value["id"]),
         user_id: text(&value["user_id"]),
         status: text(&value["status"]),
+    }
+}
+
+/// A WeldApps outbound call (the app gateway's forward to external-api, an
+/// app's lifecycle webhook) through the bridge into the test's fetch stub.
+pub(crate) struct BridgedHttp {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_core_apps::HttpTransport for BridgedHttp {
+    fn send(
+        &self,
+        request: weldsuite_core_apps::OutboundRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_core_apps::OutboundResponse, String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method =
+                Method::from_bytes(request.method.as_bytes()).map_err(|error| error.to_string())?;
+            let mut outgoing = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                outgoing = outgoing.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                outgoing = outgoing.body(body);
+            }
+            let response = outgoing.send().await.map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err("the test's fetch stub threw".to_owned());
+            }
+            let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
+            let body = response
+                .bytes()
+                .await
+                .map_err(|error| error.to_string())?
+                .to_vec();
+            Ok(weldsuite_core_apps::OutboundResponse {
+                status,
+                headers,
+                body,
+            })
+        })
     }
 }
 
@@ -512,6 +604,14 @@ pub(crate) struct OutboundBridges {
 }
 
 impl OutboundBridges {
+    /// WeldApps' outbound HTTP behind the test's bridge.
+    pub(crate) fn apps_http(&self, bridge: &str) -> weldsuite_core_apps::AppsHttp {
+        weldsuite_core_apps::AppsHttp(Arc::new(BridgedHttp {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
     /// Expo's push API behind the test's bridge.
     pub(crate) fn expo(&self, bridge: &str) -> weldsuite_core_team::ExpoGateway {
         weldsuite_core_team::ExpoGateway(Arc::new(BridgedExpo {
@@ -521,12 +621,14 @@ impl OutboundBridges {
     }
 
     /// Every bridged provider as a request extension: the [`Identity`]
-    /// provider, Expo's push API (`POST /api/push-tokens/test`) and
-    /// DNS-over-HTTPS (`POST /api/sso/domain/verify`).
+    /// provider, Expo's push API (`POST /api/push-tokens/test`),
+    /// DNS-over-HTTPS (`POST /api/sso/domain/verify`) and WeldApps' gateway
+    /// forwards and lifecycle webhooks.
     pub(crate) fn extend(&self, extensions: &mut axum::http::Extensions, bridge: &str) {
         extensions.insert(weldsuite_ports::IdentityProvider(self.identity(bridge)));
         extensions.insert(self.expo(bridge));
         extensions.insert(self.dns(bridge));
+        extensions.insert(self.apps_http(bridge));
     }
 
     /// The DNS-over-HTTPS resolver behind the test's bridge.

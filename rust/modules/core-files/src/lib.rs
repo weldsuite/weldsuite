@@ -11,17 +11,29 @@
 //! `weldsuite_core_domain::drive_access`. An item the caller cannot see is a
 //! 404.
 //!
-//! Not here yet: `/api/storage` (the upload broker, signed URLs and the
-//! private-object reads), the 30-day purge of trashed files (a Cloudflare
-//! Workflow in TypeScript, waiting for the jobs port), the search reindex and
-//! the model tier of query understanding (both need an AI port).
+//! - `/api/storage`: the upload broker, the files cookie and signed URLs,
+//!   the private-object read (some of it before authentication:
+//!   [`storage_public_router`]) and the move of old private files out of the
+//!   public bucket;
+//! - the 30-day purge of trashed files, a job ([`TrashPurgeJob`]) that
+//!   `DELETE /api/files/:id` starts with a delay.
+//!
+//! Not here yet: the search reindex and the model tier of query
+//! understanding (both need an AI port).
 
 mod drive;
 mod files;
 mod folders;
 mod names;
 mod search;
+mod storage;
+mod trash_purge;
 mod understanding;
+
+pub use storage::{StorageState, storage_public_router, storage_router};
+pub use trash_purge::{
+    TRASH_PURGE_JOB, TRASH_RETENTION, TenantDatabases, TrashPurge, TrashPurgeJob,
+};
 
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -61,6 +73,9 @@ pub struct CoreFilesState {
     /// `R2_PUBLIC_URL`: the public bucket's own domain, for rows that store
     /// only a key.
     pub public_files_url: Option<Arc<str>>,
+    /// The upload broker's cache, signing key and session verifier, and the
+    /// jobs port the trash purge is started on.
+    pub storage: StorageState,
 }
 
 /// `/api/files`, to nest under `/api` behind the session, tenant database,
@@ -222,6 +237,8 @@ pub(crate) struct Caller {
     pub(crate) origin: String,
     env: Option<RequestEnv>,
     files: Option<FileStores>,
+    /// What the storage routes read from the request (conformance builds).
+    pub(crate) storage: storage::Overrides,
 }
 
 impl Caller {
@@ -314,7 +331,7 @@ impl Caller {
 
 /// The request's origin as the client reached it: `X-Forwarded-Proto` and
 /// `X-Forwarded-Host` from the ingress, else the `Host` header over HTTP.
-fn request_origin(headers: &HeaderMap) -> String {
+pub(crate) fn request_origin(headers: &HeaderMap) -> String {
     let header = |name: &str| {
         headers
             .get(name)
@@ -361,6 +378,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 origin: request_origin(&parts.headers),
                 env: parts.extensions.get::<RequestEnv>().cloned(),
                 files: parts.extensions.get::<FileStores>().cloned(),
+                storage: storage::Overrides::from_parts(parts),
             })
         } else {
             tracing::error!("core-files: a route without the session or tenant layer");
@@ -502,10 +520,10 @@ pub(crate) fn text<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
 // ── Storage keys and URLs ──────────────────────────────────────────────────
 
 /// `PRIVATE_OBJECT_PATH`: where app-api serves private objects.
-const PRIVATE_OBJECT_PATH: &str = "/api/storage/private/";
+use storage::PRIVATE_OBJECT_PATH;
 
 /// `workspaceOfKey`: the workspace a key belongs to (`workspaces/<id>/…`).
-fn workspace_of_key(key: &str) -> Option<&str> {
+pub(crate) fn workspace_of_key(key: &str) -> Option<&str> {
     let mut parts = key.split('/');
     let (Some("workspaces"), Some(id), Some(_)) = (parts.next(), parts.next(), parts.next()) else {
         return None;

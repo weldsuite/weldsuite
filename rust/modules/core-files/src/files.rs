@@ -12,6 +12,7 @@ use axum::response::{IntoResponse, Response};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     FILE_CREATED, FILE_DELETED, FILE_MOVED, FILE_PINNED, FILE_SHARED, FILE_STARRED, FILE_UNSHARED,
     FILE_UPDATED,
@@ -28,9 +29,12 @@ use weldsuite_core_domain::drive_sharing::{
 use weldsuite_core_domain::files::{
     self as files_db, Change, FileUpdate, ListFiles, MovedFile, NewFile, UpdatedFile,
 };
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
-use weldsuite_ports::PutOptions;
+use weldsuite_ports::{JobRequest, PutOptions};
+
+use crate::trash_purge::{TRASH_PURGE_JOB, TRASH_RETENTION, TrashPurge};
 
 use crate::drive::{DRIVE_VIEW_ONLY, UrlBases, normalize_generic_files, query_array};
 use crate::names::{drive_name, sanitize_drive_name};
@@ -473,18 +477,19 @@ pub(crate) async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     // The purge job carries the Clerk org id.
-    if caller.clerk_org_id.is_none() {
+    let Some(org_id) = caller.clerk_org_id.clone() else {
         return ApiError::org_required().into_response();
-    }
+    };
     answer(
         async {
             open_file(&caller, &id, true).await?;
-            let Some(row) = files_db::soft_delete_file(&caller.db, &id, &now()).await? else {
+            let deleted_at = OffsetDateTime::now_utc();
+            let deleted_text = iso_timestamp(deleted_at);
+            let Some(row) = files_db::soft_delete_file(&caller.db, &id, &deleted_text).await?
+            else {
                 return Err(not_found("File", &id));
             };
-            // TypeScript schedules a 30-day purge (TrashCleanupWorkflow) here.
-            // The Kubernetes editions have no jobs port yet: trashed files
-            // stay until the trash is emptied or the file purged.
+            schedule_trash_purge(&state, &org_id, &id, &row, deleted_at).await;
             caller.publish(
                 &state,
                 FILE_DELETED,
@@ -499,6 +504,38 @@ pub(crate) async fn remove(
         .await,
         "Failed to delete file",
     )
+}
+
+/// Start the 30-day purge (`TRASH_CLEANUP.create(...)`): keyed by the file
+/// and the moment it was trashed, so a restore and a second trash start a
+/// new one and the old one finds `deleted_at` changed. A failure to start is
+/// logged; the file stays in the trash until it is emptied.
+async fn schedule_trash_purge(
+    state: &CoreFilesState,
+    org_id: &str,
+    id: &str,
+    row: &Value,
+    deleted_at: OffsetDateTime,
+) {
+    let Some(jobs) = &state.storage.jobs else {
+        return;
+    };
+    let purge_at = deleted_at + TRASH_RETENTION;
+    let millis = deleted_at.unix_timestamp_nanos() / 1_000_000;
+    let payload = TrashPurge {
+        workspace_id: org_id.to_owned(),
+        file_id: id.to_owned(),
+        file_key: files_db::storage_key(row).unwrap_or_default().to_owned(),
+        deleted_at: iso_timestamp(deleted_at),
+        purge_at: iso_timestamp(purge_at),
+    };
+    let started = match JobRequest::new(TRASH_PURGE_JOB, format!("trash-{id}-{millis}"), &payload) {
+        Ok(request) => jobs.start_boxed(request.with_delay(TRASH_RETENTION)).await,
+        Err(error) => Err(error),
+    };
+    if let Err(error) = started {
+        tracing::error!(%error, file_id = id, "files: scheduling the trash purge failed");
+    }
 }
 
 // ── POST /:id/star, /:id/pin ───────────────────────────────────────────────
@@ -953,7 +990,67 @@ pub(crate) async fn unshare(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use weldsuite_events::{EntityEventPublisher, TaskTracker};
+    use weldsuite_ports::{Jobs, PortError};
+
     use super::*;
+    use crate::StorageState;
+
+    /// The jobs a route starts.
+    #[derive(Default)]
+    struct StartedJobs(Mutex<Vec<JobRequest>>);
+
+    impl Jobs for StartedJobs {
+        fn start(&self, request: JobRequest) -> impl Future<Output = Result<(), PortError>> + Send {
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(request);
+            std::future::ready(Ok(()))
+        }
+    }
+
+    /// `TRASH_CLEANUP.create(...)` with the instance id
+    /// `trash-<id>-<deletedAt in ms>`, and the Workflow's 30-day sleep as the
+    /// start's delay.
+    #[tokio::test]
+    async fn trashing_a_file_starts_its_purge_thirty_days_out() {
+        let jobs = Arc::new(StartedJobs::default());
+        let state = CoreFilesState {
+            events: EntityEventPublisher::new(None, TaskTracker::new()),
+            files: None,
+            public_files_url: None,
+            storage: StorageState {
+                jobs: Some(Arc::clone(&jobs) as Arc<dyn weldsuite_ports::DynJobs>),
+                ..StorageState::default()
+            },
+        };
+        let deleted_at =
+            OffsetDateTime::from_unix_timestamp_nanos(1_790_665_200_123_000_000).expect("a time");
+        // `fileKey || storagePath`.
+        let row = json!({ "fileKey": "", "storagePath": "workspaces/org_a/drive/a.pdf" });
+        schedule_trash_purge(&state, "org_a", "file_a", &row, deleted_at).await;
+
+        let started = jobs.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let [request] = started.as_slice() else {
+            panic!("one job, not {}", started.len());
+        };
+        assert_eq!(request.name, TRASH_PURGE_JOB);
+        assert_eq!(request.key, "trash-file_a-1790665200123");
+        assert_eq!(request.delay, Some(TRASH_RETENTION));
+        assert_eq!(
+            request.payload,
+            json!({
+                "workspaceId": "org_a",
+                "fileId": "file_a",
+                "fileKey": "workspaces/org_a/drive/a.pdf",
+                "deletedAt": "2026-09-29T07:00:00.123Z",
+                "purgeAt": "2026-10-29T07:00:00.123Z",
+            })
+        );
+    }
 
     #[test]
     fn stored_content_like_the_allowlist() {

@@ -34,17 +34,17 @@ pub mod jobs;
 pub mod mail;
 pub mod realtime;
 
-pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
+pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
-    DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions, StoredObject,
-    get_stored, is_safe_key, unsafe_key,
+    ByteRange, DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions,
+    RangedObject, StorageBuckets, Stored, StoredObject, get_stored, is_safe_key, unsafe_key,
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
     Identity, IdentityCall, IdentityError, IdentityProvider, IdentityResult, Invitation, ListPage,
     Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, Organization,
-    OrganizationChanges, OrganizationRef, Session, User, with_identity,
+    OrganizationChanges, OrganizationRef, Session, User, UserProfile, with_identity,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{

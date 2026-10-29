@@ -9,14 +9,16 @@ mod access_requests;
 mod feature_flags;
 mod me;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::Router;
 use axum::routing::{get, patch, post};
+use weldsuite_ports::{DynCache, MemoryCache};
 
 use crate::server::AppState;
 
 /// Every ported route, relative to `/api`.
+#[allow(clippy::too_many_lines)] // one block per mounted module or core area
 pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = Router::new()
         .route("/me/permissions", get(me::permissions))
@@ -68,6 +70,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     };
     let router = core_team(router, state);
     let router = core_platform(router, state);
+    let router = core_apps(router, state);
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),
@@ -95,30 +98,110 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
-    // Core files, drive and search (P4c): mounted unconditionally once complete.
-    if cfg!(feature = "conformance") {
-        let files = weldsuite_core_files::CoreFilesState {
-            events: state.infra.events.clone(),
-            files: file_stores(state),
-            public_files_url: state.files_public_url.clone(),
-        };
-        let gate = &state.permissions;
-        return router
-            .nest(
-                "/files",
-                weldsuite_core_files::files_router(files.clone(), gate),
-            )
-            .nest(
-                "/folders",
-                weldsuite_core_files::folders_router(files.clone(), gate),
-            )
-            .nest(
-                "/drive",
-                weldsuite_core_files::drive_router(files.clone(), gate),
-            )
-            .nest("/search", weldsuite_core_files::search_router(files, gate));
+    core_files(router, state)
+}
+
+/// Core files, drive, search and storage (P4c), with the 30-day purge
+/// `DELETE /api/files/:id` starts. Conformance builds only until complete,
+/// like [`core_team`].
+fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !cfg!(feature = "conformance") {
+        return router;
     }
+    let files = core_files_state(state);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_core_files::TrashPurgeJob::new(
+            tenant_databases(state),
+            file_stores(state),
+        ));
+    let gate = &state.permissions;
     router
+        .nest(
+            "/storage",
+            weldsuite_core_files::storage_router(files.clone(), gate),
+        )
+        .nest(
+            "/files",
+            weldsuite_core_files::files_router(files.clone(), gate),
+        )
+        .nest(
+            "/folders",
+            weldsuite_core_files::folders_router(files.clone(), gate),
+        )
+        .nest(
+            "/drive",
+            weldsuite_core_files::drive_router(files.clone(), gate),
+        )
+        .nest("/search", weldsuite_core_files::search_router(files, gate))
+}
+
+/// The routes served before authentication, at their full paths:
+/// `/api/storage/upload/:token`, `/api/storage/private/*` and
+/// `/api/storage/public/*` (each checks its own credential), the CLI's
+/// device login (`/api/cli-auth/device`, `/api/cli-auth/token`) and the
+/// WeldApps bundle host (`/public/user-apps/*`). Empty until core files and
+/// WeldApps are mounted.
+pub(crate) fn public(state: &AppState) -> Router<AppState> {
+    if cfg!(feature = "conformance") {
+        let apps = core_apps_state(state);
+        weldsuite_core_files::storage_public_router(core_files_state(state))
+            .nest(
+                "/api/cli-auth",
+                weldsuite_core_apps::cli_auth_public(apps.clone()),
+            )
+            .nest(
+                "/public/user-apps",
+                weldsuite_core_apps::public_user_apps(apps),
+            )
+    } else {
+        Router::new()
+    }
+}
+
+/// The core files state, shared by the authenticated and the public routes.
+fn core_files_state(state: &AppState) -> weldsuite_core_files::CoreFilesState {
+    weldsuite_core_files::CoreFilesState {
+        events: state.infra.events.clone(),
+        files: file_stores(state),
+        public_files_url: state.files_public_url.clone(),
+        storage: weldsuite_core_files::StorageState {
+            cache: Some(upload_token_cache(state)),
+            verifier: Some(Arc::clone(&state.verifier)),
+            signing_key: state.storage_signing_key.clone(),
+            environment: Arc::from(state.environment.as_str()),
+            jobs: Some(Arc::clone(&state.infra.jobs)),
+        },
+    }
+}
+
+/// Where upload tokens live: Valkey, or without it one in-process cache for
+/// the whole process (enough for a single replica), shared by the route that
+/// mints a token and the one that redeems it.
+fn upload_token_cache(state: &AppState) -> Arc<dyn DynCache> {
+    static LOCAL: OnceLock<Arc<dyn DynCache>> = OnceLock::new();
+    state.infra.cache.clone().unwrap_or_else(|| {
+        Arc::clone(LOCAL.get_or_init(|| {
+            tracing::warn!("VALKEY_URL is not set: upload tokens live in this process only");
+            Arc::new(MemoryCache::new())
+        }))
+    })
+}
+
+/// A workspace's tenant database for jobs, which run outside any request.
+fn tenant_databases(state: &AppState) -> weldsuite_core_files::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
 }
 
 /// WeldSign's handle on the app: databases, files, mail, cache, flags, jobs.
@@ -282,6 +365,70 @@ pub(crate) fn account(state: &AppState) -> Router<AppState> {
     Router::new()
         .nest("/account", weldsuite_core_team::account(team.clone()))
         .nest("/invitations", weldsuite_core_team::invitations(team))
+        .nest(
+            "/auth-desktop",
+            weldsuite_core_apps::auth_desktop(core_apps_state(state)),
+        )
+}
+
+/// WeldApps (`weldsuite-core-apps`): `/api/user-apps` and the CLI login's
+/// approval, behind the session and workspace layers.
+///
+/// Conformance builds only, like [`core_team`].
+fn core_apps(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !cfg!(feature = "conformance") {
+        return router;
+    }
+    let apps = core_apps_state(state);
+    router
+        .nest(
+            "/user-apps",
+            weldsuite_core_apps::user_apps(apps.clone(), &state.permissions),
+        )
+        .nest("/cli-auth", weldsuite_core_apps::cli_auth_approve(apps))
+}
+
+/// What the WeldApps routers share in the process: the outbound HTTP client,
+/// the env settings they read (`EXTERNAL_API_URL`, the bundle signing secret,
+/// …) and the app gateway's token cache.
+type AppsShared = (
+    std::sync::Arc<dyn weldsuite_core_apps::HttpTransport>,
+    std::sync::Arc<std::collections::HashMap<String, String>>,
+    std::sync::Arc<weldsuite_core_apps::GatewayTokens>,
+);
+
+fn apps_shared() -> &'static AppsShared {
+    static SHARED: std::sync::OnceLock<AppsShared> = std::sync::OnceLock::new();
+    SHARED.get_or_init(|| {
+        (
+            std::sync::Arc::new(weldsuite_core_apps::ReqwestTransport::new()),
+            std::sync::Arc::new(weldsuite_core_apps::CoreAppsState::env_from_process()),
+            std::sync::Arc::default(),
+        )
+    })
+}
+
+/// The env settings of the WeldApps routes, for the server's bundle-host
+/// guard.
+pub(crate) fn apps_env() -> std::sync::Arc<std::collections::HashMap<String, String>> {
+    std::sync::Arc::clone(&apps_shared().1)
+}
+
+fn core_apps_state(state: &AppState) -> weldsuite_core_apps::CoreAppsState {
+    let (http, env, gateway_tokens) = apps_shared();
+    weldsuite_core_apps::CoreAppsState {
+        events: state.infra.events.clone(),
+        master: state.workspaces.master().clone(),
+        workspaces: std::sync::Arc::clone(&state.workspaces),
+        cache: state.infra.cache.clone(),
+        files: file_stores(state),
+        // No identity provider on Kubernetes until the Zitadel adapter (P5,
+        // ADR SEC-012); conformance builds take the test's per request.
+        identity: None,
+        http: std::sync::Arc::clone(http),
+        env: std::sync::Arc::clone(env),
+        gateway_tokens: std::sync::Arc::clone(gateway_tokens),
+    }
 }
 
 fn core_team_state(state: &AppState) -> weldsuite_core_team::CoreTeamState {

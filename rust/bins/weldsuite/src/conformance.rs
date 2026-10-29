@@ -15,8 +15,13 @@
 //!   "flags": { "upgrade-button": true }, // what the test's `context.flags` answers
 //!   "env": { "PERMISSIONS_APP_ENFORCE": "true" },
 //!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." }, // the test's buckets, over HTTP
+//!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." },     // the test's KV, over HTTP
 //!   "outbound": "http://127.0.0.1:..." }  // third-party calls, through the test's fetch stub
 //! ```
+//!
+//! The routes that run before authentication (`/api/storage/upload/:token`,
+//! `/api/storage/private/*`) take only what the test shares (env, buckets,
+//! KV, and a verifier for its `CLERK_JWT_KEY`), not a session ([`public`]).
 //!
 //! Side effects are recorded instead of published (`Recorders`), and
 //! `GET /__conformance/side-effects` hands them over and clears them, in the
@@ -36,7 +41,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use weldsuite_auth::AuthContext;
+use weldsuite_auth::{AuthContext, ClerkVerifier, SessionVerifier};
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_kit::ApiError;
@@ -162,10 +167,12 @@ fn hono_pattern(axum_path: &str) -> String {
     axum_path
         .split('/')
         .map(|segment| {
-            segment
-                .strip_prefix('{')
-                .and_then(|s| s.strip_suffix('}'))
-                .map_or_else(|| segment.to_owned(), |name| format!(":{name}"))
+            match segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                // A catch-all is Hono's `*`.
+                Some(name) if name.starts_with('*') => "*".to_owned(),
+                Some(name) => format!(":{name}"),
+                None => segment.to_owned(),
+            }
         })
         .collect::<Vec<_>>()
         .join("/")
@@ -193,10 +200,22 @@ struct TestContext {
     /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
     #[serde(default)]
     files: HashMap<String, String>,
+    /// The test's KV namespace served over HTTP (`{ WORKSPACE_CACHE: url }`).
+    #[serde(default)]
+    kv: HashMap<String, String>,
     /// The harness's outbound bridge: third-party calls (Clerk, …) go
     /// through the test's own fetch stub (`conformance_outbound`).
     #[serde(default)]
     outbound: Option<String>,
+}
+
+impl TestContext {
+    fn from_headers(headers: &http::HeaderMap) -> Option<Self> {
+        headers
+            .get(HEADER)
+            .and_then(|value| STANDARD.decode(value.as_bytes()).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+    }
 }
 
 #[derive(Deserialize)]
@@ -222,11 +241,62 @@ pub(crate) struct Pools {
     caches: Mutex<HashMap<String, Arc<MemoryCache>>>,
     /// The test buckets' HTTP stores, by URL.
     buckets: crate::conformance_files::BucketBridges,
+    /// The test KV namespaces' HTTP caches, by URL.
+    kv: crate::conformance_kv::KvBridges,
+    /// Session verifiers for the tests' own `CLERK_JWT_KEY`, by key.
+    verifiers: Mutex<HashMap<String, Arc<SessionVerifier>>>,
     /// The bridged third-party providers, by bridge URL.
     outbound: crate::conformance_outbound::OutboundBridges,
 }
 
 impl Pools {
+    /// A verifier for the test's `CLERK_JWT_KEY` (and
+    /// `CLERK_AUTHORIZED_PARTIES`), so a session token the test signed is
+    /// checked as the worker's `verifyToken({ jwtKey })` checks it.
+    fn verifier(&self, env: &HashMap<String, String>) -> Option<Arc<SessionVerifier>> {
+        let pem = env.get("CLERK_JWT_KEY").filter(|pem| !pem.is_empty())?;
+        let parties = env.get("CLERK_AUTHORIZED_PARTIES").map(String::as_str);
+        let cache_key = format!("{pem}\n{}", parties.unwrap_or_default());
+        let mut verifiers = self
+            .verifiers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(verifier) = verifiers.get(&cache_key) {
+            return Some(Arc::clone(verifier));
+        }
+        let verifier = Arc::new(SessionVerifier::from(
+            ClerkVerifier::from_pem(pem, parties).ok()?,
+        ));
+        verifiers.insert(cache_key, Arc::clone(&verifier));
+        Some(verifier)
+    }
+
+    /// What the test shares with Rust beyond the session: its env, buckets,
+    /// KV, session key and outbound bridge.
+    fn insert_shared(&self, extensions: &mut http::Extensions, context: &TestContext) {
+        extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
+            context.env.clone(),
+        )));
+        // The test's buckets; without them a module keeps the app state's stores.
+        if let Some(stores) = self.buckets.file_stores(&context.files) {
+            extensions.insert(stores);
+        }
+        if let Some(buckets) = self.buckets.storage_buckets(&context.files) {
+            extensions.insert(buckets);
+        }
+        if let Some(cache) = self.kv.request_cache(&context.kv) {
+            extensions.insert(cache);
+        }
+        if let Some(verifier) = self.verifier(&context.env) {
+            extensions.insert(verifier);
+        }
+        // The identity provider and the other third parties answer from the
+        // test's fetch stub.
+        if let Some(bridge) = context.outbound.as_deref() {
+            self.outbound.extend(extensions, bridge);
+        }
+    }
+
     fn get(&self, url: &str) -> Result<PgPool, ApiError> {
         let mut pools = self
             .databases
@@ -254,12 +324,7 @@ pub(crate) async fn auth(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let Some(context) = request
-        .headers()
-        .get(HEADER)
-        .and_then(|value| STANDARD.decode(value.as_bytes()).ok())
-        .and_then(|bytes| serde_json::from_slice::<TestContext>(&bytes).ok())
-    else {
+    let Some(context) = TestContext::from_headers(request.headers()) else {
         return ApiError::unauthorized()
             .with_message("Missing or invalid Authorization header")
             .into_response();
@@ -290,18 +355,7 @@ pub(crate) async fn auth(
     if let Some(master) = master {
         extensions.insert(weldsuite_db::MasterDb(master));
     }
-    extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
-        context.env.clone(),
-    )));
-    // The test's buckets; without them a module keeps the app state's stores.
-    if let Some(stores) = pools.buckets.file_stores(&context.files) {
-        extensions.insert(stores);
-    }
-    // The identity provider and the other third parties answer from the
-    // test's fetch stub.
-    if let Some(bridge) = context.outbound.as_deref() {
-        pools.outbound.extend(extensions, bridge);
-    }
+    pools.insert_shared(extensions, &context);
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
         extensions.insert(Permissions::new(
@@ -345,6 +399,12 @@ pub(crate) async fn auth(
         session_id: context.session_id,
         factor_verification_age: context.factor_verification_age,
     });
+    run_reporting_route(request, next).await
+}
+
+/// The rest of the request, with the route that answered in
+/// `X-Weld-Route`.
+async fn run_reporting_route(request: Request, next: Next) -> Response {
     let route = request
         .extensions()
         .get::<MatchedPath>()
@@ -354,6 +414,34 @@ pub(crate) async fn auth(
         response.headers_mut().insert(ROUTE_HEADER, value);
     }
     response
+}
+
+/// Middleware for the routes that run before authentication (the upload
+/// PUT, the private-object read, the WeldApps bundle host, the CLI's device
+/// login): no session from the test, only what it shares (master database,
+/// env, buckets, KV, its session key). A request without the header goes on
+/// with the app's own.
+pub(crate) async fn public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        // The master database too: the WeldApps bundle host and the CLI's
+        // device login read it before any session.
+        if let Some(url) = context.master_database_url.as_deref() {
+            match pools.get(url) {
+                Ok(master) => {
+                    request
+                        .extensions_mut()
+                        .insert(weldsuite_db::MasterDb(master));
+                }
+                Err(error) => return error.into_response(),
+            }
+        }
+        pools.insert_shared(request.extensions_mut(), &context);
+    }
+    run_reporting_route(request, next).await
 }
 
 // ── Cron jobs ───────────────────────────────────────────────────────────────

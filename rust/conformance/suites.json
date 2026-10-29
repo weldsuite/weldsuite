@@ -599,6 +599,24 @@
       ]
     },
     {
+      "name": "core: storage",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/storage/storage.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/storage/",
+        "apps/workers/app-api/src/lib/storage-upload.ts",
+        "apps/workers/app-api/src/services/private-storage-migration.ts",
+        "packages/core/worker-kit/src/storage.ts",
+        "packages/clients/core-api-client/src/schemas/storage.ts",
+        "rust/modules/core-files/",
+        "rust/crates/ports/src/files.rs",
+        "rust/crates/ports/src/cache.rs"
+      ]
+    },
+    {
       "name": "core: search",
       "module": "core",
       "workspace": "apps/workers/app-api",
@@ -614,6 +632,73 @@
         "packages/domains/core/src/drive-access.ts",
         "rust/modules/core-files/",
         "rust/crates/core-domain/"
+      ]
+    },
+    {
+      "name": "core: user-apps",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/user-apps/user-apps.integration.test.ts",
+        "src/routes/user-apps/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/user-apps/",
+        "apps/workers/app-api/src/services/user-apps.ts",
+        "apps/workers/app-api/src/services/user-apps-bundle-access.ts",
+        "apps/workers/app-api/src/services/user-app-dev-sessions.ts",
+        "apps/workers/app-api/src/services/user-app-gateway.ts",
+        "apps/workers/app-api/src/test/user-apps-fixtures.ts",
+        "packages/clients/app-api-client/src/schemas/user-apps.ts",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/core-apps/"
+      ]
+    },
+    {
+      "name": "core: public-user-apps",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/public-user-apps/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/public-user-apps/",
+        "apps/workers/app-api/src/services/user-apps.ts",
+        "apps/workers/app-api/src/services/user-apps-bundle-access.ts",
+        "apps/workers/app-api/src/test/user-apps-fixtures.ts",
+        "rust/modules/core-apps/"
+      ]
+    },
+    {
+      "name": "core: cli-auth",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/cli-auth/cli-auth.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/cli-auth/",
+        "apps/workers/app-api/src/services/cli-auth.ts",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "apps/workers/app-api/src/test/fake-clerk.ts",
+        "packages/clients/app-api-client/src/schemas/cli-auth.ts",
+        "rust/modules/core-apps/",
+        "rust/crates/ports/src/identity.rs"
+      ]
+    },
+    {
+      "name": "core: auth-desktop",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/auth-desktop/auth-desktop.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/auth-desktop/",
+        "apps/workers/app-api/src/test/fake-clerk.ts",
+        "packages/clients/app-api-client/src/schemas/auth-desktop.ts",
+        "rust/modules/core-apps/",
+        "rust/crates/ports/src/identity.rs"
       ]
     },
     {

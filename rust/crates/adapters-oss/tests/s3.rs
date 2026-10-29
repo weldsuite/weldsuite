@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use weldsuite_adapters_oss::{S3FileStore, S3Options};
-use weldsuite_ports::{FileStore, PutOptions};
+use weldsuite_ports::{ByteRange, FileStore, PutOptions};
 
 const BUCKET: &str = "weldsuite-test";
 
@@ -112,6 +112,61 @@ async fn objects_round_trip_with_type_and_metadata() {
     store.delete(&empty).await.expect("delete");
     store.delete(&empty).await.expect("delete again");
     assert_eq!(store.head(&empty).await.expect("head"), None);
+}
+
+#[tokio::test]
+async fn create_only_puts_ranges_and_entity_tags() {
+    let Some(options) = options() else { return };
+    ensure_bucket(&options).await;
+    let store = S3FileStore::new(&options, reqwest::Client::new()).expect("store");
+    let key = format!("{}/upload.bin", prefix());
+    let once = PutOptions {
+        content_type: Some("application/octet-stream".to_owned()),
+        content_disposition: Some("attachment".to_owned()),
+        create_only: true,
+        ..PutOptions::default()
+    };
+    let stored = store
+        .put(&key, b"0123456789".to_vec(), &once)
+        .await
+        .expect("put")
+        .expect("the key was free");
+    assert!(stored.etag.as_deref().is_some_and(|etag| !etag.is_empty()));
+    assert_eq!(
+        store
+            .put(&key, b"other".to_vec(), &once)
+            .await
+            .expect("put"),
+        None
+    );
+    let info = store.head(&key).await.expect("head").expect("stored");
+    assert_eq!(info.size, 10);
+    assert_eq!(info.etag, stored.etag);
+    assert_eq!(info.content_disposition.as_deref(), Some("attachment"));
+
+    let part = store
+        .get_range(&key, ByteRange::parse("bytes=2-4").expect("range"))
+        .await
+        .expect("get")
+        .expect("stored");
+    assert_eq!(part.bytes, b"234");
+    assert_eq!((part.range, part.info.size), (Some((2, 3)), 10));
+    let tail = store
+        .get_range(&key, ByteRange::Suffix(3))
+        .await
+        .expect("get")
+        .expect("stored");
+    assert_eq!(
+        (tail.bytes.as_slice(), tail.range),
+        (&b"789"[..], Some((7, 3)))
+    );
+    let beyond = store
+        .get_range(&key, ByteRange::parse("bytes=50-").expect("range"))
+        .await
+        .expect("get")
+        .expect("stored");
+    assert_eq!((beyond.bytes.len(), beyond.range), (10, None));
+    store.delete(&key).await.expect("delete");
 }
 
 #[tokio::test]
