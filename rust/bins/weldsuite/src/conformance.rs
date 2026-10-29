@@ -489,6 +489,9 @@ pub(crate) struct SweepRequest {
     workspaces: HashMap<String, String>,
     /// The test's KV namespace (its seed flag lives there).
     seed_scope: String,
+    /// The test set the seed flag itself: the scope starts with it.
+    #[serde(default)]
+    seeded: bool,
 }
 
 /// Every workspace opens the test's tenant database.
@@ -589,6 +592,15 @@ pub(crate) async fn calendar_replan_sweep(
         .entry(request.seed_scope)
         .or_default()
         .clone();
+    if request.seeded
+        && let Err(error) = cache
+            .put_boxed(weldsuite_calendar::CALENDAR_REPLAN_SEED_KEY, "done", None)
+            .await
+    {
+        return ApiError::internal()
+            .with_message(format!("conformance: seed flag: {error}"))
+            .into_response();
+    }
     let tenants: weldsuite_calendar::TenantDatabases = Arc::new(move |_workspace_id: String| {
         let db = db.clone();
         Box::pin(async move { Ok::<_, String>(db) })

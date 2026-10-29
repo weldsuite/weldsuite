@@ -125,6 +125,7 @@ function sweep(env: ReturnType<typeof makeEnv>) {
     env: env as unknown as Record<string, unknown>,
     dueIndex: { d1: env.SCHEDULE_INDEX as never, kind: 'calendar_replan' },
     kv: env.WORKSPACE_CACHE as object,
+    seeded: env.WORKSPACE_CACHE.store.has(CALENDAR_REPLAN_SEED_KEY),
     workspaces: { ws_tenant: 'org_tenant' },
     runTypeScript: async (tenantDb) => {
       dbs.tenant = tenantDb;

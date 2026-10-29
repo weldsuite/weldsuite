@@ -55,6 +55,11 @@ export interface ConformanceSweep<R> {
   dueIndex: { d1: D1Like; kind: string };
   /** The test's KV namespace, where the job keeps its seed flag. */
   kv: object;
+  /**
+   * The test set the job's seed flag in `kv` itself (not by an earlier tick):
+   * Rust's seed scope starts with it set too.
+   */
+  seeded?: boolean;
   /** `workspaces.id` → Clerk org id, as the test's `getWorkspaceForOrg` mock answers. */
   workspaces: Record<string, string>;
   /** Run the job on TypeScript with `tenantDb` as the tenant database. */
@@ -149,6 +154,7 @@ export async function conformanceSweep<R extends object>(opts: ConformanceSweep<
         env: forwardedEnv(opts.env),
         workspaces: opts.workspaces,
         seedScope: seedScope(opts.kv),
+        seeded: opts.seeded ?? false,
       }),
     });
     if (!response.ok) throw new Error(`Conformance cron: ${opts.job} answered ${response.status}: ${await response.text()}`);
