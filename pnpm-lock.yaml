@@ -8021,6 +8021,9 @@ importers:
       '@weldsuite/app-api-client':
         specifier: workspace:*
         version: link:../../clients/app-api-client
+      '@weldsuite/core-api-client':
+        specifier: workspace:*
+        version: link:../../clients/core-api-client
       '@weldsuite/typescript-config':
         specifier: workspace:*
         version: link:../../config/typescript-config

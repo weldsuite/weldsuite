@@ -37,6 +37,21 @@
         "apps/workers/app-api/src/services/access-requests.ts",
         "packages/core/realtime/src/server/"
       ]
+    },
+    {
+      "name": "know",
+      "module": "know",
+      "workspace": "apps/workers/know-api",
+      "tests": [
+        "src/routes/knowledge/teamspaces.test.ts",
+        "src/routes/knowledge/pages.test.ts"
+      ],
+      "paths": [
+        "apps/workers/know-api/src/",
+        "packages/domains/know/src/",
+        "packages/clients/core-api-client/src/schemas/knowledge.ts",
+        "rust/modules/know/"
+      ]
     }
   ]
 }

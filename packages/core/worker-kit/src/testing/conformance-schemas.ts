@@ -13,6 +13,21 @@
 import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
+import {
+  knowledgeFavoriteRefSchema,
+  knowledgeFavoriteSchema,
+  knowledgeMembershipSchema,
+  knowledgePageSchema,
+  knowledgePageTreeNodeSchema,
+  knowledgePageVersionSchema,
+  knowledgePageVersionSummarySchema,
+  knowledgeSavedContentSchema,
+  knowledgeSpaceMemberSchema,
+  knowledgeSpaceRowSchema,
+  knowledgeSpaceSchema,
+  knowledgeTeammateSchema,
+  knowledgeTrashedPageSchema,
+} from '@weldsuite/core-api-client/schemas/knowledge';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -35,6 +50,29 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/access-requests', envelope: 'single', data: accessRequestSchema },
   { method: 'PATCH', route: '/api/access-requests/:id', envelope: 'single', data: accessRequestSchema },
   { method: 'GET', route: '/api/access-requests/me/pending', envelope: 'list', data: accessRequestSchema },
+  // know (WeldKnow)
+  { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
+  { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },
+  { method: 'PATCH', route: '/api/knowledge/spaces/:id', envelope: 'single', data: knowledgeSpaceRowSchema },
+  { method: 'GET', route: '/api/knowledge/teammates', envelope: 'list', data: knowledgeTeammateSchema },
+  { method: 'GET', route: '/api/knowledge/spaces/:id/members', envelope: 'list', data: knowledgeSpaceMemberSchema },
+  { method: 'POST', route: '/api/knowledge/spaces/:id/members', envelope: 'single', data: knowledgeMembershipSchema },
+  { method: 'PATCH', route: '/api/knowledge/spaces/:id/members/:userId', envelope: 'single', data: knowledgeMembershipSchema },
+  { method: 'POST', route: '/api/knowledge/spaces/:id/join', envelope: 'single', data: knowledgeMembershipSchema },
+  { method: 'GET', route: '/api/knowledge/pages/tree', envelope: 'list', data: knowledgePageTreeNodeSchema },
+  { method: 'GET', route: '/api/knowledge/trash', envelope: 'list', data: knowledgeTrashedPageSchema },
+  { method: 'GET', route: '/api/knowledge/pages/:id', envelope: 'single', data: knowledgePageSchema },
+  { method: 'POST', route: '/api/knowledge/pages', envelope: 'single', data: knowledgePageSchema },
+  { method: 'PATCH', route: '/api/knowledge/pages/:id', envelope: 'single', data: knowledgePageSchema },
+  { method: 'PUT', route: '/api/knowledge/pages/:id/content', envelope: 'single', data: knowledgeSavedContentSchema },
+  { method: 'POST', route: '/api/knowledge/pages/:id/move', envelope: 'single', data: knowledgePageSchema },
+  { method: 'POST', route: '/api/knowledge/pages/:id/restore', envelope: 'single', data: knowledgePageSchema },
+  { method: 'GET', route: '/api/knowledge/pages/:id/versions', envelope: 'list', data: knowledgePageVersionSummarySchema },
+  { method: 'POST', route: '/api/knowledge/pages/:id/versions', envelope: 'single', data: knowledgePageVersionSchema },
+  { method: 'GET', route: '/api/knowledge/pages/:id/versions/:versionId', envelope: 'single', data: knowledgePageVersionSchema },
+  { method: 'POST', route: '/api/knowledge/pages/:id/versions/:versionId/restore', envelope: 'single', data: knowledgePageSchema },
+  { method: 'GET', route: '/api/knowledge/favorites', envelope: 'list', data: knowledgeFavoriteSchema },
+  { method: 'POST', route: '/api/knowledge/favorites', envelope: 'single', data: knowledgeFavoriteRefSchema },
 ];
 
 /** null when valid, else why not. */

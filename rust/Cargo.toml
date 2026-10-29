@@ -6,7 +6,7 @@
 
 [workspace]
 resolver = "3"
-members = ["bins/*", "crates/*"]
+members = ["bins/*", "crates/*", "modules/*"]
 
 [workspace.package]
 version = "0.0.0"
@@ -24,6 +24,7 @@ weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }
+weldsuite-know = { path = "modules/know" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }

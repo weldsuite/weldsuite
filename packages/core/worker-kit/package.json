@@ -63,6 +63,7 @@
     "@electric-sql/pglite": "^0.4.5",
     "@electric-sql/pglite-socket": "0.1.5",
     "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/core-api-client": "workspace:*",
     "@types/node": "^20",
     "@weldsuite/typescript-config": "workspace:*",
     "hono": "4.13.13",

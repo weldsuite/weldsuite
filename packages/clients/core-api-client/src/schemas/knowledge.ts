@@ -101,3 +101,119 @@ export type CreateKnowledgePageInput = z.infer<typeof createKnowledgePageSchema>
 export type UpdateKnowledgePageInput = z.infer<typeof updateKnowledgePageSchema>;
 export type SaveKnowledgePageContentInput = z.infer<typeof saveKnowledgePageContentSchema>;
 export type MoveKnowledgePageInput = z.infer<typeof moveKnowledgePageSchema>;
+
+// ---------------------------------------------------------------------------
+// Responses
+// ---------------------------------------------------------------------------
+
+const blocksSchema = z.array(z.record(z.unknown()));
+
+/** A `knowledge_spaces` row, as POST and PATCH /spaces return it. */
+export const knowledgeSpaceRowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  icon: z.string().nullable(),
+  color: z.string().nullable(),
+  kind: z.enum(KNOWLEDGE_SPACE_KINDS),
+  ownerId: z.string().nullable(),
+  visibility: z.enum(KNOWLEDGE_SPACE_VISIBILITIES),
+  isDefault: z.boolean(),
+  sortOrder: z.number().int(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** GET /spaces: the row plus what the caller may do in it. */
+export const knowledgeSpaceSchema = knowledgeSpaceRowSchema.extend({
+  role: z.enum(KNOWLEDGE_SPACE_ROLES).nullable(),
+  isMember: z.boolean(),
+  canRead: z.boolean(),
+  canWrite: z.boolean(),
+  canManage: z.boolean(),
+  memberCount: z.number().int(),
+});
+
+export const knowledgeTeammateSchema = z.object({
+  userId: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  picture: z.string().nullable(),
+});
+
+export const knowledgeSpaceMemberSchema = knowledgeTeammateSchema.extend({
+  role: z.enum(KNOWLEDGE_SPACE_ROLES),
+  addedBy: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+/** What the member, join and role routes answer. */
+export const knowledgeMembershipSchema = z.object({
+  spaceId: z.string(),
+  userId: z.string(),
+  role: z.enum(KNOWLEDGE_SPACE_ROLES),
+});
+
+/** A `knowledge_pages` row. */
+export const knowledgePageSchema = z.object({
+  id: z.string(),
+  spaceId: z.string(),
+  parentId: z.string().nullable(),
+  position: z.number().int(),
+  title: z.string(),
+  contentJson: blocksSchema.nullable(),
+  contentText: z.string().nullable(),
+  icon: z.string().nullable(),
+  coverImage: z.string().nullable(),
+  isLocked: z.boolean(),
+  createdBy: z.string().nullable(),
+  lastEditedBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** GET /pages/tree: a page without its content. */
+export const knowledgePageTreeNodeSchema = knowledgePageSchema.pick({
+  id: true,
+  spaceId: true,
+  parentId: true,
+  position: true,
+  title: true,
+  icon: true,
+  updatedAt: true,
+});
+
+/** GET /trash. */
+export const knowledgeTrashedPageSchema = knowledgePageSchema
+  .pick({ id: true, spaceId: true, parentId: true, title: true, icon: true })
+  .extend({ deletedAt: z.string() });
+
+/** PUT /pages/:id/content. */
+export const knowledgeSavedContentSchema = z.object({ id: z.string() });
+
+export const knowledgePageVersionSummarySchema = z.object({
+  id: z.string(),
+  pageId: z.string(),
+  label: z.string().nullable(),
+  createdById: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const knowledgePageVersionSchema = knowledgePageVersionSummarySchema.extend({
+  content: blocksSchema,
+});
+
+export const knowledgeFavoriteSchema = z.object({
+  id: z.string(),
+  pageId: z.string(),
+  position: z.number().int(),
+  title: z.string(),
+  icon: z.string().nullable(),
+  spaceId: z.string(),
+});
+
+/** POST /favorites. */
+export const knowledgeFavoriteRefSchema = z.object({ id: z.string(), pageId: z.string() });

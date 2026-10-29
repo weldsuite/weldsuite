@@ -507,7 +507,7 @@
     "prefixes": [
       "/api/knowledge"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "know-api"
   },
   {

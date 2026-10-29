@@ -28,6 +28,50 @@ fn parsed_type(value: Option<&Value>) -> &'static str {
     }
 }
 
+/// How a field may be left out: Zod's `.optional()`, `.nullable()` and
+/// `.nullish()`, or none of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presence {
+    Required,
+    Optional,
+    Nullable,
+    Nullish,
+}
+
+/// A field as the schema read it. An invalid field reads as `Absent`; the
+/// issue makes [`Issues::finish`] fail.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Field<T> {
+    /// Left out (`undefined`).
+    #[default]
+    Absent,
+    /// `null`.
+    Null,
+    Set(T),
+}
+
+impl<T> Field<T> {
+    pub fn is_absent(&self) -> bool {
+        matches!(self, Self::Absent)
+    }
+
+    /// The value, if there is one.
+    pub fn as_set(&self) -> Option<&T> {
+        match self {
+            Self::Set(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    /// `value ?? null`: absent and null both read as `None`.
+    pub fn into_option(self) -> Option<T> {
+        match self {
+            Self::Set(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
 /// A failed validation: answers 400 with the `safeParse` result.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Invalid(Vec<Value>);
@@ -74,6 +118,44 @@ impl Issues {
         }));
     }
 
+    fn push_at(&mut self, path: &Value, expected: &str, value: &Value) {
+        let received = parsed_type(Some(value));
+        self.0.push(json!({
+            "code": "invalid_type",
+            "expected": expected,
+            "received": received,
+            "path": path,
+            "message": format!("Expected {expected}, received {received}"),
+        }));
+    }
+
+    /// Absent or null, as `presence` allows: the field read so far. `None`
+    /// when there is a value to check.
+    fn left_out<T>(
+        &mut self,
+        key: &str,
+        expected: &str,
+        value: Option<&Value>,
+        presence: Presence,
+    ) -> Option<Field<T>> {
+        match value {
+            None => {
+                if matches!(presence, Presence::Required | Presence::Nullable) {
+                    self.invalid_type(key, expected, None);
+                }
+                Some(Field::Absent)
+            }
+            Some(Value::Null) if matches!(presence, Presence::Nullable | Presence::Nullish) => {
+                Some(Field::Null)
+            }
+            Some(Value::Null) => {
+                self.invalid_type(key, expected, value);
+                Some(Field::Absent)
+            }
+            Some(_) => None,
+        }
+    }
+
     /// The body as an object (`z.object(...)`), or an issue at the root.
     pub fn object<'a>(&mut self, body: &'a Value) -> Option<&'a Map<String, Value>> {
         if let Value::Object(map) = body {
@@ -99,15 +181,34 @@ impl Issues {
         min: Option<usize>,
         max: Option<usize>,
     ) -> Option<String> {
+        let presence = if required {
+            Presence::Required
+        } else {
+            Presence::Optional
+        };
+        self.text(body, key, presence, min, max).into_option()
+    }
+
+    /// `z.string().min(min).max(max)` with `presence`.
+    pub fn text(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        min: Option<usize>,
+        max: Option<usize>,
+    ) -> Field<String> {
         let value = body.get(key);
+        if let Some(field) = self.left_out(key, "string", value, presence) {
+            return field;
+        }
         let Some(Value::String(text)) = value else {
-            if value.is_some() || required {
-                self.invalid_type(key, "string", value);
-            }
-            return None;
+            self.invalid_type(key, "string", value);
+            return Field::Absent;
         };
         // Zod counts UTF-16 code units, as JavaScript's `length` does.
         let length = text.encode_utf16().count();
+        let before = self.0.len();
         if let Some(min) = min
             && length < min
         {
@@ -134,7 +235,145 @@ impl Issues {
                 "path": path(key),
             }));
         }
-        Some(text.clone())
+        if self.0.len() > before {
+            return Field::Absent;
+        }
+        Field::Set(text.clone())
+    }
+
+    /// `z.boolean()` with `presence`.
+    pub fn boolean(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+    ) -> Field<bool> {
+        let value = body.get(key);
+        if let Some(field) = self.left_out(key, "boolean", value, presence) {
+            return field;
+        }
+        if let Some(Value::Bool(flag)) = value {
+            return Field::Set(*flag);
+        }
+        self.invalid_type(key, "boolean", value);
+        Field::Absent
+    }
+
+    /// `z.number().int()`, `.min(min)` when given, with `presence`.
+    pub fn integer(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        min: Option<i64>,
+    ) -> Field<i64> {
+        let value = body.get(key);
+        if let Some(field) = self.left_out(key, "number", value, presence) {
+            return field;
+        }
+        let Some(Value::Number(number)) = value else {
+            self.invalid_type(key, "number", value);
+            return Field::Absent;
+        };
+        let float = number.as_f64().unwrap_or(f64::NAN);
+        let before = self.0.len();
+        // `1.0` is an integer to JavaScript.
+        #[allow(clippy::cast_possible_truncation)]
+        let integer = number
+            .as_i64()
+            .or_else(|| (float.fract() == 0.0 && float.abs() < 9.0e15).then_some(float as i64));
+        if integer.is_none() {
+            self.0.push(json!({
+                "code": "invalid_type",
+                "expected": "integer",
+                "received": "float",
+                "message": "Expected integer, received float",
+                "path": path(key),
+            }));
+        }
+        #[allow(clippy::cast_precision_loss)]
+        if let Some(min) = min
+            && float < min as f64
+        {
+            self.0.push(json!({
+                "code": "too_small",
+                "minimum": min,
+                "type": "number",
+                "inclusive": true,
+                "exact": false,
+                "message": format!("Number must be greater than or equal to {min}"),
+                "path": path(key),
+            }));
+        }
+        match integer {
+            Some(integer) if self.0.len() == before => Field::Set(integer),
+            _ => Field::Absent,
+        }
+    }
+
+    /// `z.array(z.record(z.unknown()))` with `presence`: a list of objects.
+    pub fn records(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+    ) -> Field<Vec<Value>> {
+        let value = body.get(key);
+        if let Some(field) = self.left_out(key, "array", value, presence) {
+            return field;
+        }
+        let Some(Value::Array(items)) = value else {
+            self.invalid_type(key, "array", value);
+            return Field::Absent;
+        };
+        let before = self.0.len();
+        for (index, item) in items.iter().enumerate() {
+            if !item.is_object() {
+                self.push_at(&json!([key, index]), "object", item);
+            }
+        }
+        if self.0.len() > before {
+            return Field::Absent;
+        }
+        Field::Set(items.clone())
+    }
+
+    /// `z.enum([...])` with `presence`.
+    pub fn choice(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        options: &[&str],
+    ) -> Field<String> {
+        let expected = options
+            .iter()
+            .map(|o| format!("'{o}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let value = body.get(key);
+        if let Some(field) = self.left_out(key, &expected, value, presence) {
+            return field;
+        }
+        match value {
+            Some(Value::String(text)) if options.contains(&text.as_str()) => {
+                Field::Set(text.clone())
+            }
+            Some(Value::String(text)) => {
+                self.0.push(json!({
+                    "received": text,
+                    "code": "invalid_enum_value",
+                    "options": options,
+                    "path": path(key),
+                    "message": format!("Invalid enum value. Expected {expected}, received '{text}'"),
+                }));
+                Field::Absent
+            }
+            _ => {
+                self.invalid_type(key, &expected, value);
+                Field::Absent
+            }
+        }
     }
 
     /// `z.enum([...])`, required.
@@ -144,34 +383,8 @@ impl Issues {
         key: &str,
         options: &[&str],
     ) -> Option<String> {
-        let value = body.get(key);
-        match value {
-            Some(Value::String(text)) if options.contains(&text.as_str()) => Some(text.clone()),
-            Some(Value::String(text)) => {
-                let expected = options
-                    .iter()
-                    .map(|o| format!("'{o}'"))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                self.0.push(json!({
-                    "received": text,
-                    "code": "invalid_enum_value",
-                    "options": options,
-                    "path": path(key),
-                    "message": format!("Invalid enum value. Expected {expected}, received '{text}'"),
-                }));
-                None
-            }
-            _ => {
-                let expected = options
-                    .iter()
-                    .map(|o| format!("'{o}'"))
-                    .collect::<Vec<_>>()
-                    .join(" | ");
-                self.invalid_type(key, &expected, value);
-                None
-            }
-        }
+        self.choice(body, key, Presence::Required, options)
+            .into_option()
     }
 }
 
@@ -215,6 +428,105 @@ mod tests {
         let mut issues = Issues::default();
         assert!(issues.object(&json!([1])).is_none());
         assert_eq!(issues.0[0]["message"], "Expected object, received array");
+    }
+
+    /// Zod 3's issues for the rules the know schemas use (run against `zod`
+    /// in core-api-client; the same issues, key order aside).
+    #[test]
+    fn optional_nullable_numbers_and_records_match_zod() {
+        let mut issues = Issues::default();
+        let body = json!({});
+        let fields = issues_object(&body);
+        assert_eq!(
+            issues.text(fields, "name", Presence::Optional, Some(1), None),
+            Field::Absent
+        );
+        assert_eq!(
+            issues.text(fields, "icon", Presence::Nullish, None, Some(3)),
+            Field::Absent
+        );
+        issues.text(fields, "parentId", Presence::Nullable, None, None);
+        assert_eq!(
+            Value::Array(issues.0),
+            json!([{"code":"invalid_type","expected":"string","received":"undefined","path":["parentId"],"message":"Required"}])
+        );
+
+        let mut issues = Issues::default();
+        let body = json!({ "description": null, "icon": "abcd", "visibility": "x", "isDefault": "yes",
+            "sortOrder": 1.5, "position": -1, "parentId": 3, "contentJson": [{}, 1, null, []] });
+        let fields = issues_object(&body);
+        issues.text(fields, "description", Presence::Optional, None, None);
+        issues.text(fields, "icon", Presence::Nullish, None, Some(3));
+        issues.choice(
+            fields,
+            "visibility",
+            Presence::Optional,
+            &["open", "closed", "private"],
+        );
+        issues.boolean(fields, "isDefault", Presence::Optional);
+        issues.integer(fields, "sortOrder", Presence::Optional, None);
+        issues.integer(fields, "position", Presence::Optional, Some(0));
+        issues.text(fields, "parentId", Presence::Nullable, None, None);
+        issues.records(fields, "contentJson", Presence::Optional);
+        assert_eq!(
+            Value::Array(issues.0),
+            json!([
+                {"code":"invalid_type","expected":"string","received":"null","path":["description"],"message":"Expected string, received null"},
+                {"code":"too_big","maximum":3,"type":"string","inclusive":true,"exact":false,"message":"String must contain at most 3 character(s)","path":["icon"]},
+                {"received":"x","code":"invalid_enum_value","options":["open","closed","private"],"path":["visibility"],"message":"Invalid enum value. Expected 'open' | 'closed' | 'private', received 'x'"},
+                {"code":"invalid_type","expected":"boolean","received":"string","path":["isDefault"],"message":"Expected boolean, received string"},
+                {"code":"invalid_type","expected":"integer","received":"float","message":"Expected integer, received float","path":["sortOrder"]},
+                {"code":"too_small","minimum":0,"type":"number","inclusive":true,"exact":false,"message":"Number must be greater than or equal to 0","path":["position"]},
+                {"code":"invalid_type","expected":"string","received":"number","path":["parentId"],"message":"Expected string, received number"},
+                {"code":"invalid_type","expected":"object","received":"number","path":["contentJson",1],"message":"Expected object, received number"},
+                {"code":"invalid_type","expected":"object","received":"null","path":["contentJson",2],"message":"Expected object, received null"},
+                {"code":"invalid_type","expected":"object","received":"array","path":["contentJson",3],"message":"Expected object, received array"}
+            ])
+        );
+
+        let mut issues = Issues::default();
+        let body = json!({ "visibility": 3, "sortOrder": "1", "position": 2.5, "contentJson": {}, "parentId": null });
+        let fields = issues_object(&body);
+        issues.choice(
+            fields,
+            "visibility",
+            Presence::Optional,
+            &["open", "closed", "private"],
+        );
+        issues.integer(fields, "sortOrder", Presence::Optional, None);
+        issues.integer(fields, "position", Presence::Optional, Some(0));
+        assert_eq!(
+            issues.text(fields, "parentId", Presence::Nullable, None, None),
+            Field::Null
+        );
+        issues.records(fields, "contentJson", Presence::Optional);
+        assert_eq!(
+            Value::Array(issues.0),
+            json!([
+                {"expected":"'open' | 'closed' | 'private'","received":"number","code":"invalid_type","path":["visibility"],"message":"Expected 'open' | 'closed' | 'private', received number"},
+                {"code":"invalid_type","expected":"number","received":"string","path":["sortOrder"],"message":"Expected number, received string"},
+                {"code":"invalid_type","expected":"integer","received":"float","message":"Expected integer, received float","path":["position"]},
+                {"code":"invalid_type","expected":"array","received":"object","path":["contentJson"],"message":"Expected array, received object"}
+            ])
+        );
+
+        let mut issues = Issues::default();
+        let body =
+            json!({ "position": 3.0, "isLocked": true, "contentJson": [{ "type": "paragraph" }] });
+        let fields = issues_object(&body);
+        assert_eq!(
+            issues.integer(fields, "position", Presence::Optional, Some(0)),
+            Field::Set(3)
+        );
+        assert_eq!(
+            issues.boolean(fields, "isLocked", Presence::Optional),
+            Field::Set(true)
+        );
+        assert_eq!(
+            issues.records(fields, "contentJson", Presence::Required),
+            Field::Set(vec![json!({ "type": "paragraph" })])
+        );
+        assert!(issues.is_empty());
     }
 
     fn issues_object(body: &Value) -> &Map<String, Value> {

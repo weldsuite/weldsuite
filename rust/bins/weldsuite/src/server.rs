@@ -79,8 +79,10 @@ pub(crate) struct AppEnforcedOverride(pub(crate) bool);
 pub(crate) fn router(state: AppState) -> Router {
     // Layers run outside in, in `apiAuth()`'s order: session → tenant
     // database → licence and read-only → feature flags.
+    // Hono answers a known path with the wrong method like an unknown path.
     let api = crate::routes::api(&state)
         .fallback(not_found)
+        .method_not_allowed_fallback(not_found)
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&state.flags),
             weldsuite_pipeline::feature_flags,
