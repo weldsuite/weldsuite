@@ -24,6 +24,8 @@ mod audit;
 #[cfg(test)]
 mod cases;
 mod credentials;
+#[cfg(test)]
+mod db_tests;
 mod dotenv;
 pub mod envelope;
 mod health;

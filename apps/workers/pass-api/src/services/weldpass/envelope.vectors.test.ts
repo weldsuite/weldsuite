@@ -66,7 +66,7 @@ describe('envelope · ciphertexts the Rust backend sealed', () => {
     for (const secret of rust.secrets) {
       expect(await openSecret(kek, secret.location, secret)).toBe(secret.plaintext);
       expect(await checksumFor(kek, secret.location, secret.plaintext)).toBe(secret.checksum);
-      expect(secret.plaintext.length).toBe(secret.valueLength);
+      expect(secret.plaintext).toHaveLength(secret.valueLength);
       expect(hintFor(secret.plaintext)).toBe(secret.valueHint);
       await expect(
         openSecret(kek, { ...secret.location, environmentId: `${secret.location.environmentId}_x` }, secret),
