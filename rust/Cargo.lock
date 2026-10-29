@@ -3392,6 +3392,7 @@ version = "0.0.0"
 dependencies = [
  "aws-lc-rs",
  "axum",
+ "base64 0.22.1",
  "hex",
  "http",
  "lopdf",

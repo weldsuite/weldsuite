@@ -16,6 +16,7 @@ mod documents;
 mod envelopes;
 mod fields;
 mod hash;
+mod links;
 mod recipients;
 mod sources;
 mod templates;
