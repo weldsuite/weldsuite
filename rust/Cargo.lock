@@ -3833,6 +3833,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-calendar-domain"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+]
+
+[[package]]
 name = "weldsuite-catalogs"
 version = "0.0.0"
 dependencies = [
