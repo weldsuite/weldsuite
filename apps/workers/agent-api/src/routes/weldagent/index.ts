@@ -40,6 +40,7 @@ import {
 import { enqueueWeldAgentJob } from '@weldsuite/agent-domain/jobs';
 import { findAccessibleAgentRow } from '@weldsuite/agent-domain/access';
 import { agentViewer } from '../../services/weldagent/viewer';
+import { personaPermissions } from '../../services/weldagent/persona-permissions';
 import {
   AllGatewaysFailedError,
   GatewayConfigError,
@@ -381,6 +382,8 @@ app.post(
     const userId = c.get('userId');
     // The agent acts on the user's behalf: its grants are narrowed to theirs.
     const actorPermissions = (await ensurePermissionsResolved(c))?.permissions ?? [];
+    // Without an agent, the default WeldAgent reads for them: checked deny-aware here.
+    const personaKeys = await personaPermissions(c);
     // An agent's chat stays usable only while its owner keeps you on it.
     const viewer = await agentViewer(c);
 
@@ -395,6 +398,7 @@ app.post(
           content,
           agentId,
           actorPermissions,
+          personaPermissions: personaKeys,
           timezone,
           viewer,
         });
@@ -419,6 +423,7 @@ app.post(
         content,
         agentId,
         actorPermissions,
+        personaPermissions: personaKeys,
         timezone,
         viewer,
       });

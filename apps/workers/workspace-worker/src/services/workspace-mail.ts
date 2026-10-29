@@ -18,6 +18,7 @@ import { mailAccountRegistry } from '@weldsuite/db/schema/master';
 import { mailDomains } from '@weldsuite/db/schema/mail-domains';
 import { mailAccounts } from '@weldsuite/db/schema/mail-accounts';
 import { mailLabels } from '@weldsuite/db/schema/mail-labels';
+import { bumpMailboxDirectoryVersion } from '@weldsuite/db/lib/mailbox-directory-cache';
 import type { Env } from '../index';
 import type { getMasterDb } from '../db';
 import { generateId } from '../lib/id';
@@ -150,6 +151,12 @@ export async function ensureWorkspaceMail(
       updatedAt: now,
     })),
   );
+
+  // The KV mailbox directory (design §6) caches this account's display data
+  // and its labels; a new account+labels pair just landed, so the next read
+  // must rebuild it rather than keep serving a directory built before this
+  // mailbox existed. Never throws.
+  await bumpMailboxDirectoryVersion(env.WORKSPACE_CACHE, workspaceId);
 
   // The inbound worker routes by this registry row.
   await masterDb

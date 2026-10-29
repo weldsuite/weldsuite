@@ -5,7 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useBlocker } from '@tanstack/react-router';
-import { useOrganization } from '@clerk/clerk-react';
+import { useOrganization } from '@/lib/auth';
 import {
   Dialog,
   DialogContent,

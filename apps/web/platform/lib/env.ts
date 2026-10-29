@@ -5,6 +5,8 @@
  * via the __ENV.js script (for Docker deployments) or from import.meta.env (for local dev).
  */
 
+import { isRuntimeEnv, publicEnv } from "@/lib/runtime-config";
+
 type EnvVars = {
   VITE_CLERK_PUBLISHABLE_KEY: string;
   VITE_API_BASE_URL: string;
@@ -27,6 +29,9 @@ declare global {
  * Falls back to import.meta.env for SSR and local development
  */
 export function getEnv<K extends keyof EnvVars>(key: K): string {
+  // The runtime config (`/config.json`, lib/runtime-config.ts) wins.
+  if (isRuntimeEnv(key)) return publicEnv(key) ?? "";
+
   // Client-side: check window.__ENV first (runtime injection)
   if (typeof window !== "undefined" && window.__ENV?.[key]) {
     return window.__ENV[key] as string;

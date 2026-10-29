@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useWeldChatCall, useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { useChannel, useChannelMembers } from '@/hooks/queries/use-weldchat-queries';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { usePathname } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
 import { getTranslations } from '@/lib/i18n';

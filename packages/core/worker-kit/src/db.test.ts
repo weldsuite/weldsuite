@@ -4,9 +4,10 @@
  * stored sealed, and how entries written by older code or other workers read.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
+import { RequestTiming } from './timing';
 
 const rows: { current: Record<string, unknown>[] } = { current: [] };
 /** The field map the last master `select()` was given. */
@@ -25,12 +26,15 @@ vi.mock('drizzle-orm/neon-http', () => {
   chain.limit = () => Promise.resolve(rows.current);
   return { drizzle: () => chain };
 });
-vi.mock('@neondatabase/serverless', () => ({ neon: () => ({}) }));
+// A bare `query`/`transaction` pair: enough for `instrumentNeonClient` (./timing.ts)
+// to wrap without crashing when a test passes a `RequestTiming` through.
+vi.mock('@neondatabase/serverless', () => ({ neon: () => ({ query: () => ({}), transaction: () => Promise.resolve([]) }) }));
 const resolveDatabaseUrl = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => 'postgres://resolved/tenant'));
 vi.mock('@weldsuite/db/lib/neon-resolve', () => ({ resolveDatabaseUrl }));
 
 import { sealCachedDatabaseUrl } from '@weldsuite/db/lib/workspace-url-cache';
 import {
+  __resetContextMemoryForTests,
   forgetWorkspaceContext,
   getWorkspaceContextForOrg,
   getWorkspaceForOrg,
@@ -92,6 +96,10 @@ beforeEach(() => {
   rows.current = [baseRow];
   resolveDatabaseUrl.mockClear();
   selected.current = null;
+  // Every test below reuses 'org_1' / 'ws_1' with a fresh env+store; without
+  // this, the isolate-level memory cache (db.ts, Task B) would serve one
+  // test's resolved promise to the next.
+  __resetContextMemoryForTests();
 });
 
 describe('getWorkspaceContextForOrg · cache miss', () => {
@@ -421,5 +429,93 @@ describe('getWorkspaceContextForOrg · cache hit', () => {
       'wsx:org_1': await stored({ id: 'ws_other', databaseUrl: 'postgres://x/t', suspended: false, licensedApps: null }, OTHER_KEY),
     });
     expect((await getWorkspaceContextForOrg(env, 'org_1')).id).toBe('ws_1');
+  });
+});
+
+describe('getCachedWorkspaceUrl · isolate-level memory coalescing (Task B)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('coalesces back-to-back calls for the same ref into one KV read and one master query', async () => {
+    const { env, kv } = makeEnv();
+    const [a, b] = await Promise.all([
+      getWorkspaceContextForOrg(env, 'org_1'),
+      getWorkspaceContextForOrg(env, 'org_1'),
+    ]);
+    expect(a.id).toBe('ws_1');
+    expect(b.id).toBe('ws_1');
+    expect(kv.get).toHaveBeenCalledTimes(1);
+    expect(resolveDatabaseUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('serves a resolved lookup to a later call within the TTL window, with no further KV or master traffic', async () => {
+    const { env, kv } = makeEnv();
+    await getWorkspaceContextForOrg(env, 'org_1');
+    kv.get.mockClear();
+    kv.put.mockClear();
+    resolveDatabaseUrl.mockClear();
+
+    const ctx = await getWorkspaceContextForOrg(env, 'org_1');
+
+    expect(ctx.id).toBe('ws_1');
+    expect(kv.get).not.toHaveBeenCalled();
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(resolveDatabaseUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not record a KV read on a caller\'s own timing when served from memory', async () => {
+    const { env } = makeEnv();
+    await getWorkspaceContextForOrg(env, 'org_1');
+
+    const timing = new RequestTiming();
+    await getWorkspaceContextForOrg(env, 'org_1', timing);
+
+    expect(timing.touchedStorage).toBe(false);
+  });
+
+  it('re-resolves once the in-memory window has passed', async () => {
+    vi.useFakeTimers();
+    const { env, kv } = makeEnv();
+    await getWorkspaceContextForOrg(env, 'org_1');
+    kv.get.mockClear();
+
+    vi.advanceTimersByTime(11_000);
+    await getWorkspaceContextForOrg(env, 'org_1');
+
+    expect(kv.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('never remembers a rejected lookup: the next call retries instead of replaying the failure', async () => {
+    rows.current = [];
+    const { env } = makeEnv();
+    await expect(getWorkspaceContextForOrg(env, 'org_1')).rejects.toThrow('Workspace not found');
+
+    rows.current = [baseRow];
+    await expect(getWorkspaceContextForOrg(env, 'org_1')).resolves.toMatchObject({ id: 'ws_1' });
+  });
+
+  it('forgetWorkspaceContext drops the in-memory entry immediately, ahead of its own TTL', async () => {
+    const { env, kv } = makeEnv();
+    await getWorkspaceContextForOrg(env, 'org_1');
+
+    await forgetWorkspaceContext(env, 'org_1');
+    kv.get.mockClear();
+
+    await getWorkspaceContextForOrg(env, 'org_1');
+    expect(kv.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps separate workspaces (and refs) from colliding in the same isolate', async () => {
+    rows.current = [{ ...baseRow, id: 'ws_2', clerkOrgId: 'org_2' }];
+    const { env: envForOrg2 } = makeEnv();
+    const ctx2 = await getWorkspaceContextForOrg(envForOrg2, 'org_2');
+
+    rows.current = [baseRow];
+    const { env: envForOrg1 } = makeEnv();
+    const ctx1 = await getWorkspaceContextForOrg(envForOrg1, 'org_1');
+
+    expect(ctx2.id).toBe('ws_2');
+    expect(ctx1.id).toBe('ws_1');
   });
 });

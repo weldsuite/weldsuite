@@ -67,7 +67,7 @@ import {
 } from '@weldsuite/ui/components/dialog';
 import { Mail as MailTypes } from '@/lib/api/types/apps/mail.types';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
-import { mailKeys, useMailLabels } from '@/hooks/queries/use-mail-queries';
+import { mailKeys, useMailAccounts, useMailLabels } from '@/hooks/queries/use-mail-queries';
 import { folderCountsFromStats } from '../lib/folder-counts';
 import {
   useUserPreferences,
@@ -275,10 +275,6 @@ export function useMailSidebarItems(isActive: boolean): {
   const [aiConfidence, setAiConfidence] = useState(70);
   // Agent Auto-Draft settings
 
-  // Local state for email accounts
-  const [localEmailAccounts, setLocalEmailAccounts] = useState<MailAccountRow[]>([]);
-  const [accountsLoading, setAccountsLoading] = useState(true);
-
   // User-pinned default landing account (personal, server-backed per user).
   const { data: userPreferences } = useUserPreferences();
   const updateDefaultAccount = useUpdateMailDefaultAccount();
@@ -296,35 +292,28 @@ export function useMailSidebarItems(isActive: boolean): {
   // Detect unified mode
   const isUnified = pathname?.startsWith('/weldmail/unified') ?? false;
 
+  // Email accounts: the shared React Query cache (`mailKeys.accounts()`)
+  // instead of a second, uncached `mailAccounts.list()` fetch outside React
+  // Query (docs/plans/weldmail-mailbox-storage.md phase 1 item 9). `isActive`
+  // keeps this from firing for every module's sidebar on every render — this
+  // hook is called unconditionally for all of them (see `unified-module-sidebar.tsx`).
+  const accountsQuery = useMailAccounts(isActive);
+  const localEmailAccounts = React.useMemo(() => accountsQuery.data?.data ?? [], [accountsQuery.data]);
+  const accountsLoading = isActive && accountsQuery.isLoading;
+
   // For static routes like /weldmail/inbox, resolve the default/first account
   const resolvedAccountId = resolveMailAccountId(pathname, isUnified, localEmailAccounts);
 
-  const { mailAccounts, mailLabels, mailMessages } = useAppApi();
+  const { mailLabels, mailMessages } = useAppApi();
   const queryClient = useQueryClient();
 
-  // Fetch email accounts via app-api
-  const fetchAccounts = React.useCallback(() => {
-    if (!isActive) return;
-    mailAccounts.list()
-      .then((result) => {
-        if (result.data) {
-          setLocalEmailAccounts(result.data);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setAccountsLoading(false));
-  }, [isActive, mailAccounts]);
-
+  // The legacy `mailApi.*` facade announces an account write with a window
+  // event instead of invalidating queries.
   React.useEffect(() => {
-    fetchAccounts();
-  }, [fetchAccounts]);
-
-  // Re-fetch when an account is created
-  React.useEffect(() => {
-    const handler = () => fetchAccounts();
+    const handler = () => void queryClient.invalidateQueries({ queryKey: mailKeys.accounts() });
     window.addEventListener('mail-accounts-changed', handler);
     return () => window.removeEventListener('mail-accounts-changed', handler);
-  }, [fetchAccounts]);
+  }, [queryClient]);
 
   // The labels under "Labels" are a query, so creating, renaming or deleting one
   // anywhere (the Labels settings page included) refreshes the sidebar through

@@ -16,6 +16,7 @@ mod cron;
 mod infra;
 mod routes;
 mod server;
+mod spa;
 mod telemetry;
 
 use std::process::ExitCode;
@@ -119,6 +120,16 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         config.infra.test_fixtures_token.clone(),
     ));
 
+    let spa = config
+        .spa_dir
+        .as_deref()
+        .map(spa::Spa::load)
+        .transpose()?
+        .map(Arc::new);
+    if let Some(spa) = &spa {
+        tracing::info!(dir = %spa.root().display(), "serving the SPA");
+    }
+
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
         service: "weldsuite",
@@ -145,7 +156,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, router(state))
+    axum::serve(listener, spa::mount(router(state), spa))
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
             let _ = stopping.send(true);

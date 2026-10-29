@@ -5,6 +5,7 @@
  */
 
 import type { Database } from '../db';
+import type { MailStoreModeEnv } from '@weldsuite/mail-domain/store/mode';
 import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 
 export type WorkflowDb = Database;
@@ -73,7 +74,7 @@ export type TriggerType =
 // ---------------------------------------------------------------------------
 
 /** Cloudflare Worker env / service bindings available to the engine. */
-export interface WorkflowEnv {
+export interface WorkflowEnv extends MailStoreModeEnv {
   [key: string]: unknown;
   /** `development` | `test` | `production`, from wrangler `[vars]`. */
   ENVIRONMENT?: string;

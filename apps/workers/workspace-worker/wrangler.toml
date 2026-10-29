@@ -81,6 +81,21 @@ crons = ["*/5 * * * *", "0 3 * * *", "17 * * * *"]
 binding = "WORKSPACE_CACHE"
 id = "748b8f38937f4807b3978cacb17e1880"
 
+# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D8): both
+# Durable Objects are owned and hosted by mail-api, reached here only by
+# `script_name` to destroy a deleted workspace's mail held outside Postgres
+# (services/workspace-mail-destroy.ts). No `[[migrations]]` block here — that
+# belongs to the owning worker (mail-api's wrangler.toml).
+[[durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -138,6 +153,17 @@ id = "54dd4f453a5e4021a31695ada36cc708"
 [[env.test.kv_namespaces]]
 binding = "API_CACHE"
 id = "6ffe3c8ea4e041398d84f9f670e93f88"
+
+# Mailbox store (see the top-level block above for the full comment).
+[[env.test.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api-test"
 
 [env.test.observability]
 enabled = true
@@ -199,6 +225,17 @@ id = "99689831a815455ba7f836175e5e17c9"
 [[env.production.kv_namespaces]]
 binding = "API_CACHE"
 id = "f27cfb0a77a24936911ebd762adf3410"
+
+# Mailbox store (see the top-level block above for the full comment).
+[[env.production.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api"
 
 [env.production.observability]
 enabled = true

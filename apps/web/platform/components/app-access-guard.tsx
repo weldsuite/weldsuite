@@ -7,6 +7,7 @@ import { useIsEmployeeMember, useIsGuest } from '@/hooks/use-current-member';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getAppPermissionObjects } from '@/lib/apps/app-permission-objects';
 import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
+import { isModuleOffered } from '@/lib/edition';
 
 // `/documents` is the shared full-screen document editor — an app-agnostic
 // surface keyed by file id, reachable from WeldFlow, WeldDrive, etc. Its first
@@ -19,6 +20,9 @@ import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
 // The host page does its own is-installed check against useInstalledUserApps,
 // and /apps/manage gates itself on the weldapps:develop permission.
 const ALWAYS_ALLOWED_PREFIXES = ['/settings', '/appstore', '/onboarding', '/agents', '/new-chat', '/documents', '/apps', '/preview'];
+
+/** WeldAgent's pages: workspace-level rather than an installed app, served by the agent module. */
+const AGENT_PREFIXES = ['/agents', '/new-chat'];
 
 /**
  * Path prefixes EXTERNAL_GUEST users can navigate to in v1. Anything else
@@ -91,6 +95,9 @@ function employeeRedirect(pathname: string, installedApps: InstalledAppList): Ac
 
 /** Members: the app behind the path must be installed and readable. */
 function memberRedirect(pathname: string, installedApps: InstalledAppList, perms: Permissions): AccessRedirect | null {
+  // Edition flags (4.F3): WeldAgent's pages need the agent module.
+  if (!isModuleOffered('agent') && matchesPrefix(pathname, AGENT_PREFIXES)) return { to: '/' };
+
   // Always allow root and system paths
   if (pathname === '/' || matchesPrefix(pathname, ALWAYS_ALLOWED_PREFIXES)) return null;
 

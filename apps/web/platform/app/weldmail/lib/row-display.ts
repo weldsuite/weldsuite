@@ -4,8 +4,7 @@
  * tested without rendering a list.
  */
 
-import type { MailMessageRow } from '@weldsuite/app-api-client/domains/mail-messages';
-import type { ThreadSummary } from './thread-utils';
+import type { ThreadListMessageRow, ThreadSummary } from './thread-utils';
 import { hasLabel } from './message-labels';
 
 /** The label a message carries for each folder that lists the user's own mail. */
@@ -32,13 +31,13 @@ export interface RecipientSummary {
   avatarUrl?: string;
 }
 
-function messageTime(message: MailMessageRow): number {
+function messageTime(message: ThreadListMessageRow): number {
   const stamp = message.sentDate ?? message.receivedDate ?? message.scheduledFor ?? message.createdAt;
   return stamp ? new Date(stamp).getTime() : 0;
 }
 
 /** The message of the thread that belongs to `folder`, newest first; any message when none is labelled for it. */
-function outgoingMessage(messages: readonly MailMessageRow[], folder: string): MailMessageRow | undefined {
+function outgoingMessage(messages: readonly ThreadListMessageRow[], folder: string): ThreadListMessageRow | undefined {
   const newestFirst = [...messages].sort((a, b) => messageTime(b) - messageTime(a));
   const labels = OUTGOING_FOLDER_LABELS[folder.toLowerCase()] ?? [];
   const belongs = newestFirst.find((m) => labels.some((label) => hasLabel(m.labels, label)));
@@ -64,7 +63,7 @@ export function summarizeRecipients(recipients: readonly RowRecipient[]): Recipi
 }
 
 /** The soonest wake time among the thread's snoozed messages, or null when none is snoozed. */
-export function earliestSnoozedUntil(messages: readonly MailMessageRow[] | undefined): Date | null {
+export function earliestSnoozedUntil(messages: readonly ThreadListMessageRow[] | undefined): Date | null {
   let soonest: Date | null = null;
   for (const message of messages ?? []) {
     if (!message.snoozedUntil) continue;
@@ -76,7 +75,7 @@ export function earliestSnoozedUntil(messages: readonly MailMessageRow[] | undef
 }
 
 /** Ids of the thread's messages that are snoozed right now (what "Unsnooze" wakes). */
-export function snoozedMessageIds(messages: readonly MailMessageRow[] | undefined): string[] {
+export function snoozedMessageIds(messages: readonly ThreadListMessageRow[] | undefined): string[] {
   return (messages ?? [])
     .filter((m) => Boolean(m.snoozedUntil) || hasLabel(m.labels, 'SNOOZED'))
     .map((m) => m.id);

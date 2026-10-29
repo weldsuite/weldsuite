@@ -21,6 +21,7 @@ export default defineConfig({
       'hooks/**/*.test.{ts,tsx}',
       'contexts/**/*.test.{ts,tsx}',
       'providers/**/*.test.{ts,tsx}',
+      'src/boot/**/*.test.{ts,tsx}',
     ],
     exclude: [
       '**/node_modules/**',
@@ -54,6 +55,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Both boot files have their own tests; main.tsx types against Global's.
+      '@boot': path.resolve(__dirname, 'src/boot/global.tsx'),
       '@': path.resolve(__dirname, './'),
     },
     // Same list as vite.config.ts, so tests resolve singletons the way the

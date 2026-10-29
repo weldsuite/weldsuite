@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useNavigate, useRouter } from '@tanstack/react-router';
 import { Link } from '@/lib/router';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';

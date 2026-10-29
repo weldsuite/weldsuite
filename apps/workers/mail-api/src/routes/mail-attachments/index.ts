@@ -10,7 +10,18 @@
  * Responses never carry `storagePath` or `downloadUrl` (the bucket's public URL
  * serves a file without authentication): the bytes are only served by
  * `GET /:id/download`, which checks access to the mailbox, and a caller that
- * cannot read the attachment gets a 404 there, like for a missing one.
+ * cannot read the attachment gets a 404 there, like for a missing one — this
+ * one pair (`GET /:id/download`, `GET /:id`) has always answered 404 for both
+ * "missing" and "inaccessible", in every mode. Every other mutating route
+ * here (`POST /`, `PUT`/`PATCH /:id`, `DELETE /:id`, `GET /message/:messageId`,
+ * `POST /associate`'s own message check) answered 403 for "exists, but
+ * closed to you" — kept exactly as-is in `postgres`/`shadow`; `object`/
+ * `object-only` collapse it to 404 too (design §5's "Locate": "a message
+ * outside the caller's reach is a 404, where today it is a 403 — no
+ * existence leak").
+ *
+ * Every read/write goes through `workspaceMailFromContext`'s `store`/`access`
+ * (design docs/plans/weldmail-mailbox-store-design.md, task D2).
  *
  * Entity events: `mail_attachment:created | updated | deleted`.
  */
@@ -22,11 +33,13 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
-import * as attachments from '@weldsuite/mail-domain/attachments';
-import { toPublicAttachment, isWorkspaceStorageKey } from '@weldsuite/mail-domain/attachments';
+import { toPublicAttachment, isWorkspaceStorageKey, getAttachment as getAttachmentRowUnscoped } from '@weldsuite/mail-domain/attachments';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
-import { getStoredObject } from '@weldsuite/worker-kit/storage';
+import { getStoredObject, deleteStoredObject } from '@weldsuite/worker-kit/storage';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
+import type { Database } from '@weldsuite/worker-kit/db';
+import type { MailAccess, MailAttachmentRecord, MailStoreMode, WorkspaceMailStore } from '@weldsuite/mail-domain/store';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -48,6 +61,13 @@ const updateBody = createBody.partial();
 
 type AppContext = import('hono').Context<{ Bindings: Env; Variables: Variables }>;
 
+/** `obj` without `keys` — an explicit drop instead of destructuring into an unused `_name` binding. */
+function omit<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const copy = { ...obj };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
 /**
  * The ids the workspace's storage folders are named after: the Clerk org id
  * (compose uploads) and the master workspace id (inbound mail, written by
@@ -68,16 +88,76 @@ const associateBody = z.object({
   attachmentIds: z.array(z.string()).min(1).max(100),
 });
 
+type LocateResult = { ok: true; accountId: string } | { ok: false; response: Response };
+
+/**
+ * `GET /message/:messageId`, `POST /associate`, `POST /` — the message-owner
+ * check that answered 404 for a missing message and 403 for an inaccessible
+ * one. `postgres`/`shadow` keep exactly that (a true, access-unscoped lookup
+ * decides which); `object`/`object-only` collapse both to 404.
+ */
+async function locateMessageOrRespond(
+  c: AppContext,
+  db: Database,
+  store: WorkspaceMailStore,
+  access: MailAccess,
+  mode: MailStoreMode,
+  messageId: string,
+): Promise<LocateResult> {
+  const accessibleIds = await access.accessibleAccountIds();
+  if (accessibleIds.length > 0) {
+    const located = await store.locateMessages([messageId], accessibleIds);
+    const accountId = located.get(messageId);
+    if (accountId) return { ok: true, accountId };
+  }
+  if (mode === 'postgres' || mode === 'shadow') {
+    const trueAccountId = await getMessageAccountId(db, messageId);
+    if (!trueAccountId) return { ok: false, response: error.notFound(c, 'Message', messageId) };
+    return { ok: false, response: error.forbidden(c, 'Access to this mail account is not allowed') };
+  }
+  return { ok: false, response: error.notFound(c, 'Message', messageId) };
+}
+
+type LocateAttachmentResult =
+  | { ok: true; accountId: string; attachment: MailAttachmentRecord }
+  | { ok: false; response: Response };
+
+/**
+ * `PUT`/`PATCH /:id`, `DELETE /:id` — same 404-missing/403-inaccessible split
+ * as `locateMessageOrRespond`, for the attachment itself rather than a
+ * message id. `GET /:id` and `GET /:id/download` do NOT use this: they
+ * already answered 404 for both cases in every mode (see this file's header
+ * comment), so they just call `store.locateAttachment` directly.
+ */
+async function locateAttachmentOrRespond(
+  c: AppContext,
+  db: Database,
+  store: WorkspaceMailStore,
+  access: MailAccess,
+  mode: MailStoreMode,
+  id: string,
+): Promise<LocateAttachmentResult> {
+  const accessibleIds = await access.accessibleAccountIds();
+  const located = accessibleIds.length > 0 ? await store.locateAttachment(id, accessibleIds) : null;
+  if (located) return { ok: true, accountId: located.accountId, attachment: located.attachment };
+  if (mode === 'postgres' || mode === 'shadow') {
+    const existing = await getAttachmentRowUnscoped(db, id);
+    if (!existing) return { ok: false, response: error.notFound(c, 'Attachment', id) };
+    const trueAccountId = await getMessageAccountId(db, existing.messageId);
+    if (!trueAccountId) return { ok: false, response: error.notFound(c, 'Attachment', id) };
+    return { ok: false, response: error.forbidden(c, 'Access to this mail account is not allowed') };
+  }
+  return { ok: false, response: error.notFound(c, 'Attachment', id) };
+}
+
 app.get('/message/:messageId', requirePermission('messages:read'), async (c) => {
   const messageId = c.req.param('messageId');
   try {
     const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const accountId = await getMessageAccountId(db, messageId);
-    if (!accountId) return error.notFound(c, 'Message', messageId);
-    const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const rows = await attachments.listAttachmentsForMessage(db, messageId);
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateMessageOrRespond(c, db, store, access, mode, messageId);
+    if (!located.ok) return located.response;
+    const rows = await store.mailbox(located.accountId).listAttachments(messageId);
     return success(c, rows.map(toPublicAttachment));
   } catch (err) {
     console.error('[app-api/mail-attachments] list-for-message failed:', err);
@@ -89,29 +169,26 @@ app.post('/associate', requirePermission('messages:update'), zValidator('json', 
   const { messageId, attachmentIds } = c.req.valid('json');
   try {
     const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const accountId = await getMessageAccountId(db, messageId);
-    if (!accountId) return error.notFound(c, 'Message', messageId);
-    const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateMessageOrRespond(c, db, store, access, mode, messageId);
+    if (!located.ok) return located.response;
+    const accessibleIds = await access.accessibleAccountIds();
+
     // Only attachments of mailboxes the caller can open: an id from a private
     // mailbox must not be movable into a message the caller does control.
+    // Unreachable ids are silently excluded (unchanged — the route never
+    // errored for those, only skipped them).
     const movable: Array<{ id: string; fileName: string }> = [];
-    const checked = new Map<string, boolean>();
     for (const attachmentId of new Set(attachmentIds)) {
-      const row = await attachments.getAttachment(db, attachmentId);
-      if (!row) continue;
-      const owner = await getMessageAccountId(db, row.messageId);
-      if (!owner) continue;
-      if (!checked.has(owner)) checked.set(owner, await checkAccountAccess(db, owner, userId));
-      if (checked.get(owner)) movable.push({ id: row.id, fileName: row.fileName });
+      const owner = await store.locateAttachment(attachmentId, accessibleIds);
+      if (owner) movable.push({ id: owner.attachment.id, fileName: owner.attachment.fileName });
     }
-    const result = await attachments.associateAttachments(
-      db,
+    const result = await store.mailbox(located.accountId).apply({
+      kind: 'attachment.associate',
       messageId,
-      movable.map((a) => a.id),
-    );
-    if (result.associated > 0) {
+      attachmentIds: movable.map((a) => a.id),
+    });
+    if (result.applied.length > 0) {
       for (const moved of movable) {
         publishEntityEvent({
           c,
@@ -122,7 +199,7 @@ app.post('/associate', requirePermission('messages:update'), zValidator('json', 
         });
       }
     }
-    return success(c, { messageId, ...result });
+    return success(c, { messageId, associated: result.applied.length });
   } catch (err) {
     console.error('[app-api/mail-attachments] associate failed:', err);
     return error.internal(c, 'Failed to associate attachments');
@@ -138,16 +215,14 @@ app.post('/associate', requirePermission('messages:update'), zValidator('json', 
 app.get('/:id/download', requirePermission('messages:read'), async (c) => {
   const id = c.req.param('id');
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const row = await attachments.getAttachment(db, id);
-    if (!row) return error.notFound(c, 'Attachment', id);
-    const accountId = await getMessageAccountId(db, row.messageId);
-    if (!accountId) return error.notFound(c, 'Attachment', id);
+    const { store, access } = await workspaceMailFromContext(c);
+    const accessibleIds = await access.accessibleAccountIds();
     // Not readable = not found: the response must not tell an attachment of a
-    // private mailbox apart from one that does not exist.
-    const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.notFound(c, 'Attachment', id);
+    // private mailbox apart from one that does not exist (unchanged from
+    // today, in every mode — see this route's own header comment).
+    const located = accessibleIds.length > 0 ? await store.locateAttachment(id, accessibleIds) : null;
+    if (!located) return error.notFound(c, 'Attachment', id);
+    const row = located.attachment;
     if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) {
       return c.json(
         { error: { code: 'STORAGE_BINDING_MISSING', message: 'Storage binding not configured' } },
@@ -180,15 +255,11 @@ app.get('/:id/download', requirePermission('messages:read'), async (c) => {
 app.get('/:id', requirePermission('messages:read'), async (c) => {
   const id = c.req.param('id');
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const row = await attachments.getAttachment(db, id);
-    if (!row) return error.notFound(c, 'Attachment', id);
-    const accountId = await getMessageAccountId(db, row.messageId);
-    if (!accountId) return error.notFound(c, 'Attachment', id);
-    const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.notFound(c, 'Attachment', id);
-    return success(c, toPublicAttachment(row));
+    const { store, access } = await workspaceMailFromContext(c);
+    const accessibleIds = await access.accessibleAccountIds();
+    const located = accessibleIds.length > 0 ? await store.locateAttachment(id, accessibleIds) : null;
+    if (!located) return error.notFound(c, 'Attachment', id);
+    return success(c, toPublicAttachment(located.attachment));
   } catch (err) {
     console.error('[app-api/mail-attachments] get failed:', err);
     return error.internal(c, 'Failed to fetch attachment');
@@ -197,16 +268,17 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
 
 app.post('/', requirePermission('messages:create'), zValidator('json', createBody), async (c) => {
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
     const data = c.req.valid('json');
     const foreign = await foreignStoragePath(c, data.storagePath);
     if (foreign) return foreign;
-    const accountId = await getMessageAccountId(db, data.messageId);
-    if (!accountId) return error.notFound(c, 'Message', data.messageId);
-    const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const row = await attachments.createAttachment(db, data);
+    const db = c.get('tenantDb');
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateMessageOrRespond(c, db, store, access, mode, data.messageId);
+    if (!located.ok) return located.response;
+    const id = generateId('attach');
+    await store.mailbox(located.accountId).apply({ kind: 'attachment.create', attachment: { id, ...data } });
+    const row = await store.mailbox(located.accountId).getAttachment(id);
+    if (!row) return error.internal(c, 'Failed to create attachment');
     publishEntityEvent({
       c,
       entityType: 'mail_attachment',
@@ -214,7 +286,10 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createBod
       action: 'created',
       data: { id: row.id, messageId: row.messageId, fileName: row.fileName },
     });
-    return success(c, toPublicAttachment(row), 201);
+    // `MailboxStore.getAttachment` adds `accountId` on top of the plain row
+    // (it joins through the message to answer that); strip it back out so the
+    // response shape matches `GET /:id`'s (today's route never had this field).
+    return success(c, toPublicAttachment(omit(row, ['accountId'])), 201);
   } catch (err) {
     console.error('[app-api/mail-attachments] create failed:', err);
     return error.internal(c, 'Failed to create attachment');
@@ -228,25 +303,23 @@ const updateRoute = async (
   const data = c.req.valid('json' as never) as z.infer<typeof updateBody>;
   const foreign = await foreignStoragePath(c, data.storagePath);
   if (foreign) return foreign;
-  const db = c.get('tenantDb');
-  const userId = c.get('userId');
-  const existing = await attachments.getAttachment(db, id);
-  if (!existing) return error.notFound(c, 'Attachment', id);
-  const accountId = await getMessageAccountId(db, existing.messageId);
-  if (!accountId) return error.notFound(c, 'Attachment', id);
-  const allowed = await checkAccountAccess(db, accountId, userId);
-  if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
   try {
-    const result = await attachments.updateAttachment(db, id, data);
-    if (!result) return error.notFound(c, 'Attachment', id);
+    const db = c.get('tenantDb');
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateAttachmentOrRespond(c, db, store, access, mode, id);
+    if (!located.ok) return located.response;
+    const result = await store.mailbox(located.accountId).apply({ kind: 'attachment.update', id, patch: data });
+    if (!result.applied.includes(id)) return error.notFound(c, 'Attachment', id);
+    const after = await store.mailbox(located.accountId).getAttachment(id);
+    if (!after) return error.notFound(c, 'Attachment', id);
     publishEntityEvent({
       c,
       entityType: 'mail_attachment',
       entityId: id,
       action: 'updated',
-      data: { id, messageId: result.after.messageId, fileName: result.after.fileName },
+      data: { id, messageId: after.messageId, fileName: after.fileName },
     });
-    return success(c, toPublicAttachment(result.after));
+    return success(c, toPublicAttachment(omit(after, ['accountId'])));
   } catch (err) {
     console.error('[app-api/mail-attachments] update failed:', err);
     return error.internal(c, 'Failed to update attachment');
@@ -260,21 +333,28 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
   const id = c.req.param('id');
   try {
     const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const existing = await attachments.getAttachment(db, id);
-    if (!existing) return error.notFound(c, 'Attachment', id);
-    const accountId = await getMessageAccountId(db, existing.messageId);
-    if (!accountId) return error.notFound(c, 'Attachment', id);
-    const allowed = await checkAccountAccess(db, accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const deleted = await attachments.deleteAttachment(c.env, db, id);
-    if (!deleted) return error.notFound(c, 'Attachment', id);
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateAttachmentOrRespond(c, db, store, access, mode, id);
+    if (!located.ok) return located.response;
+    const { messageId, fileName } = located.attachment;
+    const result = await store.mailbox(located.accountId).apply({ kind: 'attachment.delete', id });
+    if (!result.applied.includes(id)) return error.notFound(c, 'Attachment', id);
+    // Best-effort R2 cleanup, same as today's `deleteAttachment` — a failure
+    // here never fails the request; the row is already gone.
+    for (const path of result.storagePaths ?? []) {
+      if (!c.env.STORAGE && !c.env.PRIVATE_STORAGE) break;
+      try {
+        await deleteStoredObject(c.env, path);
+      } catch (storageErr) {
+        console.error(`[app-api/mail-attachments] R2 delete failed for ${path} (attachment ${id}):`, storageErr);
+      }
+    }
     publishEntityEvent({
       c,
       entityType: 'mail_attachment',
       entityId: id,
       action: 'deleted',
-      data: { id, messageId: deleted.messageId, fileName: deleted.fileName },
+      data: { id, messageId, fileName },
     });
     return noContent(c);
   } catch (err) {

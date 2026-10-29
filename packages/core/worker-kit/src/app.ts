@@ -31,12 +31,17 @@ import { featureFlagsMiddleware } from './middleware/feature-flags';
 import { licenceGate } from './middleware/licence-gate';
 import { requestId } from './middleware/request-id';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
+import { resolveEffectivePermissionsCached } from './permission-cache';
 import { requestTiming, timePermissionQueries } from './timing';
 import { classifyMovedDatabaseError, workspaceMovingResponse } from './workspace-moving';
 
 let permissionsInitialized = false;
 
-/** Register the Drizzle-backed permission lookups once per isolate. */
+/**
+ * Register the Drizzle-backed permission lookups once per isolate, and cache
+ * the resolved result in KV (./permission-cache.ts) so `requirePermission` /
+ * `ensurePermissionsResolved` cost no tenant query at all on a cache hit.
+ */
 export function ensurePermissionMiddleware(): void {
   if (permissionsInitialized) return;
   permissionsInitialized = true;
@@ -46,6 +51,8 @@ export function ensurePermissionMiddleware(): void {
         createDrizzlePermissionQueries(c.get('tenantDb'), schema, { eq, and, isNull }),
         c.get('timing'),
       ),
+    resolve: (c, queries, userId) =>
+      resolveEffectivePermissionsCached(c.env, c.get('workspaceId'), userId, queries, c.get('timing')),
   });
 }
 

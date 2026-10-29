@@ -37,6 +37,14 @@ export default defineConfig({
       // through it. Same idea as the smtp package's own stub, but a test can install a socket
       // factory (a fake SMTP server), so the real send path runs with no seam in the worker code.
       'cloudflare:sockets': path.resolve(__dirname, './src/test/cloudflare-sockets-stub.ts'),
+      // Workers-only module; the object-mode mail tests pull in the C2 fakes
+      // (`@weldsuite/mail-domain/store/object/testing/fake-env`), which run
+      // the real `MailboxStoreObject` class (`extends DurableObject`). Same
+      // stub mail-api's own vitest config uses.
+      'cloudflare:workers': path.resolve(
+        __dirname,
+        '../../../packages/domains/mail/src/testing/cloudflare-workers-stub.ts',
+      ),
     },
   },
 });

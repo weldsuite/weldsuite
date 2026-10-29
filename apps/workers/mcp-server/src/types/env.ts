@@ -1,5 +1,7 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { FlagshipBinding } from '@weldsuite/feature-flags/server';
+import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+import type { MailIndex } from '@weldsuite/mail-domain/mail-index';
 import type { RateLimiter } from '../durable-objects/rate-limiter';
 
 /**
@@ -88,8 +90,22 @@ export interface Env {
    * picks it up. Always bind it: unset, nothing wakes the sweep.
    */
   SCHEDULE_INDEX?: D1Database;
-  /** Cloudflare Flagship: the `weldreach-sending` kill switch `GET /v1/reach/access` reports. Unset: the flag's default (on). */
+  /** Cloudflare Flagship: the `weldreach-sending` kill switch `GET /v1/reach/access` reports, and (shared with the mailbox store) `resolveMailStoreMode`'s per-workspace flag. Unset: both default to their "off"/`postgres` behaviour. */
   FLAGSHIP?: FlagshipBinding;
+
+  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md) --------
+  // Read by `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
+  // (`src/api/lib/mail-store-context.ts`). Unset ⇒ `resolveMailStoreMode`
+  // treats every workspace as `postgres`, so these three go unread until
+  // mail-api's Durable Objects are actually bound (design §8). The MCP server
+  // never sends (`src/api/routes/v1/mail-sending` does not exist here), so it
+  // needs no `OUTBOUND_LEDGER` binding the way external-api does.
+  /** mail-api's mailbox Durable Object, bound by `script_name` (one object per mailbox, always reached through `.jurisdiction('eu')`). */
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
+  /** mail-api's per-workspace correspondent/address index, bound by `script_name`. Optional everywhere: `recentAddresses`/`messagesByCounterparty` fall back to scanning every accessible mailbox without it. */
+  MAIL_INDEX?: DurableObjectNamespace<MailIndex>;
+  /** EU-jurisdiction bucket for message bodies and raw MIME (decision 7) — only read by `object`/`object-only` mode's `getMessage({ bodies: true })`. */
+  MAIL_STORAGE?: R2Bucket;
 
   // --- WeldSocial (PostPeer publishing) ----------------------------------
   // Read by publish_social_post / schedule_social_post via

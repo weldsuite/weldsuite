@@ -5,6 +5,10 @@
  * (or the message's own `id` when it's the thread head). Read-side
  * thread aggregation lives on `/api/mail-labels/threads`; this surface
  * is the write side.
+ *
+ * Both routes go through `workspaceMailFromContext`'s `store`/`access`
+ * (design docs/plans/weldmail-mailbox-store-design.md, task D2), so marking a
+ * folder or a thread read works the same in every mailbox-store mode.
  */
 
 import { Hono } from 'hono';
@@ -14,8 +18,7 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import { markFolderRead, markThreadRead } from '@weldsuite/mail-domain/thread-ops';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 import { queueMailReadPush } from '../../lib/read-push';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -47,18 +50,19 @@ app.post(
   zValidator('json', readAllBody),
   async (c) => {
     const { labelSlug, accountId } = c.req.valid('json');
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    if (accountId && !(await checkAccountAccess(db, accountId, userId))) {
-      return error.forbidden(c, 'Access to this mail account is not allowed');
-    }
     try {
-      const result = await markFolderRead(
-        db,
-        userId,
-        { labelSlug, accountId },
-        { updatedPerAccount: READ_ALL_PUSH_IDS },
-      );
+      const { store, access } = await workspaceMailFromContext(c);
+      let accountIds: string[];
+      if (accountId) {
+        if (!(await access.canOpen(accountId))) {
+          return error.forbidden(c, 'Access to this mail account is not allowed');
+        }
+        accountIds = [accountId];
+      } else {
+        accountIds = await access.accessibleAccountIds();
+      }
+
+      const result = await store.markFolderRead(accountIds, { labelSlug }, { updatedPerAccount: READ_ALL_PUSH_IDS });
       const anchor = result.updated[0];
       if (anchor) {
         // One hub event, like the bulk route: the platform invalidates the
@@ -100,17 +104,14 @@ app.post(
     const threadId = c.req.param('threadId');
     const accountId = c.req.query('accountId');
     if (!accountId) return error.badRequest(c, 'accountId query parameter is required');
-    const allowed = await checkAccountAccess(c.get('tenantDb'), accountId, c.get('userId'));
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
+      const { store, access } = await workspaceMailFromContext(c);
+      const allowed = await access.canOpen(accountId);
+      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
       const isRead = c.req.valid('json').isRead;
-      const result = await markThreadRead(
-        c.get('tenantDb'),
-        accountId,
-        threadId,
-        isRead,
-      );
-      if (result.updatedCount > 0) {
+      const result = await store.mailbox(accountId).apply({ kind: 'thread.read', threadKey: threadId, isRead });
+      const updatedIds = result.updatedIds ?? [];
+      if (updatedIds.length > 0) {
         publishEntityEvent({
           c,
           entityType: 'email',
@@ -119,8 +120,8 @@ app.post(
           data: { id: threadId, accountId, subject: null, from: null, to: null },
         });
       }
-      if (isRead) queueMailReadPush(c, accountId, result.updatedIds);
-      return success(c, { updatedCount: result.updatedCount });
+      if (isRead) queueMailReadPush(c, accountId, updatedIds);
+      return success(c, { updatedCount: updatedIds.length });
     } catch (err) {
       console.error('[app-api/mail-threads] mark-read failed:', err);
       return error.internal(c, 'Failed to update thread read state');

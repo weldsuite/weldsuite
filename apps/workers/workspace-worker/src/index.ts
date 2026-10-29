@@ -22,6 +22,8 @@ import { sweepUnfinishedTeardowns } from './services/teardown-sweep';
 import { repairWorkspaceMailDomains } from './services/mail-repair-sweep';
 import { onboardPartnerWorkspace } from './services/partner-onboarding';
 import type { PartnerOnboardResult } from '@weldsuite/core-domain/partners';
+import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+import type { MailIndex } from '@weldsuite/mail-domain/mail-index';
 
 export interface Env {
   // Neon serverless connection string for the master database (replaces Hyperdrive)
@@ -92,6 +94,17 @@ export interface Env {
   // Public URL of the platform SPA, used to build the invitation accept link
   // shown in the email when Clerk doesn't return a ticket URL.
   APP_URL?: string;
+
+  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D8) ---
+  // One SQLite Durable Object per mailbox and one per workspace, both owned
+  // and hosted by mail-api; reached here by `script_name` only to destroy a
+  // deleted workspace's mail held outside Postgres
+  // (services/workspace-mail-destroy.ts). Optional: an environment without
+  // these bound (an older deploy, local `wrangler dev` without mail-api
+  // running) just skips that step rather than failing the teardown.
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
+  MAIL_INDEX?: DurableObjectNamespace<MailIndex>;
+
   // General config
   ENVIRONMENT: string;
 }

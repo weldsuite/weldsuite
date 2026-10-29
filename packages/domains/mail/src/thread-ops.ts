@@ -10,7 +10,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { MailCaller } from './access';
-import { threadListScope } from './threads';
+import { threadListScope, threadListScopeForAccounts, type ThreadListFilter, type ThreadScope } from './threads';
 
 const { mailMessages } = schema;
 
@@ -28,10 +28,11 @@ export async function markThreadRead(
   accountId: string,
   threadId: string,
   isRead: boolean,
+  now: Date = new Date(),
 ): Promise<{ updatedCount: number; updatedIds: string[] }> {
   const result = await db
     .update(mailMessages)
-    .set({ isRead, updatedAt: new Date() })
+    .set({ isRead, updatedAt: now })
     .where(
       and(
         eq(mailMessages.accountId, accountId),
@@ -84,15 +85,64 @@ export interface MarkFolderReadOptions {
 export async function markFolderRead(
   db: Database,
   caller: MailCaller,
-  input: { labelSlug: string; accountId?: string },
+  input: ThreadListFilter & { labelSlug: string; accountId?: string },
   options: MarkFolderReadOptions = {},
+  now: Date = new Date(),
 ): Promise<{ updatedCount: number; updated: { id: string; accountId: string }[] }> {
+  const scope = await threadListScope(db, caller, input);
+  if (!scope) return { updatedCount: 0, updated: [] };
+  // `updatedIds` is additive, for `markFolderReadForAccounts`/the op
+  // dispatcher (design task B4); this keeps the existing callers' exact
+  // return shape, same as before that field existed.
+  const { updatedCount, updated } = await markFolderReadWithScope(db, scope, options, now);
+  return { updatedCount, updated };
+}
+
+/**
+ * The accounts-list twin of {@link markFolderRead} (design task B4, op
+ * `folder.read`): `accountIds` is the store's already-resolved scope — its
+ * own mailbox, or `WorkspaceMailStore`'s accessible-account list — so this
+ * never re-runs a principal access check.
+ */
+export async function markFolderReadForAccounts(
+  db: Database,
+  accountIds: string[],
+  input: ThreadListFilter & { labelSlug: string },
+  options: MarkFolderReadOptions = {},
+  now: Date = new Date(),
+): Promise<{
+  updatedCount: number;
+  updated: { id: string; accountId: string }[];
+  updatedIds: string[];
+  /**
+   * `true` when the last batch run was full-size, so unread mail matching
+   * `input` may remain beyond `maxBatches * batchSize` — mirrors the mailbox
+   * object's `applyFolderRead`'s `more`, for the `folder.read` op's
+   * `OpResult` (design §2).
+   */
+  more: boolean;
+}> {
+  const scope = await threadListScopeForAccounts(db, accountIds, input);
+  if (!scope) return { updatedCount: 0, updated: [], updatedIds: [], more: false };
+  return markFolderReadWithScope(db, scope, options, now);
+}
+
+/** The batched mark-all-read pipeline, once the thread scope is known — shared by both callers above. */
+async function markFolderReadWithScope(
+  db: Database,
+  scope: ThreadScope,
+  options: MarkFolderReadOptions,
+  now: Date = new Date(),
+): Promise<{ updatedCount: number; updated: { id: string; accountId: string }[]; updatedIds: string[]; more: boolean }> {
   const batchSize = options.batchSize ?? MARK_READ_BATCH_SIZE;
   const maxBatches = options.maxBatches ?? MARK_READ_MAX_BATCHES;
   const updatedPerAccount = options.updatedPerAccount ?? MARK_READ_UPDATED_PER_ACCOUNT;
 
-  const scope = await threadListScope(db, caller, input);
-  if (!scope) return { updatedCount: 0, updated: [] };
+  // Snoozed mail that came due since the last sweep is back in the inbox
+  // before the batches below read it. Never worth failing the mark-all over.
+  await scope.buildWake(db).catch((err) => {
+    console.error('[mail-thread-ops] waking snoozed mail failed:', err);
+  });
 
   const threadIdExpr = sql`COALESCE(${mailMessages.threadId}, ${mailMessages.id})`;
   const folderThreads = db
@@ -108,7 +158,15 @@ export async function markFolderRead(
 
   let updatedCount = 0;
   const updated: { id: string; accountId: string }[] = [];
+  // Every id touched, uncapped — the op dispatcher's `OpResult.updatedIds`
+  // (design task B4: "folder.read, thread.read: every id, for the
+  // secondary"), as opposed to `updated`, which stays capped for the push.
+  const updatedIds: string[] = [];
   const keptPerAccount = new Map<string, number>();
+  // Mirrors `mailbox-object/writes-extra.ts`'s `applyFolderRead`: `true` only
+  // when the most recent batch was full-size, so unread mail matching the
+  // scope may remain beyond `maxBatches * batchSize`.
+  let more = false;
 
   for (let batchNo = 0; batchNo < maxBatches; batchNo++) {
     // Marked rows leave `unreadInFolder`, so each pass sees the next batch.
@@ -118,12 +176,15 @@ export async function markFolderRead(
       .where(unreadInFolder)
       .orderBy(sql`COALESCE(${mailMessages.receivedDate}, ${mailMessages.sentDate}) DESC NULLS LAST`)
       .limit(batchSize);
-    if (batch.length === 0) break;
+    if (batch.length === 0) {
+      more = false;
+      break;
+    }
 
     // `isRead = false` again: a message read in the meantime is not counted twice.
     const done = await db
       .update(mailMessages)
-      .set({ isRead: true, updatedAt: new Date() })
+      .set({ isRead: true, updatedAt: now })
       .where(
         and(
           inArray(mailMessages.id, batch.map((m) => m.id)),
@@ -136,14 +197,16 @@ export async function markFolderRead(
     const doneIds = new Set(done.map((r) => r.id));
     for (const { id, accountId } of batch) {
       if (!doneIds.has(id)) continue;
+      updatedIds.push(id);
       const kept = keptPerAccount.get(accountId) ?? 0;
       if (kept >= updatedPerAccount) continue;
       keptPerAccount.set(accountId, kept + 1);
       updated.push({ id, accountId });
     }
 
-    if (batch.length < batchSize) break;
+    more = batch.length >= batchSize;
+    if (!more) break;
   }
 
-  return { updatedCount, updated };
+  return { updatedCount, updated, updatedIds, more };
 }

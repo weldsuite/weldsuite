@@ -16,16 +16,15 @@
  */
 
 import { Hono } from 'hono';
-import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import type { Env, Variables } from '../../types';
 import { hasContextPermission } from '@weldsuite/permissions/server';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { schema } from '@weldsuite/worker-kit/db';
-import { listAccessibleAccountIds } from '@weldsuite/mail-domain/access';
-import { inTrashOrSpamCondition } from '@weldsuite/mail-domain/labels';
 import { listMemberAppCodes } from '../../services/member-apps';
 import { ensureMemberLinked } from '../../services/member-link';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -108,7 +107,7 @@ app.get('/installed-apps', async (c) => {
     const orgId = c.get('orgId');
     // Same repair as GET /api/me/permissions: the platform asks for both on
     // load, in parallel, and either may run first.
-    if (orgId) await ensureMemberLinked(c.env, db, orgId, c.get('userId'));
+    if (orgId) await ensureMemberLinked(c.env, db, orgId, c.get('userId'), c.get('workspaceId'));
     return success(c, await listMemberAppCodes(db, c.get('userId')));
   } catch (err) {
     console.error('[app-api/dashboard] installed-apps failed:', err);
@@ -151,27 +150,21 @@ app.get('/sidebar-badges', async (c) => {
     const db = c.get('tenantDb');
 
     try {
-      const { mailMessages } = schema;
       // Only the mailboxes this member may open: the count of a colleague's
       // private mailbox is theirs alone. Trash and spam never count towards
-      // the badge (same rule as the mail folder counters).
-      const accountIds = await listAccessibleAccountIds(db, c.get('userId'));
+      // the badge (same rule as the mail folder counters). Routed through
+      // the mailbox store (docs/plans/weldmail-mailbox-store-design.md §5):
+      // in `postgres`/`shadow` mode `accessibleAccountIds()` and
+      // `unreadBadge()` run the exact same queries this replaced; in
+      // `object`/`object-only` mode the account list comes from the KV
+      // directory and the count fans out to the mailbox objects.
+      const mail = await workspaceMailFromContext(c);
+      const accountIds = await mail.access.accessibleAccountIds();
       if (accountIds.length > 0) {
-        const [messageCount] = await db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(mailMessages)
-          .where(
-            and(
-              eq(mailMessages.isRead, false),
-              isNull(mailMessages.deletedAt),
-              inArray(mailMessages.accountId, accountIds),
-              sql`NOT ${inTrashOrSpamCondition()}`,
-            ),
-          );
-        badges.unreadMessages = messageCount?.count || 0;
+        badges.unreadMessages = await mail.store.unreadBadge(accountIds);
       }
     } catch {
-      // mailMessages table may not exist.
+      // mailMessages table may not exist, or the mail store is unavailable.
     }
 
     // Ticket and order counts only for members who may read those objects.

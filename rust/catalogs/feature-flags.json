@@ -19,6 +19,10 @@
     "default": false,
     "type": "boolean"
   },
+  "weldmail-mailbox-store": {
+    "default": "postgres",
+    "type": "string"
+  },
   "weldmail-outbound-guard": {
     "default": "shadow",
     "type": "string"

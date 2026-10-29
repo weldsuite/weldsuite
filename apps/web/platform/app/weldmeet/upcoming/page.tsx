@@ -1,5 +1,5 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useMeetings, useCancelMeeting, useUpdateMeeting, type Meeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useState, useMemo, useCallback } from 'react';
 import { CancelMeetingDialog } from '../components/cancel-meeting-dialog';

@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { Loader2, LogOut, UserPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { isApiError } from '@weldsuite/api-client';

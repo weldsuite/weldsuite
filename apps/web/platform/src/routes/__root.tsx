@@ -20,7 +20,7 @@ import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { RealtimeProvider, useRealtimeSync } from '@weldsuite/realtime/react';
 import { PlatformPermissionProvider } from '@/providers/permission-provider';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { platformSyncMap } from '@/lib/realtime/sync-map';
 import { createBrowserCursorStore } from '@/lib/realtime/cursor-store';
 import { useDesktopAuthHandler } from '@/hooks/use-desktop-auth';

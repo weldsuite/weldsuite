@@ -60,6 +60,10 @@ spec:
             {{- end }}
           env:
             {{- include "weldsuite.env" . | nindent 12 }}
+            # The platform SPA in the image, for every path the API doesn't
+            # answer; empty serves the API alone.
+            - name: SPA_DIR
+              value: {{ ternary .Values.spa.dir "" .Values.spa.enabled | quote }}
           envFrom:
             - secretRef:
                 name: {{ include "weldsuite.secretName" . }}
