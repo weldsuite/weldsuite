@@ -801,6 +801,72 @@
         "rust/crates/chat-domain/",
         "rust/crates/notifications/"
       ]
+    },
+    {
+      "name": "desk: help center and ticket records",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/helpdesk-faqs/routes.test.ts",
+        "src/routes/helpdesk-news/routes.test.ts",
+        "src/routes/helpdesk-announcements/routes.test.ts",
+        "src/routes/helpdesk-feedback/routes.test.ts",
+        "src/routes/helpdesk-reviews/routes.test.ts",
+        "src/routes/slas/routes.test.ts",
+        "src/routes/ticket-notes/routes.test.ts",
+        "src/routes/ticket-messages/routes.test.ts",
+        "src/routes/satisfaction-surveys/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/helpdesk-faqs/",
+        "apps/workers/desk-api/src/routes/helpdesk-news/",
+        "apps/workers/desk-api/src/routes/helpdesk-announcements/",
+        "apps/workers/desk-api/src/routes/helpdesk-feedback/",
+        "apps/workers/desk-api/src/routes/helpdesk-reviews/",
+        "apps/workers/desk-api/src/routes/slas/",
+        "apps/workers/desk-api/src/routes/ticket-notes/",
+        "apps/workers/desk-api/src/routes/ticket-messages/",
+        "apps/workers/desk-api/src/routes/satisfaction-surveys/",
+        "apps/workers/desk-api/src/test/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/"
+      ]
+    },
+    {
+      "name": "desk: tickets",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/tickets/routes.test.ts",
+        "src/routes/tickets/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/tickets/",
+        "apps/workers/desk-api/src/services/helpdesk/conversation-to-ticket.ts",
+        "apps/workers/desk-api/src/lib/notify.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/clients/app-api-client/src/schemas/tickets.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: conversations",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/conversations/routes.test.ts",
+        "src/routes/conversations/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/conversations/",
+        "apps/workers/desk-api/src/services/helpdesk/",
+        "apps/workers/desk-api/src/services/realtime/",
+        "apps/workers/desk-api/src/lib/",
+        "packages/clients/core-api-client/src/schemas/conversations.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
     }
   ]
 }

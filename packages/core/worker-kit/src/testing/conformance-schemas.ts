@@ -266,6 +266,30 @@ import { opportunitySchema } from '@weldsuite/core-api-client/schemas/opportunit
 import { personCompanySchema } from '@weldsuite/core-api-client/schemas/person-companies';
 import { pipelineStageSchema, reorderPipelineStagesResultSchema } from '@weldsuite/core-api-client/schemas/pipeline-stages';
 import { pipelineRowSchema } from '@weldsuite/core-api-client/schemas/pipelines-crm';
+// desk: the plain CRUD route files
+import { deskIdRefSchema } from '@weldsuite/core-api-client/schemas/desk-common';
+import { helpdeskFaqSchema } from '@weldsuite/core-api-client/schemas/helpdesk-faqs';
+import { helpdeskNewsItemSchema } from '@weldsuite/core-api-client/schemas/helpdesk-news';
+import { helpdeskAnnouncementSchema } from '@weldsuite/core-api-client/schemas/helpdesk-announcements';
+import { helpdeskFeedbackItemSchema } from '@weldsuite/core-api-client/schemas/helpdesk-feedback';
+import { helpdeskReviewSchema } from '@weldsuite/core-api-client/schemas/helpdesk-reviews';
+import { slaSchema } from '@weldsuite/core-api-client/schemas/slas';
+import { ticketNoteSchema } from '@weldsuite/core-api-client/schemas/ticket-notes';
+import { ticketMessageSchema } from '@weldsuite/core-api-client/schemas/ticket-messages';
+import { satisfactionSurveySchema } from '@weldsuite/core-api-client/schemas/satisfaction-surveys';
+import {
+  auditLogRowSchema,
+  autoLinkedContactSchema,
+  blockResponseResultSchema,
+  conversationActionSchema,
+  conversationFolderCountsSchema,
+  conversationReviewSchema,
+  convertedTicketSchema,
+  helpdeskConversationEventSchema,
+  helpdeskConversationMessageSchema,
+  helpdeskConversationSchema,
+} from '@weldsuite/core-api-client/schemas/conversations';
+import { ticketCreatedSchema, ticketSchema, ticketTagsSchema } from '@weldsuite/app-api-client/schemas/tickets';
 
 import {
   weldpassAuditEventSchema,
@@ -725,6 +749,50 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/chat-entity-channels/:entityType/:entityId/messages', envelope: 'single', data: chatRecordMessageSentSchema },
   { method: 'POST', route: '/api/chat-entity-channels/:entityType/:entityId/follow', envelope: 'single', data: chatRecordFollowSchema },
   { method: 'GET', route: '/api/chat-entity-channels/:entityType/:entityId/detail', envelope: 'single', data: chatRecordDetailSchema },
+  // desk: the plain CRUD route files (list, detail, create, update; delete is a 204)
+  { method: 'GET', route: '/api/helpdesk-faqs', envelope: 'list', data: helpdeskFaqSchema },
+  { method: 'GET', route: '/api/helpdesk-faqs/:id', envelope: 'single', data: helpdeskFaqSchema },
+  { method: 'POST', route: '/api/helpdesk-faqs', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-faqs/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-news', envelope: 'list', data: helpdeskNewsItemSchema },
+  { method: 'GET', route: '/api/helpdesk-news/:id', envelope: 'single', data: helpdeskNewsItemSchema },
+  { method: 'POST', route: '/api/helpdesk-news', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-news/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-announcements', envelope: 'list', data: helpdeskAnnouncementSchema },
+  { method: 'GET', route: '/api/helpdesk-announcements/:id', envelope: 'single', data: helpdeskAnnouncementSchema },
+  { method: 'POST', route: '/api/helpdesk-announcements', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-announcements/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-feedback', envelope: 'list', data: helpdeskFeedbackItemSchema },
+  { method: 'GET', route: '/api/helpdesk-feedback/:id', envelope: 'single', data: helpdeskFeedbackItemSchema },
+  { method: 'POST', route: '/api/helpdesk-feedback', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-feedback/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/helpdesk-reviews', envelope: 'list', data: helpdeskReviewSchema },
+  { method: 'GET', route: '/api/helpdesk-reviews/:id', envelope: 'single', data: helpdeskReviewSchema },
+  { method: 'POST', route: '/api/helpdesk-reviews', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/helpdesk-reviews/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/slas', envelope: 'list', data: slaSchema },
+  { method: 'GET', route: '/api/slas/:id', envelope: 'single', data: slaSchema },
+  { method: 'POST', route: '/api/slas', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/slas/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/ticket-notes', envelope: 'list', data: ticketNoteSchema },
+  { method: 'GET', route: '/api/ticket-notes/:id', envelope: 'single', data: ticketNoteSchema },
+  { method: 'POST', route: '/api/ticket-notes', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/ticket-notes/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/ticket-messages', envelope: 'list', data: ticketMessageSchema },
+  { method: 'GET', route: '/api/ticket-messages/:id', envelope: 'single', data: ticketMessageSchema },
+  { method: 'POST', route: '/api/ticket-messages', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/ticket-messages/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'GET', route: '/api/satisfaction-surveys', envelope: 'list', data: satisfactionSurveySchema },
+  { method: 'GET', route: '/api/satisfaction-surveys/:id', envelope: 'single', data: satisfactionSurveySchema },
+  { method: 'POST', route: '/api/satisfaction-surveys', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/satisfaction-surveys/:id', envelope: 'single', data: deskIdRefSchema },
+  // desk: tickets
+  { method: 'GET', route: '/api/tickets', envelope: 'list', data: ticketSchema },
+  { method: 'GET', route: '/api/tickets/:id', envelope: 'single', data: ticketSchema },
+  { method: 'POST', route: '/api/tickets', envelope: 'single', data: ticketCreatedSchema },
+  { method: 'PATCH', route: '/api/tickets/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/tickets/:id/tags', envelope: 'single', data: ticketTagsSchema },
+  { method: 'POST', route: '/api/tickets/:id/messages', envelope: 'single', data: ticketMessageSchema },
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },
@@ -775,6 +843,31 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/weldpass/vaults/:vaultId/items/:itemId/move', envelope: 'single', data: weldpassItemSchema },
   { method: 'POST', route: '/api/chat-clips/:channelId', envelope: 'single', data: chatClipTranscribingSchema },
   { method: 'PATCH', route: '/api/chat-clips/:channelId/:messageId/transcript', envelope: 'single', data: chatClipTranscriptSchema },
+  // desk: conversations
+  { method: 'GET', route: '/api/conversations', envelope: 'list', data: helpdeskConversationSchema },
+  { method: 'GET', route: '/api/conversations/folder-counts', envelope: 'single', data: conversationFolderCountsSchema },
+  { method: 'GET', route: '/api/conversations/:id', envelope: 'single', data: helpdeskConversationSchema },
+  { method: 'GET', route: '/api/conversations/:id/messages', envelope: 'array', data: helpdeskConversationMessageSchema },
+  { method: 'POST', route: '/api/conversations/:id/messages', envelope: 'single', data: helpdeskConversationMessageSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/messages/:messageId/respond', envelope: 'single', data: blockResponseResultSchema },
+  { method: 'GET', route: '/api/conversations/:id/events', envelope: 'array', data: helpdeskConversationEventSchema },
+  { method: 'GET', route: '/api/conversations/:id/review', envelope: 'single', data: conversationReviewSchema },
+  { method: 'GET', route: '/api/conversations/:id/audit-logs', envelope: 'array', data: auditLogRowSchema },
+  { method: 'POST', route: '/api/conversations', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/conversations/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/status', envelope: 'single', data: conversationActionSchema },
+  { method: 'POST', route: '/api/conversations/:id/close', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/read', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/star', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/archive', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/priority', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/assign', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/assign-team', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/snooze', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/tags', envelope: 'single', data: conversationActionSchema },
+  { method: 'PATCH', route: '/api/conversations/:id/contact', envelope: 'single', data: conversationActionSchema },
+  { method: 'POST', route: '/api/conversations/:id/convert-to-ticket', envelope: 'single', data: convertedTicketSchema },
+  { method: 'POST', route: '/api/conversations/:id/auto-link-contact', envelope: 'single', data: autoLinkedContactSchema },
 ];
 
 /** null when valid, else why not. */

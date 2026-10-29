@@ -989,6 +989,56 @@ impl Issues {
         }
     }
 
+    /// `z.union([z.enum(options), z.literal(literal)])` with `presence`: a
+    /// value that fails both is one `invalid_union` issue carrying each
+    /// option's issues (`unionErrors`).
+    pub fn enum_or_literal(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        options: &[&str],
+        literal: &str,
+    ) -> Field<String> {
+        let value = body.get(key);
+        match value {
+            None if matches!(presence, Presence::Optional | Presence::Nullish) => {
+                return Field::Absent;
+            }
+            Some(Value::Null) if matches!(presence, Presence::Nullable | Presence::Nullish) => {
+                return Field::Null;
+            }
+            Some(Value::String(text)) if options.contains(&text.as_str()) || text == literal => {
+                return Field::Set(text.clone());
+            }
+            _ => {}
+        }
+        let path = self.path(key);
+        let mut first = Self {
+            issues: Vec::new(),
+            prefix: self.prefix.clone(),
+        };
+        first.choice(body, key, Presence::Required, options);
+        let received = value.cloned().unwrap_or(Value::Null);
+        let literal_issue = json!({
+            "received": received,
+            "code": "invalid_literal",
+            "expected": literal,
+            "path": path,
+            "message": format!("Invalid literal value, expected {}", Value::String(literal.to_owned())),
+        });
+        self.issues.push(json!({
+            "code": "invalid_union",
+            "unionErrors": [
+                { "issues": first.issues, "name": "ZodError" },
+                { "issues": [literal_issue], "name": "ZodError" },
+            ],
+            "path": path,
+            "message": "Invalid input",
+        }));
+        Field::Absent
+    }
+
     /// `z.enum([...])`, required.
     pub fn one_of(
         &mut self,
@@ -1342,6 +1392,39 @@ pub fn query_values(query: Option<&str>) -> Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Zod 3's output for `z.object({ priority: z.union([z.enum([...]),
+    /// z.literal('normal')]).optional() })`.
+    #[test]
+    fn enum_or_literal_reads_like_a_zod_union() {
+        let options = ["low", "medium", "high", "urgent", "critical"];
+        let read = |value: Value| {
+            let body = json!({ "priority": value });
+            let mut issues = Issues::default();
+            let field = issues.enum_or_literal(
+                body.as_object().expect("object"),
+                "priority",
+                Presence::Optional,
+                &options,
+                "normal",
+            );
+            (field, issues.take())
+        };
+        assert_eq!(read(json!("normal")).0, Field::Set("normal".to_owned()));
+        assert_eq!(read(json!("high")).0, Field::Set("high".to_owned()));
+        assert_eq!(
+            read(json!("x")).1,
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"received":"x","code":"invalid_enum_value","options":["low","medium","high","urgent","critical"],"path":["priority"],"message":"Invalid enum value. Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received 'x'"}],"name":"ZodError"},{"issues":[{"received":"x","code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
+        );
+        assert_eq!(
+            read(json!(5)).1,
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"expected":"'low' | 'medium' | 'high' | 'urgent' | 'critical'","received":"number","code":"invalid_type","path":["priority"],"message":"Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received number"}],"name":"ZodError"},{"issues":[{"received":5,"code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
+        );
+        assert_eq!(
+            read(Value::Null).1,
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"expected":"'low' | 'medium' | 'high' | 'urgent' | 'critical'","received":"null","code":"invalid_type","path":["priority"],"message":"Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received null"}],"name":"ZodError"},{"issues":[{"received":null,"code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
+        );
+    }
 
     #[test]
     fn urls_parse_like_new_url() {

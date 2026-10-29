@@ -19,6 +19,7 @@ mod conformance_outbound;
 #[cfg(feature = "conformance")]
 mod conformance_workflows;
 mod cron;
+mod desk_http;
 mod infra;
 mod routes;
 mod server;

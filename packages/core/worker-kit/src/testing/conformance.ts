@@ -142,6 +142,8 @@ export const FORWARDED_ENV = [
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
   'DATABASE_URL_MASTER',
+  // WeldDesk: the Discord bot (agent replies, ticket threads closed).
+  'DISCORD_BOT_TOKEN',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -463,6 +465,11 @@ const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 /** A signed object URL's credential (`?exp=<seconds>&sig=<HMAC>`). */
 const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
+/**
+ * A ticket number WeldDesk generates (`TKT-<Date.now() in base 36>`, and a
+ * random `-<4 characters>` on `POST /api/tickets`): new per run.
+ */
+const GENERATED_TICKET_NUMBER = /^TKT-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
 /** Seconds either side of now an `expiresAt` may be, to count as one minted by the request. */
 const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
 /**
@@ -471,6 +478,12 @@ const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
  * domain is kept; the parsed messages are compared as side effects too.
  */
 const FRESH_MESSAGE_ID = /^<[0-9a-f]{32}@([^>]+)>$/;
+
+/** A `Date.now()` taken within two days of now. */
+function isRecentEpochMs(value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
+}
 
 /** A `Date.now()` taken within two days of now. */
 function isRecentEpochMs(value: unknown): boolean {
@@ -513,6 +526,7 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
 /** A string in a write's answer, with what differs per run by construction replaced. */
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
+  if (GENERATED_TICKET_NUMBER.test(value)) return 'TKT-<generated>';
   // WeldSign's signed PDF: pdf-lib and lopdf write different bytes for the
   // same drawn content (object numbers, number formatting, compression), so
   // its SHA-256 differs by construction. It reaches a side effect only in

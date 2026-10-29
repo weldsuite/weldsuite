@@ -33,6 +33,8 @@ weldsuite-core-team = { path = "modules/core-team" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
 weldsuite-db = { path = "crates/db" }
+weldsuite-desk = { path = "modules/desk" }
+weldsuite-desk-domain = { path = "crates/desk-domain" }
 weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }

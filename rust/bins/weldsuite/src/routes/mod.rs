@@ -100,6 +100,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = crm(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
+    let router = desk(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -287,6 +288,37 @@ pub(crate) fn calendar_state(state: &AppState) -> weldsuite_calendar::CalendarSt
     }
 }
 
+/// WeldDesk (`weldsuite-desk`): desk-api's paths under `/api`
+/// (`/tickets`, `/conversations`, `/desk/*`, `/helpdesk-*`, …), merged at
+/// their own prefixes as the worker mounts them.
+fn desk(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("desk") {
+        return router;
+    }
+    router.merge(weldsuite_desk::router(
+        desk_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldDesk's handle on the app. The helpdesk workflow engine is not ported:
+/// its port answers as the worker does without `HELPDESK_WORKFLOW`.
+fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
+    weldsuite_desk::DeskState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        files: file_stores(state),
+        cache: state.infra.cache.clone(),
+        mail: state.infra.mail.clone(),
+        workflow: Arc::new(weldsuite_desk_domain::workflow::Unavailable),
+        http: Some(desk_http()),
+        // Customer mail is not wired on Kubernetes yet (the Mail module's
+        // transport): email replies fail as the worker does without SEND_EMAIL.
+        outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        master: Some(state.workspaces.master().clone()),
+    }
+}
+
 /// WeldPass: the root keys (`WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2`)
 /// from the environment and one HTTP client for the deploy targets, made
 /// once per process. Conformance builds take the test's keys and its
@@ -296,6 +328,12 @@ fn pass_state() -> weldsuite_pass::PassState {
     STATE
         .get_or_init(weldsuite_pass::PassState::from_env)
         .clone()
+}
+
+/// WeldDesk's Discord and Slack client, one per process.
+fn desk_http() -> weldsuite_desk_domain::http::DynDeskHttp {
+    static HTTP: OnceLock<weldsuite_desk_domain::http::DynDeskHttp> = OnceLock::new();
+    Arc::clone(HTTP.get_or_init(|| Arc::new(crate::desk_http::ReqwestDeskHttp::default())))
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge
