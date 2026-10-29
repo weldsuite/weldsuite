@@ -13,7 +13,8 @@
 //!   "databaseUrl": "postgres://...",   // the test's pglite, over pglite-socket
 //!   "permissions": { ... },            // pre-resolved, like `context.permissions`
 //!   "flags": { "upgrade-button": true }, // what the test's `context.flags` answers
-//!   "env": { "PERMISSIONS_APP_ENFORCE": "true" } }
+//!   "env": { "PERMISSIONS_APP_ENFORCE": "true" },
+//!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." } } // the test's buckets, over HTTP
 //! ```
 //!
 //! Side effects are recorded instead of published (`Recorders`), and
@@ -138,6 +139,9 @@ struct TestContext {
     flags: Option<HashMap<String, Value>>,
     #[serde(default)]
     env: HashMap<String, String>,
+    /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
+    #[serde(default)]
+    files: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -156,11 +160,18 @@ struct TestPermissions {
 /// and sqlx names prepared statements per connection (`sqlx_s_1`, …): a
 /// second or a reopened connection would collide with the first one's names.
 #[derive(Default)]
-pub(crate) struct Pools(Mutex<HashMap<String, PgPool>>);
+pub(crate) struct Pools {
+    databases: Mutex<HashMap<String, PgPool>>,
+    /// The test buckets' HTTP stores, by URL.
+    buckets: crate::conformance_files::BucketBridges,
+}
 
 impl Pools {
     fn get(&self, url: &str) -> Result<PgPool, ApiError> {
-        let mut pools = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut pools = self
+            .databases
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         if let Some(pool) = pools.get(url) {
             return Ok(pool.clone());
         }
@@ -209,6 +220,10 @@ pub(crate) async fn auth(
     extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
         context.env.clone(),
     )));
+    // The test's buckets; without them a module keeps the app state's stores.
+    if let Some(stores) = pools.buckets.file_stores(&context.files) {
+        extensions.insert(stores);
+    }
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
         extensions.insert(Permissions::new(
