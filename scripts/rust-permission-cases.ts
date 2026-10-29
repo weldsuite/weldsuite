@@ -93,7 +93,8 @@ const GRANTABLE_KEYS = [
  */
 function appCheckResult(check: ReturnType<typeof checkAppPermission>): string {
   const mode = { workspace: 'w', app: 'a', 'any-app': 'x' }[check.mode];
-  return `${check.allowed ? 'y' : 'n'}${mode}${check.app ? `:${check.app}` : ''}${check.objectNotInApp ? '!' : ''}`;
+  const app = check.app ? ':' + check.app : '';
+  return (check.allowed ? 'y' : 'n') + mode + app + (check.objectNotInApp ? '!' : '');
 }
 
 /** One `y`/`n` per boolean. */
