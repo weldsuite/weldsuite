@@ -28,7 +28,13 @@ use crate::{
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
-const GOAL_STATUSES: [&str; 5] = ["on-track", "at-risk", "off-track", "not-started", "completed"];
+const GOAL_STATUSES: [&str; 5] = [
+    "on-track",
+    "at-risk",
+    "off-track",
+    "not-started",
+    "completed",
+];
 
 pub(crate) fn router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -175,17 +181,16 @@ async fn list_goals(caller: &Caller, q: &Query) -> Reply {
         let (all, ids) = access_scope(caller).await?;
         (!all, ids)
     };
-    let cursor = match q.present("cursor") {
-        Some(cursor) => {
-            keyset_cursor(
+    let cursor =
+        match q.present("cursor") {
+            Some(cursor) => keyset_cursor(
                 db,
                 "select id, to_jsonb(created_at) #>> '{}' from project_goals where id = $1 limit 1",
                 cursor,
             )
-            .await?
-        }
-        None => None,
-    };
+            .await?,
+            None => None,
+        };
     let result = async {
         let Some(limit) = limit else {
             return Err(Refusal::Internal("limit is NaN".to_owned()));
@@ -234,7 +239,9 @@ async fn canvas(caller: Caller, Path(project_id): Path<String>) -> Response {
     reply(
         async {
             let Some(row) = canvas_row(&caller.db, &project_id).await? else {
-                return Ok(Data(json!({ "mission": default_mission(), "goals": [] })).into_response());
+                return Ok(
+                    Data(json!({ "mission": default_mission(), "goals": [] })).into_response()
+                );
             };
             let mission = match &row["mission"] {
                 Value::Null => default_mission(),
@@ -260,10 +267,20 @@ async fn save(
 ) -> Response {
     let (mission, goals) = match validate(&headers, &body, |issues, fields| {
         let goals = issues
-            .list(fields, "goals", Presence::Optional, None, None, |_, item| Some(item.clone()))
+            .list(
+                fields,
+                "goals",
+                Presence::Optional,
+                None,
+                None,
+                |_, item| Some(item.clone()),
+            )
             .into_option()
             .unwrap_or_default();
-        (fields.get("mission").cloned().unwrap_or(Value::Null), Value::Array(goals))
+        (
+            fields.get("mission").cloned().unwrap_or(Value::Null),
+            Value::Array(goals),
+        )
     }) {
         Ok(input) => input,
         Err(refused) => return refused.respond("Invalid request body"),
@@ -282,7 +299,12 @@ async fn save(
             } else {
                 PROJECT_GOAL_UPDATED
             };
-            caller.publish(&state, event, &id, &json!({ "id": id, "projectId": project_id }));
+            caller.publish(
+                &state,
+                event,
+                &id,
+                &json!({ "id": id, "projectId": project_id }),
+            );
             let body = json!({ "id": id });
             Ok(if created {
                 Created(body).into_response()
@@ -383,8 +405,12 @@ async fn create(
                 .text(fields, "projectId", Presence::Required, Some(1), Some(30))
                 .into_option()
                 .unwrap_or_default(),
-            title: issues.text_with(fields, "title", Presence::Optional, trimmed).into_option(),
-            name: issues.text_with(fields, "name", Presence::Optional, trimmed).into_option(),
+            title: issues
+                .text_with(fields, "title", Presence::Optional, trimmed)
+                .into_option(),
+            name: issues
+                .text_with(fields, "name", Presence::Optional, trimmed)
+                .into_option(),
             description: issues
                 .text(fields, "description", Presence::Optional, None, Some(5000))
                 .into_option(),
@@ -471,9 +497,14 @@ async fn update(
         let mission = issues.nested(fields, "mission", Presence::Nullish, |_, map| {
             Value::Object(map.clone())
         });
-        let goals = issues.list(fields, "goals", Presence::Optional, None, None, |_, item| {
-            Some(item.clone())
-        });
+        let goals = issues.list(
+            fields,
+            "goals",
+            Presence::Optional,
+            None,
+            None,
+            |_, item| Some(item.clone()),
+        );
         let mut data = Map::new();
         match mission {
             Field::Set(mission) => {
@@ -531,7 +562,11 @@ async fn update(
     )
 }
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let Some(existing) = goal_row(&caller.db, &id).await? else {

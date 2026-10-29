@@ -109,14 +109,12 @@ async fn list_labels(caller: &Caller, q: &Query) -> Reply {
     };
     let search = q.present("search").map(contains_pattern);
     let cursor = match q.present("cursor") {
-        Some(cursor) => {
-            keyset_cursor(
-                db,
-                "select id, to_jsonb(created_at) #>> '{}' from project_labels where id = $1 limit 1",
-                cursor,
-            )
-            .await?
-        }
+        Some(cursor) => keyset_cursor(
+            db,
+            "select id, to_jsonb(created_at) #>> '{}' from project_labels where id = $1 limit 1",
+            cursor,
+        )
+        .await?,
         None => None,
     };
     // `taskUsageScope`: only tasks of projects the caller can see.
@@ -222,7 +220,11 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 // ── POST /, PATCH /:id ──────────────────────────────────────────────────────
 
 /// `createProjectLabelSchema` (`.partial()` for a PATCH), passthrough.
-fn read_label(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_label(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let name = if partial {
         Presence::Optional
     } else {
@@ -240,7 +242,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let body = match validate(&headers, &body, |issues, fields| read_label(issues, fields, false)) {
+    let body = match validate(&headers, &body, |issues, fields| {
+        read_label(issues, fields, false)
+    }) {
         Ok(body) => body,
         Err(refused) => return refused.respond("Invalid request body"),
     };
@@ -309,7 +313,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let body = match validate(&headers, &body, |issues, fields| read_label(issues, fields, true)) {
+    let body = match validate(&headers, &body, |issues, fields| {
+        read_label(issues, fields, true)
+    }) {
         Ok(body) => body,
         Err(refused) => return refused.respond("Invalid request body"),
     };
@@ -343,7 +349,10 @@ async fn update_label(
     {
         return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
     }
-    if let Some(next) = data.get("projectId").and_then(Value::as_str).filter(|p| !p.is_empty())
+    if let Some(next) = data
+        .get("projectId")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
         && Some(next) != existing_project.as_deref()
         && !caller.can_write(next).await?
     {
@@ -386,7 +395,11 @@ async fn update_label(
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let project: Option<Option<String>> = sqlx::query_scalar(

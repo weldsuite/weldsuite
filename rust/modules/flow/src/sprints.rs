@@ -186,7 +186,11 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 // ── POST /, PATCH /:id ──────────────────────────────────────────────────────
 
 /// `createSprintSchema` (`.partial()` for a PATCH), passthrough.
-fn read_sprint(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_sprint(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let name = if partial {
         Presence::Optional
     } else {
@@ -207,13 +211,17 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let body = match validate(&headers, &body, |issues, fields| read_sprint(issues, fields, false)) {
+    let body = match validate(&headers, &body, |issues, fields| {
+        read_sprint(issues, fields, false)
+    }) {
         Ok(body) => body,
         Err(refused) => return refused.respond("Invalid request body"),
     };
     let data = match writable(&body, &WRITABLE, &TIMESTAMPS) {
         Ok(data) => data,
-        Err(field) => return ApiError::bad_request(format!("Invalid date: {field}")).into_response(),
+        Err(field) => {
+            return ApiError::bad_request(format!("Invalid date: {field}")).into_response();
+        }
     };
     let Some(project_id) = data
         .get("projectId")
@@ -303,13 +311,17 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let body = match validate(&headers, &body, |issues, fields| read_sprint(issues, fields, true)) {
+    let body = match validate(&headers, &body, |issues, fields| {
+        read_sprint(issues, fields, true)
+    }) {
         Ok(body) => body,
         Err(refused) => return refused.respond("Invalid request body"),
     };
     let data = match writable(&body, &WRITABLE, &TIMESTAMPS) {
         Ok(data) => data,
-        Err(field) => return ApiError::bad_request(format!("Invalid date: {field}")).into_response(),
+        Err(field) => {
+            return ApiError::bad_request(format!("Invalid date: {field}")).into_response();
+        }
     };
     reply(
         update_sprint(&state, &caller, &id, data).await,
@@ -317,7 +329,12 @@ async fn update(
     )
 }
 
-async fn update_sprint(state: &FlowState, caller: &Caller, id: &str, data: Map<String, Value>) -> Reply {
+async fn update_sprint(
+    state: &FlowState,
+    caller: &Caller,
+    id: &str,
+    data: Map<String, Value>,
+) -> Reply {
     let db = &caller.db;
     let existing: Option<(Option<String>, String, String, bool)> = sqlx::query_as(
         "select project_id, name, status, started_at is not null from sprints
@@ -334,7 +351,10 @@ async fn update_sprint(state: &FlowState, caller: &Caller, id: &str, data: Map<S
     {
         return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
     }
-    if let Some(next) = data.get("projectId").and_then(Value::as_str).filter(|p| !p.is_empty())
+    if let Some(next) = data
+        .get("projectId")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
         && Some(next) != existing_project.as_deref()
         && !caller.can_write(next).await?
     {
@@ -408,7 +428,11 @@ async fn update_sprint(state: &FlowState, caller: &Caller, id: &str, data: Map<S
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let project: Option<Option<String>> = sqlx::query_scalar(

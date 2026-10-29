@@ -59,7 +59,10 @@ where
     Router::new()
         .route("/", get(list).route_layer(need("files:read")))
         .route("/", post(create).route_layer(need("files:create")))
-        .route("/folders", post(create_folder).route_layer(need("files:create")))
+        .route(
+            "/folders",
+            post(create_folder).route_layer(need("files:create")),
+        )
         .route("/{id}", get(detail).route_layer(need("files:read")))
         .route(
             "/{id}",
@@ -91,7 +94,11 @@ enum ParentCheck {
     CrossProject,
 }
 
-async fn check_parent(db: &PgPool, parent_id: &str, project_id: Option<&str>) -> Result<ParentCheck, sqlx::Error> {
+async fn check_parent(
+    db: &PgPool,
+    parent_id: &str,
+    project_id: Option<&str>,
+) -> Result<ParentCheck, sqlx::Error> {
     let parent: Option<(bool, Option<String>)> = sqlx::query_as(
         "select is_folder, project_id from project_files where id = $1 and deleted_at is null limit 1",
     )
@@ -171,7 +178,11 @@ async fn create_project_folder(
 
 /// `isProjectUploadKey`: `workspaces/<org>/<folder>/project/<project>/<object>`,
 /// the object either a name or `<timestamp>_<32 hex>/<name>`.
-fn is_project_upload_key(key: &Value, workspace_id: Option<&str>, project_id: Option<&str>) -> bool {
+fn is_project_upload_key(
+    key: &Value,
+    workspace_id: Option<&str>,
+    project_id: Option<&str>,
+) -> bool {
     let (Some(key), Some(workspace_id), Some(project_id)) = (
         key.as_str(),
         workspace_id.filter(|w| !w.is_empty()),
@@ -183,13 +194,19 @@ fn is_project_upload_key(key: &Value, workspace_id: Option<&str>, project_id: Op
     if parts.len() != 6 && parts.len() != 7 {
         return false;
     }
-    if parts.iter().any(|p| p.is_empty() || *p == "." || *p == "..") {
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == "..")
+    {
         return false;
     }
     if parts.len() == 7 && !is_unguessable_segment(parts[5]) {
         return false;
     }
-    parts[0] == "workspaces" && parts[1] == workspace_id && parts[3] == "project" && parts[4] == project_id
+    parts[0] == "workspaces"
+        && parts[1] == workspace_id
+        && parts[3] == "project"
+        && parts[4] == project_id
 }
 
 /// `/^\d+_[0-9a-f]{32}$/`.
@@ -200,7 +217,9 @@ fn is_unguessable_segment(segment: &str) -> bool {
     !digits.is_empty()
         && digits.bytes().all(|b| b.is_ascii_digit())
         && hex.len() == 32
-        && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        && hex
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Is `key` the object of a project file other than `except`?
@@ -262,13 +281,18 @@ fn replaced_key(existing: &Value, update: &Map<String, Value>) -> Option<String>
         None => non_empty_key(existing.get(key)),
     };
     let next = pick("fileKey").or_else(|| pick("storagePath"))?;
-    let old = non_empty_key(existing.get("fileKey")).or_else(|| non_empty_key(existing.get("storagePath")))?;
+    let old = non_empty_key(existing.get("fileKey"))
+        .or_else(|| non_empty_key(existing.get("storagePath")))?;
     (old != next).then(|| old.to_owned())
 }
 
 /// `markFilePurgeDue`: the purge sweep looks at this workspace once the
 /// retention window has passed. Best effort.
-pub(crate) async fn mark_purge_due(state: &FlowState, caller: &Caller, deleted_at: time::OffsetDateTime) {
+pub(crate) async fn mark_purge_due(
+    state: &FlowState,
+    caller: &Caller,
+    deleted_at: time::OffsetDateTime,
+) {
     if let Some(master) = caller.master(state) {
         weldsuite_db::due_index::mark_due(
             &master,
@@ -310,7 +334,9 @@ async fn list_files(caller: &Caller, q: &Query) -> Reply {
     let db = &caller.db;
     let limit = q
         .present("limit")
-        .map_or(25, |raw| weldsuite_flow_domain::js::parse_int(raw).unwrap_or(25))
+        .map_or(25, |raw| {
+            weldsuite_flow_domain::js::parse_int(raw).unwrap_or(25)
+        })
         .clamp(1, 500);
     let project_id = q.present("projectId").map(str::to_owned);
     let uploaded_by = q.present("uploadedById").map(str::to_owned);
@@ -448,7 +474,12 @@ async fn create_folder(
 ) -> Response {
     let input = match validate(&headers, &body, |issues, fields| {
         let project_id = issues.text(fields, "projectId", Presence::Required, None, None);
-        let name = issues.text_with(fields, "name", Presence::Required, Text::trimmed(Some(1), Some(500)));
+        let name = issues.text_with(
+            fields,
+            "name",
+            Presence::Required,
+            Text::trimmed(Some(1), Some(500)),
+        );
         let parent = issues.text(fields, "parentId", Presence::Nullish, Some(1), None);
         (
             project_id.into_option().unwrap_or_default(),
@@ -484,24 +515,30 @@ async fn create_folder(
             );
             Created(row).into_response()
         }
-        Err(FolderError::ParentNotFound) => {
-            ApiError::not_found("Parent folder", Some(parent_id.as_deref().unwrap_or_default()))
-                .into_response()
-        }
+        Err(FolderError::ParentNotFound) => ApiError::not_found(
+            "Parent folder",
+            Some(parent_id.as_deref().unwrap_or_default()),
+        )
+        .into_response(),
         Err(FolderError::CrossProject) => {
             ApiError::bad_request("Parent folder belongs to a different project").into_response()
         }
-        Err(FolderError::Required) => {
-            Refusal::Internal("Folder name is required".to_owned()).respond("Failed to create folder")
+        Err(FolderError::Required) => Refusal::Internal("Folder name is required".to_owned())
+            .respond("Failed to create folder"),
+        Err(FolderError::Database(error)) => {
+            Refusal::from(error).respond("Failed to create folder")
         }
-        Err(FolderError::Database(error)) => Refusal::from(error).respond("Failed to create folder"),
     }
 }
 
 // ── POST / ──────────────────────────────────────────────────────────────────
 
 /// `createProjectFileSchema` (`.partial()` for a PATCH), passthrough.
-fn read_file(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_file(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let required = if partial {
         Presence::Optional
     } else {
@@ -526,7 +563,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| read_file(issues, fields, false)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_file(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid request body"),
     };
@@ -572,16 +611,22 @@ async fn create_file(
             (Some(Value::Null) | None, Some(Value::String(name))) => name.clone(),
             _ => "Untitled folder".to_owned(),
         };
-        let row = create_project_folder(db, &project, &name, parent_id.as_deref(), uploaded_by.as_deref())
-            .await
-            .map_err(|error| match error {
-                FolderError::Database(error) => Refusal::Database(error),
-                FolderError::Required => Refusal::Internal("Folder name is required".to_owned()),
-                FolderError::ParentNotFound => Refusal::Internal("Parent folder not found".to_owned()),
-                FolderError::CrossProject => {
-                    Refusal::Internal("Parent folder belongs to a different project".to_owned())
-                }
-            })?;
+        let row = create_project_folder(
+            db,
+            &project,
+            &name,
+            parent_id.as_deref(),
+            uploaded_by.as_deref(),
+        )
+        .await
+        .map_err(|error| match error {
+            FolderError::Database(error) => Refusal::Database(error),
+            FolderError::Required => Refusal::Internal("Folder name is required".to_owned()),
+            FolderError::ParentNotFound => Refusal::Internal("Parent folder not found".to_owned()),
+            FolderError::CrossProject => {
+                Refusal::Internal("Parent folder belongs to a different project".to_owned())
+            }
+        })?;
         let id = row["id"].as_str().unwrap_or_default().to_owned();
         caller.publish(
             state,
@@ -605,10 +650,21 @@ async fn create_file(
     let Ok(mut columns) = writable(&data, &WRITABLE, &[]) else {
         return Err(Refusal::Internal("unreachable".to_owned()));
     };
-    if !keys_acceptable(db, &columns, caller.clerk_org_id.as_deref(), project_id.as_deref(), None).await? {
+    if !keys_acceptable(
+        db,
+        &columns,
+        caller.clerk_org_id.as_deref(),
+        project_id.as_deref(),
+        None,
+    )
+    .await?
+    {
         return Err(Refusal::bad_request(STORAGE_KEY_REJECTED));
     }
-    columns.insert("parentId".to_owned(), parent_id.map_or(Value::Null, Value::String));
+    columns.insert(
+        "parentId".to_owned(),
+        parent_id.map_or(Value::Null, Value::String),
+    );
     let id = generate_id("pfile");
     sqlx::query(concat!(
         "insert into project_files (id, project_id, uploaded_by_id, created_at, updated_at,",
@@ -671,7 +727,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| read_file(issues, fields, true)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_file(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid request body"),
     };
@@ -682,7 +740,11 @@ async fn update(
 }
 
 /// `wouldCreateCycle`: may `folder_id` move under `new_parent`?
-async fn would_create_cycle(db: &PgPool, folder_id: &str, new_parent: Option<&str>) -> Result<bool, sqlx::Error> {
+async fn would_create_cycle(
+    db: &PgPool,
+    folder_id: &str,
+    new_parent: Option<&str>,
+) -> Result<bool, sqlx::Error> {
     let Some(new_parent) = new_parent.filter(|p| !p.is_empty()) else {
         return Ok(false);
     };
@@ -708,7 +770,12 @@ async fn would_create_cycle(db: &PgPool, folder_id: &str, new_parent: Option<&st
 }
 
 #[allow(clippy::too_many_lines)]
-async fn update_file(state: &FlowState, caller: &Caller, id: &str, data: Map<String, Value>) -> Reply {
+async fn update_file(
+    state: &FlowState,
+    caller: &Caller,
+    id: &str,
+    data: Map<String, Value>,
+) -> Reply {
     let db = &caller.db;
     let Some(existing) = file_row(db, id, true).await? else {
         return Err(Refusal::not_found("Project file", id));
@@ -743,7 +810,15 @@ async fn update_file(state: &FlowState, caller: &Caller, id: &str, data: Map<Str
     };
     let workspace = caller.clerk_org_id.as_deref();
     let current = (id, &existing["storagePath"], &existing["fileKey"]);
-    if !keys_acceptable(db, &update, workspace, existing_project.as_deref(), Some(current)).await? {
+    if !keys_acceptable(
+        db,
+        &update,
+        workspace,
+        existing_project.as_deref(),
+        Some(current),
+    )
+    .await?
+    {
         return Err(Refusal::bad_request(STORAGE_KEY_REJECTED));
     }
     let old_key = replaced_key(&existing, &update);
@@ -782,7 +857,15 @@ async fn update_file(state: &FlowState, caller: &Caller, id: &str, data: Map<Str
     .execute(db)
     .await?;
     if let Some(old_key) = old_key {
-        delete_replaced_object(state, caller, &old_key, workspace, existing_project.as_deref(), id).await;
+        delete_replaced_object(
+            state,
+            caller,
+            &old_key,
+            workspace,
+            existing_project.as_deref(),
+            id,
+        )
+        .await;
     }
     let pick = |key: &str| match update.get(key) {
         None | Some(Value::Null) => existing[key].clone(),
@@ -835,8 +918,15 @@ async fn delete_replaced_object(
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
-    reply(remove_file(&state, &caller, &id).await, "Failed to delete project file")
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    reply(
+        remove_file(&state, &caller, &id).await,
+        "Failed to delete project file",
+    )
 }
 
 async fn remove_file(state: &FlowState, caller: &Caller, id: &str) -> Reply {
@@ -896,7 +986,12 @@ async fn remove_file(state: &FlowState, caller: &Caller, id: &str) -> Reply {
     };
     mark_purge_due(state, caller, now_at).await;
     for deleted_id in deleted {
-        caller.publish(state, PROJECT_FILE_DELETED, &deleted_id, &json!({ "id": deleted_id }));
+        caller.publish(
+            state,
+            PROJECT_FILE_DELETED,
+            &deleted_id,
+            &json!({ "id": deleted_id }),
+        );
     }
     Ok(NoContent.into_response())
 }

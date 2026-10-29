@@ -33,7 +33,8 @@ const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project
 const DRIVE_VIEW_ONLY: &str = "You can view this item but not change it";
 const WELDDOCS_ROW_MESSAGE: &str =
     "This document is edited in WeldDocs and cannot be changed through this endpoint";
-const DOCUMENT_MIME: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const DOCUMENT_MIME: &str =
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const DEFAULT_PUBLIC_URL: &str = "https://weldsuite-storage-test.weldsuite.org";
 /// Ten minutes between automatic version snapshots.
 const AUTO_SNAPSHOT_MINUTES: i64 = 10;
@@ -49,7 +50,10 @@ where
 {
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        .route("/", post(create_drive_document).route_layer(need("files:create")))
+        .route(
+            "/",
+            post(create_drive_document).route_layer(need("files:create")),
+        )
         .route("/{file_id}", get(document).route_layer(need("files:read")))
         .route(
             "/{file_id}/content",
@@ -95,7 +99,10 @@ where
         .with_state(state)
 }
 
-pub(crate) fn project_sheets_router<S, Q>(state: FlowState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
+pub(crate) fn project_sheets_router<S, Q>(
+    state: FlowState,
+    gate: &Arc<PermissionGate<Q>>,
+) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
@@ -133,7 +140,12 @@ async fn doc_by_id(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> 
 }
 
 /// `createDocForFile`.
-async fn create_doc(db: &PgPool, file_id: &str, user_id: &str, content: &Value) -> Result<Value, sqlx::Error> {
+async fn create_doc(
+    db: &PgPool,
+    file_id: &str,
+    user_id: &str,
+    content: &Value,
+) -> Result<Value, sqlx::Error> {
     let id = generate_id("doc");
     sqlx::query(
         "insert into docs (id, file_id, content, updated_by_id, created_at, updated_at)
@@ -150,7 +162,12 @@ async fn create_doc(db: &PgPool, file_id: &str, user_id: &str, content: &Value) 
 }
 
 /// `upsertDocContent`: insert on the first save, else update.
-async fn upsert_doc(db: &PgPool, file_id: &str, content: &Value, user_id: &str) -> Result<Value, Refusal> {
+async fn upsert_doc(
+    db: &PgPool,
+    file_id: &str,
+    content: &Value,
+    user_id: &str,
+) -> Result<Value, Refusal> {
     let Some(existing) = doc_by_file(db, file_id).await? else {
         return Ok(create_doc(db, file_id, user_id, content).await?);
     };
@@ -200,7 +217,12 @@ async fn insert_version(
 }
 
 /// `maybeAutoSnapshot`: a version unless one is less than ten minutes old.
-async fn maybe_auto_snapshot(db: &PgPool, file_id: &str, content: &Value, user_id: &str) -> Result<(), sqlx::Error> {
+async fn maybe_auto_snapshot(
+    db: &PgPool,
+    file_id: &str,
+    content: &Value,
+    user_id: &str,
+) -> Result<(), sqlx::Error> {
     let cutoff = weldsuite_events::iso_timestamp(
         OffsetDateTime::now_utc() - time::Duration::minutes(AUTO_SNAPSHOT_MINUTES),
     );
@@ -225,8 +247,19 @@ enum Mode {
 
 /// `guardDocument`: project documents by project access, drive documents by
 /// the WeldDrive rules (hidden is a 404). `None` lets the caller through.
-async fn guard(caller: &Caller, file_id: &str, mode: Mode) -> Result<Option<Response>, sqlx::Error> {
-    type FileRow = (String, Option<String>, Option<String>, Option<String>, Option<String>, String);
+async fn guard(
+    caller: &Caller,
+    file_id: &str,
+    mode: Mode,
+) -> Result<Option<Response>, sqlx::Error> {
+    type FileRow = (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    );
     let file: Option<FileRow> = sqlx::query_as(
         "select id, entity_type, entity_id, uploaded_by_id, folder_id, general_access
          from files where id = $1 limit 1",
@@ -250,7 +283,9 @@ async fn guard(caller: &Caller, file_id: &str, mode: Mode) -> Result<Option<Resp
             },
         );
         if role.is_none() {
-            return Ok(Some(ApiError::not_found("Document", Some(file_id)).into_response()));
+            return Ok(Some(
+                ApiError::not_found("Document", Some(file_id)).into_response(),
+            ));
         }
         return Ok((mode == Mode::Write && !can_edit(role)).then(|| forbidden(DRIVE_VIEW_ONLY)));
     }
@@ -261,7 +296,9 @@ async fn guard(caller: &Caller, file_id: &str, mode: Mode) -> Result<Option<Resp
         return Ok(None);
     }
     Ok(match mode {
-        Mode::Write => (!caller.can_write(&project).await?).then(|| forbidden(PROJECT_WRITE_DENIED)),
+        Mode::Write => {
+            (!caller.can_write(&project).await?).then(|| forbidden(PROJECT_WRITE_DENIED))
+        }
         Mode::Read => (!caller.can_access(&project).await?).then(|| forbidden(PROJECT_DENIED)),
     })
 }
@@ -338,7 +375,11 @@ async fn file_document(
     let db = &caller.db;
     if let Some(storage) = caller.buckets(state).public {
         storage
-            .put_boxed(&key, EMPTY_DOCX.to_vec(), &PutOptions::content_type(DOCUMENT_MIME))
+            .put_boxed(
+                &key,
+                EMPTY_DOCX.to_vec(),
+                &PutOptions::content_type(DOCUMENT_MIME),
+            )
             .await
             .map_err(|error| Refusal::Internal(error.to_string()))?;
     }
@@ -621,7 +662,12 @@ async fn create_version(
 ) -> Response {
     let label = match validate(&headers, &body, |issues, fields| {
         issues
-            .text_with(fields, "label", Presence::Optional, Text::length(Some(1), Some(255)))
+            .text_with(
+                fields,
+                "label",
+                Presence::Optional,
+                Text::length(Some(1), Some(255)),
+            )
             .into_option()
     }) {
         Ok(label) => label,
@@ -654,7 +700,11 @@ async fn create_version(
     )
 }
 
-async fn version_row(db: &PgPool, file_id: &str, version_id: &str) -> Result<Option<Value>, sqlx::Error> {
+async fn version_row(
+    db: &PgPool,
+    file_id: &str,
+    version_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(v) from document_versions v where v.id = $1 and v.file_id = $2 limit 1",
     )

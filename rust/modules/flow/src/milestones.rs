@@ -128,17 +128,16 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
         status.is_some(),
         search.is_some(),
     ];
-    let cursor = match q.present("cursor") {
-        Some(cursor) => {
-            keyset_cursor(
+    let cursor =
+        match q.present("cursor") {
+            Some(cursor) => keyset_cursor(
                 db,
                 "select id, to_jsonb(created_at) #>> '{}' from milestones where id = $1 limit 1",
                 cursor,
             )
-            .await?
-        }
-        None => None,
-    };
+            .await?,
+            None => None,
+        };
     let rows_flags = flags;
     // A cursor drops the last condition from the count: the cursor's own
     // when its row was found, else the last filter.
@@ -188,7 +187,12 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
         .await?;
         let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
         let stats = milestone_stats(db, &milestone_refs(&rows)).await?;
-        Ok(paged(with_milestone_stats(rows, &stats), total, has_more, next))
+        Ok(paged(
+            with_milestone_stats(rows, &stats),
+            total,
+            has_more,
+            next,
+        ))
     }
     .await;
     Ok(reply(result, "Failed to list milestones"))
@@ -220,7 +224,11 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 // ── POST /, PATCH /:id ──────────────────────────────────────────────────────
 
 /// `createMilestoneSchema` (`.partial()` for a PATCH), passthrough.
-fn read_milestone(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_milestone(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let name = if partial {
         Presence::Optional
     } else {
@@ -240,7 +248,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let body = match validate(&headers, &body, |issues, fields| read_milestone(issues, fields, false)) {
+    let body = match validate(&headers, &body, |issues, fields| {
+        read_milestone(issues, fields, false)
+    }) {
         Ok(body) => body,
         Err(refused) => return refused.respond("Invalid request body"),
     };
@@ -266,7 +276,9 @@ async fn create(
     }
     let data = match writable(&picked, &WRITABLE, &["dueDate"]) {
         Ok(data) => data,
-        Err(field) => return ApiError::bad_request(format!("Invalid date: {field}")).into_response(),
+        Err(field) => {
+            return ApiError::bad_request(format!("Invalid date: {field}")).into_response();
+        }
     };
     reply(
         create_milestone(&state, &caller, &project_id, data).await,
@@ -345,13 +357,17 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let body = match validate(&headers, &body, |issues, fields| read_milestone(issues, fields, true)) {
+    let body = match validate(&headers, &body, |issues, fields| {
+        read_milestone(issues, fields, true)
+    }) {
         Ok(body) => body,
         Err(refused) => return refused.respond("Invalid request body"),
     };
     let data = match writable(&body, &WRITABLE, &["dueDate"]) {
         Ok(data) => data,
-        Err(field) => return ApiError::bad_request(format!("Invalid date: {field}")).into_response(),
+        Err(field) => {
+            return ApiError::bad_request(format!("Invalid date: {field}")).into_response();
+        }
     };
     reply(
         update_milestone(&state, &caller, &id, data).await,
@@ -380,7 +396,10 @@ async fn update_milestone(
     {
         return Err(Refusal::forbidden(PROJECT_WRITE_DENIED));
     }
-    if let Some(next) = data.get("projectId").and_then(Value::as_str).filter(|p| !p.is_empty())
+    if let Some(next) = data
+        .get("projectId")
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
         && Some(next) != existing_project.as_deref()
         && !caller.can_write(next).await?
     {
@@ -449,7 +468,11 @@ async fn update_milestone(
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let project: Option<Option<String>> = sqlx::query_scalar(

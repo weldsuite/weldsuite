@@ -429,3 +429,33 @@ export const flowDocVersionSummarySchema = z.object({
 export const flowDocVersionSchema = flowDocVersionSummarySchema.extend({
   content: z.array(z.record(z.unknown())),
 });
+
+// ── personal lists, digest settings ────────────────────────────────────────
+
+/** One of the caller's task tags. */
+export const flowTaskTagSchema = z
+  .object({ id: z.string(), userId: z.string(), name: z.string(), color: nullableString, createdAt: z.string() })
+  .passthrough();
+
+/** One of the caller's saved task projects. */
+export const flowTaskProjectSchema = z
+  .object({
+    id: z.string(),
+    userId: z.string(),
+    name: z.string(),
+    description: nullableString,
+    color: nullableString,
+    createdAt: z.string(),
+  })
+  .passthrough();
+
+/** The workspace's task digest settings (`id` null before any are saved). */
+export const flowDigestSettingsSchema = z.object({
+  id: nullableString,
+  enabled: z.boolean(),
+  sendHour: z.number().int().min(0).max(23),
+  taskTypes: z.object({ projectTasks: z.boolean(), personalTasks: z.boolean() }),
+  sections: z.object({ overdue: z.boolean(), dueToday: z.boolean(), dueThisWeek: z.boolean() }),
+  createdAt: nullableString,
+  updatedAt: nullableString,
+});

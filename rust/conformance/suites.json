@@ -591,6 +591,28 @@
       ]
     },
     {
+      "name": "flow: personal lists and digest settings",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/task-tags/integration.test.ts",
+        "src/routes/task-tags/hardening.integration.test.ts",
+        "src/routes/task-projects/integration.test.ts",
+        "src/routes/task-projects/coverage.integration.test.ts",
+        "src/routes/digest-settings/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/task-tags/",
+        "apps/workers/flow-api/src/routes/task-projects/",
+        "apps/workers/flow-api/src/routes/digest-settings/",
+        "packages/clients/app-api-client/src/schemas/digest-settings.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "flow: cross-cutting",
       "module": "flow",
       "workspace": "apps/workers/flow-api",

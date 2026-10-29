@@ -164,74 +164,176 @@ macro_rules! owner_name {
 /// `col = <text of $1.key>` when the key is present.
 macro_rules! set_text {
     ($key:literal, $col:literal) => {
-        concat!($col, " = case when $1::jsonb ? '", $key, "' then $1::jsonb->>'", $key, "' else ", $col, " end")
+        concat!(
+            $col,
+            " = case when $1::jsonb ? '",
+            $key,
+            "' then $1::jsonb->>'",
+            $key,
+            "' else ",
+            $col,
+            " end"
+        )
     };
 }
 
 macro_rules! set_ts {
     ($key:literal, $col:literal) => {
-        concat!($col, " = case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::timestamp else ", $col, " end")
+        concat!(
+            $col,
+            " = case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::timestamp else ",
+            $col,
+            " end"
+        )
     };
 }
 
 macro_rules! set_int {
     ($key:literal, $col:literal) => {
-        concat!($col, " = case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::int else ", $col, " end")
+        concat!(
+            $col,
+            " = case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::int else ",
+            $col,
+            " end"
+        )
     };
 }
 
 macro_rules! set_num {
     ($key:literal, $col:literal) => {
-        concat!($col, " = case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::numeric else ", $col, " end")
+        concat!(
+            $col,
+            " = case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::numeric else ",
+            $col,
+            " end"
+        )
     };
 }
 
 macro_rules! set_bool {
     ($key:literal, $col:literal) => {
-        concat!($col, " = case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::boolean else ", $col, " end")
+        concat!(
+            $col,
+            " = case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::boolean else ",
+            $col,
+            " end"
+        )
     };
 }
 
 macro_rules! set_json {
     ($key:literal, $col:literal) => {
-        concat!($col, " = case when $1::jsonb ? '", $key, "' then nullif($1::jsonb->'", $key, "', 'null'::jsonb) else ", $col, " end")
+        concat!(
+            $col,
+            " = case when $1::jsonb ? '",
+            $key,
+            "' then nullif($1::jsonb->'",
+            $key,
+            "', 'null'::jsonb) else ",
+            $col,
+            " end"
+        )
     };
 }
 
 /// The insert value of a text column: the key's text, else `$default`.
 macro_rules! val_text {
     ($key:literal, $default:literal) => {
-        concat!("case when $1::jsonb ? '", $key, "' then $1::jsonb->>'", $key, "' else ", $default, " end")
+        concat!(
+            "case when $1::jsonb ? '",
+            $key,
+            "' then $1::jsonb->>'",
+            $key,
+            "' else ",
+            $default,
+            " end"
+        )
     };
 }
 
 macro_rules! val_ts {
     ($key:literal, $default:literal) => {
-        concat!("case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::timestamp else ", $default, " end")
+        concat!(
+            "case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::timestamp else ",
+            $default,
+            " end"
+        )
     };
 }
 
 macro_rules! val_int {
     ($key:literal, $default:literal) => {
-        concat!("case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::int else ", $default, " end")
+        concat!(
+            "case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::int else ",
+            $default,
+            " end"
+        )
     };
 }
 
 macro_rules! val_num {
     ($key:literal, $default:literal) => {
-        concat!("case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::numeric else ", $default, " end")
+        concat!(
+            "case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::numeric else ",
+            $default,
+            " end"
+        )
     };
 }
 
 macro_rules! val_bool {
     ($key:literal, $default:literal) => {
-        concat!("case when $1::jsonb ? '", $key, "' then ($1::jsonb->>'", $key, "')::boolean else ", $default, " end")
+        concat!(
+            "case when $1::jsonb ? '",
+            $key,
+            "' then ($1::jsonb->>'",
+            $key,
+            "')::boolean else ",
+            $default,
+            " end"
+        )
     };
 }
 
 macro_rules! val_json {
     ($key:literal, $default:literal) => {
-        concat!("case when $1::jsonb ? '", $key, "' then nullif($1::jsonb->'", $key, "', 'null'::jsonb) else ", $default, " end")
+        concat!(
+            "case when $1::jsonb ? '",
+            $key,
+            "' then nullif($1::jsonb->'",
+            $key,
+            "', 'null'::jsonb) else ",
+            $default,
+            " end"
+        )
     };
 }
 
@@ -240,8 +342,17 @@ macro_rules! val_json {
 macro_rules! in_accessible {
     ($col:literal, $all:literal, $ids:literal) => {
         concat!(
-            "(case when ", $all, "::bool then (", $col, " is null or not exists (select 1 from projects xap where xap.id = ",
-            $col, " and xap.deleted_at is not null)) else ", $col, " = any(", $ids, "::text[]) end)"
+            "(case when ",
+            $all,
+            "::bool then (",
+            $col,
+            " is null or not exists (select 1 from projects xap where xap.id = ",
+            $col,
+            " and xap.deleted_at is not null)) else ",
+            $col,
+            " = any(",
+            $ids,
+            "::text[]) end)"
         )
     };
 }
@@ -251,7 +362,10 @@ macro_rules! in_accessible {
 macro_rules! project_not_deleted {
     ($col:literal) => {
         concat!(
-            "(", $col, " is null or not exists (select 1 from projects xnd where xnd.id = ", $col,
+            "(",
+            $col,
+            " is null or not exists (select 1 from projects xnd where xnd.id = ",
+            $col,
             " and xnd.deleted_at is not null))"
         )
     };

@@ -15,6 +15,7 @@
 mod rows;
 
 mod custom_values;
+mod digest_settings;
 mod documents;
 mod goals;
 mod import_jobs;
@@ -24,6 +25,7 @@ mod labels;
 mod members;
 mod messages;
 mod milestones;
+mod personal;
 mod project_files;
 mod projects;
 pub mod purge;
@@ -93,18 +95,42 @@ where
     Q: PermissionQueries + 'static,
 {
     vec![
-        ("/documents", documents::documents_router(state.clone(), gate)),
+        (
+            "/digest-settings",
+            digest_settings::router(state.clone(), gate),
+        ),
+        (
+            "/documents",
+            documents::documents_router(state.clone(), gate),
+        ),
         ("/goals", goals::router(state.clone(), gate)),
         ("/milestones", milestones::router(state.clone(), gate)),
         ("/project-files", project_files::router(state.clone(), gate)),
         ("/project-labels", labels::router(state.clone(), gate)),
-        ("/project-documents", documents::project_documents_router(state.clone(), gate)),
+        (
+            "/project-documents",
+            documents::project_documents_router(state.clone(), gate),
+        ),
         ("/project-members", members::router(state.clone(), gate)),
         ("/project-messages", messages::router(state.clone(), gate)),
-        ("/project-pipeline-stages", stages::router(state.clone(), gate)),
-        ("/project-sheets", documents::project_sheets_router(state.clone(), gate)),
+        (
+            "/project-pipeline-stages",
+            stages::router(state.clone(), gate),
+        ),
+        (
+            "/project-sheets",
+            documents::project_sheets_router(state.clone(), gate),
+        ),
         ("/projects", projects::router(state.clone(), gate)),
         ("/sprints", sprints::router(state.clone(), gate)),
+        (
+            "/task-projects",
+            personal::router(state.clone(), personal::Kind::Projects, gate),
+        ),
+        (
+            "/task-tags",
+            personal::router(state.clone(), personal::Kind::Tags, gate),
+        ),
         ("/whiteboards", whiteboards::router(state.clone(), gate)),
     ]
 }
@@ -117,6 +143,8 @@ pub(crate) struct Caller {
     pub(crate) events: EventContext,
     /// `c.get('clerkOrgId') || c.get('orgId')`.
     pub(crate) clerk_org_id: Option<String>,
+    /// `c.get('orgId')`: the session's organization.
+    pub(crate) org_id: Option<String>,
     /// `c.get('workspaceId')`: `workspaces.id`.
     pub(crate) workspace_id: String,
     #[allow(dead_code)]
@@ -285,6 +313,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     user_id: auth.user_id.clone(),
                     permissions: permissions.clone(),
                     events: EventContext::for_request(auth, tenant),
+                    org_id: auth.org_id.clone().filter(|id| !id.is_empty()),
                     clerk_org_id: tenant
                         .clerk_org_id
                         .clone()
@@ -510,7 +539,12 @@ pub(crate) fn page(mut rows: Vec<Value>, limit: i64) -> (Vec<Value>, bool, Optio
 }
 
 /// `list(c, rows, cursorPagination(totalCount, hasMore, cursor))`.
-pub(crate) fn paged(rows: Vec<Value>, total: i64, has_more: bool, cursor: Option<String>) -> Response {
+pub(crate) fn paged(
+    rows: Vec<Value>,
+    total: i64,
+    has_more: bool,
+    cursor: Option<String>,
+) -> Response {
     weldsuite_kit::List::new(
         rows,
         weldsuite_kit::Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
@@ -526,5 +560,6 @@ pub(crate) fn forbidden(message: &str) -> Response {
 /// A list without paging: `list(c, rows, { totalCount: rows.length, hasMore: false, cursor: null })`.
 pub(crate) fn all_rows(rows: Vec<Value>) -> Response {
     let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
-    weldsuite_kit::List::new(rows, weldsuite_kit::Pagination::new(total, false, None)).into_response()
+    weldsuite_kit::List::new(rows, weldsuite_kit::Pagination::new(total, false, None))
+        .into_response()
 }

@@ -13,8 +13,7 @@ use axum::routing::get;
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
-    PROJECT_PIPELINE_STAGE_CREATED, PROJECT_PIPELINE_STAGE_DELETED,
-    PROJECT_PIPELINE_STAGE_UPDATED,
+    PROJECT_PIPELINE_STAGE_CREATED, PROJECT_PIPELINE_STAGE_DELETED, PROJECT_PIPELINE_STAGE_UPDATED,
 };
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_flow_domain::stage::{normalize_status_opt, normalize_task_status};
@@ -22,7 +21,9 @@ use weldsuite_kit::validation::{Field, Presence, Text};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::{Caller, FlowState, Query, Refusal, Reply, all_rows, forbidden, now, outside, reply, validate};
+use crate::{
+    Caller, FlowState, Query, Refusal, Reply, all_rows, forbidden, now, outside, reply, validate,
+};
 
 const PROJECT_DENIED: &str = "You are not a member of this project";
 const PROJECT_WRITE_DENIED: &str = "You do not have write access to this project";
@@ -75,7 +76,10 @@ fn is_closed(status: &str) -> bool {
 /// `positionForNewStage`: open stages go before the first closed one (Done
 /// / Cancelled), closed ones at the end. The position, and where the
 /// stages at and after it shift up from.
-fn position_for_new_stage(existing: &[(i32, Option<String>)], system_status: &str) -> (i64, Option<i64>) {
+fn position_for_new_stage(
+    existing: &[(i32, Option<String>)],
+    system_status: &str,
+) -> (i64, Option<i64>) {
     let max = existing
         .iter()
         .map(|(p, _)| i64::from(*p))
@@ -154,8 +158,13 @@ async fn stage_row(db: &PgPool, id: &str, live: bool) -> Result<Option<Value>, s
 macro_rules! tasks_in_stage {
     ($project:literal, $stage:literal) => {
         concat!(
-            "project_id = ", $project, " and deleted_at is null and (stage_id = ", $stage,
-            " or (stage_id is null and status = ", $stage, "))"
+            "project_id = ",
+            $project,
+            " and deleted_at is null and (stage_id = ",
+            $stage,
+            " or (stage_id is null and status = ",
+            $stage,
+            "))"
         )
     };
 }
@@ -183,7 +192,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Ok(false) => return forbidden(PROJECT_DENIED),
         Err(error) => return outside(Err(error.into())),
     }
-    reply(list_stages(&caller, &project_id).await, "Failed to list project pipeline stages")
+    reply(
+        list_stages(&caller, &project_id).await,
+        "Failed to list project pipeline stages",
+    )
 }
 
 async fn list_stages(caller: &Caller, project_id: &str) -> Reply {
@@ -235,7 +247,9 @@ async fn list_stages(caller: &Caller, project_id: &str) -> Reply {
         if target.is_none()
             && let Some(status) = status.filter(|s| !s.is_empty())
         {
-            let by_id = stages.iter().find(|s| s["id"].as_str() == Some(status.as_str()));
+            let by_id = stages
+                .iter()
+                .find(|s| s["id"].as_str() == Some(status.as_str()));
             let by_status = || {
                 stages.iter().find(|s| {
                     normalize_status_opt(s["systemStatus"].as_str())
@@ -305,13 +319,21 @@ async fn create(
             .into_option()
             .unwrap_or_default(),
         id: issues
-            .text(fields, "id", Presence::Optional, Some(1), Some(STAGE_ID_MAX))
+            .text(
+                fields,
+                "id",
+                Presence::Optional,
+                Some(1),
+                Some(STAGE_ID_MAX),
+            )
             .into_option(),
         name: issues
             .text(fields, "name", Presence::Required, Some(1), None)
             .into_option()
             .unwrap_or_default(),
-        color: issues.text(fields, "color", Presence::Optional, None, None).into_option(),
+        color: issues
+            .text(fields, "color", Presence::Optional, None, None)
+            .into_option(),
         position: issues
             .integer(fields, "position", Presence::Optional, Some(0))
             .into_option(),
@@ -400,9 +422,14 @@ async fn reorder(
 ) -> Response {
     let ids = match validate(&headers, &body, |issues, fields| {
         issues
-            .list(fields, "stageIds", Presence::Required, Some(1), None, |issues, item| {
-                issues.item_text(item, Text::length(Some(1), None))
-            })
+            .list(
+                fields,
+                "stageIds",
+                Presence::Required,
+                Some(1),
+                None,
+                |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+            )
             .into_option()
             .unwrap_or_default()
     }) {
@@ -467,7 +494,10 @@ async fn update(
         if let Field::Set(status) =
             issues.text_with(fields, "systemStatus", Presence::Optional, Text::default())
         {
-            data.insert("systemStatus".to_owned(), json!(normalize_task_status(&status)));
+            data.insert(
+                "systemStatus".to_owned(),
+                json!(normalize_task_status(&status)),
+            );
         }
         data
     }) {
@@ -480,7 +510,12 @@ async fn update(
     )
 }
 
-async fn update_stage(state: &FlowState, caller: &Caller, id: &str, data: Map<String, Value>) -> Reply {
+async fn update_stage(
+    state: &FlowState,
+    caller: &Caller,
+    id: &str,
+    data: Map<String, Value>,
+) -> Reply {
     let db = &caller.db;
     let existing: Option<(String, String)> = sqlx::query_as(
         "select project_id, system_status from project_pipeline_stages
@@ -531,7 +566,12 @@ async fn update_stage(state: &FlowState, caller: &Caller, id: &str, data: Map<St
     let updated = stage_row(db, id, false).await?;
     let mut event = data;
     event.insert("id".to_owned(), json!(id));
-    caller.publish(state, PROJECT_PIPELINE_STAGE_UPDATED, id, &Value::Object(event));
+    caller.publish(
+        state,
+        PROJECT_PIPELINE_STAGE_UPDATED,
+        id,
+        &Value::Object(event),
+    );
     Ok(Data(updated.unwrap_or(Value::Null)).into_response())
 }
 
@@ -551,7 +591,12 @@ async fn remove(
     )
 }
 
-async fn remove_stage(state: &FlowState, caller: &Caller, id: &str, move_to: Option<&str>) -> Reply {
+async fn remove_stage(
+    state: &FlowState,
+    caller: &Caller,
+    id: &str,
+    move_to: Option<&str>,
+) -> Reply {
     let db = &caller.db;
     let existing: Option<String> = sqlx::query_scalar(
         "select project_id from project_pipeline_stages where id = $1 and deleted_at is null limit 1",
@@ -646,6 +691,11 @@ async fn remove_stage(state: &FlowState, caller: &Caller, id: &str, move_to: Opt
     .bind(&now)
     .execute(db)
     .await?;
-    caller.publish(state, PROJECT_PIPELINE_STAGE_DELETED, id, &json!({ "id": id }));
+    caller.publish(
+        state,
+        PROJECT_PIPELINE_STAGE_DELETED,
+        id,
+        &json!({ "id": id }),
+    );
     Ok(NoContent.into_response())
 }

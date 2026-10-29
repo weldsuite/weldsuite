@@ -152,6 +152,7 @@ import {
 import { searchResultGroupSchema } from '@weldsuite/app-api-client/schemas/search';
 import {
   flowAvailableUserSchema,
+  flowDigestSettingsSchema,
   flowDocSchema,
   flowDocVersionSchema,
   flowDocVersionSummarySchema,
@@ -181,6 +182,8 @@ import {
   flowReorderedSchema,
   flowSprintSchema,
   flowStageSchema,
+  flowTaskProjectSchema,
+  flowTaskTagSchema,
   flowWhiteboardSchema,
   flowWorkloadOverviewSchema,
 } from '@weldsuite/app-api-client/schemas/flow-responses';
@@ -290,6 +293,17 @@ const FLOW_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/documents/:fileId/versions', envelope: 'single', data: flowDocVersionSchema },
   { method: 'GET', route: '/api/documents/:fileId/versions/:versionId', envelope: 'single', data: flowDocVersionSchema },
   { method: 'POST', route: '/api/documents/:fileId/versions/:versionId/restore', envelope: 'single', data: flowDocSchema },
+  // task tags, task projects, digest settings
+  { method: 'GET', route: '/api/task-tags', envelope: 'list', data: flowTaskTagSchema },
+  { method: 'GET', route: '/api/task-tags/:id', envelope: 'single', data: flowTaskTagSchema },
+  { method: 'POST', route: '/api/task-tags', envelope: 'single', data: flowIdResultSchema },
+  { method: 'PATCH', route: '/api/task-tags/:id', envelope: 'single', data: flowIdResultSchema },
+  { method: 'GET', route: '/api/task-projects', envelope: 'list', data: flowTaskProjectSchema },
+  { method: 'GET', route: '/api/task-projects/:id', envelope: 'single', data: flowTaskProjectSchema },
+  { method: 'POST', route: '/api/task-projects', envelope: 'single', data: flowIdResultSchema },
+  { method: 'PATCH', route: '/api/task-projects/:id', envelope: 'single', data: flowIdResultSchema },
+  { method: 'GET', route: '/api/digest-settings', envelope: 'single', data: flowDigestSettingsSchema },
+  { method: 'PUT', route: '/api/digest-settings', envelope: 'single', data: flowDigestSettingsSchema },
 ];
 
 const ROUTES: RouteSchema[] = [

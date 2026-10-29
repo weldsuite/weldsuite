@@ -109,7 +109,12 @@ async fn list_whiteboards(caller: &Caller, q: &Query) -> Reply {
     };
     // Deleted, project, scope, search: with a cursor the count leaves out
     // the last condition (`conditions.slice(0, -1)`).
-    let mut flags = [true, project_id.is_some(), project_id.is_none(), search.is_some()];
+    let mut flags = [
+        true,
+        project_id.is_some(),
+        project_id.is_none(),
+        search.is_some(),
+    ];
     let row_flags = flags;
     if q.present("cursor").is_some()
         && cursor.is_none()
@@ -189,12 +194,18 @@ async fn create(
     let input = match validate(&headers, &body, |issues, fields| {
         let project_id = issues.text(fields, "projectId", Presence::Required, Some(1), None);
         let name = issues.text(fields, "name", Presence::Optional, Some(1), None);
-        let elements = issues.list(fields, "elements", Presence::Optional, None, None, |_, item| {
-            Some(item.clone())
-        });
+        let elements = issues.list(
+            fields,
+            "elements",
+            Presence::Optional,
+            None,
+            None,
+            |_, item| Some(item.clone()),
+        );
         (
             project_id.into_option().unwrap_or_default(),
-            name.into_option().unwrap_or_else(|| "Whiteboard".to_owned()),
+            name.into_option()
+                .unwrap_or_else(|| "Whiteboard".to_owned()),
             elements.into_option(),
         )
     }) {
@@ -248,9 +259,14 @@ async fn update(
 ) -> Response {
     let (name, elements) = match validate(&headers, &body, |issues, fields| {
         let name = issues.text(fields, "name", Presence::Optional, Some(1), None);
-        let elements = issues.list(fields, "elements", Presence::Optional, None, None, |_, item| {
-            Some(item.clone())
-        });
+        let elements = issues.list(
+            fields,
+            "elements",
+            Presence::Optional,
+            None,
+            None,
+            |_, item| Some(item.clone()),
+        );
         (name.into_option(), elements.into_option())
     }) {
         Ok(input) => input,
@@ -299,7 +315,11 @@ async fn update(
     )
 }
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let project: Option<String> = sqlx::query_scalar(

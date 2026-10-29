@@ -76,7 +76,12 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             max,
         };
         let page = issues.whole_number(fields, "page", Presence::Optional, number(1.0, None));
-        let limit = issues.whole_number(fields, "limit", Presence::Optional, number(1.0, Some(500.0)));
+        let limit = issues.whole_number(
+            fields,
+            "limit",
+            Presence::Optional,
+            number(1.0, Some(500.0)),
+        );
         Filters {
             project_id: project_id.into_option(),
             sender_id: sender_id.into_option(),
@@ -210,7 +215,9 @@ async fn create(
             .into_option(),
         attachments: fields.get("attachments").cloned(),
         metadata: issues
-            .nested(fields, "metadata", Presence::Optional, |_, map| Value::Object(map.clone()))
+            .nested(fields, "metadata", Presence::Optional, |_, map| {
+                Value::Object(map.clone())
+            })
             .into_option(),
     }) {
         Ok(input) => input,
@@ -274,7 +281,9 @@ async fn update(
 ) -> Response {
     let data = match validate(&headers, &body, |issues, fields| {
         let mut data = Map::new();
-        if let Field::Set(message) = issues.text(fields, "message", Presence::Optional, Some(1), None) {
+        if let Field::Set(message) =
+            issues.text(fields, "message", Presence::Optional, Some(1), None)
+        {
             data.insert("message".to_owned(), json!(message));
         }
         if let Field::Set(pinned) = issues.boolean(fields, "isPinned", Presence::Optional) {
@@ -404,7 +413,11 @@ async fn react(
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let existing: Option<(String, Option<String>)> = sqlx::query_as(
