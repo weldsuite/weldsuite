@@ -15,6 +15,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../types';
@@ -833,5 +834,83 @@ describe('project member reads', () => {
     expect(row.status).toBe(200);
     expect((await as(OUTSIDER)('GET', `/project-members/pm_${P1}_${MEMBER}`)).status).toBe(403);
     expect((await send('GET', `/project-members/by-user/${P1}/${MEMBER}/stats`)).status).toBe(200);
+  });
+});
+
+describe('a tour of the project resources', () => {
+  const importEnv = {
+    STORAGE: createMemoryR2(),
+    IMPORT_TASKS: { create: async ({ id }: { id: string }) => ({ id }) },
+  } as unknown as Partial<Env>;
+  const withImports = (userId: string): Send => {
+    const { request } = createTestApp('/api', router, {
+      context: {
+        userId,
+        permissions: permissions(...MEMBER_PERMISSIONS, 'tasks:create'),
+        tenantDb: db,
+        flags: flagsOn,
+      },
+      env: importEnv,
+    });
+    return (method, path, body) =>
+      request(`/api${path}`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+  };
+  const idOf = async (res: Response) => {
+    expect(res.status).toBeLessThan(300);
+    return (await json<{ data: { id: string } }>(res)).data.id;
+  };
+
+  it('reads, creates and removes each resource of a project as its owner', async () => {
+    const send = as(OWNER);
+    const ok = async (method: string, path: string, body?: unknown) => {
+      const res = await send(method, path, body);
+      expect(res.status, `${method} ${path}`).toBeLessThan(300);
+      return res;
+    };
+    await seedTask(P1, 'Tour task', { startDate: new Date('2026-05-01T09:00:00.000Z') });
+
+    await ok('GET', '/projects/search?q=Project');
+    await ok('GET', `/projects/${P1}/gantt/tasks`);
+    await ok('GET', `/projects/${P1}/gantt/milestones`);
+    await ok('GET', `/project-documents/${P1}`);
+
+    const milestone = await idOf(
+      await send('POST', '/milestones', { name: 'Tour milestone', projectId: P1, dueDate: '2030-01-01T00:00:00.000Z' }),
+    );
+    await ok('GET', `/milestones?projectId=${P1}`);
+    await ok('GET', `/milestones/${milestone}`);
+    expect((await send('DELETE', `/milestones/${milestone}`)).status).toBe(204);
+
+    const sprint = await idOf(await send('POST', '/sprints', { name: 'Tour sprint', projectId: P1 }));
+    await ok('GET', `/sprints?projectId=${P1}`);
+    await ok('GET', `/sprints/${sprint}`);
+    expect((await send('DELETE', `/sprints/${sprint}`)).status).toBe(403);
+    expect((await asScopeAll()('DELETE', `/sprints/${sprint}`)).status).toBe(204);
+
+    const message = await idOf(await send('POST', '/project-messages', { projectId: P1, message: 'Tour message' }));
+    await ok('GET', `/project-messages?projectId=${P1}`);
+    await ok('GET', `/project-messages/${message}`);
+    await ok('POST', `/project-messages/${message}/reactions`, { emoji: '👍' });
+
+    const board = await idOf(await send('POST', '/whiteboards', { projectId: P1, name: 'Tour board' }));
+    await ok('GET', `/whiteboards/${board}`);
+    await ok('PATCH', `/whiteboards/${board}`, { name: 'Tour board, renamed' });
+    expect((await send('DELETE', `/whiteboards/${board}`)).status).toBe(403);
+    expect((await asScopeAll()('DELETE', `/whiteboards/${board}`)).status).toBe(204);
+
+    const started = await withImports(OWNER)('POST', `/projects/${P1}/tasks/import-jobs`, {
+      tasks: [{ title: 'Imported' }],
+    });
+    expect(started.status).toBe(201);
+    const { data } = await json<{ data: { jobId: string } }>(started);
+    expect((await withImports(OWNER)('GET', `/projects/${P1}/tasks/import-jobs/${data.jobId}`)).status).toBe(200);
+
+    const doomed = await idOf(await send('POST', '/projects', { name: 'Doomed project' }));
+    expect((await send('DELETE', `/projects/${doomed}`)).status).toBe(403);
+    expect((await asScopeAll()('DELETE', `/projects/${doomed}`)).status).toBe(204);
   });
 });

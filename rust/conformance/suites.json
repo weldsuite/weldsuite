@@ -962,7 +962,22 @@
       "module": "flow",
       "workspace": "apps/workers/flow-api",
       "tests": [
-        "src/routes/project-hardening.integration.test.ts",
+        "src/routes/project-hardening.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: viewer writes",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
         "src/routes/viewer-writes.integration.test.ts"
       ],
       "paths": [

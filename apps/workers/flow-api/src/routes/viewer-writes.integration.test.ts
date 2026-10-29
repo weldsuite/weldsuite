@@ -571,3 +571,29 @@ describe('project viewer · every project resource is readable', () => {
     expect((await asScopeAll()('DELETE', `/projects/${id}`)).status).toBe(204);
   });
 });
+
+describe('project viewer · project pages', () => {
+  it('reads the project, its workload and its labels, and edits nothing', async () => {
+    const send = as(VIEWER);
+    const ok = async (path: string) => {
+      const res = await send('GET', path);
+      expect(res.status, path).toBe(200);
+    };
+    await ok('/projects');
+    await ok(`/projects/${PROJECT}`);
+    await ok('/projects/workload/overview');
+    await ok(`/projects/${PROJECT}/workload`);
+    await ok(`/whiteboards?projectId=${PROJECT}`);
+    await ok(`/project-labels?projectId=${PROJECT}`);
+    await ok(`/project-labels/${fixtures.labelId}`);
+
+    expect((await send('PATCH', `/projects/${PROJECT}`, { description: 'Viewer edit' })).status).toBe(403);
+    expect((await asScopeAll()('PATCH', `/projects/${PROJECT}`, { description: 'Admin edit' })).status).toBe(200);
+
+    const message = await idOf(await asScopeAll()('POST', '/project-messages', { projectId: PROJECT, message: 'Draft' }));
+    expect((await send('PATCH', `/project-messages/${message}`, { message: 'Hijacked' })).status).toBe(403);
+    expect((await send('DELETE', `/project-messages/${message}`)).status).toBe(403);
+    expect((await asScopeAll()('PATCH', `/project-messages/${message}`, { message: 'Final' })).status).toBe(200);
+    expect((await asScopeAll()('DELETE', `/project-messages/${message}`)).status).toBe(204);
+  });
+});
