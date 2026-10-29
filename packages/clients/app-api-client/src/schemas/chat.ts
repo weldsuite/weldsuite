@@ -189,3 +189,84 @@ export const chatMarkReadSchema = z.object({
 export const chatForwardedSchema = z.object({
   forwarded: z.array(z.object({ channelId: z.string(), messageId: z.string() })),
 });
+
+/** A bookmark with its message and channel (`GET /api/chat-bookmarks`). */
+export const chatBookmarkSchema = z
+  .object({
+    id: z.string(),
+    userId: z.string(),
+    messageId: z.string(),
+    channelId: z.string(),
+    note: z.string().nullable(),
+    createdAt: iso,
+    messageContent: z.string().nullable(),
+    messageAuthorId: z.string().nullable(),
+    messageAuthorName: z.string().nullable(),
+    messageAuthorAvatar: z.string().nullable(),
+    messageCreatedAt: nullableIso,
+    messageAttachments: z.array(z.record(z.unknown())).nullable(),
+    channelName: z.string().nullable(),
+    channelSlug: z.string().nullable(),
+    channelType: z.string().nullable(),
+  })
+  .passthrough();
+
+/** `POST /api/chat-bookmarks`: the new bookmark, or `{ id, alreadyExists }`. */
+export const chatBookmarkCreatedSchema = z.union([
+  z.object({ id: z.string(), alreadyExists: z.literal(true) }),
+  z
+    .object({ id: z.string(), userId: z.string(), messageId: z.string(), channelId: z.string(), createdAt: iso })
+    .passthrough(),
+]);
+
+/** A `chat_drafts` row. */
+export const chatDraftRowSchema = z
+  .object({
+    id: z.string(),
+    workspaceId: z.string(),
+    userId: z.string(),
+    channelId: z.string().nullable(),
+    threadParentMessageId: z.string().nullable(),
+    content: z.string(),
+    attachments: z.unknown(),
+    createdAt: iso,
+    updatedAt: iso,
+  })
+  .passthrough();
+
+/** A draft write: `{ id }`, or `{ id, deleted }` when it ended up empty. */
+export const chatDraftWriteSchema = z.object({ id: z.string().nullable(), deleted: z.boolean().optional() });
+
+/** A `chat_sections` row. */
+export const chatSectionRowSchema = z
+  .object({ id: z.string(), name: z.string(), position: z.number(), createdAt: iso, updatedAt: iso })
+  .passthrough();
+
+const presenceSchema = z.enum(['online', 'away', 'busy']);
+const statusSchema = z.enum(['online', 'busy', 'away', 'dnd', 'offline']);
+
+/** One member's status (`GET /api/chat-status`). */
+export const chatMemberStatusSchema = z.object({
+  userId: z.string(),
+  status: statusSchema,
+  manualStatus: statusSchema,
+  live: presenceSchema.nullable(),
+  statusText: z.string().nullable(),
+  statusEmoji: z.string().nullable(),
+  statusExpiresAt: nullableIso,
+  updatedAt: nullableIso,
+});
+
+/** `PUT /api/chat-status`. */
+export const chatStatusSetSchema = z.object({
+  userId: z.string(),
+  status: statusSchema,
+  manualStatus: statusSchema,
+  statusText: z.string().nullable(),
+  statusEmoji: z.string().nullable(),
+  expiresAt: nullableIso,
+  updatedAt: iso,
+});
+
+/** `DELETE /api/chat-status`. */
+export const chatStatusClearedSchema = z.object({ userId: z.string(), cleared: z.literal(true) });

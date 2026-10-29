@@ -120,6 +120,8 @@ pub enum Format {
     Email,
     /// `.datetime({ offset: true })`.
     DatetimeOffset,
+    /// `.datetime()`: UTC only (`Z`).
+    Datetime,
     /// `.regex(/^\d+$/)`.
     Digits,
     /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
@@ -925,6 +927,7 @@ impl Format {
         match self {
             Self::Email => ("email", "Invalid email"),
             Self::DatetimeOffset => ("datetime", "Invalid datetime"),
+            Self::Datetime => ("datetime", "Invalid datetime"),
             Self::Digits => ("regex", "Invalid"),
             Self::Url => ("url", "Invalid url"),
         }
@@ -936,6 +939,7 @@ impl Format {
             // two dots in a row), which Rust's regex has no syntax for.
             Self::Email => !text.starts_with('.') && !text.contains("..") && EMAIL.is_match(text),
             Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
+            Self::Datetime => DATETIME_UTC.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
             Self::Url => js_url_parses(text),
         }
@@ -1018,6 +1022,19 @@ static DATETIME_OFFSET: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(r"(?-u)^{date}T{time}([+-]\d{{2}}:?\d{{2}}|Z)$"))
         .expect("the datetime pattern compiles")
 });
+
+/// Zod 3.25's `datetime()`: as [`DATETIME_OFFSET`], with `Z` only.
+static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
+    let date = r"((dd[2468][048]|dd[13579][26]|dd0[48]|[02468][048]00|[13579][26]00)-02-29|d{4}-((0[13578]|1[02])-(0[1-9]|[12]d|3[01])|(0[469]|11)-(0[1-9]|[12]d|30)|(02)-(0[1-9]|1d|2[0-8])))";
+    let time = r"([01]d|2[0-3]):[0-5]d(:[0-5]d(.d+)?)?";
+    Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
+});
+
+/// `new Date(text).toISOString()` for an ISO date string, `None` for one
+/// JavaScript would read as an invalid date (or that is not ISO).
+pub fn js_date_iso(text: &str) -> Option<String> {
+    js_date_millis(text).and_then(iso_from_millis)
+}
 
 /// Days from 1970-01-01 to a civil date (proleptic Gregorian).
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {

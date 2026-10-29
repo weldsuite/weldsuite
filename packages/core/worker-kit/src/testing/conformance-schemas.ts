@@ -14,6 +14,8 @@ import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-re
 import {
   chatAgentRemovedSchema,
   chatAgentsAddedSchema,
+  chatBookmarkCreatedSchema,
+  chatBookmarkSchema,
   chatChannelDetailSchema,
   chatChannelJoinSchema,
   chatChannelLeftSchema,
@@ -21,14 +23,20 @@ import {
   chatChannelMemberRowSchema,
   chatChannelMemberSchema,
   chatChannelRowSchema,
+  chatDraftRowSchema,
+  chatDraftWriteSchema,
   chatForwardedSchema,
   chatIdSchema,
   chatMarkReadSchema,
   chatMemberRemovedSchema,
+  chatMemberStatusSchema,
   chatMembersAddedSchema,
   chatMessagePageSchema,
   chatMessageRowSchema,
   chatReadReceiptsSchema,
+  chatSectionRowSchema,
+  chatStatusClearedSchema,
+  chatStatusSetSchema,
 } from '@weldsuite/app-api-client/schemas/chat';
 import { desktopTicketSchema } from '@weldsuite/app-api-client/schemas/auth-desktop';
 import { cliAuthApproveSchema, cliAuthDeviceSchema, cliAuthTokenSchema } from '@weldsuite/app-api-client/schemas/cli-auth';
@@ -447,6 +455,22 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/channel-members/:id', envelope: 'single', data: chatChannelMemberRowSchema },
   { method: 'POST', route: '/api/channel-members', envelope: 'single', data: chatIdSchema },
   { method: 'PATCH', route: '/api/channel-members/:id', envelope: 'single', data: chatIdSchema },
+  // chat (chat-api)
+  { method: 'GET', route: '/api/chat-bookmarks', envelope: 'list', data: chatBookmarkSchema },
+  { method: 'GET', route: '/api/chat-bookmarks/:id', envelope: 'single', data: chatBookmarkSchema },
+  { method: 'POST', route: '/api/chat-bookmarks', envelope: 'single', data: chatBookmarkCreatedSchema },
+  { method: 'PATCH', route: '/api/chat-bookmarks/:id', envelope: 'single', data: chatIdSchema },
+  { method: 'GET', route: '/api/chat-drafts', envelope: 'list', data: chatDraftRowSchema },
+  { method: 'GET', route: '/api/chat-drafts/:id', envelope: 'single', data: chatDraftRowSchema },
+  { method: 'POST', route: '/api/chat-drafts', envelope: 'single', data: chatDraftWriteSchema },
+  { method: 'PATCH', route: '/api/chat-drafts/:id', envelope: 'single', data: chatDraftWriteSchema },
+  { method: 'GET', route: '/api/chat-sections', envelope: 'list', data: chatSectionRowSchema },
+  { method: 'GET', route: '/api/chat-sections/:id', envelope: 'single', data: chatSectionRowSchema },
+  { method: 'POST', route: '/api/chat-sections', envelope: 'single', data: chatIdSchema },
+  { method: 'PATCH', route: '/api/chat-sections/:id', envelope: 'single', data: chatIdSchema },
+  { method: 'GET', route: '/api/chat-status', envelope: 'array', data: chatMemberStatusSchema },
+  { method: 'PUT', route: '/api/chat-status', envelope: 'single', data: chatStatusSetSchema },
+  { method: 'DELETE', route: '/api/chat-status', envelope: 'single', data: chatStatusClearedSchema },
 ];
 
 /** null when valid, else why not. */

@@ -406,7 +406,11 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             "/channel-members",
             weldsuite_chat::channel_members(chat.clone(), gate),
         )
-        .nest("/channels", weldsuite_chat::channels(chat, gate))
+        .nest("/channels", weldsuite_chat::channels(chat.clone(), gate))
+        .nest("/chat-bookmarks", weldsuite_chat::bookmarks(chat.clone(), gate))
+        .nest("/chat-drafts", weldsuite_chat::drafts(chat.clone(), gate))
+        .nest("/chat-sections", weldsuite_chat::sections(chat.clone(), gate))
+        .nest("/chat-status", weldsuite_chat::status(chat, gate))
 }
 
 /// WeldChat's handle on the app: events, realtime, files, jobs, its env.

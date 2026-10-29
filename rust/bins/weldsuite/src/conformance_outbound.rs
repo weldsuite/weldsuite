@@ -573,6 +573,38 @@ impl weldsuite_ports::DynOutboundHttp for BridgedOutbound {
     }
 }
 
+/// `{ users: { userId: presence } }`, the users in the order sent.
+#[derive(serde::Deserialize)]
+struct PresenceSnapshot {
+    #[serde(default)]
+    users: Option<OrderedUsers>,
+}
+
+/// A JSON object's string entries in their order (`Object.entries`).
+struct OrderedUsers(Vec<(String, String)>);
+
+impl<'de> serde::Deserialize<'de> for OrderedUsers {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Entries;
+        impl<'de> serde::de::Visitor<'de> for Entries {
+            type Value = OrderedUsers;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<OrderedUsers, A::Error> {
+                let mut entries = Vec::new();
+                while let Some((key, value)) = map.next_entry::<String, Value>()? {
+                    if let Value::String(presence) = value {
+                        entries.push((key, presence));
+                    }
+                }
+                Ok(OrderedUsers(entries))
+            }
+        }
+        deserializer.deserialize_map(Entries)
+    }
+}
+
 /// Live presence from the test's `REALTIME` binding, through the harness's
 /// realtime bridge (`realtime-bridge.ts`).
 pub(crate) struct BridgedPresence {
@@ -585,7 +617,7 @@ impl weldsuite_ports::DynPresence for BridgedPresence {
         &'a self,
         workspace_id: &'a str,
         user_ids: &'a [String],
-    ) -> BoxFuture<'a, Result<Map<String, Value>, weldsuite_ports::PortError>> {
+    ) -> BoxFuture<'a, Result<Vec<(String, String)>, weldsuite_ports::PortError>> {
         let mut query = form_urlencoded::Serializer::new(String::new());
         query.append_pair("workspaceId", workspace_id);
         for id in user_ids {
@@ -609,8 +641,9 @@ impl weldsuite_ports::DynPresence for BridgedPresence {
                 .bytes()
                 .await
                 .map_err(weldsuite_ports::PortError::backend)?;
-            let body: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-            Ok(body["users"].as_object().cloned().unwrap_or_default())
+            let snapshot: PresenceSnapshot =
+                serde_json::from_slice(&bytes).unwrap_or(PresenceSnapshot { users: None });
+            Ok(snapshot.users.map(|users| users.0).unwrap_or_default())
         })
     }
 }

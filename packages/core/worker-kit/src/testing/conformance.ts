@@ -385,6 +385,8 @@ export function conformanceMasterDb<T>(db: T): T {
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** A WeldSign signing link (`<portal>/r/<token>`): the token is 32 random bytes, new per run. */
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
+/** A generated id in a link's `messageId` parameter. */
+const MESSAGE_ID_PARAM = /([?&]messageId=)[a-z][a-z0-9]*_[0-9a-z]{12,}/g;
 /** A slug ending in a generated id (`-ch_<base36>`). */
 const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /** A SHA-256 in hex. */
@@ -459,6 +461,9 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // A taken channel slug gets the new channel's id appended
   // (`resolveChannelSlug`): `sales-ch_<id>`.
   if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A notification's link to the message the request just created
+  // (`/weldchat/<channel>?messageId=msg_<id>`).
+  if (key === 'actionUrl') return value.replace(MESSAGE_ID_PARAM, '$1<id>');
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential, then any other `Date.now()` (the key's segment holds one).
   return value

@@ -90,3 +90,19 @@ group_router!(
     /// `/api/channels`: channels, their messages, members, agents, reads.
     channels
 );
+group_router!(
+    /// `/api/chat-bookmarks`: the caller's saved messages.
+    bookmarks
+);
+group_router!(
+    /// `/api/chat-drafts`: the caller's unsent messages.
+    drafts
+);
+group_router!(
+    /// `/api/chat-sections`: the sidebar's channel groups.
+    sections
+);
+group_router!(
+    /// `/api/chat-status`: chosen status and live presence.
+    status
+);

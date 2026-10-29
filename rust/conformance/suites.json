@@ -551,6 +551,26 @@
         "rust/crates/chat-domain/",
         "rust/crates/notifications/"
       ]
+    },
+    {
+      "name": "chat: bookmarks, drafts, sections, status",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-bookmarks/integration.test.ts",
+        "src/routes/chat-drafts/integration.test.ts",
+        "src/routes/chat-drafts/empty.integration.test.ts",
+        "src/routes/chat-status/integration.test.ts",
+        "src/routes/chat-sections/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
     }
   ]
 }

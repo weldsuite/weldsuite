@@ -7,20 +7,18 @@
 
 use std::sync::Arc;
 
-use serde_json::{Map, Value};
-
 use crate::{BoxFuture, PortError};
 
 /// Reads live presence.
 pub trait DynPresence: Send + Sync {
-    /// `userId → LivePresence` (`online`, `away`, `busy`) for the members
-    /// with a connection open, of `user_ids` (all when empty). An error
-    /// means "unknown", not "nobody is connected".
+    /// `(userId, LivePresence)` (`online`, `away`, `busy`) for the members
+    /// with a connection open, of `user_ids` (all when empty), in the hub's
+    /// order. An error means "unknown", not "nobody is connected".
     fn presence<'a>(
         &'a self,
         workspace_id: &'a str,
         user_ids: &'a [String],
-    ) -> BoxFuture<'a, Result<Map<String, Value>, PortError>>;
+    ) -> BoxFuture<'a, Result<Vec<(String, String)>, PortError>>;
 }
 
 /// The presence source a request reads.
