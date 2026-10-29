@@ -23,6 +23,7 @@ weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-permissions = { path = "crates/permissions" }
+weldsuite-pipeline = { path = "crates/pipeline" }
 
 aws-lc-rs = "1.19.0"
 axum = { version = "0.8.9", default-features = false }

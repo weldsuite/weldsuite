@@ -46,9 +46,12 @@ pub(crate) struct AppState {
 pub(crate) struct AppEnforcedOverride(pub(crate) bool);
 
 pub(crate) fn router(state: AppState) -> Router {
+    // Layers run outside in: session → tenant database → licence and
+    // read-only (`apiAuth()`'s order).
     let api = Router::new()
         .route("/me/permissions", get(me_permissions))
-        .fallback(not_found);
+        .fallback(not_found)
+        .layer(axum::middleware::from_fn(weldsuite_pipeline::licence_gate));
     let api = authenticated(api, &state);
 
     Router::new()

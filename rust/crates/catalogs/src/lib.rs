@@ -158,11 +158,28 @@ pub struct ApiModule {
     pub prefixes: Vec<String>,
     /// Apps whose licence opens the module; `None` = never gated.
     pub apps: Option<Vec<String>>,
+    /// Ported to Rust: the Kubernetes editions serve it (`RUST_PORTED_MODULES`).
+    pub rust: bool,
+}
+
+/// `record-chat.json`: a record's chat opens to the apps of the record's
+/// module too.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RecordChat {
+    /// `/api/chat-entity-channels/`.
+    pub prefix: String,
+    /// Entity type → owning module id.
+    pub owners: BTreeMap<String, String>,
 }
 
 static PERMISSIONS: LazyLock<PermissionCatalog> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../../../catalogs/permissions.json"))
         .expect("permissions.json matches PermissionCatalog (checked by the tests)")
+});
+
+static RECORD_CHAT: LazyLock<RecordChat> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../../catalogs/record-chat.json"))
+        .expect("record-chat.json matches RecordChat (checked by the tests)")
 });
 
 static API_MODULES: LazyLock<Vec<ApiModule>> = LazyLock::new(|| {
@@ -179,6 +196,51 @@ pub fn permissions() -> &'static PermissionCatalog {
 /// Every API module, `core` first.
 pub fn api_modules() -> &'static [ApiModule] {
     &API_MODULES
+}
+
+/// The module with this id.
+pub fn api_module(id: &str) -> Option<&'static ApiModule> {
+    api_modules().iter().find(|module| module.id == id)
+}
+
+/// The apps that open a path for a licensed workspace (`licenceAppsForPath`);
+/// `None` when it is never gated.
+pub fn licence_apps_for_path(path: &str) -> Option<Vec<&'static str>> {
+    let apps: Vec<&'static str> = find_module_for_path(path)
+        .apps
+        .as_ref()?
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let Some(rest) = path.strip_prefix(RECORD_CHAT.prefix.as_str()) else {
+        return Some(apps);
+    };
+    let entity = rest.split(['/', '?']).next().unwrap_or("");
+    let Some(owner) = RECORD_CHAT.owners.get(entity).and_then(|id| api_module(id)) else {
+        return Some(apps);
+    };
+    let mut merged = apps;
+    for app in owner.apps.iter().flatten() {
+        if !merged.contains(&app.as_str()) {
+            merged.push(app.as_str());
+        }
+    }
+    Some(merged)
+}
+
+/// The app a licensed workspace lacks for `path` (`missingLicensedAppForPath`):
+/// `None` when allowed, else the owning module's own app.
+pub fn missing_licensed_app_for_path<S: AsRef<str>>(
+    path: &str,
+    licensed_apps: &[S],
+) -> Option<&'static str> {
+    let apps = licence_apps_for_path(path)?;
+    let licensed = |code: &&str| licensed_apps.iter().any(|app| app.as_ref() == *code);
+    if apps.iter().any(licensed) {
+        None
+    } else {
+        apps.first().copied()
+    }
 }
 
 /// The module that owns `path` (`findModuleForPath`): longest whole-segment
@@ -257,6 +319,44 @@ mod tests {
         assert_eq!(roles["OWNER"].permissions, vec!["*".to_owned()]);
         for role in ["ADMIN", "MEMBER", "VIEWER"] {
             assert!(roles.contains_key(role), "{role}");
+        }
+    }
+
+    #[test]
+    fn licences_follow_the_owning_module_and_record_chats() {
+        let crm = api_module("crm").expect("crm");
+        let own = crm.apps.as_ref().expect("gated")[0].clone();
+        let path = format!("{}/1", crm.prefixes[0]);
+        assert_eq!(missing_licensed_app_for_path(&path, &[own.as_str()]), None);
+        assert_eq!(
+            missing_licensed_app_for_path::<&str>(&path, &[]),
+            Some(own.as_str())
+        );
+        // Core paths are never gated.
+        assert_eq!(licence_apps_for_path("/api/me/permissions"), None);
+        // A company's chat also opens to the CRM's apps.
+        let chat = licence_apps_for_path("/api/chat-entity-channels/company/c_1").expect("gated");
+        assert!(chat.contains(&own.as_str()));
+    }
+
+    /// A module served by Rust must have a conformance suite that proves it.
+    #[test]
+    fn every_ported_module_has_a_conformance_suite() {
+        let suites: serde_json::Value =
+            serde_json::from_str(include_str!("../../../conformance/suites.json"))
+                .expect("suites.json");
+        let covered: Vec<&str> = suites["suites"]
+            .as_array()
+            .expect("suites")
+            .iter()
+            .filter_map(|suite| suite["module"].as_str())
+            .collect();
+        for module in api_modules().iter().filter(|m| m.rust) {
+            assert!(
+                covered.contains(&module.id.as_str()),
+                "{} has no conformance suite",
+                module.id
+            );
         }
     }
 

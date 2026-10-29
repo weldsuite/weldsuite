@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { API_MODULES } from '../packages/core/api-modules/src/index';
+import { API_MODULES, RECORD_CHAT_OWNER, RECORD_CHAT_PREFIX } from '../packages/core/api-modules/src/index';
 import { ENTITY_EVENTS } from '../packages/core/entity-events/src/events/index';
 import { FLAGS } from '../packages/core/feature-flags/src/flags';
 import {
@@ -53,6 +53,7 @@ async function main(): Promise<void> {
   /** Output path under rust/ → value. */
   const outputs: Record<string, unknown> = {
     'catalogs/api-modules.json': API_MODULES,
+    'catalogs/record-chat.json': { prefix: RECORD_CHAT_PREFIX, owners: RECORD_CHAT_OWNER },
     'catalogs/entity-events.json': ENTITY_EVENTS,
     'catalogs/feature-flags.json': FLAGS,
     'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
