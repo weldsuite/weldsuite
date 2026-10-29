@@ -1,0 +1,43 @@
+# The WeldSuite Rust backend (ADR API-014): one service, shipped as one image,
+# that the TypeScript workers are ported to module by module.
+#
+# Layout and phase plan: rust/README.md and the "Editions and self-hosting"
+# design doc in weldsuite/weldsuite-documentation.
+
+[workspace]
+resolver = "3"
+# Add "crates/*" with the first library crate (phase P1): Cargo rejects a glob
+# whose folder doesn't exist.
+members = ["bins/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "AGPL-3.0-only"
+repository = "https://github.com/weldsuite/weldsuite"
+publish = false
+
+# Shared dependency versions go here; crates use `dep = { workspace = true }`.
+[workspace.dependencies]
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that fight the codebase's style more than they help.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+# Restriction lints we do want.
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

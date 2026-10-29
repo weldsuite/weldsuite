@@ -34,6 +34,9 @@ out/
 build
 dist
 
+# Rust build output (rust/Cargo.toml)
+rust/target/
+
 
 # Debug
 npm-debug.log*

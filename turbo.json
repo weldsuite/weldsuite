@@ -95,6 +95,16 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"],
       "inputs": ["$TURBO_DEFAULT$", "../../packages/design/ui/src/**"]
+    },
+    "//#rust:lint": {
+      "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml"]
+    },
+    "//#rust:test": {
+      "inputs": ["rust/**/*.rs", "rust/**/Cargo.toml", "rust/Cargo.lock", "rust/rust-toolchain.toml", "rust/rustfmt.toml"]
+    },
+    "//#rust:deny": {
+      "inputs": ["rust/**/Cargo.toml", "rust/Cargo.lock", "rust/deny.toml"],
+      "cache": false
     }
   }
 }
