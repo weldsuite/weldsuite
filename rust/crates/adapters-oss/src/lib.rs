@@ -33,7 +33,8 @@ pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, JetStreamEventBus, NatsOptions, entity_events_stream_config,
 };
 pub use restate::{
-    JOBS_SERVICE, JobCall, RestateJobs, WeldsuiteJobs, register_deployment, serve_endpoint,
+    JOBS_SERVICE, JobCall, RestateJobs, SIGNALS_OBJECT, WeldsuiteJobSignals, WeldsuiteJobs,
+    register_deployment, serve_endpoint,
 };
 pub use s3::{S3FileStore, S3Options};
 pub use smtp::SmtpMail;
