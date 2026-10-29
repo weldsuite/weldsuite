@@ -448,3 +448,160 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
     expect(event?.deletedAt).toBeNull();
   });
 });
+
+// ── Update, default calendar, shares ───────────────────────────────────────
+
+describe('/api/calendars · update, default calendar and shares', () => {
+  const owner = 'user_cal_more_owner';
+  const member = 'user_cal_more_member';
+  const manager = 'user_cal_more_manager';
+  const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+  function api(userId: string, ...perms: string[]) {
+    return createTestApp('/api/calendars', calendarsRoutes, {
+      context: { permissions: permissions(...perms), userId, tenantDb: db },
+    }).request;
+  }
+
+  beforeAll(async () => {
+    await db.insert(schema.workspaceMembers).values(
+      [owner, member, manager].map((userId) => ({
+        id: generateId('wm'),
+        userId,
+        email: `${userId}@example.com`,
+        name: userId,
+        status: 'ACTIVE',
+      })),
+    );
+  });
+
+  async function seedCalendar(extra: Partial<typeof schema.calendars.$inferInsert> = {}): Promise<string> {
+    const id = generateId('cal');
+    await db.insert(schema.calendars).values({ id, name: 'Team', ownerId: owner, isDefault: false, isActive: true, ...extra });
+    return id;
+  }
+
+  it('creates the default calendar once, then returns it', async () => {
+    const userId = `user_cal_default_${Date.now().toString(36)}`;
+    const first = await api(userId, 'calendars:create')('/api/calendars/ensure-default', { method: 'POST' });
+    expect(first.status).toBe(201);
+    const created = ((await first.json()) as { data: { id: string; isDefault: boolean; color: string } }).data;
+    expect(created.isDefault).toBe(true);
+    expect(created.color).toBe('#3b82f6');
+    const second = await api(userId, 'calendars:create')('/api/calendars/ensure-default', { method: 'POST' });
+    expect(second.status).toBe(200);
+    expect(((await second.json()) as { data: { id: string } }).data.id).toBe(created.id);
+    expect((await api(userId)('/api/calendars/ensure-default', { method: 'POST' })).status).toBe(403);
+  });
+
+  it('lists own calendars first, then those shared with the caller', async () => {
+    const userId = `user_cal_list_${Date.now().toString(36)}`;
+    await db.insert(schema.calendars).values([
+      { id: generateId('cal'), name: 'Zeta', ownerId: userId, isDefault: false },
+      { id: generateId('cal'), name: 'Alpha', ownerId: userId, isDefault: true },
+    ]);
+    const shared = await seedCalendar({ name: 'Shared to me' });
+    await db.insert(schema.calendarShares).values({
+      id: generateId('csh'),
+      calendarId: shared,
+      sharedWithId: userId,
+      permission: 'edit',
+      sharedById: owner,
+    });
+    const res = await api(userId, 'calendars:read')('/api/calendars');
+    const body = (await res.json()) as { data: { name: string; isOwn: boolean; permission: string }[] };
+    expect(body.data.map((c) => [c.name, c.isOwn, c.permission])).toEqual([
+      ['Alpha', true, 'manage'],
+      ['Zeta', true, 'manage'],
+      ['Shared to me', false, 'edit'],
+    ]);
+    const detail = await api(userId, 'calendars:read')(`/api/calendars/${shared}`);
+    expect(detail.status).toBe(200);
+    expect((await api(userId, 'calendars:read')('/api/calendars/cal_missing')).status).toBe(404);
+    expect((await api(userId)('/api/calendars')).status).toBe(403);
+  });
+
+  it('PATCH updates the owner\'s calendar only', async () => {
+    const id = await seedCalendar();
+    const patch = (userId: string, body: unknown) =>
+      api(userId, 'calendars:update')(`/api/calendars/${id}`, {
+        method: 'PATCH',
+        headers: JSON_HEADERS,
+        body: JSON.stringify(body),
+      });
+    const res = await patch(owner, { name: 'Renamed', color: '#ff0000' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: { id, name: 'Renamed', color: '#ff0000' } });
+    const [row] = await db.select().from(schema.calendars).where(eq(schema.calendars.id, id));
+    expect(row?.name).toBe('Renamed');
+    expect((await patch(member, { name: 'Mine now' })).status).toBe(403);
+    expect((await patch(owner, { color: 'x'.repeat(21) })).status).toBe(400);
+    expect((await patch(owner, { name: '' })).status).toBe(400);
+    expect((await api(owner, 'calendars:update')('/api/calendars/cal_missing', {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: '{}',
+    })).status).toBe(404);
+  });
+
+  it('refuses to delete the default calendar or an unknown one', async () => {
+    const id = await seedCalendar({ isDefault: true });
+    const del = api(owner, 'calendars:delete', 'calendars:read');
+    const res = await del(`/api/calendars/${id}`, { method: 'DELETE' });
+    expect(res.status).toBe(400);
+    expect((await del(`/api/calendars/${id}/delete-impact`)).status).toBe(400);
+    expect((await del('/api/calendars/cal_missing', { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it('shares, updates a share, lists and removes shares', async () => {
+    const id = await seedCalendar();
+    const share = (userId: string, body: unknown) =>
+      api(userId, 'calendars:update')(`/api/calendars/${id}/share`, {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify(body),
+      });
+    const created = await share(owner, { sharedWithId: manager, permission: 'manage' });
+    expect(created.status).toBe(201);
+    const shareId = ((await created.json()) as { data: { id: string } }).data.id;
+
+    // A manage sharee may share on; an update of an existing share is a 200.
+    const onward = await share(manager, { sharedWithId: member });
+    expect(onward.status).toBe(201);
+    const updated = await share(owner, { sharedWithId: member, permission: 'edit' });
+    expect(updated.status).toBe(200);
+    expect(((await updated.json()) as { data: { permission: string } }).data.permission).toBe('edit');
+
+    // A view/edit sharee may not; nor can a share target the owner.
+    expect((await share(member, { sharedWithId: manager })).status).toBe(403);
+    expect((await share(manager, { sharedWithId: owner })).status).toBe(422);
+    expect((await share(owner, { sharedWithId: '  ' })).status).toBe(400);
+    expect((await share(owner, { sharedWithId: member, permission: 'own' })).status).toBe(400);
+    expect((await api(owner, 'calendars:update')('/api/calendars/cal_missing/share', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ sharedWithId: member }),
+    })).status).toBe(404);
+    // Someone who can't see the calendar gets a 403, not a 404.
+    expect((await share('user_cal_more_stranger', { sharedWithId: member })).status).toBe(403);
+
+    const list = await api(owner, 'calendars:read')(`/api/calendars/${id}/shares`);
+    expect(list.status).toBe(200);
+    const shares = (await list.json()) as { data: { sharedWithId: string; permission: string }[] };
+    expect(shares.data.map((s) => [s.sharedWithId, s.permission]).sort()).toEqual([
+      [manager, 'manage'],
+      [member, 'edit'],
+    ]);
+    expect((await api(manager, 'calendars:read')(`/api/calendars/${id}/shares`)).status).toBe(403);
+    expect((await api(owner, 'calendars:read')('/api/calendars/cal_missing/shares')).status).toBe(404);
+
+    const remove = (userId: string, path: string) =>
+      api(userId, 'calendars:update')(path, { method: 'DELETE' });
+    expect((await remove(manager, `/api/calendars/${id}/share/${shareId}`)).status).toBe(403);
+    expect((await remove(owner, '/api/calendars/cal_missing/share/csh_x')).status).toBe(404);
+    expect((await remove(owner, `/api/calendars/${id}/share/${shareId}`)).status).toBe(204);
+    const after = await api(owner, 'calendars:read')(`/api/calendars/${id}/shares`);
+    expect(((await after.json()) as { data: unknown[] }).data).toHaveLength(1);
+    expect((await api(owner)(`/api/calendars/${id}/share/${shareId}`, { method: 'DELETE' })).status).toBe(403);
+  });
+});

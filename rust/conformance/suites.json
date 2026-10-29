@@ -542,7 +542,9 @@
         "src/routes/calendar-events/integration.test.ts",
         "src/routes/calendar-events/events-api.test.ts",
         "src/routes/calendar-events/invitation-guard.test.ts",
-        "src/routes/booking-pages/integration.test.ts"
+        "src/routes/booking-pages/integration.test.ts",
+        "src/routes/bookings/integration.test.ts",
+        "src/routes/working-hours/integration.test.ts"
       ],
       "paths": [
         "apps/workers/calendar-api/src/",

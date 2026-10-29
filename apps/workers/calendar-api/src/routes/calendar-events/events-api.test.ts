@@ -5,7 +5,7 @@
  * conformance harness compares with the Rust backend's mail.
  */
 
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { calendarEventsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
@@ -762,5 +762,295 @@ describe('moving an event to another calendar (TASK-888)', () => {
     const viewerOwn = await seedCalendar(viewerId);
     expect((await send(viewerId, 'PATCH', `/${id}`, { calendarId: viewerOwn })).status).toBe(403);
     expect((await eventRow(id)).calendarId).toBe(calendarId);
+  });
+});
+
+describe('reads: list filters, detail, range and upcoming', () => {
+  it('filters the list by type, status and calendar, and pages by cursor', async () => {
+    const userId = `user_list_${next()}`;
+    const { calendarId } = await createEvent(userId, { title: 'One', type: 'call' });
+    const second = await send(userId, 'POST', '', {
+      calendarId,
+      title: 'Two',
+      type: 'call',
+      status: 'tentative',
+      startTime: '2030-03-02T10:00:00.000Z',
+    });
+    const twoId = ((await second.json()) as { data: { id: string } }).data.id;
+    const read = (query: string) => api(userId)(`/api/calendar-events${query}`);
+
+    const calls = (await (await read('?type=call')).json()) as { data: { title: string }[] };
+    expect(calls.data.map((e) => e.title).sort()).toEqual(['One', 'Two']);
+    const tentative = (await (await read('?status=tentative')).json()) as { data: { id: string }[] };
+    expect(tentative.data.map((e) => e.id)).toEqual([twoId]);
+    const scoped = (await (await read(`?calendarIds=${calendarId},cal_not_mine`)).json()) as { data: unknown[] };
+    expect(scoped.data).toHaveLength(2);
+    const none = (await (await read('?calendarIds=cal_not_mine')).json()) as { data: unknown[]; pagination: { totalCount: number } };
+    expect(none).toEqual({ data: [], pagination: { totalCount: 0, hasMore: false, cursor: null } });
+
+    const page1 = (await (await read('?limit=1')).json()) as { data: { id: string }[]; pagination: { cursor: string; hasMore: boolean } };
+    expect(page1.pagination.hasMore).toBe(true);
+    const page2 = (await (await read(`?limit=1&cursor=${page1.pagination.cursor}`)).json()) as { data: { id: string }[] };
+    expect(page2.data).toHaveLength(1);
+    expect(page2.data[0].id).not.toBe(page1.data[0].id);
+
+    expect((await read('?limit=0')).status).toBe(400);
+    expect((await read('?limit=abc')).status).toBe(400);
+    expect((await read('?startDate=not-a-date')).status).toBe(500);
+    expect((await api(userId)(`/api/calendar-events/${twoId}`)).status).toBe(200);
+  });
+
+  it('range needs both dates; upcoming lists the next confirmed events', async () => {
+    const userId = `user_upcoming_${next()}`;
+    const calendarId = await seedCalendar(userId);
+    const soon = new Date(Date.now() + 2 * 24 * 3_600_000).toISOString();
+    const later = new Date(Date.now() + 20 * 24 * 3_600_000).toISOString();
+    for (const [title, startTime, status] of [
+      ['Soon', soon, 'confirmed'],
+      ['Later', later, 'confirmed'],
+      ['Maybe', soon, 'tentative'],
+    ] as const) {
+      const res = await send(userId, 'POST', '', { calendarId, title, startTime, status });
+      expect(res.status).toBe(201);
+    }
+    const upcoming = (await (await api(userId)('/api/calendar-events/upcoming')).json()) as { data: { title: string }[] };
+    expect(upcoming.data.map((e) => e.title)).toEqual(['Soon']);
+    const month = (await (await api(userId)('/api/calendar-events/upcoming?days=30&limit=5')).json()) as {
+      data: { title: string }[];
+    };
+    expect(month.data.map((e) => e.title)).toEqual(['Soon', 'Later']);
+    expect((await api(userId)('/api/calendar-events/upcoming?days=0')).status).toBe(400);
+    expect((await api(userId)('/api/calendar-events/upcoming?limit=101')).status).toBe(400);
+    expect((await api('user_upcoming_nobody')('/api/calendar-events/upcoming')).status).toBe(200);
+
+    expect((await api(userId)('/api/calendar-events/range?startDate=2030-01-01')).status).toBe(400);
+    expect((await api(userId)('/api/calendar-events/range?startDate=x&endDate=y')).status).toBe(500);
+    expect((await api('user_range_nobody')('/api/calendar-events/range?startDate=x&endDate=y')).status).toBe(200);
+  });
+
+  it('needs events:read', async () => {
+    const request = createTestApp('/api/calendar-events', calendarEventsRoutes, {
+      context: { permissions: permissions(), userId: 'user_noperm', tenantDb: db },
+    }).request;
+    for (const path of ['', '/range?startDate=a&endDate=b', '/upcoming', '/evt_x']) {
+      expect((await request(`/api/calendar-events${path}`)).status, path).toBe(403);
+    }
+  });
+});
+
+describe('unknown events and refusals', () => {
+  it('answers 404 for an event the caller cannot reach and 403 for a calendar they cannot use', async () => {
+    const userId = `user_refuse_${next()}`;
+    for (const [method, path] of [
+      ['PATCH', '/evt_missing'],
+      ['DELETE', '/evt_missing'],
+      ['PATCH', '/evt_missing/cancel'],
+      ['POST', '/evt_missing/unpin'],
+    ] as const) {
+      expect((await send(userId, method, path, method === 'PATCH' ? {} : undefined)).status, path).toBe(404);
+    }
+    expect((await send(userId, 'PATCH', '/evt_missing/reschedule', { startTime: '2030-01-01T10:00:00.000Z' })).status).toBe(404);
+    expect((await send(userId, 'PATCH', '/evt_missing/reschedule', {})).status).toBe(400);
+    const res = await send(userId, 'POST', '', {
+      calendarId: 'cal_not_mine',
+      title: 'Nope',
+      startTime: '2030-01-01T10:00:00.000Z',
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('auto-scheduling: manual reschedule pins, unpin releases', () => {
+  async function seedSourced(userId: string, sourceType: 'task' | 'activity', dueDate: Date | null) {
+    const calendarId = await seedCalendar(userId);
+    const sourceId = `${sourceType}_${next()}`;
+    if (sourceType === 'task') {
+      await db.insert(schema.tasks).values({
+        id: sourceId,
+        title: 'Write report',
+        dueDate,
+        startDate: null,
+      } as typeof schema.tasks.$inferInsert);
+    } else {
+      await db.insert(schema.crmActivities).values({
+        id: sourceId,
+        type: 'call',
+        subject: 'Call back',
+        assignedToId: userId,
+        startTime: new Date('2030-01-01T09:00:00.000Z'),
+        endTime: new Date('2030-01-01T09:30:00.000Z'),
+      } as typeof schema.crmActivities.$inferInsert);
+    }
+    const id = generateId('evt');
+    await db.insert(schema.calendarEvents).values({
+      id,
+      calendarId,
+      organizerId: userId,
+      title: 'Sourced',
+      type: 'reminder',
+      startTime: new Date('2030-01-01T09:00:00.000Z'),
+      endTime: new Date('2030-01-01T09:30:00.000Z'),
+      sourceType,
+      sourceId,
+      autoScheduled: true,
+    });
+    return { id, sourceId };
+  }
+
+  it('a manual reschedule writes the slot to the task and pins the event; unpin puts it back on the due date', async () => {
+    const userId = `user_pin_task_${next()}`;
+    const { id, sourceId } = await seedSourced(userId, 'task', new Date('2030-02-01T00:00:00.000Z'));
+    const res = await send(userId, 'PATCH', `/${id}/reschedule`, {
+      startTime: '2030-01-05T10:00:00.000Z',
+      endTime: '2030-01-05T11:00:00.000Z',
+      manual: true,
+      notifyAttendees: false,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: { id, startTime: '2030-01-05T10:00:00.000Z', endTime: '2030-01-05T11:00:00.000Z', manual: true, notifyAttendees: false },
+    });
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, sourceId));
+    expect(task?.startDate?.toISOString()).toBe('2030-01-05T10:00:00.000Z');
+    expect((await eventRow(id)).autoScheduled).toBe(false);
+
+    const unpin = await send(userId, 'POST', `/${id}/unpin`);
+    expect(unpin.status).toBe(200);
+    expect(await unpin.json()).toEqual({ data: { id, autoScheduled: true } });
+    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, sourceId));
+    expect(after?.startDate).toBeNull();
+    const row = await eventRow(id);
+    expect(row.autoScheduled).toBe(true);
+    expect(row.startTime.toISOString()).toBe('2030-02-01T00:00:00.000Z');
+  });
+
+  it('works for a task without a due date and for an activity', async () => {
+    const userId = `user_pin_misc_${next()}`;
+    const task = await seedSourced(userId, 'task', null);
+    expect((await send(userId, 'POST', `/${task.id}/unpin`)).status).toBe(200);
+    expect((await eventRow(task.id)).startTime.toISOString()).toBe('2030-01-01T09:00:00.000Z');
+
+    const activity = await seedSourced(userId, 'activity', null);
+    const res = await send(userId, 'PATCH', `/${activity.id}/reschedule`, {
+      // No end: the event keeps its own, the activity gets 30 minutes.
+      startTime: '2030-01-01T08:00:00.000Z',
+      manual: true,
+      notifyAttendees: false,
+    });
+    expect(res.status).toBe(200);
+    const [moved] = await db.select().from(schema.crmActivities).where(eq(schema.crmActivities.id, activity.sourceId));
+    expect(moved?.startTime?.toISOString()).toBe('2030-01-01T08:00:00.000Z');
+    expect(moved?.endTime?.toISOString()).toBe('2030-01-01T08:30:00.000Z');
+    expect((await send(userId, 'POST', `/${activity.id}/unpin`)).status).toBe(200);
+    const [cleared] = await db.select().from(schema.crmActivities).where(eq(schema.crmActivities.id, activity.sourceId));
+    expect(cleared?.startTime).toBeNull();
+  });
+});
+
+describe('Google Calendar outbound sync', () => {
+  const GOOGLE = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+  let realFetch: typeof fetch;
+
+  beforeEach(() => {
+    realFetch = globalThis.fetch;
+    // Google answers by method and URL; everything else (the conformance
+    // harness's own calls) goes to the real fetch.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (url === 'https://oauth2.googleapis.com/token') {
+        return new Response(JSON.stringify({ access_token: 'fresh-token', expires_in: 3600 }), { status: 200 });
+      }
+      if (!url.startsWith(GOOGLE)) return realFetch(input, init);
+      if (url.endsWith('/g_denied')) return new Response('read-only', { status: 403 });
+      if (method === 'DELETE') return new Response(null, { status: 204 });
+      return new Response(JSON.stringify({ id: url === GOOGLE ? 'g_created' : url.slice(GOOGLE.length + 1) }), {
+        status: 200,
+      });
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function seedConnection(tokens: Record<string, unknown>) {
+    const id = generateId('ic');
+    await db.update(schema.integrationConnections).set({ status: 'inactive' });
+    await db.insert(schema.integrationConnections).values({
+      id,
+      provider: 'google_calendar',
+      status: 'active',
+      oauthTokens: tokens as never,
+    } as typeof schema.integrationConnections.$inferInsert);
+    return id;
+  }
+
+  async function mapping(eventId: string) {
+    const [row] = await db
+      .select()
+      .from(schema.integrationEntityMappings)
+      .where(eq(schema.integrationEntityMappings.internalEntityId, eventId));
+    return row;
+  }
+
+  it('creates, updates and deletes the event on Google and keeps the mapping', async () => {
+    await seedConnection({ accessToken: 'tok', expiresAt: '2099-01-01T00:00:00.000Z' });
+    const userId = `user_google_${next()}`;
+    const { id } = await createEvent(userId, {
+      timezone: 'Europe/Amsterdam',
+      attendees: [{ email: 'guest@example.com', name: 'Guest' }],
+      recurrenceRule: 'RRULE:FREQ=WEEKLY',
+    });
+    await vi.waitFor(async () => expect((await mapping(id))?.externalEntityId).toBe('g_created'));
+
+    expect((await send(userId, 'PATCH', `/${id}`, { title: 'Renamed', allDay: true })).status).toBe(200);
+    expect((await send(userId, 'PATCH', `/${id}/cancel`)).status).toBe(200);
+    expect((await send(userId, 'DELETE', `/${id}`)).status).toBe(204);
+    expect((await mapping(id))?.externalEntityId).toBe('g_created');
+  });
+
+  it('refreshes an expired token first, and flags a connection Google refuses to write to', async () => {
+    const connectionId = await seedConnection({
+      accessToken: 'old',
+      refreshToken: 'refresh',
+      expiresAt: '2000-01-01T00:00:00.000Z',
+    });
+    const userId = `user_google_refresh_${next()}`;
+    const request = createTestApp('/api/calendar-events', calendarEventsRoutes, {
+      context: {
+        permissions: permissions('events:read', 'events:create', 'events:update', 'events:delete'),
+        userId,
+        tenantDb: db,
+      },
+      env: { ENVIRONMENT: 'production', GOOGLE_CALENDAR_CLIENT_ID: 'cid', GOOGLE_CALENDAR_CLIENT_SECRET: 'secret' },
+    }).request;
+    const calendarId = await seedCalendar(userId);
+    const res = await request('/api/calendar-events', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, title: 'Refresh', startTime: '2030-03-01T10:00:00.000Z' }),
+    });
+    expect(res.status).toBe(201);
+    const id = ((await res.json()) as { data: { id: string } }).data.id;
+    await vi.waitFor(async () => expect((await mapping(id))?.externalEntityId).toBe('g_created'));
+
+    // A mapped event Google refuses: the connection asks for a reconnect.
+    await db
+      .update(schema.integrationEntityMappings)
+      .set({ externalEntityId: 'g_denied' })
+      .where(eq(schema.integrationEntityMappings.internalEntityId, id));
+    expect((await request(`/api/calendar-events/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Refused' }),
+    })).status).toBe(200);
+    await vi.waitFor(async () => {
+      const [connection] = await db
+        .select()
+        .from(schema.integrationConnections)
+        .where(eq(schema.integrationConnections.id, connectionId));
+      expect(connection?.status).toBe('error');
+    });
   });
 });

@@ -496,3 +496,162 @@ describe('GET /api/booking-pages/:id/delete-impact (TASK-893)', () => {
     ).toBe(200);
   });
 });
+
+describe('/api/booking-pages · list filters, toggle, delete and slots', () => {
+  const ownerId = 'user_bpg_more';
+
+  function api(userId: string, ...perms: Parameters<typeof permissions>) {
+    return createTestApp('/api/booking-pages', bookingPagesRoutes, {
+      context: { permissions: permissions(...perms), userId, tenantDb: db },
+    }).request;
+  }
+
+  let n = 0;
+  async function seedPage(extra: Partial<typeof schema.calendarBookingPages.$inferInsert> = {}): Promise<string> {
+    n += 1;
+    const id = `bpg_more_${n}_${Date.now().toString(36)}`;
+    await db.insert(schema.calendarBookingPages).values({
+      id,
+      name: `More ${n}`,
+      slug: `more-${n}`,
+      ownerId,
+      duration: 60,
+      availability: emptyAvailability,
+      createdAt: new Date(Date.UTC(2028, 0, 1, 0, 0, n)),
+      ...extra,
+    });
+    return id;
+  }
+
+  it('lists by owner and search, and pages by cursor', async () => {
+    const a = await seedPage({ name: 'Alpha demo' });
+    const b = await seedPage({ name: 'Beta demo' });
+    await seedPage({ name: 'Gamma' });
+    const read = api('user_bpg_more_admin', 'bookings:read', 'bookings:scope:all');
+    const res = await read(`/api/booking-pages?ownerId=${ownerId}&search=demo`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { id: string }[]; pagination: { totalCount: number } };
+    expect(body.data.map((r) => r.id)).toEqual([b, a]);
+    expect(body.pagination.totalCount).toBe(2);
+
+    const first = await read(`/api/booking-pages?ownerId=${ownerId}&search=demo&limit=1`);
+    const firstBody = (await first.json()) as { pagination: { cursor: string; hasMore: boolean } };
+    expect(firstBody.pagination.hasMore).toBe(true);
+    const second = await read(
+      `/api/booking-pages?ownerId=${ownerId}&search=demo&limit=1&cursor=${firstBody.pagination.cursor}`,
+    );
+    expect(((await second.json()) as { data: { id: string }[] }).data.map((r) => r.id)).toEqual([a]);
+
+    for (const query of ['limit=abc', 'limit=-1', 'cursor=bpg_missing', `ownerId=${ownerId}&cursor=bpg_missing`]) {
+      expect((await read(`/api/booking-pages?${query}`)).status, query).toBe(200);
+    }
+    expect((await api(ownerId)('/api/booking-pages')).status).toBe(403);
+  });
+
+  it('toggles the published state', async () => {
+    const id = await seedPage();
+    const toggle = api(ownerId, 'bookings:update');
+    const off = await toggle(`/api/booking-pages/${id}/toggle`, { method: 'PATCH' });
+    expect(off.status).toBe(200);
+    expect(await off.json()).toEqual({ data: { id, isActive: false } });
+    const on = await toggle(`/api/booking-pages/${id}/toggle`, { method: 'PATCH' });
+    expect(await on.json()).toEqual({ data: { id, isActive: true } });
+    const other = api('user_bpg_more_other', 'bookings:update');
+    expect((await other(`/api/booking-pages/${id}/toggle`, { method: 'PATCH' })).status).toBe(404);
+    expect((await api(ownerId, 'bookings:read')(`/api/booking-pages/${id}/toggle`, { method: 'PATCH' })).status).toBe(403);
+  });
+
+  it('PATCH writes passthrough columns and refuses an unknown page', async () => {
+    const id = await seedPage();
+    const patch = api(ownerId, 'bookings:update');
+    const res = await patch(`/api/booking-pages/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ duration: 45, bufferBefore: 5, timezone: 'Europe/Amsterdam', color: '#123456' }),
+    });
+    expect(res.status).toBe(200);
+    const [stored] = await db
+      .select()
+      .from(schema.calendarBookingPages)
+      .where(eq(schema.calendarBookingPages.id, id));
+    expect(stored?.duration).toBe(45);
+    expect(stored?.bufferBefore).toBe(5);
+    expect(stored?.timezone).toBe('Europe/Amsterdam');
+    const missing = await patch('/api/booking-pages/bpg_missing', { method: 'PATCH', headers: JSON_HEADERS, body: '{}' });
+    expect(missing.status).toBe(404);
+    // A fraction for an integer column is refused by Postgres.
+    const fraction = await patch(`/api/booking-pages/${id}`, {
+      method: 'PATCH',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ duration: 30.5 }),
+    });
+    expect(fraction.status).toBe(500);
+  });
+
+  it('soft-deletes a page within scope', async () => {
+    const id = await seedPage();
+    const other = api('user_bpg_more_other', 'bookings:delete');
+    expect((await other(`/api/booking-pages/${id}`, { method: 'DELETE' })).status).toBe(404);
+    const res = await api(ownerId, 'bookings:delete')(`/api/booking-pages/${id}`, { method: 'DELETE' });
+    expect(res.status).toBe(204);
+    const [stored] = await db
+      .select()
+      .from(schema.calendarBookingPages)
+      .where(eq(schema.calendarBookingPages.id, id));
+    expect(stored?.deletedAt).not.toBeNull();
+    expect((await api(ownerId, 'bookings:delete')(`/api/booking-pages/${id}`, { method: 'DELETE' })).status).toBe(404);
+  });
+
+  it("computes the slots of a date from the weekly availability, the owner's events and the cap", async () => {
+    const id = await seedPage({
+      timezone: 'Europe/Amsterdam',
+      availability: { ...emptyAvailability, wednesday: [{ start: '09:00', end: '12:00' }] },
+      minNotice: 0,
+      maxAdvance: null,
+      maxBookingsPerDay: 2,
+    });
+    const calendarId = `cal_bpg_more_${Date.now().toString(36)}`;
+    await db.insert(schema.calendars).values({ id: calendarId, name: 'Owner', ownerId });
+    await db.insert(schema.calendarEvents).values({
+      id: `evt_bpg_more_${Date.now().toString(36)}`,
+      calendarId,
+      organizerId: 'user_bpg_more_someone',
+      title: 'Busy',
+      type: 'meeting',
+      // 10:00-10:30 in Amsterdam (UTC+1 in December).
+      startTime: new Date('2030-12-25T09:00:00.000Z'),
+      endTime: new Date('2030-12-25T09:30:00.000Z'),
+    });
+    const read = api(ownerId, 'bookings:read');
+    const res = await read(`/api/booking-pages/${id}/available-slots?date=2030-12-25`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      data: [
+        { start: '2030-12-25T08:00:00.000Z', end: '2030-12-25T09:00:00.000Z', available: true },
+        { start: '2030-12-25T09:00:00.000Z', end: '2030-12-25T10:00:00.000Z', available: false },
+        { start: '2030-12-25T10:00:00.000Z', end: '2030-12-25T11:00:00.000Z', available: true },
+      ],
+    });
+
+    await db.insert(schema.calendarBookings).values(
+      [0, 1].map((i) => ({
+        id: `bk_bpg_more_${i}_${Date.now().toString(36)}`,
+        bookingPageId: id,
+        bookerName: 'B',
+        bookerEmail: 'b@example.com',
+        startTime: new Date(`2030-12-25T0${8 + i}:00:00.000Z`),
+        endTime: new Date(`2030-12-25T0${8 + i}:30:00.000Z`),
+      })),
+    );
+    const full = (await (await read(`/api/booking-pages/${id}/available-slots?date=2030-12-25`)).json()) as {
+      data: { available: boolean }[];
+    };
+    expect(full.data.every((s) => !s.available)).toBe(true);
+
+    // A closed day has no slots; a bad date or a missing one is refused.
+    expect(await (await read(`/api/booking-pages/${id}/available-slots?date=2030-12-24`)).json()).toEqual({ data: [] });
+    expect((await read(`/api/booking-pages/${id}/available-slots`)).status).toBe(400);
+    expect((await read(`/api/booking-pages/${id}/available-slots?date=not-a-date`)).status).toBe(500);
+    expect((await read('/api/booking-pages/bpg_missing/available-slots?date=2030-12-25')).status).toBe(404);
+  });
+});
