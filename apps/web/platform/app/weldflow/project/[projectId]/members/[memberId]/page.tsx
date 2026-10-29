@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useParams, useRouter } from '@/lib/router';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { formatLocalized as format, formatDistanceToNowLocalized as formatDistanceToNow } from '@/lib/i18n/date-locale';
 import {
   Mail,

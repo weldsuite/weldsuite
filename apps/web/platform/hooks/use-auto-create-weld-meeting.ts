@@ -1,4 +1,4 @@
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useCancelMeeting, useCreateMeeting } from '@/hooks/queries/use-weldmeet-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useWorkspaceId } from '@/contexts/workspace-context';

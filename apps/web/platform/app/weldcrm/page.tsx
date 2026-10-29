@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from '@/lib/router';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   Popover,

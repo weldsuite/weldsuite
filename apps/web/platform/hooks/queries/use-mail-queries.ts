@@ -13,8 +13,10 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApi } from '@/lib/api/use-app-api';
 import { appSettingsKeys } from '@/hooks/queries/use-app-settings-queries';
+import { mailKeys } from '@/hooks/queries/mail-keys';
 import { patchCachedImportant } from '@/app/weldmail/lib/important-cache';
 import { refreshSidebarBadges } from '@/hooks/use-sidebar-badges';
+import { mailLabelThreadsInfiniteQueryOptions } from '@/app/weldmail/lib/mail-label-threads-query';
 import type {
   AssignMailAccountUsersInput,
   CreateMailAccountInput,
@@ -35,62 +37,21 @@ import type {
 // Query keys
 // =============================================================================
 
-export const mailKeys = {
-  all: ['mail'] as const,
-  accounts: () => [...mailKeys.all, 'accounts'] as const,
-  accountList: (filters?: Record<string, unknown>) =>
-    [...mailKeys.all, 'accounts', 'list', filters] as const,
-  account: (id: string) => [...mailKeys.all, 'accounts', id] as const,
-  accountStats: () => [...mailKeys.all, 'accounts', 'stats'] as const,
-  accountLabels: (id: string) => [...mailKeys.all, 'accounts', id, 'labels'] as const,
-  messages: (filters?: Record<string, unknown>) => [...mailKeys.all, 'messages', filters] as const,
-  message: (id: string) => [...mailKeys.all, 'messages', id] as const,
-  messageStats: (accountId?: string) => [...mailKeys.all, 'messages', 'stats', accountId] as const,
-  thread: (messageId: string) => [...mailKeys.all, 'thread', messageId] as const,
-  threadsByLabel: (params: Record<string, unknown>) =>
-    [...mailKeys.all, 'threads-by-label', params] as const,
-  labels: (accountId?: string) => [...mailKeys.all, 'labels', accountId] as const,
-  // Every label list (each account's, the unified one). `labels()` is not a prefix of
-  // `labels('acc')`: its trailing `undefined` only matches an undefined account.
-  labelsAll: () => [...mailKeys.all, 'labels'] as const,
-  label: (id: string) => [...mailKeys.all, 'labels', 'detail', id] as const,
-  drafts: (accountId?: string) => [...mailKeys.all, 'drafts', accountId] as const,
-  draft: (id: string) => [...mailKeys.all, 'drafts', 'detail', id] as const,
-  rules: (accountId?: string) => [...mailKeys.all, 'rules', accountId] as const,
-  rule: (id: string) => [...mailKeys.all, 'rules', 'detail', id] as const,
-  templates: (filters?: Record<string, unknown>) =>
-    [...mailKeys.all, 'templates', filters] as const,
-  template: (id: string) => [...mailKeys.all, 'templates', 'detail', id] as const,
-  templateCategories: () => [...mailKeys.all, 'templates', 'categories'] as const,
-  signatures: () => [...mailKeys.all, 'signatures'] as const,
-  signature: (id: string) => [...mailKeys.all, 'signatures', 'detail', id] as const,
-  campaigns: () => [...mailKeys.all, 'campaigns'] as const,
-  campaign: (id: string) => [...mailKeys.all, 'campaigns', 'detail', id] as const,
-  attachments: (messageId: string) => [...mailKeys.all, 'attachments', messageId] as const,
-  attachment: (id: string) => [...mailKeys.all, 'attachments', 'detail', id] as const,
-  domains: () => [...mailKeys.all, 'domains'] as const,
-  domain: (id: string) => [...mailKeys.all, 'domains', id] as const,
-  weldmail: () => [...mailKeys.all, 'weldmail'] as const,
-  weldmailDomain: () => [...mailKeys.all, 'weldmail', 'domain'] as const,
-  weldmailAddresses: () => [...mailKeys.all, 'weldmail', 'addresses'] as const,
-  syncStatus: (accountId: string) => [...mailKeys.all, 'sync', accountId] as const,
-  scheduledEmails: (accountId?: string) => [...mailKeys.all, 'scheduled', accountId] as const,
-  snoozedEmails: (accountId?: string) => [...mailKeys.all, 'snoozed', accountId] as const,
-  subscriptions: (accountId?: string) => [...mailKeys.all, 'subscriptions', accountId] as const,
-  search: (query: string) => [...mailKeys.all, 'search', query] as const,
-  contacts: (query?: string) => [...mailKeys.all, 'contacts', query] as const,
-  recentContacts: () => [...mailKeys.all, 'contacts', 'recent'] as const,
-  settings: () => [...mailKeys.all, 'settings'] as const,
-};
+// Defined in `./mail-keys` (no dependencies of its own) and re-exported here
+// so every existing `import { mailKeys } from '@/hooks/queries/use-mail-queries'`
+// call site keeps working unchanged.
+export { mailKeys };
+
 // =============================================================================
 // Accounts
 // =============================================================================
 
-export function useMailAccounts() {
+export function useMailAccounts(enabled = true) {
   const { mailAccounts } = useAppApi();
   return useQuery({
     queryKey: mailKeys.accounts(),
     queryFn: () => mailAccounts.list(),
+    enabled,
   });
 }export function useCreateMailAccount() {
   const { mailAccounts } = useAppApi();
@@ -177,14 +138,19 @@ export function useMailMessages(
     queryKey: mailKeys.messages(filters as Record<string, unknown>),
     queryFn: () => mailMessages.list(filters),
     enabled: !!accountId && enabled,
+    // Rows carry full bodies (`textBody`/`htmlBody`) — don't let them into the
+    // persisted cache (docs/plans/weldmail-mailbox-storage.md phase 1 item 6).
+    meta: { persist: false },
   });
 }
 
 /**
- * Cross-account list — backs the CRM company-panel Emails tab. We pass
- * the counterparty email through as a search term since the app-api
- * list endpoint already greps subject + preview; a tighter
- * `from/to/cc/bcc` filter is a follow-up if needed.
+ * Cross-account list — backs the CRM company-panel Emails tab. Filters by
+ * `counterparty`, an exact address match served by the mailbox store's
+ * address index in object mode (mailbox-store design §5), instead of the
+ * `search` free-text term — same result set (the sender/recipient is still
+ * matched exactly), but it no longer fans the query out across every
+ * accessible mailbox when the store can narrow it up front.
  */
 export function useMailMessagesByCounterparty(
   counterpartyEmail: string | null | undefined,
@@ -193,8 +159,9 @@ export function useMailMessagesByCounterparty(
   const { mailMessages } = useAppApi();
   return useQuery({
     queryKey: mailKeys.messages({ counterpartyEmail }),
-    queryFn: () => mailMessages.list({ search: counterpartyEmail ?? undefined, limit: 100 }),
+    queryFn: () => mailMessages.list({ counterparty: counterpartyEmail ?? undefined, limit: 100 }),
     enabled: !!counterpartyEmail && enabled,
+    meta: { persist: false },
   });
 }
 
@@ -204,6 +171,8 @@ export function useMailMessage(id: string, enabled = true) {
     queryKey: mailKeys.message(id),
     queryFn: () => mailMessages.get(id),
     enabled: !!id && enabled,
+    // Full message body — don't persist (phase 1 item 6).
+    meta: { persist: false },
   });
 }
 
@@ -222,6 +191,8 @@ export function useMailThread(_accountId: string, messageId: string, enabled = t
     queryKey: mailKeys.thread(messageId),
     queryFn: () => mailMessages.thread(messageId),
     enabled: !!messageId && enabled,
+    // Full thread, bodies included — don't persist (phase 1 item 6).
+    meta: { persist: false },
   });
 }export function useMarkMailRead() {
   const { mailMessages } = useAppApi();
@@ -715,49 +686,21 @@ export function useMailLabelThreads(
 }
 
 /**
- * Infinite-scroll thread list for a label. The API is still page-number based;
- * pages are appended as the list sentinel intersects the viewport.
+ * Infinite-scroll thread list for a label. Pages are appended as the list
+ * sentinel intersects the viewport.
+ *
+ * Built from `mailLabelThreadsInfiniteQueryOptions`, the options factory this
+ * hook shares with the label route's `beforeLoad` prefetch
+ * (app/weldmail/lib/label-route-prefetch.ts) and the sidebar hover prefetch
+ * (hooks/use-app-prefetch.ts) — see that module for why.
  */
 export function useInfiniteMailLabelThreads(
   params: { accountId?: string; labelSlug: string; pageSize?: number } & MailThreadSearch,
   enabled = true,
 ) {
   const { mailLabels } = useAppApi();
-  const pageSize = params.pageSize ?? 25;
-  // Omit page from the key so every scroll page shares one infinite cache entry.
-  const queryKey = mailKeys.threadsByLabel({
-    accountId: params.accountId,
-    labelSlug: params.labelSlug,
-    pageSize,
-    search: params.search || undefined,
-    from: params.from || undefined,
-    to: params.to || undefined,
-    subject: params.subject || undefined,
-    excludeWords: params.excludeWords || undefined,
-    hasAttachment: params.hasAttachment || undefined,
-  });
-
   return useInfiniteQuery({
-    queryKey,
-    queryFn: ({ pageParam }) =>
-      mailLabels.threads({
-        accountId: params.accountId,
-        labelSlug: params.labelSlug,
-        page: pageParam,
-        pageSize,
-        search: params.search || undefined,
-        from: params.from || undefined,
-        to: params.to || undefined,
-        subject: params.subject || undefined,
-        excludeWords: params.excludeWords || undefined,
-        hasAttachment: params.hasAttachment || undefined,
-      }),
-    initialPageParam: 1,
-    getNextPageParam: (lastPage, allPages) => {
-      const totalCount = lastPage.data?.totalCount ?? 0;
-      const loaded = allPages.reduce((n, page) => n + (page.data?.threads?.length ?? 0), 0);
-      return loaded < totalCount ? allPages.length + 1 : undefined;
-    },
+    ...mailLabelThreadsInfiniteQueryOptions(mailLabels.threads, params),
     enabled: !!params.labelSlug && enabled,
   });
 }

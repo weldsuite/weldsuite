@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';

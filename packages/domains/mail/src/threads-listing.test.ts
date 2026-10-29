@@ -9,7 +9,13 @@
  * - search looks through the whole mailbox: subject, body, participants
  *   (TASK-906);
  * - the stats endpoint has a number for every folder badge (TASK-908);
- * - snoozed mail comes back when its time has passed (TASK-931).
+ * - snoozed mail comes back when its time has passed (TASK-931);
+ * - the list returns lean messages, no bodies (phase 1 item 1),
+ *   docs/plans/weldmail-mailbox-storage.md;
+ * - a scheduled message past its send time is left alone until
+ *   `SendScheduledEmailWorkflow` actually sends it — a read must never guess
+ *   (bug fix, weldmail-mailbox-store-design.md "Where the plan or ADR is
+ *   wrong", item 9).
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -290,7 +296,7 @@ describe('auto-unsnooze (TASK-931)', () => {
     const now = new Date(Date.now() + 2 * 60 * 60_000);
     const result = await wakeDueSnoozedMessages(db, { now });
 
-    expect(result).toEqual({ woken: 1, accountIds: [accountId] });
+    expect(result).toEqual({ woken: 1, accountIds: [accountId], ids: [due] });
     const [row] = await db.select().from(mailMessages).where(eq(mailMessages.id, due)).limit(1);
     expect(row!.labels).toEqual(['INBOX']);
     expect(row!.isRead).toBe(false);
@@ -336,5 +342,70 @@ describe('auto-unsnooze (TASK-931)', () => {
 
     expect(await labelsOf(mine)).toEqual(['INBOX']);
     expect(await labelsOf(theirs)).toEqual(['SNOOZED']);
+  });
+});
+
+describe('lean thread-list messages (phase 1 item 1)', () => {
+  it('drops bodies, raw MIME and the two JSONB blobs the list never reads', async () => {
+    const accountId = await seedAccount();
+    const id = await seedMessage(accountId, ['INBOX'], {
+      textBody: 'plain body',
+      htmlBody: '<p>html body</p>',
+      rawMessage: 'Subject: raw\r\n\r\nraw mime',
+      headers: { 'X-Test': '1' },
+      customFields: { foo: 'bar' },
+      clickedLinks: [{ url: 'https://example.test', clickedAt: new Date().toISOString(), clickCount: 1 }],
+    });
+
+    const { threads } = await listThreadsByLabel(db, USER, { accountId, labelSlug: 'inbox' });
+    const [message] = threads[0]!.messages;
+
+    expect(message).toBeDefined();
+    expect(message!.id).toBe(id);
+    for (const key of ['textBody', 'htmlBody', 'rawMessage', 'headers', 'customFields', 'clickedLinks']) {
+      expect(message).not.toHaveProperty(key);
+    }
+    // Everything a list row actually shows is still there.
+    expect(message!.isRead).toBe(false);
+    expect(message!.labels).toEqual(['INBOX']);
+  });
+});
+
+// Bug fix (weldmail-mailbox-store-design.md "Where the plan or ADR is wrong",
+// item 9): the list used to flip a scheduled message past its send time to
+// `sent` on read. That pre-empted `SendScheduledEmailWorkflow`, which can
+// legitimately still be asleep or deferred past `scheduledFor` (its outbound
+// guard can delay a send up to 24h) — a read in that window used to mark the
+// message sent before anything was actually sent, and the workflow's own
+// `getSkipReason` then treated it as already handled and skipped the real
+// send for good. The workflow is the only authority on this; a read must
+// leave the row alone, whatever `scheduledFor` says, whether its time is past
+// or still ahead.
+describe('a scheduled message past its send time is left for the workflow', () => {
+  it('does not flip it to sent on read', async () => {
+    const accountId = await seedAccount();
+    const id = await seedMessage(accountId, ['SENT', 'SCHEDULED'], {
+      sendStatus: 'scheduled',
+      scheduledFor: new Date(Date.now() - 60_000),
+    });
+
+    const { threads } = await listThreadsByLabel(db, USER, { accountId, labelSlug: 'sent' });
+    expect(threads[0]!.sendStatus).toBe('scheduled');
+    expect(threads[0]!.scheduledFor).not.toBeNull();
+
+    const [row] = await db.select().from(mailMessages).where(eq(mailMessages.id, id)).limit(1);
+    expect(row!.sendStatus).toBe('scheduled');
+    expect(row!.scheduledFor).not.toBeNull();
+  });
+
+  it('leaves a still-future scheduled message alone too', async () => {
+    const accountId = await seedAccount();
+    await seedMessage(accountId, ['SENT', 'SCHEDULED'], {
+      sendStatus: 'scheduled',
+      scheduledFor: new Date(Date.now() + 60 * 60_000),
+    });
+
+    const { threads } = await listThreadsByLabel(db, USER, { accountId, labelSlug: 'sent' });
+    expect(threads[0]!.sendStatus).toBe('scheduled');
   });
 });

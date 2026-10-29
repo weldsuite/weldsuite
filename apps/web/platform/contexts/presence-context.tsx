@@ -26,7 +26,7 @@ import React, {
   useMemo,
   useRef,
 } from 'react';
-import { useAuth, useOrganization } from '@clerk/clerk-react';
+import { useAuth, useOrganization } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useTopic, useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
 import { topicMatches } from '@weldsuite/realtime/topics';

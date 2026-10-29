@@ -24,6 +24,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { hasAccessToAccount, listAccessibleAccountIds } from './access';
 import { getMessageStats } from './messages';
+import type { WorkspaceMailStore } from './store/types';
 
 /** `data.type` of the push; the app matches on it. */
 export const EMAIL_READ_PUSH_TYPE = 'email_read';
@@ -93,6 +94,22 @@ export async function workspaceInboxUnread(db: Database, userId: string): Promis
 }
 
 /**
+ * {@link workspaceInboxUnread}, through the mailbox store's cross-mailbox
+ * `stats()` fan-out (design docs/plans/weldmail-mailbox-store-design.md, task
+ * D2: "`inboxUnread` 90 → F `stats(...).inboxUnread`") instead of a direct
+ * `mail_messages` query — so in `object`/`object-only` mode the badge comes
+ * from the object, not Postgres. `postgres`/`shadow` go through the exact
+ * same `getMessageStats` call `workspaceInboxUnread` does (the store's own
+ * `stats()` wraps it), so this is behaviourally identical there; the
+ * difference only shows up once a mode's `WorkspaceMailStore` reads from the
+ * object.
+ */
+async function workspaceInboxUnreadViaStore(store: WorkspaceMailStore, db: Database, userId: string): Promise<number> {
+  const accountIds = await listAccessibleAccountIds(db, userId);
+  return (await store.stats(accountIds)).inboxUnread;
+}
+
+/**
  * Unread messages in a personal account's inbox: the personal badge. Same
  * filter as personal-api `GET /mail-messages/unread-count`, which the app
  * reads when it opens.
@@ -158,6 +175,19 @@ async function safeCount(count: () => Promise<number>): Promise<number | undefin
   }
 }
 
+export interface MailReadPushDeps {
+  /**
+   * The caller's already-resolved mailbox store (design task D2), so the
+   * per-user `inboxUnread` badge comes from `store.stats(accountIds)` instead
+   * of a direct `mail_messages` query — see
+   * {@link workspaceInboxUnreadViaStore}. Omitted (the default) falls back to
+   * {@link workspaceInboxUnread}'s direct Postgres path, unchanged — every
+   * existing caller that doesn't have a store handy (or is always `postgres`
+   * mode) keeps working exactly as before.
+   */
+  store?: WorkspaceMailStore;
+}
+
 /**
  * Tell every WeldMail device that may show these messages that they are read.
  * Targets the users who may open the mailbox, the same set the new-email push
@@ -166,6 +196,7 @@ async function safeCount(count: () => Promise<number>): Promise<number | undefin
 export async function sendWorkspaceMailReadPush(
   db: Database,
   params: { accountId: string; emailIds: string[] },
+  deps: MailReadPushDeps = {},
 ): Promise<void> {
   if (params.emailIds.length === 0) return;
   try {
@@ -189,7 +220,9 @@ export async function sendWorkspaceMailReadPush(
     for (const [userId, tokens] of byUser) {
       const isAdmin = members.get(userId);
       if (isAdmin === undefined || !hasAccessToAccount(account, userId, isAdmin)) continue;
-      const inboxUnread = await safeCount(() => workspaceInboxUnread(db, userId));
+      const inboxUnread = await safeCount(() =>
+        deps.store ? workspaceInboxUnreadViaStore(deps.store!, db, userId) : workspaceInboxUnread(db, userId),
+      );
       messages.push(
         ...buildMailReadPushMessages(tokens, { emailIds: params.emailIds, inboxUnread, tenantKind: 'workspace' }),
       );

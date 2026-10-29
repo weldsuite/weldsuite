@@ -525,6 +525,18 @@ describe('formula editing helpers', () => {
     expect(names(formulaSuggestions('=Rates', 6, ['Rates']))).toEqual([]);
   });
 
+  it('does not take a cell reference for part of a function name', () => {
+    expect(names(formulaSuggestions('=G10', 4))).toEqual([]);
+    expect(names(formulaSuggestions('=SUM(A1:G10', 11))).toEqual([]);
+    expect(names(formulaSuggestions('=n2', 3))).toEqual([]);
+    expect(names(formulaSuggestions('=X2', 3))).toEqual([]);
+    // Names that start with it are still offered, but Enter keeps the reference.
+    const log = formulaSuggestions('=LOG1', 5)!;
+    expect(names(log)).toEqual(['LOG10']);
+    expect(log.reference).toBe(true);
+    expect(formulaSuggestions('=LOG', 4)!.reference).toBe(false);
+  });
+
   it('puts a taken suggestion in place of the whole word, with one opening parenthesis', () => {
     const match = formulaSuggestions('=A1+vlo', 7)!;
     expect(applySuggestion('=A1+vlo', match, { kind: 'function', name: 'VLOOKUP' })).toEqual({ text: '=A1+VLOOKUP(', caret: 12 });

@@ -44,6 +44,7 @@ import { SendFileForSignatureItem } from '@/app/weldsign/start/send-for-signatur
 import { apiUrl } from '@/lib/api/public-env';
 import { isPrivateStorageUrl } from '@/lib/storage/private-url';
 import { copyText } from '@/lib/clipboard';
+import { getAuthToken } from '@/lib/auth';
 
 function triggerAnchorDownload(href: string, filename: string, openInNewTab: boolean) {
   const a = document.createElement('a');
@@ -58,16 +59,10 @@ function triggerAnchorDownload(href: string, filename: string, openInNewTab: boo
   a.remove();
 }
 
-async function getClerkToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  const clerk = (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } }).Clerk;
-  if (clerk?.session) return clerk.session.getToken();
-  return null;
-}
 
 /** Read a drive file's bytes through the authenticated /api/files/:id/content endpoint. */
 export async function fetchDriveFileContent(id: string, signal?: AbortSignal): Promise<Response> {
-  const token = await getClerkToken();
+  const token = await getAuthToken();
   return fetch(apiUrl(`/api/files/${id}/content`), {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal,
@@ -92,7 +87,7 @@ export function weldsheetIdOf(file: Partial<Pick<UnifiedFile, 'mimeType' | 'navi
 async function downloadSpreadsheet(sheetId: string, name: string): Promise<void> {
   const t = getTranslations('welddrive');
   try {
-    const token = await getClerkToken();
+    const token = await getAuthToken();
     const locale = getLocale() === 'nl' ? 'nl' : 'en';
     const res = await fetch(apiUrl(`/api/sheets/${sheetId}/export?format=xlsx&locale=${locale}`), {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -127,7 +122,7 @@ export async function downloadFile(
   if (sheetId) return downloadSpreadsheet(sheetId, file.name);
   if (file.source === 'drive') {
     try {
-      const token = await getClerkToken();
+      const token = await getAuthToken();
       const res = await fetch(apiUrl(`/api/files/${file.id}/content?download=1`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });

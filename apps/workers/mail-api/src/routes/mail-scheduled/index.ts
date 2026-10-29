@@ -23,6 +23,7 @@ import { MailSendError } from '@weldsuite/mail-domain/send';
 import { sendErrorResponse } from '../../lib/send-errors';
 import { checkAccountAccess, emailEventData } from '@weldsuite/mail-domain/access';
 import { getMessageAccountId } from '@weldsuite/mail-domain/messages';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -74,15 +75,11 @@ function mapScheduledError(c: Parameters<typeof error.badRequest>[0], err: MailS
 
 app.get('/', requirePermission('messages:read'), zValidator('query', listQuery), async (c) => {
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const filters = c.req.valid('query');
-    if (filters.accountId) {
-      const allowed = await checkAccountAccess(db, filters.accountId, userId);
-      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    }
-    const rows = await scheduled.listScheduled(db, filters);
-    return success(c, rows);
+    const { accountId } = c.req.valid('query');
+    const { store, access } = await workspaceMailFromContext(c);
+    const result = await scheduled.listScheduled(store, access, accountId);
+    if (!result.ok) return error.forbidden(c, 'Access to this mail account is not allowed');
+    return success(c, result.rows);
   } catch (err) {
     console.error('[app-api/mail-scheduled] list failed:', err);
     return error.internal(c, 'Failed to list scheduled emails');
@@ -102,12 +99,14 @@ app.post(
     const allowed = await checkAccountAccess(db, data.accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
+      const { store } = await workspaceMailFromContext(c);
       const result = await scheduled.scheduleEmail(
         c.env,
         db,
         orgId,
         userId,
         data,
+        store.mailbox(data.accountId),
       );
       publishEntityEvent({
         c,
@@ -140,7 +139,8 @@ app.post('/:messageId/cancel', requirePermission('messages:delete'), async (c) =
     if (!accountId) return error.notFound(c, 'Scheduled message', messageId);
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const result = await scheduled.cancelScheduled(c.env, db, messageId);
+    const { store } = await workspaceMailFromContext(c);
+    const result = await scheduled.cancelScheduled(c.env, db, messageId, store.mailbox(accountId));
     publishEntityEvent({
       c,
       entityType: 'email',
@@ -172,6 +172,7 @@ app.post(
     const allowed = await checkAccountAccess(db, accountId, userId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
+      const { store } = await workspaceMailFromContext(c);
       const result = await scheduled.rescheduleScheduled(
         c.env,
         db,
@@ -179,6 +180,7 @@ app.post(
         userId,
         messageId,
         new Date(scheduledFor),
+        store.mailbox(accountId),
       );
       return success(c, result);
     } catch (err) {
@@ -200,12 +202,15 @@ app.post('/:messageId/send-now', requirePermission('messages:update'), async (c)
   const allowed = await checkAccountAccess(db, accountId, userId);
   if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
   try {
+    const { store, mode } = await workspaceMailFromContext(c);
     const result = await scheduled.sendScheduledNow(
       c.env,
       db,
       orgId,
       userId,
       messageId,
+      store.mailbox(accountId),
+      mode,
     );
     publishEntityEvent({
       c,

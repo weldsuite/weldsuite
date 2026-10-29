@@ -11,7 +11,7 @@
  */
 import { useCallback, useState, type ReactNode } from 'react';
 import { useRouter } from '@tanstack/react-router';
-import { isReverificationCancelledError } from '@clerk/clerk-react/errors';
+import { isReverificationCancelledError } from '@/lib/auth/clerk';
 import { toast } from 'sonner';
 import { usePermissions } from '@weldsuite/permissions/react';
 import { ConfirmDialog } from '@/components/confirm-dialog';

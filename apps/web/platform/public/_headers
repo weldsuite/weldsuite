@@ -36,6 +36,11 @@
 /__ENV.js
   Cache-Control: no-cache
 
+# Runtime config (lib/runtime-config.ts). Global deploys none today; if one is
+# generated for Pages it describes this deployment and must be revalidated.
+/config.json
+  Cache-Control: no-cache
+
 # Vendor-facing W-9 form (/w9/<token>): the token in the path is the credential,
 # so keep it out of search indexes and out of Referer headers sent elsewhere.
 /w9/*

@@ -1,6 +1,6 @@
 
 import { useEffect, useCallback, useState, useRef } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useWorkspaceClientMaybe, useRealtimeConnection } from '@weldsuite/realtime/react';

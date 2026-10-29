@@ -650,6 +650,16 @@ export const common = {
     },
     auth: {
       logoAlt: 'WeldSuite',
+      identityProvider: {
+        redirecting: 'Taking you to sign in...',
+        completing: 'Finishing sign-in...',
+        failed: 'Sign-in could not be completed.',
+        retry: 'Sign in again',
+        managedTitle: 'Managed by your identity provider',
+        managedDescription: 'Your password, two-factor authentication, passkeys and sessions are managed by your organization\'s identity provider, not in WeldSuite.',
+        openAccount: 'Open account settings',
+        invitationsManaged: 'Workspace membership is managed by your organization\'s identity provider. Ask your administrator for access.',
+      },
       error: {
         alertTitle: 'Error',
         tryAgain: 'Try again',

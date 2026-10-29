@@ -95,6 +95,32 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
+# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7):
+# MailboxStoreObject (one per mailbox) and MailIndex (one per workspace), both
+# hosted by mail-api and bound here by name, like the outbound guard's
+# Durable Objects above. Reached only through `@weldsuite/mail-domain/store`'s
+# `getWorkspaceMail` (`lib/mail-store-context.ts`) — never `idFromName`d here
+# directly. `GET /api/people/recent-correspondents` is the only caller today.
+[[durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api-dev"
+
+# EU-jurisdiction bucket for mail bodies + raw MIME (decision 7), owned by
+# mail-api. Not read directly by this worker (recentAddresses never touches a
+# body) — bound anyway because `@weldsuite/mail-domain/store`'s `MailStoreEnv`
+# requires it for the object-mode client to type-check. A local `wrangler dev`
+# simulates R2 regardless of this name.
+[[r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-dev"
+jurisdiction = "eu"
+
 # Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
 # workspace, counts plan allowances and pays overage from the credit wallet.
 [[durable_objects.bindings]]
@@ -171,6 +197,22 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
 
+# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7).
+[[env.test.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-test"
+jurisdiction = "eu"
+
 # Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
 # workspace, counts plan allowances and pays overage from the credit wallet.
 [[env.test.durable_objects.bindings]]
@@ -246,6 +288,22 @@ script_name = "weldsuite-mail-api"
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api"
+
+# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7).
+[[env.production.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api"
+
+[[env.production.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail"
+jurisdiction = "eu"
 
 # Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
 # workspace, counts plan allowances and pays overage from the credit wallet.

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   LEGACY_QUERY_CACHE_KEY,
   MAX_PERSISTED_WORKSPACES,
@@ -11,6 +11,9 @@ import {
   setWritableQueryCacheOrg,
   workspaceCacheStorage,
 } from './persisted-query-cache';
+
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/analytics', () => ({ track: trackMock }));
 
 const NOW = 1_800_000_000_000;
 const HOUR = 60 * 60 * 1000;
@@ -53,6 +56,7 @@ function boundedStorage(capacity: number): Storage {
 beforeEach(() => {
   localStorage.clear();
   setWritableQueryCacheOrg(null);
+  trackMock.mockClear();
 });
 
 afterEach(() => {
@@ -128,6 +132,25 @@ describe('workspaceCacheStorage', () => {
     setWritableQueryCacheOrg('org_acme');
     expect(() => workspaceCacheStorage('org_acme', storage).setItem('ignored', 'too big')).not.toThrow();
     expect(storage.getItem(queryCacheKey('org_acme'))).toBeNull();
+  });
+
+  it('reports a too-big entry once, not on every write', () => {
+    const storage = boundedStorage(5);
+    setWritableQueryCacheOrg('org_acme');
+    const acme = workspaceCacheStorage('org_acme', storage);
+
+    acme.setItem('ignored', 'too big');
+    acme.setItem('ignored', 'still too big');
+    acme.setItem('ignored', 'and again');
+
+    expect(trackMock).toHaveBeenCalledTimes(1);
+    expect(trackMock).toHaveBeenCalledWith('Query Cache Too Big', expect.objectContaining({ orgId: 'org_acme' }));
+  });
+
+  it('does not report when the entry fits', () => {
+    setWritableQueryCacheOrg('org_acme');
+    workspaceCacheStorage('org_acme', localStorage, () => NOW).setItem('ignored', 'data');
+    expect(trackMock).not.toHaveBeenCalled();
   });
 
   it('stops evicting other workspaces once its own entry is too big, and drops its outdated snapshot', () => {

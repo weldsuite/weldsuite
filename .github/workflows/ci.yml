@@ -130,9 +130,11 @@ jobs:
         working-directory: rust
         run: cargo deny check
 
-  # The image (amd64, and the arm64 cross-build) and the Helm chart, deployed
-  # into kind with Postgres, Valkey and NATS: the full authenticated pipeline
-  # (rust/deploy/kind/smoke-test.sh).
+  # The image (amd64, and the arm64 cross-build) with the platform SPA, the
+  # sign portal's image, and the Helm chart, deployed into kind with Postgres,
+  # Valkey and NATS: the full authenticated pipeline, the SPA and the portal
+  # (rust/deploy/kind/smoke-test.sh). The build context is the repo root
+  # (rust/Dockerfile.dockerignore keeps it small).
   rust-image:
     name: Rust · image and chart
     runs-on: ubuntu-latest
@@ -143,11 +145,21 @@ jobs:
       - name: Build the image
         uses: docker/build-push-action@v6
         with:
-          context: rust
+          context: .
+          file: rust/Dockerfile
           load: true
           tags: weldsuite:dev
           cache-from: type=gha,scope=rust-image
           cache-to: type=gha,mode=max,scope=rust-image
+      - name: Build the sign portal's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: sign-portal
+          load: true
+          tags: weldsuite-sign-portal:dev
+          cache-from: type=gha,scope=rust-image
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail
@@ -156,13 +168,18 @@ jobs:
           case "$version" in
             *conformance*) echo "the release image was built with the test-only conformance feature" >&2; exit 1 ;;
           esac
+      # The SPA stages run on the build machine's platform: their layers come
+      # from the amd64 build's cache.
       - name: Cross-build the arm64 image
         uses: docker/build-push-action@v6
         with:
-          context: rust
+          context: .
+          file: rust/Dockerfile
           platforms: linux/arm64
           outputs: type=cacheonly
-          cache-from: type=gha,scope=rust-image-arm64
+          cache-from: |
+            type=gha,scope=rust-image-arm64
+            type=gha,scope=rust-image
           cache-to: type=gha,mode=max,scope=rust-image-arm64
       - uses: azure/setup-helm@v4
       - name: Lint the chart

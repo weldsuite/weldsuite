@@ -1,0 +1,2 @@
+CREATE INDEX "mail_messages_account_thread_key_idx" ON "mail_messages" USING btree ("account_id",COALESCE("thread_id", "id"));--> statement-breakpoint
+CREATE INDEX "mail_messages_account_sent_date_idx" ON "mail_messages" USING btree ("account_id","sent_date" DESC NULLS LAST);

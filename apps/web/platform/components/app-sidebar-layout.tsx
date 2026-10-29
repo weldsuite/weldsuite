@@ -3,7 +3,7 @@ import * as React from "react"
 import { useEffect, useCallback } from "react"
 import { Tooltip, TooltipTrigger, TooltipContent } from '@weldsuite/ui/components/tooltip'
 import { Link, usePathname } from '@/lib/router';
-import { useClerk } from "@clerk/clerk-react"
+import { useAuth } from "@/lib/auth"
 import { useTheme } from '@/hooks/use-theme'
 import { useSettings } from '@/providers/settings-provider'
 import {
@@ -1221,7 +1221,7 @@ export function AppSidebarLayout({
   const isMobile = useIsMobile()
   const { resolvedTheme } = useTheme()
   const isDark = resolvedTheme === "dark"
-  const { signOut } = useClerk()
+  const { signOut } = useAuth()
   const presence = usePresenceMaybe()
 
   // Sidebar Upgrade button is gated behind a Cloudflare Flagship feature flag.

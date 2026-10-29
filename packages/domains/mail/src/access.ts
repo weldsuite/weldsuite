@@ -27,7 +27,32 @@ const { mailAccounts, workspaceMembers } = schema;
 
 type AccountAccessFields = { isShared: boolean | null; assignedUserIds: string[] | null };
 
+/**
+ * `isAdminOrOwner(db, userId)` per request: a route's own access check and a
+ * service it calls (`checkAccountAccess` then, inside it, `threadListScope`)
+ * can both ask the same question, which otherwise queries `workspace_members`
+ * twice for one request. A fresh tenant DB handle is created per request
+ * (`packages/core/worker-kit/src/db.ts`), so keying the memo on the handle
+ * itself scopes it to one request with no explicit cleanup: once nothing
+ * references that `db` any more, the entry goes with it.
+ */
+const adminMemo = new WeakMap<Database, Map<string, Promise<boolean>>>();
+
 export async function isAdminOrOwner(db: Database, userId: string): Promise<boolean> {
+  let perDb = adminMemo.get(db);
+  if (!perDb) {
+    perDb = new Map();
+    adminMemo.set(db, perDb);
+  }
+  let pending = perDb.get(userId);
+  if (!pending) {
+    pending = queryIsAdminOrOwner(db, userId);
+    perDb.set(userId, pending);
+  }
+  return pending;
+}
+
+async function queryIsAdminOrOwner(db: Database, userId: string): Promise<boolean> {
   const memberResult = await db
     .select({ role: workspaceMembers.role })
     .from(workspaceMembers)

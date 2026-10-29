@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
-import { useSignIn } from '@clerk/clerk-react';
+import { getAuthProvider } from '@/lib/auth';
+import { useSignIn } from '@/lib/auth/clerk';
 import { isDesktop } from '@/lib/desktop';
 import { onDesktopAuthCallback } from '@/lib/desktop-auth';
 
@@ -9,10 +10,22 @@ import { onDesktopAuthCallback } from '@/lib/desktop-auth';
  *
  * Mount once near the root of the desktop app (e.g. the auth layout).
  */
-export function useDesktopAuthHandler(options?: {
+interface DesktopAuthOptions {
   onSuccess?: () => void;
   onError?: (message: string) => void;
-}) {
+}
+
+/** The desktop sign-in ticket is a Clerk sign-in token: nothing to listen for on other providers. */
+function useNoDesktopAuth(_options?: DesktopAuthOptions): void {
+  // Other providers hand the desktop shell their own session (not built yet).
+}
+
+export function useDesktopAuthHandler(options?: DesktopAuthOptions): void {
+  const useHandler = getAuthProvider() === 'clerk' ? useClerkDesktopAuth : useNoDesktopAuth;
+  useHandler(options);
+}
+
+function useClerkDesktopAuth(options?: DesktopAuthOptions): void {
   const { signIn, setActive, isLoaded } = useSignIn();
 
   useEffect(() => {

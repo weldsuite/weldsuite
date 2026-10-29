@@ -15,6 +15,9 @@ import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import * as weldmail from '../../services/mail/weldmail';
 import { WeldMailError } from '../../services/mail/weldmail';
+import { destroyMailboxObject } from '../../services/mail/accounts';
+import { resolveMailStoreMode, writesObject } from '@weldsuite/mail-domain/store/mode';
+import { bumpMailboxDirectory } from '@weldsuite/mail-domain/store/directory';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -100,6 +103,7 @@ app.post(
         orgId,
         c.req.valid('json'),
       );
+      c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, c.get('workspaceId')));
       return success(
         c,
         {
@@ -142,6 +146,23 @@ app.delete('/:id', requirePermission('accounts:delete'), async (c) => {
   const id = c.req.param('id');
   try {
     const result = await weldmail.releaseAddress(c.env, c.get('tenantDb'), orgId, id);
+
+    // A released WeldMail address is a soft-deleted `mail_accounts` row like
+    // any other account deletion (design §9 task D3) — same directory bump,
+    // same best-effort mailbox teardown in any mode that may have written
+    // the object. Not called out by name in the design's bump-site list
+    // (only "address creation" is), but releasing changes exactly the same
+    // directory content (status, deletedAt) that creating does.
+    const workspaceId = c.get('workspaceId');
+    c.executionCtx.waitUntil(bumpMailboxDirectory(c.env, workspaceId));
+
+    const mode = await resolveMailStoreMode(c.env, workspaceId);
+    if (writesObject(mode)) {
+      c.executionCtx.waitUntil(
+        destroyMailboxObject(c.env, { workspaceId, accountId: id, clerkOrgId: c.get('clerkOrgId') }),
+      );
+    }
+
     return success(c, { deleted: true, ...result });
   } catch (err) {
     if (err instanceof WeldMailError) return mapWeldMailError(c, err);

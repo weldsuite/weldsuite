@@ -6,8 +6,8 @@ import {
   getCoreRowModel,
   useReactTable,
 } from '@tanstack/react-table';
-import { useUser, useSession } from '@clerk/clerk-react';
-import type { SessionWithActivitiesResource } from '@clerk/types';
+import { ClerkOnly } from '@/lib/auth';
+import { useClerkUser, useSession, type SessionWithActivitiesResource } from '@/lib/auth/clerk';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useI18n } from '@/lib/i18n/provider';
 import { formatDistanceToNow } from 'date-fns';
@@ -42,6 +42,7 @@ import { DeleteAccountSection } from './delete-account-section';
 import { PasskeysSection } from './passkeys-section';
 import { TwoFactorSection } from './two-factor-section';
 import { parseSessionDevice } from './session-device';
+import { ManagedByIdentityProvider } from '@/components/auth/identity-provider-screens';
 
 const SESSIONS_PAGE_SIZE = 10;
 
@@ -224,8 +225,8 @@ function buildSessionColumns({
     ];
 }
 
-export default function SecuritySettingsPage() {
-  const { user } = useUser();
+function ClerkSecuritySettingsPage() {
+  const { user } = useClerkUser();
   const { session: currentSession } = useSession();
   const [sessions, setSessions] = useState<SessionWithActivitiesResource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -494,5 +495,14 @@ export default function SecuritySettingsPage() {
         <DeleteAccountSection />
       </div>
     </div>
+  );
+}
+
+/** Clerk's own screen; providers that host sign-in themselves (OIDC) get managed by identity provider instead. */
+export default function SecuritySettingsPage() {
+  return (
+    <ClerkOnly fallback={<ManagedByIdentityProvider />}>
+      <ClerkSecuritySettingsPage />
+    </ClerkOnly>
   );
 }

@@ -102,7 +102,7 @@ export function useFormulaAssist(
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const step = e.key === 'ArrowDown' ? 1 : -1;
         setPicked({ key, index: (index + step + open.items.length) % open.items.length });
-      } else if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.altKey)) {
+      } else if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey && !e.altKey && !open.reference)) {
         accept(open.items[index]!);
       } else if (e.key === 'Escape') {
         setClosedKey(key);

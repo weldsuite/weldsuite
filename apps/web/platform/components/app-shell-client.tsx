@@ -4,7 +4,7 @@ import { usePathname } from '@/lib/router';
 import { isWorkspaceScopedPath } from '@/lib/workspace-url';
 import { useWorkspaceUrlGate, type WorkspaceUrlGate } from '@/components/workspace-url-gate';
 import { WorkspaceLinkProblem } from '@/components/workspace/workspace-link-problem';
-import { useAuth, useOrganizationList } from '@clerk/clerk-react';
+import { useAuth, useOrganizationList } from '@/lib/auth';
 import { ComposeProvider } from '@/contexts/compose-context';
 import { PinnedNoteProvider } from '@/contexts/pinned-note-context';
 import { CallProvider } from '@/contexts/call-context';

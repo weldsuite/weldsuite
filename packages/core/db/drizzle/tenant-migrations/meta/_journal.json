@@ -1632,6 +1632,13 @@
       "when": 1793120150001,
       "tag": "0232_weldpanel",
       "breakpoints": true
+    },
+    {
+      "idx": 233,
+      "version": "7",
+      "when": 1793186477065,
+      "tag": "0233_mighty_revanche",
+      "breakpoints": true
     }
   ]
 }

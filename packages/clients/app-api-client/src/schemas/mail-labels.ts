@@ -48,6 +48,8 @@ export const listMailLabelThreadsQuery = z.object({
   labelSlug: z.string().min(1),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  /** Store keyset cursor (mailbox-store design §5), alongside the legacy `page`/`pageSize`. */
+  cursor: z.string().optional(),
   /** Free text over subject, body and participants; searches the whole mailbox. */
   search: z.string().max(200).optional(),
   from: z.string().max(200).optional(),

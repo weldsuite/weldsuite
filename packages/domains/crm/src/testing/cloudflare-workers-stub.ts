@@ -8,6 +8,17 @@
  * This provides just enough shape for the import to succeed; tests never
  * instantiate a workflow.
  *
+ * `DurableObject` was added for the mailbox-store object-mode tests
+ * (docs/plans/weldmail-mailbox-store-design.md, task D7): crm-api's own
+ * mail-store fakes (`@weldsuite/mail-domain/store/object/testing/fake-env`)
+ * transitively import `MailboxStoreObject extends DurableObject`. This
+ * worker doesn't define its own Durable Object, but `cloudflare:workers`
+ * resolves to this one module for the whole test run, so it needs every
+ * export any test's import graph reaches. Shape matches
+ * `@weldsuite/worker-kit/testing/cloudflare-workers-stub`'s — kept separate
+ * (not that one) because `WorkflowStep.waitForEvent` below is crm-domain's own
+ * addition that worker-kit's stub doesn't have.
+ *
  * Wire it in via `resolve.alias['cloudflare:workers']` in the worker's
  * vitest.config.ts (same pattern as apps/workers/workspace-worker).
  */
@@ -21,6 +32,15 @@ export class WorkflowEntrypoint<Env = unknown, Params = unknown> {
   // Params is part of the real generic signature; referenced so the type
   // parameter isn't reported as unused.
   declare protected __params?: Params;
+}
+
+export class DurableObject<Env = unknown> {
+  readonly ctx: DurableObjectState;
+  readonly env: Env;
+  constructor(ctx: DurableObjectState, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
 }
 
 export type WorkflowEvent<T> = { payload: T; timestamp: Date; instanceId: string };

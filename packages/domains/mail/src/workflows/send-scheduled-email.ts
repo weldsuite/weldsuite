@@ -18,7 +18,7 @@
 import { WorkflowEntrypoint, WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { eq, and, isNull, sql } from 'drizzle-orm';
 import type { DbEnv } from '@weldsuite/worker-kit/env';
-import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
+import { getTenantDbForWorkspace, getWorkspaceForOrg, schema } from '@weldsuite/worker-kit/db';
 import { getStoredObject, type StorageBindings } from '@weldsuite/worker-kit/storage';
 import * as cfEmail from '@weldsuite/worker-email';
 import type { OutboundKind } from '@weldsuite/app-api-client/schemas/outbound-mail';
@@ -30,17 +30,24 @@ import {
   type OutboundGuardEnv,
   type OutboundReservation,
 } from '../outbound/guard';
+import { getWorkspaceMail, type MailboxStore, type MailStoreEnv, type MailStoreMode } from '../store';
 
 /**
  * The bindings the workflow reads: tenant DB resolution, the Cloudflare send
- * binding (@weldsuite/worker-email), the R2 bucket holding the attachments and
- * the outbound guard's bindings. Any worker Env with them fits.
+ * binding (@weldsuite/worker-email), the R2 bucket holding the attachments,
+ * the outbound guard's bindings, and (design task D1) the mailbox store's own
+ * bindings — this workflow reads and updates the scheduled message through
+ * `getWorkspaceMail` rather than `mail_messages` directly, since it runs
+ * outside a request and so has no `workspaceMailFromContext` to resolve it
+ * for it. Any worker Env with them fits; mail-api, which hosts this
+ * workflow, already binds everything `MailStoreEnv` lists.
  */
 export interface SendScheduledEmailEnv
   extends DbEnv,
     cfEmail.WorkerEmailEnv,
-    Omit<OutboundGuardEnv, 'WORKSPACE_CACHE' | 'DATABASE_URL_MASTER' | 'NEON_API_KEY'> {
-  /** R2 buckets holding the scheduled message's attachments (private first). */
+    Omit<OutboundGuardEnv, 'WORKSPACE_CACHE' | 'DATABASE_URL_MASTER' | 'NEON_API_KEY'>,
+    MailStoreEnv {
+  /** R2 buckets holding the scheduled message's attachments (private first) — unused once a workspace reads attachments through the store instead. */
   STORAGE?: R2Bucket;
   PRIVATE_STORAGE?: R2Bucket;
 }
@@ -66,8 +73,31 @@ export interface SendScheduledEmailParams {
 }
 
 type TenantDb = Awaited<ReturnType<typeof getTenantDbForWorkspace>>;
-type MailMessageRow = typeof schema.mailMessages.$inferSelect;
 type ResolvedAttachment = { filename: string; contentType?: string; content: ArrayBuffer };
+
+/**
+ * The fields this workflow reads off the scheduled message — a narrower
+ * shape than the Postgres row so a `MailboxStore.getMessage` record (design
+ * task D1: this workflow reads and updates the message through the store,
+ * since it runs outside a request and has no `workspaceMailFromContext` to
+ * resolve one for it) satisfies it too.
+ */
+interface MailMessageRow {
+  id: string;
+  accountId: string;
+  messageId: string;
+  sendStatus: string | null;
+  triggerRunId: string | null;
+  to: unknown;
+  cc: unknown;
+  bcc: unknown;
+  inReplyTo: string | null;
+  references: unknown;
+  subject: string | null;
+  textBody: string | null;
+  htmlBody: string | null;
+  labels: unknown;
+}
 
 /**
  * Why the stored message must not be sent by this instance (or null when it may).
@@ -103,18 +133,22 @@ function buildExtraHeaders(message: MailMessageRow): Record<string, string> {
 
 /**
  * Fetch attachments from R2. mail_attachments.storagePath holds the
- * fileKey written when the user clicked "Schedule".
+ * fileKey written when the user clicked "Schedule". The attachment rows
+ * themselves come through the store (`listAttachments`) when one is
+ * supplied, else the direct-Postgres rows, unchanged.
  */
 async function resolveAttachments(
   db: TenantDb,
+  store: MailboxStore | undefined,
   storage: StorageBindings,
   messageId: string,
 ): Promise<ResolvedAttachment[]> {
-  const { mailAttachments } = schema;
-  const attachmentRows = await db
-    .select()
-    .from(mailAttachments)
-    .where(and(eq(mailAttachments.messageId, messageId), isNull(mailAttachments.deletedAt)));
+  const attachmentRows = store
+    ? await store.listAttachments(messageId)
+    : await db
+        .select()
+        .from(schema.mailAttachments)
+        .where(and(eq(schema.mailAttachments.messageId, messageId), isNull(schema.mailAttachments.deletedAt)));
 
   if (attachmentRows.length === 0 || (!storage.STORAGE && !storage.PRIVATE_STORAGE)) return [];
 
@@ -177,21 +211,31 @@ export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduled
   ): Promise<SendOutcome> {
     const { workspaceId, messageId, accountId } = event.payload;
     const db = await getTenantDbForWorkspace(this.env, workspaceId);
+    const { store, mode } = await resolveMailboxStore(this.env, workspaceId, accountId, db);
 
-    const loaded = await loadScheduledSend(db, messageId, accountId, event.instanceId);
+    const loaded = await loadScheduledSend(db, store, messageId, accountId, event.instanceId);
     if ('status' in loaded) return loaded;
     const { message, account } = loaded;
     const recipients = recipientsOf(message);
 
     // ---- Outbound guard (docs/plans/weldmail-outbound-abuse.md) -----------
-    const reservation = await reserveScheduledSend(this.env, db, workspaceId, message, account, recipients, {
-      deadline,
-      lastAttempt,
-    });
+    // The guard call stays exactly as it was (design task D1): only
+    // `mailStoreMode` is new, so the workspace's `MailIndex` can answer first
+    // contacts authoritatively once the workspace is `object-only`.
+    const reservation = await reserveScheduledSend(
+      this.env,
+      db,
+      workspaceId,
+      message,
+      account,
+      recipients,
+      { deadline, lastAttempt, mailStoreMode: mode },
+      store,
+    );
     if ('status' in reservation) return reservation;
 
-    const sendResult = await transmitScheduledSend(this.env, db, message, account, recipients, reservation);
-    await markScheduledSent(db, message, accountId, sendResult.messageId);
+    const sendResult = await transmitScheduledSend(this.env, db, store, message, account, recipients, reservation);
+    await markScheduledSent(db, store, message, accountId, sendResult.messageId);
     console.log(`[SendScheduledEmail] Sent ${messageId}, externalId: ${sendResult.messageId}`);
     return { status: 'sent' };
   }
@@ -200,19 +244,62 @@ export class SendScheduledEmailWorkflow extends WorkflowEntrypoint<SendScheduled
 type MailAccountRow = typeof schema.mailAccounts.$inferSelect;
 type ScheduledRecipients = { to: string[]; cc: string[]; bcc: string[] };
 
+/**
+ * Resolve the account's mailbox store for this instance (design task D1:
+ * "the Workflow reads and updates the message through the store; it runs
+ * outside a request, so it resolves the store with `getWorkspaceMail` from
+ * the Workflow env and the workspace id"). `event.payload.workspaceId` is
+ * the Clerk org id (same convention `services/mail/scheduled.ts` and
+ * `send.ts` use their own "workspaceId"/"orgId" parameters for) — the master
+ * `workspaces.id` `getWorkspaceMail` actually keys on is looked up from it.
+ *
+ * Never throws: a workspace that can't be resolved (a stale/removed org,
+ * `getWorkspaceForOrg` erroring) falls back to `{store: undefined, mode:
+ * undefined}`, so every caller below takes its already-existing
+ * direct-Postgres path — today's behaviour, unchanged.
+ */
+async function resolveMailboxStore(
+  env: SendScheduledEmailEnv,
+  clerkOrgId: string,
+  accountId: string,
+  db: TenantDb,
+): Promise<{ store: MailboxStore | undefined; mode: MailStoreMode | undefined }> {
+  try {
+    const { id: workspaceId } = await getWorkspaceForOrg(env, clerkOrgId);
+    const workspaceMail = await getWorkspaceMail(env, {
+      workspaceId,
+      clerkOrgId,
+      db,
+      // Nothing here needs to outlive this step: best-effort, like the
+      // snooze-sweep cron's own system-principal call into this factory.
+      waitUntil: (p) => {
+        p.catch(() => undefined);
+      },
+      // A system sweep, not a user request — `MailAccess` is never consulted
+      // on this path (no route, no permission check), so the principal only
+      // has to be a valid one.
+      principal: { kind: 'workspace', keyId: 'system:send-scheduled-email' },
+    });
+    return { store: workspaceMail.store.mailbox(accountId), mode: workspaceMail.mode };
+  } catch (err) {
+    console.warn(
+      '[SendScheduledEmail] could not resolve the mailbox store, falling back to Postgres:',
+      err instanceof Error ? err.message : err,
+    );
+    return { store: undefined, mode: undefined };
+  }
+}
+
 /** The message and its account, or why this instance must not send it. */
 async function loadScheduledSend(
   db: TenantDb,
+  store: MailboxStore | undefined,
   messageId: string,
   accountId: string,
   instanceId: string,
 ): Promise<{ message: MailMessageRow; account: MailAccountRow } | SendOutcome> {
-  const { mailMessages, mailAccounts } = schema;
-  const [message] = await db
-    .select()
-    .from(mailMessages)
-    .where(and(eq(mailMessages.id, messageId), isNull(mailMessages.deletedAt)))
-    .limit(1);
+  const { mailAccounts } = schema;
+  const message = await loadScheduledMessage(db, store, messageId);
   if (!message) {
     console.log(`[SendScheduledEmail] Message ${messageId} not found, skipping`);
     return { status: 'skipped' };
@@ -231,12 +318,60 @@ async function loadScheduledSend(
     .limit(1);
   if (!account) {
     console.error(`[SendScheduledEmail] Account ${accountId} not found, marking failed`);
-    await db.update(mailMessages)
-      .set({ sendStatus: 'failed', triggerRunId: null, updatedAt: new Date() })
-      .where(eq(mailMessages.id, messageId));
+    await markScheduledFailed(db, store, messageId, { sendStatus: 'failed', triggerRunId: null });
     return { status: 'failed' };
   }
   return { message, account };
+}
+
+/** `store.getMessage(id, {bodies: true})` when one is supplied, else the direct-Postgres row, unchanged. */
+async function loadScheduledMessage(db: TenantDb, store: MailboxStore | undefined, messageId: string): Promise<MailMessageRow | null> {
+  if (store) {
+    const row = await store.getMessage(messageId, { bodies: true });
+    if (!row) return null;
+    return { ...row, textBody: row.textBody ?? null, htmlBody: row.htmlBody ?? null };
+  }
+  const { mailMessages } = schema;
+  const [row] = await db
+    .select()
+    .from(mailMessages)
+    .where(and(eq(mailMessages.id, messageId), isNull(mailMessages.deletedAt)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * The failure/skip writes below all patch the same handful of fields on the
+ * scheduled row. Through the store's `scheduled` op when one is supplied,
+ * else the direct-Postgres update, unchanged.
+ */
+async function markScheduledFailed(
+  db: TenantDb,
+  store: MailboxStore | undefined,
+  messageId: string,
+  patch: {
+    sendStatus: 'failed';
+    triggerRunId: null;
+    delivery?: { status: 'failed'; detail: string };
+  },
+): Promise<void> {
+  const now = new Date();
+  if (store) {
+    await store.apply({ kind: 'scheduled', id: messageId, patch: { ...patch, delivery: patch.delivery ?? undefined } }, now.getTime());
+    return;
+  }
+  const { mailMessages } = schema;
+  await db
+    .update(mailMessages)
+    .set({
+      sendStatus: patch.sendStatus,
+      triggerRunId: patch.triggerRunId,
+      ...(patch.delivery
+        ? { deliveryStatus: patch.delivery.status, deliveryDetail: patch.delivery.detail, deliveryUpdatedAt: now }
+        : {}),
+      updatedAt: now,
+    })
+    .where(eq(mailMessages.id, messageId));
 }
 
 function recipientsOf(message: MailMessageRow): ScheduledRecipients {
@@ -256,7 +391,8 @@ async function reserveScheduledSend(
   message: MailMessageRow,
   account: MailAccountRow,
   recipients: ScheduledRecipients,
-  timing: { deadline: number; lastAttempt: boolean },
+  timing: { deadline: number; lastAttempt: boolean; mailStoreMode: MailStoreMode | undefined },
+  store?: MailboxStore,
 ): Promise<OutboundReservation | SendOutcome> {
   try {
     return await checkOutbound(env, db, {
@@ -269,6 +405,7 @@ async function reserveScheduledSend(
       text: message.textBody,
       html: message.htmlBody,
       senderDailyCap: account.dailySendLimit,
+      mailStoreMode: timing.mailStoreMode,
     });
   } catch (err) {
     if (!(err instanceof OutboundDeniedError)) throw err;
@@ -278,17 +415,11 @@ async function reserveScheduledSend(
       return { status: 'deferred', retryAfter: new Date(retryAfter).toISOString(), code: err.code };
     }
     console.warn(`[SendScheduledEmail] ${message.id} refused by the outbound guard: ${err.code}`);
-    const now = new Date();
-    await db.update(schema.mailMessages)
-      .set({
-        sendStatus: 'failed',
-        triggerRunId: null,
-        deliveryStatus: 'failed',
-        deliveryDetail: err.message.slice(0, 500),
-        deliveryUpdatedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(schema.mailMessages.id, message.id));
+    await markScheduledFailed(db, store, message.id, {
+      sendStatus: 'failed',
+      triggerRunId: null,
+      delivery: { status: 'failed', detail: err.message.slice(0, 500) },
+    });
     return { status: 'failed' };
   }
 }
@@ -297,6 +428,7 @@ async function reserveScheduledSend(
 async function transmitScheduledSend(
   env: SendScheduledEmailEnv,
   db: TenantDb,
+  store: MailboxStore | undefined,
   message: MailMessageRow,
   account: MailAccountRow,
   recipients: ScheduledRecipients,
@@ -305,7 +437,7 @@ async function transmitScheduledSend(
   const fromAddress = account.displayName ? `${account.displayName} <${account.email}>` : account.email;
   const extraHeaders = buildExtraHeaders(message);
   try {
-    const resolvedAttachments = await resolveAttachments(db, env, message.id);
+    const resolvedAttachments = await resolveAttachments(db, store, env, message.id);
     const result = await cfEmail.sendEmail(env, {
       from: fromAddress,
       to: recipients.to,
@@ -330,21 +462,46 @@ async function transmitScheduledSend(
   }
 }
 
-async function markScheduledSent(db: TenantDb, message: MailMessageRow, accountId: string, externalMessageId: string): Promise<void> {
-  const { mailMessages, mailAccounts } = schema;
+/**
+ * Never anywhere else does a scheduled message get marked sent — only this
+ * function, after `transmitScheduledSend` really handed it to Cloudflare
+ * (design task D1). Through the store's `scheduled` op when one is supplied;
+ * `sentToday` stays a direct Postgres bump either way (design §1: "P").
+ */
+async function markScheduledSent(
+  db: TenantDb,
+  store: MailboxStore | undefined,
+  message: MailMessageRow,
+  accountId: string,
+  externalMessageId: string,
+): Promise<void> {
+  const { mailAccounts } = schema;
   const now = new Date();
-  const updatedLabels = ((message.labels as string[]) || []).filter(l => l !== 'SCHEDULED');
 
-  await db.update(mailMessages)
-    .set({
-      sendStatus: 'sent',
-      externalMessageId,
-      sentDate: now,
-      triggerRunId: null,
-      labels: updatedLabels,
-      updatedAt: now,
-    })
-    .where(eq(mailMessages.id, message.id));
+  if (store) {
+    await store.apply(
+      {
+        kind: 'scheduled',
+        id: message.id,
+        patch: { sendStatus: 'sent', externalMessageId, sentAt: now.getTime(), triggerRunId: null, dropScheduledLabel: true },
+      },
+      now.getTime(),
+    );
+  } else {
+    const { mailMessages } = schema;
+    const updatedLabels = ((message.labels as string[]) || []).filter((l) => l !== 'SCHEDULED');
+    await db
+      .update(mailMessages)
+      .set({
+        sendStatus: 'sent',
+        externalMessageId,
+        sentDate: now,
+        triggerRunId: null,
+        labels: updatedLabels,
+        updatedAt: now,
+      })
+      .where(eq(mailMessages.id, message.id));
+  }
 
   await db.update(mailAccounts)
     .set({ sentToday: sql`${mailAccounts.sentToday} + 1`, updatedAt: now })

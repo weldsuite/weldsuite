@@ -35,6 +35,7 @@ import { applyVisibleOrder, rememberAppCodes, sortByAppOrder } from '@/lib/apps/
 import { CalendarLogoIcon } from '@/components/calendar-logo-icon';
 import { useWorkspaceHref } from '@/lib/workspace-url-rewrite';
 import { LucideDynamicIcon } from '@/components/lucide-dynamic-icon';
+import { isModuleOffered } from '@/lib/edition';
 
 /** Path this app's sidebar icon links to — WeldApps (`appType: 'user'`) are
  * hosted at `/apps/{code}`, first-party system apps keep their own `/{code}`
@@ -412,7 +413,8 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
           )}
         </div>
 
-        {/* AI Agents */}
+        {/* AI Agents (edition flag: needs the agent module) */}
+        {isModuleOffered('agent') && (
         <Tooltip>
           <TooltipTrigger asChild>
             <a
@@ -440,6 +442,7 @@ export function AppSidebarClient({ installedApps }: Readonly<AppSidebarClientPro
             <p>{t.navigation.aiAgents}</p>
           </TooltipContent>
         </Tooltip>
+        )}
 
         {/* App Store - Fixed at bottom. Only shown to users who can manage apps. */}
         {canManageApps ? (

@@ -13,6 +13,37 @@ import { EMPLOYEE_MEMBER_PERMISSIONS, SYSTEM_ROLES, getRoleRowPermissions } from
 import type { ResolvedPermissions } from '../types';
 
 /**
+ * Bump by hand when what `resolveEffectivePermissions` returns can change
+ * with no tenant write: a change to the resolution logic below (or to
+ * `getRoleRowPermissions` / `migratePermissionKeys`), or a tenant migration
+ * that rewrites `roles.permissions` or member permission columns. The
+ * code-defined catalog is covered without a bump, see below.
+ */
+const RESOLVER_LOGIC_VERSION = 1;
+
+/** 32-bit FNV-1a, hex: a short, stable fingerprint, not a security hash. */
+function fingerprint(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+/**
+ * Identifies the code that resolved a permission result: the hand-bumped
+ * logic version plus a fingerprint of the system-role catalog and the
+ * EMPLOYEE permission set, which members without a custom role resolve from.
+ * Caches of resolved permissions key on it (`@weldsuite/worker-kit/permission-cache`),
+ * so a deploy that changes either never serves a result the old code
+ * resolved, without waiting out the cache TTL.
+ */
+export const PERMISSIONS_RESOLUTION_VERSION = `${RESOLVER_LOGIC_VERSION}.${fingerprint(
+  JSON.stringify([SYSTEM_ROLES, EMPLOYEE_MEMBER_PERMISSIONS]),
+)}`;
+
+/**
  * Minimal database interface — any Drizzle-compatible client with select/from/where.
  * We use raw SQL-style calls so we don't need tight coupling to a specific db module.
  */

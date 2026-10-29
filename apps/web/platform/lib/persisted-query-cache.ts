@@ -14,6 +14,8 @@
  * out of either workspace's entry.
  */
 
+import { track } from '@/lib/analytics';
+
 /** Prefix of every per-workspace entry; the Clerk org id follows. */
 export const QUERY_CACHE_KEY_PREFIX = 'weldsuite:query-cache:';
 /** The single shared entry used before FE-014. Dropped, never migrated. */
@@ -145,6 +147,10 @@ export function workspaceCacheStorage(
           const oldest = evictable.shift();
           if (!oldest) {
             // Too big on its own. The next write still tries, in case it shrank.
+            // Reported once per page (this closure lives for the page's whole
+            // session — see `QueryProvider`'s `useMemo`), not on every write
+            // that hits it, which would otherwise be once per mutation.
+            if (!tooBig) track('Query Cache Too Big', { orgId, bytes: value.length });
             tooBig = true;
             removeEntry(storage, orgId, index);
             writeIndex(storage, index);

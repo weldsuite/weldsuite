@@ -1,6 +1,8 @@
 import type { EntityEventMessage } from '@weldsuite/entity-events/types';
 import type { KitEnv, KitVariables } from '@weldsuite/worker-kit';
 import type { OutboundGuardEnv } from '@weldsuite/mail-domain/outbound';
+import type { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+import type { MailIndex } from '@weldsuite/mail-domain/mail-index';
 import type { UsageMeterEnv } from '@weldsuite/credits/meters';
 
 /**
@@ -55,6 +57,31 @@ export interface Env extends KitEnv {
   /** Per-sender burst limit the guard falls back on when the ledger is unreachable. */
   OUTBOUND_BACKSTOP?: OutboundGuardEnv['OUTBOUND_BACKSTOP'];
 
+  // --- Mailbox store (docs/plans/weldmail-mailbox-store-design.md, task D7) -
+  /**
+   * mail-api's mailbox Durable Object, bound by `script_name` (design §8).
+   * Reached only through `@weldsuite/mail-domain/store`'s `getWorkspaceMail`
+   * (`lib/mail-store-context.ts`) — nothing in this worker calls `idFromName`
+   * on it directly.
+   */
+  MAILBOX_STORE?: DurableObjectNamespace<MailboxStoreObject>;
+  /**
+   * mail-api's per-workspace address index Durable Object, bound by
+   * `script_name`. `recentAddresses` (the only mail-store call this worker
+   * makes) reads one mailbox directly and never needs the index, but
+   * `MailStoreEnv`'s object-mode client declares it, the same reason
+   * `MAILBOX_STORE` is wired ahead of actual use.
+   */
+  MAIL_INDEX?: DurableObjectNamespace<MailIndex>;
+  /**
+   * EU-jurisdiction bucket for mail bodies and raw MIME (decision 7):
+   * `weldsuite-mail`(-test), NOT the `STORAGE` bucket above (customer/contact
+   * avatars). `recentAddresses` never touches a body; bound anyway because
+   * `MailStoreEnv`'s object-mode client declares it required, the same reason
+   * `MAILBOX_STORE` needs to be bound at deploy time even though this worker
+   * never reads or writes a message body directly.
+   */
+  MAIL_STORAGE?: R2Bucket;
   // --- Usage meters (@weldsuite/credits/meters) ----------------------------
   /** mail-api's `UsageMeter` Durable Object (`script_name` binding): plan allowances
    *  and overage per workspace. Unset: metering fails open. */

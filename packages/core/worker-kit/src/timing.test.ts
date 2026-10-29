@@ -35,6 +35,22 @@ describe('RequestTiming', () => {
     );
   });
 
+  it('reports a permission-cache hit as "cached" instead of a query count', () => {
+    const timing = new RequestTiming(0);
+    timing.notePermissionsCache('hit');
+    timing.record('perm', 3);
+    expect(timing.summary(10)).toMatchObject({ permMs: 3, permQueries: 1, permCache: 'hit' });
+    expect(timing.serverTimingHeader(10)).toContain('perm;dur=3;desc="cached"');
+  });
+
+  it('leaves the perm description as a query count on a cache miss', () => {
+    const timing = new RequestTiming(0);
+    timing.notePermissionsCache('miss');
+    timing.record('perm', 15);
+    expect(timing.summary(20)).toMatchObject({ permQueries: 1, permCache: 'miss' });
+    expect(timing.serverTimingHeader(20)).toContain('perm;dur=15;desc="1 query"');
+  });
+
   it('flags a slow first tenant query as a probable cold start', () => {
     const timing = new RequestTiming(0);
     timing.record('db', COLD_START_THRESHOLD_MS);

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { toast } from 'sonner';
 import { usePathname } from '@/lib/router';
 import { getTranslations } from '@/lib/i18n';

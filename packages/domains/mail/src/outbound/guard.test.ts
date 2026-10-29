@@ -19,6 +19,7 @@ vi.mock('../recipient-validation', () => ({
 }));
 
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { createSqliteDurableObjectState, fireAlarm } from '@weldsuite/worker-kit/testing/durable-sqlite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { OUTBOUND_DEFAULT_LIMITS } from '@weldsuite/app-api-client/schemas/outbound-mail';
@@ -27,6 +28,7 @@ import { OutboundDeniedError, checkOutbound, commitOutbound, guardedSend, type O
 import { LedgerCore, type LedgerPolicy, type LedgerStore, type LedgerSubject, type ReserveRequest } from './ledger-core';
 import { markSentCopy, parseSendingEvent } from './delivery-events';
 import { MailSendError, sendAndPersist, type MailSendEnv } from '../send';
+import { MailIndex, type MailIndexEnv } from '../mail-index/mail-index';
 
 const { mailAccounts, mailMessages, mailCorrespondents } = schema;
 
@@ -282,5 +284,126 @@ describe('delivery events', () => {
     expect(await markSentCopy(db, accountId, { ...base, type: 'delivered' })).toBe(false);
     const [row] = await db.select({ status: mailMessages.deliveryStatus }).from(mailMessages).where(eq(mailMessages.id, id));
     expect(row?.status).toBe('complained');
+  });
+});
+
+describe('MailIndex integration (design decision 1: its own EU object, not ledger tables)', () => {
+  /** A real `MailIndex` over the node:sqlite fakes, wrapped in a namespace shaped like `env.MAIL_INDEX`. */
+  function fakeMailIndex(env: Partial<MailIndexEnv> = {}) {
+    const state = createSqliteDurableObjectState();
+    const index = new MailIndex(state, {
+      DATABASE_URL_MASTER: 'postgres://unused',
+      WORKSPACE_CACHE: {} as KVNamespace,
+      NEON_API_KEY: 'unused',
+      ...env,
+    });
+    const ns = { idFromName: (name: string) => name, get: () => index, jurisdiction: () => ns };
+    return { ns: ns as unknown as NonNullable<OutboundGuardEnv['MAIL_INDEX']>, state, index };
+  }
+
+  it('trusts MailIndex.firstContacts when seeded and the caller says object-only, bypassing Postgres entirely', async () => {
+    const { ns: ledgerNs } = fakeLedgers(policy());
+    const { ns: indexNs, index, state } = fakeMailIndex({ correspondentsReader: async () => ({ rows: [], nextCursor: null }) });
+    await index.ensureCorrespondentsSeeded('ws_test', 'test');
+    await fireAlarm(state, index); // empty page -> seeded immediately
+    await index.recordMailAddresses('ws_test', [
+      { messageId: 'm1', accountId: 'acc1', from: 'index-only@client.com', addresses: ['index-only@client.com'], at: Date.now() },
+    ]);
+
+    const env: OutboundGuardEnv = { OUTBOUND_LEDGER: ledgerNs, MAIL_INDEX: indexNs };
+    const reservation = await checkOutbound(env, db, {
+      subject,
+      source: 'compose',
+      kind: 'new_thread',
+      from: 'tom@acme.com',
+      to: ['index-only@client.com'],
+      mailStoreMode: 'object-only',
+    });
+
+    // Postgres never heard of this address; only the index knows it, and the
+    // guard trusts the index's answer because it is authoritative.
+    expect((await findKnownCorrespondents(db, ['index-only@client.com'])).size).toBe(0);
+    expect(reservation.firstContact).toEqual([]);
+  });
+
+  it('ignores an unseeded or non-object-only index and falls back to Postgres, unchanged', async () => {
+    const { ns: ledgerNs } = fakeLedgers(policy());
+    const { ns: indexNs, index } = fakeMailIndex();
+    await index.recordMailAddresses('ws_test', [
+      { messageId: 'm1', accountId: 'acc1', from: 'index-only-2@client.com', addresses: ['index-only-2@client.com'], at: Date.now() },
+    ]);
+
+    const env: OutboundGuardEnv = { OUTBOUND_LEDGER: ledgerNs, MAIL_INDEX: indexNs };
+    // No `mailStoreMode`: defaults to not-authoritative, so the index's
+    // (correct) answer must be ignored in favour of Postgres (which has never
+    // heard of this address).
+    const reservation = await checkOutbound(env, db, {
+      subject,
+      source: 'compose',
+      kind: 'new_thread',
+      from: 'tom@acme.com',
+      to: ['index-only-2@client.com'],
+    });
+    expect(reservation.firstContact).toEqual(['index-only-2@client.com']);
+  });
+
+  it('falls back to Postgres when the index throws', async () => {
+    await seedInbound('known-via-pg-fallback@client.com');
+    const { ns: ledgerNs } = fakeLedgers(policy());
+    const brokenNs = {
+      jurisdiction: () => brokenNs,
+      idFromName: (n: string) => n,
+      get: () => ({
+        firstContacts: async () => {
+          throw new Error('mail index unavailable');
+        },
+      }),
+    };
+    const env: OutboundGuardEnv = {
+      OUTBOUND_LEDGER: ledgerNs,
+      MAIL_INDEX: brokenNs as unknown as NonNullable<OutboundGuardEnv['MAIL_INDEX']>,
+    };
+    const reservation = await checkOutbound(env, db, {
+      subject,
+      source: 'compose',
+      kind: 'new_thread',
+      from: 'tom@acme.com',
+      to: ['known-via-pg-fallback@client.com'],
+      mailStoreMode: 'object-only',
+    });
+    expect(reservation.firstContact).toEqual([]); // known via the Postgres fallback
+  });
+
+  it('commitOutbound records the send in MailIndex when available, alongside Postgres', async () => {
+    const { ns: ledgerNs } = fakeLedgers(policy());
+    const { ns: indexNs, index } = fakeMailIndex();
+    const recordSpy = vi.spyOn(index, 'recordOutbound');
+    const env: OutboundGuardEnv = { OUTBOUND_LEDGER: ledgerNs, MAIL_INDEX: indexNs };
+    const reservation = await checkOutbound(env, db, {
+      subject,
+      source: 'compose',
+      kind: 'new_thread',
+      from: 'tom@acme.com',
+      to: ['new-recipient@client.com'],
+    });
+    await commitOutbound(env, db, reservation);
+    expect(recordSpy).toHaveBeenCalledWith('ws_test', ['new-recipient@client.com'], expect.any(Number));
+    // Postgres still gets its own record too (unchanged behaviour).
+    expect((await findKnownCorrespondents(db, ['new-recipient@client.com'])).size).toBe(0); // outbound alone isn't "known"
+  });
+
+  it('never touches MailIndex when the binding is absent', async () => {
+    const { ns: ledgerNs } = fakeLedgers(policy());
+    const env: OutboundGuardEnv = { OUTBOUND_LEDGER: ledgerNs };
+    const reservation = await checkOutbound(env, db, {
+      subject,
+      source: 'compose',
+      kind: 'new_thread',
+      from: 'tom@acme.com',
+      to: ['no-index-bound@client.com'],
+      mailStoreMode: 'object-only',
+    });
+    expect(reservation.firstContact).toEqual(['no-index-bound@client.com']);
+    await expect(commitOutbound(env, db, reservation)).resolves.toBeUndefined();
   });
 });

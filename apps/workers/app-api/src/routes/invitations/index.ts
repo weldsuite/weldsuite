@@ -192,16 +192,17 @@ async function acceptPendingInOrg(
   const orgId = membership.organization.id;
 
   try {
-    const tenantDb = await getTenantDbForWorkspace(env, orgId);
-    const pending = await linkInvitedMember(env, tenantDb, membership, userId, token);
-    if (!pending) return null;
-
-    // Get workspace name
+    // Fetch the workspace row up front — its `id` (workspaces.id) is what the
+    // permission cache is keyed on, not this Clerk org id.
     const [workspace] = await masterDb
-      .select({ name: masterSchema.workspaces.name })
+      .select({ id: masterSchema.workspaces.id, name: masterSchema.workspaces.name })
       .from(masterSchema.workspaces)
       .where(eq(masterSchema.workspaces.clerkOrgId, orgId))
       .limit(1);
+
+    const tenantDb = await getTenantDbForWorkspace(env, orgId);
+    const pending = await linkInvitedMember(env, tenantDb, membership, userId, token, workspace?.id);
+    if (!pending) return null;
 
     return {
       org: { id: orgId, name: workspace?.name || membership.organization.name },

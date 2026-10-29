@@ -5,7 +5,7 @@
  * Domain clients under `lib/api/domains/` are plain modules, not hooks, so
  * `useAppApiClient()` is unavailable to them. This mirrors the proven shape of
  * `weldbooks-client.ts`: a singleton whose Clerk token getter is injected by
- * `ApiClientProvider`, with a `window.Clerk` fallback for TanStack route
+ * `ApiClientProvider`, with the auth facade's `getAuthToken()` for TanStack route
  * loaders that fire before the provider mounts.
  *
  * Building the client once at module load is safe: `createClientApi` resolves
@@ -18,6 +18,7 @@
 
 import { createClientApi } from '@weldsuite/api-client/client';
 import { getApiOriginForPath } from '@/lib/api/public-env';
+import { getAuthToken } from '@/lib/auth';
 
 let browserTokenGetter: (() => Promise<string | null>) | null = null;
 
@@ -26,32 +27,16 @@ export function setAppApiTokenGetter(getter: (() => Promise<string | null>) | nu
   browserTokenGetter = getter;
 }
 
-/** Pre-provider fallback: pull the token straight off `window.Clerk`. */
-async function getClerkBrowserToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  const start = Date.now();
-  while (Date.now() - start < 5000) {
-    const Clerk = (window as { Clerk?: { loaded?: boolean; session?: { getToken: () => Promise<string | null> } } }).Clerk;
-    if (Clerk?.loaded) {
-      try {
-        return (await Clerk.session?.getToken()) ?? null;
-      } catch {
-        return null;
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  return null;
-}
 
 /**
  * The canonical browser token resolution for module-level (non-hook) callers:
  * the getter `ApiClientProvider` injects when it has mounted, otherwise the
- * `window.Clerk` fallback. Exported so other singleton clients share one path
+ * auth facade (`getAuthToken`, waiting for the provider to load). Exported so
+ * other singleton clients share one path
  * rather than re-implementing the fallback.
  */
 export async function getBrowserAccessToken(): Promise<string | null> {
-  return browserTokenGetter ? browserTokenGetter() : getClerkBrowserToken();
+  return browserTokenGetter ? browserTokenGetter() : getAuthToken({ waitForLoad: true });
 }
 
 /**
