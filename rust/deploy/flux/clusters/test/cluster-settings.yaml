@@ -9,7 +9,7 @@ metadata:
 data:
   # app., api., auth. and sign. under this name point at the ingress load
   # balancer (DNS-only records, so Let's Encrypt reaches the cluster).
-  DOMAIN: eu-test.weldsuite.org
+  DOMAIN: test.weldsuite.eu
   ACME_EMAIL: ops@weldsuite.org
   # Postgres backups. Production keeps them at a second EU provider; a test
   # cluster uses Hetzner Object Storage in another location than the files.

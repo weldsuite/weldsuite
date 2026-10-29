@@ -3,7 +3,7 @@
 A test cluster on Hetzner, built with the runbook ([README.md](README.md)) but
 following the `deploy/eu-test` branch instead of release tags, so the Rust port
 can be seen running on real servers before the EU edition launches. Its names
-(`weldsuite-eu-test`, `eu-test.weldsuite.org`, the `test` Flux cluster) keep it
+(`weldsuite-eu-test`, `test.weldsuite.eu`, the `test` Flux cluster) keep it
 apart from the future production cluster (`eu`).
 
 What it shows today: Talos, Flux, Postgres (CloudNativePG with backups), NATS,
@@ -80,9 +80,10 @@ Run everything from this checkout (Git Bash), on the `deploy/eu-test` branch.
    kubectl get nodes -L topology.kubernetes.io/zone,node.weldsuite.org/pool
    ```
 
-6. **DNS.** Add the records `tofu output dns_records` prints (`app.`, `api.`,
-   `auth.`, `sign.` under `eu-test.weldsuite.org`) in Cloudflare as **DNS
-   only** (grey cloud), so Let's Encrypt reaches the cluster.
+6. **DNS.** The records `tofu output dns_records` prints (`app.`, `api.`,
+   `auth.`, `sign.` under `test.weldsuite.eu`, A and AAAA to the ingress load
+   balancer) go in the `weldsuite.eu` zone in Hetzner DNS, in the same
+   project: the Cloud API's `/zones/weldsuite.eu/rrsets`, with the same token.
 
 7. **Secrets.**
 
@@ -129,9 +130,9 @@ Run everything from this checkout (Git Bash), on the `deploy/eu-test` branch.
     `platform` application. Put the project id and client id in
     `cluster-settings.yaml`, push; Flux rolls the server.
 
-12. **Look:** `https://auth.eu-test.weldsuite.org/ui/console`,
-    `https://api.eu-test.weldsuite.org/health` and `/config.json`,
-    `https://app.eu-test.weldsuite.org`, and
+12. **Look:** `https://auth.test.weldsuite.eu/ui/console`,
+    `https://api.test.weldsuite.eu/health` and `/config.json`,
+    `https://app.test.weldsuite.eu`, and
     `kubectl -n weldsuite logs deploy/weldsuite`.
 
 ## Keeping it current

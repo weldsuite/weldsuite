@@ -3,7 +3,7 @@
 # export TF_VAR_hcloud_token=… in the shell that runs tofu.
 
 cluster_name = "weldsuite-eu-test"
-domain       = "eu-test.weldsuite.org"
+domain       = "test.weldsuite.eu"
 
 # Your own public address (curl -s https://ifconfig.me), as /32: the only
 # address that reaches the Kubernetes and Talos APIs.
