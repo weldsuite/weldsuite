@@ -7,17 +7,9 @@
  */
 
 import type { ClientApi, DataResponse } from '../types';
+import type { MyPermissions } from '../schemas/me';
 
-export interface MyPermissions {
-  permissions: string[];
-  /** Explicit per-member denies; a deny wins over any grant. */
-  denies?: string[];
-  /** Whether the server enforces per-app permissions (else any-app). */
-  appEnforced?: boolean;
-  role: string;
-  roleId: string | null;
-  isOwner: boolean;
-}
+export type { MyPermissions };
 
 export function createMeApi(api: ClientApi) {
   return {

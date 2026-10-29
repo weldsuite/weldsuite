@@ -27,6 +27,18 @@
 import type { Database } from '../db';
 
 let cached: { db: Database; close: () => Promise<void> } | null = null;
+
+/**
+ * The PGlite client behind each handle's `db`, so the conformance harness
+ * (./conformance.ts) can serve the same database to the Rust server over the
+ * Postgres wire protocol.
+ */
+const clients = new WeakMap<object, import('@electric-sql/pglite').PGlite>();
+
+/** The PGlite client behind a `db` from `createPgliteDb()`, if it is one. */
+export function pgliteClientOf(db: unknown): import('@electric-sql/pglite').PGlite | undefined {
+  return db && typeof db === 'object' ? clients.get(db) : undefined;
+}
 let cachedError: Error | null = null;
 
 interface PgliteHandle {
@@ -111,6 +123,7 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
       }
     }
 
+    clients.set(db, client);
     cached = {
       db: db as unknown as Database,
       close: async () => {

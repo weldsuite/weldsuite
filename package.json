@@ -23,6 +23,7 @@
     "create:module-api": "node scripts/create-module-api.mjs",
     "api:ownership": "node scripts/api-module-ownership.mjs",
     "rust:catalogs": "tsx scripts/rust-catalogs.ts",
+    "rust:conformance": "tsx scripts/rust-conformance.ts",
     "rust:fmt": "cd rust && cargo fmt --all",
     "rust:lint": "cd rust && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings",
     "rust:test": "cd rust && cargo test --workspace --locked",

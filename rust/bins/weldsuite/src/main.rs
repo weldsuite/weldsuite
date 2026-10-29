@@ -6,6 +6,8 @@
 //! in `rust/deploy/helm/weldsuite` sets them.
 
 mod config;
+#[cfg(feature = "conformance")]
+mod conformance;
 mod server;
 
 use std::process::ExitCode;
@@ -27,8 +29,15 @@ commands:
   version    print the version and exit
   help       print this message and exit";
 
+/// `weldsuite 0.0.0`, with ` (conformance)` on a test build; CI checks
+/// that the release image's version has no suffix.
 fn version() -> String {
-    format!("weldsuite {}", env!("CARGO_PKG_VERSION"))
+    let suffix = if cfg!(feature = "conformance") {
+        " (conformance)"
+    } else {
+        ""
+    };
+    format!("weldsuite {}{suffix}", env!("CARGO_PKG_VERSION"))
 }
 
 fn main() -> ExitCode {
@@ -126,9 +135,6 @@ mod tests {
 
     #[test]
     fn version_names_the_binary_and_crate_version() {
-        assert_eq!(
-            version(),
-            format!("weldsuite {}", env!("CARGO_PKG_VERSION"))
-        );
+        assert!(version().starts_with(&format!("weldsuite {}", env!("CARGO_PKG_VERSION"))));
     }
 }

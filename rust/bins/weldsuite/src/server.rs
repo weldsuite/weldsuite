@@ -20,8 +20,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
-use weldsuite_auth::{AuthContext, ClerkVerifier, clerk_auth};
-use weldsuite_db::{Tenant, TenantPermissionQueries, Workspaces, workspace_db};
+use weldsuite_auth::{AuthContext, ClerkVerifier};
+use weldsuite_db::{Tenant, TenantPermissionQueries, Workspaces};
 use weldsuite_kit::{ApiError, Data, api_cors, request_id};
 use weldsuite_permissions::{app_context, resolve_effective_permissions};
 
@@ -31,6 +31,8 @@ pub(crate) struct AppState {
     pub(crate) service: &'static str,
     pub(crate) environment: String,
     pub(crate) workspaces: Arc<Workspaces>,
+    /// Unused by conformance builds, which take the test's context instead.
+    #[cfg_attr(feature = "conformance", allow(dead_code))]
     pub(crate) verifier: Arc<ClerkVerifier>,
     /// `PERMISSIONS_APP_ENFORCE`, reported to clients by `/api/me/permissions`.
     pub(crate) permissions_app_enforce: bool,
@@ -38,18 +40,16 @@ pub(crate) struct AppState {
     pub(crate) draining: Arc<AtomicBool>,
 }
 
+/// A per-request `PERMISSIONS_APP_ENFORCE`, set by conformance mode so a test
+/// can run with enforcement on, as the workers read it per request.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AppEnforcedOverride(pub(crate) bool);
+
 pub(crate) fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/me/permissions", get(me_permissions))
-        .fallback(not_found)
-        .layer(axum::middleware::from_fn_with_state(
-            Arc::clone(&state.workspaces),
-            workspace_db,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            Arc::clone(&state.verifier),
-            clerk_auth,
-        ));
+        .fallback(not_found);
+    let api = authenticated(api, &state);
 
     Router::new()
         .route("/livez", get(livez))
@@ -63,6 +63,28 @@ pub(crate) fn router(state: AppState) -> Router {
         .layer(api_cors())
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// Session token → tenant database, as `apiAuth()` does.
+#[cfg(not(feature = "conformance"))]
+fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    api.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.workspaces),
+        weldsuite_db::workspace_db,
+    ))
+    .layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.verifier),
+        weldsuite_auth::clerk_auth,
+    ))
+}
+
+/// Conformance builds take the test's context from a header instead.
+#[cfg(feature = "conformance")]
+fn authenticated(api: Router<AppState>, _state: &AppState) -> Router<AppState> {
+    api.layer(axum::middleware::from_fn_with_state(
+        Arc::new(crate::conformance::Pools::default()),
+        crate::conformance::auth,
+    ))
 }
 
 async fn livez() -> &'static str {
@@ -143,9 +165,11 @@ async fn not_found(OriginalUri(uri): OriginalUri) -> ApiError {
 /// workspace, for clients that gate their UI. Every member may read their own.
 async fn me_permissions(
     State(state): State<AppState>,
+    enforced: Option<axum::Extension<AppEnforcedOverride>>,
     auth: AuthContext,
     tenant: Tenant,
 ) -> Result<Data<serde_json::Value>, ApiError> {
+    let app_enforced = enforced.map_or(state.permissions_app_enforce, |e| e.0.0);
     let queries = TenantPermissionQueries::new(tenant.db.clone());
     let resolved = resolve_effective_permissions(&queries, &auth.user_id)
         .await
@@ -156,7 +180,7 @@ async fn me_permissions(
     Ok(Data(json!({
         "permissions": resolved.permissions,
         "denies": resolved.denies,
-        "appEnforced": state.permissions_app_enforce,
+        "appEnforced": app_enforced,
         "role": resolved.role,
         "roleId": resolved.role_id,
         "isOwner": resolved.is_owner,

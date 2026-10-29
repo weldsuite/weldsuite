@@ -164,6 +164,23 @@ pub struct Permissions {
 }
 
 impl Permissions {
+    /// Permissions resolved elsewhere: by a test harness (conformance mode)
+    /// or by a caller that already holds them. Inserted into the request
+    /// extensions, a gate layer uses them instead of resolving again.
+    pub fn new(
+        resolved: ResolvedPermissions,
+        app: Option<&'static str>,
+        app_enforced: bool,
+        user_id: String,
+    ) -> Self {
+        Self {
+            resolved: Arc::new(resolved),
+            app,
+            app_enforced,
+            user_id,
+        }
+    }
+
     pub fn resolved(&self) -> &ResolvedPermissions {
         &self.resolved
     }
