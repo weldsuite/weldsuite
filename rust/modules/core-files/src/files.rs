@@ -12,6 +12,7 @@ use axum::response::{IntoResponse, Response};
 use http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE};
 use http::{HeaderMap, HeaderValue, StatusCode};
 use serde_json::{Map, Value, json};
+use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events::{
     FILE_CREATED, FILE_DELETED, FILE_MOVED, FILE_PINNED, FILE_SHARED, FILE_STARRED, FILE_UNSHARED,
     FILE_UPDATED,
@@ -28,9 +29,12 @@ use weldsuite_core_domain::drive_sharing::{
 use weldsuite_core_domain::files::{
     self as files_db, Change, FileUpdate, ListFiles, MovedFile, NewFile, UpdatedFile,
 };
+use weldsuite_events::iso_timestamp;
 use weldsuite_kit::ApiError;
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
-use weldsuite_ports::PutOptions;
+use weldsuite_ports::{JobRequest, PutOptions};
+
+use crate::trash_purge::{TRASH_PURGE_JOB, TRASH_RETENTION, TrashPurge};
 
 use crate::drive::{DRIVE_VIEW_ONLY, UrlBases, normalize_generic_files, query_array};
 use crate::names::{drive_name, sanitize_drive_name};
@@ -473,18 +477,19 @@ pub(crate) async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     // The purge job carries the Clerk org id.
-    if caller.clerk_org_id.is_none() {
+    let Some(org_id) = caller.clerk_org_id.clone() else {
         return ApiError::org_required().into_response();
-    }
+    };
     answer(
         async {
             open_file(&caller, &id, true).await?;
-            let Some(row) = files_db::soft_delete_file(&caller.db, &id, &now()).await? else {
+            let deleted_at = OffsetDateTime::now_utc();
+            let deleted_text = iso_timestamp(deleted_at);
+            let Some(row) = files_db::soft_delete_file(&caller.db, &id, &deleted_text).await?
+            else {
                 return Err(not_found("File", &id));
             };
-            // TypeScript schedules a 30-day purge (TrashCleanupWorkflow) here.
-            // The Kubernetes editions have no jobs port yet: trashed files
-            // stay until the trash is emptied or the file purged.
+            schedule_trash_purge(&state, &org_id, &id, &row, deleted_at).await;
             caller.publish(
                 &state,
                 FILE_DELETED,
@@ -499,6 +504,38 @@ pub(crate) async fn remove(
         .await,
         "Failed to delete file",
     )
+}
+
+/// Start the 30-day purge (`TRASH_CLEANUP.create(...)`): keyed by the file
+/// and the moment it was trashed, so a restore and a second trash start a
+/// new one and the old one finds `deleted_at` changed. A failure to start is
+/// logged; the file stays in the trash until it is emptied.
+async fn schedule_trash_purge(
+    state: &CoreFilesState,
+    org_id: &str,
+    id: &str,
+    row: &Value,
+    deleted_at: OffsetDateTime,
+) {
+    let Some(jobs) = &state.storage.jobs else {
+        return;
+    };
+    let purge_at = deleted_at + TRASH_RETENTION;
+    let millis = deleted_at.unix_timestamp_nanos() / 1_000_000;
+    let payload = TrashPurge {
+        workspace_id: org_id.to_owned(),
+        file_id: id.to_owned(),
+        file_key: files_db::storage_key(row).unwrap_or_default().to_owned(),
+        deleted_at: iso_timestamp(deleted_at),
+        purge_at: iso_timestamp(purge_at),
+    };
+    let started = match JobRequest::new(TRASH_PURGE_JOB, format!("trash-{id}-{millis}"), &payload) {
+        Ok(request) => jobs.start_boxed(request.with_delay(TRASH_RETENTION)).await,
+        Err(error) => Err(error),
+    };
+    if let Err(error) = started {
+        tracing::error!(%error, file_id = id, "files: scheduling the trash purge failed");
+    }
 }
 
 // ── POST /:id/star, /:id/pin ───────────────────────────────────────────────

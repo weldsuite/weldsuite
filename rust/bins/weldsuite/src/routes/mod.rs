@@ -9,8 +9,11 @@ mod access_requests;
 mod feature_flags;
 mod me;
 
+use std::sync::{Arc, OnceLock};
+
 use axum::Router;
 use axum::routing::{get, patch, post};
+use weldsuite_ports::{DynCache, MemoryCache};
 
 use crate::server::AppState;
 
@@ -85,15 +88,24 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
-    // Core files, drive and search (P4c): mounted unconditionally once complete.
+    // Core files, drive, search and storage (P4c): mounted unconditionally
+    // once complete.
     if cfg!(feature = "conformance") {
-        let files = weldsuite_core_files::CoreFilesState {
-            events: state.infra.events.clone(),
-            files: file_stores(state),
-            public_files_url: state.files_public_url.clone(),
-        };
+        let files = core_files_state(state);
+        // The 30-day purge `DELETE /api/files/:id` starts.
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_core_files::TrashPurgeJob::new(
+                tenant_databases(state),
+                file_stores(state),
+            ));
         let gate = &state.permissions;
         return router
+            .nest(
+                "/storage",
+                weldsuite_core_files::storage_router(files.clone(), gate),
+            )
             .nest(
                 "/files",
                 weldsuite_core_files::files_router(files.clone(), gate),
@@ -109,6 +121,62 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             .nest("/search", weldsuite_core_files::search_router(files, gate));
     }
     router
+}
+
+/// The routes served before authentication, at their full paths:
+/// `/api/storage/upload/:token`, `/api/storage/private/*` and
+/// `/api/storage/public/*` (each checks its own credential). Empty until
+/// core files are mounted.
+pub(crate) fn public(state: &AppState) -> Router<AppState> {
+    if cfg!(feature = "conformance") {
+        weldsuite_core_files::storage_public_router(core_files_state(state))
+    } else {
+        Router::new()
+    }
+}
+
+/// The core files state, shared by the authenticated and the public routes.
+fn core_files_state(state: &AppState) -> weldsuite_core_files::CoreFilesState {
+    weldsuite_core_files::CoreFilesState {
+        events: state.infra.events.clone(),
+        files: file_stores(state),
+        public_files_url: state.files_public_url.clone(),
+        storage: weldsuite_core_files::StorageState {
+            cache: Some(upload_token_cache(state)),
+            verifier: Some(Arc::clone(&state.verifier)),
+            signing_key: state.storage_signing_key.clone(),
+            environment: Arc::from(state.environment.as_str()),
+            jobs: Some(Arc::clone(&state.infra.jobs)),
+        },
+    }
+}
+
+/// Where upload tokens live: Valkey, or without it one in-process cache for
+/// the whole process (enough for a single replica), shared by the route that
+/// mints a token and the one that redeems it.
+fn upload_token_cache(state: &AppState) -> Arc<dyn DynCache> {
+    static LOCAL: OnceLock<Arc<dyn DynCache>> = OnceLock::new();
+    state.infra.cache.clone().unwrap_or_else(|| {
+        Arc::clone(LOCAL.get_or_init(|| {
+            tracing::warn!("VALKEY_URL is not set: upload tokens live in this process only");
+            Arc::new(MemoryCache::new())
+        }))
+    })
+}
+
+/// A workspace's tenant database for jobs, which run outside any request.
+fn tenant_databases(state: &AppState) -> weldsuite_core_files::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
 }
 
 /// The private bucket and the legacy public one, when object storage is

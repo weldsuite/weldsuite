@@ -18,6 +18,10 @@
 //!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." } }   // the test's KV, over HTTP
 //! ```
 //!
+//! The routes that run before authentication (`/api/storage/upload/:token`,
+//! `/api/storage/private/*`) take only what the test shares (env, buckets,
+//! KV, and a verifier for its `CLERK_JWT_KEY`), not a session ([`public`]).
+//!
 //! Side effects are recorded instead of published (`Recorders`), and
 //! `GET /__conformance/side-effects` hands them over and clears them, in the
 //! shape the TypeScript bindings saw: queue messages, and realtime POSTs as
@@ -36,7 +40,7 @@ use base64::engine::general_purpose::STANDARD;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use weldsuite_auth::AuthContext;
+use weldsuite_auth::{AuthContext, ClerkVerifier, SessionVerifier};
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_kit::ApiError;
@@ -198,6 +202,15 @@ struct TestContext {
     kv: HashMap<String, String>,
 }
 
+impl TestContext {
+    fn from_headers(headers: &http::HeaderMap) -> Option<Self> {
+        headers
+            .get(HEADER)
+            .and_then(|value| STANDARD.decode(value.as_bytes()).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TestPermissions {
@@ -220,9 +233,53 @@ pub(crate) struct Pools {
     buckets: crate::conformance_files::BucketBridges,
     /// The test KV namespaces' HTTP caches, by URL.
     kv: crate::conformance_kv::KvBridges,
+    /// Session verifiers for the tests' own `CLERK_JWT_KEY`, by key.
+    verifiers: Mutex<HashMap<String, Arc<SessionVerifier>>>,
 }
 
 impl Pools {
+    /// A verifier for the test's `CLERK_JWT_KEY` (and
+    /// `CLERK_AUTHORIZED_PARTIES`), so a session token the test signed is
+    /// checked as the worker's `verifyToken({ jwtKey })` checks it.
+    fn verifier(&self, env: &HashMap<String, String>) -> Option<Arc<SessionVerifier>> {
+        let pem = env.get("CLERK_JWT_KEY").filter(|pem| !pem.is_empty())?;
+        let parties = env.get("CLERK_AUTHORIZED_PARTIES").map(String::as_str);
+        let cache_key = format!("{pem}\n{}", parties.unwrap_or_default());
+        let mut verifiers = self
+            .verifiers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(verifier) = verifiers.get(&cache_key) {
+            return Some(Arc::clone(verifier));
+        }
+        let verifier = Arc::new(SessionVerifier::from(
+            ClerkVerifier::from_pem(pem, parties).ok()?,
+        ));
+        verifiers.insert(cache_key, Arc::clone(&verifier));
+        Some(verifier)
+    }
+
+    /// What the test shares with Rust beyond the session: its env, buckets,
+    /// KV and session key.
+    fn insert_shared(&self, extensions: &mut http::Extensions, context: &TestContext) {
+        extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
+            context.env.clone(),
+        )));
+        // The test's buckets; without them a module keeps the app state's stores.
+        if let Some(stores) = self.buckets.file_stores(&context.files) {
+            extensions.insert(stores);
+        }
+        if let Some(buckets) = self.buckets.storage_buckets(&context.files) {
+            extensions.insert(buckets);
+        }
+        if let Some(cache) = self.kv.request_cache(&context.kv) {
+            extensions.insert(cache);
+        }
+        if let Some(verifier) = self.verifier(&context.env) {
+            extensions.insert(verifier);
+        }
+    }
+
     fn get(&self, url: &str) -> Result<PgPool, ApiError> {
         let mut pools = self
             .databases
@@ -250,12 +307,7 @@ pub(crate) async fn auth(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let Some(context) = request
-        .headers()
-        .get(HEADER)
-        .and_then(|value| STANDARD.decode(value.as_bytes()).ok())
-        .and_then(|bytes| serde_json::from_slice::<TestContext>(&bytes).ok())
-    else {
+    let Some(context) = TestContext::from_headers(request.headers()) else {
         return ApiError::unauthorized()
             .with_message("Missing or invalid Authorization header")
             .into_response();
@@ -286,17 +338,7 @@ pub(crate) async fn auth(
     if let Some(master) = master {
         extensions.insert(weldsuite_db::MasterDb(master));
     }
-    extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
-        context.env.clone(),
-    )));
-    // The test's buckets; without them a module keeps the app state's stores.
-    if let Some(stores) = pools.buckets.file_stores(&context.files) {
-        extensions.insert(stores);
-    }
-    // And its KV namespace; without it a module keeps the app state's cache.
-    if let Some(cache) = pools.kv.request_cache(&context.kv) {
-        extensions.insert(cache);
-    }
+    pools.insert_shared(extensions, &context);
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
         extensions.insert(Permissions::new(
@@ -340,6 +382,12 @@ pub(crate) async fn auth(
         session_id: context.session_id,
         factor_verification_age: context.factor_verification_age,
     });
+    run_reporting_route(request, next).await
+}
+
+/// The rest of the request, with the route that answered in
+/// `X-Weld-Route`.
+async fn run_reporting_route(request: Request, next: Next) -> Response {
     let route = request
         .extensions()
         .get::<MatchedPath>()
@@ -349,6 +397,21 @@ pub(crate) async fn auth(
         response.headers_mut().insert(ROUTE_HEADER, value);
     }
     response
+}
+
+/// Middleware for the routes that run before authentication (the upload
+/// PUT, the private-object read): no session from the test, only what it
+/// shares (env, buckets, KV, its session key). A request without the
+/// header goes on with the app's own.
+pub(crate) async fn public(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        pools.insert_shared(request.extensions_mut(), &context);
+    }
+    run_reporting_route(request, next).await
 }
 
 #[cfg(test)]

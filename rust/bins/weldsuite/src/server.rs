@@ -34,8 +34,8 @@ pub(crate) struct AppState {
     pub(crate) service: &'static str,
     pub(crate) environment: String,
     pub(crate) workspaces: Arc<Workspaces>,
-    /// Unused by conformance builds, which take the test's context instead.
-    #[cfg_attr(feature = "conformance", allow(dead_code))]
+    /// Session tokens: the `/api` layer (not in conformance builds, which
+    /// take the test's context) and the private-object read's bearer check.
     pub(crate) verifier: Arc<SessionVerifier>,
     /// `PERMISSIONS_APP_ENFORCE`, reported to clients by `/api/me/permissions`.
     pub(crate) permissions_app_enforce: bool,
@@ -50,6 +50,8 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// `STORAGE_SIGNING_KEY`, for private-object cookies and signed URLs.
+    pub(crate) storage_signing_key: Option<Arc<str>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -93,8 +95,12 @@ pub(crate) fn router(state: AppState) -> Router {
         ))
         .layer(axum::middleware::from_fn(weldsuite_pipeline::licence_gate));
     let api = authenticated(api, &state);
+    // Before any authentication, at their full `/api/...` paths: the routes
+    // that check their own credential (an upload token, a files cookie, a
+    // signed URL), as app-api mounts them ahead of `clerkMiddleware`.
+    let public = before_authentication(crate::routes::public(&state));
 
-    let root = Router::new();
+    let root = Router::new().merge(public);
     #[cfg(feature = "conformance")]
     let root = root.route(
         "/__conformance/side-effects",
@@ -138,6 +144,22 @@ fn authenticated(api: Router<AppState>, _state: &AppState) -> Router<AppState> {
     api.layer(axum::middleware::from_fn_with_state(
         Arc::new(crate::conformance::Pools::default()),
         crate::conformance::auth,
+    ))
+}
+
+/// The public routes as they are.
+#[cfg(not(feature = "conformance"))]
+fn before_authentication(public: Router<AppState>) -> Router<AppState> {
+    public
+}
+
+/// Conformance builds give the public routes what the test shares (its
+/// buckets, KV and env), without a session.
+#[cfg(feature = "conformance")]
+fn before_authentication(public: Router<AppState>) -> Router<AppState> {
+    public.route_layer(axum::middleware::from_fn_with_state(
+        Arc::new(crate::conformance::Pools::default()),
+        crate::conformance::public,
     ))
 }
 
@@ -338,6 +360,7 @@ mod tests {
             )),
             sign_session_secret: None,
             files_public_url: None,
+            storage_signing_key: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
         }

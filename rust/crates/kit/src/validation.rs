@@ -138,6 +138,13 @@ pub struct Number {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Invalid(Vec<Value>);
 
+impl Invalid {
+    /// The issues, as Zod lists them.
+    pub fn issues(&self) -> &[Value] {
+        &self.0
+    }
+}
+
 impl IntoResponse for Invalid {
     fn into_response(self) -> Response {
         let body = json!({ "success": false, "error": { "issues": self.0, "name": "ZodError" } });
@@ -426,6 +433,13 @@ impl Issues {
         let path = self.path(key);
         self.issues
             .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
+    /// A failed `.max(maximum, message)` on the number at `key`: read the
+    /// number without its `max`, then call this when it is above `maximum`.
+    pub fn number_too_big(&mut self, key: &str, maximum: f64, message: &str) {
+        let path = self.path(key);
+        self.too_big(&path, "number", &js_number_json(maximum), message);
     }
 
     /// `z.boolean()` with `presence`.
