@@ -920,9 +920,9 @@ async fn file_request(
     };
 
     // The module workers cache the status for 60 s.
-    if let Some(cache) = &state.cache
+    if let Some(cache) = caller.cache(state)
         && let Err(error) =
-            DynCache::delete_boxed(&**cache, &format!("appaccess:{org}:{app_code}")).await
+            DynCache::delete_boxed(&*cache, &format!("appaccess:{org}:{app_code}")).await
     {
         tracing::warn!(%error, "app-access: cache delete failed");
     }
