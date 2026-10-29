@@ -44,6 +44,8 @@ export const EDITION_FEATURES = [
   'analytics',
   /** `POST /api/search/reindex`. */
   'search-reindex',
+  /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
+  'helpcenter-custom-domains',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
