@@ -89,6 +89,13 @@ pub(crate) struct InfraConfig {
     /// `S3_ENDPOINT` and friends: object storage for the private (and the
     /// legacy public) bucket.
     pub(crate) files: Option<FilesConfig>,
+    /// `SMTP_URL`: the relay system mail goes through (`smtp://…`,
+    /// `smtps://…`). Unset: mail is skipped, as the workers without the
+    /// `SEND_EMAIL` binding.
+    pub(crate) smtp_url: Option<String>,
+    /// `SYSTEM_EMAIL_FROM`: send from this address instead of
+    /// `notifications@mail.weldsuite.org` (a relay that only takes its own domain).
+    pub(crate) system_email_from: Option<String>,
 }
 
 /// The S3 buckets behind the file stores (the workers' R2 `PRIVATE_STORAGE`
@@ -160,6 +167,8 @@ impl fmt::Debug for InfraConfig {
             .field("nats_stream", &self.nats_stream)
             .field("flags", &self.flags)
             .field("files", &self.files)
+            .field("smtp", &self.smtp_url.as_ref().map(|_| "<set>"))
+            .field("system_email_from", &self.system_email_from)
             .finish_non_exhaustive()
     }
 }
@@ -204,6 +213,8 @@ impl InfraConfig {
             flags_refresh: Duration::from_secs(refresh_seconds),
             test_fixtures_token: lookup("TEST_FIXTURES_TOKEN"),
             files: FilesConfig::from_lookup(lookup, problems),
+            smtp_url: lookup("SMTP_URL").filter(|url| !url.trim().is_empty()),
+            system_email_from: lookup("SYSTEM_EMAIL_FROM").filter(|from| !from.trim().is_empty()),
         }
     }
 }
@@ -395,6 +406,30 @@ mod tests {
     fn lists_every_problem() {
         let error = config(&[("PORT", "eighty"), ("LOG_FORMAT", "xml")]).expect_err("invalid");
         assert_eq!(error.0.len(), 4, "{error}");
+    }
+
+    #[test]
+    fn mail_is_optional_and_its_url_stays_out_of_logs() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            (
+                "CLERK_JWT_KEY",
+                "-----BEGIN PUBLIC KEY-----
+abc",
+            ),
+        ];
+        assert!(config(&base).expect("valid").infra.smtp_url.is_none());
+        let mut vars = base.to_vec();
+        vars.extend([
+            ("SMTP_URL", "smtp://user:hunter2@relay:587?tls=required"),
+            ("SYSTEM_EMAIL_FROM", "mail@eu.example"),
+        ]);
+        let config = config(&vars).expect("valid");
+        assert_eq!(
+            config.infra.system_email_from.as_deref(),
+            Some("mail@eu.example")
+        );
+        assert!(!format!("{config:?}").contains("hunter2"));
     }
 
     #[test]

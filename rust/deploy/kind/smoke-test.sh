@@ -34,7 +34,7 @@ kind load docker-image "$image" --name "$cluster"
 
 # ── services ────────────────────────────────────────────────────────────────
 kubectl apply -f "$here/postgres.yaml" -f "$here/services.yaml"
-for deployment in postgres valkey nats s3; do
+for deployment in postgres valkey nats s3 mailpit; do
   kubectl rollout status "deployment/$deployment" --timeout=180s
 done
 

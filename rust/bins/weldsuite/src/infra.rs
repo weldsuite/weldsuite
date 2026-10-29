@@ -1,6 +1,7 @@
 //! The services behind the ports, connected at start from [`InfraConfig`]:
 //! Valkey for cache and realtime, NATS `JetStream` for entity events, the
-//! master database (or the catalog defaults) for feature flags, S3 for files. A service that
+//! master database (or the catalog defaults) for feature flags, S3 for files,
+//! an SMTP relay for system mail. A service that
 //! isn't configured is left out, and what it carries is skipped with a
 //! warning, as the workers behave without the binding.
 //!
@@ -12,13 +13,14 @@
 use std::sync::Arc;
 
 use weldsuite_adapters_oss::{
-    JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore, ValkeyCache, ValkeyRealtime,
-    connect_valkey, entity_events_stream_config,
+    JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore, SmtpMail, ValkeyCache,
+    ValkeyRealtime, connect_valkey, entity_events_stream_config,
 };
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_ports::{
     DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynRealtimePublisher,
+    DynSystemMail,
 };
 
 use crate::config::{FlagSourceKind, InfraConfig};
@@ -39,6 +41,8 @@ pub(crate) struct Infra {
     /// The legacy public bucket (`STORAGE`), read only, for objects stored
     /// before the private one existed (`get_stored`).
     pub(crate) public_files: Option<Arc<dyn DynFileStore>>,
+    /// System mail (the workers' `SEND_EMAIL`), from `SYSTEM_EMAIL_FROM` when set.
+    pub(crate) mail: Option<Arc<dyn DynSystemMail>>,
 }
 
 impl std::fmt::Debug for Infra {
@@ -49,6 +53,7 @@ impl std::fmt::Debug for Infra {
             .field("cache", &self.cache.is_some())
             .field("files", &self.files.is_some())
             .field("public_files", &self.public_files.is_some())
+            .field("mail", &self.mail.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -64,6 +69,7 @@ impl Infra {
             cache: None,
             files: None,
             public_files: None,
+            mail: None,
             flags: Arc::new(DefaultFlags),
         }
     }
@@ -139,6 +145,19 @@ fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
     Ok((Some(private), public))
 }
 
+/// The SMTP relay, when `SMTP_URL` is set. It connects on the first send.
+fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, Error> {
+    let Some(url) = &config.smtp_url else {
+        tracing::warn!("SMTP_URL is not set: system mail is skipped");
+        return Ok(None);
+    };
+    let smtp: Arc<dyn DynSystemMail> = Arc::new(SmtpMail::from_url(url)?);
+    Ok(Some(weldsuite_emails::WithFromAddress::wrap(
+        smtp,
+        config.system_email_from.as_deref(),
+    )))
+}
+
 /// Connect what `config` names. Fails when a configured service can't be
 /// reached at start, so a misconfigured pod crash-loops visibly instead of
 /// dropping events.
@@ -158,6 +177,7 @@ pub(crate) async fn connect(
     };
     let (cache, realtime) = valkey.map_or((None, None), |v| (Some(v.cache), Some(v.realtime)));
     let (files, public_files) = file_stores(config)?;
+    let mail = system_mail(config)?;
     Ok(Infra {
         events: EntityEventPublisher::new(bus, tracker)
             .with_subject_prefix(&config.nats_subject_prefix),
@@ -166,5 +186,6 @@ pub(crate) async fn connect(
         flags,
         files,
         public_files,
+        mail,
     })
 }

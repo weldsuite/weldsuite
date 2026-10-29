@@ -108,6 +108,10 @@ spec:
               value: {{ .forcePathStyle | toString | quote }}
             {{- end }}
             {{- end }}
+            {{- with .Values.config.mail.from }}
+            - name: SYSTEM_EMAIL_FROM
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.clerkJwks.enabled }}
             - name: CLERK_JWKS_FILE
               value: /etc/weldsuite/clerk/jwks.json

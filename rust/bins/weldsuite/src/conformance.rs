@@ -42,8 +42,8 @@ use weldsuite_kit::ApiError;
 use weldsuite_permissions::{AppContext, Permissions, ResolvedPermissions};
 use weldsuite_pipeline::Flags;
 use weldsuite_ports::{
-    DefaultFlags, FlagContext, MemoryCache, MemoryFileStore, RecordingEventBus, RecordingRealtime,
-    StaticFlags,
+    DefaultFlags, FlagContext, Mailbox, MemoryCache, MemoryFileStore, OutgoingMail,
+    RecordingEventBus, RecordingRealtime, RecordingSystemMail, StaticFlags,
 };
 
 use crate::infra::Infra;
@@ -54,6 +54,7 @@ use crate::server::{AppEnforcedOverride, AppState};
 pub(crate) struct Recorders {
     events: Arc<RecordingEventBus>,
     realtime: Arc<RecordingRealtime>,
+    mail: Arc<RecordingSystemMail>,
 }
 
 /// Infrastructure that records instead of publishing.
@@ -66,6 +67,7 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         flags: Arc::new(DefaultFlags),
         files: Some(Arc::new(MemoryFileStore::default())),
         public_files: Some(Arc::new(MemoryFileStore::default())),
+        mail: Some(recorders.mail.clone()),
     };
     (infra, recorders)
 }
@@ -100,7 +102,44 @@ pub(crate) async fn side_effects(State(state): State<AppState>) -> axum::Json<Va
         .map(|message| json!({ "path": realtime_path(&message.channel), "body": message.payload }))
         .collect();
     state.recorders.realtime.clear();
-    axum::Json(json!({ "events": events, "realtime": realtime }))
+    let mail: Vec<Value> = state
+        .recorders
+        .mail
+        .sent()
+        .iter()
+        .map(outgoing_email)
+        .collect();
+    state.recorders.mail.clear();
+    axum::Json(json!({ "events": events, "realtime": realtime, "mail": mail }))
+}
+
+fn mailbox(mailbox: &Mailbox) -> Value {
+    match &mailbox.name {
+        Some(name) => json!({ "email": mailbox.email, "name": name }),
+        None => json!({ "email": mailbox.email }),
+    }
+}
+
+/// A sent email as `@weldsuite/emails` hands it to a transport
+/// (`OutgoingEmail`), attachments in base64: the harness compares it with
+/// the TypeScript run's and gives it to the test in place of that one.
+fn outgoing_email(mail: &OutgoingMail) -> Value {
+    json!({
+        "from": mailbox(&mail.from),
+        "to": mail.to.iter().map(mailbox).collect::<Vec<_>>(),
+        "cc": mail.cc.iter().map(mailbox).collect::<Vec<_>>(),
+        "bcc": mail.bcc.iter().map(mailbox).collect::<Vec<_>>(),
+        "replyTo": mail.reply_to.as_ref().map(mailbox),
+        "subject": mail.subject,
+        "html": mail.html,
+        "text": mail.text,
+        "attachments": mail.attachments.iter().map(|a| json!({
+            "filename": a.filename,
+            "contentType": a.content_type,
+            "contentBase64": STANDARD.encode(&a.content),
+        })).collect::<Vec<_>>(),
+        "headers": mail.headers.iter().map(|(k, v)| (k.clone(), Value::from(v.as_str()))).collect::<serde_json::Map<String, Value>>(),
+    })
 }
 
 pub(crate) const HEADER: &str = "x-weld-conformance";

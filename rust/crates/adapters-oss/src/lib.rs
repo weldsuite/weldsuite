@@ -9,6 +9,7 @@
 //! | `EventBus` | [`JetStreamEventBus`] | Queue `ENTITY_EVENTS` |
 //! | `FlagSource` | [`MasterDbFlagSource`] | Cloudflare Flagship `FLAGSHIP` |
 //! | `FileStore` | [`S3FileStore`] (MinIO, Garage, Ceph RGW, Hetzner, AWS) | R2 `PRIVATE_STORAGE`, `STORAGE` |
+//! | `SystemMail` | [`SmtpMail`] (any SMTP relay) | Email Service `SEND_EMAIL` |
 //!
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
@@ -16,6 +17,7 @@
 mod flags;
 mod nats;
 mod s3;
+mod smtp;
 mod valkey;
 
 pub use flags::{DEFAULT_FLAG_REFRESH, MasterDbFlagSource};
@@ -23,4 +25,5 @@ pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, JetStreamEventBus, NatsOptions, entity_events_stream_config,
 };
 pub use s3::{S3FileStore, S3Options};
+pub use smtp::SmtpMail;
 pub use valkey::{ValkeyCache, ValkeyRealtime, connect_valkey};

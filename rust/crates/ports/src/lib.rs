@@ -10,7 +10,7 @@
 //! | [`EventBus`] | the `ENTITY_EVENTS` hub queue | [`RecordingEventBus`] |
 //! | [`RealtimePublisher`] | `RealtimePublisher` over the `REALTIME` service binding (`@weldsuite/realtime/server`) | [`RecordingRealtime`] |
 //! | [`FileStore`] | the `PRIVATE_STORAGE` and `STORAGE` R2 buckets (`@weldsuite/worker-kit/storage`) | [`MemoryFileStore`] |
-//! | [`FileStore`] | the `PRIVATE_STORAGE` and `STORAGE` R2 buckets (`@weldsuite/worker-kit/storage`) | [`MemoryFileStore`] |
+//! | [`SystemMail`] | the `SEND_EMAIL` binding behind `@weldsuite/emails` (`workerTransport`) | [`RecordingSystemMail`] |
 //! | [`FlagSource`] | the Cloudflare Flagship binding (`@weldsuite/feature-flags/server`) | [`StaticFlags`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
@@ -26,6 +26,7 @@ pub mod cache;
 pub mod events;
 pub mod files;
 pub mod flags;
+pub mod mail;
 pub mod realtime;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
@@ -35,6 +36,9 @@ pub use files::{
     get_stored, is_safe_key, unsafe_key,
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
+pub use mail::{
+    DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
+};
 pub use realtime::{
     DynRealtimePublisher, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };

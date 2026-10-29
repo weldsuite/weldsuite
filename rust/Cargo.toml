@@ -23,6 +23,7 @@ weldsuite-auth = { path = "crates/auth" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-db = { path = "crates/db" }
+weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
@@ -42,10 +43,13 @@ getrandom = "0.4.3"
 hex = "0.4.3"
 http = "1.5.0"
 http-body-util = "0.1.5"
+minijinja = { version = "3.0.4", default-features = false, features = ["builtins", "multi_template", "std_collections"] }
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
+jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 redis = { version = "1.8.0", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf"] }
@@ -62,6 +66,7 @@ tower-http = "0.7.1"
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
+url = "2.5.8"
 uuid = "1.29.0"
 
 [workspace.lints.rust]

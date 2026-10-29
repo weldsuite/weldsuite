@@ -41,6 +41,7 @@ import type { Database } from '../env';
 import { pgliteClientOf } from './pglite';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
+import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 
 export interface ConformanceTarget {
   url: string;
@@ -99,6 +100,8 @@ export interface SideEffects {
   events: unknown[];
   /** POSTs to the realtime-worker, as `{ path, body }`. */
   realtime: Array<{ path: string; body: unknown }>;
+  /** System mail, compared as records (./conformance-mail.ts). */
+  mail: MailRecord[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -114,7 +117,9 @@ function requestUrl(input: RequestInfo | URL): string {
  * it sent.
  */
 export function createSideEffectRecorder() {
-  const effects: SideEffects = { events: [], realtime: [] };
+  const effects: Omit<SideEffects, 'mail'> = { events: [], realtime: [] };
+  const mail = createMailCollector();
+  let lastMail: SentByTypeScript[] = [];
   const pending: Promise<unknown>[] = [];
   const copy = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
   return {
@@ -141,16 +146,53 @@ export function createSideEffectRecorder() {
     },
     async drain(): Promise<SideEffects> {
       while (pending.length > 0) await Promise.allSettled(pending.splice(0));
-      return { events: effects.events.splice(0), realtime: effects.realtime.splice(0) };
+      lastMail = mail.take();
+      return {
+        events: effects.events.splice(0),
+        realtime: effects.realtime.splice(0),
+        mail: lastMail.map((m) => mailRecord(m.email)),
+      };
+    },
+    /** The emails the last `drain()` reported, with their transports. */
+    lastMail(): SentByTypeScript[] {
+      return lastMail;
+    },
+    /** Give the test Rust's mail in place of TypeScript's. */
+    adoptMail(typescript: SentByTypeScript[], rust: RustMail[]): void {
+      mail.adopt(typescript, rust);
     },
   };
 }
 
 export type SideEffectRecorder = ReturnType<typeof createSideEffectRecorder>;
 
-async function rustSideEffects(target: ConformanceTarget): Promise<SideEffects> {
+interface RustSideEffects {
+  effects: SideEffects;
+  mail: RustMail[];
+}
+
+async function rustSideEffects(target: ConformanceTarget): Promise<RustSideEffects> {
   const response = await fetch(`${target.url}/__conformance/side-effects`);
-  return (await response.json()) as SideEffects;
+  const body = (await response.json()) as Omit<SideEffects, 'mail'> & { mail?: RustMail[] };
+  const mail = body.mail ?? [];
+  return {
+    effects: {
+      events: body.events,
+      realtime: body.realtime,
+      mail: mail.map((m) =>
+        mailRecord({
+          ...m,
+          replyTo: m.replyTo ?? undefined,
+          attachments: m.attachments.map((a) => ({
+            filename: a.filename,
+            contentType: a.contentType,
+            content: new Uint8Array(Buffer.from(a.contentBase64, 'base64')),
+          })),
+        }),
+      ),
+    },
+    mail,
+  };
 }
 
 /** What the test's flag evaluator answers for every catalog flag, for Rust. */
@@ -433,6 +475,9 @@ interface Runs {
   rust: Captured;
   tsEffects: SideEffects;
   rustEffects: SideEffects;
+  /** The mail each side sent, to hand Rust's to the test afterwards. */
+  tsMail: SentByTypeScript[];
+  rustMail: RustMail[];
 }
 
 /**
@@ -454,15 +499,25 @@ async function runBoth(
   if (!isWrite) {
     const ts = await runTypeScript(request.ctx.tenantDb);
     const tsEffects = await request.sideEffects.drain();
+    const tsMail = request.sideEffects.lastMail();
     const rust = await runRust();
-    return { ts, tsEffects, rust, rustEffects: await rustSideEffects(request.target) };
+    const rustSide = await rustSideEffects(request.target);
+    return { ts, tsEffects, tsMail, rust, rustEffects: rustSide.effects, rustMail: rustSide.mail };
   }
   const clone = await cloneDatabase(client);
   try {
     const rust = await runRust();
-    const rustEffects = await rustSideEffects(request.target);
+    const rustSide = await rustSideEffects(request.target);
     const ts = await runTypeScript(clone.db);
-    return { ts, rust, rustEffects, tsEffects: await request.sideEffects.drain() };
+    const tsEffects = await request.sideEffects.drain();
+    return {
+      ts,
+      rust,
+      rustEffects: rustSide.effects,
+      rustMail: rustSide.mail,
+      tsEffects,
+      tsMail: request.sideEffects.lastMail(),
+    };
   } finally {
     await clone.close();
   }
@@ -537,6 +592,8 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
     (db) => request.runTypeScript(db, input, { ...init, method, headers, body }).then(capture),
   );
   const { ts, rust } = runs;
+  // The test reads Rust's mail, as it reads Rust's response.
+  request.sideEffects.adoptMail(runs.tsMail, runs.rustMail);
   const route = ts.headers.get(ROUTE_HEADER);
   const difference = compareRuns(runs, isWrite);
   const { schema, schemaError } = checkSchema(method, route, rust);

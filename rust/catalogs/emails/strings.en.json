@@ -1,0 +1,340 @@
+{
+  "appAccess": {
+    "company": "Company",
+    "consent": "Consent rules",
+    "consentValue": "{countries}: prior consent also applies to business addresses",
+    "contact": "Contact",
+    "countries": "Countries",
+    "email": "Email",
+    "kicker": "New access request for {app}",
+    "listSource": "List source",
+    "listSourceDetails": "List details",
+    "listSources": {
+      "bought_list": "Bought list",
+      "other": "Other",
+      "own_customers": "Own customers",
+      "own_research": "Own research"
+    },
+    "preview": "{company} asked for access to {app}.",
+    "review": "Review request",
+    "subject": "Access request: {app} for {workspace}",
+    "terms": "Terms version",
+    "useCase": "Use case",
+    "volume": "Sends per day",
+    "website": "Website",
+    "workspace": "Workspace",
+    "workspaceId": "Workspace id"
+  },
+  "booking": {
+    "date": "Date",
+    "host": "Host",
+    "intro": {
+      "cancelled": "Hi {name}, your meeting with {host} has been cancelled.",
+      "confirmed": "Hi {name}, your meeting with {host} is confirmed. The invitation is attached, so you can add it to your calendar.",
+      "guest": "{booker} added you as a guest to a meeting with {host}. The invitation is attached.",
+      "rescheduled": "Hi {name}, your meeting with {host} has moved to a new time. The updated invitation is attached."
+    },
+    "joinVideoCall": "Join video call",
+    "kicker": {
+      "cancelled": "Booking cancelled",
+      "confirmed": "Booking confirmed",
+      "guest": "You're invited",
+      "rescheduled": "Booking rescheduled"
+    },
+    "location": "Location",
+    "manage": {
+      "cancel": "cancel",
+      "cancelled": "Was this a mistake, or would you like to book again? Reply to this email to reach {host}.",
+      "guest": "Questions? Reply to this email to reach {host}.",
+      "reschedule": "reschedule",
+      "withLinks": "Need to make a change? You can {reschedule} or {cancel} this booking, or reply to this email to reach {host}.",
+      "withoutLinks": "Need to make a change? Reply to this email to reach {host}."
+    },
+    "messageFrom": "A note from {host}",
+    "phone": "Phone",
+    "preview": {
+      "cancelled": "Your meeting with {host} on {date} has been cancelled.",
+      "confirmed": "Your meeting with {host} is confirmed for {date}.",
+      "guest": "{booker} added you to a meeting with {host} on {date}.",
+      "rescheduled": "Your meeting with {host} has moved to {date}."
+    },
+    "subject": {
+      "cancelled": "Booking cancelled: {page} on {date}",
+      "confirmed": "Booking confirmed: {page} on {date}",
+      "guest": "Invitation: {page} on {date}",
+      "rescheduled": "Booking rescheduled: {page} on {date}"
+    },
+    "time": "Time",
+    "videoCall": "Video call"
+  },
+  "calendar": {
+    "footer": "If you didn't expect this invitation, you can ignore this email.",
+    "intro": {
+      "cancel": "{organizer} cancelled an event.",
+      "invite": "{organizer} invited you to an event.",
+      "removed": "{organizer} removed you from an event.",
+      "reschedule": "{organizer} moved an event to a new time.",
+      "restored": "{organizer} put a cancelled event back on.",
+      "update": "{organizer} updated an event."
+    },
+    "joinVideo": "Join video meeting",
+    "joinWeldMeet": "Join WeldMeet meeting",
+    "preview": {
+      "cancel": "{organizer} cancelled {title}",
+      "invite": "{organizer} invited you to {title}",
+      "removed": "{organizer} removed you from {title}",
+      "reschedule": "{organizer} moved {title} to a new time",
+      "restored": "{organizer} put {title} back on",
+      "update": "{organizer} updated {title}"
+    },
+    "subject": {
+      "cancel": "Cancelled: {title}",
+      "invite": "Invitation: {title}",
+      "removed": "You were removed from: {title}",
+      "reschedule": "Rescheduled: {title}",
+      "restored": "Back on: {title}",
+      "update": "Updated: {title}"
+    },
+    "viewInCalendar": "View in WeldCalendar",
+    "when": "When",
+    "where": "Where"
+  },
+  "dates": {
+    "allDay": "{date} (all day)"
+  },
+  "deletion": {
+    "cancelled": {
+      "body": "The scheduled deletion of {workspace} has been cancelled. The workspace is active again.",
+      "kicker": "Deletion cancelled",
+      "preview": "The deletion of {workspace} has been cancelled.",
+      "subject": "Your WeldSuite workspace \"{workspace}\" is active again"
+    },
+    "scheduled": {
+      "body": "{workspace} has been suspended and will be permanently deleted on {date}. Access is disabled while it is suspended.",
+      "contact": "If you believe this is a mistake, contact WeldSuite support before that date. After it, the workspace and all its data are removed for good.",
+      "kicker": "Workspace suspended",
+      "preview": "{workspace} will be deleted on {date}.",
+      "reason": "Reason",
+      "subject": "Your WeldSuite workspace \"{workspace}\" is scheduled for deletion"
+    }
+  },
+  "digest": {
+    "footer": "You're receiving this as a member of {workspace}.",
+    "heading": "Your tasks",
+    "intro": "Hi {name}, here's what's on your plate.",
+    "kicker": "Daily digest · {date}",
+    "manage": "Digest settings",
+    "overdue": "Overdue",
+    "personal": "Personal",
+    "preview": "{overdue} overdue, {today} due today, {week} due this week.",
+    "subject": {
+      "overdue": "Your tasks: {count} overdue",
+      "upcoming": "Your tasks for today: {count}"
+    },
+    "today": "Due today",
+    "viewAll": "View all tasks",
+    "week": "Due this week"
+  },
+  "enterprise": {
+    "contact": "Contact",
+    "email": "Email",
+    "kicker": "New enterprise inquiry",
+    "org": "Clerk org",
+    "plan": "Current plan",
+    "replyHint": "Reply to this email to answer {contact} directly.",
+    "source": "Source",
+    "subject": "Enterprise inquiry: {company} ({size})",
+    "teamSize": "Team size",
+    "useCase": "Use case",
+    "user": "Clerk user",
+    "workspace": "Workspace"
+  },
+  "hrBank": {
+    "byHr": "The bank details {employer} pays your salary to were changed by HR, on {when}.",
+    "byYou": "You changed the bank details {employer} pays your salary to, on {when}.",
+    "greeting": "Hi {name},",
+    "greetingNoName": "Hi,",
+    "heading": "Your bank details were changed",
+    "kicker": "Payroll",
+    "notYou": "If you didn't expect this, tell HR right away, before the next pay run.",
+    "preview": "The account your salary is paid to was changed.",
+    "privacy": "For your privacy, the account number is never sent by email.",
+    "subject": "Your bank details for payroll were changed"
+  },
+  "hrPayslip": {
+    "body": "Your payslip from {employer} for the payment on {date} is ready. You can read and download it in My HR.",
+    "greeting": "Hi {name},",
+    "greetingNoName": "Hi,",
+    "heading": "Your payslip is ready",
+    "kicker": "Payslip",
+    "open": "Open my payslip",
+    "preview": "A new payslip from {employer} is ready to read.",
+    "privacy": "For your privacy, pay details are never sent by email.",
+    "subject": "Your payslip from {employer} is ready"
+  },
+  "layout": {
+    "linkFallback": "Or open this link:",
+    "sentVia": "Sent via {product}"
+  },
+  "meet": {
+    "footer": "If you didn't expect this invitation, you can ignore this email.",
+    "intro": "{organizer} invited you to a video meeting.",
+    "join": "Join meeting",
+    "noAccount": "No account needed. The link opens the meeting in your browser.",
+    "subject": "{organizer} invited you to {title}",
+    "when": "When"
+  },
+  "notifications": {
+    "footer": "You're receiving this because email notifications are on.",
+    "manage": "Notification settings",
+    "open": "Open in WeldSuite"
+  },
+  "outboundAlert": {
+    "domains": "Recipient domains",
+    "kicker": "Outbound mail alert",
+    "preview": "{summary}",
+    "recipients": "First-contact recipients today",
+    "review": "Open in the admin console",
+    "riskScore": "Risk score",
+    "severities": {
+      "info": "Info",
+      "urgent": "Urgent",
+      "warning": "Warning"
+    },
+    "severity": "Severity",
+    "sources": "Sent through",
+    "state": "Sending state",
+    "subject": "[{severity}] Outbound mail: {trigger} in {workspace}",
+    "templateSubject": "Template subject",
+    "trigger": "Trigger",
+    "triggers": {
+      "bounce_rate": "High bounce rate",
+      "cold_outreach_template": "Cold-outreach template",
+      "complaints": "Spam complaints",
+      "phishing": "Phishing or scam",
+      "platform_budget": "Platform sending budget",
+      "risk_score": "High risk score",
+      "staff_review": "Staff review"
+    },
+    "verdict": "AI verdict",
+    "workspace": "Workspace",
+    "workspaceId": "Workspace id"
+  },
+  "portal": {
+    "expiresCode": "The code expires in {minutes} minutes.",
+    "expiresLink": "The link and code expire in {minutes} minutes.",
+    "footer": "If you didn't try to sign in, you can ignore this email.",
+    "kickerCode": "Your sign-in code",
+    "kickerLink": "Sign in",
+    "preview": "Your sign-in code is {code}.",
+    "signIn": "Sign in",
+    "subject": {
+      "code": "Your {portal} sign-in code: {code}",
+      "link": "Sign in to {portal}"
+    },
+    "useCode": "Enter this code to sign in:",
+    "useLink": "Or enter this code:"
+  },
+  "reachApproved": {
+    "body": "We approved {workspace} for WeldReach. Open it to add your sender details, a payment method for inboxes and your first domain.",
+    "greeting": "Hi {name},",
+    "greetingNoName": "Hi,",
+    "heading": "WeldReach is ready",
+    "kicker": "Access approved",
+    "limits": "To start, you can connect up to {domains} domains and {mailboxes} inboxes, and send up to {sends} emails per day. Ask us if you need more.",
+    "open": "Open WeldReach",
+    "preview": "Your access to WeldReach was approved.",
+    "subject": "WeldReach is ready for {workspace}",
+    "terms": "Sending stays subject to the terms you accepted: business addresses only, your identity and an opt-out in every email, and opt-outs honoured for good. WeldSuite can pause sending if complaints or bounces get high."
+  },
+  "reachRejected": {
+    "again": "If your situation changes, you can request access again from the app store. For questions, contact WeldSuite support.",
+    "body": "We reviewed the WeldReach access request for {workspace} and could not approve it right now.",
+    "greeting": "Hi {name},",
+    "greetingNoName": "Hi,",
+    "heading": "We could not approve your request",
+    "kicker": "Access request",
+    "open": "Open the app store",
+    "preview": "We could not approve your WeldReach access request.",
+    "reason": "Reason",
+    "subject": "Your WeldReach access request for {workspace}"
+  },
+  "sign": {
+    "code": {
+      "body": "Enter this code on the signing page:",
+      "expires": "The code expires in {minutes} minutes.",
+      "footer": "If you didn't open a signing link just now, you can ignore this email.",
+      "kicker": "Your code to open the document",
+      "preview": "Your code is {code}.",
+      "subject": "Your code to open \"{title}\": {code}"
+    },
+    "completed": {
+      "attached": "The signed document is attached, with a certificate of completion that records who signed and when.",
+      "button": "Download signed PDF",
+      "download": "Download the signed document with its certificate of completion:",
+      "footer": "Keep this email or the PDF as your copy of the signed document.",
+      "kicker": "Everyone has signed",
+      "open": "Open the request",
+      "preview": "Everyone has signed \"{title}\".",
+      "signers": "Signed by",
+      "subject": "\"{title}\" is signed"
+    },
+    "declined": {
+      "body": "The request is closed; nobody else can sign it. You can send a new request once you have sorted it out.",
+      "kicker": "{name} declined to sign",
+      "open": "Open the request",
+      "preview": "{name} declined to sign.",
+      "reason": "Their reason",
+      "subject": "{name} declined to sign \"{title}\""
+    },
+    "expired": {
+      "body": "Not everyone signed before the expiry date, so the request is closed and its links have stopped working. Send a new request if you still need the signatures.",
+      "kicker": "Your signing request expired",
+      "open": "Open the request",
+      "preview": "Not everyone signed \"{title}\" in time.",
+      "subject": "\"{title}\" expired before everyone signed",
+      "unsigned": "Not signed by"
+    },
+    "request": {
+      "button": "Review and sign",
+      "expires": "Sign before {date}. After that the link stops working.",
+      "footer": "The link in this email is personal. Do not forward it: anyone with it can open and sign the document as you.",
+      "kicker": "{sender} sent you a document to sign",
+      "messageFrom": "Message from {sender}",
+      "preview": "Review and sign \"{title}\".",
+      "reminderKicker": "Reminder: {sender} is waiting for your signature",
+      "reminderPreview": "A reminder to review and sign \"{title}\".",
+      "reminderSubject": "Reminder: {sender} is waiting for you to sign \"{title}\"",
+      "subject": "{sender} sent you \"{title}\" to sign"
+    },
+    "voided": {
+      "body": "You do not need to sign it any more, and the signing link has stopped working.",
+      "kicker": "{sender} cancelled this signing request",
+      "preview": "{sender} cancelled this signing request.",
+      "reason": "Their reason",
+      "subject": "\"{title}\" was cancelled"
+    }
+  },
+  "task": {
+    "due": "Due",
+    "intro": "{assigner} assigned you a task.",
+    "priorities": {
+      "high": "High",
+      "low": "Low",
+      "medium": "Medium",
+      "urgent": "Urgent"
+    },
+    "priority": "Priority",
+    "project": "Project",
+    "subject": "{assigner} assigned you: {title}",
+    "view": "View task"
+  },
+  "workspaceInvite": {
+    "accept": "Accept invitation",
+    "body": "You've been invited to {workspace} on WeldSuite as {role}. Accept the invitation to get started.",
+    "footer": "This invitation was sent to {email}. If you didn't expect it, you can ignore this email.",
+    "intro": "{inviter} invited you to join",
+    "preview": "Join {workspace} on WeldSuite.",
+    "subject": "{inviter} invited you to {workspace} on WeldSuite"
+  }
+}

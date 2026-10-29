@@ -54,6 +54,10 @@ jobs:
       # permissions, flags, API modules, origins). Rerun `pnpm rust:catalogs`.
       - name: Rust catalogs are current
         run: pnpm rust:catalogs --check
+      # rust/catalogs/emails is generated from the system email templates
+      # (@weldsuite/emails) and the email strings. Rerun `pnpm rust:emails`.
+      - name: Rust email templates are current
+        run: pnpm rust:emails --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
@@ -78,15 +82,17 @@ jobs:
       WELDSUITE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
       WELDSUITE_TEST_S3_ACCESS_KEY_ID: weldsuite
       WELDSUITE_TEST_S3_SECRET_ACCESS_KEY: weldsuite-ci
+      WELDSUITE_TEST_SMTP_URL: smtp://127.0.0.1:1025
     steps:
       - uses: actions/checkout@v4
-      - name: Start Postgres (pgvector), Valkey, NATS and RustFS (S3)
+      - name: Start Postgres (pgvector), Valkey, NATS, RustFS (S3) and Mailpit (SMTP)
         run: |
           set -euo pipefail
           docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=weldsuite -e POSTGRES_PASSWORD=weldsuite -e POSTGRES_DB=scratch pgvector/pgvector:pg17
           docker run -d --name valkey -p 6379:6379 valkey/valkey:8-alpine
           docker run -d --name nats -p 4222:4222 nats:2-alpine -js
           docker run -d --name s3 -p 9000:9000 -e RUSTFS_ACCESS_KEY=weldsuite -e RUSTFS_SECRET_KEY=weldsuite-ci rustfs/rustfs:1.0.1
+          docker run -d --name mail -p 1025:1025 axllent/mailpit:v1.31.6
           for _ in $(seq 1 60); do docker exec pg pg_isready -U weldsuite >/dev/null 2>&1 && break; sleep 1; done
           for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/health >/dev/null 2>&1 && break; sleep 1; done
           sleep 2
