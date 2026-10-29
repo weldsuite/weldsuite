@@ -38,6 +38,15 @@ labels:
   topology.kubernetes.io/zone: ${location}
   node.weldsuite.org/pool: ${pool}
 ---
+# The kubelet asks the cluster CA for its serving certificate instead of
+# signing its own, so metrics-server and Prometheus can verify it. The
+# kubelet-serving-cert-approver in flux/infrastructure/controllers approves
+# the requests; until Flux has deployed it, `kubectl logs` and `exec` fail.
+apiVersion: v1alpha1
+kind: KubeletConfig
+config:
+  serverTLSBootstrap: true
+---
 apiVersion: v1alpha1
 kind: KubeNetworkConfig
 podSubnets:
