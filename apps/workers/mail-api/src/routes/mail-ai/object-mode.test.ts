@@ -42,7 +42,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { createFakeMailboxNamespace } from '@weldsuite/mail-domain/store/object/testing/fake-env';
 import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
-import { createMemoryKv, createFixedModeFlagship } from '../../lib/testing/mail-object-mode';
+import { createMemoryKv, createFixedModeFlagship } from '@weldsuite/mail-domain/store/testing/object-mode';
 import { __resetMailRouterStateForTests } from '@weldsuite/mail-domain/store';
 import { __resetMailStoreModeCacheForTests } from '@weldsuite/mail-domain/store/mode';
 import { ObjectMailboxStore } from '@weldsuite/mail-domain/store/object';

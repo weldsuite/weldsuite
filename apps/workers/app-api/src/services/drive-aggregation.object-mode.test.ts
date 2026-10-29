@@ -24,7 +24,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { getWorkspaceMail, type MailStoreEnv, type WorkspaceMail } from '@weldsuite/mail-domain/store';
 import { createFakeMailboxNamespace, createFakeMailIndexEnv } from '@weldsuite/mail-domain/store/object/testing/fake-env';
-import { createMemoryKv } from '../lib/testing/mail-object-mode';
+import { createMemoryKv } from '@weldsuite/mail-domain/store/testing/object-mode';
 
 const { mailAccounts, workspaceMembers } = schema;
 

@@ -8,7 +8,7 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { createFakeMailboxNamespace, createFakeMailIndexEnv } from '@weldsuite/mail-domain/store/object/testing/fake-env';
-import { createFixedModeFlagship } from '../lib/testing/mail-object-mode';
+import { createFixedModeFlagship } from '@weldsuite/mail-domain/store/testing/object-mode';
 
 const tenantDbFor = vi.fn(async (_env: unknown, orgId: string) => ({ orgId }));
 const mailWorkspaces = vi.fn(async () => [{ clerkOrgId: 'org_a' }, { clerkOrgId: 'org_b' }]);

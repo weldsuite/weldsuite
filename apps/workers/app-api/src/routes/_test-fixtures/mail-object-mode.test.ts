@@ -26,7 +26,7 @@ import type { Database } from '@weldsuite/worker-kit/db';
 import { ObjectWorkspaceMailStore, type ObjectWorkspaceMailStoreEnv } from '@weldsuite/mail-domain/store/object';
 import { createFakeMailboxNamespace, createFakeMailIndexEnv } from '@weldsuite/mail-domain/store/object/testing/fake-env';
 import { __resetMailStoreModeCacheForTests } from '@weldsuite/mail-domain/store/mode';
-import { createMemoryKv, createFixedModeFlagship } from '../../lib/testing/mail-object-mode';
+import { createMemoryKv, createFixedModeFlagship } from '@weldsuite/mail-domain/store/testing/object-mode';
 
 const WORKSPACE_ID = 'ws_e2e_object';
 const CLERK_ORG_ID = 'org_e2e_object';

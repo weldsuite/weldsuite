@@ -14,8 +14,8 @@
  * directly into the fake mailbox object is deterministic.
  *
  * Mode is forced via a fixed-value `FLAGSHIP` double
- * (`../../lib/testing/mail-object-mode`), the same pattern mail-api's and
- * app-api's own object-mode route tests use.
+ * (`@weldsuite/mail-domain/store/testing/object-mode`), the same shared
+ * helper mail-api's and app-api's own object-mode route tests use.
  */
 
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
@@ -32,7 +32,7 @@ import { ObjectWorkspaceMailStore, type ObjectWorkspaceMailStoreEnv } from '@wel
 import { createFakeMailboxNamespace, createFakeMailIndexEnv } from '@weldsuite/mail-domain/store/object/testing/fake-env';
 import { __resetMailStoreModeCacheForTests } from '@weldsuite/mail-domain/store/mode';
 import type { IngestMessage } from '@weldsuite/mail-domain/store';
-import { createMemoryKv, createFixedModeFlagship } from '../../lib/testing/mail-object-mode';
+import { createMemoryKv, createFixedModeFlagship } from '@weldsuite/mail-domain/store/testing/object-mode';
 import type { Env } from '../../types';
 
 const { mailAccounts, people, workspaceMembers, mailMessages } = schema;
