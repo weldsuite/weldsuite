@@ -15,8 +15,10 @@ modules) in progress.** `weldsuite serve` runs the full request pipeline
 (session token → workspace → tenant database → licence and read-only → feature
 flags → permission → envelope) with entity events, realtime and cache behind
 ports. Ported: the core routes `GET /api/me/permissions`, `GET /api/feature-flags`
-and `/api/access-requests`, and the first module, **know** (`/api/knowledge`, all
-27 routes). Next: `sign`.
+and `/api/access-requests`, the first module, **know** (`/api/knowledge`, all
+27 routes), and **sign**'s member side (`/api/sign`: drafts, templates, sending
+and a sent request's lifecycle, the `sign.finalize` job that builds the signed
+PDF, and `weldsuite cron sign-lifecycle`). Next: sign's signer portal (FE-017).
 
 ## Layout
 
@@ -32,7 +34,7 @@ rust/
   conformance/          suites.json: the worker tests each ported route must pass (P2)
   docs/spikes.md        the answers to spikes S3 (PgBouncer) and S4 (thousands of tenants)
   Dockerfile            the image (distroless, nonroot, cross-compiled for arm64); context is rust/
-  bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs); consume, cron later
+  bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs), `cron <job>` (cron.rs); consume later
   crates/kit/           envelope, errors, ids, CORS, request id, pagination, cursors, zod-shaped validation
   crates/catalogs/      entity events, permission keys, flags, API modules (+ Rust flag), origins
   crates/auth/          session tokens: Clerk's or an OIDC provider's (Zitadel; discovery, fetched JWKS), step-up second factor
@@ -124,7 +126,9 @@ share one origin and the app finds the API through `/config.json`
 (`"backend": "rust"`). The build context is the repo root, trimmed by
 `rust/Dockerfile.dockerignore`.
 
-The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+`weldsuite cron <job>` runs one scheduled job and exits, with the same
+environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`,
+every 15 minutes. The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -141,6 +145,7 @@ The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
+| `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
 | `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |

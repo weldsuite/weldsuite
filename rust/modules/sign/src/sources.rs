@@ -86,7 +86,7 @@ async fn name_of(db: &PgPool, sql: &'static str, id: &str) -> SignResult<Option<
 
 /// The source's display name, or `None` when the file or record is gone
 /// (`sourceName`).
-async fn source_name(
+pub(crate) async fn source_name(
     db: &PgPool,
     entity_type: &str,
     entity_id: &str,

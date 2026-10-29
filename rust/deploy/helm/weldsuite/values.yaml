@@ -104,6 +104,10 @@ config:
   # address, for a relay that only takes its own domain.
   mail:
     from: ""
+  # WeldSign: the signer portal's origin; signing links are <portalUrl>/r/<token>
+  # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
+  sign:
+    portalUrl: ""
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -124,7 +128,7 @@ config:
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
 #   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
 #                                the relay system mail goes through (optional; unset skips mail)
-#   SIGN_SESSION_SECRET          WeldSign's signer sessions and access-code hashes (WeldSign)
+#   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 # Or leave existingSecret empty and set `values` to let the chart create the
@@ -209,9 +213,8 @@ signPortal:
   # the signer's IP on the evidence trail is read from (counted from the
   # right): 1 for the ingress controller, 2 with a CDN the ingress trusts.
   trustedProxies: 1
-  # The portal's public URL (https://sign.<domain>): the signing links the
-  # server emails point here (SIGN_PORTAL_URL).
-  publicUrl: ""
+  # The signing links the server emails point at config.sign.portalUrl: set
+  # it to this portal's public URL (https://sign.<domain>).
   resources:
     requests:
       cpu: 50m
@@ -276,6 +279,24 @@ networkPolicy:
   # Who may call the sign portal (the ingress controller); empty allows any
   # peer. The portal's own pods may always call the server.
   signPortalFrom: []
+
+# Scheduled jobs (the workers' Cron Triggers), one CronJob each running
+# `weldsuite cron <name>` with the server's environment. A run that is still
+# going when the next is due is left alone (concurrencyPolicy: Forbid).
+cron:
+  jobs:
+    # WeldSign: automatic reminders and expiry of open requests.
+    sign-lifecycle:
+      enabled: true
+      schedule: "*/15 * * * *"
+      # Kill a run that hangs before the next one is due.
+      activeDeadlineSeconds: 840
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
 
 nodeSelector: {}
 tolerations: []

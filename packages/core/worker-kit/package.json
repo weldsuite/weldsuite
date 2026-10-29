@@ -33,6 +33,7 @@
     "./testing": "./src/testing/harness.ts",
     "./testing/pglite": "./src/testing/pglite.ts",
     "./testing/conformance": "./src/testing/conformance.ts",
+    "./testing/conformance-cron": "./src/testing/conformance-cron.ts",
     "./testing/d1": "./src/testing/d1.ts",
     "./testing/durable-sqlite": "./src/testing/durable-sqlite.ts",
     "./testing/r2": "./src/testing/r2.ts",

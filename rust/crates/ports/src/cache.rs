@@ -25,6 +25,17 @@ pub trait Cache: Send + Sync {
     ) -> impl Future<Output = Result<(), PortError>> + Send;
 
     fn delete(&self, key: &str) -> impl Future<Output = Result<(), PortError>> + Send;
+
+    /// Adds `by` (which may be negative) to the integer under `key`, a
+    /// missing key counting as 0, and returns the new value: Valkey's
+    /// `INCRBY`, atomic across replicas. `ttl` (re)sets the key's expiry.
+    /// For counters such as the outbound mail limits.
+    fn increment(
+        &self,
+        key: &str,
+        by: i64,
+        ttl: Option<Duration>,
+    ) -> impl Future<Output = Result<i64, PortError>> + Send;
 }
 
 /// JSON on top of any [`Cache`].
@@ -68,6 +79,12 @@ pub trait DynCache: Send + Sync {
         ttl: Option<Duration>,
     ) -> BoxFuture<'a, Result<(), PortError>>;
     fn delete_boxed<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<(), PortError>>;
+    fn increment_boxed<'a>(
+        &'a self,
+        key: &'a str,
+        by: i64,
+        ttl: Option<Duration>,
+    ) -> BoxFuture<'a, Result<i64, PortError>>;
 }
 
 impl<C: Cache> DynCache for C {
@@ -87,6 +104,15 @@ impl<C: Cache> DynCache for C {
     fn delete_boxed<'a>(&'a self, key: &'a str) -> BoxFuture<'a, Result<(), PortError>> {
         Box::pin(self.delete(key))
     }
+
+    fn increment_boxed<'a>(
+        &'a self,
+        key: &'a str,
+        by: i64,
+        ttl: Option<Duration>,
+    ) -> BoxFuture<'a, Result<i64, PortError>> {
+        Box::pin(self.increment(key, by, ttl))
+    }
 }
 
 impl Cache for dyn DynCache {
@@ -100,6 +126,10 @@ impl Cache for dyn DynCache {
 
     async fn delete(&self, key: &str) -> Result<(), PortError> {
         self.delete_boxed(key).await
+    }
+
+    async fn increment(&self, key: &str, by: i64, ttl: Option<Duration>) -> Result<i64, PortError> {
+        self.increment_boxed(key, by, ttl).await
     }
 }
 
@@ -119,6 +149,15 @@ impl<C: Cache + ?Sized> Cache for Arc<C> {
 
     fn delete(&self, key: &str) -> impl Future<Output = Result<(), PortError>> + Send {
         (**self).delete(key)
+    }
+
+    fn increment(
+        &self,
+        key: &str,
+        by: i64,
+        ttl: Option<Duration>,
+    ) -> impl Future<Output = Result<i64, PortError>> + Send {
+        (**self).increment(key, by, ttl)
     }
 }
 
@@ -182,6 +221,34 @@ impl Cache for MemoryCache {
         self.lock().remove(key);
         std::future::ready(Ok(()))
     }
+
+    fn increment(
+        &self,
+        key: &str,
+        by: i64,
+        ttl: Option<Duration>,
+    ) -> impl Future<Output = Result<i64, PortError>> + Send {
+        let now = Instant::now();
+        let mut entries = self.lock();
+        let (current, expires) = match entries.get(key) {
+            Some((value, expires)) if expires.is_none_or(|at| at > now) => {
+                (value.parse::<i64>(), *expires)
+            }
+            _ => (Ok(0), None),
+        };
+        let result = match current {
+            Ok(current) => {
+                let next = current.saturating_add(by);
+                let expires = ttl.map_or(expires, |ttl| Some(now + ttl));
+                entries.insert(key.to_owned(), (next.to_string(), expires));
+                Ok(next)
+            }
+            Err(_) => Err(PortError::backend(format!(
+                "cache: the value under {key:?} is not an integer"
+            ))),
+        };
+        std::future::ready(result)
+    }
 }
 
 #[cfg(test)]
@@ -201,6 +268,20 @@ mod tests {
         assert_eq!(cache.snapshot(), vec![("a".to_owned(), "1".to_owned())]);
         cache.delete("a").await.expect("delete");
         assert_eq!(cache.get("a").await.expect("get"), None);
+    }
+
+    #[tokio::test]
+    async fn memory_cache_counts() {
+        let cache: Arc<dyn DynCache> = Arc::new(MemoryCache::new());
+        assert_eq!(cache.increment("n", 3, None).await.expect("incr"), 3);
+        assert_eq!(cache.increment("n", -1, None).await.expect("incr"), 2);
+        cache.put("text", "x", None).await.expect("put");
+        assert!(cache.increment("text", 1, None).await.is_err());
+        cache
+            .increment("gone", 5, Some(Duration::ZERO))
+            .await
+            .expect("incr");
+        assert_eq!(cache.increment("gone", 1, None).await.expect("incr"), 1);
     }
 
     #[tokio::test]

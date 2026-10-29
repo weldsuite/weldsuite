@@ -2,10 +2,12 @@
 //! members (`apps/workers/sign-api/src/routes/`), with the domain rules of
 //! `@weldsuite/sign-domain`.
 //!
-//! Ported so far: drafts and their settings, documents, recipients, fields,
-//! the activity trail, templates and their roles. Sending and the signed PDF,
-//! the lifecycle cron and the signer portal's endpoints follow with the ports
-//! they need (system mail, jobs, the due index).
+//! Ported: drafts and their settings, documents, recipients, fields, the
+//! activity trail, templates and their roles, sending and a sent request's
+//! lifecycle (void, reminders, new links, corrections, "sign now"), the
+//! signed PDF with its certificate (the `sign.finalize` job) and the
+//! lifecycle sweep (`weldsuite cron sign-lifecycle`). The signer portal's
+//! endpoints are the next stage.
 //!
 //! Who sees what: without `sign_envelopes:manage` a member sees the envelopes
 //! they sent and the sent requests they are a recipient of (by email); one
@@ -15,11 +17,28 @@
 mod documents;
 mod envelopes;
 mod fields;
+mod filing;
+mod finalize;
 mod hash;
+mod lifecycle;
 mod links;
+mod mail;
+mod outbound;
+pub mod pdf_render;
 mod recipients;
+mod schedule;
+mod sending;
 mod sources;
+#[rustfmt::skip]
+mod standard_fonts;
+mod sweep;
 mod templates;
+
+pub use finalize::{
+    BuiltPdf, FINALIZE_JOB, FinalizeJob, FinalizeParams, TenantRef, TenantResolver,
+    finalize_request, start_finalize,
+};
+pub use sweep::{LIFECYCLE_SEED_KEY, LifecycleSweepResult, run_lifecycle_sweep};
 
 use std::sync::Arc;
 
@@ -36,20 +55,21 @@ use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_catalogs::entity_events::EventName;
 use weldsuite_catalogs::permission_keys::{
-    SIGN_ENVELOPES_CREATE, SIGN_ENVELOPES_DELETE, SIGN_ENVELOPES_READ, SIGN_ENVELOPES_UPDATE,
-    SIGN_TEMPLATES_CREATE, SIGN_TEMPLATES_DELETE, SIGN_TEMPLATES_READ, SIGN_TEMPLATES_UPDATE,
+    SIGN_ENVELOPES_CREATE, SIGN_ENVELOPES_DELETE, SIGN_ENVELOPES_READ, SIGN_ENVELOPES_SEND,
+    SIGN_ENVELOPES_UPDATE, SIGN_ENVELOPES_VOID, SIGN_TEMPLATES_CREATE, SIGN_TEMPLATES_DELETE,
+    SIGN_TEMPLATES_READ, SIGN_TEMPLATES_UPDATE,
 };
 use weldsuite_db::{PgPool, Tenant};
 use weldsuite_events::{EntityEventPublisher, EventContext, iso_timestamp, publish_entity_event};
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
-use weldsuite_ports::FileStores;
+use weldsuite_ports::{DynCache, DynFlagSource, DynJobs, DynSystemMail, FileStores};
 
 use crate::documents::Scope;
 
 /// What the sign handlers share.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SignState {
     pub events: EntityEventPublisher,
     /// `SIGN_SESSION_SECRET`: keys the stored hash of access codes. Without
@@ -57,6 +77,53 @@ pub struct SignState {
     pub session_secret: Option<Arc<str>>,
     /// The private bucket (and the legacy public one), when configured.
     pub files: Option<FileStores>,
+    /// The master database (link registry, due index, workspace names). A
+    /// request's `MasterDb` (conformance) wins.
+    pub master: Option<PgPool>,
+    /// System mail (`SEND_EMAIL`); without it signing emails are skipped,
+    /// as the workers do without the binding.
+    pub mail: Option<Arc<dyn DynSystemMail>>,
+    /// Valkey: the outbound mail guard's counters. Without it the guard
+    /// fails open, as the TypeScript guard does without its Durable Objects.
+    pub cache: Option<Arc<dyn DynCache>>,
+    /// Feature flags (`weldmail-outbound-guard`).
+    pub flags: Arc<dyn DynFlagSource>,
+    /// Starts durable jobs: `sign.finalize` once the last signer signs (the
+    /// signer portal, next stage, through [`start_finalize`]).
+    pub jobs: Option<Arc<dyn DynJobs>>,
+    /// `SIGN_PORTAL_URL`: signing links are `<portal>/r/<token>`.
+    pub portal_url: Option<Arc<str>>,
+    /// `ENVIRONMENT`: which platform URL emails link to.
+    pub environment: Option<Arc<str>>,
+}
+
+impl SignState {
+    /// The services outside a request (jobs, the sweep).
+    pub fn services(&self) -> Services {
+        Services {
+            events: self.events.clone(),
+            files: self.files.clone(),
+            mail: self.mail.clone(),
+            cache: self.cache.clone(),
+            flags: Arc::clone(&self.flags),
+            portal_url: self.portal_url.as_deref().map(str::to_owned),
+            environment: self.environment.as_deref().map(str::to_owned),
+        }
+    }
+}
+
+impl std::fmt::Debug for SignState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignState")
+            .field("files", &self.files.is_some())
+            .field("master", &self.master.is_some())
+            .field("mail", &self.mail.is_some())
+            .field("cache", &self.cache.is_some())
+            .field("jobs", &self.jobs.is_some())
+            .field("portal_url", &self.portal_url)
+            .field("environment", &self.environment)
+            .finish_non_exhaustive()
+    }
 }
 
 /// `/api/sign`, to nest under `/api` behind the session, tenant database,
@@ -110,6 +177,7 @@ where
             "/{id}/fields",
             put(fields::replace_envelope_fields).route_layer(need(SIGN_ENVELOPES_UPDATE)),
         )
+        .merge(lifecycle_routes(gate))
         .merge(document_routes(Scope::Envelope, gate));
     let templates = Router::new()
         .route(
@@ -157,6 +225,43 @@ where
         .nest("/envelopes", envelopes)
         .nest("/templates", templates)
         .with_state(state)
+}
+
+/// Sending and a sent request (`lifecycle.ts`, resend and correct).
+fn lifecycle_routes<Q>(gate: &Arc<PermissionGate<Q>>) -> Router<SignState>
+where
+    Q: PermissionQueries + 'static,
+{
+    let need = |key: &str| gate.require([key.to_owned()]);
+    Router::new()
+        .route(
+            "/{id}/send",
+            post(lifecycle::send).route_layer(need(SIGN_ENVELOPES_SEND)),
+        )
+        .route(
+            "/{id}/download",
+            get(lifecycle::download).route_layer(need(SIGN_ENVELOPES_READ)),
+        )
+        .route(
+            "/{id}/void",
+            post(lifecycle::void).route_layer(need(SIGN_ENVELOPES_VOID)),
+        )
+        .route(
+            "/{id}/remind",
+            post(lifecycle::remind).route_layer(need(SIGN_ENVELOPES_SEND)),
+        )
+        .route(
+            "/{id}/signing-link",
+            post(lifecycle::signing_link_route).route_layer(need(SIGN_ENVELOPES_READ)),
+        )
+        .route(
+            "/{id}/recipients/{recipient_id}/resend",
+            post(lifecycle::resend).route_layer(need(SIGN_ENVELOPES_SEND)),
+        )
+        .route(
+            "/{id}/recipients/{recipient_id}/correct",
+            post(lifecycle::correct).route_layer(need(SIGN_ENVELOPES_SEND)),
+        )
 }
 
 /// `/:id/documents/*` of a draft or a template.
@@ -228,8 +333,12 @@ pub(crate) struct Caller {
     pub(crate) read_only: bool,
     /// `c.get('clerkOrgId')`: storage keys are `workspaces/<org>/…`.
     pub(crate) clerk_org_id: Option<String>,
+    /// `c.get('workspaceId')`: `workspaces.id` (link registry, due index).
+    pub(crate) workspace_id: String,
     env: Option<RequestEnv>,
     files: Option<FileStores>,
+    /// The request's master database (conformance), else the app's.
+    master: Option<PgPool>,
 }
 
 impl Caller {
@@ -263,6 +372,77 @@ impl Caller {
             .or_else(|| state.session_secret.as_deref().map(str::to_owned))
             .filter(|secret| !secret.is_empty())
     }
+
+    /// A value of `c.env`: the request's (conformance), else the state's.
+    fn env_value(&self, name: &str, fallback: Option<&Arc<str>>) -> Option<String> {
+        self.env
+            .as_ref()
+            .and_then(|env| env.get(name))
+            .map(str::to_owned)
+            .or_else(|| fallback.map(ToString::to_string))
+    }
+
+    /// The services the domain code reaches, with the request's overrides.
+    pub(crate) fn services(&self, state: &SignState) -> Services {
+        Services {
+            events: state.events.clone(),
+            files: self.files(state),
+            mail: state.mail.clone(),
+            cache: state.cache.clone(),
+            flags: Arc::clone(&state.flags),
+            portal_url: self.env_value("SIGN_PORTAL_URL", state.portal_url.as_ref()),
+            environment: self.env_value("ENVIRONMENT", state.environment.as_ref()),
+        }
+    }
+
+    /// `sendContextOf(c)`: the tenant and master databases and both
+    /// workspace ids.
+    pub(crate) fn send_context(&self, state: &SignState) -> SignResult<SendContext> {
+        let (Some(clerk_org_id), false) = (
+            self.clerk_org_id.clone().filter(|id| !id.is_empty()),
+            self.workspace_id.is_empty(),
+        ) else {
+            return Err(SignError::invalid("No workspace selected"));
+        };
+        let master = self
+            .master
+            .clone()
+            .or_else(|| state.master.clone())
+            .ok_or_else(|| SignError::Internal("sign: no master database".to_owned()))?;
+        Ok(SendContext {
+            db: self.db.clone(),
+            master,
+            clerk_org_id,
+            workspace_id: self.workspace_id.clone(),
+            services: self.services(state),
+        })
+    }
+}
+
+/// What the domain code reaches outside the databases: the workers' `env`.
+#[derive(Clone)]
+pub struct Services {
+    pub events: EntityEventPublisher,
+    pub files: Option<FileStores>,
+    pub mail: Option<Arc<dyn DynSystemMail>>,
+    pub cache: Option<Arc<dyn DynCache>>,
+    pub flags: Arc<dyn DynFlagSource>,
+    pub portal_url: Option<String>,
+    pub environment: Option<String>,
+}
+
+/// What sending, the lifecycle, the sweep and the finalize job work in
+/// (`SendContext`): one workspace's tenant database, the master database,
+/// both workspace ids and the services.
+#[derive(Clone)]
+pub(crate) struct SendContext {
+    pub(crate) db: PgPool,
+    pub(crate) master: PgPool,
+    /// Clerk org id: storage prefix, events.
+    pub(crate) clerk_org_id: String,
+    /// `workspaces.id`: link registry, due index.
+    pub(crate) workspace_id: String,
+    pub(crate) services: Services,
 }
 
 /// Behind the session, tenant database and permission layers; without them
@@ -286,8 +466,13 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     events: EventContext::for_request(auth, tenant),
                     read_only: tenant.read_only_reason().is_some(),
                     clerk_org_id: tenant.clerk_org_id.clone(),
+                    workspace_id: tenant.workspace_id.clone(),
                     env: parts.extensions.get::<RequestEnv>().cloned(),
                     files: parts.extensions.get::<FileStores>().cloned(),
+                    master: parts
+                        .extensions
+                        .get::<weldsuite_db::MasterDb>()
+                        .map(|master| master.0.clone()),
                 })
             } else {
                 tracing::error!("sign: a route without the session, tenant or permission layer");

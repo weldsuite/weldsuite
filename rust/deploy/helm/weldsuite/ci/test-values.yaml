@@ -8,6 +8,8 @@ secret:
     S3_SECRET_ACCESS_KEY: not-a-real-secret
     SIGN_PORTAL_SECRET: not-a-real-secret
 config:
+  sign:
+    portalUrl: https://sign.example.org
   files:
     endpoint: https://s3.example.com
     publicBucket: weldsuite-public
@@ -30,6 +32,5 @@ clerkJwks:
   json: '{"keys":[]}'
 signPortal:
   enabled: true
-  publicUrl: https://sign.example.org
   ingress:
     enabled: true

@@ -42,7 +42,6 @@ pub(crate) struct Infra {
     /// before the private one existed (`get_stored`).
     pub(crate) public_files: Option<Arc<dyn DynFileStore>>,
     /// Starts durable jobs (the workers' Workflows): Restate, or in process.
-    #[allow(dead_code, reason = "sign's finalize job (P3) is the first caller")]
     pub(crate) jobs: Arc<dyn DynJobs>,
     /// The jobs this process runs; modules register theirs once their state
     /// exists. `weldsuite.noop` is always there, for the smoke test.

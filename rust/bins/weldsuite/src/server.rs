@@ -48,6 +48,8 @@ pub(crate) struct AppState {
     pub(crate) flags: Arc<FlagGate>,
     /// `SIGN_SESSION_SECRET`, for WeldSign.
     pub(crate) sign_session_secret: Option<Arc<str>>,
+    /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
+    pub(crate) sign_portal_url: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
@@ -105,10 +107,15 @@ pub(crate) fn router(state: AppState) -> Router {
 
     let root = Router::new();
     #[cfg(feature = "conformance")]
-    let root = root.route(
-        "/__conformance/side-effects",
-        get(crate::conformance::side_effects),
-    );
+    let root = root
+        .route(
+            "/__conformance/side-effects",
+            get(crate::conformance::side_effects),
+        )
+        .route(
+            "/__conformance/cron/sign-lifecycle",
+            axum::routing::post(crate::conformance::sign_lifecycle_sweep),
+        );
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -364,6 +371,7 @@ mod tests {
                 None,
             )),
             sign_session_secret: None,
+            sign_portal_url: None,
             files_public_url: None,
             public_auth: None,
             #[cfg(feature = "conformance")]

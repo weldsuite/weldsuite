@@ -60,6 +60,28 @@ async fn cache_round_trips_expires_and_deletes() {
 }
 
 #[tokio::test]
+async fn counters_increment_atomically_and_expire() {
+    let Some(url) = url() else { return };
+    let cache = ValkeyCache::new(connect_valkey(&url).await.expect("connects"), prefix());
+
+    assert_eq!(cache.increment("n", 3, None).await.expect("incr"), 3);
+    assert_eq!(cache.increment("n", -1, None).await.expect("incr"), 2);
+    assert_eq!(cache.get("n").await.expect("get").as_deref(), Some("2"));
+    cache.put("text", "x", None).await.expect("put");
+    assert!(cache.increment("text", 1, None).await.is_err());
+
+    cache
+        .increment("short", 5, Some(Duration::from_millis(50)))
+        .await
+        .expect("incr with ttl");
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert_eq!(cache.increment("short", 1, None).await.expect("incr"), 1);
+    for key in ["n", "text", "short"] {
+        cache.delete(key).await.expect("delete");
+    }
+}
+
+#[tokio::test]
 async fn realtime_publishes_the_payload_on_the_channel() {
     let Some(url) = url() else { return };
     let prefix = prefix();

@@ -169,6 +169,9 @@ pub(crate) struct Config {
     /// `SIGN_SESSION_SECRET`: keys WeldSign's signer sessions and the stored
     /// hash of access codes; the same value as the TypeScript workers'.
     pub(crate) sign_session_secret: Option<String>,
+    /// `SIGN_PORTAL_URL`: the signer portal's origin; signing links are
+    /// `<portal>/r/<token>` (default `https://sign.weldsuite.org`).
+    pub(crate) sign_portal_url: Option<String>,
     /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
     /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
     pub(crate) files_public_url: Option<String>,
@@ -503,6 +506,7 @@ impl Config {
             spa_dir: lookup("SPA_DIR").map(PathBuf::from),
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
+            sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
         })
     }

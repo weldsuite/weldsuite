@@ -694,16 +694,14 @@ async fn insert_pending_member(
         json!([])
     };
     let stamp = now();
-    // A live row already on the placeholder fails the insert in TypeScript;
-    // here it inserts nothing, and the caller treats both the same way.
-    let inserted: Option<String> = sqlx::query_scalar(
+    // A live row already on the placeholder fails the insert (the user id is
+    // unique), and the caller takes the invitation back.
+    sqlx::query(
         "insert into workspace_members
              (id, user_id, email, name, role, role_id, permissions, member_type, status,
               clerk_invitation_id, invited_by, invited_at, created_at, updated_at)
          values ($1, $2, $3, $4, $5, $6, $7, $8, 'PENDING',
-                 $9, $10, $11::timestamptz, $11::timestamptz, $11::timestamptz)
-         on conflict (user_id) do nothing
-         returning id",
+                 $9, $10, $11::timestamptz, $11::timestamptz, $11::timestamptz)",
     )
     .bind(&member_id)
     .bind(&user_id)
@@ -716,9 +714,9 @@ async fn insert_pending_member(
     .bind(invitation_id)
     .bind(&caller.user_id)
     .bind(&stamp)
-    .fetch_optional(&caller.db)
+    .execute(&caller.db)
     .await?;
-    inserted.ok_or(sqlx::Error::RowNotFound)
+    Ok(member_id)
 }
 
 // ── PATCH /:id ──────────────────────────────────────────────────────────────

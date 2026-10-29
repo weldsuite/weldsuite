@@ -41,6 +41,9 @@ config:
     restate:
       ingressUrl: http://restate:8080
       adminUrl: http://restate:9070
+  # Signing links point at the portal below.
+  sign:
+    portalUrl: https://sign.${DOMAIN}
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
@@ -80,7 +83,6 @@ signPortal:
   image:
     repository: ghcr.io/weldsuite/weldsuite-sign-portal
     tag: ${WELDSUITE_IMAGE_TAG}
-  publicUrl: https://sign.${DOMAIN}
   # Traefik is the only proxy that appends to X-Forwarded-For: the Hetzner
   # load balancer passes the client's address with the PROXY protocol.
   trustedProxies: 1
