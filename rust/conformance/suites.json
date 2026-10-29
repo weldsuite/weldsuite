@@ -165,6 +165,21 @@
       ]
     },
     {
+      "name": "core: team-members (directory)",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/team-members/directory.integration.test.ts",
+        "src/routes/team-members/member-profile.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/team-members/",
+        "apps/workers/app-api/src/services/team/",
+        "packages/clients/app-api-client/src/schemas/team-members.ts",
+        "rust/modules/core-team/src/groups/team_members/"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",

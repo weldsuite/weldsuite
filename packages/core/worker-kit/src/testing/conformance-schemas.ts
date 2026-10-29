@@ -48,6 +48,17 @@ import {
   userThemeSchema,
 } from '@weldsuite/app-api-client/schemas/user-preferences';
 import {
+  commonConceptsResponseSchema,
+  memberActivityItemSchema,
+  memberAppAssignmentSchema,
+  memberAppToggleResultSchema,
+  memberNoteSchema,
+  memberPermissionsBreakdownSchema,
+  memberProfileSchema,
+  teamMemberListItemSchema,
+  teamMemberSelfSchema,
+} from '@weldsuite/app-api-client/schemas/team-members';
+import {
   knowledgeFavoriteRefSchema,
   knowledgeFavoriteSchema,
   knowledgeMembershipSchema,
@@ -123,6 +134,19 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/push-tokens', envelope: 'single', data: pushTokenRegisteredSchema },
   { method: 'POST', route: '/api/push-tokens/test', envelope: 'single', data: pushTestResultSchema },
   { method: 'DELETE', route: '/api/push-tokens', envelope: 'single', data: pushTokenUnregisteredSchema },
+  // core: team-members (directory)
+  { method: 'GET', route: '/api/team-members/me', envelope: 'single', data: teamMemberSelfSchema },
+  { method: 'GET', route: '/api/team-members', envelope: 'list', data: teamMemberListItemSchema },
+  { method: 'GET', route: '/api/team-members/:id', envelope: 'single', data: teamMemberListItemSchema },
+  { method: 'GET', route: '/api/team-members/:id/permissions', envelope: 'single', data: memberPermissionsBreakdownSchema },
+  { method: 'GET', route: '/api/team-members/:id/apps', envelope: 'single', data: memberAppAssignmentSchema.array() },
+  { method: 'POST', route: '/api/team-members/:id/apps/toggle', envelope: 'single', data: memberAppToggleResultSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/profile', envelope: 'single', data: memberProfileSchema },
+  { method: 'PATCH', route: '/api/team-members/user/:userId/profile', envelope: 'single', data: memberProfileSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/notes', envelope: 'single', data: memberNoteSchema.nullable() },
+  { method: 'PUT', route: '/api/team-members/user/:userId/notes', envelope: 'single', data: memberNoteSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/common', envelope: 'single', data: commonConceptsResponseSchema },
+  { method: 'GET', route: '/api/team-members/user/:userId/activity', envelope: 'list', data: memberActivityItemSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },
