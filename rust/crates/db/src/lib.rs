@@ -13,6 +13,7 @@
 
 mod atomically;
 mod crypto;
+pub mod due_index;
 mod middleware;
 mod permissions;
 pub mod pg_errors;
