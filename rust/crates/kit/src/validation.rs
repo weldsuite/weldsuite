@@ -496,6 +496,55 @@ impl Issues {
         field
     }
 
+    /// `z.union([z.string(), z.number()])` with `presence`: the value as it
+    /// came when it is a string or a number, else Zod's `invalid_union` with
+    /// one `invalid_type` per option.
+    pub fn string_or_number(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+    ) -> Field<Value> {
+        let value = body.get(key);
+        let nullable = matches!(presence, Presence::Nullable | Presence::Nullish);
+        let optional = matches!(presence, Presence::Optional | Presence::Nullish);
+        match value {
+            None if optional => return Field::Absent,
+            Some(Value::Null) if nullable => return Field::Null,
+            _ => {}
+        }
+        match value {
+            Some(Value::String(_) | Value::Number(_)) => {
+                Field::Set(value.cloned().unwrap_or(Value::Null))
+            }
+            _ => {
+                let path = self.path(key);
+                let received = parsed_type(value);
+                let option = |expected: &str| {
+                    json!({ "issues": [{
+                        "code": "invalid_type",
+                        "expected": expected,
+                        "received": received,
+                        "path": path,
+                        "message": if received == "undefined" {
+                            "Required".to_owned()
+                        } else {
+                            format!("Expected {expected}, received {received}")
+                        },
+                    }], "name": "ZodError" })
+                };
+                let union_errors = json!([option("string"), option("number")]);
+                self.issues.push(json!({
+                    "code": "invalid_union",
+                    "unionErrors": union_errors,
+                    "path": path,
+                    "message": "Invalid input",
+                }));
+                Field::Absent
+            }
+        }
+    }
+
     /// A failed `.refine(check, { message })` on `key`. Zod runs a refinement
     /// whenever the value got past its type check, even when one of its own
     /// checks failed. `zValidator` parses asynchronously, which settles a

@@ -7,8 +7,11 @@
 //! the caller set, defaults filled in), as JSON objects keyed like the
 //! TypeScript types.
 
+pub mod activities;
 pub mod events;
-pub mod js;
+pub use weldsuite_core_domain::js;
+pub mod leads;
+pub mod opportunities;
 pub mod tables;
 #[allow(clippy::too_many_lines)]
 mod tables_gen;

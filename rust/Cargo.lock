@@ -3746,10 +3746,14 @@ dependencies = [
 name = "weldsuite-core-domain"
 version = "0.0.0"
 dependencies = [
+ "serde",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
+ "tracing",
  "weldsuite-db",
+ "weldsuite-events",
  "weldsuite-kit",
 ]
 

@@ -132,3 +132,59 @@ export interface LeadConversionResult {
 
 /** The `{ id }` the CRM write routes (leads, opportunities, activities, stages) answer. */
 export const recordIdSchema = z.object({ id: z.string() });
+
+/** A `crm_leads` row as the routes return it (the `Lead` shape). */
+export const leadSchema = z.object({
+  id: z.string(),
+  firstName: z.string().nullish(),
+  lastName: z.string().nullish(),
+  fullName: z.string().nullish(),
+  companyName: z.string().nullish(),
+  title: z.string().nullish(),
+  email: z.string(),
+  phone: z.string().nullish(),
+  mobile: z.string().nullish(),
+  website: z.string().nullish(),
+  address: z.unknown(),
+  source: z.string(),
+  channel: z.string().nullish(),
+  campaign: z.string().nullish(),
+  medium: z.string().nullish(),
+  status: z.string(),
+  rating: z.string().nullish(),
+  score: z.number().nullish(),
+  ownerId: z.string().nullish(),
+  assignedAt: z.string().nullish(),
+  isQualified: z.boolean().nullish(),
+  qualifiedAt: z.string().nullish(),
+  disqualifiedReason: z.string().nullish(),
+  productInterest: z.unknown(),
+  budget: z.unknown(),
+  timeline: z.string().nullish(),
+  authority: z.boolean().nullish(),
+  need: z.string().nullish(),
+  convertedAt: z.string().nullish(),
+  convertedToCustomerId: z.string().nullish(),
+  convertedToOpportunityId: z.string().nullish(),
+  firstResponseAt: z.string().nullish(),
+  lastActivityAt: z.string().nullish(),
+  numberOfTouches: z.number().nullish(),
+  notes: z.string().nullish(),
+  nextAction: z.string().nullish(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/** `POST /api/leads/:id/qualify`. */
+export const leadQualifiedSchema = z.object({
+  id: z.string(),
+  isQualified: z.literal(true),
+  status: z.literal('qualified'),
+});
+
+/** `POST /api/leads/:id/convert` (the `LeadConversionResult` shape). */
+export const leadConversionResultSchema = z.object({
+  leadId: z.string(),
+  customerId: z.string().optional(),
+  opportunityId: z.string().optional(),
+});

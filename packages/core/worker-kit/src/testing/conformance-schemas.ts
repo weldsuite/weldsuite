@@ -160,7 +160,14 @@ import {
 // crm (crm-api)
 import { customerStatusSchema } from '@weldsuite/app-api-client/schemas/customer-statuses';
 import { pipelineFieldVisibilitySchema } from '@weldsuite/app-api-client/schemas/pipeline-field-visibility';
-import { recordIdSchema } from '@weldsuite/core-api-client/schemas/leads';
+import { activitySchema } from '@weldsuite/core-api-client/schemas/activities';
+import {
+  leadConversionResultSchema,
+  leadQualifiedSchema,
+  leadSchema,
+  recordIdSchema,
+} from '@weldsuite/core-api-client/schemas/leads';
+import { opportunitySchema } from '@weldsuite/core-api-client/schemas/opportunities';
 import { personCompanySchema } from '@weldsuite/core-api-client/schemas/person-companies';
 import { pipelineStageSchema, reorderPipelineStagesResultSchema } from '@weldsuite/core-api-client/schemas/pipeline-stages';
 import { pipelineRowSchema } from '@weldsuite/core-api-client/schemas/pipelines-crm';
@@ -432,6 +439,21 @@ const ROUTES: RouteSchema[] = [
   { method: 'PUT', route: '/api/customer-statuses/reorder', envelope: 'array', data: customerStatusSchema },
   { method: 'POST', route: '/api/person-companies', envelope: 'single', data: personCompanySchema },
   { method: 'PATCH', route: '/api/person-companies/:id', envelope: 'single', data: personCompanySchema },
+  // crm: activities, leads, opportunities
+  { method: 'GET', route: '/api/activities', envelope: 'list', data: activitySchema },
+  { method: 'GET', route: '/api/activities/:id', envelope: 'single', data: activitySchema },
+  { method: 'POST', route: '/api/activities', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/activities/:id', envelope: 'single', data: recordIdSchema },
+  { method: 'GET', route: '/api/leads', envelope: 'list', data: leadSchema },
+  { method: 'GET', route: '/api/leads/:id', envelope: 'single', data: leadSchema },
+  { method: 'POST', route: '/api/leads', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/leads/:id', envelope: 'single', data: recordIdSchema },
+  { method: 'POST', route: '/api/leads/:id/qualify', envelope: 'single', data: leadQualifiedSchema },
+  { method: 'POST', route: '/api/leads/:id/convert', envelope: 'single', data: leadConversionResultSchema },
+  { method: 'GET', route: '/api/opportunities', envelope: 'list', data: opportunitySchema },
+  { method: 'GET', route: '/api/opportunities/:id', envelope: 'single', data: opportunitySchema },
+  { method: 'POST', route: '/api/opportunities', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/opportunities/:id', envelope: 'single', data: recordIdSchema },
   // crm: end
 ];
 

@@ -559,6 +559,35 @@
         "rust/modules/crm/",
         "rust/crates/crm-domain/"
       ]
+    },
+    {
+      "name": "crm: activities, leads, opportunities",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/activities/integration.test.ts",
+        "src/routes/activities/routes.integration.test.ts",
+        "src/routes/leads/integration.test.ts",
+        "src/routes/leads/routes.integration.test.ts",
+        "src/routes/opportunities/integration.test.ts",
+        "src/routes/opportunities/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/activities/",
+        "apps/workers/crm-api/src/routes/leads/",
+        "apps/workers/crm-api/src/routes/opportunities/",
+        "packages/domains/crm/src/activities.ts",
+        "packages/domains/crm/src/leads.ts",
+        "packages/domains/crm/src/opportunities.ts",
+        "packages/domains/core/src/custom-field-values.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/clients/core-api-client/src/schemas/activities.ts",
+        "packages/clients/core-api-client/src/schemas/leads.ts",
+        "packages/clients/core-api-client/src/schemas/opportunities.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/",
+        "rust/crates/core-domain/src/custom_field_values.rs"
+      ]
     }
   ]
 }

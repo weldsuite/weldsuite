@@ -35,6 +35,8 @@ pub(crate) enum Kind {
     },
     /// `z.record(z.unknown())` / `z.record(z.string(), z.unknown())`.
     Record,
+    /// `z.union([z.string(), z.number()])`.
+    StrOrNum,
 }
 
 /// One field of the schema.
@@ -162,13 +164,54 @@ pub(crate) fn number_value(number: f64) -> Value {
 }
 
 /// Read every field of `specs` off `body`.
+///
+/// `zValidator` parses asynchronously, so issues settle in tiers: the plain
+/// checks of every field in key order, then refinements on a plain field,
+/// then unions (`invalid_union`), then refinements on a union. [`read`]
+/// reads the plain fields and then the unions; a schema with refinements
+/// calls [`read_sync`], its plain refinements, [`read_unions`], then the
+/// union ones.
 pub(crate) fn read(
     issues: &mut Issues,
     body: &Map<String, Value>,
     specs: &[Spec],
 ) -> Map<String, Value> {
+    let mut out = read_sync(issues, body, specs);
+    for (key, value) in read_unions(issues, body, specs) {
+        out.insert(key, value);
+    }
+    out
+}
+
+/// The fields of `specs` other than unions.
+pub(crate) fn read_sync(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    specs: &[Spec],
+) -> Map<String, Value> {
+    read_tier(issues, body, specs, false)
+}
+
+/// The union fields of `specs` (`z.union([...])`).
+pub(crate) fn read_unions(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    specs: &[Spec],
+) -> Map<String, Value> {
+    read_tier(issues, body, specs, true)
+}
+
+fn read_tier(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    specs: &[Spec],
+    unions: bool,
+) -> Map<String, Value> {
     let mut out = Map::new();
     for spec in specs {
+        if matches!(spec.kind, Kind::StrOrNum) != unions {
+            continue;
+        }
         let before = out.len();
         read_one(issues, body, spec, &mut out);
         if out.len() == before
@@ -239,9 +282,30 @@ fn read_one(
                 Value::Array(items.into_iter().map(Value::String).collect())
             });
         }
+        Kind::StrOrNum => {
+            let field = issues.string_or_number(body, key, presence);
+            put(out, key, field, |value| value);
+        }
         Kind::Record => {
             let field = issues.nested(body, key, presence, |_, fields| fields.clone());
             put(out, key, field, Value::Object);
         }
+    }
+}
+
+/// A `.refine(check, { message })` on `key`, run when the field got past its
+/// type check (a failed length check doesn't stop it; a wrong type does).
+/// Call after every field was read: its issue comes last.
+pub(crate) fn refine(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    key: &str,
+    typed: impl Fn(Option<&Value>) -> bool,
+    check: impl Fn(Option<&Value>) -> bool,
+    message: &str,
+) {
+    let value = body.get(key);
+    if typed(value) && !check(value) {
+        issues.custom(key, message);
     }
 }

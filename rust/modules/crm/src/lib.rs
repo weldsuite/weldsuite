@@ -10,8 +10,11 @@
 //! TypeScript worker's; its tests run against this crate in the `crm`
 //! conformance suites (`rust/conformance/suites.json`).
 
+mod activities;
 mod customer_statuses;
 mod field_visibility;
+mod leads;
+mod opportunities;
 mod person_companies;
 mod pipeline_stages;
 mod pipelines;
@@ -79,6 +82,27 @@ where
 {
     let need = |key: &'static str| gate.require([key]);
     Router::new()
+        // Activities
+        .route(
+            "/activities",
+            get(activities::list).route_layer(need(keys::ACTIVITIES_READ)),
+        )
+        .route(
+            "/activities",
+            post(activities::create).route_layer(need(keys::ACTIVITIES_CREATE)),
+        )
+        .route(
+            "/activities/{id}",
+            get(activities::detail).route_layer(need(keys::ACTIVITIES_READ)),
+        )
+        .route(
+            "/activities/{id}",
+            patch(activities::update).route_layer(need(keys::ACTIVITIES_UPDATE)),
+        )
+        .route(
+            "/activities/{id}",
+            delete(activities::remove).route_layer(need(keys::ACTIVITIES_DELETE)),
+        )
         // Customer statuses
         .route(
             "/customer-statuses",
@@ -101,6 +125,56 @@ where
             patch(customer_statuses::update)
                 .delete(customer_statuses::remove)
                 .route_layer(need(keys::SETTINGS_MANAGE)),
+        )
+        // Leads
+        .route(
+            "/leads",
+            get(leads::list).route_layer(need(keys::LEADS_READ)),
+        )
+        .route(
+            "/leads",
+            post(leads::create).route_layer(need(keys::LEADS_CREATE)),
+        )
+        .route(
+            "/leads/{id}",
+            get(leads::detail).route_layer(need(keys::LEADS_READ)),
+        )
+        .route(
+            "/leads/{id}",
+            patch(leads::update).route_layer(need(keys::LEADS_UPDATE)),
+        )
+        .route(
+            "/leads/{id}",
+            delete(leads::remove).route_layer(need(keys::LEADS_DELETE)),
+        )
+        .route(
+            "/leads/{id}/qualify",
+            post(leads::qualify).route_layer(need(keys::LEADS_UPDATE)),
+        )
+        .route(
+            "/leads/{id}/convert",
+            post(leads::convert).route_layer(need(keys::LEADS_UPDATE)),
+        )
+        // Opportunities
+        .route(
+            "/opportunities",
+            get(opportunities::list).route_layer(need(keys::OPPORTUNITIES_READ)),
+        )
+        .route(
+            "/opportunities",
+            post(opportunities::create).route_layer(need(keys::OPPORTUNITIES_CREATE)),
+        )
+        .route(
+            "/opportunities/{id}",
+            get(opportunities::detail).route_layer(need(keys::OPPORTUNITIES_READ)),
+        )
+        .route(
+            "/opportunities/{id}",
+            patch(opportunities::update).route_layer(need(keys::OPPORTUNITIES_UPDATE)),
+        )
+        .route(
+            "/opportunities/{id}",
+            delete(opportunities::remove).route_layer(need(keys::OPPORTUNITIES_DELETE)),
         )
         // Person ↔ company links
         .route(
