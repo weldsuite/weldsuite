@@ -72,6 +72,7 @@ import type { MemberAppAssignment } from '@/lib/api/types/rbac.types';
 import { StatusDot, type PresenceStatus } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
+import { chatCallsAvailable } from '@/app/weldchat/lib/calls-available';
 import { useMemberProfile } from '@/hooks/queries/use-team-queries';
 import { OverviewTab as MemberOverviewTab } from '@/components/team-member-panel/tabs/overview-tab';
 import { getRoleLabel } from '@/components/team-member-panel/role-label';
@@ -1648,7 +1649,7 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
   const { startCall } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
 
-  if (!userId) return null;
+  if (!userId || !chatCallsAvailable()) return null;
 
   const handleCall = async (kind: 'voice' | 'video') => {
     if (!dmChannelId) {

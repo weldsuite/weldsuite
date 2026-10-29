@@ -57,6 +57,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "analytics",
     // `POST /api/search/reindex` isn't served.
     "search-reindex",
+    // WeldChat voice and video calls (`/api/chat-calls`) run on Cloudflare
+    // RealtimeKit, its API and the call UI's client SDK alike; they come with
+    // LiveKit in the call UI.
+    "chat-calls",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

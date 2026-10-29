@@ -668,7 +668,8 @@
         "src/routes/channels/integration.test.ts",
         "src/routes/channels/names.integration.test.ts",
         "src/routes/channels/routes.integration.test.ts",
-        "src/routes/channel-members/integration.test.ts"
+        "src/routes/channel-members/integration.test.ts",
+        "src/routes/chat-entity-channels/access.integration.test.ts"
       ],
       "paths": [
         "apps/workers/chat-api/src/",
@@ -677,6 +678,56 @@
         "rust/modules/chat/",
         "rust/crates/chat-domain/",
         "rust/crates/notifications/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /api/chat-calls/:callId",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "GET /api/chat-calls/active",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "GET /api/chat-calls/active/:channelId",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "GET /api/chat-calls/history",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/decline",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/end",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/join",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/leave",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/prepare",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/start-and-join",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /public/chat-calls/decline",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (app/weldchat/lib/calls-available.ts). Comes with LiveKit in the call UI (P6)."
+        }
       ]
     },
     {
@@ -741,7 +792,6 @@
       "workspace": "apps/workers/chat-api",
       "tests": [
         "src/routes/chat-entity-channels/integration.test.ts",
-        "src/routes/chat-entity-channels/access.integration.test.ts",
         "src/routes/chat-entity-channels/drive-files.integration.test.ts",
         "src/routes/chat-entity-channels/detail.integration.test.ts"
       ],

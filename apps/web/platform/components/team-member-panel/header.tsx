@@ -5,6 +5,7 @@ import { Button } from '@weldsuite/ui/components/button';
 import { StatusDot, STATUS_LABELS, type PresenceStatus } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
+import { chatCallsAvailable } from '@/app/weldchat/lib/calls-available';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
@@ -112,24 +113,28 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
             >
               <MessageSquare className="h-4 w-4" />
             </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              onClick={() => handleCall('voice')}
-              disabled={!dmChannelId}
-              title={t('sweep.shared.voiceCall')}
-            >
-              <Phone className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              onClick={() => handleCall('video')}
-              disabled={!dmChannelId}
-              title={t('sweep.shared.videoCall')}
-            >
-              <Video className="h-[18px] w-[18px]" />
-            </Button>
+            {chatCallsAvailable() && (
+              <>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => handleCall('voice')}
+                  disabled={!dmChannelId}
+                  title={t('sweep.shared.voiceCall')}
+                >
+                  <Phone className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => handleCall('video')}
+                  disabled={!dmChannelId}
+                  title={t('sweep.shared.videoCall')}
+                >
+                  <Video className="h-[18px] w-[18px]" />
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>
