@@ -1,0 +1,30 @@
+[package]
+name = "weldsuite-crm"
+description = "WeldCRM: crm-api's companies, people, leads, opportunities, pipelines, activities, lists, analytics and sequences"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-core-domain = { workspace = true }
+weldsuite-crm-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-mail-domain = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+http = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

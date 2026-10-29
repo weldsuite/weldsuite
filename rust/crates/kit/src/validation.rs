@@ -124,6 +124,8 @@ pub enum Format {
     Digits,
     /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
     Url,
+    /// `.datetime()`: UTC only, `Z` required.
+    Datetime,
 }
 
 /// A number's checks: `z.number()` (`z.coerce.number()` when `coerce`),
@@ -862,7 +864,7 @@ impl Format {
     fn issue(self) -> (&'static str, &'static str) {
         match self {
             Self::Email => ("email", "Invalid email"),
-            Self::DatetimeOffset => ("datetime", "Invalid datetime"),
+            Self::DatetimeOffset | Self::Datetime => ("datetime", "Invalid datetime"),
             Self::Digits => ("regex", "Invalid"),
             Self::Url => ("url", "Invalid url"),
         }
@@ -876,6 +878,7 @@ impl Format {
             Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
             Self::Url => js_url_parses(text),
+            Self::Datetime => DATETIME_UTC.is_match(text),
         }
     }
 }
@@ -955,6 +958,14 @@ static DATETIME_OFFSET: LazyLock<Regex> = LazyLock::new(|| {
     let time = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
     Regex::new(&format!(r"(?-u)^{date}T{time}([+-]\d{{2}}:?\d{{2}}|Z)$"))
         .expect("the datetime pattern compiles")
+});
+
+/// Zod 3.25's `datetime()`: the same date and time as
+/// [`DATETIME_OFFSET`], ending in `Z`.
+static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
+    let date = r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))";
+    let time = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
+    Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
 });
 
 /// `String.prototype.trim()`: JavaScript's whitespace, which is Unicode
@@ -1407,6 +1418,23 @@ mod tests {
             issues.take(),
             json!([{"code":"invalid_string","validation":"datetime","message":"Invalid datetime","path":["at"]}])
         );
+    }
+
+    #[test]
+    fn utc_datetimes_match_zod() {
+        // `z.string().datetime()`: only `Z`, no offset.
+        for (at, ok) in [
+            ("2026-10-29T07:00:00Z", true),
+            ("2026-10-29T07:00:00.123Z", true),
+            ("2026-10-29T07:00Z", true),
+            ("2026-10-29T07:00:00.123+02:00", false),
+            ("2026-10-29T07:00:00", false),
+            ("2026-10-29", false),
+            ("2024-02-29T00:00:00Z", true),
+            ("2026-02-29T00:00:00Z", false),
+        ] {
+            assert_eq!(Format::Datetime.matches(at), ok, "{at}");
+        }
     }
 
     #[test]

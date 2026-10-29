@@ -10,6 +10,7 @@ import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { personCompaniesRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createPerson } from '@weldsuite/crm-domain/people';
 import { createCompany } from '@weldsuite/crm-domain/companies';
@@ -19,7 +20,7 @@ vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
     '@weldsuite/entity-events',
   );
-  return { ...actual, publishEntityEvent: vi.fn() };
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 import { publishEntityEvent } from '@weldsuite/entity-events';
@@ -91,7 +92,9 @@ describe('/api/person-companies · pglite integration', () => {
       (c) => (c[0] as { entityType: string }).entityType === 'contact_link',
     )?.[0] as { action: string; entityId: string };
     expect(linkCall.action).toBe('created');
-    expect(linkCall.entityId).toBe(body.data.id);
+    // In conformance mode the mock saw the TypeScript run, whose new id differs
+    // from the Rust answer's; the harness compares both runs' events instead.
+    if (!conformanceTarget()) expect(linkCall.entityId).toBe(body.data.id);
   });
 
   it('DELETE /:id publishes contact_link deleted + person/company updated', async () => {

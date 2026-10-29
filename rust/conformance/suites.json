@@ -532,6 +532,33 @@
         "rust/modules/sign/",
         "rust/crates/emails/"
       ]
+    },
+    {
+      "name": "crm: pipelines",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/pipelines/integration.test.ts",
+        "src/routes/pipelines/routes.integration.test.ts",
+        "src/routes/pipeline-stages/integration.test.ts",
+        "src/routes/customer-statuses/integration.test.ts",
+        "src/routes/person-companies/integration.test.ts",
+        "src/routes/person-companies/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/pipelines/",
+        "apps/workers/crm-api/src/routes/pipeline-stages/",
+        "apps/workers/crm-api/src/routes/pipeline-field-visibility/",
+        "apps/workers/crm-api/src/routes/customer-statuses/",
+        "apps/workers/crm-api/src/routes/person-companies/",
+        "packages/clients/core-api-client/src/schemas/pipelines-crm.ts",
+        "packages/clients/core-api-client/src/schemas/pipeline-stages.ts",
+        "packages/clients/core-api-client/src/schemas/person-companies.ts",
+        "packages/clients/app-api-client/src/schemas/customer-statuses.ts",
+        "packages/clients/app-api-client/src/schemas/pipeline-field-visibility.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/"
+      ]
     }
   ]
 }

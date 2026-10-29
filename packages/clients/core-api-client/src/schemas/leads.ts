@@ -129,3 +129,6 @@ export interface LeadConversionResult {
   customerId?: string;
   opportunityId?: string;
 }
+
+/** The `{ id }` the CRM write routes (leads, opportunities, activities, stages) answer. */
+export const recordIdSchema = z.object({ id: z.string() });

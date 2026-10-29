@@ -157,6 +157,13 @@ import {
   privateFilesMigrationBatchSchema,
   signedObjectUrlsSchema,
 } from '@weldsuite/core-api-client/schemas/storage';
+// crm (crm-api)
+import { customerStatusSchema } from '@weldsuite/app-api-client/schemas/customer-statuses';
+import { pipelineFieldVisibilitySchema } from '@weldsuite/app-api-client/schemas/pipeline-field-visibility';
+import { recordIdSchema } from '@weldsuite/core-api-client/schemas/leads';
+import { personCompanySchema } from '@weldsuite/core-api-client/schemas/person-companies';
+import { pipelineStageSchema, reorderPipelineStagesResultSchema } from '@weldsuite/core-api-client/schemas/pipeline-stages';
+import { pipelineRowSchema } from '@weldsuite/core-api-client/schemas/pipelines-crm';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -406,6 +413,26 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/storage/access', envelope: 'single', data: filesAccessSchema },
   { method: 'POST', route: '/api/storage/sign', envelope: 'single', data: signedObjectUrlsSchema },
   { method: 'POST', route: '/api/storage/migrate-private', envelope: 'single', data: privateFilesMigrationBatchSchema },
+  // crm: pipelines, stages, field visibility, customer statuses, person ↔ company links
+  { method: 'GET', route: '/api/pipelines', envelope: 'list', data: pipelineRowSchema },
+  { method: 'GET', route: '/api/pipelines/:id', envelope: 'single', data: pipelineRowSchema },
+  { method: 'POST', route: '/api/pipelines', envelope: 'single', data: pipelineRowSchema },
+  { method: 'PATCH', route: '/api/pipelines/:id', envelope: 'single', data: pipelineRowSchema },
+  { method: 'GET', route: '/api/pipeline-stages', envelope: 'list', data: pipelineStageSchema },
+  { method: 'GET', route: '/api/pipeline-stages/:id', envelope: 'single', data: pipelineStageSchema },
+  { method: 'POST', route: '/api/pipeline-stages', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/pipeline-stages/:id', envelope: 'single', data: recordIdSchema },
+  { method: 'POST', route: '/api/pipeline-stages/reorder', envelope: 'single', data: reorderPipelineStagesResultSchema },
+  { method: 'GET', route: '/api/pipeline-field-visibility/:id/field-visibility', envelope: 'single', data: pipelineFieldVisibilitySchema },
+  { method: 'PATCH', route: '/api/pipeline-field-visibility/:id/field-visibility', envelope: 'single', data: pipelineFieldVisibilitySchema },
+  { method: 'GET', route: '/api/customer-statuses', envelope: 'array', data: customerStatusSchema },
+  { method: 'GET', route: '/api/customer-statuses/:id', envelope: 'single', data: customerStatusSchema },
+  { method: 'POST', route: '/api/customer-statuses', envelope: 'single', data: customerStatusSchema },
+  { method: 'PATCH', route: '/api/customer-statuses/:id', envelope: 'single', data: customerStatusSchema },
+  { method: 'PUT', route: '/api/customer-statuses/reorder', envelope: 'array', data: customerStatusSchema },
+  { method: 'POST', route: '/api/person-companies', envelope: 'single', data: personCompanySchema },
+  { method: 'PATCH', route: '/api/person-companies/:id', envelope: 'single', data: personCompanySchema },
+  // crm: end
 ];
 
 /** null when valid, else why not. */

@@ -97,7 +97,28 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = crm(router, state);
     core_files(router, state)
+}
+
+/// WeldCRM (`weldsuite-crm`): crm-api's routes at their own prefixes
+/// (`/companies`, `/leads`, …), once the module is marked ported.
+fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("crm") {
+        return router;
+    }
+    let services = weldsuite_crm::CrmServices {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        files: file_stores(state),
+        cache: state.infra.cache.clone(),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+        env: Arc::new(weldsuite_crm::env_from_process()),
+    };
+    router.merge(weldsuite_crm::router(
+        weldsuite_crm::CrmState { services },
+        &state.permissions,
+    ))
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge

@@ -21,6 +21,7 @@ weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-files = { workspace = true }
 weldsuite-core-team = { workspace = true }
+weldsuite-crm = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }

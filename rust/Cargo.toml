@@ -26,6 +26,8 @@ weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-core-team = { path = "modules/core-team" }
+weldsuite-crm = { path = "modules/crm" }
+weldsuite-crm-domain = { path = "crates/crm-domain" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
