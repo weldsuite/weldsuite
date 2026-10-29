@@ -136,14 +136,15 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         env: Arc::new(weldsuite_crm::env_from_process()),
     };
     // Sequence runs, where the jobs adapter calls them. Customer mail goes
-    // out once the deployment has a customer-mail transport and ledgers:
-    // until then a send step fails as crm-api does without `SEND_EMAIL`.
+    // through WeldMail's relay and ledgers ([`mail_outbound`], MAIL-010);
+    // without `MAIL_SMTP_URL` a send step fails as crm-api does without
+    // `SEND_EMAIL`.
     state
         .infra
         .job_registry
         .register(weldsuite_crm::ExecuteSequenceJob {
             tenants: tenant_databases(state),
-            outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+            outbound: deployment_outbound(state),
             master: Some(state.workspaces.master().clone()),
             cache: state.infra.cache.clone(),
             realtime: state.infra.realtime.clone(),
@@ -173,6 +174,20 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
         system_mail: state.infra.mail.clone(),
         doh: Some(weldsuite_mail::send::reqwest_doh()),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
+    }
+}
+
+/// The customer-mail bindings the modules that send for a workspace (CRM
+/// sequences, Calendar invitations, Desk replies) use outside a request:
+/// WeldMail's relay and ledgers ([`mail_outbound`]). Conformance builds keep
+/// none here, so a test that binds no `SEND_EMAIL` / `OUTBOUND_LEDGER` gets
+/// what the worker does without them; a test that binds them reaches the
+/// module through the request's `RequestOutbound`.
+fn deployment_outbound(state: &AppState) -> weldsuite_mail_domain::outbound::OutboundBindings {
+    if cfg!(feature = "conformance") {
+        weldsuite_mail_domain::outbound::OutboundBindings::default()
+    } else {
+        mail_outbound(state).0.clone()
     }
 }
 
@@ -282,9 +297,9 @@ pub(crate) fn calendar_state(state: &AppState) -> weldsuite_calendar::CalendarSt
         // worker uses its `SCHEDULE_INDEX` only when the test binds one.
         master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
         env: Arc::new(env),
-        // No customer-mail transport on Kubernetes yet: attendee mail is off
-        // until the relay is wired into the app (conformance takes the test's).
-        outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        // Attendee mail goes through WeldMail's relay and ledgers
+        // ([`deployment_outbound`]); conformance takes the test's.
+        outbound: deployment_outbound(state),
         cache: state.infra.cache.clone(),
     }
 }
@@ -313,9 +328,9 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         mail: state.infra.mail.clone(),
         workflow: Arc::new(weldsuite_desk_domain::workflow::Unavailable),
         http: Some(desk_http()),
-        // Customer mail is not wired on Kubernetes yet (the Mail module's
-        // transport): email replies fail as the worker does without SEND_EMAIL.
-        outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        // Email replies go through WeldMail's relay and ledgers
+        // ([`deployment_outbound`]); conformance takes the test's.
+        outbound: deployment_outbound(state),
         master: Some(state.workspaces.master().clone()),
     }
 }
@@ -789,7 +804,15 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
         },
         jobs: Some(Arc::clone(&state.infra.jobs)),
         unpin_jobs: !cfg!(feature = "conformance"),
-        http: None,
+        // Expo and APNs push. Conformance builds take the test's bridge per
+        // request instead.
+        http: (!cfg!(feature = "conformance"))
+            .then(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(15))
+                    .ok()
+            })
+            .flatten()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
         presence: None,
         env: Arc::clone(env),
     }

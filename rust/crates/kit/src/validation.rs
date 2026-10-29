@@ -1188,7 +1188,6 @@ static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
 });
 
-
 /// `new Date(text).toISOString()` for an ISO date string, `None` for one
 /// JavaScript would read as an invalid date (or that is not ISO).
 pub fn js_date_iso(text: &str) -> Option<String> {

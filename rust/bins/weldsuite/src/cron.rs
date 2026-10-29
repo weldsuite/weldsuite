@@ -50,7 +50,10 @@ const JOBS: &str = "jobs: sign-lifecycle, mail-outbound-ledgers, calendar-replan
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
-    let Some(job @ ("sign-lifecycle" | "mail-outbound-ledgers" | "calendar-replan" | "flow-file-purge")) = job else {
+    let Some(
+        job @ ("sign-lifecycle" | "mail-outbound-ledgers" | "calendar-replan" | "flow-file-purge"),
+    ) = job
+    else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
         return ExitCode::from(2);
     };
