@@ -16,3 +16,4 @@
 pub mod access;
 pub mod outbound;
 pub mod store;
+pub mod text;

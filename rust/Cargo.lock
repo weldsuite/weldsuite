@@ -3783,6 +3783,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-know",
+ "weldsuite-mail-domain",
  "weldsuite-pass",
  "weldsuite-permissions",
  "weldsuite-pipeline",
@@ -3802,6 +3803,7 @@ dependencies = [
  "jiff",
  "lettre",
  "redis",
+ "regex",
  "reqwest",
  "restate-sdk",
  "rusty-s3",
@@ -4090,9 +4092,20 @@ dependencies = [
 name = "weldsuite-mail-domain"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
+ "lettre",
+ "regex",
+ "serde",
  "serde_json",
  "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+ "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-kit",
+ "weldsuite-ports",
 ]
 
 [[package]]
