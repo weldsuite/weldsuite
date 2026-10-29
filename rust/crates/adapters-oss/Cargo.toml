@@ -27,7 +27,7 @@ tracing = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-events = { workspace = true }
 futures-util = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
 
 [lints]
 workspace = true

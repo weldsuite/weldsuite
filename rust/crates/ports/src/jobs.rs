@@ -6,7 +6,10 @@
 //! A module implements [`Job`] for each kind of job and registers it in the
 //! process's [`JobRegistry`]; a route starts one with [`Jobs::start`] and a
 //! key. One run per key, like a Workflow instance id: starting the same key
-//! again while it runs, or after it succeeded, does nothing.
+//! again while it runs, or after it succeeded, does nothing. A request with
+//! a [`delay`](JobRequest::delay) runs that long after it was started (a
+//! Workflow that sleeps first): Restate holds a delayed invocation durably,
+//! the in-process adapter waits in a task.
 //!
 //! ```ignore
 //! struct Finalize { /* the module's state */ }
@@ -47,6 +50,9 @@ pub struct JobRequest {
     /// One run per key (the Workflow instance id), `finalize-sgn_123`.
     pub key: String,
     pub payload: Value,
+    /// Run no sooner than this long after the start (a Workflow that opens
+    /// with `step.sleepUntil`). `None`: run at once.
+    pub delay: Option<Duration>,
 }
 
 impl JobRequest {
@@ -60,7 +66,26 @@ impl JobRequest {
             name: name.into(),
             key: key.into(),
             payload: serde_json::to_value(payload)?,
+            delay: None,
         })
+    }
+
+    /// Run the job `delay` from now instead of at once. The key is taken
+    /// from the start: starting it again while it waits does nothing.
+    #[must_use]
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.delay = (!delay.is_zero()).then_some(delay);
+        self
+    }
+
+    /// Run the job at `at` (`step.sleepUntil(date)`); at once when `at` has
+    /// passed.
+    #[must_use]
+    pub fn starting_at(self, at: std::time::SystemTime) -> Self {
+        let delay = at
+            .duration_since(std::time::SystemTime::now())
+            .unwrap_or_default();
+        self.with_delay(delay)
     }
 }
 
