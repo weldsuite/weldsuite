@@ -4040,6 +4040,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-mail-domain"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "weldsuite-db",
+]
+
+[[package]]
 name = "weldsuite-pass"
 version = "0.0.0"
 dependencies = [
