@@ -5,6 +5,7 @@
 
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use weldsuite_db::{Keyring, WorkspaceConfig};
@@ -161,6 +162,9 @@ pub(crate) struct Config {
     /// How long `/readyz` fails before the server stops accepting
     /// connections, so the Service stops routing to the pod first.
     pub(crate) shutdown_delay: Duration,
+    /// `SPA_DIR`: the platform's built SPA, served for every path the API
+    /// doesn't answer (`spa.rs`). Unset: the API only.
+    pub(crate) spa_dir: Option<PathBuf>,
     pub(crate) infra: InfraConfig,
     /// `SIGN_SESSION_SECRET`: keys WeldSign's signer sessions and the stored
     /// hash of access codes; the same value as the TypeScript workers'.
@@ -391,6 +395,7 @@ impl fmt::Debug for Config {
             .field("workspaces", &self.workspaces)
             .field("log_format", &self.log_format)
             .field("shutdown_delay", &self.shutdown_delay)
+            .field("spa_dir", &self.spa_dir)
             .field("infra", &self.infra)
             .finish_non_exhaustive()
     }
@@ -495,6 +500,7 @@ impl Config {
             },
             log_format,
             shutdown_delay: Duration::from_secs(shutdown_delay),
+            spa_dir: lookup("SPA_DIR").map(PathBuf::from),
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),

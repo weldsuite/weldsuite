@@ -42,7 +42,8 @@ serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "signal", "time"] }
-tower-http = { workspace = true, features = ["trace"] }
+tower = { workspace = true, features = ["util"] }
+tower-http = { workspace = true, features = ["fs", "trace"] }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json", "registry"] }

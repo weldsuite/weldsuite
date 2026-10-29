@@ -16,9 +16,8 @@
  * round trip before the app loads. `on` (the Kubernetes builds):
  * `/config.json` is fetched before the app is imported, with the fallbacks
  * below. The switch also picks the boot file (`src/boot/mode.ts`). The
- * Kubernetes build of the SPA doesn't exist yet: whatever image or chart ends
- * up serving it next to the Rust backend must build it with
- * `VITE_RUNTIME_CONFIG=on`.
+ * Kubernetes build is the `spa` stage of `rust/Dockerfile`: the Rust image
+ * carries it and serves it on the API's origin (`rust/bins/weldsuite/src/spa.rs`).
  *
  * ## The `/config.json` contract
  *

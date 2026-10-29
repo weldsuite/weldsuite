@@ -12,9 +12,8 @@
  *
  * `vite.config.ts` resolves the `@boot` import in `src/main.tsx` to one of the
  * two files, so a Global bundle holds no runtime-config boot and no OIDC
- * client. The Pages deploys must not set the variable. The Kubernetes build of
- * the SPA (an image or chart that serves it next to the Rust backend) doesn't
- * exist yet; it must build with `VITE_RUNTIME_CONFIG=on`.
+ * client. The Pages deploys must not set the variable. The Kubernetes build
+ * (the `spa` stage of `rust/Dockerfile`, served by the Rust image) sets it.
  *
  * No dependencies: `vite.config.ts` imports this file.
  */

@@ -69,6 +69,14 @@ spec:
               value: {{ .Values.config.logLevel | quote }}
             - name: PERMISSIONS_APP_ENFORCE
               value: {{ .Values.config.permissionsAppEnforce | toString | quote }}
+            # The platform SPA in the image, for every path the API doesn't
+            # answer; empty serves the API alone.
+            - name: SPA_DIR
+              value: {{ ternary .Values.spa.dir "" .Values.spa.enabled | quote }}
+            {{- with .Values.signPortal.publicUrl }}
+            - name: SIGN_PORTAL_URL
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.config.auth }}
             - name: AUTH_PROVIDER
               value: {{ .provider | quote }}

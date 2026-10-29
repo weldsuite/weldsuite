@@ -43,10 +43,15 @@ config:
       adminUrl: http://restate:9070
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
-# VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys,
-# SIGN_SESSION_SECRET: secrets/examples/weldsuite-env.yaml.
+# VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
+# SIGN_PORTAL_SECRET: secrets/examples/secrets.example.yaml.
 secret:
   existingSecret: weldsuite-env
+
+# The platform (the SPA in the image) and its API on one origin, app.${DOMAIN};
+# api.${DOMAIN} for clients that call the API by that name.
+spa:
+  enabled: true
 
 ingress:
   enabled: true
@@ -54,6 +59,10 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt
   hosts:
+    - host: app.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
     - host: api.${DOMAIN}
       paths:
         - path: /
@@ -61,7 +70,34 @@ ingress:
   tls:
     - secretName: weldsuite-api-tls
       hosts:
+        - app.${DOMAIN}
         - api.${DOMAIN}
+
+# The WeldSign signer portal at sign.${DOMAIN} (ADR FE-017). Its image is the
+# `sign-portal` target of rust/Dockerfile, released with the server's.
+signPortal:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sign-portal
+    tag: ${WELDSUITE_IMAGE_TAG}
+  publicUrl: https://sign.${DOMAIN}
+  # Traefik is the only proxy that appends to X-Forwarded-For: the Hetzner
+  # load balancer passes the client's address with the PROXY protocol.
+  trustedProxies: 1
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: sign.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-sign-tls
+        hosts:
+          - sign.${DOMAIN}
 
 autoscaling:
   enabled: true

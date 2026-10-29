@@ -124,6 +124,8 @@ config:
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
 #   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
 #                                the relay system mail goes through (optional; unset skips mail)
+#   SIGN_SESSION_SECRET          WeldSign's signer sessions and access-code hashes (WeldSign)
+#   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
@@ -167,16 +169,65 @@ service:
   type: ClusterIP
   port: 80
 
+# The server's ingress. With the SPA on, one host is the platform and its
+# API on the same origin (app.<domain>); add api.<domain> for clients that
+# call the API by that name.
 ingress:
   enabled: false
   className: ""
   annotations: {}
   hosts:
-    - host: api.example.org
+    - host: app.example.org
       paths:
         - path: /
           pathType: Prefix
   tls: []
+
+# The platform SPA in the image (/srv/spa, built with VITE_RUNTIME_CONFIG=on):
+# the server answers every path its API and probes don't with the app's files,
+# or index.html for a client route (rust/bins/weldsuite/src/spa.rs). The app
+# reads /config.json and calls the API on its own origin. Off: the API alone.
+spa:
+  enabled: true
+  dir: /srv/spa
+
+# The WeldSign signer portal (ADR FE-017): a Node container
+# (ghcr.io/weldsuite/weldsuite-sign-portal, `--target sign-portal` of
+# rust/Dockerfile) whose server routes call this server's
+# /public/sign-portal/* endpoints. Needs SIGN_PORTAL_SECRET in the Secret.
+signPortal:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sign-portal
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  # Where the portal calls the server; defaults to the server's Service.
+  backendUrl: ""
+  # How many proxies in front of the portal append to X-Forwarded-For, which
+  # the signer's IP on the evidence trail is read from (counted from the
+  # right): 1 for the ingress controller, 2 with a CDN the ingress trusts.
+  trustedProxies: 1
+  # The portal's public URL (https://sign.<domain>): the signing links the
+  # server emails point here (SIGN_PORTAL_URL).
+  publicUrl: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: sign.example.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
 
 resources:
   requests:
@@ -222,6 +273,9 @@ networkPolicy:
   ingressFrom: []
   # Who may call the jobs port (the Restate pods); empty allows any pod.
   jobsFrom: []
+  # Who may call the sign portal (the ingress controller); empty allows any
+  # peer. The portal's own pods may always call the server.
+  signPortalFrom: []
 
 nodeSelector: {}
 tolerations: []
