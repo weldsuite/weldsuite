@@ -82,12 +82,11 @@ beforeEach(() => {
 });
 
 describe('RegisterPage password requirements', () => {
-  it('shows password requirement checklist and keeps Create Account disabled without uppercase', async () => {
+  it('hides the checklist until a weak password is typed, and keeps Create Account disabled without uppercase', async () => {
     const user = userEvent.setup();
     render(<RegisterPage />);
 
-    expect(screen.getByTestId('password-requirements')).toBeInTheDocument();
-    expect(screen.getByText('One uppercase letter')).toBeInTheDocument();
+    expect(screen.queryByTestId('password-requirements')).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText('First name'), 'Karthik');
     await user.type(screen.getByLabelText('Last name'), 'Veeradhi');
@@ -95,6 +94,9 @@ describe('RegisterPage password requirements', () => {
     // Matches the reported bug: meets length/lowercase/number but no uppercase
     await user.type(screen.getByLabelText('Password'), 'karthik@117jagadeesh');
     await user.type(screen.getByLabelText('Confirm password'), 'karthik@117jagadeesh');
+
+    expect(screen.getByTestId('password-requirements')).toBeInTheDocument();
+    expect(screen.getByText('One uppercase letter')).toBeInTheDocument();
 
     const createAccountBtn = screen.getByRole('button', { name: 'Create Account' });
     expect(createAccountBtn).toBeDisabled();
@@ -110,6 +112,7 @@ describe('RegisterPage password requirements', () => {
     await user.type(screen.getByLabelText('Password'), 'Karthik@117');
     await user.type(screen.getByLabelText('Confirm password'), 'Karthik@117');
 
+    expect(screen.queryByTestId('password-requirements')).not.toBeInTheDocument();
     const createAccountBtn = screen.getByRole('button', { name: 'Create Account' });
     expect(createAccountBtn).toBeEnabled();
   });
