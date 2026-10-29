@@ -417,3 +417,17 @@ export const chatRecordFollowSchema = z.object({
 
 /** `GET /api/chat-entity-channels/:entityType/:entityId/detail`: provider-specific. */
 export const chatRecordDetailSchema = z.record(z.unknown()).nullable();
+
+/** `POST /api/chat-clips/:channelId`. */
+export const chatClipTranscribingSchema = z.object({
+  messageId: z.string(),
+  attachmentId: z.string(),
+  status: z.literal('processing'),
+});
+
+/** `PATCH /api/chat-clips/:channelId/:messageId/transcript`. */
+export const chatClipTranscriptSchema = z.object({
+  messageId: z.string(),
+  attachmentId: z.string(),
+  transcript: z.object({ status: z.enum(['pending', 'processing', 'completed', 'failed']) }).passthrough(),
+});

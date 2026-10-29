@@ -435,6 +435,7 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         )
         .nest("/channels", weldsuite_chat::channels(chat.clone(), gate))
         .nest("/chat-activity", weldsuite_chat::activity(chat.clone(), gate))
+        .nest("/chat-clips", weldsuite_chat::clips(chat.clone(), gate))
         .nest("/chat-directories", weldsuite_chat::directories(chat.clone(), gate))
         .nest("/chat-dm", weldsuite_chat::dm(chat.clone(), gate))
         .nest("/chat-search", weldsuite_chat::search(chat.clone(), gate))

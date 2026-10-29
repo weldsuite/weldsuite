@@ -615,7 +615,8 @@
       "workspace": "apps/workers/chat-api",
       "tests": [
         "src/routes/chat-dm/integration.test.ts",
-        "src/routes/chat-activity/integration.test.ts"
+        "src/routes/chat-activity/integration.test.ts",
+        "src/routes/chat-clips/integration.test.ts"
       ],
       "paths": [
         "apps/workers/chat-api/src/",

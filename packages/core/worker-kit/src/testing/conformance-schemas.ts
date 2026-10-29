@@ -24,6 +24,8 @@ import {
   chatChannelMemberRowSchema,
   chatChannelMemberSchema,
   chatChannelRowSchema,
+  chatClipTranscribingSchema,
+  chatClipTranscriptSchema,
   chatDirectoryChannelSchema,
   chatDmArchivedSchema,
   chatDmChannelSchema,
@@ -598,6 +600,9 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/weldpass/vaults/:vaultId/items/:itemId/versions', envelope: 'array', data: weldpassItemVersionSchema },
   { method: 'POST', route: '/api/weldpass/vaults/:vaultId/items/:itemId/restore', envelope: 'single', data: weldpassItemSchema },
   { method: 'POST', route: '/api/weldpass/vaults/:vaultId/items/:itemId/move', envelope: 'single', data: weldpassItemSchema },
+  // chat (chat-api)
+  { method: 'POST', route: '/api/chat-clips/:channelId', envelope: 'single', data: chatClipTranscribingSchema },
+  { method: 'PATCH', route: '/api/chat-clips/:channelId/:messageId/transcript', envelope: 'single', data: chatClipTranscriptSchema },
 ];
 
 /** null when valid, else why not. */

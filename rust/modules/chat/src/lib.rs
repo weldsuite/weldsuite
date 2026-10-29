@@ -145,3 +145,7 @@ group_router!(
     /// `/api/chat-entity-channels`: record chats.
     record_chats
 );
+group_router!(
+    /// `/api/chat-clips`: clip transcripts.
+    clips
+);
