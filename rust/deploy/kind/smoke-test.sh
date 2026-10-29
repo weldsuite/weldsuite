@@ -57,6 +57,9 @@ recorded() {
 node "$here/mint-token.mjs" "$work" user_smoke org_smoke
 helm upgrade --install weldsuite "$chart" -f "$here/values.yaml" \
   --set-file "secret.values.CLERK_JWT_KEY=$work/public.pem" \
+  --set image.repository="${image%:*}" --set-string image.tag="${image##*:}" \
+  --set signPortal.image.repository="${portal_image%:*}" \
+  --set-string signPortal.image.tag="${portal_image##*:}" \
   --wait --timeout 300s
 master_migrations="$(recorded master drizzle)"
 echo "ok   install: the migration Job applied $master_migrations master migrations"
@@ -257,7 +260,7 @@ if [ -n "${SMOKE_ZITADEL_URL:-}" ]; then
   zitadel() {
     curl -fsS -H "Authorization: Bearer $SMOKE_ZITADEL_TOKEN" -H 'Content-Type: application/json' "$@"
   }
-  signup_email="kind-signup-$@example.test"
+  signup_email="kind-signup-$$@example.test"
   signup_user="$(zitadel -X POST "$zitadel_local/v2/users/human" --data \
     "{\"username\":\"$signup_email\",\"profile\":{\"givenName\":\"Kind\",\"familyName\":\"Signup\"},\"email\":{\"email\":\"$signup_email\",\"isVerified\":true}}" |
     sed -n 's/.*"userId":"\([0-9]*\)".*/\1/p')"
@@ -270,13 +273,15 @@ if [ -n "${SMOKE_ZITADEL_URL:-}" ]; then
     --dry-run=client -o yaml | kubectl apply -f -
   kubectl rollout restart deployment/oidc-issuer
   kubectl rollout status deployment/oidc-issuer --timeout=120s
+  # The shard is this Postgres, as its superuser (--set-file: --set splits on commas).
+  printf '%s' '[{"name":"kind","adminUrl":"postgres://weldsuite:weldsuite@postgres:5432/master","poolerHost":"postgres","urlOptions":""}]' >"$work/shards.json"
   helm upgrade weldsuite "$chart" --reuse-values \
     --set config.identity.zitadel.apiUrl="$SMOKE_ZITADEL_URL" \
     --set config.identity.zitadel.host="${SMOKE_ZITADEL_HOST:-}" \
     --set-string config.identity.zitadel.projectId="$SMOKE_ZITADEL_PROJECT_ID" \
     --set-string secret.values.ZITADEL_SERVICE_TOKEN="$SMOKE_ZITADEL_TOKEN" \
     --set-string secret.values.DATABASE_ENCRYPTION_KEY_V2=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
-    --set-string secret.values.TENANT_SHARDS='[{"name":"kind","adminUrl":"postgres://weldsuite:weldsuite@postgres:5432/master","poolerHost":"postgres","urlOptions":""}]' \
+    --set-file secret.values.TENANT_SHARDS="$work/shards.json" \
     --set cron.jobs.identity-sync.enabled=true \
     --wait --timeout 180s
   # The keys the server fetched at start are the old ones.
@@ -317,17 +322,25 @@ if [ -n "${SMOKE_ZITADEL_URL:-}" ]; then
     failed=1
   fi
   kubectl create job --from=cronjob/weldsuite-identity-sync identity-sync-smoke >/dev/null
-  if kubectl wait --for=condition=complete job/identity-sync-smoke --timeout=120s >/dev/null; then
-    echo "ok   identity sync: $(kubectl logs job/identity-sync-smoke | grep '"job"' | head -c 300)"
+  # The CronJob keeps few finished Jobs (its history limit may remove this one
+  # at once), so the run is checked by what it leaves: the watermark.
+  watermark=""
+  for _ in $(seq 1 60); do
+    watermark="$(psql -d master -Atc "select value from system_settings where key = 'identity_sync.watermark'")"
+    [ -n "$watermark" ] && break
+    sleep 2
+  done
+  if [ -n "$watermark" ]; then
+    echo "ok   identity sync: the provider's changes are handled up to $watermark"
   else
-    echo "FAIL the identity sync did not finish: $(kubectl logs job/identity-sync-smoke --tail=20)" >&2
+    echo "FAIL the identity sync left no watermark: $(kubectl logs job/identity-sync-smoke --tail=20 2>&1)" >&2
     failed=1
   fi
   if [ -n "$signup_org" ]; then
     zitadel -X DELETE -H "x-zitadel-orgid: $signup_org" "$zitadel_local/management/v1/orgs/me" >/dev/null || true
   fi
   zitadel -X DELETE "$zitadel_local/v2/users/$signup_user" >/dev/null || true
-  base=http://127.0.0.1:18080
+  # The server restarted: keep the new forward for the rest of the run.
 else
   echo "skip sign-up: SMOKE_ZITADEL_URL is not set"
 fi
@@ -337,6 +350,6 @@ if [ "$failed" != "0" ]; then
   kubectl logs deployment/restate --tail=40 >&2 || true
   exit 1
 fi
-curl -s http://127.0.0.1:18080/health
+curl -s "$base/health"
 echo
 echo "smoke test passed"
