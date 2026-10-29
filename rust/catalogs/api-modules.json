@@ -358,7 +358,7 @@
       "/api/calendars",
       "/api/working-hours"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "calendar-api"
   },
   {
