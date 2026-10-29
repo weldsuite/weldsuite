@@ -26,6 +26,7 @@ vi.mock('@weldsuite/realtime/react', () => ({
 }));
 
 import { PresenceProvider, usePresence } from './presence-context';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 
 function emit(event: string, data: unknown) {
   act(() => presenceHandler?.({ topic: 'presence', event, data, ts: Date.now(), userId: 'system' }));
@@ -110,5 +111,19 @@ describe('PresenceProvider', () => {
 
     act(() => result.current.setInCall(true));
     expect(workspaceClient.setPresence).toHaveBeenCalledWith({ inCall: true });
+  });
+
+  it('asks WeldChat for nothing where the deployment does not serve it, and keeps live presence', async () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'know'] });
+    try {
+      const { result } = renderHook(() => usePresence(), { wrapper });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      expect(client.get).not.toHaveBeenCalled();
+
+      emit('snapshot', { users: { user_bob: 'away' } });
+      expect(result.current.getStatus('user_bob')?.status).toBe('away');
+    } finally {
+      setRuntimeConfig(null);
+    }
   });
 });

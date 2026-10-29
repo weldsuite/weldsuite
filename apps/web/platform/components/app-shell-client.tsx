@@ -34,6 +34,7 @@ import { WeldChatCallProvider } from '@/contexts/weldchat-call-context';
 import { WeldMeetCallProvider } from '@/contexts/weldmeet-call-context';
 import { EntitySheetHost } from '@/components/entity-sheet';
 import { DesktopNotificationBridge } from '@/components/desktop/desktop-notification-bridge';
+import { isModuleOffered } from '@/lib/edition';
 import {
   clearPendingOrganization,
   peekPendingOrganization,
@@ -291,7 +292,8 @@ export function AppShellClient({ children }: Readonly<AppShellClientProps>) {
                       <PlatformShell>
                         {children}
                         <Suspense fallback={null}>
-                          <FloatingComposePanel />
+                          {/* Edition flags (4.F3): it reads the mail accounts on every page. */}
+                          {isModuleOffered('mail') && <FloatingComposePanel />}
                           <GlobalPinnedNote />
                           {/* Running time-tracking timer — mounted here so it
                               stays visible and stoppable from any module. */}

@@ -464,6 +464,12 @@ export const common = {
       appUnavailableNamed: '{app} is niet voor je beschikbaar in deze workspace',
       appUnavailableHint: 'Vraag een workspace-beheerder om de app te installeren of je toegang te geven.',
     },
+    edition: {
+      unavailableTitle: 'Niet beschikbaar in deze editie',
+      unavailableDescription: 'Dit deel van WeldSuite zit niet in deze editie, dus hier is niets te zien.',
+      backHome: 'Terug naar home',
+      desktopSignInUnavailable: 'Inloggen in de desktop-app is niet beschikbaar in deze editie. Gebruik WeldSuite in je browser.',
+    },
     time: {
       justNow: 'Zojuist',
       minutesAgo: '{count} minuten geleden',

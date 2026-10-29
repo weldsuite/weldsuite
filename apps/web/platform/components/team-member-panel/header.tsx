@@ -6,6 +6,7 @@ import { StatusDot, STATUS_LABELS, type PresenceStatus } from '@weldsuite/ui/com
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
+import { isModuleOffered } from '@/lib/edition';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
 import { useNow, formatLocalTime, formatTimezoneOffset } from './use-now';
@@ -101,7 +102,8 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
           </div>
         </div>
 
-        {!isSelf && (
+        {/* Message and calls are WeldChat's (edition flags, 4.F3). */}
+        {!isSelf && isModuleOffered('chat') && (
           <div className="flex shrink-0 gap-1">
             <Button
               size="icon"

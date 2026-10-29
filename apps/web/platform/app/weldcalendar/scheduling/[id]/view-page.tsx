@@ -42,6 +42,7 @@ import { EventDetailPanel, EVENT_PANEL_WIDTH } from '@/app/weldcalendar/componen
 import { isEditableTarget, isEscapeHandledElsewhere } from '@/app/weldcalendar/lib/escape-guard';
 import { useObjectPanel, useObjectPanelNavigationSource } from '@/components/object-panel';
 import { buildBookingPageUrl } from '@/lib/weldcalendar/booking-portal-url';
+import { isModuleOffered } from '@/lib/edition';
 
 export default function BookingPageViewPage() {
   const { id } = useParams<{ id: string }>();
@@ -146,8 +147,9 @@ export default function BookingPageViewPage() {
   };
 
   const openEvent = (event: CalendarEvent) => {
-    // Task-backed events use the standard task panel, as on the main calendar.
-    if (event.sourceType === 'task' && event.sourceId) {
+    // Task-backed events use the standard task panel, as on the main calendar
+    // (WeldFlow's: edition flags, 4.F3).
+    if (event.sourceType === 'task' && event.sourceId && isModuleOffered('flow')) {
       setPanelOpen(false);
       setSelectedEvent(null);
       openObjectPanel({ type: 'task', id: event.sourceId });
