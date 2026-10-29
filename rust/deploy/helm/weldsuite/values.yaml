@@ -211,6 +211,68 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
+# The entity-event subscribers (`weldsuite consume`, its own Deployment from
+# the same image, no Service): the audit log, the semantic search index,
+# outgoing webhooks and realtime fan-out, each a durable consumer on the NATS
+# JetStream hub (config.nats). Needs NATS_URL in the Secret; realtime needs
+# VALKEY_URL. Analytics, WeldConnect and WeldAgent have no consumer yet.
+consume:
+  enabled: false
+  replicaCount: 2
+  # The subscribers to run; empty runs every ported one (audit, search-index,
+  # webhooks, realtime). search-index needs `embeddings` below.
+  subscribers: []
+  # With config.nats.ensureStreams: create or update the hub and the
+  # dead-letter stream at start with this many replicas (3 on a three-node
+  # JetStream cluster).
+  streamReplicas: 1
+  # Where a message goes after a subscriber's last retry (subjects
+  # <entityEventsSubject>-dlq.<subscriber>.<entityType>.<action>, kept 14 days).
+  deadLetterStream: ENTITY_EVENTS_DLQ
+  # An OpenAI-compatible embeddings endpoint for the semantic search index
+  # (Mistral, or bge-m3 served in the cluster by TEI, vLLM or Ollama); the
+  # vectors must have 1024 dimensions. A key goes in the Secret as
+  # EMBEDDINGS_API_KEY. Without a url the search-index subscriber is off.
+  embeddings:
+    url: ""
+    model: ""
+  webhooks:
+    # Deliver to private and loopback addresses too. Off: the pod sits next
+    # to the cluster's own services, so a customer's webhook URL must not
+    # reach them.
+    allowPrivateNetworks: false
+    # Retry failed deliveries every ten minutes from this role (one pod at a
+    # time, under an advisory lock on the master database).
+    retrySweep: true
+  # After SIGTERM, how long the batches in hand may take; below
+  # terminationGracePeriodSeconds.
+  drainSeconds: 45
+  terminationGracePeriodSeconds: 60
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  probes:
+    startup:
+      httpGet: { path: /livez, port: probes }
+      periodSeconds: 2
+      failureThreshold: 30
+    liveness:
+      httpGet: { path: /livez, port: probes }
+      periodSeconds: 10
+      failureThreshold: 3
+    # The master database and NATS answer.
+    readiness:
+      httpGet: { path: /readyz, port: probes }
+      periodSeconds: 10
+      failureThreshold: 3
+
 # Spread pods over nodes and zones when the cluster has them.
 topologySpread:
   enabled: true

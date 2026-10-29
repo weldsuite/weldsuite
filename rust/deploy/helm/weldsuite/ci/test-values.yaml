@@ -19,3 +19,9 @@ networkPolicy:
 clerkJwks:
   enabled: true
   json: '{"keys":[]}'
+consume:
+  enabled: true
+  subscribers: [audit, search-index, webhooks, realtime]
+  embeddings:
+    url: http://embeddings.example.com/v1
+    model: bge-m3
