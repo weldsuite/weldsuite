@@ -23,6 +23,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 weldsuite-permissions = { workspace = true }
+weldsuite-pipeline = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
