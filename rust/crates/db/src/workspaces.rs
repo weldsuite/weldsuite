@@ -288,9 +288,8 @@ impl Workspaces {
                 .iter()
                 .min_by_key(|(_, pool)| pool.last_used)
                 .map(|(id, _)| id.clone())
-            && let Some(evicted) = pools.remove(&oldest)
         {
-            close_later(evicted.pool);
+            pools.remove(&oldest);
         }
 
         let pool = PgPoolOptions::new()
@@ -300,7 +299,10 @@ impl Workspaces {
             .idle_timeout(Some(self.config.idle_timeout))
             .connect_lazy(&resolved.database_url)
             .map_err(|_| WorkspaceError::BadDatabaseUrl)?;
-        let replaced = pools.insert(
+        // An evicted or replaced pool is dropped, never closed: `close()` would
+        // fail the next query of a request still holding a clone. Requests
+        // finish on it, and it is freed when the last clone goes.
+        pools.insert(
             resolved.id.clone(),
             TenantPool {
                 database_url: resolved.database_url.clone(),
@@ -308,9 +310,6 @@ impl Workspaces {
                 last_used: Instant::now(),
             },
         );
-        if let Some(replaced) = replaced {
-            close_later(replaced.pool);
-        }
         Ok(pool)
     }
 }
@@ -323,13 +322,6 @@ pub fn master_pool(url: &str, max_connections: u32) -> Result<PgPool, WorkspaceE
         .acquire_timeout(Duration::from_secs(5))
         .connect_lazy(url)
         .map_err(|_| WorkspaceError::BadDatabaseUrl)
-}
-
-/// Close a pool that requests may still hold a clone of; they finish first.
-fn close_later(pool: PgPool) {
-    if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-        runtime.spawn(async move { pool.close().await });
-    }
 }
 
 /// The strings of a JSON array; anything else is empty.
