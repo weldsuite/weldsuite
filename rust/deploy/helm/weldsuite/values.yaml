@@ -187,6 +187,11 @@ service:
   type: ClusterIP
   port: 80
 
+# The realtime gateway's sockets (/ws…) go through the same Ingress and host
+# as the API: Traefik passes the WebSocket upgrade on without annotations,
+# and its default timeouts (3.6) keep a socket open as long as the client
+# pings every 25 s, as @weldsuite/realtime's clients do. Pods share their
+# state through Valkey, so no sticky sessions.
 ingress:
   enabled: false
   className: ""
