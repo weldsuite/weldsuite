@@ -32,10 +32,16 @@
  *   "backend": "rust",
  *   // Backend version, informational.
  *   "version": "0.1.0",
+ *   // Which Kubernetes edition this is: "eu" or "self-hosted". Informational.
+ *   "edition": "eu",
  *   // `ApiModuleId`s the backend serves (`@weldsuite/api-modules`): "core"
  *   // plus every module ported to Rust. The apps and features of any other
  *   // module are hidden (4.F3, see `lib/edition.ts`). Absent = every module.
  *   "modules": ["core", "know", "sign"],
+ *   // Features the backend lacks inside the modules it serves
+ *   // (`EditionFeature` in `lib/edition.ts`); the platform hides them.
+ *   // Absent = none. Names this build doesn't know are ignored.
+ *   "unavailableFeatures": ["billing", "sso-connections"],
  *   // Origin of the core API (what Global calls app-api). Default for
  *   // "backend": "rust" is the SPA's own origin.
  *   "apiBaseUrl": "https://weldsuite.example.eu",
@@ -97,8 +103,8 @@ const authSchema = z.discriminatedUnion('provider', [
 export const runtimeConfigSchema = z.object({
   backend: z.string().min(1).optional(),
   version: z.string().optional(),
+  edition: z.string().min(1).optional(),
   modules: z.array(z.string().min(1)).optional(),
-  /** Features the backend lacks inside the modules it serves (`lib/edition.ts`). */
   unavailableFeatures: z.array(z.string().min(1)).optional(),
   apiBaseUrl: z.string().url().optional(),
   realtimeUrl: z.string().url().optional(),

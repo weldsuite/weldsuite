@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousDa
 import { useAuth, useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isModuleOffered } from '@/lib/edition';
 import type { CreateChannelRequest, UpdateChannelRequest, SendMessageRequest, CreateDmRequest } from '@/lib/api/domains/weldchat';
 import type {
   RecordChatCallerState,
@@ -1637,7 +1638,8 @@ export function useDmByUser(targetUserId: string, { fresh }: FreshCheckOptions =
       const client = await getClient();
       return client.get<{ data: ChatDm }>(`/chat-dm/${targetUserId}`);
     },
-    enabled: !!targetUserId,
+    // Edition flags (4.F3): team member panels (core) open a DM too.
+    enabled: !!targetUserId && isModuleOffered('chat'),
     ...freshCheck(fresh),
   });
 

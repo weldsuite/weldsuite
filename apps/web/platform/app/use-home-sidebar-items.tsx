@@ -5,6 +5,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { RenameDialog } from '@/app/weldcrm/components/rename-dialog';
 import { useSearchParams, usePathname } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import { isModuleOffered } from '@/lib/edition';
 import {
   useDeleteConversation,
   useUpdateConversation,
@@ -24,6 +25,8 @@ export function useHomeSidebarItems(isActive: boolean): {
   const isHome = pathname === '/' || pathname === '';
   const isChat = pathname === '/new-chat';
 
+  // Edition flags (4.F3): chats need the agent module (the hook asks for nothing without it).
+  const agentOffered = isModuleOffered('agent');
   const { data: conversations = [] } = useWeldAgentConversations(50, 'none');
   const updateConvo = useUpdateConversation();
   const deleteConvo = useDeleteConversation();
@@ -41,16 +44,20 @@ export function useHomeSidebarItems(isActive: boolean): {
           icon: Home,
           isActive: isHome,
         },
-        {
-          title: ts.newChat,
-          href: '/new-chat',
-          icon: Plus,
-          isActive: isChat && !activeConvId,
-        },
+        ...(agentOffered
+          ? [
+              {
+                title: ts.newChat,
+                href: '/new-chat',
+                icon: Plus,
+                isActive: isChat && !activeConvId,
+              },
+            ]
+          : []),
       ],
     };
 
-    if (!isActive) return [generalGroup];
+    if (!isActive || !agentOffered) return [generalGroup];
 
     const buildItem = (c: ConversationSummary): MenuItemProps => ({
       title: c.name || ts.newChat,
@@ -91,7 +98,7 @@ export function useHomeSidebarItems(isActive: boolean): {
       groups.push({ group: ts.recent, items: recent.map(buildItem) });
     }
     return groups;
-  }, [isActive, conversations, activeConvId, isHome, isChat, updateConvo, ts]);
+  }, [isActive, agentOffered, conversations, activeConvId, isHome, isChat, updateConvo, ts]);
 
   const dialogs = (
     <>

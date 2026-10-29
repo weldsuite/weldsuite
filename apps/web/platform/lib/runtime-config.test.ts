@@ -112,6 +112,17 @@ describe('parseRuntimeConfig', () => {
     expect(config?.auth).toEqual(auth);
   });
 
+  it('keeps the edition and the features the backend lacks (4.F3)', () => {
+    const config = parseRuntimeConfig({
+      backend: 'rust',
+      edition: 'eu',
+      modules: ['core', 'know'],
+      unavailableFeatures: ['billing', 'sso-connections'],
+    });
+    expect(config?.edition).toBe('eu');
+    expect(config?.unavailableFeatures).toEqual(['billing', 'sso-connections']);
+  });
+
   it('keeps an OIDC block whose clientId the backend left unset', () => {
     const config = parseRuntimeConfig({ auth: { provider: 'oidc', issuer: 'https://id.example.eu', clientId: null } });
     expect(config?.auth?.provider).toBe('oidc');

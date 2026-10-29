@@ -15,6 +15,7 @@ import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useMeetingPanelOpen } from '@/hooks/use-meeting-panel-open';
 import { CommandPaletteTrigger } from '@/components/layout/command-palette';
 import { useI18n } from '@/lib/i18n/provider';
+import { isModuleOffered } from '@/lib/edition';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -84,6 +85,9 @@ export function BreadcrumbHeader({
   calendarOpen,
 }: Readonly<BreadcrumbHeaderProps>) {
   const { t } = useI18n();
+  // Edition flags (4.F3): the calendar and agent buttons need their modules.
+  const calendarOffered = isModuleOffered('calendar');
+  const agentOffered = isModuleOffered('agent');
   // WeldAgent open state — read from sessionStorage-backed hook so every BreadcrumbHeader instance
   // is in sync with the global MobileNavProvider, even after navigation between apps.
   const mobileNav = useMobileNavOptional();
@@ -242,25 +246,27 @@ export function BreadcrumbHeader({
 
           {/* Right Actions - hidden on mobile, WeldAgent is in MobileHeader */}
           <div className="ml-auto hidden md:flex shrink-0 items-center gap-2">
-            <Button
-              onClick={toggleCalendar}
-              data-testid="calendar-toggle"
-              aria-label={t.sweep.shared.calendar}
-              variant="outline"
-              size="sm"
-              className={cn(
-                "shadow-none relative",
-                showCalendar && "bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground"
-              )}
-            >
-              <Calendar className="h-4 w-4" />
-              {todayEventCount > 0 && !showCalendar && (
-                <span
-                  data-testid="calendar-today-badge"
-                  className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none"
-                />
-              )}
-            </Button>
+            {calendarOffered && (
+              <Button
+                onClick={toggleCalendar}
+                data-testid="calendar-toggle"
+                aria-label={t.sweep.shared.calendar}
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "shadow-none relative",
+                  showCalendar && "bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground"
+                )}
+              >
+                <Calendar className="h-4 w-4" />
+                {todayEventCount > 0 && !showCalendar && (
+                  <span
+                    data-testid="calendar-today-badge"
+                    className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none"
+                  />
+                )}
+              </Button>
+            )}
             <Button
               onClick={toggleNotifications}
               data-testid="notifications-bell"
@@ -280,26 +286,28 @@ export function BreadcrumbHeader({
                 />
               )}
             </Button>
-            <Button
-              onClick={toggleWeldAgent}
-              data-testid="weldagent-toggle"
-              aria-label="WeldAgent"
-              variant="outline"
-              size="sm"
-              className={cn(
-                "gap-1.5 shadow-none",
-                showWeldAgent && "bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground"
-              )}
-            >
-              <img
-                src="/assets/images/weldagent/logo-light.png"
-                alt="WeldAgent"
-                width={32}
-                height={32}
-                className="h-4 w-4"
-              />
-              <span className="hidden md:inline">Agent</span>
-            </Button>
+            {agentOffered && (
+              <Button
+                onClick={toggleWeldAgent}
+                data-testid="weldagent-toggle"
+                aria-label="WeldAgent"
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "gap-1.5 shadow-none",
+                  showWeldAgent && "bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground"
+                )}
+              >
+                <img
+                  src="/assets/images/weldagent/logo-light.png"
+                  alt="WeldAgent"
+                  width={32}
+                  height={32}
+                  className="h-4 w-4"
+                />
+                <span className="hidden md:inline">Agent</span>
+              </Button>
+            )}
             {actions}
           </div>
         </div>

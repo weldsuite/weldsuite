@@ -9,7 +9,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useUserPreferences, useUpdateUserPreferences } from '@/hooks/queries/use-settings-queries';
 import { PageLoader } from '@/components/page-loader';
 import { AppIcon } from '@/components/app-icon';
-import { HOME_WIDGETS, WIDGETS_BY_MODULE, emptySlots, isWidgetEnabled, type NullableSlot } from '@/lib/home-widgets/registry';
+import { HOME_WIDGETS, WIDGETS_BY_MODULE, emptySlots, isWidgetEnabled, isWidgetOffered, type NullableSlot } from '@/lib/home-widgets/registry';
 import { WIDGET_MODULES, type HomeWidgetSlot, type WidgetId, type WidgetModule } from '@/lib/home-widgets/types';
 
 function readSlotsFrom(prefs: ReturnType<typeof useUserPreferences>['data']): [NullableSlot, NullableSlot] {
@@ -18,7 +18,7 @@ function readSlotsFrom(prefs: ReturnType<typeof useUserPreferences>['data']): [N
   return persisted.map((slot) => {
     if (!slot) return null;
     const def = HOME_WIDGETS[slot.widgetId as WidgetId];
-    if (!def) return null;
+    if (!def || !isWidgetOffered(def)) return null;
     const parsed = def.schema.safeParse(slot.settings);
     return {
       widgetId: slot.widgetId as WidgetId,
@@ -74,7 +74,8 @@ function SlotEditor({
             </SelectTrigger>
             <SelectContent>
               {WIDGET_MODULES.map((m: WidgetModule) => {
-                const widgets = WIDGETS_BY_MODULE[m];
+                // Edition flags (4.F3): only widgets whose module this deployment serves.
+                const widgets = WIDGETS_BY_MODULE[m].filter(isWidgetOffered);
                 if (widgets.length === 0) return null;
                 return (
                   <SelectGroup key={m}>
