@@ -68,13 +68,6 @@ templates).
   Conformance builds give those routes only what the test shares (its env,
   buckets, KV, and a `SessionVerifier` for its own `CLERK_JWT_KEY`), through
   `conformance::public`.
-- A Cloudflare Workflow is a `weldsuite_ports::Job`, registered in
-  `infra.job_registry` from `routes/mod.rs` and started through the Jobs port
-  where TypeScript calls `create()`, with the same instance id as the key. A
-  Workflow that opens with `step.sleepUntil(date)` is a delayed start:
-  `JobRequest::with_delay` / `starting_at` (Restate holds it durably; the
-  in-process adapter waits in a task). `core_files::TrashPurgeJob` is the
-  example.
 
 ## SQL
 
@@ -144,16 +137,7 @@ templates).
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see
    (a `vi.mock` of `getMasterDb`) needs the value in its context too.
-8. Database errors work as they do on Postgres: a route may hit a unique
-   violation or any other failing statement, and later requests in the same
-   file still run on the same connection. Port the TypeScript behaviour
-   as it is (a plain insert that fails, not an `on conflict do nothing`
-   stand-in), and keep such tests where they belong in the file. pglite 0.4
-   answers a failed extended-protocol message with an extra ReadyForQuery,
-   which put sqlx's connection out of step; the harness serves pglite
-   through `wireCompatiblePglite` (`packages/core/worker-kit/src/testing/pglite-wire.ts`),
-   which drops it, so each Sync gets exactly one.
-9. Workers KV is shared the same way. A KV-shaped binding in the test's
+8. Workers KV is shared the same way. A KV-shaped binding in the test's
    `env` (`get`/`put`/`delete`; the names in `KV_BINDINGS`, today
    `WORKSPACE_CACHE`) is served over HTTP by
    `packages/core/worker-kit/src/testing/kv-bridge.ts`: `GET /value?key=…`
@@ -165,6 +149,15 @@ templates).
    takes the request's `RequestCache` first and its state's cache
    otherwise, as it does with `FileStores`. Another namespace needs its name
    in `KV_BINDINGS` and in `KvBridges::request_cache`.
+9. Database errors work as they do on Postgres: a route may hit a unique
+   violation or any other failing statement, and later requests in the same
+   file still run on the same connection. Port the TypeScript behaviour
+   as it is (a plain insert that fails, not an `on conflict do nothing`
+   stand-in), and keep such tests where they belong in the file. pglite 0.4
+   answers a failed extended-protocol message with an extra ReadyForQuery,
+   which put sqlx's connection out of step; the harness serves pglite
+   through `wireCompatiblePglite` (`packages/core/worker-kit/src/testing/pglite-wire.ts`),
+   which drops it, so each Sync gets exactly one.
 
 ## Jobs, crons and generated files
 
@@ -173,6 +166,11 @@ templates).
   built; one run per key (the Workflow instance id), one `step` per `step.do`
   with its retries. Conformance builds run jobs in the process, on the tracker
   `/__conformance/side-effects` waits for.
+- A Workflow that opens with `step.sleepUntil(date)` is a delayed start, at
+  the `create()` call that TypeScript makes: `JobRequest::with_delay` /
+  `starting_at`. Restate holds the invocation durably until it is due; the
+  in-process adapter waits in a task, and a restart loses it.
+  `core_files::TrashPurgeJob` (the 30-day trash purge) is the example.
 - A Cron Trigger is a `weldsuite cron <name>` subcommand
   (`bins/weldsuite/src/cron.rs`) and an entry in the chart's `cron.jobs`. A
   due-index sweep uses `weldsuite_db::due_index::run_sweep` (rows keyed by

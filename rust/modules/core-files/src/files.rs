@@ -990,7 +990,67 @@ pub(crate) async fn unshare(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex, PoisonError};
+
+    use weldsuite_events::{EntityEventPublisher, TaskTracker};
+    use weldsuite_ports::{Jobs, PortError};
+
     use super::*;
+    use crate::StorageState;
+
+    /// The jobs a route starts.
+    #[derive(Default)]
+    struct StartedJobs(Mutex<Vec<JobRequest>>);
+
+    impl Jobs for StartedJobs {
+        fn start(&self, request: JobRequest) -> impl Future<Output = Result<(), PortError>> + Send {
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(request);
+            std::future::ready(Ok(()))
+        }
+    }
+
+    /// `TRASH_CLEANUP.create(...)` with the instance id
+    /// `trash-<id>-<deletedAt in ms>`, and the Workflow's 30-day sleep as the
+    /// start's delay.
+    #[tokio::test]
+    async fn trashing_a_file_starts_its_purge_thirty_days_out() {
+        let jobs = Arc::new(StartedJobs::default());
+        let state = CoreFilesState {
+            events: EntityEventPublisher::new(None, TaskTracker::new()),
+            files: None,
+            public_files_url: None,
+            storage: StorageState {
+                jobs: Some(Arc::clone(&jobs) as Arc<dyn weldsuite_ports::DynJobs>),
+                ..StorageState::default()
+            },
+        };
+        let deleted_at =
+            OffsetDateTime::from_unix_timestamp_nanos(1_790_665_200_123_000_000).expect("a time");
+        // `fileKey || storagePath`.
+        let row = json!({ "fileKey": "", "storagePath": "workspaces/org_a/drive/a.pdf" });
+        schedule_trash_purge(&state, "org_a", "file_a", &row, deleted_at).await;
+
+        let started = jobs.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let [request] = started.as_slice() else {
+            panic!("one job, not {}", started.len());
+        };
+        assert_eq!(request.name, TRASH_PURGE_JOB);
+        assert_eq!(request.key, "trash-file_a-1790665200123");
+        assert_eq!(request.delay, Some(TRASH_RETENTION));
+        assert_eq!(
+            request.payload,
+            json!({
+                "workspaceId": "org_a",
+                "fileId": "file_a",
+                "fileKey": "workspaces/org_a/drive/a.pdf",
+                "deletedAt": "2026-09-29T07:00:00.123Z",
+                "purgeAt": "2026-10-29T07:00:00.123Z",
+            })
+        );
+    }
 
     #[test]
     fn stored_content_like_the_allowlist() {

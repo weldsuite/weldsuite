@@ -389,30 +389,6 @@ function isMintedExpiry(value: unknown): boolean {
 }
 
 /**
- * A write's string with its per-run parts replaced: upload tokens, an upload
- * key's random segment, URL signatures, then any other `Date.now()` (the
- * upload key's segment first, since it holds one).
- */
-function normalizeString(value: string, key: string | undefined): string {
-  if (key === 'cursor') return '<cursor>';
-  // WeldSign's signed PDF: pdf-lib and lopdf write different bytes for the
-  // same drawn content (object numbers, number formatting, compression), so
-  // its SHA-256 differs by construction. It reaches a side effect only in
-  // `sign_envelope:completed` (the finalize job); the drawn content is
-  // checked by rust/modules/sign's tests against pdf-lib's output.
-  if (key === 'finalSha256' && SHA256_HEX.test(value)) return '<sha256>';
-  // "Sign now" answers a fresh link, new per run by construction.
-  if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
-  if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
-  if (GENERATED_ID.test(value)) return '<id>';
-  return value
-    .replace(UPLOAD_TOKEN, '<upload-token>')
-    .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
-    .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
-    .replace(EPOCH_MS, '<epoch-ms>');
-}
-
-/**
  * Sorted keys, and for writes the values that differ by construction between
  * two runs replaced by placeholders: new ids, timestamps, cursors, upload
  * tokens and the random segment of an upload's key, and what a signing
@@ -430,9 +406,31 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
         .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
     );
   }
-  if (isWrite && typeof value === 'string') return normalizeString(value, key);
+  if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
   return value;
+}
+
+/** A string in a write's answer, with what differs per run by construction replaced. */
+function normalizeWrittenString(value: string, key: string | undefined): string {
+  if (key === 'cursor') return '<cursor>';
+  // WeldSign's signed PDF: pdf-lib and lopdf write different bytes for the
+  // same drawn content (object numbers, number formatting, compression), so
+  // its SHA-256 differs by construction. It reaches a side effect only in
+  // `sign_envelope:completed` (the finalize job); the drawn content is
+  // checked by rust/modules/sign's tests against pdf-lib's output.
+  if (key === 'finalSha256' && SHA256_HEX.test(value)) return '<sha256>';
+  // "Sign now" answers a fresh link, new per run by construction.
+  if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
+  if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
+  if (GENERATED_ID.test(value)) return '<id>';
+  // Storage: upload tokens, an upload key's random segment and a signed
+  // URL's credential, then any other `Date.now()` (the key's segment holds one).
+  return value
+    .replace(UPLOAD_TOKEN, '<upload-token>')
+    .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
+    .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
+    .replace(EPOCH_MS, '<epoch-ms>');
 }
 
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */

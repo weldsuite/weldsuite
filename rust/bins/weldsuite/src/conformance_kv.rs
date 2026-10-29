@@ -84,14 +84,16 @@ impl Cache for HttpCache {
         }
     }
 
-    /// A read and a write through the bridge: a test runs one request at a
-    /// time, so nothing races it (Workers KV has no atomic increment either).
+    /// KV has no atomic add: read, add and write back, with `ttl` as the
+    /// write's `expirationTtl`, as a TypeScript counter on KV does. The
+    /// harness runs one request at a time, so nothing races.
     async fn increment(&self, key: &str, by: i64, ttl: Option<Duration>) -> Result<i64, PortError> {
         let current = match self.get(key).await? {
-            Some(text) => text
-                .trim()
-                .parse::<i64>()
-                .map_err(|_| PortError::backend(format!("{key} is not an integer")))?,
+            Some(text) => text.parse::<i64>().map_err(|_| {
+                PortError::backend(format!(
+                    "kv bridge: the value under {key:?} is not an integer"
+                ))
+            })?,
             None => 0,
         };
         let next = current.saturating_add(by);
@@ -193,6 +195,28 @@ mod tests {
         );
         cache.delete_boxed(key).await.expect("delete");
         assert_eq!(cache.get_boxed(key).await.expect("get"), None);
+        // Counters: a missing key counts as 0; a non-integer is an error.
+        let counter = "mail:count";
+        assert_eq!(
+            cache.increment_boxed(counter, 2, None).await.expect("add"),
+            2
+        );
+        assert_eq!(
+            cache
+                .increment_boxed(counter, -5, Some(Duration::from_secs(60)))
+                .await
+                .expect("add"),
+            -3
+        );
+        assert_eq!(
+            cache.get_boxed(counter).await.expect("get").as_deref(),
+            Some("-3")
+        );
+        cache
+            .put_boxed(key, r#"{"fileKey":"k"}"#, None)
+            .await
+            .expect("put");
+        assert!(cache.increment_boxed(key, 1, None).await.is_err());
         // The same URL gives the same cache.
         let RequestCache(again) = bridges.request_cache(&kv).expect("a cache");
         assert!(Arc::ptr_eq(&cache, &again));

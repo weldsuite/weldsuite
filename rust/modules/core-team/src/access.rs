@@ -19,7 +19,7 @@ use weldsuite_events::{EventContext, iso_timestamp, publish_entity_event};
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::Permissions;
-use weldsuite_ports::{FileStores, Identity, IdentityProvider};
+use weldsuite_ports::{DynCache, FileStores, Identity, IdentityProvider, RequestCache};
 
 use crate::CoreTeamState;
 
@@ -30,6 +30,7 @@ struct Overrides {
     identity: Option<Arc<dyn Identity>>,
     files: Option<FileStores>,
     env: Option<RequestEnv>,
+    cache: Option<RequestCache>,
 }
 
 impl Overrides {
@@ -42,6 +43,7 @@ impl Overrides {
                 .map(|p| Arc::clone(&p.0)),
             files: parts.extensions.get::<FileStores>().cloned(),
             env: parts.extensions.get::<RequestEnv>().cloned(),
+            cache: parts.extensions.get::<RequestCache>().cloned(),
         }
     }
 }
@@ -97,6 +99,16 @@ impl Caller {
     /// A per-request env value (conformance mode forwards a few).
     pub fn env(&self, name: &str) -> Option<&str> {
         self.overrides.env.as_ref().and_then(|env| env.get(name))
+    }
+
+    /// The cache (`WORKSPACE_CACHE`): the request's in conformance mode (the
+    /// test's KV namespace), else the app's.
+    pub fn cache(&self, state: &CoreTeamState) -> Option<Arc<dyn DynCache>> {
+        self.overrides
+            .cache
+            .as_ref()
+            .map(|RequestCache(cache)| Arc::clone(cache))
+            .or_else(|| state.cache.clone())
     }
 
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
