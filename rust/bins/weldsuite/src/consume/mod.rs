@@ -263,18 +263,20 @@ async fn connect(config: &ConsumeConfig) -> Result<Services, Error> {
     .await?;
     if config.ensure_streams {
         // Create or update: `serve` may have created the hub first with one
-        // replica (its `ensure_stream` leaves an existing stream alone);
-        // this brings it to the configured count.
+        // replica and no cap (its `ensure_stream` leaves an existing stream
+        // alone); this brings it to the configured count and size. A full
+        // stream drops its oldest messages, as its age limit does.
         let mut hub = entity_events_stream_config(&config.stream, &config.subject_prefix);
         hub.num_replicas = config.stream_replicas;
+        hub.max_bytes = config.stream_max_bytes.unwrap_or(-1);
         bus.context().create_or_update_stream(hub).await?;
-        bus.context()
-            .create_or_update_stream(dead_letter_stream_config(
-                &config.dead_letter_stream,
-                &format!("{}-dlq", config.subject_prefix),
-                config.stream_replicas,
-            ))
-            .await?;
+        let mut dead_letters = dead_letter_stream_config(
+            &config.dead_letter_stream,
+            &format!("{}-dlq", config.subject_prefix),
+            config.stream_replicas,
+        );
+        dead_letters.max_bytes = config.dead_letter_max_bytes.unwrap_or(-1);
+        bus.context().create_or_update_stream(dead_letters).await?;
     }
     let realtime: Option<Arc<dyn DynRealtimePublisher>> = match &config.valkey_url {
         Some(url) => Some(Arc::new(ValkeyRealtime::new(

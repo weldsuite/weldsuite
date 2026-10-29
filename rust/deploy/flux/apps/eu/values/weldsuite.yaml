@@ -168,8 +168,12 @@ resources:
 consume:
   enabled: true
   replicaCount: 2
-  # The hub and dead-letter streams on all three JetStream nodes.
+  # The hub and dead-letter streams on all three JetStream nodes, capped
+  # under the 20Gi JetStream volume (infrastructure/services/values/nats.yaml):
+  # 12 GiB of events, 2 GiB of dead letters.
   streamReplicas: 3
+  streamMaxBytes: 12884901888
+  deadLetterMaxBytes: 2147483648
   resources:
     requests:
       cpu: 100m

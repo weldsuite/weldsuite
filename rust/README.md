@@ -216,7 +216,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 `weldsuite consume` runs the entity-event subscribers on NATS JetStream: one durable
 consumer per subscriber on the hub stream, retries with backoff, a dead-letter
 stream. It reads the same database, NATS and Valkey variables, needs no sign-in
-settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`,
+settings, and has its own (`CONSUME_SUBSCRIBERS`, `NATS_STREAM_REPLICAS`, `NATS_STREAM_MAX_BYTES`,
+`NATS_DEAD_LETTER_MAX_BYTES`,
 `NATS_DEAD_LETTER_STREAM`, `EMBEDDINGS_URL`/`EMBEDDINGS_MODEL`/`EMBEDDINGS_API_KEY`,
 `WEBHOOK_ALLOW_PRIVATE_NETWORKS`, `WEBHOOK_RETRY_SWEEP`, `CONSUME_DRAIN_SECONDS`):
 the list and the stream layout are in `bins/weldsuite/src/consume/`.

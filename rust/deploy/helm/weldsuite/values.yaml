@@ -378,6 +378,11 @@ consume:
   # dead-letter stream at start with this many replicas (3 on a three-node
   # JetStream cluster).
   streamReplicas: 1
+  # With config.nats.ensureStreams: the most the hub and the dead-letter
+  # stream keep on disk, in bytes; a full stream drops its oldest messages.
+  # Keep both together under the JetStream volume. 0: no cap (age only).
+  streamMaxBytes: 0
+  deadLetterMaxBytes: 0
   # Where a message goes after a subscriber's last retry (subjects
   # <entityEventsSubject>-dlq.<subscriber>.<entityType>.<action>, kept 14 days).
   deadLetterStream: ENTITY_EVENTS_DLQ

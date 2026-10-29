@@ -8,6 +8,7 @@
 //! | `DATABASE_MASTER_MAX_CONNECTIONS`, `TENANT_POOL_MAX_CONNECTIONS`, `TENANT_POOLS_MAX`, `WORKSPACE_CACHE_TTL_SECONDS` | pools, as for `serve` |
 //! | `NATS_URL` (required), `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT` | the hub |
 //! | `NATS_ENSURE_STREAMS`, `NATS_STREAM_REPLICAS` | create or update the hub and the dead-letter stream at start, with this many replicas |
+//! | `NATS_STREAM_MAX_BYTES`, `NATS_DEAD_LETTER_MAX_BYTES` | with `NATS_ENSURE_STREAMS`: the most each stream keeps on disk, oldest messages dropped first (default 0, no cap) |
 //! | `NATS_DEAD_LETTER_STREAM` | the dead-letter stream (default `ENTITY_EVENTS_DLQ`, subjects `<subject>-dlq.<subscriber>.…`) |
 //! | `CONSUME_SUBSCRIBERS` | the subscribers to run, comma separated (default: every ported one) |
 //! | `VALKEY_URL`, `VALKEY_REALTIME_PREFIX` | realtime publishes; without them the realtime subscriber does not run |
@@ -52,6 +53,10 @@ pub(crate) struct ConsumeConfig {
     pub(crate) dead_letter_stream: String,
     pub(crate) ensure_streams: bool,
     pub(crate) stream_replicas: usize,
+    /// The hub's size cap in bytes; `None` keeps it unbounded (age only).
+    pub(crate) stream_max_bytes: Option<i64>,
+    /// The dead-letter stream's size cap in bytes; `None` keeps it unbounded.
+    pub(crate) dead_letter_max_bytes: Option<i64>,
     pub(crate) subscribers: Vec<String>,
     pub(crate) valkey_url: Option<String>,
     pub(crate) valkey_realtime_prefix: String,
@@ -71,6 +76,8 @@ impl fmt::Debug for ConsumeConfig {
             .field("dead_letter_stream", &self.dead_letter_stream)
             .field("ensure_streams", &self.ensure_streams)
             .field("stream_replicas", &self.stream_replicas)
+            .field("stream_max_bytes", &self.stream_max_bytes)
+            .field("dead_letter_max_bytes", &self.dead_letter_max_bytes)
             .field("subscribers", &self.subscribers)
             .field("valkey", &self.valkey_url.as_ref().map(|_| "<set>"))
             .field(
@@ -153,6 +160,8 @@ impl ConsumeConfig {
         let max_tenant_pools = number(&mut problems, "TENANT_POOLS_MAX", 2000);
         let cache_ttl = number(&mut problems, "WORKSPACE_CACHE_TTL_SECONDS", 300);
         let replicas = number(&mut problems, "NATS_STREAM_REPLICAS", 1);
+        let stream_max_bytes = number(&mut problems, "NATS_STREAM_MAX_BYTES", 0);
+        let dead_letter_max_bytes = number(&mut problems, "NATS_DEAD_LETTER_MAX_BYTES", 0);
         let drain = number(&mut problems, "CONSUME_DRAIN_SECONDS", 25);
 
         let master_database_url = lookup("DATABASE_URL_MASTER").unwrap_or_else(|| {
@@ -248,6 +257,8 @@ impl ConsumeConfig {
             subject_prefix,
             ensure_streams,
             stream_replicas: usize::try_from(replicas).unwrap_or(1).max(1),
+            stream_max_bytes: byte_cap(stream_max_bytes),
+            dead_letter_max_bytes: byte_cap(dead_letter_max_bytes),
             subscribers,
             valkey_url: lookup("VALKEY_URL"),
             valkey_realtime_prefix: lookup("VALKEY_REALTIME_PREFIX")
@@ -258,6 +269,15 @@ impl ConsumeConfig {
             drain: Duration::from_secs(drain),
         })
     }
+}
+
+/// A stream size cap: 0 means none (`-1` on the stream), and a value past
+/// `i64::MAX` is as good as none too.
+fn byte_cap(bytes: u64) -> Option<i64> {
+    if bytes == 0 {
+        return None;
+    }
+    i64::try_from(bytes).ok()
 }
 
 #[cfg(test)]
@@ -288,7 +308,22 @@ mod tests {
         assert!(!config.webhook_allow_private);
         assert!(config.webhook_retry_sweep);
         assert!(config.embeddings.is_none());
+        assert_eq!(config.stream_max_bytes, None);
+        assert_eq!(config.dead_letter_max_bytes, None);
         assert!(!format!("{config:?}").contains("postgres://master"));
+    }
+
+    #[test]
+    fn caps_the_streams_when_asked() {
+        let config = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+            ("NATS_STREAM_MAX_BYTES", "12884901888"),
+            ("NATS_DEAD_LETTER_MAX_BYTES", "0"),
+        ])
+        .expect("valid");
+        assert_eq!(config.stream_max_bytes, Some(12_884_901_888));
+        assert_eq!(config.dead_letter_max_bytes, None);
     }
 
     #[test]

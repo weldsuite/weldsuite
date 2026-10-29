@@ -60,6 +60,8 @@ cron:
 consume:
   enabled: true
   subscribers: [audit, search-index, webhooks, realtime]
+  streamMaxBytes: 1073741824
+  deadLetterMaxBytes: 268435456
   embeddings:
     url: http://embeddings.example.com/v1
     model: bge-m3
