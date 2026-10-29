@@ -4,7 +4,11 @@
  * `rust/crates/catalogs` turns the JSON into Rust types at build time, so the
  * TypeScript files stay the one source of truth while both backends run.
  *
- *   pnpm rust:catalogs           write rust/catalogs/*.json
+ * Also writes the parity cases the Rust permissions engine is tested against
+ * (./rust-permission-cases.ts), so a behaviour change in
+ * @weldsuite/permissions fails the same CI check until the port follows.
+ *
+ *   pnpm rust:catalogs           write the files
  *   pnpm rust:catalogs --check   exit 1 when a file is missing or stale (CI)
  *
  * Imports the catalog source files directly, not the package entry points,
@@ -22,11 +26,12 @@ import {
   PERMISSION_CATALOG_OBJECTS,
   SYSTEM_ROLES,
 } from '../packages/core/permissions/src/catalog';
-import { PERMISSION_APPS } from '../packages/core/permissions/src/apps';
+import { APP_CODE_ALIASES, PERMISSION_APPS } from '../packages/core/permissions/src/apps';
 import { FIRST_PARTY_ORIGINS } from '../packages/core/worker-kit/src/cors';
+import { buildPermissionCases } from './rust-permission-cases';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outDir = path.join(repo, 'rust', 'catalogs');
+const rustDir = path.join(repo, 'rust');
 
 /** JSON with object keys sorted, so a reordering in TypeScript is not a diff. */
 function stableJson(value: unknown): string {
@@ -44,34 +49,44 @@ function stableJson(value: unknown): string {
   return `${JSON.stringify(sort(value), null, 2)}\n`;
 }
 
-const catalogs: Record<string, unknown> = {
-  'api-modules.json': API_MODULES,
-  'entity-events.json': ENTITY_EVENTS,
-  'feature-flags.json': FLAGS,
-  'first-party-origins.json': FIRST_PARTY_ORIGINS,
-  'permissions.json': {
-    objects: PERMISSION_CATALOG_OBJECTS,
-    systemRoles: SYSTEM_ROLES,
-    employeeMemberPermissions: EMPLOYEE_MEMBER_PERMISSIONS,
-    apps: PERMISSION_APPS,
-  },
-};
+async function main(): Promise<void> {
+  /** Output path under rust/ → value. */
+  const outputs: Record<string, unknown> = {
+    'catalogs/api-modules.json': API_MODULES,
+    'catalogs/entity-events.json': ENTITY_EVENTS,
+    'catalogs/feature-flags.json': FLAGS,
+    'catalogs/first-party-origins.json': FIRST_PARTY_ORIGINS,
+    'catalogs/permissions.json': {
+      objects: PERMISSION_CATALOG_OBJECTS,
+      systemRoles: SYSTEM_ROLES,
+      employeeMemberPermissions: EMPLOYEE_MEMBER_PERMISSIONS,
+      apps: PERMISSION_APPS,
+      appCodeAliases: APP_CODE_ALIASES,
+    },
+    'crates/permissions/tests/fixtures/permission-cases.json': await buildPermissionCases(),
+  };
 
-const check = process.argv.includes('--check');
-const stale: string[] = [];
-if (!check) mkdirSync(outDir, { recursive: true });
+  const check = process.argv.includes('--check');
+  const stale: string[] = [];
 
-for (const [file, value] of Object.entries(catalogs)) {
-  const target = path.join(outDir, file);
-  const next = stableJson(value);
-  const current = existsSync(target) ? readFileSync(target, 'utf8').replaceAll('\r\n', '\n') : null;
-  if (current === next) continue;
-  if (check) stale.push(file);
-  else writeFileSync(target, next);
+  for (const [file, value] of Object.entries(outputs)) {
+    const target = path.join(rustDir, file);
+    const next = stableJson(value);
+    const current = existsSync(target) ? readFileSync(target, 'utf8').replaceAll('\r\n', '\n') : null;
+    if (current === next) continue;
+    if (check) {
+      stale.push(file);
+    } else {
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, next);
+    }
+  }
+
+  if (check && stale.length > 0) {
+    console.error(`rust/ catalogs are out of date: ${stale.join(', ')}. Run \`pnpm rust:catalogs\` and commit the result.`);
+    process.exit(1);
+  }
+  console.log(check ? 'rust/ catalogs are up to date.' : `Wrote ${Object.keys(outputs).length} files under rust/.`);
 }
 
-if (check && stale.length > 0) {
-  console.error(`rust/catalogs is out of date: ${stale.join(', ')}. Run \`pnpm rust:catalogs\` and commit the result.`);
-  process.exit(1);
-}
-console.log(check ? 'rust/catalogs is up to date.' : `Wrote ${Object.keys(catalogs).length} catalogs to rust/catalogs/.`);
+void main();

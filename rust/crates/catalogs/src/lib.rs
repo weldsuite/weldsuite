@@ -139,6 +139,9 @@ pub struct PermissionCatalog {
     /// The fixed access of a member with `memberType = 'EMPLOYEE'`.
     pub employee_member_permissions: Vec<String>,
     pub apps: Vec<PermissionApp>,
+    /// Old and alternative app codes (`crm`, `wms`, …) → canonical code
+    /// (`APP_CODE_ALIASES`).
+    pub app_code_aliases: BTreeMap<String, String>,
 }
 
 /// One API module and the paths it owns (`API_MODULES`).

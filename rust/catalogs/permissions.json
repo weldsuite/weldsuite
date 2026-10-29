@@ -1,4 +1,32 @@
 {
+  "appCodeAliases": {
+    "accounting": "weldbooks",
+    "books": "weldbooks",
+    "calendar": "weldcalendar",
+    "call": "weldcall",
+    "chat": "weldchat",
+    "commerce": "weldcommerce",
+    "connect": "weldconnect",
+    "crm": "weldcrm",
+    "data": "welddata",
+    "desk": "welddesk",
+    "drive": "welddrive",
+    "helpdesk": "welddesk",
+    "host": "weldhost",
+    "know": "weldknow",
+    "knowledge": "weldknow",
+    "mail": "weldmail",
+    "meet": "weldmeet",
+    "parcel": "weldstash",
+    "projects": "weldflow",
+    "social": "weldsocial",
+    "stash": "weldstash",
+    "task": "weldconnect",
+    "tasks": "weldconnect",
+    "weldparcel": "weldstash",
+    "weldwms": "weldstash",
+    "wms": "weldstash"
+  },
   "apps": [
     {
       "code": "weldcrm",
