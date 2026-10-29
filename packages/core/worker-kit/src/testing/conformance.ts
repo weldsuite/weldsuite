@@ -82,6 +82,14 @@ export const CONFORMANCE_HEADER = 'X-Weld-Conformance';
 /** Response header naming the route that answered (both runtimes set it in this mode). */
 export const ROUTE_HEADER = 'X-Weld-Route';
 
+/**
+ * Request header a test sets on a GET that writes (a record created on first
+ * access), so it is compared as a write: Rust on the database, TypeScript on a
+ * copy. Run as a read, TypeScript would create the record and Rust then find
+ * it. Neither backend reads it.
+ */
+export const CONFORMANCE_WRITE_HEADER = 'X-Weld-Conformance-Write';
+
 /** Env bindings the Rust server honours per request in conformance mode. */
 const FORWARDED_ENV = [
   'PERMISSIONS_APP_ENFORCE',
@@ -341,6 +349,10 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
         .sort()
         .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
     );
+  }
+  // A realtime room payload's `ts: Date.now()`.
+  if (isWrite && key === 'ts' && typeof value === 'number' && Number.isInteger(value) && value >= 1e12 && value < 1e13) {
+    return '<epoch-ms>';
   }
   if (isWrite && typeof value === 'string') {
     if (key === 'cursor') return '<cursor>';
@@ -644,7 +656,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();
-  const isWrite = !SAFE_METHODS.has(method);
+  const isWrite = !SAFE_METHODS.has(method) || new Headers(init?.headers).has(CONFORMANCE_WRITE_HEADER);
 
   const client = pgliteClientOf(ctx.tenantDb);
   if (!client) {
