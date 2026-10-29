@@ -247,3 +247,108 @@ export function generatePassword(options: GeneratePasswordOptions = {}): string 
   }
   return chars.join('');
 }
+
+// ---------------------------------------------------------------------------
+// Responses — matching the interfaces in `domains/weldpass-passwords.ts`; the
+// conformance suite validates both backends' answers against these.
+// ---------------------------------------------------------------------------
+
+export const weldpassVaultSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['personal', 'shared']),
+  ownerId: z.string().nullable(),
+  name: z.string(),
+  description: z.string().nullable(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  role: weldpassVaultRoleSchema.nullable(),
+  itemCount: z.number().int().optional(),
+  memberCount: z.number().int().optional(),
+});
+
+export const weldpassVaultMemberSchema = z.object({
+  userId: z.string(),
+  role: weldpassVaultRoleSchema,
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  picture: z.string().nullable(),
+  addedBy: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const weldpassTeammateSchema = z.object({
+  userId: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  picture: z.string().nullable(),
+});
+
+export const weldpassVaultEventSchema = z.object({
+  id: z.string(),
+  itemId: z.string().nullable(),
+  actorId: z.string(),
+  actorName: z.string().nullable(),
+  action: z.string(),
+  targetLabel: z.string().nullable(),
+  metadata: z.record(z.unknown()),
+  createdAt: z.string(),
+});
+
+export const weldpassItemSchema = z.object({
+  id: z.string(),
+  vaultId: z.string(),
+  type: weldpassItemTypeSchema,
+  title: z.string(),
+  subtitle: z.string().nullable(),
+  url: z.string().nullable(),
+  host: z.string().nullable(),
+  hasTotp: z.boolean(),
+  passwordChangedAt: z.string().nullable(),
+  version: z.number().int(),
+  createdBy: z.string().nullable(),
+  updatedBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export const weldpassRevealedItemSchema = weldpassItemSchema.extend({
+  fields: z.union([loginFieldsSchema.strict(), noteFieldsSchema.strict(), cardFieldsSchema.strict()]),
+});
+
+export const weldpassItemVersionSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  action: z.string(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const weldpassTotpCodeSchema = z.object({
+  code: z.string().regex(/^\d{6,8}$/),
+  period: z.number().int(),
+  expiresAt: z.string(),
+});
+
+const importNoteSchema = z.object({ line: z.number().int(), reason: z.string() });
+
+export const weldpassItemImportResultSchema = z.object({
+  format: z.string(),
+  created: z.number().int(),
+  skipped: z.array(importNoteSchema),
+  warnings: z.array(importNoteSchema),
+});
+
+export const weldpassHealthReportSchema = z.object({
+  checked: z.number().int(),
+  healthy: z.number().int(),
+  weak: z.number().int(),
+  reused: z.number().int(),
+  old: z.number().int(),
+  items: z.array(
+    weldpassItemSchema.extend({
+      issues: z.array(z.enum(['weak', 'reused', 'old'])),
+      reuseCount: z.number().int(),
+    }),
+  ),
+});
