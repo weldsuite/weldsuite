@@ -20,6 +20,8 @@ config:
   tenants:
     region: eu
   aadWrites: true
+  realtime:
+    publicUrl: wss://app.example.org/ws
   files:
     endpoint: https://s3.example.com
     publicBucket: weldsuite-public
@@ -52,3 +54,9 @@ cron:
       enabled: true
     workspace-teardown:
       enabled: true
+consume:
+  enabled: true
+  subscribers: [audit, search-index, webhooks, realtime]
+  embeddings:
+    url: http://embeddings.example.com/v1
+    model: bge-m3

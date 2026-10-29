@@ -5,7 +5,7 @@
 //! | Port | Adapter | Replaces |
 //! |---|---|---|
 //! | `Cache` | [`ValkeyCache`] | KV `WORKSPACE_CACHE` |
-//! | `RealtimePublisher` | [`ValkeyRealtime`] (pub/sub) | realtime-worker `/publish/*` over `REALTIME` |
+//! | `RealtimePublisher` | [`ValkeyRealtime`] (pub/sub; [`realtime::ValkeyBackplane`] is the WebSocket gateway's side) | realtime-worker `/publish/*` over `REALTIME`, and its Durable Objects' state |
 //! | `EventBus` | [`JetStreamEventBus`] | Queue `ENTITY_EVENTS` |
 //! | `FlagSource` | [`MasterDbFlagSource`] | Cloudflare Flagship `FLAGSHIP` |
 //! | `FileStore` | [`S3FileStore`] (MinIO, Garage, Ceph RGW, Hetzner, AWS) | R2 `PRIVATE_STORAGE`, `STORAGE` |
@@ -13,13 +13,18 @@
 //! | `SystemMail` | [`SmtpMail`] (any SMTP relay) | Email Service `SEND_EMAIL` |
 //! | `Identity` | [`ZitadelIdentity`] | Clerk's Backend API |
 //! | `DatabaseProvisioner` | [`CnpgProvisioner`] (CloudNativePG shards behind `PgBouncer`) | Neon provisioning |
+//! | `BatchHandler` (consuming) | [`run_consumer`] on a durable `JetStream` consumer | Queue consumers of the hub subscribers |
+//! | `Embeddings` | [`OpenAiEmbeddings`] (any OpenAI-compatible endpoint) | Workers AI through the AI Gateway |
 //!
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
 
 mod cnpg;
+mod embeddings;
 mod flags;
 mod nats;
+mod nats_consume;
+pub mod realtime;
 mod restate;
 mod s3;
 mod smtp;
@@ -27,9 +32,14 @@ mod valkey;
 mod zitadel;
 
 pub use cnpg::{CnpgOptions, CnpgProvisioner, CnpgShard, database_names};
+pub use embeddings::{OpenAiEmbeddings, OpenAiEmbeddingsOptions};
 pub use flags::{DEFAULT_FLAG_REFRESH, MasterDbFlagSource};
 pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, JetStreamEventBus, NatsOptions, entity_events_stream_config,
+};
+pub use nats_consume::{
+    Action, ConsumerSpec, dead_letter_stream_config, dead_letter_subject, decide, ensure_consumer,
+    run_consumer,
 };
 pub use restate::{
     JOBS_SERVICE, JobCall, RestateJobs, WeldsuiteJobs, register_deployment, serve_endpoint,

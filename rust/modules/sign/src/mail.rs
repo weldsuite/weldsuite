@@ -1,8 +1,7 @@
 //! WeldSign email (`packages/domains/sign/src/mail.ts`): signing requests and
-//! reminders, "everyone signed", "the request was voided" and "the request
-//! expired", all system mail from WeldSuite's address, branded as the
-//! workspace, Reply-To the sender. The identity code and "a signer declined"
-//! belong to the signer portal (next stage).
+//! reminders, identity codes, "everyone signed", "a signer declined", "the
+//! request was voided" and "the request expired", all system mail from
+//! WeldSuite's address, branded as the workspace, Reply-To the sender.
 //!
 //! Requests carry the sender's own title and message to any address, so a
 //! batch goes through the outbound guard first (`crate::outbound`, source
@@ -375,6 +374,70 @@ pub(crate) async fn send_expired(ctx: &SendContext, envelope: &Value, unsigned: 
         rendered,
         |rendered| SystemEmail::to(rendered, brand.clone(), sender_email),
         "expired",
+        text(envelope, "id"),
+    )
+    .await;
+}
+
+/// The one-time code for opening a link (`sendCode`). Not counted by the
+/// guard: it only goes to someone already invited.
+pub(crate) async fn send_code(
+    ctx: &SendContext,
+    envelope: &Value,
+    recipient: &Value,
+    code: &str,
+    minutes: u64,
+) -> SignResult<()> {
+    let address = text(recipient, "email");
+    if ctx.services.mail.is_none() || address.is_empty() {
+        return Ok(());
+    }
+    let (brand, _) = workspace_brand(ctx).await?;
+    let rendered = weldsuite_emails::sign::code(
+        locale_of(recipient),
+        &brand,
+        text(envelope, "title"),
+        code,
+        u32::try_from(minutes).ok(),
+    );
+    deliver(
+        ctx,
+        rendered,
+        |rendered| SystemEmail::to(rendered, brand.clone(), address),
+        "code",
+        text(envelope, "id"),
+    )
+    .await;
+    Ok(())
+}
+
+/// Tell the sender a signer declined (`sendDeclined`, the sender's locale
+/// unknown: English). Best effort.
+pub(crate) async fn send_declined(
+    ctx: &SendContext,
+    envelope: &Value,
+    declined_by: &str,
+    reason: &str,
+) {
+    let sender_email = text(envelope, "senderEmail");
+    if ctx.services.mail.is_none() || sender_email.is_empty() {
+        return;
+    }
+    let brand = EmailBrand::weldsuite("WeldSign");
+    let url = envelope_app_url(ctx, text(envelope, "id"));
+    let rendered = weldsuite_emails::sign::declined(
+        EmailLocale::En,
+        &brand,
+        text(envelope, "title"),
+        declined_by,
+        reason,
+        &url,
+    );
+    deliver(
+        ctx,
+        rendered,
+        |rendered| SystemEmail::to(rendered, brand.clone(), sender_email),
+        "declined",
         text(envelope, "id"),
     )
     .await;

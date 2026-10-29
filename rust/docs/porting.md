@@ -184,6 +184,28 @@ templates).
   (`modules/sign/tools/pdf-fixtures.mts`), and normalise only the values
   derived from the bytes (the hash) in `normalizeForDiff`, with a comment.
 
+## Operations that are not Hono routes
+
+The signer portal (`/public/sign-portal`, ADR FE-017) is the first: on Global
+the portal runs `createSignPortal()` itself, on Kubernetes it calls Rust over
+HTTP. Its test (`apps/workers/sign-api/src/test/sign-portal.ts`) calls
+`conformanceRequest` with a `runTypeScript` that runs the operation instead
+of a Hono app, and passes what the comparison needs beyond a route's:
+
+- `context`: more doubles for Rust, beside databases, env and buckets. The
+  test's KV namespace is served through the bucket bridge (`kvBucketUrl`),
+  a Workflow binding stub through `workflowBridgeUrl` as Rust's jobs adapter
+  (give TypeScript a twin stub: a stub keeps state). A write's TypeScript run
+  gets a copy of the KV namespace and a bucket overlay, as it gets database
+  copies, so the test sees Rust's writes only.
+- `compareHeaders`: headers that are part of the answer (a PDF's).
+- `normalizeEffects`: what differs by construction for this caller only
+  (the signed PDF's size in its mail and `file:created` events).
+
+Rust takes the test's context in the routes' own middleware
+(`bins/weldsuite/src/conformance_portal.rs`), since they sit outside the
+member pipeline that reads it for `/api`.
+
 ## Checks before a commit
 
 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,

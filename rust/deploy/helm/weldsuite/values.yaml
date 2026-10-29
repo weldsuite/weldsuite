@@ -72,6 +72,24 @@ config:
     cachePrefix: "cache:"
     # The WebSocket gateway subscribes under the same prefix.
     realtimePrefix: "realtime:"
+  # The realtime WebSocket gateway (/ws…): on whenever VALKEY_URL is set, on
+  # every pod; pods share hubs, rooms, presence and the replay log through
+  # Valkey, so no sticky sessions are needed. It needs a standalone Valkey
+  # (or a primary with replicas), not a Valkey cluster.
+  realtime:
+    # The URL /config.json gives the frontends. Empty: the origin that
+    # /config.json was requested on, with /ws (wss:// behind TLS), which is
+    # right when the SPA and the API share a host.
+    publicUrl: ""
+    # Sockets per pod; more are refused (503) and the client retries.
+    maxConnections: 20000
+    # Sockets per person per pod (tabs, devices).
+    maxConnectionsPerUser: 100
+    # Topics one workspace socket may hold.
+    maxSubscriptions: 2000
+    # Messages queued for one socket before a slow client is dropped (it
+    # reconnects and replays from its cursor).
+    sendQueue: 1024
   nats:
     entityEventsStream: ENTITY_EVENTS
     entityEventsSubject: entity-events
@@ -145,7 +163,9 @@ config:
 #   CLERK_SECRET_KEY             fetch the keys from Clerk's Backend API; or
 #   CLERK_JWKS_URL               fetch them from a JWKS URL (or use clerkJwks)
 #                                (none of the CLERK_* with config.auth.provider: oidc)
-#   VALKEY_URL                   redis://… cache + realtime publish (optional)
+#   VALKEY_URL                   redis://… cache, realtime publish and the WebSocket gateway (optional)
+#   REALTIME_INTERNAL_SECRET     what callers of /publish/* and /internal/presence send in
+#                                x-internal-secret (optional; unset refuses them all)
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
@@ -233,6 +253,11 @@ service:
 # The server's ingress. With the SPA on, one host is the platform and its
 # API on the same origin (app.<domain>); add api.<domain> for clients that
 # call the API by that name.
+# The realtime gateway's sockets (/ws…) go through the same Ingress and host
+# as the API: Traefik passes the WebSocket upgrade on without annotations,
+# and its default timeouts (3.6) keep a socket open as long as the client
+# pings every 25 s, as @weldsuite/realtime's clients do. Pods share their
+# state through Valkey, so no sticky sessions.
 ingress:
   enabled: false
   className: ""
@@ -321,6 +346,68 @@ autoscaling:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
+# The entity-event subscribers (`weldsuite consume`, its own Deployment from
+# the same image, no Service): the audit log, the semantic search index,
+# outgoing webhooks and realtime fan-out, each a durable consumer on the NATS
+# JetStream hub (config.nats). Needs NATS_URL in the Secret; realtime needs
+# VALKEY_URL. Analytics, WeldConnect and WeldAgent have no consumer yet.
+consume:
+  enabled: false
+  replicaCount: 2
+  # The subscribers to run; empty runs every ported one (audit, search-index,
+  # webhooks, realtime). search-index needs `embeddings` below.
+  subscribers: []
+  # With config.nats.ensureStreams: create or update the hub and the
+  # dead-letter stream at start with this many replicas (3 on a three-node
+  # JetStream cluster).
+  streamReplicas: 1
+  # Where a message goes after a subscriber's last retry (subjects
+  # <entityEventsSubject>-dlq.<subscriber>.<entityType>.<action>, kept 14 days).
+  deadLetterStream: ENTITY_EVENTS_DLQ
+  # An OpenAI-compatible embeddings endpoint for the semantic search index
+  # (Mistral, or bge-m3 served in the cluster by TEI, vLLM or Ollama); the
+  # vectors must have 1024 dimensions. A key goes in the Secret as
+  # EMBEDDINGS_API_KEY. Without a url the search-index subscriber is off.
+  embeddings:
+    url: ""
+    model: ""
+  webhooks:
+    # Deliver to private and loopback addresses too. Off: the pod sits next
+    # to the cluster's own services, so a customer's webhook URL must not
+    # reach them.
+    allowPrivateNetworks: false
+    # Retry failed deliveries every ten minutes from this role (one pod at a
+    # time, under an advisory lock on the master database).
+    retrySweep: true
+  # After SIGTERM, how long the batches in hand may take; below
+  # terminationGracePeriodSeconds.
+  drainSeconds: 45
+  terminationGracePeriodSeconds: 60
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  probes:
+    startup:
+      httpGet: { path: /livez, port: probes }
+      periodSeconds: 2
+      failureThreshold: 30
+    liveness:
+      httpGet: { path: /livez, port: probes }
+      periodSeconds: 10
+      failureThreshold: 3
+    # The master database and NATS answer.
+    readiness:
+      httpGet: { path: /readyz, port: probes }
+      periodSeconds: 10
+      failureThreshold: 3
 
 # Spread pods over nodes and zones when the cluster has them.
 topologySpread:

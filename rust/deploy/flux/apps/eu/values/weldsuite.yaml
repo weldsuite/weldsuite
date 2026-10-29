@@ -153,3 +153,19 @@ resources:
     memory: 256Mi
   limits:
     memory: 1Gi
+
+# The entity-event subscribers on the in-cluster JetStream: audit log,
+# outgoing webhooks and realtime fan-out (VALKEY_URL is in the Secret). The
+# search-index subscriber stays off until an embeddings endpoint (EU model
+# provider, or bge-m3 in the cluster) is chosen: set consume.embeddings then.
+consume:
+  enabled: true
+  replicaCount: 2
+  # The hub and dead-letter streams on all three JetStream nodes.
+  streamReplicas: 3
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi

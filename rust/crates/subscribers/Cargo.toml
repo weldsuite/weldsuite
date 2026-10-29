@@ -1,0 +1,37 @@
+[package]
+name = "weldsuite-subscribers"
+description = "The entity-event hub subscribers (audit log, search index, outbound webhooks, realtime) for the consume role"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-catalogs = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+aws-lc-rs = { workspace = true }
+futures-util = { workspace = true, features = ["alloc"] }
+getrandom = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
+sqlx = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+weldsuite-adapters-oss = { workspace = true }
+async-nats = { workspace = true, features = ["aws-lc-rs", "jetstream"] }
+axum = { workspace = true, features = ["http1", "tokio"] }
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

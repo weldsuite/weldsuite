@@ -60,6 +60,20 @@ spec:
             {{- end }}
           env:
             {{- include "weldsuite.env" . | nindent 12 }}
+            {{- with .Values.config.realtime }}
+            {{- if .publicUrl }}
+            - name: REALTIME_PUBLIC_URL
+              value: {{ .publicUrl | quote }}
+            {{- end }}
+            - name: REALTIME_MAX_CONNECTIONS
+              value: {{ .maxConnections | quote }}
+            - name: REALTIME_MAX_CONNECTIONS_PER_USER
+              value: {{ .maxConnectionsPerUser | quote }}
+            - name: REALTIME_MAX_SUBSCRIPTIONS
+              value: {{ .maxSubscriptions | quote }}
+            - name: REALTIME_SEND_QUEUE
+              value: {{ .sendQueue | quote }}
+            {{- end }}
             # The platform SPA in the image, for every path the API doesn't
             # answer; empty serves the API alone.
             - name: SPA_DIR

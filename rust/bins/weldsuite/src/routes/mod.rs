@@ -220,6 +220,28 @@ pub(crate) fn sign_state(state: &AppState) -> weldsuite_sign::SignState {
     }
 }
 
+/// WeldSign's signer portal at `/public/sign-portal` (ADR FE-017): outside
+/// the member pipeline, behind the portal's key; served with the sign
+/// module. Conformance builds take the test's databases, KV namespace and
+/// Workflow binding from its context.
+pub(crate) fn sign_portal(state: &AppState) -> Router<AppState> {
+    if !mounts("sign") {
+        return Router::new();
+    }
+    let portal = weldsuite_sign::PortalState::new(
+        sign_state(state),
+        Some(Arc::clone(&state.workspaces)),
+        state.sign_portal_secret.clone(),
+    );
+    let router = weldsuite_sign::portal_router(portal);
+    #[cfg(feature = "conformance")]
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance_portal::context,
+    ));
+    router
+}
+
 /// The private bucket and the legacy public one, when object storage is
 /// configured.
 fn file_stores(state: &AppState) -> Option<weldsuite_ports::FileStores> {

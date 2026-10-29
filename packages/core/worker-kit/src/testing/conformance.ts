@@ -59,6 +59,10 @@ import {
   takeRustOutbound,
 } from './outbound-bridge';
 
+// The signer portal's doubles for Rust (ConformanceRequest.context).
+export { kvBucketUrl } from './bucket-bridge';
+export { workflowBridgeUrl } from './workflow-bridge';
+
 export interface ConformanceTarget {
   url: string;
   strict: boolean;
@@ -108,6 +112,7 @@ export const FORWARDED_ENV = [
   'PERMISSIONS_APP_ENFORCE',
   'SIGN_SESSION_SECRET',
   'SIGN_PORTAL_URL',
+  'SIGN_PORTAL_SECRET',
   'R2_PUBLIC_URL',
   'ENVIRONMENT',
   'PUBLIC_APP_URL',
@@ -289,6 +294,19 @@ export interface ConformanceRequest {
   ) => Promise<Response>;
   /** The Hono app's recording bindings. */
   sideEffects: SideEffectRecorder;
+  /**
+   * More of the test's doubles for Rust, beside the context's databases, env
+   * and buckets: the signer portal's KV namespace and Workflow binding
+   * (`{ cache, jobs }`, bridge URLs).
+   */
+  context?: Record<string, unknown>;
+  /** Response headers the two answers must agree on, besides status and body. */
+  compareHeaders?: readonly string[];
+  /**
+   * Masks, in both runs' side effects, what differs between the backends by
+   * construction for this caller only (a generated PDF's size).
+   */
+  normalizeEffects?: (effects: SideEffects) => SideEffects;
 }
 
 // ── the shared database ─────────────────────────────────────────────────────
@@ -388,6 +406,8 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
+/** A WeldSign signer session: base64url JSON payload, then its HMAC-SHA-256. */
+const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /**
@@ -453,6 +473,8 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // `sign_envelope:completed` (the finalize job); the drawn content is
   // checked by rust/modules/sign's tests against pdf-lib's output.
   if (key === 'finalSha256' && SHA256_HEX.test(value)) return '<sha256>';
+  // A signer session carries its expiry, the run's clock plus two hours.
+  if (key === 'session' && SIGNER_SESSION.test(value)) return '<session>';
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
@@ -726,14 +748,19 @@ async function runBoth(
   }
 }
 
-/** Where the two runs differ: status, body, then side effects; null when they match. */
+/** Where the two runs differ: status, headers, body, then side effects; null when they match. */
 function compareRuns(
   { ts, rust, tsEffects, rustEffects }: Runs,
   isWrite: boolean,
   method: string,
   route: string | null,
+  options: Pick<ConformanceRequest, 'compareHeaders' | 'normalizeEffects'> = {},
 ): string | null {
   if (ts.status !== rust.status) return `status ${ts.status} (TypeScript) vs ${rust.status} (Rust)`;
+  for (const name of options.compareHeaders ?? []) {
+    const [a, b] = [ts.headers.get(name), rust.headers.get(name)];
+    if (a !== b) return `header ${name}: ${JSON.stringify(a)} vs ${JSON.stringify(b)}`;
+  }
   if (ts.json !== undefined || rust.json !== undefined) {
     // Values a route draws per run (./conformance-volatile.ts) are masked first.
     const body = firstDifference(
@@ -745,7 +772,8 @@ function compareRuns(
     return 'response bodies differ';
   }
   // New event ids and timestamps differ by construction, even on a read.
-  const effects = firstDifference(normalizeForDiff(tsEffects, true), normalizeForDiff(rustEffects, true));
+  const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
+  const effects = firstDifference(normalizeForDiff(own(tsEffects), true), normalizeForDiff(own(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;
 }
 
@@ -788,7 +816,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
       'Conformance mode needs a pglite tenantDb (createPgliteDb()): this test uses a mock database, which the Rust server cannot reach.',
     );
   }
-  const context = await testContext(ctx, env, await databaseUrlFor(client));
+  const context = { ...(await testContext(ctx, env, await databaseUrlFor(client))), ...request.context };
 
   // A request body can be read once: keep it as text or bytes for both runs.
   const headers = new Headers(init?.headers);
@@ -814,7 +842,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   // The test reads Rust's mail, as it reads Rust's response.
   request.sideEffects.adoptMail(runs.tsMail, runs.rustMail);
   const route = ts.headers.get(ROUTE_HEADER);
-  const difference = compareRuns(runs, isWrite, method, route);
+  const difference = compareRuns(runs, isWrite, method, route, request);
   const { schema, schemaError } = checkSchema(method, route, rust);
 
   if (target.reportDir) {

@@ -101,10 +101,11 @@ fn realtime_path(channel: &str) -> String {
 }
 
 /// `GET /__conformance/side-effects`: everything recorded since the last call,
-/// after in-flight publishes finish.
+/// after in-flight work finishes: publishes, and jobs run in the process (a
+/// signed PDF built after the signer portal's last signature takes a while).
 pub(crate) async fn side_effects(State(state): State<AppState>) -> axum::Json<Value> {
     let tracker = state.infra.events.tracker();
-    for _ in 0..100 {
+    for _ in 0..3000 {
         if tracker.is_empty() {
             break;
         }
@@ -244,7 +245,7 @@ pub(crate) struct Pools {
     /// remembers between ticks: a new namespace starts empty, as in the test.
     caches: Mutex<HashMap<String, Arc<MemoryCache>>>,
     /// The test buckets' HTTP stores, by URL.
-    buckets: crate::conformance_files::BucketBridges,
+    pub(crate) buckets: crate::conformance_files::BucketBridges,
     /// The test KV namespaces' HTTP caches, by URL.
     kv: crate::conformance_kv::KvBridges,
     /// Session verifiers for the tests' own `CLERK_JWT_KEY`, by key.
@@ -301,7 +302,7 @@ impl Pools {
         }
     }
 
-    fn get(&self, url: &str) -> Result<PgPool, ApiError> {
+    pub(crate) fn get(&self, url: &str) -> Result<PgPool, ApiError> {
         let mut pools = self
             .databases
             .lock()
