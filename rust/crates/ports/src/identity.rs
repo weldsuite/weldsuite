@@ -69,6 +69,9 @@ pub enum IdentityError {
         status: u16,
         code: Option<String>,
         message: Option<String>,
+        /// The answer's body as text, when it had one (what a route that
+        /// passes the provider's refusal on shows, `await res.text()`).
+        body: Option<String>,
     },
 }
 
@@ -103,6 +106,7 @@ impl IdentityError {
                 status,
                 code,
                 message,
+                ..
             } if (400..500).contains(status) => [code, message]
                 .iter()
                 .any(|text| text.as_deref().is_some_and(mentions_slug)),
@@ -630,6 +634,7 @@ fn not_found() -> IdentityError {
         status: 404,
         code: Some("resource_not_found".to_owned()),
         message: None,
+        body: None,
     }
 }
 
@@ -873,6 +878,7 @@ impl Identity for MemoryIdentity {
                         status: 400,
                         code: Some("already_a_member_in_organization".to_owned()),
                         message: None,
+                        body: None,
                     });
                 }
                 let id = s.next("orgmem");
@@ -1140,6 +1146,7 @@ impl Identity for MemoryIdentity {
                         status: 422,
                         code: Some("form_identifier_exists".to_owned()),
                         message: Some("That slug is taken.".to_owned()),
+                        body: None,
                     });
                 }
                 let id = s.next("org");
@@ -1285,6 +1292,7 @@ mod tests {
                 status: 503,
                 code: None,
                 message: None,
+                body: None,
             });
             Arc::new(memory)
         };

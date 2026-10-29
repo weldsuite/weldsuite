@@ -14,7 +14,8 @@ use axum::response::IntoResponse;
 use serde_json::{Value, json};
 use weldsuite_adapters_oss::{ZitadelIdentity, ZitadelOptions};
 use weldsuite_ports::{
-    Identity, IdentityError, ListPage, NewInvitation, NewMembership, OrganizationChanges,
+    Identity, IdentityChange, IdentityError, ListPage, NewInvitation, NewMembership,
+    NewOrganization, OrganizationChanges, UserChanges,
 };
 
 const PROJECT: &str = "397239406596980739";
@@ -301,8 +302,13 @@ async fn organizations_keep_slug_and_cap_in_metadata() {
         .expect("updated");
     let seen = seen.lock().expect("lock").clone();
     assert_eq!(seen[2].body, json!({ "name": "Acme Inc" }));
-    assert_eq!(seen[3].body, json!({ "value": "YWNtZS1pbmM=" }));
-    assert_eq!(seen[4].method, "DELETE", "a cap of 0 removes it");
+    // A rename that Zitadel took drops the stored name (weldsuite.name).
+    assert_eq!(
+        (seen[3].method.as_str(), seen[3].path.as_str()),
+        ("DELETE", "/management/v1/metadata/weldsuite.name")
+    );
+    assert_eq!(seen[4].body, json!({ "value": "YWNtZS1pbmM=" }));
+    assert_eq!(seen[5].method, "DELETE", "a cap of 0 removes it");
     assert!(seen.iter().all(|s| s.org.as_deref() == Some(ORG)));
 }
 
@@ -532,4 +538,173 @@ async fn live_zitadel_invite_member_role_and_revoke() {
     .await;
     identity.delete_organization(&other).await.expect("deleted");
     identity.delete_organization(&org).await.expect("deleted");
+}
+
+/// Onboarding's calls: a new workspace's organization (with the project
+/// grant, metadata and its creator as an admin), a name another
+/// organization has, the user's name and metadata, and the change feed the
+/// identity sync polls.
+#[tokio::test(flavor = "multi_thread")]
+#[allow(clippy::too_many_lines)] // one scenario, in order
+async fn live_zitadel_onboarding_and_the_change_feed() {
+    let Some(live) = live() else {
+        eprintln!("WELDSUITE_TEST_ZITADEL_* not set; skipping");
+        return;
+    };
+    let identity = &live.identity;
+    let suffix = std::process::id();
+    let since = jiff::Timestamp::now().to_string();
+
+    // The creator: a signed-up (verified) person.
+    let email = format!("founder-{suffix}@example.test");
+    let created = live
+        .raw(
+            "/v2/users/human",
+            json!({
+                "username": email,
+                "profile": { "givenName": "Ana", "familyName": "Silva" },
+                "email": { "email": email, "isVerified": true },
+            }),
+        )
+        .await;
+    let user = created["userId"].as_str().expect("user id").to_owned();
+
+    let name = format!("Onboarded {suffix}");
+    let new = NewOrganization {
+        name: name.clone(),
+        slug: Some(format!("onboarded-{suffix}")),
+        created_by: Some(user.clone()),
+        public_metadata: Some(json!({ "selectedApps": ["crm"], "region": null })),
+        private_metadata: Some(json!({ "partnerOwnerInvite": { "email": "o@example.test" } })),
+    };
+    let org = identity.create_organization(&new).await.expect("created");
+    assert_eq!(org.name, name);
+    let read = identity.organization(&org.id).await.expect("read");
+    assert_eq!(read.name, name);
+    assert_eq!(
+        read.slug.as_deref(),
+        Some(format!("onboarded-{suffix}").as_str())
+    );
+    assert_eq!(read.public_metadata, json!({ "selectedApps": ["crm"] }));
+    assert_eq!(
+        read.private_metadata,
+        json!({ "partnerOwnerInvite": { "email": "o@example.test" } })
+    );
+    let members = eventually(async || {
+        let list = identity
+            .memberships(&org.id, ListPage::default())
+            .await
+            .ok()?;
+        (list.data.len() == 1).then_some(list)
+    })
+    .await;
+    assert_eq!(members.data[0].user.user_id, user);
+    assert_eq!(members.data[0].role, "org:admin");
+
+    // Merging metadata: a key replaced, one removed, the rest kept.
+    identity
+        .update_organization_metadata(
+            &org.id,
+            Some(&json!({ "country": "NL", "selectedApps": null })),
+            Some(&json!({ "partnerOwnerInvite": null })),
+        )
+        .await
+        .expect("org metadata");
+    let read = identity.organization(&org.id).await.expect("read");
+    assert_eq!(read.public_metadata, json!({ "country": "NL" }));
+    assert_eq!(read.private_metadata, Value::Null);
+
+    // Zitadel's names are unique per instance: the second keeps its own name
+    // in metadata and shows Zitadel `Name (slug)`.
+    let twin = identity
+        .create_organization(&NewOrganization {
+            name: name.clone(),
+            slug: Some(format!("twin-{suffix}")),
+            ..NewOrganization::default()
+        })
+        .await
+        .expect("twin");
+    assert_ne!(twin.id, org.id);
+    assert_eq!(
+        identity.organization(&twin.id).await.expect("twin").name,
+        name
+    );
+
+    // The user's name and metadata.
+    identity
+        .update_user(
+            &user,
+            &UserChanges {
+                first_name: Some("Ana Maria".to_owned()),
+                last_name: Some(String::new()),
+            },
+        )
+        .await
+        .expect("name");
+    identity
+        .update_user_metadata(&user, &json!({ "primaryRole": "cto", "phone": "+31" }))
+        .await
+        .expect("metadata");
+    identity
+        .update_user_metadata(&user, &json!({ "phone": null, "productUpdates": false }))
+        .await
+        .expect("metadata merge");
+    let profile = identity.user_profile(&user).await.expect("profile");
+    assert_eq!(profile.first_name.as_deref(), Some("Ana Maria"));
+    // An empty name is left as it was (Zitadel needs one).
+    assert_eq!(profile.last_name.as_deref(), Some("Silva"));
+    assert_eq!(profile.primary_email(), Some(email.as_str()));
+
+    // The change feed names the organization, the user and the membership.
+    let changes = eventually(async || {
+        let changes = identity.changes_since(Some(&since), 1000).await.ok()?;
+        changes
+            .iter()
+            .any(|c| {
+                matches!(&c.change, IdentityChange::Membership { org: o, user_id: u }
+                    if *o == org.id && *u == user)
+            })
+            .then_some(changes)
+    })
+    .await;
+    assert!(changes.iter().any(|c| c.change
+        == IdentityChange::Organization {
+            org: org.id.clone(),
+            removed: false
+        }));
+    assert!(changes.iter().any(|c| c.change
+        == IdentityChange::User {
+            user_id: user.clone(),
+            removed: false
+        }));
+    assert!(changes.windows(2).all(|pair| pair[0].at <= pair[1].at));
+    // `since` is inclusive: the newest change is seen again from its own time.
+    let last = changes.last().expect("a change").clone();
+    let again = identity
+        .changes_since(Some(&last.at), 1000)
+        .await
+        .expect("again");
+    assert!(again.contains(&last));
+
+    identity
+        .delete_organization(&twin.id)
+        .await
+        .expect("deleted");
+    identity
+        .delete_organization(&org.id)
+        .await
+        .expect("deleted");
+    identity.delete_user(&user).await.expect("user deleted");
+    let removed = eventually(async || {
+        let changes = identity.changes_since(Some(&last.at), 1000).await.ok()?;
+        changes.into_iter().find(|c| {
+            c.change
+                == IdentityChange::User {
+                    user_id: user.clone(),
+                    removed: true,
+                }
+        })
+    })
+    .await;
+    assert!(removed.at >= last.at);
 }

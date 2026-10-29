@@ -115,6 +115,7 @@ impl BridgedClerk {
                 .as_str()
                 .or_else(|| first["message"].as_str())
                 .map(str::to_owned),
+            body: Some(text),
         })
     }
 }
