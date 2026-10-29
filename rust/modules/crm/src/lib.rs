@@ -24,6 +24,7 @@ mod pipeline_stages;
 mod pipelines;
 mod record_chat;
 mod schema;
+mod sequences;
 
 use std::sync::Arc;
 
@@ -79,6 +80,10 @@ pub struct CrmState {
 }
 
 pub use record_chat::ServiceBinding;
+pub use sequences::{JobsSequenceRuns, RequestSequenceRuns, RunStart, SequenceRuns};
+pub use weldsuite_crm_domain::sequence_run::{
+    EXECUTE_SEQUENCE_JOB, ExecuteSequenceJob, SEQUENCE_RESUME_EVENT, TenantDatabases,
+};
 
 /// Every crm-api route, at its full path under `/api` (`/companies`,
 /// `/leads/{id}`, …), to merge into the `/api` router behind the session,
@@ -194,6 +199,55 @@ where
         .route(
             "/people/{id}/chat/follow",
             post(record_chat::person_follow).delete(record_chat::person_unfollow),
+        )
+        // Sequences (the `contacts` permissions, as crm-api has them)
+        .route(
+            "/sequences",
+            get(sequences::list).route_layer(need(keys::CONTACTS_READ)),
+        )
+        .route(
+            "/sequences/{id}",
+            get(sequences::detail).route_layer(need(keys::CONTACTS_READ)),
+        )
+        .route(
+            "/sequences/{id}/enrollments",
+            get(sequences::enrollments).route_layer(need(keys::CONTACTS_READ)),
+        )
+        .route(
+            "/sequences/enrollments/{enrollmentId}",
+            delete(sequences::unenroll).route_layer(need(keys::CONTACTS_UPDATE)),
+        )
+        .route(
+            "/sequences/{id}/enroll",
+            post(sequences::enroll).route_layer(need(keys::CONTACTS_CREATE)),
+        )
+        .route(
+            "/sequences/{id}/launch",
+            post(sequences::launch).route_layer(need(keys::CONTACTS_UPDATE)),
+        )
+        .route(
+            "/sequences/{id}/start",
+            post(sequences::start).route_layer(need(keys::CONTACTS_UPDATE)),
+        )
+        .route(
+            "/sequences/{id}/resume",
+            post(sequences::resume).route_layer(need(keys::CONTACTS_UPDATE)),
+        )
+        .route(
+            "/sequences/{id}/pause",
+            post(sequences::pause).route_layer(need(keys::CONTACTS_UPDATE)),
+        )
+        .route(
+            "/sequences/{id}/enrollments/{enrollmentId}/pause",
+            patch(sequences::pause_enrollment).route_layer(need(keys::CONTACTS_UPDATE)),
+        )
+        .route(
+            "/sequences/{id}/enrollments/{enrollmentId}/resume",
+            patch(sequences::resume_enrollment).route_layer(need(keys::CONTACTS_UPDATE)),
+        )
+        .route(
+            "/customer-sequences/{customerId}",
+            get(sequences::customer_sequences).route_layer(need(keys::CONTACTS_READ)),
         )
         // Customer statuses
         .route(
@@ -379,6 +433,10 @@ pub(crate) struct Caller {
     pub(crate) events: EventContext,
     pub(crate) env: Option<RequestEnv>,
     pub(crate) files: Option<FileStores>,
+    /// `c.get('clerkOrgId')`.
+    pub(crate) clerk_org_id: Option<String>,
+    /// The request's own `EXECUTE_SEQUENCE` (conformance).
+    pub(crate) sequence_runs: Option<RequestSequenceRuns>,
     /// This request's events, sent in publish order.
     outbox: std::sync::OnceLock<OrderedEvents>,
 }
@@ -477,6 +535,8 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     events: EventContext::for_request(auth, tenant),
                     env: parts.extensions.get::<RequestEnv>().cloned(),
                     files: parts.extensions.get::<FileStores>().cloned(),
+                    clerk_org_id: tenant.clerk_org_id.clone(),
+                    sequence_runs: parts.extensions.get::<RequestSequenceRuns>().cloned(),
                     outbox: std::sync::OnceLock::new(),
                 })
             } else {

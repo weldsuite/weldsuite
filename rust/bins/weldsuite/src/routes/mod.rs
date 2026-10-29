@@ -131,6 +131,19 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         jobs: Some(Arc::clone(&state.infra.jobs)),
         env: Arc::new(weldsuite_crm::env_from_process()),
     };
+    // Sequence runs, where the jobs adapter calls them. Customer mail goes
+    // out once the deployment has a customer-mail transport and ledgers:
+    // until then a send step fails as crm-api does without `SEND_EMAIL`.
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_crm::ExecuteSequenceJob {
+            tenants: tenant_databases(state),
+            outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+            master: Some(state.workspaces.master().clone()),
+            cache: state.infra.cache.clone(),
+            realtime: state.infra.realtime.clone(),
+        });
     router.merge(weldsuite_crm::router(
         weldsuite_crm::CrmState {
             services,

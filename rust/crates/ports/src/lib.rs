@@ -54,8 +54,8 @@ pub use identity::{
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
-    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, StepFn, StepRetry,
-    step,
+    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL,
+    StepFn, StepRetry, step,
 };
 pub use ledger_store::{LedgerChanges, LedgerSnapshot, LedgerStore, MemoryLedgerStore};
 pub use mail::{

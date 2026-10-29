@@ -18,7 +18,8 @@
 //!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." },     // the test's KV, over HTTP
 //!   "outbound": "http://127.0.0.1:...",   // third-party calls, through the test's fetch stub
 //!   "sendEmail": "http://127.0.0.1:...",  // the test's SEND_EMAIL binding (customer mail)
-//!   "ledgers": { "OUTBOUND_LEDGER": "http://127.0.0.1:..." } } // its outbound-guard namespaces
+//!   "ledgers": { "OUTBOUND_LEDGER": "http://127.0.0.1:..." }, // its outbound-guard namespaces
+//!   "workflows": { "EXECUTE_SEQUENCE": "http://127.0.0.1:..." } } // its Workflow bindings
 //! ```
 //!
 //! The routes that run before authentication (`/api/storage/upload/:token`,
@@ -219,6 +220,9 @@ struct TestContext {
     /// Its `OUTBOUND_LEDGER` / `OUTBOUND_PLATFORM` namespaces over HTTP.
     #[serde(default)]
     ledgers: HashMap<String, String>,
+    /// Its Workflow bindings over HTTP (`conformance_workflows`).
+    #[serde(default)]
+    workflows: HashMap<String, String>,
 }
 
 impl TestContext {
@@ -261,6 +265,8 @@ pub(crate) struct Pools {
     outbound: crate::conformance_outbound::OutboundBridges,
     /// The test's customer-mail transport and outbound ledgers.
     mail: crate::conformance_mail::MailBridges,
+    /// The test's Workflow bindings.
+    workflows: crate::conformance_workflows::WorkflowBridges,
 }
 
 impl Pools {
@@ -313,6 +319,10 @@ impl Pools {
         extensions.insert(weldsuite_mail_domain::outbound::RequestOutbound(
             self.mail
                 .bindings(context.send_email.as_deref(), &context.ledgers),
+        ));
+        // Sequence runs start on the test's `EXECUTE_SEQUENCE`, or nowhere.
+        extensions.insert(weldsuite_crm::RequestSequenceRuns(
+            self.workflows.sequence_runs(&context.workflows),
         ));
         // The identity provider answers from the test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {

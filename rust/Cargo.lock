@@ -3974,6 +3974,7 @@ name = "weldsuite-crm"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "futures-util",
  "http",
  "serde_json",
  "sqlx",
@@ -3996,6 +3997,7 @@ dependencies = [
 name = "weldsuite-crm-domain"
 version = "0.0.0"
 dependencies = [
+ "regex",
  "serde",
  "serde_json",
  "sqlx",

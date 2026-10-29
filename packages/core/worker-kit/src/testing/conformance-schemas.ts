@@ -177,6 +177,14 @@ import {
   recordNavigationSchema,
 } from '@weldsuite/app-api-client/schemas/companies';
 import { customerStatusSchema } from '@weldsuite/app-api-client/schemas/customer-statuses';
+import {
+  customerSequenceRowSchema,
+  sequenceActionResultSchema,
+  sequenceDetailSchema,
+  sequenceEnrollResultSchema,
+  sequenceEnrollmentRowSchema,
+  sequenceRowSchema,
+} from '@weldsuite/core-api-client/schemas/sequences';
 import { pipelineFieldVisibilitySchema } from '@weldsuite/app-api-client/schemas/pipeline-field-visibility';
 import { activitySchema } from '@weldsuite/core-api-client/schemas/activities';
 import {
@@ -525,6 +533,18 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/companies/:id/people', envelope: 'array', data: companyPersonLinkSchema },
   { method: 'GET', route: '/api/companies/:id/detail', envelope: 'single', data: companyDetailSchema },
   { method: 'GET', route: '/api/companies/:id/navigation', envelope: 'single', data: recordNavigationSchema },
+  // crm: sequences
+  { method: 'GET', route: '/api/sequences', envelope: 'list', data: sequenceRowSchema },
+  { method: 'GET', route: '/api/sequences/:id', envelope: 'single', data: sequenceDetailSchema },
+  { method: 'GET', route: '/api/sequences/:id/enrollments', envelope: 'list', data: sequenceEnrollmentRowSchema },
+  { method: 'POST', route: '/api/sequences/:id/enroll', envelope: 'single', data: sequenceEnrollResultSchema },
+  { method: 'POST', route: '/api/sequences/:id/launch', envelope: 'single', data: sequenceActionResultSchema },
+  { method: 'POST', route: '/api/sequences/:id/start', envelope: 'single', data: sequenceActionResultSchema },
+  { method: 'POST', route: '/api/sequences/:id/resume', envelope: 'single', data: sequenceActionResultSchema },
+  { method: 'POST', route: '/api/sequences/:id/pause', envelope: 'single', data: sequenceActionResultSchema },
+  { method: 'PATCH', route: '/api/sequences/:sequenceId/enrollments/:enrollmentId/pause', envelope: 'single', data: sequenceActionResultSchema },
+  { method: 'PATCH', route: '/api/sequences/:sequenceId/enrollments/:enrollmentId/resume', envelope: 'single', data: sequenceActionResultSchema },
+  { method: 'GET', route: '/api/customer-sequences/:customerId', envelope: 'list', data: customerSequenceRowSchema },
   // crm: end
   // mail (outbound): the customer's sending limits and the guard's staff API
   { method: 'GET', route: '/api/mail-sending/usage', envelope: 'single', data: outboundUsageSchema.nullable() },

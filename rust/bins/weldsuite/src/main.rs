@@ -16,6 +16,8 @@ mod conformance_kv;
 mod conformance_mail;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
+#[cfg(feature = "conformance")]
+mod conformance_workflows;
 mod cron;
 mod infra;
 mod routes;

@@ -6,8 +6,8 @@
 //! - `WELDSUITE_TEST_RESTATE_ENDPOINT_HOST`: how the Restate server reaches
 //!   this test process (`host.docker.internal` for a container).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -56,8 +56,54 @@ impl Job for Counting {
     }
 }
 
+/// Naps, then waits three times: for a signal sent during the nap (kept, so
+/// `true` at once), for one that never comes (`false` after a second), and
+/// for one sent while it is parked (`true`).
+struct Waiting {
+    /// What each wait answered; by index, so a replay rewrites the same slot.
+    outcomes: Arc<Mutex<[Option<bool>; 3]>>,
+    /// Set just before the third wait parks.
+    parking: Arc<AtomicU32>,
+}
+
+impl Job for Waiting {
+    fn name(&self) -> &'static str {
+        "test.waiting"
+    }
+
+    fn run<'a>(
+        &'a self,
+        ctx: &'a dyn JobContext,
+        _payload: Value,
+    ) -> BoxFuture<'a, Result<(), JobError>> {
+        Box::pin(async move {
+            let record = |wait: usize, woke: bool| {
+                self.outcomes.lock().unwrap_or_else(PoisonError::into_inner)[wait] = Some(woke);
+            };
+            ctx.sleep("nap", Duration::from_millis(500)).await?;
+            record(
+                0,
+                ctx.wait_for_signal("kept", "go", Duration::from_secs(60))
+                    .await?,
+            );
+            record(
+                1,
+                ctx.wait_for_signal("never", "never", Duration::from_secs(1))
+                    .await?,
+            );
+            self.parking.store(1, Ordering::SeqCst);
+            record(
+                2,
+                ctx.wait_for_signal("parked", "again", Duration::from_secs(60))
+                    .await?,
+            );
+            Ok(())
+        })
+    }
+}
+
 #[tokio::test]
-async fn jobs_run_once_per_key_with_retried_steps() {
+async fn jobs_run_steps_sleeps_and_signals_on_restate() {
     let (Ok(ingress), Ok(admin), Ok(host)) = (
         std::env::var("WELDSUITE_TEST_RESTATE_INGRESS"),
         std::env::var("WELDSUITE_TEST_RESTATE_ADMIN"),
@@ -70,11 +116,19 @@ async fn jobs_run_once_per_key_with_retried_steps() {
     let runs = Arc::new(AtomicU32::new(0));
     let attempts = Arc::new(AtomicU32::new(0));
     let done = Arc::new(AtomicU32::new(0));
+    let outcomes = Arc::new(Mutex::new([None; 3]));
+    let parking = Arc::new(AtomicU32::new(0));
+    // One registry and endpoint for every scenario: registering a second
+    // deployment would take the services over from the first.
     let registry = JobRegistry::new();
     registry.register(Counting {
         runs: Arc::clone(&runs),
         attempts: Arc::clone(&attempts),
         done: Arc::clone(&done),
+    });
+    registry.register(Waiting {
+        outcomes: Arc::clone(&outcomes),
+        parking: Arc::clone(&parking),
     });
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
@@ -113,6 +167,39 @@ async fn jobs_run_once_per_key_with_retried_steps() {
     assert!(attempts.load(Ordering::SeqCst) >= 2, "the step was retried");
     // A retried step replays the invocation; it never starts a second one.
     assert!(runs.load(Ordering::SeqCst) >= 1);
+
+    // Sleeps and signals.
+    let key = format!(
+        "w-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let request = JobRequest::new("test.waiting", &key, &json!({})).expect("a request");
+    jobs.start(request).await.expect("started");
+    // During the nap: nothing is parked yet, so the signal is kept.
+    jobs.signal("test.waiting", &key, "go")
+        .await
+        .expect("signalled");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while parking.load(Ordering::SeqCst) == 0 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let third_answered = || outcomes.lock().unwrap_or_else(PoisonError::into_inner)[2].is_some();
+    while !third_answered() && tokio::time::Instant::now() < deadline {
+        // Kept if the wait is not parked yet; it then returns at once.
+        jobs.signal("test.waiting", &key, "again")
+            .await
+            .expect("signalled");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(
+        *outcomes.lock().unwrap_or_else(PoisonError::into_inner),
+        [Some(true), Some(false), Some(true)],
+        "kept signal, timeout, parked signal"
+    );
 
     let _ = stop.send(());
     let _ = server.await;
