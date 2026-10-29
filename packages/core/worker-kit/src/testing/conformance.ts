@@ -470,6 +470,13 @@ const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
  * random `-<4 characters>` on `POST /api/tickets`): new per run.
  */
 const GENERATED_TICKET_NUMBER = /^TKT-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
+/**
+ * A custom WeldFlow pipeline stage's id (`slugifyStage`): a slug of its name,
+ * `_`, and 4 random base36 characters, new per run by construction. A stage
+ * created without a system status uses its id as one.
+ */
+const STAGE_SLUG_ID = /^[a-z0-9](?:[a-z0-9_]{0,23}[a-z0-9])?_[0-9a-z]{4}$/;
+const STAGE_SLUG_KEYS = new Set(['id', 'entityId', 'systemStatus']);
 /** Seconds either side of now an `expiresAt` may be, to count as one minted by the request. */
 const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
 /**
@@ -546,6 +553,7 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
   // A realtime publish to a room the request just created (`/publish/chat/ch_<id>`).
   if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
+  if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential, then any other `Date.now()` (the key's segment holds one).
   return value
@@ -906,8 +914,22 @@ async function replayableBody(body: BodyInit | null | undefined, headers: Header
   return new Uint8Array(await serialised.arrayBuffer());
 }
 
+/**
+ * The conformance request in flight. Requests a test fires at once
+ * (`Promise.all`) run one after the other here: each one runs on both
+ * backends and reads its side effects from recorders the two share, so
+ * overlapping requests could not tell their events apart.
+ */
+let inFlight: Promise<unknown> = Promise.resolve();
+
 /** Run one test request against Rust and TypeScript, compare, and return Rust's response. */
-export async function conformanceRequest(request: ConformanceRequest): Promise<Response> {
+export function conformanceRequest(request: ConformanceRequest): Promise<Response> {
+  const run = inFlight.then(() => runConformanceRequest(request));
+  inFlight = run.catch(() => undefined);
+  return run;
+}
+
+async function runConformanceRequest(request: ConformanceRequest): Promise<Response> {
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();

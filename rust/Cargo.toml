@@ -37,6 +37,8 @@ weldsuite-desk = { path = "modules/desk" }
 weldsuite-desk-domain = { path = "crates/desk-domain" }
 weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
+weldsuite-flow = { path = "modules/flow" }
+weldsuite-flow-domain = { path = "crates/flow-domain" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
 weldsuite-mail = { path = "modules/mail" }

@@ -32,7 +32,8 @@ vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>(
     '@weldsuite/entity-events',
   );
-  return { ...actual, publishEntityEvent: vi.fn() };
+  // A spy that still publishes: conformance mode compares the events.
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 const router = new Hono<{ Bindings: Env; Variables: Variables }>();

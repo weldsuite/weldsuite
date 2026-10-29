@@ -101,6 +101,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = calendar(router, state);
     let router = chat(router, state);
     let router = desk(router, state);
+    let router = flow(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -317,6 +318,59 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
         master: Some(state.workspaces.master().clone()),
     }
+}
+
+/// WeldFlow (`weldsuite-flow`): flow-api's prefixes, and the
+/// `flow.import-tasks` job.
+fn flow(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("flow") {
+        return router;
+    }
+    let flow = flow_state(state);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_flow::ImportTasksJob {
+            tenants: Some(flow_tenants(state)),
+            storage: state.infra.public_files.clone(),
+        });
+    weldsuite_flow::routers(&flow, &state.permissions)
+        .into_iter()
+        .fold(router, |router, (prefix, routes)| {
+            router.nest(prefix, routes)
+        })
+}
+
+/// WeldFlow's handle on the app: events, files, the master database, jobs.
+pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
+    weldsuite_flow::FlowState {
+        events: state.infra.events.clone(),
+        // Conformance builds use only the buckets a test shares (`StorageBuckets`),
+        // as a worker without `STORAGE` / `PRIVATE_STORAGE` runs without them.
+        files: file_stores(state).filter(|_| !cfg!(feature = "conformance")),
+        // Conformance builds have no master database of their own: a test
+        // that shares one hands it in per request (`MasterDb`), as the
+        // workers write their due index only when bound.
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+        public_files_url: state.files_public_url.clone(),
+        calendar: Arc::new(weldsuite_flow::calendar::PinnedOnly),
+    }
+}
+
+/// A workspace's tenant database for WeldFlow's jobs.
+fn flow_tenants(state: &AppState) -> weldsuite_flow::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
 }
 
 /// WeldPass: the root keys (`WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2`)
