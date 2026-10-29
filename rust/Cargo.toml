@@ -26,6 +26,7 @@ weldsuite-db = { path = "crates/db" }
 weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
+weldsuite-sign = { path = "modules/sign" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }

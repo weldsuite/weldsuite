@@ -2850,6 +2850,7 @@ dependencies = [
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
+ "weldsuite-sign",
 ]
 
 [[package]]
@@ -3026,6 +3027,27 @@ dependencies = [
  "tokio",
  "tracing",
  "weldsuite-catalogs",
+]
+
+[[package]]
+name = "weldsuite-sign"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "hex",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
 ]
 
 [[package]]

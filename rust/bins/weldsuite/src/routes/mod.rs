@@ -28,14 +28,23 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             "/access-requests/{id}",
             patch(access_requests::resolve).route_layer(state.permissions.require(["team:update"])),
         );
-    if mounts("know") {
+    let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),
         };
-        return router.nest(
+        router.nest(
             "/knowledge",
             weldsuite_know::router(know, &state.permissions),
-        );
+        )
+    } else {
+        router
+    };
+    if mounts("sign") {
+        let sign = weldsuite_sign::SignState {
+            events: state.infra.events.clone(),
+            session_secret: state.sign_session_secret.clone(),
+        };
+        return router.nest("/sign", weldsuite_sign::router(sign, &state.permissions));
     }
     router
 }

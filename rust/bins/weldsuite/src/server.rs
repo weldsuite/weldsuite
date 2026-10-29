@@ -46,6 +46,8 @@ pub(crate) struct AppState {
     /// `requirePermission(...)` for the routes.
     pub(crate) permissions: Arc<PermissionGate<TenantPermissionQueries>>,
     pub(crate) flags: Arc<FlagGate>,
+    /// `SIGN_SESSION_SECRET`, for WeldSign.
+    pub(crate) sign_session_secret: Option<Arc<str>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -332,6 +334,7 @@ mod tests {
                 "test",
                 None,
             )),
+            sign_session_secret: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
         }

@@ -49,6 +49,9 @@ pub(crate) struct Config {
     /// connections, so the Service stops routing to the pod first.
     pub(crate) shutdown_delay: Duration,
     pub(crate) infra: InfraConfig,
+    /// `SIGN_SESSION_SECRET`: keys WeldSign's signer sessions and the stored
+    /// hash of access codes; the same value as the TypeScript workers'.
+    pub(crate) sign_session_secret: Option<String>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -278,6 +281,7 @@ impl Config {
             log_format,
             shutdown_delay: Duration::from_secs(shutdown_delay),
             infra,
+            sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
         })
     }
 }

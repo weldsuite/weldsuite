@@ -203,6 +203,9 @@ pub(crate) async fn auth(
     if let Some(enforced) = app_enforced {
         extensions.insert(AppEnforcedOverride(enforced));
     }
+    extensions.insert(weldsuite_kit::RequestEnv(std::sync::Arc::new(
+        context.env.clone(),
+    )));
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
         extensions.insert(Permissions::new(

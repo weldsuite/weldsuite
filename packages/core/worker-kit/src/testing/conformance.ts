@@ -72,7 +72,7 @@ export const CONFORMANCE_HEADER = 'X-Weld-Conformance';
 export const ROUTE_HEADER = 'X-Weld-Route';
 
 /** Env bindings the Rust server honours per request in conformance mode. */
-const FORWARDED_ENV = ['PERMISSIONS_APP_ENFORCE'] as const;
+const FORWARDED_ENV = ['PERMISSIONS_APP_ENFORCE', 'SIGN_SESSION_SECRET'] as const;
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
