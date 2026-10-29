@@ -158,6 +158,38 @@ export function bucketUrlFor(bucket: BucketLike): Promise<string> {
   return url;
 }
 
+/** The part of a KV namespace (`createMemoryKv()`) the bridge serves. */
+export interface KvLike {
+  get(key: string): Promise<string | null>;
+  put(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
+const kvBuckets = new WeakMap<object, BucketLike>();
+
+/**
+ * A KV namespace served like a bucket, one value per object (its UTF-8
+ * bytes): Rust's cache port reads and writes the test's namespace through
+ * it (`conformance_portal.rs`).
+ */
+export function kvBucketUrl(kv: KvLike): Promise<string> {
+  let bucket = kvBuckets.get(kv);
+  if (!bucket) {
+    bucket = {
+      get: async (key: string) => {
+        const value = await kv.get(key);
+        return value === null ? null : { arrayBuffer: async () => new TextEncoder().encode(value).buffer };
+      },
+      put: (key: string, value: Uint8Array) => kv.put(key, new TextDecoder().decode(value)),
+      delete: async (keys: string | string[]) => {
+        for (const key of Array.isArray(keys) ? keys : [keys]) await kv.delete(key);
+      },
+    };
+    kvBuckets.set(kv, bucket);
+  }
+  return bucketUrlFor(bucket);
+}
+
 /** The bucket bindings the Rust server can read through the bridge. */
 export const BUCKET_BINDINGS = ['PRIVATE_STORAGE', 'STORAGE'] as const;
 

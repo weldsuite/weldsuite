@@ -5,18 +5,16 @@
  * finalized into one PDF with a certificate whose hash is recorded.
  *
  * The portal half runs @weldsuite/sign-domain/portal directly, as
- * apps/web/sign-portal does. Also: codes, consent, required fields, decline,
- * expiry, the signer's IP and browser on the evidence trail, and finishing
- * again when finalizing could not start.
+ * apps/web/sign-portal does on Global (./test/sign-portal.ts). Also: codes,
+ * consent, required fields, decline, expiry, the signer's IP and browser on
+ * the evidence trail, and finishing again when finalizing could not start.
  *
  * In conformance mode (CONFORMANCE_TARGET=rust) every member request also runs
- * on the Rust backend. The signer portal is the next stage of that port
- * (ADR FE-017: on Kubernetes the portal calls the backend): until it lands,
- * the tests that are about the portal run on TypeScript only
- * (`it.skipIf(PORTAL_STAGE)`), and the portal checks inside member tests are
- * skipped (`portalChecks`). The plan allowance needs the usage meter, which
- * the Kubernetes editions don't have yet, so its 402 tests are TypeScript
- * only too.
+ * on the Rust backend, and so does every portal call: on Kubernetes the portal
+ * calls the backend's /public/sign-portal endpoints (ADR FE-017), and both
+ * answers, the finalizing the last signature starts included, are compared.
+ * The plan allowance needs the usage meter, which the Kubernetes editions
+ * don't have yet, so its 402 tests are TypeScript only.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,10 +39,12 @@ import type {
   SignRecipientDto,
 } from '@weldsuite/app-api-client/schemas/weldsign';
 import envelopesRoutes from './routes/envelopes';
-import { createSignPortal, type PortalContext, type SignerMeta } from '@weldsuite/sign-domain/portal';
+import { createSignPortal, type SignerMeta } from '@weldsuite/sign-domain/portal';
+import { finalizeEnvelope } from '@weldsuite/sign-domain/finalize-envelope';
+import { portalCaller } from './test/sign-portal';
 import { advanceAfterSigning, sendEnvelope } from '@weldsuite/sign-domain/sending';
 import { buildFinalPdf, notifyCompleted } from '@weldsuite/sign-domain/finalize';
-import { sha256Hex } from '@weldsuite/sign-domain/hash';
+import { codeHash, sha256Hex } from '@weldsuite/sign-domain/hash';
 import { completeSigning, loadSigner } from '@weldsuite/sign-domain/signing';
 import type { Env } from './types';
 
@@ -69,18 +69,13 @@ vi.mock('@weldsuite/mail-domain/outbound', async (importOriginal) => {
 });
 // The lifecycle routes open the master DB themselves. In conformance mode the
 // TypeScript side of a write gets a copy taken before Rust wrote the shared one.
-const dbs = vi.hoisted(() => ({ master: null as unknown }));
+// Finalizing opens the tenant DB of the portal call that started it.
+const dbs = vi.hoisted(() => ({ master: null as unknown, tenant: null as unknown }));
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
-  return { ...actual, getMasterDb: () => conformanceMasterDb(dbs.master) };
+  return { ...actual, getMasterDb: () => conformanceMasterDb(dbs.master), getTenantDbForWorkspace: async () => dbs.tenant };
 });
 
-/**
- * The signer portal's half of a test: in conformance mode it is the next
- * stage of the Rust port, so those tests and checks run on TypeScript only.
- */
-const PORTAL_STAGE = conformanceTarget() !== null;
-const portalChecks = !PORTAL_STAGE;
 /** The plan allowance needs the usage meter, which the Kubernetes editions have no counterpart of yet. */
 const NO_METER = conformanceTarget() !== null;
 
@@ -127,6 +122,7 @@ function env(): Env {
     WORKSPACE_CACHE: kv,
     SIGN_CODE_ATTEMPTS: codeAttempts,
     SIGN_SESSION_SECRET: SECRET,
+    SIGN_PORTAL_SECRET: 'flow-portal-key',
     SIGN_PORTAL_URL: 'https://sign.test',
     ENVIRONMENT: 'test',
   } as unknown as Env;
@@ -186,39 +182,37 @@ function flakyWorkflow() {
 }
 
 /**
- * The signer portal as apps/web/sign-portal runs it: each path of its
- * `/api/*` routes maps to one operation of the domain portal, with the
- * signer's IP and browser it reads from the request.
+ * The signer portal as apps/web/sign-portal runs it (./test/sign-portal.ts),
+ * with the signer's IP and browser it reads from the request. Without a
+ * FINALIZE_ENVELOPE binding the last signature finalizes the request in the
+ * background, on the tenant DB of that call. In conformance mode each call
+ * runs on Rust too; `typescriptWorkflow` is then the Workflow stub TypeScript
+ * gets while Rust starts its jobs through the one in `extraEnv`.
  */
-function portal(extraEnv: Partial<Env> = {}, meta: SignerMeta = { ip: '203.0.113.9', userAgent: 'FlowTest/1.0' }) {
-  const ops = createSignPortal({
-    master: () => master,
-    workspace: async () => ({ id: WS, db, suspended: false }),
-    finalize: async (_env, params) => {
-      finalizeCalls.push(params);
-    },
+function portal(
+  extraEnv: Partial<Env> = {},
+  meta: SignerMeta = { ip: '203.0.113.9', userAgent: 'FlowTest/1.0' },
+  typescriptWorkflow?: unknown,
+) {
+  return portalCaller({
+    env: { ...env(), ...extraEnv } as unknown as Record<string, unknown>,
+    meta,
+    tenantDb: db,
+    masterDb: master,
+    workspaceId: WS,
+    orgId: ORG,
+    typescriptWorkflow,
+    portal: (tenantDb) =>
+      createSignPortal({
+        master: () => conformanceMasterDb(master),
+        workspace: async () => ({ id: WS, db: tenantDb, suspended: false }),
+        finalize: async (finalizeEnv, params) => {
+          finalizeCalls.push(params);
+          dbs.tenant = tenantDb;
+          await finalizeEnvelope(finalizeEnv, params);
+        },
+      }),
   });
-  const pending: Promise<unknown>[] = [];
-  return {
-    pending,
-    request: async (path: string, init: RequestInit = {}, session?: string): Promise<Response> => {
-      const ctx: PortalContext = { env: { ...env(), ...extraEnv }, meta, waitUntil: (p) => pending.push(p.catch(() => undefined)) };
-      const input: unknown = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
-      const document = /^\/documents\/(.+)$/.exec(path);
-      if (document) return ops.document(ctx, session, document[1]!);
-      switch (path) {
-        case '/session': return ops.openSession(ctx, input);
-        case '/verify': return ops.verify(ctx, input);
-        case '/resend-code': return ops.resendCode(ctx, input);
-        case '/envelope': return ops.envelope(ctx, session);
-        case '/consent': return ops.consent(ctx, session, input);
-        case '/complete': return ops.complete(ctx, session, input);
-        case '/decline': return ops.decline(ctx, session, input);
-        case '/download': return ops.download(ctx, session);
-        default: throw new Error(`no portal operation for ${path}`);
-      }
-    },
-  };
 }
 
 const json = (body: unknown, method = 'POST'): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -304,7 +298,7 @@ async function openAndConsent(p: ReturnType<typeof portal>, token: string): Prom
 }
 
 describe('signing flow', () => {
-  it.skipIf(PORTAL_STAGE)('runs from send to a signed PDF with a certificate', async () => {
+  it('runs from send to a signed PDF with a certificate', async () => {
     const { envelope, ann, bob } = await draftWithTwoSigners();
     expect(envelope.status).toBe('sent');
     expect(envelope.expiresAt).not.toBeNull();
@@ -354,26 +348,26 @@ describe('signing flow', () => {
     const bobView = await data<SignPortalEnvelope>(await p.request('/envelope', {}, bobOpen.session));
     const box = bobView.fields.find((f) => f.type === 'checkbox')!;
     expect((await p.request('/complete', json({ values: [{ fieldId: box.id, value: 'false' }], signature }), bobOpen.session)).status).toBe(400);
+
+    // Bob's is the last signature: it finalizes the request (no Workflow binding here, so in the background).
+    mail.transport = memoryTransport();
     await p.request('/complete', json({ values: [{ fieldId: box.id, value: 'true' }], signature }), bobOpen.session);
     await Promise.all(p.pending);
     expect(finalizeCalls).toEqual([{ clerkOrgId: ORG, workspaceId: WS, envelopeId: envelope.id }]);
 
-    // Finalize: one PDF (2 pages + certificate), hash recorded, everyone mailed.
-    const ctx = { env: env(), db, bucket: storage.bucket, clerkOrgId: ORG, master };
-    mail.transport = memoryTransport();
-    const built = await buildFinalPdf(ctx, envelope.id);
-    expect(built).not.toBeNull();
-    const stored = storage.objects.get(built!.key)!;
-    expect(await sha256Hex(stored)).toBe(built!.sha256);
+    // One PDF (2 pages + certificate), its hash recorded, everyone mailed.
+    const [done] = await db.select().from(schema.signEnvelopes).where(eq(schema.signEnvelopes.id, envelope.id));
+    expect(done).toMatchObject({ status: 'completed' });
+    const stored = storage.objects.get(done!.finalStorageKey!)!;
+    expect(await sha256Hex(stored)).toBe(done!.finalSha256);
     expect((await PDFDocument.load(stored)).getPageCount()).toBe(3);
-    await notifyCompleted(ctx, master, WS, envelope.id);
-    await notifyCompleted(ctx, master, WS, envelope.id); // idempotent
     const recipients = mail.transport.sent.map((m) => to(m)).sort();
     expect(recipients).toEqual(['ann@example.com', 'bob@example.com', 'carl@example.com', 'gert@example.com']);
     expect(mail.transport.sent.find((m) => to(m) === 'carl@example.com')?.attachments?.[0]?.contentType).toBe('application/pdf');
-
-    const [done] = await db.select().from(schema.signEnvelopes).where(eq(schema.signEnvelopes.id, envelope.id));
-    expect(done).toMatchObject({ status: 'completed', finalSha256: built!.sha256 });
+    // Telling everyone again sends nothing more.
+    mail.transport = memoryTransport();
+    await notifyCompleted({ env: env(), db, bucket: storage.bucket, clerkOrgId: ORG, master }, master, WS, envelope.id);
+    expect(mail.transport.sent).toHaveLength(0);
     const events = await db.select().from(schema.signEvents).where(eq(schema.signEvents.envelopeId, envelope.id));
     const types = events.map((e) => e.type);
     for (const t of ['created', 'sent', 'opened', 'code_failed', 'code_verified', 'consented', 'signed', 'completed', 'delivered']) {
@@ -390,7 +384,7 @@ describe('signing flow', () => {
     expect(bob.id).toBeTruthy();
   });
 
-  it.skipIf(PORTAL_STAGE)('closes the request for everyone when a signer declines', async () => {
+  it('closes the request for everyone when a signer declines', async () => {
     const { envelope } = await draftWithTwoSigners();
     const p = portal();
     const token = linksByRecipient().get('ann@example.com')!;
@@ -407,7 +401,7 @@ describe('signing flow', () => {
     expect(links.every((l) => l.revokedAt)).toBe(true);
   });
 
-  it.skipIf(PORTAL_STAGE)('reports an expired request as closed', async () => {
+  it('reports an expired request as closed', async () => {
     const { envelope } = await draftWithTwoSigners({ expiresAt: new Date(Date.now() + 60_000).toISOString() });
     const token = linksByRecipient().get('ann@example.com')!;
     await db.update(schema.signEnvelopes).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.signEnvelopes.id, envelope.id));
@@ -416,7 +410,7 @@ describe('signing flow', () => {
     expect(res).toEqual({ state: 'closed', reason: 'expired' });
   });
 
-  it.skipIf(PORTAL_STAGE)('records the signer IP and browser the portal reads from the request', async () => {
+  it('records the signer IP and browser the portal reads from the request', async () => {
     const { ann } = await draftWithTwoSigners();
     const token = linksByRecipient().get('ann@example.com')!;
     await portal({}, { ip: '198.51.100.7', userAgent: 'Other/2.0' }).request('/session', json({ token }));
@@ -427,11 +421,13 @@ describe('signing flow', () => {
     expect(opened).toMatchObject({ ip: '198.51.100.7', userAgent: 'Other/2.0' });
   });
 
-  it.skipIf(PORTAL_STAGE)('lets the last signer finish again when finalizing could not start', async () => {
+  it('lets the last signer finish again when finalizing could not start', async () => {
     const { envelope, bob } = await draftWithTwoSigners();
     await db.update(schema.signRecipients).set({ authMode: 'link' }).where(eq(schema.signRecipients.id, bob.id));
     const workflow = flakyWorkflow();
-    const p = portal({ FINALIZE_ENVELOPE: workflow.binding as never });
+    // Conformance mode: Rust starts finalizing through `workflow`, TypeScript through its twin.
+    const twin = flakyWorkflow();
+    const p = portal({ FINALIZE_ENVELOPE: workflow.binding as never }, undefined, twin.binding);
 
     const annSession = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
     const jobTitle = (await data<SignPortalEnvelope>(await p.request('/envelope', {}, annSession))).fields.find((f) => f.type === 'text')!;
@@ -454,13 +450,16 @@ describe('signing flow', () => {
     expect(workflow.instances.get(id)).toEqual({ status: 'running', restarted: 0 });
 
     // A run that failed is restarted by the next start, here from reopening a link.
-    workflow.instances.get(id)!.status = 'errored';
+    for (const stub of [workflow, twin]) {
+      const instance = stub.instances.get(id);
+      if (instance) instance.status = 'errored';
+    }
     await p.request('/session', json({ token: linksByRecipient().get('ann@example.com') }));
     await Promise.all(p.pending);
     expect(workflow.instances.get(id)).toEqual({ status: 'running', restarted: 1 });
   });
 
-  it.skipIf(PORTAL_STAGE)('lets only one of two simultaneous submissions sign', async () => {
+  it('lets only one of two simultaneous submissions sign', async () => {
     const { envelope, ann } = await draftWithTwoSigners();
     const p = portal();
     const session = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
@@ -476,6 +475,86 @@ describe('signing flow', () => {
     expect((results.find((r) => r.status === 'rejected') as PromiseRejectedResult).reason).toMatchObject({ kind: 'conflict' });
     const events = await db.select().from(schema.signEvents).where(and(eq(schema.signEvents.envelopeId, envelope.id), eq(schema.signEvents.type, 'signed')));
     expect(events.filter((e) => e.recipientId === ann.id)).toHaveLength(1);
+  });
+
+  it('serves the documents, and refuses bad bodies, missing sessions and what is not there yet', async () => {
+    await draftWithTwoSigners();
+    const p = portal();
+    const annToken = linksByRecipient().get('ann@example.com')!;
+
+    const bad = await p.request('/session', json({ token: 'short' }));
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: unknown }).error).toMatchObject({
+      code: 'BAD_REQUEST',
+      details: { formErrors: [], fieldErrors: { token: ['String must contain at least 20 character(s)'] } },
+    });
+    expect((await p.request('/envelope')).status).toBe(401);
+    expect((await p.request('/envelope', {}, 'not.a-session')).status).toBe(401);
+
+    const session = await openAndConsent(p, annToken);
+    expect((await p.request('/consent', json({ disclosureVersion: '' }), session)).status).toBe(400);
+    const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, session));
+    const path = `/documents/${encodeURIComponent(view.documents[0]!.id)}`;
+    const original = await p.request(path, {}, session);
+    expect(original.status).toBe(200);
+    expect(original.headers.get('content-type')).toBe('application/pdf');
+    expect(original.headers.get('cache-control')).toBe('private, no-store');
+    const originalBytes = new Uint8Array(await original.arrayBuffer());
+    expect((await p.request('/documents/sgd_missing', {}, session)).status).toBe(404);
+    expect((await p.request('/download', {}, session)).status).toBe(409);
+    // Ann's link needs no code, so there is none to send again.
+    expect((await p.request('/resend-code', json({ token: annToken }))).status).toBe(409);
+
+    // Once she signed, the document is the working copy with her values drawn in.
+    const jobTitle = view.fields.find((f) => f.type === 'text')!;
+    expect((await p.request('/complete', json({ values: [{ fieldId: jobTitle.id, value: 'Director' }], signature }), session)).status).toBe(200);
+    const working = await p.request(path, {}, session);
+    expect(working.status).toBe(200);
+    expect(new Uint8Array(await working.arrayBuffer())).not.toEqual(originalBytes);
+  });
+
+  it('resends an emailed code, and locks the link after five wrong ones', async () => {
+    const { ann } = await draftWithTwoSigners();
+    await db.update(schema.signRecipients).set({ authMode: 'email_code' }).where(eq(schema.signRecipients.id, ann.id));
+    const p = portal();
+    const token = linksByRecipient().get('ann@example.com')!;
+    const tokenHash = await sha256Hex(token);
+
+    mail.transport = memoryTransport();
+    expect(await data(await p.request('/session', json({ token })))).toMatchObject({ state: 'code_required', method: 'email_code', emailHint: 'a••@example.com' });
+    expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
+    // Asked again within the minute: too soon. Once the minute is up, a new code goes out.
+    const tooSoon = await p.request('/resend-code', json({ token }));
+    expect(tooSoon.status).toBe(429);
+    expect(((await tooSoon.json()) as { error: { code: string } }).error.code).toBe('TOO_SOON');
+    kv.store.delete(`sign:sent:${tokenHash}`);
+    mail.transport = memoryTransport();
+    expect(await data(await p.request('/resend-code', json({ token })))).toEqual({ sent: true });
+    const code = /\b(\d{6})\b/.exec(mail.transport.sent[0]!.subject)![1]!;
+
+    const wrong = code === '000000' ? '111111' : '000000';
+    for (const attemptsLeft of [4, 3, 2, 1]) {
+      const res = await p.request('/verify', json({ token, code: wrong }));
+      expect(((await res.json()) as { error: unknown }).error).toMatchObject({ code: 'INVALID_CODE', details: { attemptsLeft } });
+    }
+    expect((await p.request('/verify', json({ token, code: wrong }))).status).toBe(429);
+    // Locked: the right code is refused too, and no new code is sent.
+    expect((await p.request('/verify', json({ token, code }))).status).toBe(429);
+    expect((await p.request('/session', json({ token }))).status).toBe(429);
+    expect((await p.request('/resend-code', json({ token }))).status).toBe(429);
+  });
+
+  it('opens a link with the access code the sender shared', async () => {
+    const { ann } = await draftWithTwoSigners();
+    await db
+      .update(schema.signRecipients)
+      .set({ authMode: 'access_code', accessCodeHash: await codeHash(SECRET, ann.id, '4321') })
+      .where(eq(schema.signRecipients.id, ann.id));
+    const p = portal();
+    const token = linksByRecipient().get('ann@example.com')!;
+    expect(await data(await p.request('/session', json({ token })))).toEqual({ state: 'code_required', method: 'access_code', emailHint: null });
+    expect((await p.request('/verify', json({ token, code: '1234' }))).status).toBe(400);
+    expect(await data(await p.request('/verify', json({ token, code: ' 4321 ' })))).toMatchObject({ state: 'ready' });
   });
 
   it('mails the next signing group once when the last signers of a group finish together', async () => {
@@ -539,7 +618,7 @@ describe('a sent request', () => {
     // Ann had the request and is told; Bob's turn never came, so he never heard of it.
     expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
     expect(mail.transport.sent[0]!.text).toContain('Wrong version attached.');
-    if (portalChecks) expect((await portal().request('/session', json({ token: annToken }))).status).toBe(404);
+    expect((await portal().request('/session', json({ token: annToken }))).status).toBe(404);
 
     expect((await app.request(`${BASE}/${envelope.id}/void`, json({ reason: 'Again' }))).status).toBe(409);
     expect((await app.request(`${BASE}/${envelope.id}/remind`, POST)).status).toBe(409);
@@ -558,9 +637,7 @@ describe('a sent request', () => {
     expect(await data<{ reminded: number }>(await app.request(`${BASE}/${envelope.id}/remind`, POST))).toEqual({ reminded: 1 });
     expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
     expect(mail.transport.sent[0]!.subject).toMatch(/^Reminder:/);
-    if (portalChecks) {
-      expect(await data<{ state: string }>(await portal().request('/session', json({ token: lastLinkFor('ann@example.com') })))).toMatchObject({ state: 'ready' });
-    }
+    expect(await data<{ state: string }>(await portal().request('/session', json({ token: lastLinkFor('ann@example.com') })))).toMatchObject({ state: 'ready' });
 
     const [row] = await db.select().from(schema.signRecipients).where(eq(schema.signRecipients.id, ann.id));
     expect(row!.lastRemindedAt).not.toBeNull();
@@ -586,7 +663,7 @@ describe('a sent request', () => {
     const oldToken = linksByRecipient().get('ann@example.com')!;
     const p = portal();
     // Whoever holds the wrong address already agreed to sign electronically.
-    const oldSession = portalChecks ? await openAndConsent(p, oldToken) : '';
+    const oldSession = await openAndConsent(p, oldToken);
     const app = member();
     mail.transport = memoryTransport();
 
@@ -596,16 +673,14 @@ describe('a sent request', () => {
     );
     expect(res.status).toBe(200);
     expect(await data<SignRecipientDto>(res)).toMatchObject({ name: 'Ann de Vries', email: 'ann.devries@example.com', status: 'sent', openedAt: null });
-    if (portalChecks) {
-      expect((await p.request('/session', json({ token: oldToken }))).status).toBe(404);
-      // The session the wrong address already holds ends with its link: it reads nothing and signs nothing.
-      expect((await p.request('/envelope', {}, oldSession)).status).toBe(401);
-      expect((await p.request('/consent', json({ disclosureVersion: '2026-10-24' }), oldSession)).status).toBe(401);
-      expect((await p.request('/complete', json({ values: [], signature }), oldSession)).status).toBe(401);
-      const opened = await data<{ session: string }>(await p.request('/session', json({ token: lastLinkFor('ann.devries@example.com') })));
-      const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, opened.session));
-      expect(view.recipient.consented).toBe(false);
-    }
+    expect((await p.request('/session', json({ token: oldToken }))).status).toBe(404);
+    // The session the wrong address already holds ends with its link: it reads nothing and signs nothing.
+    expect((await p.request('/envelope', {}, oldSession)).status).toBe(401);
+    expect((await p.request('/consent', json({ disclosureVersion: '2026-10-24' }), oldSession)).status).toBe(401);
+    expect((await p.request('/complete', json({ values: [], signature }), oldSession)).status).toBe(401);
+    const opened = await data<{ session: string }>(await p.request('/session', json({ token: lastLinkFor('ann.devries@example.com') })));
+    const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, opened.session));
+    expect(view.recipient.consented).toBe(false);
 
     // Taken by another recipient, or nothing changed: refused.
     expect((await app.request(`${BASE}/${envelope.id}/recipients/${ann.id}/correct`, json({ email: 'bob@example.com' }))).status).toBe(400);
@@ -620,7 +695,7 @@ describe('a sent request', () => {
     expect(events.find((e) => e.type === 'recipient_corrected')?.details).toMatchObject({ from: 'ann@example.com', to: 'ann.devries@example.com' });
   });
 
-  it.skipIf(PORTAL_STAGE)('keeps a signer’s consent when only their name is fixed', async () => {
+  it('keeps a signer’s consent when only their name is fixed', async () => {
     const { envelope, ann } = await draftWithTwoSigners();
     const p = portal();
     const session = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
@@ -649,7 +724,7 @@ describe('a sent request', () => {
 
     const link = await data<{ url: string }>(await annApp.request(`${BASE}/${envelope.id}/signing-link`, POST));
     const token = /\/r\/([A-Za-z0-9_-]+)$/.exec(link.url)![1]!;
-    if (portalChecks) expect(await data<{ state: string }>(await portal().request('/session', json({ token })))).toMatchObject({ state: 'ready' });
+    expect(await data<{ state: string }>(await portal().request('/session', json({ token })))).toMatchObject({ state: 'ready' });
 
     // A draft that names her stays the sender's own; a member not on the request sees nothing.
     const draft = await data<SignEnvelopeDetail>(await member().request(BASE, json({ title: 'Still a draft' })));

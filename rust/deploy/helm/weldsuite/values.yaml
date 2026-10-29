@@ -129,6 +129,7 @@ config:
 #   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
 #                                the relay system mail goes through (optional; unset skips mail)
 #   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
+#   SIGN_PORTAL_SECRET           WeldSign: the key the signer portal sends to /public/sign-portal (the portal's value)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in

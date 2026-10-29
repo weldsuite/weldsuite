@@ -12,6 +12,8 @@ mod conformance;
 mod conformance_files;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
+#[cfg(feature = "conformance")]
+mod conformance_portal;
 mod cron;
 mod infra;
 mod routes;
@@ -132,6 +134,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
+        sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
         public_auth,
         #[cfg(feature = "conformance")]
@@ -145,7 +148,9 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, router(state))
+    // The peer address: the signer portal's fallback for the signer's IP.
+    let app = router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
+    axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
             let _ = stopping.send(true);

@@ -18,7 +18,8 @@ ports. Ported: the core routes `GET /api/me/permissions`, `GET /api/feature-flag
 and `/api/access-requests`, the first module, **know** (`/api/knowledge`, all
 27 routes), and **sign**'s member side (`/api/sign`: drafts, templates, sending
 and a sent request's lifecycle, the `sign.finalize` job that builds the signed
-PDF, and `weldsuite cron sign-lifecycle`). Next: sign's signer portal (FE-017).
+PDF, `weldsuite cron sign-lifecycle`, and the signer portal's operations at
+`/public/sign-portal`, ADR FE-017).
 
 ## Layout
 
@@ -135,6 +136,7 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
 | `SIGN_SESSION_SECRET`, `SIGN_PORTAL_URL` | WeldSign: the key of signer sessions and access-code hashes (the workers' value), and the signer portal's origin for signing links (default `https://sign.weldsuite.org`) |
+| `SIGN_PORTAL_SECRET` | WeldSign: the key the signer portal sends with every call to `/public/sign-portal` (ADR FE-017); unset refuses those calls (503) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
 | `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |

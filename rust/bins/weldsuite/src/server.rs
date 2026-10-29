@@ -50,6 +50,8 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
     pub(crate) sign_portal_url: Option<Arc<str>>,
+    /// `SIGN_PORTAL_SECRET`, the signer portal's key.
+    pub(crate) sign_portal_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
@@ -122,6 +124,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/robots.txt", get(robots))
         .route("/config.json", get(config_json))
         .nest("/api", api)
+        .nest("/public/sign-portal", crate::routes::sign_portal(&state))
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn(app_context))
@@ -372,6 +375,7 @@ mod tests {
             )),
             sign_session_secret: None,
             sign_portal_url: None,
+            sign_portal_secret: None,
             files_public_url: None,
             public_auth: None,
             #[cfg(feature = "conformance")]

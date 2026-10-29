@@ -134,7 +134,7 @@ pub(crate) struct BucketBridges {
 }
 
 impl BucketBridges {
-    fn store(&self, url: &str) -> Arc<dyn DynFileStore> {
+    pub(crate) fn store(&self, url: &str) -> Arc<dyn DynFileStore> {
         let mut stores = self.stores.lock().unwrap_or_else(PoisonError::into_inner);
         Arc::clone(
             stores

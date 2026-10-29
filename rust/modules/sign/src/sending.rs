@@ -352,7 +352,6 @@ async fn release_group(db: &PgPool, group: &[Value]) -> SignResult<()> {
 
 /// Where a request stands after a signature (`advanceAfterSigning`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "the signer portal (next stage) calls it")]
 pub(crate) enum Advance {
     Waiting,
     NextGroup,
@@ -361,7 +360,6 @@ pub(crate) enum Advance {
 
 /// After a signature: email the next signing group, or report that every
 /// signer is done (the caller then finalizes the request).
-#[allow(dead_code, reason = "the signer portal (next stage) calls it")]
 pub(crate) async fn advance_after_signing(
     ctx: &SendContext,
     envelope: &Value,
@@ -404,6 +402,22 @@ pub(crate) async fn advance_after_signing(
     }
     schedule_lifecycle(ctx).await;
     Ok(Advance::NextGroup)
+}
+
+/// Every signer has signed but the request is not completed: finalizing
+/// has not finished, or never started (the caller may start it again; the
+/// job's steps are idempotent) (`awaitingFinalize`).
+pub(crate) async fn awaiting_finalize(db: &PgPool, envelope: &Value) -> SignResult<bool> {
+    if envelope["status"] != "sent" && envelope["status"] != "in_progress" {
+        return Ok(false);
+    }
+    let statuses: Vec<String> = sqlx::query_scalar(
+        "select status from sign_recipients where envelope_id = $1 and role = 'signer'",
+    )
+    .bind(text(envelope, "id"))
+    .fetch_all(db)
+    .await?;
+    Ok(!statuses.is_empty() && statuses.iter().all(|status| status == "signed"))
 }
 
 #[cfg(test)]

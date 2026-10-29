@@ -44,7 +44,7 @@ config:
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys,
-# SIGN_SESSION_SECRET: secrets/examples/weldsuite-env.yaml.
+# SIGN_SESSION_SECRET, SIGN_PORTAL_SECRET: secrets/examples/weldsuite-env.yaml.
 secret:
   existingSecret: weldsuite-env
 
