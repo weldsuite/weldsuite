@@ -66,6 +66,7 @@
     "./schemas/member-limits": "./src/schemas/member-limits.ts",
     "./schemas/roles": "./src/schemas/roles.ts",
     "./schemas/access-requests": "./src/schemas/access-requests.ts",
+    "./schemas/calendar": "./src/schemas/calendar.ts",
     "./schemas/search": "./src/schemas/search.ts",
     "./schemas/workspace-settings": "./src/schemas/workspace-settings.ts",
     "./schemas/workspace-slug": "./src/schemas/workspace-slug.ts",

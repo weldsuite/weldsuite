@@ -45,7 +45,7 @@ interface D1Like {
 
 export interface ConformanceSweep<R> {
   /** The job as the Rust server names it: `/__conformance/cron/<job>`. */
-  job: 'sign-lifecycle';
+  job: 'sign-lifecycle' | 'calendar-replan';
   now: Date;
   tenantDb: Database;
   masterDb: Database;
