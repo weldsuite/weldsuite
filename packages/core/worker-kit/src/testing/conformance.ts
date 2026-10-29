@@ -34,7 +34,9 @@
  *    `ENTITY_EVENTS` and `REALTIME` bindings (unless the test brings its own),
  *    Rust records through its port doubles, and both lists must match. The
  *    runner runs one test file at a time, so Rust's recordings are this
- *    request's.
+ *    request's. Customer mail (the test's `SEND_EMAIL`, ./send-email-bridge.ts)
+ *    and the outbound guard's ledgers (`OUTBOUND_LEDGER`, ./ledger-bridge.ts)
+ *    are shared with Rust over HTTP and compared per envelope and per call.
  *
  * The test gets Rust's response, so its assertions check Rust too.
  */
@@ -51,6 +53,15 @@ import { kvUrls } from './kv-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
+import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
+import {
+  type LedgerCall,
+  ledgerUrls,
+  recordTypeScriptLedgerCalls,
+  sortLedgerCalls,
+  takeRustLedgerCalls,
+} from './ledger-bridge';
+import type { SendRecord } from './mime-record';
 import {
   type OutboundCall,
   outboundBridgeUrl,
@@ -114,6 +125,13 @@ export const FORWARDED_ENV = [
   'USER_APP_FRAME_ANCESTORS',
   'WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS',
   'EXTERNAL_API_URL',
+  // WeldPass: the root keys that wrap every vault's key.
+  'WELDPASS_ROOT_KEY',
+  'WELDPASS_ROOT_KEY_V2',
+  // WeldMail: the outbound guard's staff API secret, and whether the worker
+  // has a master database URL (the guard checks sender ownership only then).
+  'OUTBOUND_ADMIN_SECRET',
+  'DATABASE_URL_MASTER',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -151,6 +169,10 @@ export interface SideEffects {
   mail: MailRecord[];
   /** Calls to third-party APIs (Clerk, Expo, …), sorted (./outbound-bridge.ts). */
   outbound?: OutboundCall[];
+  /** Customer mail handed to `SEND_EMAIL`, per envelope (./send-email-bridge.ts). */
+  sendEmail?: SendRecord[];
+  /** Calls to the outbound guard's ledgers (./ledger-bridge.ts). */
+  ledger?: LedgerCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -624,6 +646,9 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     kv: await kvUrls(env),
     // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
     outbound: await outboundBridgeUrl(),
+    // Customer mail through its `SEND_EMAIL` stub, guard calls to its ledgers.
+    sendEmail: await sendEmailUrl(env),
+    ledgers: await ledgerUrls(env),
   };
 }
 
@@ -654,16 +679,27 @@ async function runBoth(
   await request.sideEffects.drain();
   await rustSideEffects(request.target);
   takeRustOutbound();
+  takeRustSends();
+  takeRustLedgerCalls();
 
-  // The Hono app's run, its `waitUntil` work included, with its outbound calls.
+  // The Hono app's run, its `waitUntil` work included, with its outbound calls,
+  // its customer mail and its ledger calls.
   const typeScript = async (db: Database, env?: Record<string, unknown>) => {
+    const base = env ?? request.env;
+    const sends = recordTypeScriptSends(base);
+    const ledger = recordTypeScriptLedgerCalls(sends.env);
     const { result, calls } = await recordOutbound(async () => {
-      const ts = await runTypeScript(db, env);
+      // The test's own env when there was nothing to wrap, as before.
+      const ts = await runTypeScript(db, ledger.env === base ? env : ledger.env);
       return { ts, effects: await request.sideEffects.drain() };
     });
     return {
       ts: result.ts,
-      tsEffects: { ...result.effects, outbound: sortOutbound(calls) },
+      tsEffects: {
+        ...result.effects,
+        outbound: sortOutbound(calls),
+        ...mailEffects(sends.finish(), ledger.finish()),
+      },
       tsMail: request.sideEffects.lastMail(),
     };
   };
@@ -673,7 +709,11 @@ async function runBoth(
     const side = await rustSideEffects(request.target);
     return {
       rust,
-      rustEffects: { ...side.effects, outbound: sortOutbound(takeRustOutbound()) },
+      rustEffects: {
+        ...side.effects,
+        outbound: sortOutbound(takeRustOutbound()),
+        ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
+      },
       rustMail: side.mail,
     };
   };
@@ -701,6 +741,14 @@ async function runBoth(
     await clone.close();
     await masterClone?.close();
   }
+}
+
+/** Customer mail and ledger calls as side effects, present only when there were any. */
+function mailEffects(sends: SendRecord[], calls: LedgerCall[]): Pick<SideEffects, 'sendEmail' | 'ledger'> {
+  return {
+    ...(sends.length > 0 ? { sendEmail: sortSends(sends) } : {}),
+    ...(calls.length > 0 ? { ledger: sortLedgerCalls(calls) } : {}),
+  };
 }
 
 /** Where the two runs differ: status, body, then side effects; null when they match. */

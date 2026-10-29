@@ -98,6 +98,14 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = desk(router, state);
+    let router = if mounts("pass") {
+        router.nest(
+            "/weldpass",
+            weldsuite_pass::router(pass_state(), &state.permissions),
+        )
+    } else {
+        router
+    };
     core_files(router, state)
 }
 
@@ -125,6 +133,17 @@ fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
         mail: state.infra.mail.clone(),
         workflow: Arc::new(weldsuite_desk_domain::workflow::Unavailable),
     }
+}
+
+/// WeldPass: the root keys (`WELDPASS_ROOT_KEY`, `WELDPASS_ROOT_KEY_V2`)
+/// from the environment and one HTTP client for the deploy targets, made
+/// once per process. Conformance builds take the test's keys and its
+/// `fetch` stub per request instead.
+fn pass_state() -> weldsuite_pass::PassState {
+    static STATE: OnceLock<weldsuite_pass::PassState> = OnceLock::new();
+    STATE
+        .get_or_init(weldsuite_pass::PassState::from_env)
+        .clone()
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge
