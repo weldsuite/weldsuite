@@ -8,6 +8,8 @@
 mod config;
 #[cfg(feature = "conformance")]
 mod conformance;
+#[cfg(feature = "conformance")]
+mod conformance_files;
 mod infra;
 mod routes;
 mod server;

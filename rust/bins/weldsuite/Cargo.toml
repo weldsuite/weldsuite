@@ -11,7 +11,7 @@ publish.workspace = true
 [features]
 # Test-only: /api takes the test's context from a header instead of a session
 # token (src/conformance.rs). Never in a release image.
-conformance = ["dep:base64", "dep:serde"]
+conformance = ["dep:base64", "dep:form_urlencoded", "dep:serde"]
 
 [dependencies]
 weldsuite-adapters-oss = { workspace = true }
@@ -27,6 +27,7 @@ weldsuite-pipeline = { workspace = true }
 weldsuite-ports = { workspace = true }
 axum = { workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
 base64 = { workspace = true, optional = true }
+form_urlencoded = { workspace = true, optional = true }
 http = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
