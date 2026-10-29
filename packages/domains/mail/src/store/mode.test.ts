@@ -107,7 +107,7 @@ describe('resolveMailStoreMode', () => {
     const flagship = fakeFlagship('object');
     const env: MailStoreModeEnv = { FLAGSHIP: flagship, ENVIRONMENT: 'test' };
     await resolveMailStoreMode(env, 'ws_1', { app: 'crm-api' });
-    expect(flagship.getStringValue).toHaveBeenCalledWith(MAILBOX_STORE_FLAG, 'postgres', {
+    expect(flagship.getStringValue).toHaveBeenCalledWith(MAILBOX_STORE_FLAG, '__unresolved__', {
       workspaceId: 'ws_1',
       environment: 'test',
       app: 'crm-api',
@@ -119,16 +119,71 @@ describe('resolveMailStoreMode', () => {
     await resolveMailStoreMode({ FLAGSHIP: flagship }, 'ws_1');
     expect(flagship.getStringValue).toHaveBeenCalledWith(
       MAILBOX_STORE_FLAG,
-      'postgres',
+      '__unresolved__',
       expect.objectContaining({ app: 'mail-api' }),
     );
   });
 
-  it('falls back to postgres and never throws on a Flagship error', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  it('falls back to postgres and never throws on a Flagship error with no mode seen before', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const env: MailStoreModeEnv = { FLAGSHIP: fakeFlagship(new Error('flagship down')) };
     await expect(resolveMailStoreMode(env, 'ws_1')).resolves.toBe('postgres');
-    expect(warn).toHaveBeenCalled();
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('treats getting the default back as no answer, not as postgres', async () => {
+    // The binding returns the default on a miss or error rather than throwing.
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const flagship = vi.fn(async (_key: string, defaultValue: string) => defaultValue);
+    const env: MailStoreModeEnv = { FLAGSHIP: { getStringValue: flagship } };
+    let now = 1_000;
+    const clock = () => now;
+
+    flagship.mockResolvedValueOnce('object-only');
+    await resolveMailStoreMode(env, 'ws_1', { now: clock });
+    now += 30_001;
+    await expect(resolveMailStoreMode(env, 'ws_1', { now: clock })).resolves.toBe('object-only');
+    error.mockRestore();
+  });
+
+  it('keeps serving the last known mode past its TTL while Flagship fails, then picks up the answer again', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const flagship = vi.fn(async (_key: string, _def: string): Promise<string> => 'object-only');
+    const env: MailStoreModeEnv = { FLAGSHIP: { getStringValue: flagship } };
+    let now = 1_000;
+    const clock = () => now;
+
+    await expect(resolveMailStoreMode(env, 'ws_1', { now: clock })).resolves.toBe('object-only');
+
+    flagship.mockRejectedValue(new Error('flagship down'));
+    now += 60_000;
+    await expect(resolveMailStoreMode(env, 'ws_1', { now: clock })).resolves.toBe('object-only');
+    now += 60 * 60 * 1000;
+    // Another workspace's lookup prunes the cache; the stale entry survives it.
+    await resolveMailStoreMode(env, 'ws_2', { now: clock });
+    await expect(resolveMailStoreMode(env, 'ws_1', { now: clock })).resolves.toBe('object-only');
+
+    flagship.mockResolvedValue('object');
+    await expect(resolveMailStoreMode(env, 'ws_1', { now: clock })).resolves.toBe('object');
+    error.mockRestore();
+  });
+
+  it('never caches the postgres fallback: the next request asks Flagship again', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const flagship = vi.fn(async (_key: string, _def: string): Promise<string> => {
+      throw new Error('flagship down');
+    });
+    const env: MailStoreModeEnv = { FLAGSHIP: { getStringValue: flagship } };
+    let now = 1_000;
+    const clock = () => now;
+
+    await expect(resolveMailStoreMode(env, 'ws_1', { now: clock })).resolves.toBe('postgres');
+    flagship.mockResolvedValue('object-only');
+    now += 1;
+    await expect(resolveMailStoreMode(env, 'ws_1', { now: clock })).resolves.toBe('object-only');
+    expect(flagship).toHaveBeenCalledTimes(2);
+    error.mockRestore();
   });
 
   it('falls back to postgres when Flagship returns an unknown value', async () => {

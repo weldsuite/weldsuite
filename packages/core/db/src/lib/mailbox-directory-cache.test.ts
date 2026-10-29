@@ -72,44 +72,51 @@ describe('readMailboxDirectoryVersion', () => {
 });
 
 describe('bumpMailboxDirectoryVersion', () => {
-  it('starts a workspace with no prior version at 1', async () => {
+  it('writes a new version for a workspace with none', async () => {
     const { kv, store } = fakeKv();
     await bumpMailboxDirectoryVersion(kv, 'ws_1');
-    expect(store.get('mbxdirv:ws_1')).toBe('1');
+    expect(store.get('mbxdirv:ws_1')).toMatch(/^[0-9a-f-]{36}$/);
   });
 
-  it('increments an existing version', async () => {
+  it('replaces an existing version with a different one', async () => {
     const { kv, store } = fakeKv({ 'mbxdirv:ws_1': '4' });
     await bumpMailboxDirectoryVersion(kv, 'ws_1');
-    expect(store.get('mbxdirv:ws_1')).toBe('5');
+    expect(store.get('mbxdirv:ws_1')).not.toBe('4');
   });
 
-  it('treats a corrupt version as 0 rather than throwing', async () => {
-    const { kv, store } = fakeKv({ 'mbxdirv:ws_1': 'not-a-number' });
+  it('never writes the same version twice, even from a stale read', async () => {
+    // Two colos bumping within KV's propagation window both used to read the
+    // same old value and write the same "next" one, which kept an entry
+    // cached between the two bumps valid.
+    const { kv, store } = fakeKv();
     await bumpMailboxDirectoryVersion(kv, 'ws_1');
-    expect(store.get('mbxdirv:ws_1')).toBe('1');
+    const first = store.get('mbxdirv:ws_1');
+    await bumpMailboxDirectoryVersion(kv, 'ws_1');
+    expect(store.get('mbxdirv:ws_1')).not.toBe(first);
   });
 
-  it('writes with no TTL: the version must outlive any cached entry', async () => {
+  it('writes with no TTL and without reading first', async () => {
     const { kv } = fakeKv();
     await bumpMailboxDirectoryVersion(kv, 'ws_1');
-    expect(kv.put).toHaveBeenCalledWith('mbxdirv:ws_1', '1');
+    expect(kv.put).toHaveBeenCalledWith('mbxdirv:ws_1', expect.any(String));
+    expect(kv.put.mock.calls[0]).toHaveLength(2);
+    expect(kv.get).not.toHaveBeenCalled();
   });
 
   it('bumps only the named workspace', async () => {
     const { kv, store } = fakeKv({ 'mbxdirv:ws_1': '1', 'mbxdirv:ws_2': '1' });
     await bumpMailboxDirectoryVersion(kv, 'ws_1');
-    expect(store.get('mbxdirv:ws_1')).toBe('2');
+    expect(store.get('mbxdirv:ws_1')).not.toBe('1');
     expect(store.get('mbxdirv:ws_2')).toBe('1');
   });
 
   it('never throws when KV is down', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const kv = {
-      get: vi.fn(async () => {
+      get: vi.fn(),
+      put: vi.fn(async () => {
         throw new Error('kv down');
       }),
-      put: vi.fn(),
     };
     await expect(bumpMailboxDirectoryVersion(kv, 'ws_1')).resolves.toBeUndefined();
     warn.mockRestore();
@@ -118,7 +125,9 @@ describe('bumpMailboxDirectoryVersion', () => {
   it('a bumped version is visible to a subsequent read', async () => {
     const { kv } = fakeKv();
     await bumpMailboxDirectoryVersion(kv, 'ws_1');
+    const bumped = await readMailboxDirectoryVersion(kv, 'ws_1');
+    expect(bumped).not.toBe('0');
     await bumpMailboxDirectoryVersion(kv, 'ws_1');
-    await expect(readMailboxDirectoryVersion(kv, 'ws_1')).resolves.toBe('2');
+    await expect(readMailboxDirectoryVersion(kv, 'ws_1')).resolves.not.toBe(bumped);
   });
 });

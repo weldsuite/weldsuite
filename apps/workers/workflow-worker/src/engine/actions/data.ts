@@ -12,8 +12,8 @@ import {
   getEntityColumns,
   getEntityIdPrefix,
   assertMailEntityCreatable,
+  assertMailEntityUpdatable,
   assertMailMessageStoreIsPostgres,
-  assertNoMailAccountCredentialWrite,
   mailEntityCreateOverrides,
   sharedMailboxCondition,
 } from '../entity-tables';
@@ -56,8 +56,12 @@ export const handleUpdateRecord: ActionHandler = async (inputs, ctx) => {
   if (!recordId) throw new Error('Record ID is required');
   // MAIL-009: see handleCreateRecord.
   await assertMailMessageStoreIsPostgres(ctx.env, entityType, ctx.tenant.workspaceId);
-  // A mail account's credentials are never generic-CRUD writable, update included.
-  assertNoMailAccountCredentialWrite(entityType, data);
+  // MAIL-003: the WHERE-clause scope below only proves the *existing* row is
+  // in a shared mailbox; this validates the incoming `data` the same way
+  // handleCreateRecord validates a create, so a step can't move a mail_message
+  // into a private mailbox or flip a mail_account private via an update. Also
+  // covers mail_account's credential columns (update included).
+  await assertMailEntityUpdatable(ctx.db, entityType, data);
 
   const table = getEntityTable(entityType);
   const whereConditions = [eq(table.id, recordId)];

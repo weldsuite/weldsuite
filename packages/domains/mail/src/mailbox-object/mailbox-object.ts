@@ -118,7 +118,7 @@ export interface MailboxStoreRpc {
     id: string,
     o?: { bodies?: boolean; attachments?: boolean },
   ): Promise<(MailMessageRecord & { attachments?: MailAttachmentRecord[] }) | null>;
-  getMessages(ref: MailboxRef, ids: string[]): Promise<MailMessageListRow[]>;
+  getMessages(ref: MailboxRef, ids: string[], opts?: { includeDeleted?: boolean }): Promise<MailMessageListRow[]>;
   listMessages(ref: MailboxRef, q: MessageListQuery): Promise<MessagePage>;
   stats(ref: MailboxRef): Promise<MailboxStats>;
   unreadCount(ref: MailboxRef, scope: 'inbox' | 'all-live'): Promise<number>;
@@ -407,9 +407,9 @@ export class MailboxStoreObject extends DurableObject<MailboxStoreObjectEnv> imp
     return reads.getMessage(this.ctx.storage.sql, ref, id, o);
   }
 
-  async getMessages(ref: MailboxRef, ids: string[]): Promise<MailMessageListRow[]> {
+  async getMessages(ref: MailboxRef, ids: string[], opts?: { includeDeleted?: boolean }): Promise<MailMessageListRow[]> {
     this.bindRef(ref);
-    return reads.getMessages(this.ctx.storage.sql, ref, ids);
+    return reads.getMessages(this.ctx.storage.sql, ref, ids, opts);
   }
 
   async listMessages(ref: MailboxRef, q: MessageListQuery): Promise<MessagePage> {

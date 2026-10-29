@@ -94,7 +94,7 @@ export function createFakeMailboxStub(ref: MailboxRef): FakeMailboxStub {
     getThread: (r, threadKey) => rpc.getThread(r, threadKey),
     getThreadOfMessage: (r, messageId) => rpc.getThreadOfMessage(r, messageId),
     getMessage: (r, id, o) => rpc.getMessage(r, id, o),
-    getMessages: (r, ids) => rpc.getMessages(r, ids),
+    getMessages: (r, ids, opts) => rpc.getMessages(r, ids, opts),
     listMessages: (r, q) => rpc.listMessages(r, q),
     stats: (r) => rpc.stats(r),
     unreadCount: (r, scope) => rpc.unreadCount(r, scope),

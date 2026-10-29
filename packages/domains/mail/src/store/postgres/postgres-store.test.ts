@@ -84,6 +84,38 @@ describe('PostgresMailboxStore reads', () => {
     expect(page2.nextCursor).toBeNull();
   });
 
+  it('a full page of the maximum size still reports the next page', async () => {
+    // The look-ahead row is added after the 100-row clamp, not swallowed by it.
+    const accountId = await seedAccount();
+    await db.insert(mailMessages).values(
+      Array.from({ length: 101 }, (_, i) => {
+        const id = generateId('mmsg');
+        return {
+          id,
+          accountId,
+          threadId: `t_max_${i}`,
+          messageId: `<${id}@test.dev>`,
+          from: { email: 'sender@example.com', name: 'Sender' },
+          to: [{ email: 'me@test.dev' }],
+          subject: 'Store test',
+          sentDate: new Date(Date.UTC(2026, 9, 1, 0, i)),
+          labels: ['INBOX'],
+        };
+      }),
+    );
+
+    const page1 = await store(accountId).listThreads({ labelSlug: 'inbox', pageSize: 100 });
+    expect(page1.threads).toHaveLength(100);
+    expect(page1.nextCursor).not.toBeNull();
+    const page2 = await store(accountId).listThreads({ labelSlug: 'inbox', pageSize: 100, cursor: page1.nextCursor });
+    expect(page2.threads).toHaveLength(1);
+    expect(page2.nextCursor).toBeNull();
+
+    const unified = await workspaceStore().listThreads([accountId], { labelSlug: 'inbox', pageSize: 100 });
+    expect(unified.threads).toHaveLength(100);
+    expect(unified.nextCursor).not.toBeNull();
+  });
+
   it('getThread returns the thread by key with full bodies', async () => {
     const accountId = await seedAccount();
     const id = await seedMessage(accountId, ['INBOX'], { threadId: 'thread_x', textBody: 'hello body' });
@@ -411,12 +443,14 @@ describe('PostgresMailboxStore.apply', () => {
     expect(row?.labels).toEqual(['TRASH']);
   });
 
-  it('thread.label applies a label to every message in a thread', async () => {
+  it('thread.label applies a label to every message in a thread and reports their ids, not the thread key', async () => {
     const accountId = await seedAccount();
-    await seedMessage(accountId, ['INBOX'], { threadId: 'thread_lbl' });
+    const first = await seedMessage(accountId, ['INBOX'], { threadId: 'thread_lbl' });
+    const second = await seedMessage(accountId, ['INBOX'], { threadId: 'thread_lbl' });
     const s = store(accountId);
     const result = await s.apply({ kind: 'thread.label', threadKey: 'thread_lbl', label: 'IMPORTANT', action: 'add' });
-    expect(result.applied).toEqual(['thread_lbl']);
+    expect(result.applied.slice().sort()).toEqual([first, second].sort());
+    expect(result.updatedIds?.slice().sort()).toEqual([first, second].sort());
   });
 
   it('thread.read flips every message in a thread and reports updatedIds', async () => {
@@ -529,22 +563,41 @@ describe('PostgresMailboxStore.apply', () => {
     expect(row?.deliveryStatus).toBe('delivered');
   });
 
-  it('inbound.finalize sets the final labels/flags from a mail rule run', async () => {
+  it('inbound.finalize applies a labels/flags DELTA from a mail rule run', async () => {
     const accountId = await seedAccount();
     const id = await seedMessage(accountId, ['INBOX']);
     const s = store(accountId);
     await s.apply({
       kind: 'inbound.finalize',
       id,
-      labels: ['SPAM'],
-      isRead: false,
-      isFlagged: false,
+      addLabels: ['SPAM'],
+      removeLabels: ['INBOX'],
       isSpam: true,
-      deleted: false,
     });
     const row = await s.getMessage(id);
     expect(row?.labels).toEqual(['SPAM']);
     expect(row?.isSpam).toBe(true);
+  });
+
+  it('inbound.finalize never resets a field it did not set, and merges labels onto a concurrent user edit', async () => {
+    const accountId = await seedAccount();
+    const id = await seedMessage(accountId, ['INBOX']);
+    const s = store(accountId);
+
+    // The user reads and archives the message while Jev classification
+    // (which can take seconds) is still running.
+    await s.apply({ kind: 'flags', ids: [id], patch: { isRead: true }, semantics: 'single' });
+    await s.apply({ kind: 'move', ids: [id], location: 'ARCHIVE' });
+
+    // Classification finishes afterwards and only adds an AI label — the OLD
+    // absolute-snapshot shape (`labels: ['INBOX', 'Jev/xyz'], isRead: false`)
+    // would have put it back in the inbox and marked it unread.
+    await s.apply({ kind: 'inbound.finalize', id, addLabels: ['Jev/xyz'], removeLabels: [] });
+
+    const row = await s.getMessage(id);
+    expect(row?.isRead).toBe(true);
+    expect(row?.labels).toEqual(expect.arrayContaining(['ARCHIVE', 'Jev/xyz']));
+    expect(row?.labels).not.toContain('INBOX');
   });
 
   it('categories sets the AI category list and optional importance', async () => {
@@ -690,6 +743,20 @@ describe('PostgresWorkspaceMailStore', () => {
 
     const draft = await ws.locateDraft(draftId, [a, b]);
     expect(draft?.accountId).toBe(b);
+  });
+
+  it('locateMessages excludes a soft-deleted message by default, and finds it with includeDeleted — still scoped to the given accountIds', async () => {
+    const a = await seedAccount();
+    const b = await seedAccount();
+    const other = await seedAccount();
+    const msg = await seedMessage(b, ['INBOX']);
+    await store(b).apply({ kind: 'delete', ids: [msg] });
+
+    const ws = workspaceStore();
+    expect((await ws.locateMessages([msg], [a, b])).get(msg)).toBeUndefined();
+    expect((await ws.locateMessages([msg], [a, b], undefined, { includeDeleted: true })).get(msg)).toBe(b);
+    // Never leaks another mailbox: a caller without `b` in scope still can't resolve it, even with includeDeleted.
+    expect((await ws.locateMessages([msg], [a, other], undefined, { includeDeleted: true })).get(msg)).toBeUndefined();
   });
 
   it('messagesByCounterparty merges the exact-address filter with the workspace scope', async () => {

@@ -30,7 +30,7 @@ import {
   SYSTEM_LABELS,
   toSystemLabel,
 } from '../../labels';
-import { normalizeLabel, type LocationLabel } from '../model';
+import { addLabels, normalizeLabel, removeLabels, type LocationLabel } from '../model';
 import {
   addMessageLabels,
   enrichSenderContacts,
@@ -43,7 +43,7 @@ import {
   softDeleteMessage,
   updateMessage,
 } from '../../messages';
-import { getThreadByKey, listThreadsForAccounts, type ThreadListMessage } from '../../threads';
+import { clampThreadPageSize, getThreadByKey, listThreadsForAccounts, type ThreadListMessage } from '../../threads';
 import {
   listSnoozedMessages,
   MailSnoozeError,
@@ -246,12 +246,14 @@ export class PostgresMailboxStore implements MailboxStore {
       subject: q.subject,
       hasAttachment: q.hasAttachment,
       excludeWords: q.excludeWords,
-      pageSize: q.pageSize + 1,
+      pageSize: q.pageSize,
+      lookahead: true,
       offset: q.offset,
       cursor,
     });
-    const hasMore = threads.length > q.pageSize;
-    const page = hasMore ? threads.slice(0, q.pageSize) : threads;
+    const pageSize = clampThreadPageSize(q.pageSize);
+    const hasMore = threads.length > pageSize;
+    const page = hasMore ? threads.slice(0, pageSize) : threads;
     const last = page.at(-1);
     const nextCursor: ThreadCursor | null =
       hasMore && last ? { latestAt: (last.latestDate ?? new Date(0)).getTime(), accountId, threadKey: last.threadId } : null;
@@ -285,8 +287,8 @@ export class PostgresMailboxStore implements MailboxStore {
     return record;
   }
 
-  async getMessages(ids: string[]): Promise<MailMessageListRow[]> {
-    const rows = await getLiveMessagesByIds(this.db, this.ref.accountId, ids);
+  async getMessages(ids: string[], opts?: { includeDeleted?: boolean }): Promise<MailMessageListRow[]> {
+    const rows = await getLiveMessagesByIds(this.db, this.ref.accountId, ids, opts);
     return rows.map(toListRow);
   }
 
@@ -532,9 +534,9 @@ export class PostgresMailboxStore implements MailboxStore {
    * the dispatcher itself stays a plain switch, each branch a single call.
    */
   private async applyThreadLabelOp(op: Extract<MailboxOp, { kind: 'thread.label' }>, now: Date): Promise<OpResult> {
-    const { affected } = await applyLabelToThread(this.db, this.ref.accountId, op.threadKey, op.label, op.action, now);
-    return affected > 0
-      ? { applied: [op.threadKey], missing: [], stale: [], ready: true }
+    const { ids } = await applyLabelToThread(this.db, this.ref.accountId, op.threadKey, op.label, op.action, now);
+    return ids.length > 0
+      ? { applied: ids, missing: [], stale: [], updatedIds: ids, ready: true }
       : { applied: [], missing: [op.threadKey], stale: [], ready: true };
   }
 
@@ -1137,19 +1139,39 @@ export class PostgresMailboxStore implements MailboxStore {
     return { applied: [row.id], missing: [], stale: [], ready: true };
   }
 
+  /**
+   * A delta onto the row's CURRENT labels/flags, re-read here rather than
+   * trusted from the caller's snapshot — mirrors `addMessageLabels`/
+   * `removeMessageLabels`'s own read-then-write pattern. The classification
+   * run this folds in can take seconds; re-reading right before the write
+   * keeps a user's read/archive/flag made during that window instead of
+   * clobbering it with a stale absolute value (see `MailboxOp`'s own doc
+   * comment on this op kind).
+   */
   private async applyInboundFinalize(
     op: Extract<MailboxOp, { kind: 'inbound.finalize' }>,
     now: Date,
   ): Promise<OpResult> {
-    const update: Record<string, unknown> = {
-      labels: op.labels,
-      isRead: op.isRead,
-      isFlagged: op.isFlagged,
-      isSpam: op.isSpam,
-      isTrash: op.labels.includes(SYSTEM_LABELS.TRASH),
-      updatedAt: now,
-    };
+    const [existing] = await this.db
+      .select({ labels: mailMessages.labels })
+      .from(mailMessages)
+      .where(and(eq(mailMessages.id, op.id), eq(mailMessages.accountId, this.ref.accountId)))
+      .limit(1);
+    if (!existing) return { applied: [], missing: [op.id], stale: [], ready: true };
+
+    const update: Record<string, unknown> = {};
+    if (op.addLabels.length > 0 || op.removeLabels.length > 0) {
+      const merged = removeLabels(addLabels(existing.labels as string[] | null, ...op.addLabels), ...op.removeLabels);
+      update.labels = merged;
+      update.isTrash = merged.includes(SYSTEM_LABELS.TRASH);
+    }
+    if (op.isRead !== undefined) update.isRead = op.isRead;
+    if (op.isFlagged !== undefined) update.isFlagged = op.isFlagged;
+    if (op.isSpam !== undefined) update.isSpam = op.isSpam;
     if (op.deleted) update.deletedAt = now;
+    if (Object.keys(update).length === 0) return { applied: [op.id], missing: [], stale: [], ready: true };
+
+    update.updatedAt = now;
     const [row] = await this.db
       .update(mailMessages)
       .set(update as typeof mailMessages.$inferInsert)

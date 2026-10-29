@@ -183,28 +183,37 @@ export function assertNoMailAccountCredentialWrite(entityType: string, data: Rec
 }
 
 /**
- * `create_record` has no existing row to test, so it validates the write
- * instead: `mail_message` / `mail_folder` must name an existing shared
- * account; `mail_account` may only be created shared in the first place
- * (there is no workspace member for a workflow to assign a private one to —
- * see {@link mailEntityCreateOverrides}). Throws when the data doesn't satisfy
- * that; a no-op for every other entity type.
+ * Shared by {@link assertMailEntityCreatable} (create) and
+ * {@link assertMailEntityUpdatable} (update): a write must never flip
+ * `mail_account.isShared` to `false`, nor point a `mail_message` /
+ * `mail_folder` at an account that isn't shared. `requireAccountColumn` is
+ * true for create, which has no existing row to fall back on; false for
+ * update, where the account-linking column is only checked when the step's
+ * `data` actually sets it — leaving it unset is already covered by
+ * {@link sharedMailboxCondition} on the WHERE clause, which only ever matches
+ * a row that started in a shared mailbox.
  */
-export async function assertMailEntityCreatable(
+async function assertMailEntityWriteData(
   db: Database,
   entityType: string,
   data: Record<string, unknown>,
+  { requireAccountColumn }: { requireAccountColumn: boolean },
 ): Promise<void> {
   assertNoMailAccountCredentialWrite(entityType, data);
   const column = mailAccountColumnOf(entityType);
   if (!column) return;
   if (column === 'id') {
-    if (data.isShared === false) {
+    if ('isShared' in data && data.isShared !== true) {
       throw new Error(
-        'A workflow can only create a shared mail account: there is no workspace member to assign a private one to',
+        'A workflow can only write a shared mail account: there is no workspace member to assign a private one to',
       );
     }
     return;
+  }
+
+  if (!(column in data)) {
+    if (!requireAccountColumn) return;
+    throw new Error(`${entityType} requires ${column}`);
   }
 
   const accountId = data[column];
@@ -220,6 +229,43 @@ export async function assertMailEntityCreatable(
       `Mail account ${accountId} is not a shared mailbox; a workflow may only write to shared mailboxes (MAIL-003)`,
     );
   }
+}
+
+/**
+ * `create_record` has no existing row to test, so it validates the write
+ * instead: `mail_message` / `mail_folder` must name an existing shared
+ * account; `mail_account` may only be created shared in the first place
+ * (there is no workspace member for a workflow to assign a private one to —
+ * see {@link mailEntityCreateOverrides}). Throws when the data doesn't satisfy
+ * that; a no-op for every other entity type.
+ */
+export async function assertMailEntityCreatable(
+  db: Database,
+  entityType: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  return assertMailEntityWriteData(db, entityType, data, { requireAccountColumn: true });
+}
+
+/**
+ * `update_record`'s create-side counterpart. `sharedMailboxCondition` on the
+ * WHERE clause only proves the row *being updated* started in a shared
+ * mailbox — it says nothing about the incoming `data`, so without this a
+ * workflow could move a `mail_message` / `mail_folder` onto a private
+ * `accountId`, or flip a `mail_account`'s `isShared` to `false`, by targeting
+ * a row that was shared and writing it private in the same step. Runs the
+ * same checks as {@link assertMailEntityCreatable}, but only against the
+ * fields the update actually sets: a `data` that leaves `accountId` /
+ * `isShared` untouched is already scoped correctly by the WHERE clause. A
+ * no-op for every entity type but `mail_account` / `mail_message` /
+ * `mail_folder`.
+ */
+export async function assertMailEntityUpdatable(
+  db: Database,
+  entityType: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  return assertMailEntityWriteData(db, entityType, data, { requireAccountColumn: false });
 }
 
 /**

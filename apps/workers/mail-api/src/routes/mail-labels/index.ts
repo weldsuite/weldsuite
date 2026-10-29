@@ -333,7 +333,10 @@ app.post(
         action: 'updated',
         data: { id: threadId, accountId, subject: null, from: null, to: null },
       });
-      return success(c, { affected: result.applied.length, action });
+      // `thread.label`'s `updatedIds` is the thread's changed message ids (same
+      // shape `thread.read` reports), so `affected` is the per-message count a
+      // caller archiving/trashing a thread expects — not a thread-scoped "1".
+      return success(c, { affected: (result.updatedIds ?? result.applied).length, action });
     } catch (err) {
       console.error('[app-api/mail-labels] apply-to-thread failed:', err);
       return error.internal(c, 'Failed to update thread labels');

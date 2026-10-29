@@ -454,12 +454,26 @@ function buildThreadPageQuery(
 type ThreadCountRow = { count: number };
 type ThreadPageRow = { accountId: string; threadId: string; latestDate: string };
 
+/** Largest thread page a caller can ask for. */
+export const MAX_THREAD_PAGE_SIZE = 100;
+
+/** A caller's requested thread page size, clamped to 1–`MAX_THREAD_PAGE_SIZE` (default 25). */
+export function clampThreadPageSize(pageSize: number | undefined): number {
+  return Math.min(MAX_THREAD_PAGE_SIZE, Math.max(1, pageSize ?? 25));
+}
+
 /** Pagination + the `withMessages`-independent shape every thread listing needs, once the scope is known. */
 export interface ThreadListPagination {
   page?: number;
   pageSize?: number;
   offset?: number;
   cursor?: ThreadKeysetCursor | null;
+  /**
+   * Fetch one row past the (clamped) page, so the caller can tell whether
+   * another page follows. Added after the clamp: a caller asking for the
+   * maximum page still gets its extra row.
+   */
+  lookahead?: boolean;
 }
 
 /**
@@ -473,7 +487,8 @@ async function listThreadsWithScope(
   scope: ThreadScope,
   pagination: ThreadListPagination,
 ): Promise<{ threads: ThreadSummary[]; totalCount: number }> {
-  const pageSize = Math.min(100, Math.max(1, pagination.pageSize ?? 25));
+  const pageSize = clampThreadPageSize(pagination.pageSize);
+  const limit = pageSize + (pagination.lookahead ? 1 : 0);
   const paging: ThreadPaging = pagination.cursor
     ? { cursor: pagination.cursor }
     : {
@@ -497,11 +512,11 @@ async function listThreadsWithScope(
     (h) => [
       buildWake(h),
       buildThreadCountQuery(h, baseConditions),
-      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, paging),
+      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, limit, paging),
     ],
     (h) => [
       buildThreadCountQuery(h, baseConditions),
-      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, pageSize, paging),
+      buildThreadPageQuery(h, baseConditions, accountScope, threadIdExpr, limit, paging),
     ],
     'waking snoozed mail',
   )) as [ThreadCountRow[], ThreadPageRow[]];

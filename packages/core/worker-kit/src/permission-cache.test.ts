@@ -5,7 +5,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { PermissionDbQuery } from '@weldsuite/permissions/server';
-import { bumpPermissionsVersion } from '@weldsuite/db/lib/permissions-cache';
+import { bumpPermissionsVersion, permissionsCacheKey } from '@weldsuite/db/lib/permissions-cache';
+import { PERMISSIONS_RESOLUTION_VERSION } from '@weldsuite/permissions/server';
 import { PERMISSIONS_CACHE_TTL_SECONDS, resolveEffectivePermissionsCached } from './permission-cache';
 import { RequestTiming } from './timing';
 
@@ -61,7 +62,7 @@ describe('resolveEffectivePermissionsCached', () => {
 
     expect(calls.getMember).toBe(1);
     expect(resolved.permissions).toContain('weldcrm:leads:read');
-    expect(JSON.parse(store.get('permr:ws_1:user_1:0')!)).toEqual(resolved);
+    expect(JSON.parse(store.get(permissionsCacheKey('ws_1', 'user_1', '0', PERMISSIONS_RESOLUTION_VERSION))!)).toEqual(resolved);
   });
 
   it('serves a cached entry without touching the database', async () => {

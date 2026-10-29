@@ -183,6 +183,7 @@ describe('record actions (pglite)', () => {
 describe('record actions and MAIL-003 (pglite)', () => {
   let db: Database;
   let sharedAccountId: string;
+  let secondSharedAccountId: string;
   let privateAccountId: string;
 
   beforeAll(async () => {
@@ -204,6 +205,14 @@ describe('record actions and MAIL-003 (pglite)', () => {
       email: 'private@test.dev',
       isShared: false,
       assignedUserIds: ['user_someone'],
+    });
+
+    secondSharedAccountId = 'mail_shared_test_2';
+    await db.insert(schema.mailAccounts).values({
+      id: secondSharedAccountId,
+      name: 'Shared 2',
+      email: 'shared2@test.dev',
+      isShared: true,
     });
   }, 60_000);
 
@@ -330,6 +339,32 @@ describe('record actions and MAIL-003 (pglite)', () => {
       expect(res.updated).toBe(true);
     });
 
+    // Regression: the WHERE-clause scope only proves the *existing* row started
+    // in a shared mailbox; it says nothing about the incoming `data`. Without
+    // validating `data` too, this update would move a shared message into
+    // someone's private mailbox.
+    it('refuses to move a shared mailbox\'s message into a private account', async () => {
+      const id = await seedMessage(sharedAccountId);
+      await expect(
+        handleUpdateRecord(
+          { entity: 'mail_message', id, data: { accountId: privateAccountId } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mailbox/i);
+      const [row] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(row?.accountId).toBe(sharedAccountId);
+    });
+
+    it('allows moving a shared mailbox\'s message to another shared account', async () => {
+      const id = await seedMessage(sharedAccountId);
+      const res = (await handleUpdateRecord(
+        { entity: 'mail_message', id, data: { accountId: secondSharedAccountId } },
+        makeActionContext({ db }),
+      )) as { updated: boolean; record: { accountId: string } };
+      expect(res.updated).toBe(true);
+      expect(res.record.accountId).toBe(secondSharedAccountId);
+    });
+
     it('refuses to update a mail_account with a credential column, even the caller\'s own', async () => {
       await expect(
         handleUpdateRecord(
@@ -339,6 +374,29 @@ describe('record actions and MAIL-003 (pglite)', () => {
       ).rejects.toThrow(/passwordHash/);
       const [row] = await db.select().from(schema.mailAccounts).where(eq(schema.mailAccounts.id, sharedAccountId));
       expect(row?.passwordHash).toBeNull();
+    });
+
+    // Regression: same gap as the mail_message case above, for mail_account's
+    // own `isShared` flag — an update could otherwise make a shared mailbox
+    // private.
+    it('refuses to make a shared mail_account private', async () => {
+      await expect(
+        handleUpdateRecord(
+          { entity: 'mail_account', id: sharedAccountId, data: { isShared: false } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mail account/i);
+      const [row] = await db.select().from(schema.mailAccounts).where(eq(schema.mailAccounts.id, sharedAccountId));
+      expect(row?.isShared).toBe(true);
+    });
+
+    it('allows updating a shared mail_account without touching isShared', async () => {
+      const res = (await handleUpdateRecord(
+        { entity: 'mail_account', id: sharedAccountId, data: { name: 'Shared renamed' } },
+        makeActionContext({ db }),
+      )) as { updated: boolean; record: { name: string; isShared: boolean } };
+      expect(res.updated).toBe(true);
+      expect(res.record.isShared).toBe(true);
     });
 
     it('cannot delete a private mailbox\'s message', async () => {

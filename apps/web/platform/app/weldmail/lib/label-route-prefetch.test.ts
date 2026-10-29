@@ -77,4 +77,57 @@ describe('prefetchMailLabelRoute', () => {
     expect(getMock).toHaveBeenCalledWith('/mail-labels?accountId=macc_1');
     expect(getMock).toHaveBeenCalledWith('/mail-messages/stats?accountId=macc_1');
   });
+
+  it('builds thread-list options with a getNextPageParam, so a cold-cache prefetch leaves something the hook can paginate from', () => {
+    const prefetchInfiniteQuery = vi
+      .spyOn(queryClient, 'prefetchInfiniteQuery')
+      .mockResolvedValue(undefined);
+
+    prefetchMailLabelRoute(queryClient, { accountId: 'macc_1', labelSlug: 'inbox' });
+
+    const options = prefetchInfiniteQuery.mock.calls[0]?.[0] as { getNextPageParam?: unknown };
+    expect(typeof options.getNextPageParam).toBe('function');
+  });
+
+  // Regression: `beforeLoad` re-runs on every navigation under the label
+  // route, including opening a message (`$messageId`). With global
+  // `staleTime: 0`, calling `prefetchInfiniteQuery` unconditionally refetches
+  // every already-loaded page of a scrolled-past-page-1 list using these
+  // options — and used to throw `getNextPageParam is not a function` doing
+  // it. Skipping once the key is already cached avoids both the crash risk
+  // and the wasted/visible refetch.
+  it('does not refetch an already-cached multi-page thread list', () => {
+    const key = mailKeys.threadsByLabel({ accountId: 'macc_1', labelSlug: 'inbox', pageSize: 25 });
+    queryClient.setQueryData(key, {
+      pages: [
+        { data: { threads: [{ threadId: 't1' }], totalCount: 30, nextCursor: 'cursor-1' } },
+        { data: { threads: [{ threadId: 't2' }], totalCount: 30, nextCursor: null } },
+      ],
+      pageParams: [1, { cursor: 'cursor-1' }],
+    });
+    const prefetchInfiniteQuery = vi.spyOn(queryClient, 'prefetchInfiniteQuery');
+
+    prefetchMailLabelRoute(queryClient, { accountId: 'macc_1', labelSlug: 'inbox' });
+
+    expect(prefetchInfiniteQuery).not.toHaveBeenCalled();
+  });
+
+  it('still prefetches a thread list that is not cached yet', () => {
+    const prefetchInfiniteQuery = vi.spyOn(queryClient, 'prefetchInfiniteQuery').mockResolvedValue(undefined);
+
+    prefetchMailLabelRoute(queryClient, { accountId: 'macc_1', labelSlug: 'inbox' });
+
+    expect(prefetchInfiniteQuery).toHaveBeenCalled();
+  });
+
+  it('does not refetch labels or stats once they are already cached', () => {
+    queryClient.setQueryData(mailKeys.labels('macc_1'), { data: [] });
+    queryClient.setQueryData(mailKeys.messageStats('macc_1'), { data: {} });
+    vi.spyOn(queryClient, 'prefetchInfiniteQuery').mockResolvedValue(undefined);
+    const prefetchQuery = vi.spyOn(queryClient, 'prefetchQuery');
+
+    prefetchMailLabelRoute(queryClient, { accountId: 'macc_1', labelSlug: 'inbox' });
+
+    expect(prefetchQuery).not.toHaveBeenCalled();
+  });
 });

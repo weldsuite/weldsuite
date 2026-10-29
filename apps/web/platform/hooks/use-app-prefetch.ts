@@ -10,6 +10,11 @@ import { crmTasksKeys, type RawTask } from '@/hooks/use-crm-tasks';
 import { mailKeys } from '@/hooks/queries/use-mail-queries';
 import { preferencesKey, type UserPreferences } from '@/hooks/queries/use-settings-queries';
 import { pickWarmMailAccountId } from '@/app/weldmail/lib/landing-redirect';
+import {
+  mailLabelThreadsInfiniteQueryOptions,
+  MAIL_LABEL_THREADS_PAGE_SIZE,
+  type FetchMailLabelThreadsPage,
+} from '@/app/weldmail/lib/mail-label-threads-query';
 import { fetchChannelList, weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 import {
@@ -79,6 +84,13 @@ const PREFETCHERS: Record<string, Prefetcher> = {
   // click lands on an already-warm page (docs/plans/weldmail-mailbox-storage.md
   // phase 1 item 8). The unified inbox has no single mailbox to warm; its own
   // route prefetch (label-route-prefetch.ts) covers that case on navigation.
+  //
+  // Shares its thread-list options with `useInfiniteMailLabelThreads` and the
+  // route prefetch via `mailLabelThreadsInfiniteQueryOptions` (so `queryKey` /
+  // `getNextPageParam` can't drift — see mail-label-threads-query.ts), and
+  // skips both prefetches once their cache entry is already warm: hovering
+  // the same icon repeatedly (debounced, but still) shouldn't refetch an
+  // already-loaded, possibly multi-page, thread list.
   weldmail: async ({ queryClient, appClient, routerPrefetch }) => {
     const accountsRes = await queryClient.fetchQuery({
       queryKey: mailKeys.accounts(),
@@ -95,28 +107,33 @@ const PREFETCHERS: Record<string, Prefetcher> = {
     if (!accountId) return;
 
     const labelSlug = 'inbox';
-    const threadsParams = { accountId, labelSlug, pageSize: 25 };
+    const fetchThreadsPage: FetchMailLabelThreadsPage = async (params) => {
+      const client = await appClient();
+      return client.get<DataResponse<{ threads: MailThreadSummary[]; totalCount: number; nextCursor?: string | null }>>(
+        `/mail-labels/threads${buildQueryString(params as Record<string, unknown>)}`,
+      );
+    };
+    const threadsOptions = mailLabelThreadsInfiniteQueryOptions(fetchThreadsPage, {
+      accountId,
+      labelSlug,
+      pageSize: MAIL_LABEL_THREADS_PAGE_SIZE,
+    });
+    const labelsKey = mailKeys.labels(accountId);
 
     await Promise.all([
-      queryClient.prefetchInfiniteQuery({
-        queryKey: mailKeys.threadsByLabel(threadsParams),
-        queryFn: async ({ pageParam }) => {
-          const client = await appClient();
-          return client.get<DataResponse<{ threads: MailThreadSummary[]; totalCount: number }>>(
-            `/mail-labels/threads${buildQueryString({ ...threadsParams, page: pageParam })}`,
-          );
-        },
-        initialPageParam: 1,
-        staleTime: PREFETCH_STALE_TIME_MS,
-      }),
-      queryClient.prefetchQuery({
-        queryKey: mailKeys.labels(accountId),
-        queryFn: async () => {
-          const client = await appClient();
-          return client.get<DataResponse<MailLabelRow[]>>(`/mail-labels${buildQueryString({ accountId })}`);
-        },
-        staleTime: PREFETCH_STALE_TIME_MS,
-      }),
+      queryClient.getQueryData(threadsOptions.queryKey) === undefined
+        ? queryClient.prefetchInfiniteQuery({ ...threadsOptions, staleTime: PREFETCH_STALE_TIME_MS })
+        : Promise.resolve(),
+      queryClient.getQueryData(labelsKey) === undefined
+        ? queryClient.prefetchQuery({
+            queryKey: labelsKey,
+            queryFn: async () => {
+              const client = await appClient();
+              return client.get<DataResponse<MailLabelRow[]>>(`/mail-labels${buildQueryString({ accountId })}`);
+            },
+            staleTime: PREFETCH_STALE_TIME_MS,
+          })
+        : Promise.resolve(),
     ]);
 
     routerPrefetch(`/weldmail/${accountId}/${labelSlug}`);

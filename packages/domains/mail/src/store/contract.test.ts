@@ -383,6 +383,20 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       expect(await latestIdsIn(store, 'clients')).toEqual([id]);
     });
 
+    it('thread.label reports the ids of every message it changed, not just the thread key', async () => {
+      const store = await freshStore();
+      const threadId = 'thread_label_count';
+      const { id: first } = await ingest(store, { threadId, labels: ['INBOX'] }, 1_000);
+      const { id: second } = await ingest(store, { threadId, labels: ['INBOX'] }, 1_100);
+      const { id: third } = await ingest(store, { threadId, labels: ['INBOX'] }, 1_200);
+
+      const result = await store.apply(
+        { kind: 'thread.label', threadKey: threadId, label: 'Work', action: 'add' },
+        2_000,
+      );
+      expect(result.applied.slice().sort()).toEqual([first, second, third].sort());
+    });
+
     it('labelCounts(keys) zero-fills a key with no messages on both backends', async () => {
       const store = await freshStore();
       expect(await store.labelCounts(['neverused'])).toEqual({ neverused: { messages: 0, unread: 0, threads: 0 } });
@@ -519,6 +533,50 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       const removed = await store.apply({ kind: 'labels.remove', ids: [a, b], labels: ['STARRED'], semantics: 'bulk' }, 3_000);
       expect(removed.labels?.[a]).toEqual(['INBOX']);
       expect(removed.labels?.[b]).toEqual(['INBOX']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // inbound.finalize: a DELTA onto the row's current state (design task D4),
+  // not an absolute snapshot — the AI classification / mail-rule run it folds
+  // in can take seconds, during which a user can read, flag or archive the
+  // same message.
+  // -------------------------------------------------------------------------
+
+  describe('inbound.finalize', () => {
+    it('merges addLabels/removeLabels onto the row and only touches flags it sets', async () => {
+      const store = await freshStore();
+      const { id } = await ingest(store, { labels: ['INBOX'] });
+
+      const result = await store.apply(
+        { kind: 'inbound.finalize', id, addLabels: ['Work'], removeLabels: [], isRead: true },
+        2_000,
+      );
+      expect(result.applied).toEqual([id]);
+      const message = await store.getMessage(id);
+      expect(message?.labels).toEqual(expect.arrayContaining(['INBOX', 'Work']));
+      expect(message?.isRead).toBe(true);
+    });
+
+    it('does not undo a user read/archive made while classification was still running', async () => {
+      const store = await freshStore();
+      const { id } = await ingest(store, { labels: ['INBOX'] });
+
+      // The user opens and archives the mail before the async Jev/mail-rule
+      // run that produced this `inbound.finalize` op finishes.
+      await store.apply({ kind: 'flags', ids: [id], patch: { isRead: true }, semantics: 'single' }, 1_500);
+      await store.apply({ kind: 'move', ids: [id], location: 'ARCHIVE' }, 1_600);
+
+      // The old absolute-snapshot shape (`labels: ['INBOX', 'Jev/xyz'],
+      // isRead: false`) would have put it back in the inbox and unread it.
+      await store.apply({ kind: 'inbound.finalize', id, addLabels: ['Jev/xyz'], removeLabels: [] }, 2_000);
+
+      const message = await store.getMessage(id);
+      expect(message?.isRead).toBe(true);
+      expect(message?.labels).toEqual(expect.arrayContaining(['ARCHIVE', 'Jev/xyz']));
+      expect(message?.labels).not.toContain('INBOX');
+      expect(await latestIdsIn(store, 'inbox')).toEqual([]);
+      expect(await latestIdsIn(store, 'archive')).toEqual([id]);
     });
   });
 
@@ -921,6 +979,16 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
 
       const rows = await store.getMessages([alive, deleted, 'does_not_exist']);
       expect(rows.map((r) => r.id)).toEqual([alive]);
+    });
+
+    it('getMessages(ids, {includeDeleted:true}) also returns a soft-deleted row — for resolving a legacy pagination cursor whose message was since deleted', async () => {
+      const store = await freshStore();
+      const { id: alive } = await ingest(store, { labels: ['INBOX'] });
+      const { id: deleted } = await ingest(store, { labels: ['INBOX'] });
+      await store.apply({ kind: 'delete', ids: [deleted] }, 2_000);
+
+      const rows = await store.getMessages([alive, deleted, 'does_not_exist'], { includeDeleted: true });
+      expect(rows.map((r) => r.id).sort()).toEqual([alive, deleted].sort());
     });
 
     it('listMessages pages by sentAt/id, newest first, and the cursor continues correctly', async () => {

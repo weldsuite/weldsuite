@@ -143,6 +143,37 @@ describe('object mode: GET /api/mail-messages', () => {
     expect(body2.pagination.hasMore).toBe(false);
   });
 
+  it('a cursor whose message was deleted since still resolves, so paging continues instead of restarting', async () => {
+    const mailbox = createFakeMailboxNamespace();
+    const ref: MailboxRef = { workspaceId: WORKSPACE_ID, accountId, clerkOrgId: ORG_ID };
+    const oldest = makeIngest({ sentAt: 1_000 });
+    const middle = makeIngest({ sentAt: 2_000 });
+    const newest = makeIngest({ sentAt: 3_000 });
+    await ingest(mailbox, ref, oldest);
+    await ingest(mailbox, ref, middle);
+    await ingest(mailbox, ref, newest);
+
+    const { request } = makeApp(USER, mailbox);
+    const page1 = await request(`/api/mail-messages?accountId=${accountId}&limit=2`);
+    const body1 = (await page1.json()) as { data: Array<{ id: string }>; pagination: { cursor: string | null } };
+    expect(body1.data.map((m) => m.id)).toEqual([newest.id, middle.id]);
+    const cursor = body1.pagination.cursor;
+    expect(cursor).toBe(middle.id);
+
+    // The cursor's own message — the last one the client loaded — is deleted
+    // before the next page is requested (the client processed and archived
+    // it, say). A cursor resolved only against live rows can't find it, so
+    // the lookup fails, the route falls back to an unfiltered first page, and
+    // the client sees `newest` a second time instead of continuing past it.
+    const ns = mailbox.namespace.jurisdiction('eu');
+    const stub = ns.get(ns.idFromName(`mbx:${WORKSPACE_ID}:${accountId}`));
+    await stub.apply(ref, { kind: 'delete', ids: [middle.id] }, 4_000);
+
+    const page2 = await request(`/api/mail-messages?accountId=${accountId}&limit=2&cursor=${cursor}`);
+    const body2 = (await page2.json()) as { data: Array<{ id: string }> };
+    expect(body2.data.map((m) => m.id)).toEqual([oldest.id]);
+  });
+
   it('finds the counterparty across mailboxes through messagesByCounterparty', async () => {
     const mailbox = createFakeMailboxNamespace();
     const ref: MailboxRef = { workspaceId: WORKSPACE_ID, accountId, clerkOrgId: ORG_ID };

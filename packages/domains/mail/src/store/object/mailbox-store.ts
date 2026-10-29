@@ -144,8 +144,8 @@ export class ObjectMailboxStore implements MailboxStore {
     return o?.bodies ? await this.withBodies(record) : record;
   }
 
-  getMessages(ids: string[]): Promise<MailMessageListRow[]> {
-    return callStubRead(() => this.stub.getMessages(this.ref, ids));
+  getMessages(ids: string[], opts?: { includeDeleted?: boolean }): Promise<MailMessageListRow[]> {
+    return callStubRead(() => this.stub.getMessages(this.ref, ids, opts));
   }
 
   listMessages(q: MessageListQuery): Promise<MessagePage> {

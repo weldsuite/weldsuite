@@ -165,16 +165,17 @@ app.post('/:threadKey/labels', requireScope('mail_messages:write'), zValidator('
     return error.badRequest(c, `${removedLocation.name} is a location: add the location to move the thread there instead.`);
   }
 
-  // `MailboxOp`'s `thread.label` reports the thread key's own applied/missing
-  // state, not a per-message count the way `applyLabelToThread` used to — see
-  // the store API gap noted in the task report (`OpResult` has no granular
-  // "how many messages changed" for a thread-scoped op).
+  // `MailboxOp`'s `thread.label` reports `updatedIds` as the thread's changed
+  // message ids (same shape `thread.read` uses), so `affected` is a true
+  // per-message count — take the largest across changes, since one add/remove
+  // in the loop may touch fewer messages than another (e.g. some already
+  // carried the label being added).
   let affected = 0;
   for (const change of changes) {
     const result = await store
       .mailbox(body.accountId)
       .apply({ kind: 'thread.label', threadKey, label: change.name, action: change.action });
-    affected = Math.max(affected, result.applied.length);
+    affected = Math.max(affected, (result.updatedIds ?? result.applied).length);
   }
   if (affected === 0) return error.notFound(c, 'MailThread', threadKey);
 

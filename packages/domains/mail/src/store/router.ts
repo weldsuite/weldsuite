@@ -496,8 +496,8 @@ export class RoutedMailboxStore implements MailboxStore {
     return this.routedRead((store) => store.getMessage(id, o), () => this.postgres.getMessage(id, o));
   }
 
-  getMessages(ids: string[]): Promise<MailMessageListRow[]> {
-    return this.routedRead((o) => o.getMessages(ids), () => this.postgres.getMessages(ids));
+  getMessages(ids: string[], opts?: { includeDeleted?: boolean }): Promise<MailMessageListRow[]> {
+    return this.routedRead((o) => o.getMessages(ids, opts), () => this.postgres.getMessages(ids, opts));
   }
 
   listMessages(q: MessageListQuery): Promise<MessagePage> {
@@ -852,11 +852,16 @@ export class RoutedWorkspaceMailStore implements WorkspaceMailStore {
     return this.crossMailboxRead(accountIds, () => this.objectWorkspace!.unreadBadge(accountIds), () => this.postgresWorkspace.unreadBadge(accountIds));
   }
 
-  locateMessages(ids: string[], accountIds: string[], hint?: string): Promise<Map<string, string>> {
+  locateMessages(
+    ids: string[],
+    accountIds: string[],
+    hint?: string,
+    opts?: { includeDeleted?: boolean },
+  ): Promise<Map<string, string>> {
     return this.crossMailboxRead(
       accountIds,
-      () => this.objectWorkspace!.locateMessages(ids, accountIds, hint),
-      () => this.postgresWorkspace.locateMessages(ids, accountIds, hint),
+      () => this.objectWorkspace!.locateMessages(ids, accountIds, hint, opts),
+      () => this.postgresWorkspace.locateMessages(ids, accountIds, hint, opts),
     );
   }
 

@@ -29,9 +29,15 @@ export function permissionsVersionKey(workspaceId: string): string {
   return `permv:${workspaceId}`;
 }
 
-/** `WORKSPACE_CACHE` key of one user's resolved permissions, under a given version. */
-export function permissionsCacheKey(workspaceId: string, userId: string, version: string): string {
-  return `permr:${workspaceId}:${userId}:${version}`;
+/**
+ * `WORKSPACE_CACHE` key of one user's resolved permissions, under a given
+ * workspace version and the resolving code's `resolution` version
+ * (`PERMISSIONS_RESOLUTION_VERSION`, `@weldsuite/permissions/server`), so a
+ * deploy that changes the system-role catalog or the resolver skips every
+ * entry the old code cached.
+ */
+export function permissionsCacheKey(workspaceId: string, userId: string, version: string, resolution: string): string {
+  return `permr:${resolution}:${workspaceId}:${userId}:${version}`;
 }
 
 /**
@@ -41,7 +47,6 @@ export function permissionsCacheKey(workspaceId: string, userId: string, version
  * this interface, extra overloads and all.
  */
 interface KvLike {
-  get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
 }
 
@@ -66,11 +71,11 @@ export async function bumpPermissionsVersion(
   workspaceId: string,
 ): Promise<void> {
   try {
-    const key = permissionsVersionKey(workspaceId);
-    const current = await env.WORKSPACE_CACHE.get(key);
-    const next = (Number.parseInt(current ?? '0', 10) || 0) + 1;
-    // No TTL: the version must outlive any individual cached entry.
-    await env.WORKSPACE_CACHE.put(key, String(next));
+    // A random value, not current + 1: KV reads can be stale across colos for
+    // up to ~60s, so two bumps computing the same "next" would leave an entry
+    // cached between them valid. The version only has to change, never to
+    // increase. No TTL: it must outlive any individual cached entry.
+    await env.WORKSPACE_CACHE.put(permissionsVersionKey(workspaceId), crypto.randomUUID());
   } catch (err) {
     console.warn(
       'Could not bump a workspace permission-cache version:',

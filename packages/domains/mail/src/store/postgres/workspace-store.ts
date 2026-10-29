@@ -12,7 +12,7 @@ import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { inTrashOrSpamCondition } from '../../labels';
 import { getMessageStats, listMessagesWide, type MessageStats } from '../../messages';
-import { listThreadsForAccounts } from '../../threads';
+import { clampThreadPageSize, listThreadsForAccounts } from '../../threads';
 import { listSnoozedMessages } from '../../snooze';
 import { markFolderReadForAccounts } from '../../thread-ops';
 import { listDrafts as listDraftRows } from '../../drafts';
@@ -69,12 +69,14 @@ export class PostgresWorkspaceMailStore implements WorkspaceMailStore {
       subject: q.subject,
       hasAttachment: q.hasAttachment,
       excludeWords: q.excludeWords,
-      pageSize: q.pageSize + 1,
+      pageSize: q.pageSize,
+      lookahead: true,
       offset: q.offset,
       cursor,
     });
-    const hasMore = threads.length > q.pageSize;
-    const page = hasMore ? threads.slice(0, q.pageSize) : threads;
+    const pageSize = clampThreadPageSize(q.pageSize);
+    const hasMore = threads.length > pageSize;
+    const page = hasMore ? threads.slice(0, pageSize) : threads;
     const last = page.at(-1);
     const nextCursor: ThreadCursor | null =
       hasMore && last
@@ -103,12 +105,23 @@ export class PostgresWorkspaceMailStore implements WorkspaceMailStore {
     return Number(row?.count ?? 0);
   }
 
-  async locateMessages(ids: string[], accountIds: string[]): Promise<Map<string, string>> {
+  async locateMessages(
+    ids: string[],
+    accountIds: string[],
+    _hint?: string,
+    opts?: { includeDeleted?: boolean },
+  ): Promise<Map<string, string>> {
     if (ids.length === 0 || accountIds.length === 0) return new Map();
     const rows = await this.db
       .select({ id: mailMessages.id, accountId: mailMessages.accountId })
       .from(mailMessages)
-      .where(and(inArray(mailMessages.id, ids), inArray(mailMessages.accountId, accountIds), isNull(mailMessages.deletedAt)));
+      .where(
+        and(
+          inArray(mailMessages.id, ids),
+          inArray(mailMessages.accountId, accountIds),
+          opts?.includeDeleted ? undefined : isNull(mailMessages.deletedAt),
+        ),
+      );
     return new Map(rows.map((r) => [r.id, r.accountId]));
   }
 

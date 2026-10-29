@@ -91,11 +91,11 @@ export async function readMailboxDirectoryVersion(kv: KvLike, workspaceId: strin
  */
 export async function bumpMailboxDirectoryVersion(kv: KvLike, workspaceId: string): Promise<void> {
   try {
-    const key = mailboxDirectoryVersionKey(workspaceId);
-    const current = await kv.get(key);
-    const next = (Number.parseInt(current ?? '0', 10) || 0) + 1;
-    // No TTL: the version must outlive any individual cached entry.
-    await kv.put(key, String(next));
+    // A random value, not current + 1: KV reads can be stale across colos for
+    // up to ~60s, so two bumps computing the same "next" would leave an entry
+    // cached between them valid. The version only has to change, never to
+    // increase. No TTL: it must outlive any individual cached entry.
+    await kv.put(mailboxDirectoryVersionKey(workspaceId), crypto.randomUUID());
   } catch (err) {
     console.warn(
       'Could not bump a workspace mailbox-directory version:',

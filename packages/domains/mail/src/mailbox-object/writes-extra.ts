@@ -282,20 +282,37 @@ function applyDeliveryMatch(sql: SqlStorage, ref: MailboxRef, op: DeliveryMatchO
 
 type InboundFinalizeOp = Extract<MailboxOp, { kind: 'inbound.finalize' }>;
 
+/**
+ * `addLabels`/`removeLabels` merge onto the row's CURRENT labels (read inside
+ * `changeMessage`'s `mutate`, same as every other op here) rather than
+ * replacing them outright — the classification run this folds in can take
+ * seconds, during which a user can read/flag/archive the same message, and a
+ * stale absolute snapshot would silently undo that. `isRead`/`isFlagged`/
+ * `isSpam`/`deleted` are each applied ONLY when the op sets them, so a field
+ * no rule touched never overwrites whatever the user already set (see
+ * `MailboxOp`'s own doc comment on this op kind).
+ */
 function applyInboundFinalize(sql: SqlStorage, ref: MailboxRef, op: InboundFinalizeOp, at: number): OpResult {
-  const groups: ClockGroup[] = ['labels', 'read', 'flag'];
+  const hasLabelDelta = op.addLabels.length > 0 || op.removeLabels.length > 0;
+  const groups: ClockGroup[] = [];
+  if (hasLabelDelta || op.isSpam !== undefined) groups.push('labels');
+  if (op.isRead !== undefined) groups.push('read');
+  if (op.isFlagged !== undefined) groups.push('flag');
   if (op.deleted) groups.push('delete');
 
   const outcome = changeMessage(sql, ref, op.id, groups, at, (row) => {
-    const labels = [...new Set(op.labels.map(normalizeLabel))];
-    const next: Partial<MessageRow> = {
-      ...labelPatch(labels),
-      in_spam: toBit(op.isSpam), // plain column, independent of `labels` — see the file comment above
-      is_read: toBit(op.isRead),
-      is_flagged: toBit(op.isFlagged),
-    };
+    const next: Partial<MessageRow> = {};
+    if (hasLabelDelta) {
+      const current = parseJsonArray<string>(row.labels_json);
+      const merged = removeLabels(addLabels(current, ...op.addLabels.map(normalizeLabel)), ...op.removeLabels.map(normalizeLabel));
+      Object.assign(next, labelPatch(merged));
+    }
+    // plain columns, independent of `labels` — see the file comment above
+    if (op.isSpam !== undefined) next.in_spam = toBit(op.isSpam);
+    if (op.isRead !== undefined) next.is_read = toBit(op.isRead);
+    if (op.isFlagged !== undefined) next.is_flagged = toBit(op.isFlagged);
     if (op.deleted && row.deleted_at === null) next.deleted_at = at;
-    return next;
+    return Object.keys(next).length ? next : null;
   });
   if (outcome.status === 'missing') return baseResult({ missing: [op.id] });
   if (outcome.status === 'stale') return baseResult({ stale: [op.id] });

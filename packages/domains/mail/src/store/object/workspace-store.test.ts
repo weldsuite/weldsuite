@@ -279,6 +279,24 @@ describe('locateMessages', () => {
     const result = await store.locateMessages([message.id], ['acc_hint', 'acc_other'], 'acc_hint');
     expect(result.get(message.id)).toBe('acc_other');
   });
+
+  it('excludes a deleted message by default, and finds it with includeDeleted — still scoped to accountIds', async () => {
+    const { env } = makeEnv();
+    const store = makeStore(env);
+    const message = makeIngest();
+    await store.mailbox('acc_a').apply({ kind: 'ingest', message });
+    await store.mailbox('acc_a').apply({ kind: 'delete', ids: [message.id] });
+
+    const liveOnly = await store.locateMessages([message.id], ['acc_a', 'acc_b']);
+    expect(liveOnly.get(message.id)).toBeUndefined();
+
+    const withDeleted = await store.locateMessages([message.id], ['acc_a', 'acc_b'], undefined, { includeDeleted: true });
+    expect(withDeleted.get(message.id)).toBe('acc_a');
+
+    // Never leaks another mailbox: scoping away `acc_a` still finds nothing, even with includeDeleted.
+    const outOfScope = await store.locateMessages([message.id], ['acc_b'], undefined, { includeDeleted: true });
+    expect(outOfScope.get(message.id)).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

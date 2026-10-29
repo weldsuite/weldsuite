@@ -36,6 +36,7 @@ interface SeedPgOptions {
   textBody?: string;
   htmlBody?: string;
   threadId?: string;
+  updatedAt?: Date;
 }
 
 async function seedPgMessage(accountId: string, id: string, opts: SeedPgOptions = {}): Promise<void> {
@@ -54,6 +55,7 @@ async function seedPgMessage(accountId: string, id: string, opts: SeedPgOptions 
     deletedAt: opts.deletedAt,
     textBody: opts.textBody,
     htmlBody: opts.htmlBody,
+    ...(opts.updatedAt ? { updatedAt: opts.updatedAt } : {}),
   });
 }
 
@@ -161,9 +163,13 @@ describe('full parity', () => {
     const missingId = generateId('mmsg');
     await seedPgMessage(accountId, missingId, { labels: ['INBOX', 'STARRED'] });
 
+    // The Postgres row changed after the object took its copy (a dual write
+    // the object missed): repair merges last-write-wins at the row's
+    // updatedAt, so it must be later than the object's own clocks. Seeded at
+    // "now" it only won when both writes landed in the same millisecond.
     const diffId = generateId('mmsg');
-    await seedPgMessage(accountId, diffId, { labels: ['INBOX', 'STARRED'] });
     await object.apply(ref, { kind: 'ingest', message: makeIngest(diffId, { labels: ['INBOX'] }) });
+    await seedPgMessage(accountId, diffId, { labels: ['INBOX', 'STARRED'], updatedAt: new Date(Date.now() + 60_000) });
 
     const extraId = generateId('mmsg');
     await object.apply(ref, { kind: 'ingest', message: makeIngest(extraId, { labels: ['INBOX'] }) });

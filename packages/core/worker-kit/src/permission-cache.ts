@@ -14,7 +14,9 @@
  *
  * Keyed by workspace id + user id + a per-workspace version
  * (`bumpPermissionsVersion`, `@weldsuite/db/lib/permissions-cache`) that
- * every write affecting the result bumps. Invalidation is the version bump,
+ * every write affecting the result bumps, + the resolving code's version
+ * (`PERMISSIONS_RESOLUTION_VERSION`), which a deploy changing the system-role
+ * catalog or the resolver changes. Invalidation is the version bump,
  * not the TTL: a change is picked up on this colo immediately, and on every
  * other colo within ~60s (KV's propagation bound), because every write path
  * that can change a resolution calls `bumpPermissionsVersion`. The TTL below
@@ -34,7 +36,11 @@ import {
   permissionsCacheKey,
   permissionsVersionKey,
 } from '@weldsuite/db/lib/permissions-cache';
-import { resolveEffectivePermissions, type PermissionDbQuery } from '@weldsuite/permissions/server';
+import {
+  PERMISSIONS_RESOLUTION_VERSION,
+  resolveEffectivePermissions,
+  type PermissionDbQuery,
+} from '@weldsuite/permissions/server';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { RequestTiming } from './timing';
 
@@ -98,7 +104,7 @@ export async function resolveEffectivePermissionsCached(
   // under the wrong one.
   if (version === null) return resolveEffectivePermissions(queries, userId);
 
-  const key = permissionsCacheKey(workspaceId, userId, version);
+  const key = permissionsCacheKey(workspaceId, userId, version, PERMISSIONS_RESOLUTION_VERSION);
   const started = Date.now();
   let cached: unknown = null;
   try {

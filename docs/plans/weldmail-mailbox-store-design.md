@@ -303,7 +303,7 @@ export type MailboxOp =
       scheduledFor?: number | null; triggerRunId?: string | null; sentAt?: number; externalMessageId?: string;
       dropScheduledLabel?: boolean; softDelete?: boolean; delivery?: { status: MailDeliveryStatus; detail: string | null } } }
   | { kind: 'delivery.match'; recipient: string; eventAt: number; status: MailDeliveryStatus; detail: string | null }
-  | { kind: 'inbound.finalize'; id: string; labels: string[]; isRead: boolean; isFlagged: boolean; isSpam: boolean; deleted: boolean }
+  | { kind: 'inbound.finalize'; id: string; addLabels: string[]; removeLabels: string[]; isRead?: boolean; isFlagged?: boolean; isSpam?: boolean; deleted?: boolean }
   | { kind: 'categories'; id: string; categories: string[]; important?: boolean }
   | { kind: 'attachment.create'; attachment: AttachmentInput & { id: string } }
   | { kind: 'attachment.update'; id: string; patch: Partial<AttachmentInput> }
@@ -596,7 +596,7 @@ At the end of the op, **`refreshThread(key)`** recomputes the summary from the t
   - refresh the affected threads.
 - **`folder.read`:** threads from `thread_labels` (or the filtered path), unread messages in batches of 1000, one transaction per batch, up to `maxBatches`. Returns `updatedIds` (all of them) and the 200 newest per mailbox for the push.
 - **`delivery.match`:** `message_addresses(address=recipient, role in to/cc/bcc)` joined with `messages`, where `source='sent'` and `sent_at` is between `eventAt − 3 d` and `eventAt + 1 h`; take the latest; apply `STATUS_RANK` as in delivery-events.ts:108-148.
-- **`inbound.finalize`** sets labels, read, flagged and deleted. The inbound worker computes the final state in memory: AI matched labels as a plain union, then rule actions through a pure `applyRuleAction` moved from email-storage.ts:1727-1810. Rule conditions are evaluated on the parsed email.
+- **`inbound.finalize`** applies a DELTA, not an absolute snapshot: `addLabels`/`removeLabels` merge onto the row's current labels (same idempotent semantics as `labels.add`/`labels.remove`), and `isRead`/`isFlagged`/`isSpam`/`deleted` are only written when the op sets them — the classification call behind this op can take seconds, during which a user can read/flag/archive the same message, and an absolute snapshot taken before that call would otherwise undo it. The inbound worker computes the before/after state in memory (AI matched labels as a plain union, then rule actions through a pure `applyRuleAction` moved from email-storage.ts:1727-1810; rule conditions are evaluated on the parsed email) and diffs the two into the delta (`finalizeOpFromStates`).
 
 **Stats map:**
 

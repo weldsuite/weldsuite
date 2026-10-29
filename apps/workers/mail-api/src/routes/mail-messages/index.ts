@@ -165,10 +165,17 @@ function toLegacyListItem(row: MailMessageListRow) {
  * received (today's `messages.listMessages`: look the id up, page strictly
  * before its `sentDate`). Resolved by locating the id's mailbox within the
  * accounts already in scope — a cursor id outside that scope (a message that
- * no longer exists, or was never reachable) simply starts the list over
- * rather than reproducing the legacy unscoped-by-access lookup, which no
- * caller actually depends on: every cursor a client holds came from a
- * message this same endpoint already served it.
+ * never existed, or was never reachable) simply starts the list over rather
+ * than reproducing the legacy unscoped-by-access lookup, which no caller
+ * actually depends on: every cursor a client holds came from a message this
+ * same endpoint already served it.
+ *
+ * `includeDeleted: true` because the message the cursor points at may have
+ * been deleted (by this client or another) since the page it came from was
+ * served — the row is only used for its `sentDate` sort position, never
+ * returned to the caller, so resolving it here doesn't mean the row is
+ * listed. Without this, the deleted message resolves to nothing and the
+ * "page not found" fallback above silently restarts the list at page 1.
  */
 async function resolveLegacyCursor(
   store: WorkspaceMailStore,
@@ -177,9 +184,11 @@ async function resolveLegacyCursor(
 ): Promise<MessageCursor | undefined> {
   if (!cursorId || accountIds.length === 0) return undefined;
   const ownerId =
-    accountIds.length === 1 ? accountIds[0]! : (await store.locateMessages([cursorId], accountIds)).get(cursorId);
+    accountIds.length === 1
+      ? accountIds[0]!
+      : (await store.locateMessages([cursorId], accountIds, undefined, { includeDeleted: true })).get(cursorId);
   if (!ownerId) return undefined;
-  const [row] = await store.mailbox(ownerId).getMessages([cursorId]);
+  const [row] = await store.mailbox(ownerId).getMessages([cursorId], { includeDeleted: true });
   if (!row?.sentDate) return undefined;
   return { sentAt: new Date(row.sentDate).getTime(), id: cursorId };
 }

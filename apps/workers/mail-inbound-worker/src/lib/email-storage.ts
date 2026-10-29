@@ -69,7 +69,7 @@ import {
 } from '@weldsuite/ai';
 import { nanoUsd, recordProviderUsage } from '@weldsuite/credits/gateway-costs';
 import { putRawMime } from '@weldsuite/mail-domain/store/bodies';
-import { getWorkspaceMail, type IngestMessage, type MailboxStore } from '@weldsuite/mail-domain/store';
+import { getWorkspaceMail, type IngestMessage, type MailboxOp, type MailboxStore } from '@weldsuite/mail-domain/store';
 import { applyRuleActions, inboundRuleMatches, type RuleMessageState } from '@weldsuite/mail-domain/store/model';
 import type { AttachmentInput } from '@weldsuite/mail-domain/attachments';
 import type { Env } from '../index';
@@ -910,7 +910,16 @@ export async function processInboundEmail(
   let notified = 0;
 
   for (const account of accounts) {
-    const mailbox = await resolveMailbox(env, account, ctx);
+    // Per account, like the store itself: a recipient whose workspace can't
+    // be reached (deleted, mid-move, a master-DB blip) must not cost the
+    // other recipients their copy.
+    let mailbox: MailboxStore | null;
+    try {
+      mailbox = await resolveMailbox(env, account, ctx);
+    } catch (err) {
+      console.error(`[Store] Could not resolve the mailbox for account ${account.accountId}:`, err);
+      continue;
+    }
     const result = await storeEmail(env, account, email, attachmentNames, attachments, mailbox);
     if (!result) continue;
     stored++;
@@ -1511,13 +1520,44 @@ export async function applyMailRules(
 }
 
 /**
+ * Turns the before/after of one `classifyAndRunRules` run into an
+ * `inbound.finalize` DELTA, never an absolute snapshot: the AI call this run
+ * makes can take seconds, during which a user can read, flag or archive the
+ * same message, and `initialState`'s synthetic snapshot (always
+ * `isRead: false`, `isFlagged: false`, `deleted: false`) would otherwise
+ * clobber whatever the user did in that window. Labels become an add/remove
+ * pair relative to `initialState.labels`; a flag is only included when a rule
+ * actually changed it from its initial value, so an untouched field is left
+ * for the store to merge onto the row's current state instead of being reset.
+ */
+export function finalizeOpFromStates(
+  messageId: string,
+  initialState: RuleMessageState,
+  state: RuleMessageState,
+): Extract<MailboxOp, { kind: 'inbound.finalize' }> {
+  return {
+    kind: 'inbound.finalize',
+    id: messageId,
+    addLabels: state.labels.filter((l) => !initialState.labels.includes(l)),
+    removeLabels: initialState.labels.filter((l) => !state.labels.includes(l)),
+    ...(state.isRead !== initialState.isRead ? { isRead: state.isRead } : {}),
+    ...(state.isFlagged !== initialState.isFlagged ? { isFlagged: state.isFlagged } : {}),
+    ...(state.isSpam !== initialState.isSpam ? { isSpam: state.isSpam } : {}),
+    ...(state.deleted !== initialState.deleted ? { deleted: state.deleted } : {}),
+  };
+}
+
+/**
  * Apply Jev multi-label auto-labeling, then the account's active mail rules —
  * both folded into one `inbound.finalize` op (design task D4, §1: "pure rule
  * evaluation → S op inbound.finalize") instead of each phase writing the
  * message row directly. Label and rule *definitions*, and the rules' own
  * applied-count stats, stay on Postgres in every store mode — only the
  * message's own state (labels/isRead/isFlagged/isSpam/deleted) moves through
- * the mailbox store, and only when something actually changed.
+ * the mailbox store, and only when something actually changed, as a DELTA
+ * (`finalizeOpFromStates`) the store merges onto the row's current state —
+ * never this function's `initialState` snapshot, which a concurrent user
+ * read/flag/archive can already have moved past by the time this applies.
  *
  * Keywords are no longer used — every AI-enabled label with an `aiDescription`
  * is evaluated as a noul question via TypeSafe Jev (`typesafe/jev`) through
@@ -1574,15 +1614,7 @@ async function classifyAndRunRules(
   }
 
   if (state !== initialState) {
-    await mailbox.apply({
-      kind: 'inbound.finalize',
-      id: messageId,
-      labels: state.labels,
-      isRead: state.isRead,
-      isFlagged: state.isFlagged,
-      isSpam: state.isSpam,
-      deleted: state.deleted,
-    });
+    await mailbox.apply(finalizeOpFromStates(messageId, initialState, state));
   }
 
   return markedSpam;

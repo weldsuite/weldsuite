@@ -208,9 +208,14 @@ export class ObjectWorkspaceMailStore implements WorkspaceMailStore {
   // -------------------------------------------------------------------
 
   /** The hint mailbox's own share of `locateMessages`: resolves what it can into `result`, falls back silently to fan-out on failure. Returns the still-unresolved ids. */
-  private async locateMessagesViaHint(hint: string, ids: readonly string[], result: Map<string, string>): Promise<string[]> {
+  private async locateMessagesViaHint(
+    hint: string,
+    ids: readonly string[],
+    result: Map<string, string>,
+    opts?: { includeDeleted?: boolean },
+  ): Promise<string[]> {
     try {
-      const rows = await this.mailbox(hint).getMessages([...ids]);
+      const rows = await this.mailbox(hint).getMessages([...ids], opts);
       for (const row of rows) result.set(row.id, hint);
     } catch (err) {
       console.error(`[mail-store/object] locateMessages: hint mailbox ${hint} failed, falling back to fan-out:`, err);
@@ -218,14 +223,19 @@ export class ObjectWorkspaceMailStore implements WorkspaceMailStore {
     return ids.filter((id) => !result.has(id));
   }
 
-  async locateMessages(ids: string[], accountIds: string[], hint?: string): Promise<Map<string, string>> {
+  async locateMessages(
+    ids: string[],
+    accountIds: string[],
+    hint?: string,
+    opts?: { includeDeleted?: boolean },
+  ): Promise<Map<string, string>> {
     const result = new Map<string, string>();
     if (ids.length === 0 || accountIds.length === 0) return result;
 
     let remaining = ids;
     const hasHint = !!hint && accountIds.includes(hint);
     if (hasHint) {
-      remaining = await this.locateMessagesViaHint(hint as string, remaining, result);
+      remaining = await this.locateMessagesViaHint(hint as string, remaining, result, opts);
       if (remaining.length === 0) return result;
     }
 
@@ -233,7 +243,7 @@ export class ObjectWorkspaceMailStore implements WorkspaceMailStore {
     if (rest.length === 0) return result;
     const { succeeded } = await fanOutToMailboxes(rest, FANOUT_CONCURRENCY, async (accountId) => ({
       accountId,
-      rows: await this.mailbox(accountId).getMessages(remaining),
+      rows: await this.mailbox(accountId).getMessages(remaining, opts),
     }));
     mergeLocatedMessages(succeeded, result);
     return result;

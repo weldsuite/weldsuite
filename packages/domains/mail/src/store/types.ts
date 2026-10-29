@@ -267,13 +267,27 @@ export type MailboxOp =
     }
   | { kind: 'delivery.match'; recipient: string; eventAt: number; status: MailDeliveryStatus; detail: string | null }
   | {
+      /**
+       * A DELTA onto the row's CURRENT state, not an absolute snapshot: the
+       * AI classification call this folds in (Jev) can take seconds, during
+       * which a user can read, flag or archive the same message. `addLabels`/
+       * `removeLabels` are merged onto whatever labels the row has when this
+       * finally applies (same idempotent `addLabels`/`removeLabels` semantics
+       * as `labels.add`/`labels.remove`); `isRead`/`isFlagged`/`isSpam`/
+       * `deleted` are each applied ONLY when present — a rule that never
+       * touched that field must leave it at whatever the user already set,
+       * which is why these are optional rather than always-present booleans
+       * (the bug this replaced: a caller that always sent `isRead: false`
+       * could un-read mail a user had already opened).
+       */
       kind: 'inbound.finalize';
       id: string;
-      labels: string[];
-      isRead: boolean;
-      isFlagged: boolean;
-      isSpam: boolean;
-      deleted: boolean;
+      addLabels: string[];
+      removeLabels: string[];
+      isRead?: boolean;
+      isFlagged?: boolean;
+      isSpam?: boolean;
+      deleted?: boolean;
     }
   | { kind: 'categories'; id: string; categories: string[]; important?: boolean }
   | { kind: 'attachment.create'; attachment: AttachmentInput & { id: string } }
@@ -301,7 +315,7 @@ export interface OpResult {
   applied: string[];
   missing: string[];
   stale: string[];
-  /** `folder.read`, `thread.read`: every id, for the secondary store. */
+  /** `folder.read`, `thread.read`, `thread.label`: every id, for the secondary store. */
   updatedIds?: string[];
   labels?: Record<string, string[]>;
   message?: MailMessageRecord | null;
@@ -340,8 +354,14 @@ export interface MailboxStore {
     id: string,
     o?: { bodies?: boolean; attachments?: boolean },
   ): Promise<(MailMessageRecord & { attachments?: MailAttachmentRecord[] }) | null>;
-  /** Live rows in THIS mailbox (locate, bulk checks). */
-  getMessages(ids: string[]): Promise<MailMessageListRow[]>;
+  /**
+   * Live rows in THIS mailbox (locate, bulk checks). `includeDeleted` also
+   * returns a soft-deleted row — used ONLY to resolve a legacy pagination
+   * cursor's sort position (the message it points at may have been deleted
+   * since the page it came from was served), never to serve a deleted
+   * message's content to a caller.
+   */
+  getMessages(ids: string[], opts?: { includeDeleted?: boolean }): Promise<MailMessageListRow[]>;
   /** Keyset `sentAt` desc, `id` desc; search is FTS in the object. */
   listMessages(q: MessageListQuery): Promise<MessagePage>;
   stats(): Promise<MailboxStats>;
@@ -409,7 +429,13 @@ export interface WorkspaceMailStore {
   listMessages(accountIds: string[], q: MessageListQuery): Promise<MessagePage>;
   stats(accountIds: string[]): Promise<MessageStats>;
   unreadBadge(accountIds: string[]): Promise<number>;
-  locateMessages(ids: string[], accountIds: string[], hint?: string): Promise<Map<string, string>>;
+  /** `opts.includeDeleted`: see `MailboxStore.getMessages` — the legacy cursor resolution's use case. */
+  locateMessages(
+    ids: string[],
+    accountIds: string[],
+    hint?: string,
+    opts?: { includeDeleted?: boolean },
+  ): Promise<Map<string, string>>;
   locateAttachment(
     id: string,
     accountIds: string[],

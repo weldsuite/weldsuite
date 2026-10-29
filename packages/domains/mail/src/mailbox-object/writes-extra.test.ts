@@ -269,7 +269,7 @@ describe('delivery.match', () => {
 // ---------------------------------------------------------------------------
 
 describe('inbound.finalize', () => {
-  it('sets labels, read, flagged and isSpam as plain fields', () => {
+  it('addLabels/removeLabels and the touched flags apply on top of the current row', () => {
     const { storage, ref } = makeMailbox();
     const message = makeIngest({ labels: ['INBOX'], isRead: false });
     applyMailboxOp(storage, ref, { kind: 'ingest', message }, 1_000);
@@ -277,13 +277,13 @@ describe('inbound.finalize', () => {
     const result = applyMailboxOp(
       storage,
       ref,
-      { kind: 'inbound.finalize', id: message.id, labels: ['INBOX', 'Work'], isRead: true, isFlagged: true, isSpam: false, deleted: false },
+      { kind: 'inbound.finalize', id: message.id, addLabels: ['Work'], removeLabels: [], isRead: true, isFlagged: true },
       1_100,
     );
     expect(result.message?.labels).toEqual(['INBOX', 'Work']);
     expect(result.message?.isRead).toBe(true);
     expect(result.message?.isFlagged).toBe(true);
-    expect(result.message?.isSpam).toBe(false);
+    expect(result.message?.isSpam).toBe(false); // untouched — op never set isSpam
   });
 
   it('isSpam is written independently of whether SPAM is literally in labels', () => {
@@ -294,7 +294,7 @@ describe('inbound.finalize', () => {
     const result = applyMailboxOp(
       storage,
       ref,
-      { kind: 'inbound.finalize', id: message.id, labels: ['SPAM'], isRead: false, isFlagged: false, isSpam: true, deleted: false },
+      { kind: 'inbound.finalize', id: message.id, addLabels: ['SPAM'], removeLabels: ['INBOX'], isSpam: true },
       1_100,
     );
     expect(result.message?.isSpam).toBe(true);
@@ -309,10 +309,52 @@ describe('inbound.finalize', () => {
     applyMailboxOp(
       storage,
       ref,
-      { kind: 'inbound.finalize', id: message.id, labels: ['INBOX'], isRead: false, isFlagged: false, isSpam: false, deleted: true },
+      { kind: 'inbound.finalize', id: message.id, addLabels: [], removeLabels: [], deleted: true },
       1_100,
     );
     expect(messageRow(storage, message.id)!.deleted_at).toBe(1_100);
+  });
+
+  it('never resets a flag the op did not set — a field finalize never touches stays at the row\'s current value', () => {
+    const { storage, ref } = makeMailbox();
+    const message = makeIngest({ labels: ['INBOX'], isRead: false });
+    applyMailboxOp(storage, ref, { kind: 'ingest', message }, 1_000);
+    // A user flags the message before classification finishes.
+    applyMailboxOp(storage, ref, { kind: 'flags', ids: [message.id], patch: { isFlagged: true }, semantics: 'single' }, 1_050);
+
+    // The classification run never touched isFlagged (no rule flagged it) — the op omits the field entirely.
+    const result = applyMailboxOp(
+      storage,
+      ref,
+      { kind: 'inbound.finalize', id: message.id, addLabels: ['Newsletter'], removeLabels: [] },
+      1_100,
+    );
+    expect(result.message?.isFlagged).toBe(true); // preserved, not reset to false
+  });
+
+  it('a user reading and archiving while classification is in flight survives a label-only finalize delta', () => {
+    const { storage, ref } = makeMailbox();
+    const message = makeIngest({ labels: ['INBOX'], isRead: false });
+    applyMailboxOp(storage, ref, { kind: 'ingest', message }, 1_000);
+
+    // User opens the mail and archives it WHILE the Jev classification call
+    // (which can take seconds) is still in flight.
+    applyMailboxOp(storage, ref, { kind: 'flags', ids: [message.id], patch: { isRead: true }, semantics: 'single' }, 1_050);
+    applyMailboxOp(storage, ref, { kind: 'move', ids: [message.id], location: 'ARCHIVE' }, 1_060);
+
+    // Classification finishes and adds an AI label — the OLD absolute-snapshot
+    // op would have reset labels to `['INBOX', 'Jev/xyz']` and isRead to
+    // false, undoing both the archive and the read. The delta must not.
+    const result = applyMailboxOp(
+      storage,
+      ref,
+      { kind: 'inbound.finalize', id: message.id, addLabels: ['Jev/xyz'], removeLabels: [] },
+      1_100,
+    );
+    expect(result.message?.isRead).toBe(true);
+    expect(result.message?.labels).toContain('Jev/xyz');
+    expect(result.message?.labels).toContain('ARCHIVE');
+    expect(result.message?.labels).not.toContain('INBOX');
   });
 });
 

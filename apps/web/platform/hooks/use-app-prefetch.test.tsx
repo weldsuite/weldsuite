@@ -78,6 +78,32 @@ describe('useAppPrefetch — weldmail', () => {
     await waitFor(() => expect(routerPrefetchMock).toHaveBeenCalledWith('/weldmail/macc_1/inbox'));
   });
 
+  // Regression: a sidebar hover debounces (120ms) but can still fire more
+  // than once for the same account once `PREFETCH_STALE_TIME_MS` has
+  // elapsed. The thread list and labels query share their options with
+  // `useInfiniteMailLabelThreads` / the route prefetch (see
+  // mail-label-threads-query.ts); once either is already cached — e.g. the
+  // user already opened that mailbox — hovering again shouldn't refetch them.
+  it('does not refetch an already-warm thread list or labels for the target account', async () => {
+    const client = newClient();
+    const threadsKey = mailKeys.threadsByLabel({ accountId: 'macc_2', labelSlug: 'inbox', pageSize: 25 });
+    client.setQueryData(threadsKey, {
+      pages: [{ data: { threads: [], totalCount: 0, nextCursor: null } }],
+      pageParams: [1],
+    });
+    client.setQueryData(mailKeys.labels('macc_2'), { data: [] });
+    client.setQueryData(preferencesKey, { uiPreferences: { mailDefaultAccountId: 'macc_2' } });
+
+    const { result } = renderHook(() => useAppPrefetch(), { wrapper: createWrapper(client) });
+    act(() => result.current.prefetch('weldmail'));
+
+    await waitFor(() => expect(routerPrefetchMock).toHaveBeenCalledWith('/weldmail/macc_2/inbox'));
+
+    expect(getMock).toHaveBeenCalledWith('/mail-accounts');
+    expect(getMock).not.toHaveBeenCalledWith(expect.stringContaining('/mail-labels/threads'));
+    expect(getMock).not.toHaveBeenCalledWith(expect.stringMatching(/^\/mail-labels\?/));
+  });
+
   it('does nothing past the accounts fetch when the workspace has no mailbox', async () => {
     getMock.mockImplementation((url: string) => {
       if (url === '/mail-accounts') return Promise.resolve({ data: [] });

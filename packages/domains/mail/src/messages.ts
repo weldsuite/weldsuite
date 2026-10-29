@@ -358,13 +358,25 @@ export async function listMessagesWide(db: Database, filters: MessageFilters) {
   return { data, hasMore, cursor, totalCount };
 }
 
-/** Live lean rows for a set of ids within one account — the store's `getMessages` (locate, bulk checks). */
-export async function getLiveMessagesByIds(db: Database, accountId: string, ids: string[]) {
+/**
+ * Lean rows for a set of ids within one account — the store's `getMessages`
+ * (locate, bulk checks). `includeDeleted` also returns a soft-deleted row:
+ * used only to resolve a legacy pagination cursor's sort position when the
+ * message it points at was deleted since the page it came from was served
+ * (so the list doesn't restart from page 1), never to serve its content.
+ */
+export async function getLiveMessagesByIds(db: Database, accountId: string, ids: string[], opts?: { includeDeleted?: boolean }) {
   if (ids.length === 0) return [];
   return db
     .select(wideListColumns)
     .from(mailMessages)
-    .where(and(eq(mailMessages.accountId, accountId), inArray(mailMessages.id, ids), isNull(mailMessages.deletedAt)));
+    .where(
+      and(
+        eq(mailMessages.accountId, accountId),
+        inArray(mailMessages.id, ids),
+        opts?.includeDeleted ? undefined : isNull(mailMessages.deletedAt),
+      ),
+    );
 }
 
 function collectSenderEmails(rows: Array<{ from: unknown }>): Set<string> {

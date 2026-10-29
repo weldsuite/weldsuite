@@ -204,7 +204,7 @@ describe('ensureMemberLinked', () => {
 
     await ensureMemberLinked(env, db as never, ORG_ID, 'user_bump', 'ws_bump');
 
-    expect(cache.get('permv:ws_bump')).toBe('1');
+    expect(cache.get('permv:ws_bump')).toEqual(expect.any(String));
   });
 
   it('does not touch the permission cache when no workspace id is given', async () => {

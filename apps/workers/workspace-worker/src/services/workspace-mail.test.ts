@@ -152,7 +152,7 @@ describe('ensureWorkspaceMail', () => {
 
     await ensureWorkspaceMail(envWithKv(kv), input(fakeDb(), fakeDb()));
 
-    expect(kv.store.get(mailboxDirectoryVersionKey('ws_1'))).toBe('1');
+    expect(kv.store.get(mailboxDirectoryVersionKey('ws_1'))).toEqual(expect.any(String));
   });
 
   it('does not bump the mailbox directory when the team@ account already exists', async () => {

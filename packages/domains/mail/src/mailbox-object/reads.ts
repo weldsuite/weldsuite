@@ -505,11 +505,22 @@ export function getMessage(
   return record;
 }
 
-/** `MailboxStore.getMessages`: live lean rows for a set of ids in this mailbox (locate, bulk checks). */
-export function getMessages(sql: SqlStorage, ref: MailboxRef, ids: string[]): MailMessageListRow[] {
+/**
+ * `MailboxStore.getMessages`: lean rows for a set of ids in this mailbox
+ * (locate, bulk checks). `includeDeleted` also returns a soft-deleted row —
+ * used only to resolve a legacy pagination cursor's sort position when the
+ * message it points at was deleted since the page it came from was served,
+ * never to serve a deleted message's content to a caller.
+ */
+export function getMessages(
+  sql: SqlStorage,
+  ref: MailboxRef,
+  ids: string[],
+  opts?: { includeDeleted?: boolean },
+): MailMessageListRow[] {
   if (ids.length === 0) return [];
   return loadMessageRows(sql, ids)
-    .filter((r) => r.deleted_at === null)
+    .filter((r) => opts?.includeDeleted || r.deleted_at === null)
     .map((r) => mapMessageListRow(r, ref));
 }
 

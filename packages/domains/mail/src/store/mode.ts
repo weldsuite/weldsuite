@@ -98,8 +98,21 @@ export interface ResolveMailStoreModeOptions {
  * receive every write in the overlapping modes").
  */
 const MODE_CACHE_TTL_MS = 30_000;
+/**
+ * How long past its TTL an entry is kept to answer for a Flagship that
+ * doesn't (see `resolveMailStoreMode`). Long enough to ride out an outage;
+ * the entry is replaced the moment Flagship answers again.
+ */
+const MODE_CACHE_STALE_MS = 6 * 60 * 60 * 1000;
 /** Upper bound on distinct workspaces remembered per isolate — a small, cheap map. */
 const MODE_CACHE_MAX_ENTRIES = 1_000;
+/**
+ * The default handed to Flagship. The binding returns the default on a miss
+ * or an evaluation error instead of throwing, and no variation of the flag
+ * has this value, so getting it back means Flagship gave no answer — which
+ * a default of `'postgres'` would make indistinguishable from a real one.
+ */
+const UNRESOLVED = '__unresolved__';
 
 interface ModeCacheEntry {
   mode: MailStoreMode;
@@ -108,10 +121,10 @@ interface ModeCacheEntry {
 
 const modeCache = new Map<string, ModeCacheEntry>();
 
-/** Drop expired entries, then (rare) the oldest ones until back under the cap. */
+/** Drop entries past their stale window, then (rare) the oldest ones until back under the cap. */
 function pruneModeCache(now: number): void {
   for (const [workspaceId, entry] of modeCache) {
-    if (entry.expiresAt <= now) modeCache.delete(workspaceId);
+    if (entry.expiresAt + MODE_CACHE_STALE_MS <= now) modeCache.delete(workspaceId);
   }
   while (modeCache.size > MODE_CACHE_MAX_ENTRIES) {
     const oldest = modeCache.keys().next().value;
@@ -120,18 +133,27 @@ function pruneModeCache(now: number): void {
   }
 }
 
-async function evaluateMailStoreMode(env: MailStoreModeEnv, workspaceId: string, app: string): Promise<MailStoreMode> {
-  if (!env.FLAGSHIP) return 'postgres';
+/** The workspace's mode per Flagship, or `null` when Flagship gave no answer (a miss or an error). */
+async function evaluateMailStoreMode(
+  flagship: FlagshipLike,
+  env: MailStoreModeEnv,
+  workspaceId: string,
+  app: string,
+): Promise<MailStoreMode | null> {
   try {
-    const value = await env.FLAGSHIP.getStringValue(MAILBOX_STORE_FLAG, 'postgres', {
+    const value = await flagship.getStringValue(MAILBOX_STORE_FLAG, UNRESOLVED, {
       workspaceId,
       environment: env.ENVIRONMENT ?? 'production',
       app,
     });
+    if (value === UNRESOLVED) {
+      console.error(`[mail-store] Flagship returned no value for ${MAILBOX_STORE_FLAG} (workspace ${workspaceId})`);
+      return null;
+    }
     return parseMailStoreMode(value);
   } catch (err) {
-    console.warn('[mail-store] Flagship lookup failed, using default mode:', err instanceof Error ? err.message : err);
-    return 'postgres';
+    console.error('[mail-store] Flagship lookup failed:', err instanceof Error ? err.message : err);
+    return null;
   }
 }
 
@@ -139,8 +161,17 @@ async function evaluateMailStoreMode(env: MailStoreModeEnv, workspaceId: string,
  * Resolve a workspace's mail-store mode. No `FLAGSHIP` binding (local
  * `wrangler dev`, or a worker the design's §8 binder table hasn't reached
  * yet) resolves to `'postgres'`, matching every other flag's local-dev
- * fallback (`@weldsuite/feature-flags/server`); so does an evaluation error,
- * rather than risk the object path on a Flagship outage.
+ * fallback (`@weldsuite/feature-flags/server`).
+ *
+ * When Flagship gives no answer (an error, or a miss), the last mode this
+ * isolate saw for the workspace keeps being served, even past its TTL, and
+ * Flagship is asked again on the next request: falling back to `'postgres'`
+ * there would send an `object-only` workspace's writes to a store nothing
+ * reads any more. With no last mode, the answer is `'postgres'` for this
+ * request only, never cached. Failing the request instead was ruled out:
+ * every workspace starts on `'postgres'`, and inbound mail that fails to
+ * store is dropped, not retried, so a Flagship outage would lose mail for
+ * all of them to protect the few in object modes.
  *
  * Cached per isolate for `MODE_CACHE_TTL_MS` (see above) so a burst of reads
  * for the same workspace costs one Flagship call. `environment` and `app` are
@@ -158,7 +189,10 @@ export async function resolveMailStoreMode(
   const cached = modeCache.get(workspaceId);
   if (cached && cached.expiresAt > nowMs) return cached.mode;
 
-  const mode = await evaluateMailStoreMode(env, workspaceId, options.app ?? 'mail-api');
+  const mode = env.FLAGSHIP
+    ? await evaluateMailStoreMode(env.FLAGSHIP, env, workspaceId, options.app ?? 'mail-api')
+    : 'postgres';
+  if (mode === null) return cached?.mode ?? 'postgres';
   modeCache.set(workspaceId, { mode, expiresAt: nowMs + MODE_CACHE_TTL_MS });
   pruneModeCache(nowMs);
   return mode;

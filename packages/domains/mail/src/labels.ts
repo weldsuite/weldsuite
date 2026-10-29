@@ -571,7 +571,9 @@ export async function bulkRemoveLabelFromMessages(
 
 /**
  * Apply or remove `labelName` from every message in a thread. Returns
- * the count of messages whose JSONB array changed.
+ * the count of messages whose JSONB array changed, plus their ids, so a
+ * caller reporting a per-message count (e.g. the `thread.label` mailbox op)
+ * can do so instead of reporting a single thread-scoped "1".
  *
  * System slugs are normalised (`archive` → `ARCHIVE`) so callers can
  * pass either form. Adding a location label (`INBOX`, `ARCHIVE`, `TRASH`,
@@ -585,7 +587,7 @@ export async function applyLabelToThread(
   labelName: string,
   action: 'add' | 'remove',
   now: Date = new Date(),
-): Promise<{ affected: number }> {
+): Promise<{ affected: number; ids: string[] }> {
   const messages = await db
     .select({ id: mailMessages.id })
     .from(mailMessages)
@@ -596,13 +598,13 @@ export async function applyLabelToThread(
         isNull(mailMessages.deletedAt),
       ),
     );
-  if (messages.length === 0) return { affected: 0 };
+  if (messages.length === 0) return { affected: 0, ids: [] };
   const ids = messages.map((m) => m.id);
   const result =
     action === 'add'
       ? await bulkAddLabelToMessages(db, labelName, ids, now)
       : await bulkRemoveLabelFromMessages(db, labelName, ids, now);
-  return { affected: result.affected };
+  return { affected: result.affected, ids: result.ids };
 }
 
 async function updateLabelMessageCount(

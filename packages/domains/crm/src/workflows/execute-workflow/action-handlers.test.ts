@@ -48,6 +48,7 @@ import { __resetMailStoreModeCacheForTests } from '@weldsuite/mail-domain/store/
 
 let db: Database;
 let sharedAccountId: string;
+let secondSharedAccountId: string;
 let privateAccountId: string;
 
 function makeCtx(overrides: Partial<ActionContext> = {}): ActionContext {
@@ -82,6 +83,14 @@ beforeAll(async () => {
     email: 'private-seq@test.dev',
     isShared: false,
     assignedUserIds: ['user_someone'],
+  });
+
+  secondSharedAccountId = 'mail_shared_seq_test_2';
+  await db.insert(schema.mailAccounts).values({
+    id: secondSharedAccountId,
+    name: 'Shared 2',
+    email: 'shared-seq-2@test.dev',
+    isShared: true,
   });
 }, 60_000);
 
@@ -193,6 +202,34 @@ describe('update_record / delete_record and MAIL-003', () => {
     expect(res.updated).toBe(true);
   });
 
+  // Regression: the WHERE-clause scope only proves the *existing* row started
+  // in a shared mailbox; it says nothing about the incoming `data`. Without
+  // validating `data` too, this update would move a shared message into
+  // someone's private mailbox.
+  it('refuses to move a shared mailbox\'s message into a private account', async () => {
+    await seedMessage(sharedAccountId, 'seq_upd_move_private');
+    await expect(
+      executeAction(
+        'update_record',
+        { entity: 'mail_message', id: 'seq_upd_move_private', data: { accountId: privateAccountId } },
+        makeCtx(),
+      ),
+    ).rejects.toThrow(/shared mailbox/i);
+    const [row] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, 'seq_upd_move_private'));
+    expect(row?.accountId).toBe(sharedAccountId);
+  });
+
+  it('allows moving a shared mailbox\'s message to another shared account', async () => {
+    await seedMessage(sharedAccountId, 'seq_upd_move_shared');
+    const res = (await executeAction(
+      'update_record',
+      { entity: 'mail_message', id: 'seq_upd_move_shared', data: { accountId: secondSharedAccountId } },
+      makeCtx(),
+    )) as { updated: boolean; record: { accountId: string } };
+    expect(res.updated).toBe(true);
+    expect(res.record.accountId).toBe(secondSharedAccountId);
+  });
+
   it('refuses to update a mail_account with a credential column, even the caller\'s own', async () => {
     await expect(
       executeAction(
@@ -203,6 +240,31 @@ describe('update_record / delete_record and MAIL-003', () => {
     ).rejects.toThrow(/passwordHash/);
     const [row] = await db.select().from(schema.mailAccounts).where(eq(schema.mailAccounts.id, sharedAccountId));
     expect(row?.passwordHash).toBeNull();
+  });
+
+  // Regression: same gap as the mail_message case above, for mail_account's
+  // own `isShared` flag — an update could otherwise make a shared mailbox
+  // private.
+  it('refuses to make a shared mail_account private', async () => {
+    await expect(
+      executeAction(
+        'update_record',
+        { entity: 'mail_account', id: sharedAccountId, data: { isShared: false } },
+        makeCtx(),
+      ),
+    ).rejects.toThrow(/shared mail account/i);
+    const [row] = await db.select().from(schema.mailAccounts).where(eq(schema.mailAccounts.id, sharedAccountId));
+    expect(row?.isShared).toBe(true);
+  });
+
+  it('allows updating a shared mail_account without touching isShared', async () => {
+    const res = (await executeAction(
+      'update_record',
+      { entity: 'mail_account', id: sharedAccountId, data: { name: 'Shared renamed' } },
+      makeCtx(),
+    )) as { updated: boolean; record: { name: string; isShared: boolean } };
+    expect(res.updated).toBe(true);
+    expect(res.record.isShared).toBe(true);
   });
 
   it('cannot hard-delete a private mailbox\'s message', async () => {

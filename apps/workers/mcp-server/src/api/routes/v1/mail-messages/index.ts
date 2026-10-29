@@ -127,6 +127,12 @@ async function reachableAccountId(store: WorkspaceMailStore, accessibleIds: stri
  * over rather than reproducing an unscoped-by-access lookup, which no caller
  * actually depends on: every cursor a client holds came from a message this
  * same endpoint already served it.
+ *
+ * `includeDeleted: true` because the message the cursor points at may have
+ * been deleted since the page it came from was served — the row is only used
+ * for its `sentDate` sort position, never returned to the caller. A client
+ * that deletes every message it processes and keeps paging would otherwise
+ * never resolve the cursor and loop back to page 1 forever.
  */
 async function resolveLegacyCursor(
   store: WorkspaceMailStore,
@@ -135,9 +141,11 @@ async function resolveLegacyCursor(
 ): Promise<MessageCursor | undefined> {
   if (!cursorId || accountIds.length === 0) return undefined;
   const ownerId =
-    accountIds.length === 1 ? accountIds[0]! : (await store.locateMessages([cursorId], accountIds)).get(cursorId);
+    accountIds.length === 1
+      ? accountIds[0]!
+      : (await store.locateMessages([cursorId], accountIds, undefined, { includeDeleted: true })).get(cursorId);
   if (!ownerId) return undefined;
-  const [row] = await store.mailbox(ownerId).getMessages([cursorId]);
+  const [row] = await store.mailbox(ownerId).getMessages([cursorId], { includeDeleted: true });
   if (!row?.sentDate) return undefined;
   return { sentAt: new Date(row.sentDate).getTime(), id: cursorId };
 }
