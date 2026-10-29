@@ -245,6 +245,35 @@ async function updateExistingPostgresRow(postgresStore: PostgresMailboxStore, ro
   }
 }
 
+/**
+ * One changed row's reverse-sync: ingest it into Postgres (plus a `delete` op
+ * when it's soft-deleted — `IngestMessage` has no deleted-state field, the
+ * same gap `./backfill.ts`'s `applyPgRow` documents, so a second op marks it,
+ * the same two-step pattern) when Postgres doesn't have it yet, else bring
+ * the existing Postgres row up to date. Returns which bucket it counts in.
+ */
+async function syncOneMessageRow(
+  sql: SqlStorage,
+  postgresStore: PostgresMailboxStore,
+  env: ReverseSyncEnv,
+  ref: MailboxRef,
+  db: Database,
+  row: MessageRow,
+): Promise<'inserted' | 'updated'> {
+  const alreadyInPostgres = await existsInPostgres(db, row.id);
+  if (alreadyInPostgres) {
+    await updateExistingPostgresRow(postgresStore, row);
+    return 'updated';
+  }
+  const attachments = objectAttachmentsFor(sql, row.id);
+  const message = await toIngestMessageFromObjectRow(env.MAIL_STORAGE, ref, row, attachments);
+  await postgresStore.apply({ kind: 'ingest', message }, row.updated_at);
+  if (row.deleted_at) {
+    await postgresStore.apply({ kind: 'delete', ids: [row.id], hard: false }, row.deleted_at);
+  }
+  return 'inserted';
+}
+
 async function syncMessages(storage: { sql: SqlStorage }, env: ReverseSyncEnv, db: Database, ref: MailboxRef, since: number, cursor: MessagesCursor | null, maxRows: number): Promise<{ inserted: number; updated: number; nextCursor: MessagesCursor | null; done: boolean }> {
   const postgresStore = new PostgresMailboxStore(db, ref);
   let inserted = 0;
@@ -261,25 +290,9 @@ async function syncMessages(storage: { sql: SqlStorage }, env: ReverseSyncEnv, d
     }
     for (const row of page.rows) {
       // eslint-disable-next-line no-await-in-loop -- bounded by the page/maxRows budget, same as backfill's per-row reads
-      const alreadyInPostgres = await existsInPostgres(db, row.id);
-      if (!alreadyInPostgres) {
-        const attachments = objectAttachmentsFor(storage.sql, row.id);
-        // eslint-disable-next-line no-await-in-loop -- bounded by the page/maxRows budget, same as backfill's per-row R2 reads
-        const message = await toIngestMessageFromObjectRow(env.MAIL_STORAGE, ref, row, attachments);
-        // eslint-disable-next-line no-await-in-loop
-        await postgresStore.apply({ kind: 'ingest', message }, row.updated_at);
-        if (row.deleted_at) {
-          // `IngestMessage` has no deleted-state field (same gap `./backfill.ts`'s
-          // `applyPgRow` documents) — a second op marks it, same two-step pattern.
-          // eslint-disable-next-line no-await-in-loop
-          await postgresStore.apply({ kind: 'delete', ids: [row.id], hard: false }, row.deleted_at);
-        }
-        inserted++;
-      } else {
-        // eslint-disable-next-line no-await-in-loop
-        await updateExistingPostgresRow(postgresStore, row);
-        updated++;
-      }
+      const outcome = await syncOneMessageRow(storage.sql, postgresStore, env, ref, db, row);
+      if (outcome === 'inserted') inserted++;
+      else updated++;
       scanned++;
     }
     nextCursor = page.nextCursor;

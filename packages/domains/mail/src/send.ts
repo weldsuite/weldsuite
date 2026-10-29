@@ -545,61 +545,69 @@ function toAttachmentInput(
  * path below is unchanged: the message row, then
  * {@link persistAttachmentPointers}'s best-effort attachment inserts.
  */
-async function persistSentCopy(
+/** `persistSentCopy`'s mailbox-store path: ingest through the store, same idempotency-key race recovery as the direct-Postgres path. */
+async function persistSentCopyViaStore(
   db: Database,
-  store: MailboxStore | undefined,
+  store: MailboxStore,
   account: MailAccountRow,
   data: SendComposeInput,
   copy: SentCopyInput,
+  textPreview: string,
 ): Promise<SendResult | null> {
   const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, textBody, attachments, now, delivery } = copy;
-  const textPreview = (textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
-
-  if (store) {
-    const message: IngestMessage = {
-      id: messageId,
-      source: 'sent',
-      rfcMessageId: smtpMessageId,
-      externalMessageId,
-      threadId,
-      from: { email: account.email, name: account.displayName || undefined },
-      to: data.to.map((email) => ({ email })),
-      cc: data.cc?.map((email) => ({ email })) ?? null,
-      bcc: data.bcc?.map((email) => ({ email })) ?? null,
-      subject: data.subject || '(No subject)',
-      preview: textPreview,
-      sentAt: now.getTime(),
-      receivedAt: null,
-      createdAt: now.getTime(),
-      isRead: true,
-      labels: ['SENT'],
-      isSpam: false,
-      inReplyTo: data.inReplyTo ?? null,
-      references: data.references ?? null,
-      isReply: !!data.inReplyTo,
-      idempotencyKey: data.idempotencyKey ?? null,
-      delivery: delivery ? { status: delivery.status, detail: delivery.detail.slice(0, 500), at: now.getTime() } : null,
-      // Worker-side only (never sent over RPC): the Postgres store writes
-      // these straight to `textBody`/`htmlBody`; the object store puts them
-      // to `MAIL_STORAGE` itself and derives `searchText` from them.
-      content: { html: htmlBody, text: textBody },
-      attachments: attachments.map((att) => toAttachmentInput(messageId, att)),
-      subscription: null,
-    };
-    try {
-      await store.apply({ kind: 'ingest', message }, now.getTime());
-      return null;
-    } catch (insertErr) {
-      // Same race as the direct-Postgres path below: a concurrent send with
-      // the same idempotency key won the unique index inside the store's own
-      // insert (which only de-dupes on `id`, generated fresh per attempt).
-      if (!data.idempotencyKey) throw insertErr;
-      const existing = await findExistingSent(db, store, account.id, data.idempotencyKey);
-      if (!existing) throw insertErr;
-      return existing;
-    }
+  const message: IngestMessage = {
+    id: messageId,
+    source: 'sent',
+    rfcMessageId: smtpMessageId,
+    externalMessageId,
+    threadId,
+    from: { email: account.email, name: account.displayName || undefined },
+    to: data.to.map((email) => ({ email })),
+    cc: data.cc?.map((email) => ({ email })) ?? null,
+    bcc: data.bcc?.map((email) => ({ email })) ?? null,
+    subject: data.subject || '(No subject)',
+    preview: textPreview,
+    sentAt: now.getTime(),
+    receivedAt: null,
+    createdAt: now.getTime(),
+    isRead: true,
+    labels: ['SENT'],
+    isSpam: false,
+    inReplyTo: data.inReplyTo ?? null,
+    references: data.references ?? null,
+    isReply: !!data.inReplyTo,
+    idempotencyKey: data.idempotencyKey ?? null,
+    delivery: delivery ? { status: delivery.status, detail: delivery.detail.slice(0, 500), at: now.getTime() } : null,
+    // Worker-side only (never sent over RPC): the Postgres store writes
+    // these straight to `textBody`/`htmlBody`; the object store puts them
+    // to `MAIL_STORAGE` itself and derives `searchText` from them.
+    content: { html: htmlBody, text: textBody },
+    attachments: attachments.map((att) => toAttachmentInput(messageId, att)),
+    subscription: null,
+  };
+  try {
+    await store.apply({ kind: 'ingest', message }, now.getTime());
+    return null;
+  } catch (insertErr) {
+    // Same race as the direct-Postgres path below: a concurrent send with
+    // the same idempotency key won the unique index inside the store's own
+    // insert (which only de-dupes on `id`, generated fresh per attempt).
+    if (!data.idempotencyKey) throw insertErr;
+    const existing = await findExistingSent(db, store, account.id, data.idempotencyKey);
+    if (!existing) throw insertErr;
+    return existing;
   }
+}
 
+/** `persistSentCopy`'s direct-Postgres path. */
+async function persistSentCopyViaPostgres(
+  db: Database,
+  account: MailAccountRow,
+  data: SendComposeInput,
+  copy: SentCopyInput,
+  textPreview: string,
+): Promise<SendResult | null> {
+  const { messageId, smtpMessageId, externalMessageId, threadId, htmlBody, textBody, attachments, now, delivery } = copy;
   try {
     await db.insert(mailMessages).values({
       id: messageId,
@@ -643,6 +651,18 @@ async function persistSentCopy(
   }
   await persistAttachmentPointers(db, messageId, attachments, now);
   return null;
+}
+
+async function persistSentCopy(
+  db: Database,
+  store: MailboxStore | undefined,
+  account: MailAccountRow,
+  data: SendComposeInput,
+  copy: SentCopyInput,
+): Promise<SendResult | null> {
+  const textPreview = (copy.textBody ?? '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (store) return persistSentCopyViaStore(db, store, account, data, copy, textPreview);
+  return persistSentCopyViaPostgres(db, account, data, copy, textPreview);
 }
 
 /** Persist attachment pointers (best-effort). */

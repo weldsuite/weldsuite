@@ -103,6 +103,16 @@ function compareDraftRecent(a: MailDraft, b: MailDraft): number {
   return a.id > b.id ? -1 : 1;
 }
 
+/** Every `succeeded` fan-out mailbox's rows folded into `into`, first mailbox to claim an id wins (matches the plain for-loop this replaces: later duplicates are skipped, not overwritten). */
+function mergeLocatedMessages(
+  succeeded: ReadonlyArray<{ value: { accountId: string; rows: ReadonlyArray<{ id: string }> } }>,
+  into: Map<string, string>,
+): void {
+  for (const { value } of succeeded) {
+    for (const row of value.rows) if (!into.has(row.id)) into.set(row.id, value.accountId);
+  }
+}
+
 export class ObjectWorkspaceMailStore implements WorkspaceMailStore {
   constructor(
     private readonly env: ObjectWorkspaceMailStoreEnv,
@@ -197,6 +207,17 @@ export class ObjectWorkspaceMailStore implements WorkspaceMailStore {
   // Locate
   // -------------------------------------------------------------------
 
+  /** The hint mailbox's own share of `locateMessages`: resolves what it can into `result`, falls back silently to fan-out on failure. Returns the still-unresolved ids. */
+  private async locateMessagesViaHint(hint: string, ids: readonly string[], result: Map<string, string>): Promise<string[]> {
+    try {
+      const rows = await this.mailbox(hint).getMessages([...ids]);
+      for (const row of rows) result.set(row.id, hint);
+    } catch (err) {
+      console.error(`[mail-store/object] locateMessages: hint mailbox ${hint} failed, falling back to fan-out:`, err);
+    }
+    return ids.filter((id) => !result.has(id));
+  }
+
   async locateMessages(ids: string[], accountIds: string[], hint?: string): Promise<Map<string, string>> {
     const result = new Map<string, string>();
     if (ids.length === 0 || accountIds.length === 0) return result;
@@ -204,13 +225,7 @@ export class ObjectWorkspaceMailStore implements WorkspaceMailStore {
     let remaining = ids;
     const hasHint = !!hint && accountIds.includes(hint);
     if (hasHint) {
-      try {
-        const rows = await this.mailbox(hint as string).getMessages(remaining);
-        for (const row of rows) result.set(row.id, hint as string);
-        remaining = remaining.filter((id) => !result.has(id));
-      } catch (err) {
-        console.error(`[mail-store/object] locateMessages: hint mailbox ${hint} failed, falling back to fan-out:`, err);
-      }
+      remaining = await this.locateMessagesViaHint(hint as string, remaining, result);
       if (remaining.length === 0) return result;
     }
 
@@ -220,9 +235,7 @@ export class ObjectWorkspaceMailStore implements WorkspaceMailStore {
       accountId,
       rows: await this.mailbox(accountId).getMessages(remaining),
     }));
-    for (const { value } of succeeded) {
-      for (const row of value.rows) if (!result.has(row.id)) result.set(row.id, value.accountId);
-    }
+    mergeLocatedMessages(succeeded, result);
     return result;
   }
 

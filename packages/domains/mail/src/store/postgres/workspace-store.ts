@@ -37,9 +37,10 @@ import type {
 
 const { mailAttachments, mailDrafts, mailMessages } = schema;
 
+// The explicit `textBody`/`htmlBody`/`rawMessage` fields below override whatever
+// `row` itself carried for them, so there is no need to destructure them out first.
 function toMessageRecord(row: typeof mailMessages.$inferSelect): MailMessageRecord {
-  const { textBody, htmlBody, rawMessage: _rawMessage, ...rest } = row;
-  return { ...rest, threadKey: row.threadId ?? row.id, textBody: textBody ?? null, htmlBody: htmlBody ?? null, rawMessage: null };
+  return { ...row, threadKey: row.threadId ?? row.id, textBody: row.textBody ?? null, htmlBody: row.htmlBody ?? null, rawMessage: null };
 }
 
 export class PostgresWorkspaceMailStore implements WorkspaceMailStore {

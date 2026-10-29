@@ -99,6 +99,21 @@ describe('thread cursor tamper rejection', () => {
   it('rejects characters outside the base64url alphabet', () => {
     expect(decodeThreadCursor('t1.has spaces/and+plus')).toBeNull();
   });
+
+  it('encodes a very long payload quickly (no catastrophic backtracking stripping base64 padding)', () => {
+    // `utf8ToBase64Url` used to strip trailing `=` padding with a `/=+$/`
+    // regex — unanchored at the start, so its backtracking is O(n^2) on a
+    // long input. A cursor's fields are caller-influenced (account/thread
+    // ids), so this guards against that regression with a hostile-sized
+    // field: this must return well within a test timeout, not hang.
+    const hostile: ThreadCursor = { latestAt: 1, accountId: 'a'.repeat(500_000), threadKey: 'b' };
+    const start = performance.now();
+    const encoded = encodeThreadCursor(hostile);
+    const elapsed = performance.now() - start;
+    expect(encoded.startsWith('t1.')).toBe(true);
+    expect(elapsed).toBeLessThan(1000);
+    expect(decodeThreadCursor(encoded)).toEqual(hostile);
+  });
 });
 
 describe('message cursor round trip', () => {

@@ -36,6 +36,9 @@ import { resolveCorsOrigin } from './cors';
 
 export type TimingMetric = 'kv' | 'master' | 'perm' | 'db';
 
+/** Whether a cache (workspace resolution, resolved permissions) served the request. */
+export type CacheOutcome = 'hit' | 'miss';
+
 /** A first tenant query at least this slow is logged as a probable compute wake-up. */
 export const COLD_START_THRESHOLD_MS = 300;
 
@@ -46,12 +49,12 @@ export interface TimingSummary {
   totalMs: number;
   kvMs?: number;
   /** Whether the tenant resolution was served from KV. */
-  workspaceCache?: 'hit' | 'miss';
+  workspaceCache?: CacheOutcome;
   masterMs?: number;
   permMs?: number;
   permQueries?: number;
   /** Whether the resolved-permissions KV cache served this request (./permission-cache.ts, worker-kit). */
-  permCache?: 'hit' | 'miss';
+  permCache?: CacheOutcome;
   dbMs?: number;
   dbQueries?: number;
   dbFirstMs?: number;
@@ -62,8 +65,8 @@ export class RequestTiming {
   private readonly startedAt: number;
   private readonly totals = new Map<TimingMetric, { ms: number; count: number }>();
   private firstDbMs: number | null = null;
-  private workspaceCache: 'hit' | 'miss' | null = null;
-  private permCache: 'hit' | 'miss' | null = null;
+  private workspaceCache: CacheOutcome | null = null;
+  private permCache: CacheOutcome | null = null;
 
   constructor(now: number = Date.now()) {
     this.startedAt = now;
@@ -87,12 +90,12 @@ export class RequestTiming {
     }
   }
 
-  noteWorkspaceCache(result: 'hit' | 'miss'): void {
+  noteWorkspaceCache(result: CacheOutcome): void {
     this.workspaceCache = result;
   }
 
   /** Whether the resolved-permissions KV cache served this request (worker-kit's resolveEffectivePermissionsCached). */
-  notePermissionsCache(result: 'hit' | 'miss'): void {
+  notePermissionsCache(result: CacheOutcome): void {
     this.permCache = result;
   }
 
@@ -138,8 +141,8 @@ export class RequestTiming {
 function metricDescription(
   metric: TimingMetric,
   count: number,
-  wsCache: 'hit' | 'miss' | null,
-  permCache: 'hit' | 'miss' | null,
+  wsCache: CacheOutcome | null,
+  permCache: CacheOutcome | null,
 ): string {
   if (metric === 'kv' && wsCache) return wsCache;
   if (metric === 'perm' && permCache === 'hit') return 'cached';

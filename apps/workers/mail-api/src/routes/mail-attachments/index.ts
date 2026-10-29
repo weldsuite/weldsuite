@@ -61,6 +61,13 @@ const updateBody = createBody.partial();
 
 type AppContext = import('hono').Context<{ Bindings: Env; Variables: Variables }>;
 
+/** `obj` without `keys` — an explicit drop instead of destructuring into an unused `_name` binding. */
+function omit<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const copy = { ...obj };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
 /**
  * The ids the workspace's storage folders are named after: the Clerk org id
  * (compose uploads) and the master workspace id (inbound mail, written by
@@ -282,8 +289,7 @@ app.post('/', requirePermission('messages:create'), zValidator('json', createBod
     // `MailboxStore.getAttachment` adds `accountId` on top of the plain row
     // (it joins through the message to answer that); strip it back out so the
     // response shape matches `GET /:id`'s (today's route never had this field).
-    const { accountId: _accountId, ...publicRow } = row;
-    return success(c, toPublicAttachment(publicRow), 201);
+    return success(c, toPublicAttachment(omit(row, ['accountId'])), 201);
   } catch (err) {
     console.error('[app-api/mail-attachments] create failed:', err);
     return error.internal(c, 'Failed to create attachment');
@@ -313,8 +319,7 @@ const updateRoute = async (
       action: 'updated',
       data: { id, messageId: after.messageId, fileName: after.fileName },
     });
-    const { accountId: _accountId, ...publicAfter } = after;
-    return success(c, toPublicAttachment(publicAfter));
+    return success(c, toPublicAttachment(omit(after, ['accountId'])));
   } catch (err) {
     console.error('[app-api/mail-attachments] update failed:', err);
     return error.internal(c, 'Failed to update attachment');

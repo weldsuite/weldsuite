@@ -20,7 +20,7 @@
  * same `DirectoryAccount`/`DirectoryLabel` shape, built from the same query.
  */
 
-import { and, eq, getTableColumns, inArray, isNull } from 'drizzle-orm';
+import { and, getTableColumns, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { omitSensitive } from '@weldsuite/db/lib/sensitive-columns';
@@ -104,7 +104,8 @@ function toDirectoryAccount(row: SafeAccountRow): DirectoryAccount {
 function groupLabelsByAccount(rows: Array<DirectoryLabel & { accountId: string }>): Record<string, DirectoryLabel[]> {
   const byAccount: Record<string, DirectoryLabel[]> = {};
   for (const { accountId, ...label } of rows) {
-    (byAccount[accountId] ??= []).push(label);
+    byAccount[accountId] ??= [];
+    byAccount[accountId].push(label);
   }
   return byAccount;
 }

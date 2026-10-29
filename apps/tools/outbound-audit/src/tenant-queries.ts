@@ -78,12 +78,16 @@ export async function loadMailDomains(tx: Tx): Promise<MailDomainRow[]> {
  * here would double-count or silently miss their sends.
  */
 function sentFilter(tx: Tx, window: Window, excludeAccountIds: readonly string[] = []) {
+  const excludeClause =
+    excludeAccountIds.length > 0
+      ? tx`AND m.account_id <> ALL(${tx.array([...excludeAccountIds])}::text[])`
+      : tx``;
   return tx`m.source = 'sent'
     AND m.sent_date >= (${window.since.toISOString()}::timestamptz AT TIME ZONE 'UTC')
     AND m.sent_date <= (${window.until.toISOString()}::timestamptz AT TIME ZONE 'UTC')
     AND (m.send_status IS NULL OR m.send_status NOT IN ('scheduled', 'cancelled', 'failed'))
     AND coalesce(m.is_draft, false) = false
-    ${excludeAccountIds.length > 0 ? tx`AND m.account_id <> ALL(${tx.array([...excludeAccountIds])}::text[])` : tx``}`;
+    ${excludeClause}`;
 }
 
 /** Every recipient address of the window's sends, parsed exactly as the aggregation parses them. */

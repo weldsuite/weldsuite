@@ -137,17 +137,23 @@ import {
 // `ThreadListMessage` + `threadKey`)
 // ---------------------------------------------------------------------------
 
+/** `obj` without `keys` — an explicit drop instead of destructuring into unused `_name` bindings. */
+function omit<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const copy = { ...obj };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
 /**
  * `mapMessageRow` minus the fields `MailMessageListRow` (built on
  * `ThreadListMessage`) never carries: bodies, raw MIME and the two JSONB
- * blobs no list view reads. Built by destructuring `mapMessageRow`'s own
- * output rather than re-deriving ~60 columns by hand, so the two mappers can
- * never drift on everything they share.
+ * blobs no list view reads. Built by stripping fields off `mapMessageRow`'s
+ * own output rather than re-deriving ~60 columns by hand, so the two mappers
+ * can never drift on everything they share.
  */
 function mapMessageListRow(row: MessageRow, ref: Pick<MailboxRef, 'accountId'>): MailMessageListRow {
   const record = mapMessageRow(row, ref);
-  const { textBody: _textBody, htmlBody: _htmlBody, rawMessage: _rawMessage, headers: _headers, customFields: _customFields, clickedLinks: _clickedLinks, ...rest } = record;
-  return rest;
+  return omit(record, ['textBody', 'htmlBody', 'rawMessage', 'headers', 'customFields', 'clickedLinks']);
 }
 
 /** Every live row for a set of thread keys, in `sent_at` order, grouped by thread key. One `IN (...)` pull (chunked), not one query per thread. */
@@ -281,8 +287,13 @@ function listThreadsFast(sql: SqlStorage, ref: MailboxRef, q: ThreadListQuery, l
 /** Unicode-aware word splitter, matching `../store/fts-query`'s private one (kept local rather than exported from there just for this). */
 const WORD_PATTERN = /[\p{L}\p{N}]+/gu;
 
+/** Escapes a `LIKE`/`ESCAPE '\\'` special character by prefixing it with a backslash. */
+function escapeLikeChar(ch: string): string {
+  return '\\' + ch;
+}
+
 function likePattern(value: string): string {
-  return `%${value.trim().toLowerCase().replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+  return `%${value.trim().toLowerCase().replace(/[\\%_]/g, escapeLikeChar)}%`;
 }
 
 /**
@@ -323,10 +334,13 @@ function buildExcludeWordsSql(words: string | undefined): { sql: string; params:
  * label additionally excludes archived mail, trash/spam folders exclude
  * neither rule since they volunteer themselves for the location they are.
  */
-function buildThreadMessageMatch(q: ThreadFilter): { where: string; params: unknown[] } {
-  const clauses: string[] = ['deleted_at IS NULL'];
-  const params: unknown[] = [];
-
+/**
+ * The search-vs-folder branch of {@link buildThreadMessageMatch}: a `search`
+ * bypasses the open folder entirely (still excluding trash/spam); otherwise
+ * the folder's own location/archive rules apply. Early returns stand in for
+ * the original if/else nesting so each case reads as its own short-circuit.
+ */
+function appendThreadScopeClause(clauses: string[], params: unknown[], q: ThreadFilter): void {
   const search = buildMailSearchQuery(q.search);
   if (search) {
     clauses.push('in_trash = 0 AND in_spam = 0');
@@ -340,20 +354,23 @@ function buildThreadMessageMatch(q: ThreadFilter): { where: string; params: unkn
       params.push(search.body);
     }
     if (orParts.length > 0) clauses.push(`(${orParts.join(' OR ')})`);
-  } else {
-    const key = folderKeyForLabelSlug(q.labelSlug);
-    if (key === '__all') {
-      clauses.push('in_trash = 0 AND in_spam = 0');
-    } else {
-      clauses.push('EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = messages.id AND ml.label_key = ?)');
-      params.push(key);
-      if (key !== 'trash' && key !== 'spam') {
-        clauses.push('in_trash = 0 AND in_spam = 0');
-        if (!toSystemLabel(q.labelSlug)) clauses.push('archived = 0');
-      }
-    }
+    return;
   }
 
+  const key = folderKeyForLabelSlug(q.labelSlug);
+  if (key === '__all') {
+    clauses.push('in_trash = 0 AND in_spam = 0');
+    return;
+  }
+  clauses.push('EXISTS (SELECT 1 FROM message_labels ml WHERE ml.message_id = messages.id AND ml.label_key = ?)');
+  params.push(key);
+  if (key === 'trash' || key === 'spam') return;
+  clauses.push('in_trash = 0 AND in_spam = 0');
+  if (!toSystemLabel(q.labelSlug)) clauses.push('archived = 0');
+}
+
+/** The from/to/subject/hasAttachment filters of {@link buildThreadMessageMatch}. */
+function appendThreadFieldFilters(clauses: string[], params: unknown[], q: ThreadFilter): void {
   if (q.from?.trim()) {
     const pattern = likePattern(q.from);
     clauses.push("(LOWER(from_email) LIKE ? ESCAPE '\\' OR LOWER(from_name) LIKE ? ESCAPE '\\')");
@@ -373,11 +390,23 @@ function buildThreadMessageMatch(q: ThreadFilter): { where: string; params: unkn
   if (q.hasAttachment) {
     clauses.push('thread_key IN (SELECT thread_key FROM threads WHERE has_attachments = 1)');
   }
+}
+
+/** The `excludeWords` filter of {@link buildThreadMessageMatch}. */
+function appendThreadExcludeWordsFilter(clauses: string[], params: unknown[], q: ThreadFilter): void {
   const exclude = buildExcludeWordsSql(q.excludeWords);
-  if (exclude) {
-    clauses.push(`thread_key NOT IN (SELECT m2.thread_key FROM messages m2 WHERE m2.deleted_at IS NULL AND (${exclude.sql}))`);
-    params.push(...exclude.params);
-  }
+  if (!exclude) return;
+  clauses.push(`thread_key NOT IN (SELECT m2.thread_key FROM messages m2 WHERE m2.deleted_at IS NULL AND (${exclude.sql}))`);
+  params.push(...exclude.params);
+}
+
+function buildThreadMessageMatch(q: ThreadFilter): { where: string; params: unknown[] } {
+  const clauses: string[] = ['deleted_at IS NULL'];
+  const params: unknown[] = [];
+
+  appendThreadScopeClause(clauses, params, q);
+  appendThreadFieldFilters(clauses, params, q);
+  appendThreadExcludeWordsFilter(clauses, params, q);
 
   return { where: clauses.join(' AND '), params };
 }
@@ -485,23 +514,24 @@ export function getMessages(sql: SqlStorage, ref: MailboxRef, ids: string[]): Ma
 }
 
 /** The message-level WHERE for `listMessages` (design §3.3 / `MessageListQuery`). See `buildThreadMessageMatch`'s doc for the search/FTS split. */
-function buildMessageMatch(q: MessageListQuery): { where: string; params: unknown[] } {
-  const clauses: string[] = ['deleted_at IS NULL'];
-  const params: unknown[] = [];
-
+/** The `search` clause of {@link buildMessageMatch}. */
+function appendMessageSearchClause(clauses: string[], params: unknown[], q: MessageListQuery): void {
   const search = buildMailSearchQuery(q.search);
-  if (search) {
-    const orParts: string[] = [];
-    if (search.meta) {
-      orParts.push('EXISTS (SELECT 1 FROM messages_fts_meta WHERE rowid = messages.rowid AND messages_fts_meta MATCH ?)');
-      params.push(search.meta);
-    }
-    if (search.body) {
-      orParts.push('EXISTS (SELECT 1 FROM messages_fts_body WHERE rowid = messages.rowid AND messages_fts_body MATCH ?)');
-      params.push(search.body);
-    }
-    if (orParts.length > 0) clauses.push(`(${orParts.join(' OR ')})`);
+  if (!search) return;
+  const orParts: string[] = [];
+  if (search.meta) {
+    orParts.push('EXISTS (SELECT 1 FROM messages_fts_meta WHERE rowid = messages.rowid AND messages_fts_meta MATCH ?)');
+    params.push(search.meta);
   }
+  if (search.body) {
+    orParts.push('EXISTS (SELECT 1 FROM messages_fts_body WHERE rowid = messages.rowid AND messages_fts_body MATCH ?)');
+    params.push(search.body);
+  }
+  if (orParts.length > 0) clauses.push(`(${orParts.join(' OR ')})`);
+}
+
+/** The from/label/thread/flag filters of {@link buildMessageMatch}. */
+function appendMessageFieldFilters(clauses: string[], params: unknown[], q: MessageListQuery): void {
   if (q.from?.trim()) {
     const pattern = likePattern(q.from);
     clauses.push("(LOWER(from_email) LIKE ? ESCAPE '\\' OR LOWER(from_name) LIKE ? ESCAPE '\\')");
@@ -533,12 +563,25 @@ function buildMessageMatch(q: MessageListQuery): { where: string; params: unknow
     clauses.push('has_attachments = ?');
     params.push(toBit(q.hasAttachments));
   }
+}
+
+/** The location/counterparty filters of {@link buildMessageMatch}. */
+function appendMessageLocationFilters(clauses: string[], params: unknown[], q: MessageListQuery): void {
   if (q.excludeTrash) clauses.push('in_trash = 0');
   if (q.excludeSpam) clauses.push('in_spam = 0');
   if (q.counterparty?.trim()) {
     clauses.push('EXISTS (SELECT 1 FROM message_addresses ma WHERE ma.message_id = messages.id AND LOWER(ma.address) = ?)');
     params.push(q.counterparty.trim().toLowerCase());
   }
+}
+
+function buildMessageMatch(q: MessageListQuery): { where: string; params: unknown[] } {
+  const clauses: string[] = ['deleted_at IS NULL'];
+  const params: unknown[] = [];
+
+  appendMessageSearchClause(clauses, params, q);
+  appendMessageFieldFilters(clauses, params, q);
+  appendMessageLocationFilters(clauses, params, q);
 
   return { where: clauses.join(' AND '), params };
 }

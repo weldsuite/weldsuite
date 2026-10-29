@@ -184,6 +184,31 @@ async function resolveLegacyCursor(
   return { sentAt: new Date(row.sentDate).getTime(), id: cursorId };
 }
 
+/**
+ * The three ways a message list is answered: the CRM Emails tab's
+ * cross-mailbox counterparty fan-in, a single mailbox's own list, or the
+ * fanned-out union across every accessible mailbox.
+ */
+async function fetchMessagesPage(
+  store: WorkspaceMailStore,
+  accountIds: string[],
+  query: MessageListQuery,
+  counterparty: string | undefined,
+  cursor: MessageCursor | undefined,
+  limit: number,
+) {
+  if (counterparty) {
+    // CRM Emails tab: the dedicated cross-mailbox fan-in, so object mode
+    // can narrow via the ledger's address index instead of fanning out
+    // to every accessible mailbox (design §5).
+    return store.messagesByCounterparty(counterparty, accountIds, { cursor, limit });
+  }
+  if (accountIds.length === 1) {
+    return store.mailbox(accountIds[0]!).listMessages(query);
+  }
+  return store.listMessages(accountIds, query);
+}
+
 type LocateResult = { ok: true; accountId: string } | { ok: false; response: Response };
 
 /**
@@ -255,14 +280,7 @@ app.get('/', requirePermission('messages:read'), zValidator('query', listQuery),
       label: filters.label,
     };
 
-    const result = filters.counterparty
-      ? // CRM Emails tab: the dedicated cross-mailbox fan-in, so object mode
-        // can narrow via the ledger's address index instead of fanning out
-        // to every accessible mailbox (design §5).
-        await store.messagesByCounterparty(filters.counterparty, accountIds, { cursor, limit })
-      : accountIds.length === 1
-        ? await store.mailbox(accountIds[0]!).listMessages(query)
-        : await store.listMessages(accountIds, query);
+    const result = await fetchMessagesPage(store, accountIds, query, filters.counterparty, cursor, limit);
 
     const data = result.data.map(toLegacyListItem);
     const nextCursorId = result.nextCursor?.id ?? null;

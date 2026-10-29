@@ -53,12 +53,25 @@ const messageCursorSchema = z
   })
   .strict();
 
+/**
+ * Trailing `=` padding stripped, without a `/=+$/`-style regex: unanchored at
+ * the start, that pattern's backtracking is O(n²) on an adversarial input — a
+ * real concern here since a cursor's payload (and so the length of this
+ * base64 string) is caller-influenced. A linear scan from the end can't have
+ * that problem.
+ */
+function stripBase64Padding(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 61 /* '=' */) end -= 1;
+  return value.slice(0, end);
+}
+
 /** `btoa`/`atob` work on Latin-1 strings; this is the standard web-platform way to round-trip UTF-8 through them. */
 function utf8ToBase64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return stripBase64Padding(btoa(binary).replace(/\+/g, '-').replace(/\//g, '_'));
 }
 
 /** `null` on anything that isn't valid base64url or doesn't decode to valid UTF-8 — tamper rejection, not an exception. */

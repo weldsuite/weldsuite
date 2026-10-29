@@ -26,7 +26,7 @@ import type { Env } from '../../types';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { sanitizeEmailHtml } from '@weldsuite/email/sanitize';
 import { looksLikeHtml, plainTextBody } from '@weldsuite/mail-domain/text';
-import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput } from '@weldsuite/mail-domain/send';
+import { MailSendError, sendAndPersist, MAX_EMAIL_SIZE_BYTES, type SendAttachmentInput, type SendResult } from '@weldsuite/mail-domain/send';
 import { locateStoredObject } from '@weldsuite/worker-kit/storage';
 import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 import type {
@@ -492,6 +492,82 @@ export async function rescheduleScheduled(
  * send path the live compose endpoint uses runs here. Marks the row
  * `sent` and clears the SCHEDULED label.
  */
+/** The persisted attachment rows for a scheduled message, from the store when one is supplied, else straight Postgres. */
+async function loadScheduledAttachmentRows(db: Database, store: MailboxStore | undefined, messageId: string) {
+  if (store) return store.listAttachments(messageId);
+  return db
+    .select()
+    .from(mailAttachments)
+    .where(and(eq(mailAttachments.messageId, messageId), isNull(mailAttachments.deletedAt)));
+}
+
+/** `sendAndPersist` threw `PARTIALLY_SENT`: its own SENT copy is now the message, so the scheduled row is cancelled (soft-deleted). */
+async function cancelScheduledForPartialSend(db: Database, store: MailboxStore | undefined, messageId: string, now: Date): Promise<void> {
+  if (store) {
+    await store.apply(
+      { kind: 'scheduled', id: messageId, patch: { sendStatus: 'cancelled', scheduledFor: null, triggerRunId: null, softDelete: true } },
+      now.getTime(),
+    );
+  } else {
+    await db
+      .update(mailMessages)
+      .set({ sendStatus: 'cancelled', scheduledFor: null, triggerRunId: null, deletedAt: now, updatedAt: now })
+      .where(eq(mailMessages.id, messageId));
+  }
+}
+
+/** Removes the duplicate SENT copy `sendAndPersist` recorded via ingest, now that the scheduled row is becoming the canonical one. */
+async function deleteDuplicateSentCopy(db: Database, store: MailboxStore | undefined, sentMessageId: string): Promise<void> {
+  if (store) {
+    await store.apply({ kind: 'delete', ids: [sentMessageId], hard: true }, Date.now());
+  } else {
+    await db.delete(mailAttachments).where(eq(mailAttachments.messageId, sentMessageId));
+    await db.delete(mailMessages).where(eq(mailMessages.id, sentMessageId));
+  }
+}
+
+/** Marks the scheduled row sent and drops its SCHEDULED label — the stored row stays the canonical SENT copy for the thread. */
+async function markScheduledMessageSent(
+  db: Database,
+  store: MailboxStore | undefined,
+  messageId: string,
+  message: ScheduledRow,
+  result: Pick<SendResult, 'externalMessageId'>,
+  now: Date,
+): Promise<void> {
+  if (store) {
+    await store.apply(
+      {
+        kind: 'scheduled',
+        id: messageId,
+        patch: {
+          sendStatus: 'sent',
+          scheduledFor: null,
+          sentAt: now.getTime(),
+          externalMessageId: result.externalMessageId,
+          triggerRunId: null,
+          dropScheduledLabel: true,
+        },
+      },
+      now.getTime(),
+    );
+  } else {
+    const updatedLabels = ((message.labels as string[] | null) ?? []).filter((l) => l !== 'SCHEDULED');
+    await db
+      .update(mailMessages)
+      .set({
+        sendStatus: 'sent',
+        scheduledFor: null,
+        sentDate: now,
+        externalMessageId: result.externalMessageId,
+        triggerRunId: null,
+        labels: updatedLabels,
+        updatedAt: now,
+      })
+      .where(eq(mailMessages.id, messageId));
+  }
+}
+
 export async function sendScheduledNow(
   env: Env,
   db: Database,
@@ -510,12 +586,7 @@ export async function sendScheduledNow(
 
   // Rehydrate the persisted attachment rows back into the
   // SendComposeInput shape that sendAndPersist expects.
-  const attachmentRows = store
-    ? await store.listAttachments(messageId)
-    : await db
-        .select()
-        .from(mailAttachments)
-        .where(and(eq(mailAttachments.messageId, messageId), isNull(mailAttachments.deletedAt)));
+  const attachmentRows = await loadScheduledAttachmentRows(db, store, messageId);
   const attachments: SendAttachmentInput[] = attachmentRows
     .filter((r) => !!r.storagePath)
     .map((r) => ({
@@ -563,18 +634,7 @@ export async function sendScheduledNow(
     if (err instanceof MailSendError && err.code === 'PARTIALLY_SENT') {
       // sendAndPersist recorded what went out as its own SENT copy; that is
       // now the message, so the scheduled row goes.
-      const now = new Date();
-      if (store) {
-        await store.apply(
-          { kind: 'scheduled', id: messageId, patch: { sendStatus: 'cancelled', scheduledFor: null, triggerRunId: null, softDelete: true } },
-          now.getTime(),
-        );
-      } else {
-        await db
-          .update(mailMessages)
-          .set({ sendStatus: 'cancelled', scheduledFor: null, triggerRunId: null, deletedAt: now, updatedAt: now })
-          .where(eq(mailMessages.id, messageId));
-      }
+      await cancelScheduledForPartialSend(db, store, messageId, new Date());
     } else {
       // Nothing went out (a sending limit, a refused recipient, …): put the
       // message back on its schedule, since its workflow was just terminated.
@@ -587,44 +647,8 @@ export async function sendScheduledNow(
   // mark it sent + drop the SCHEDULED label, and remove the second copy
   // sendAndPersist recorded (and its attachment pointers, which point at the
   // same R2 objects as the scheduled row's).
-  if (store) {
-    await store.apply({ kind: 'delete', ids: [result.messageId], hard: true }, Date.now());
-  } else {
-    await db.delete(mailAttachments).where(eq(mailAttachments.messageId, result.messageId));
-    await db.delete(mailMessages).where(eq(mailMessages.id, result.messageId));
-  }
-  const now = new Date();
-  if (store) {
-    await store.apply(
-      {
-        kind: 'scheduled',
-        id: messageId,
-        patch: {
-          sendStatus: 'sent',
-          scheduledFor: null,
-          sentAt: now.getTime(),
-          externalMessageId: result.externalMessageId,
-          triggerRunId: null,
-          dropScheduledLabel: true,
-        },
-      },
-      now.getTime(),
-    );
-  } else {
-    const updatedLabels = ((message.labels as string[] | null) ?? []).filter((l) => l !== 'SCHEDULED');
-    await db
-      .update(mailMessages)
-      .set({
-        sendStatus: 'sent',
-        scheduledFor: null,
-        sentDate: now,
-        externalMessageId: result.externalMessageId,
-        triggerRunId: null,
-        labels: updatedLabels,
-        updatedAt: now,
-      })
-      .where(eq(mailMessages.id, messageId));
-  }
+  await deleteDuplicateSentCopy(db, store, result.messageId);
+  await markScheduledMessageSent(db, store, messageId, message, result, new Date());
 
   // sendAndPersist already bumped the daily counter once, for the one email
   // that went out.

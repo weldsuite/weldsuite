@@ -278,7 +278,7 @@ describe('PostgresMailboxStore reads', () => {
     expect((await s.listSubscriptions({})).map((r) => r.id)).toEqual([subId]);
     expect((await s.getSubscription(subId))?.senderEmail).toBe('news@example.com');
     const raw = await s.rawSources({ since: Date.now() - 60_000, limit: 10 });
-    expect(raw.length).toBe(1);
+    expect(raw).toHaveLength(1);
   });
 
   it('listDrafts / getDraft', async () => {
@@ -712,7 +712,7 @@ describe('PostgresWorkspaceMailStore', () => {
     const { totalCount } = await ws.recentAttachments([a, b], { limit: 10 });
     expect(totalCount).toBe(1);
     const recent = await ws.recentMessages([a, b], 10);
-    expect(recent.length).toBe(2);
+    expect(recent).toHaveLength(2);
   });
 
   it('markFolderRead marks unread mail across every accessible mailbox', async () => {

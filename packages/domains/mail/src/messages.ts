@@ -603,7 +603,11 @@ export async function getMessageStats(
   const count = (condition: SQL) => sql<number>`count(*) filter (where ${condition})::int`;
   // Drafts live in a different table; folded into the same statement as a
   // scalar subquery rather than a second round trip.
-  const idsArray = sql`ARRAY[${sql.join(ids.map((id) => sql`${id}`), sql`, `)}]::text[]`;
+  const idsArrayItems = sql.join(
+    ids.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const idsArray = sql`ARRAY[${idsArrayItems}]::text[]`;
   const drafts = sql<number>`(SELECT count(*)::int FROM ${mailDrafts} WHERE ${mailDrafts.deletedAt} IS NULL AND ${mailDrafts.accountId} = ANY(${idsArray}))`;
 
   const [row] = await db

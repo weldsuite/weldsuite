@@ -92,6 +92,51 @@ async function tenantAccountIds(env: DestroyMailEnv, workspaceId: string): Promi
   }
 }
 
+/** Every account's `destroy()` RPC call (or, with no `MAILBOX_STORE` configured, just a log line) — the first half of {@link destroyWorkspaceMail}. */
+async function destroyMailboxes(
+  env: DestroyMailEnv,
+  workspaceId: string,
+  accountIds: readonly string[],
+): Promise<{ destroyed: number; failedAccountIds: string[] }> {
+  let destroyed = 0;
+  const failedAccountIds: string[] = [];
+  if (!env.MAILBOX_STORE) {
+    if (accountIds.length > 0) {
+      console.warn(
+        `[WorkspaceMailDestroy] ${accountIds.length} mailbox(es) found for workspace ${workspaceId} but MAILBOX_STORE is not configured; skipping their destroy()`,
+      );
+    }
+    return { destroyed, failedAccountIds };
+  }
+  for (const accountId of accountIds) {
+    const ref: MailboxRef = { workspaceId, accountId };
+    try {
+      await mailboxStubFor(env, ref).destroy(ref);
+      destroyed++;
+    } catch (err) {
+      failedAccountIds.push(accountId);
+      console.error(
+        `[WorkspaceMailDestroy] destroy() failed for mailbox ${workspaceId}:${accountId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return { destroyed, failedAccountIds };
+}
+
+/** `MailIndex.forgetMailData`, when the environment has one configured — the second half of {@link destroyWorkspaceMail}. */
+async function forgetMailIndex(env: DestroyMailEnv, workspaceId: string): Promise<{ indexForgotten: boolean; indexFailed: boolean }> {
+  const index = mailIndexFor(env, workspaceId);
+  if (!index) return { indexForgotten: false, indexFailed: false };
+  try {
+    await index.forgetMailData(workspaceId);
+    return { indexForgotten: true, indexFailed: false };
+  } catch (err) {
+    console.error(`[WorkspaceMailDestroy] MailIndex.forgetMailData failed for workspace ${workspaceId}:`, err instanceof Error ? err.message : err);
+    return { indexForgotten: false, indexFailed: true };
+  }
+}
+
 export async function destroyWorkspaceMail(
   env: DestroyMailEnv,
   masterDb: MasterDatabase,
@@ -110,40 +155,8 @@ export async function destroyWorkspaceMail(
   ]);
   const accountIds = [...new Set([...registryIds, ...tenantIds])];
 
-  let destroyed = 0;
-  const failedAccountIds: string[] = [];
-  if (env.MAILBOX_STORE) {
-    for (const accountId of accountIds) {
-      const ref: MailboxRef = { workspaceId, accountId };
-      try {
-        await mailboxStubFor(env, ref).destroy(ref);
-        destroyed++;
-      } catch (err) {
-        failedAccountIds.push(accountId);
-        console.error(
-          `[WorkspaceMailDestroy] destroy() failed for mailbox ${workspaceId}:${accountId}:`,
-          err instanceof Error ? err.message : err,
-        );
-      }
-    }
-  } else if (accountIds.length > 0) {
-    console.warn(
-      `[WorkspaceMailDestroy] ${accountIds.length} mailbox(es) found for workspace ${workspaceId} but MAILBOX_STORE is not configured; skipping their destroy()`,
-    );
-  }
-
-  let indexForgotten = false;
-  let indexFailed = false;
-  const index = mailIndexFor(env, workspaceId);
-  if (index) {
-    try {
-      await index.forgetMailData(workspaceId);
-      indexForgotten = true;
-    } catch (err) {
-      indexFailed = true;
-      console.error(`[WorkspaceMailDestroy] MailIndex.forgetMailData failed for workspace ${workspaceId}:`, err instanceof Error ? err.message : err);
-    }
-  }
+  const { destroyed, failedAccountIds } = await destroyMailboxes(env, workspaceId, accountIds);
+  const { indexForgotten, indexFailed } = await forgetMailIndex(env, workspaceId);
 
   if (failedAccountIds.length > 0 || indexFailed) {
     throw new Error(

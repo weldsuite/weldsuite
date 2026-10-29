@@ -128,8 +128,8 @@ describe('ingest', () => {
     applyMailboxOp(storage, ref, { kind: 'ingest', message }, 1_000);
 
     // "voice" only matches via the meta table's trigram tokenizer, not a whole-word match.
-    expect(storage.sql.exec("SELECT rowid FROM messages_fts_meta WHERE messages_fts_meta MATCH 'voice'").toArray().length).toBe(1);
-    expect(storage.sql.exec("SELECT rowid FROM messages_fts_body WHERE messages_fts_body MATCH 'invoice*'").toArray().length).toBe(1);
+    expect(storage.sql.exec("SELECT rowid FROM messages_fts_meta WHERE messages_fts_meta MATCH 'voice'").toArray()).toHaveLength(1);
+    expect(storage.sql.exec("SELECT rowid FROM messages_fts_body WHERE messages_fts_body MATCH 'invoice*'").toArray()).toHaveLength(1);
 
     applyMailboxOp(storage, ref, { kind: 'delete', ids: [message.id], hard: true }, 2_000);
     expect(storage.sql.exec("SELECT rowid FROM messages_fts_meta WHERE messages_fts_meta MATCH 'voice'").toArray()).toEqual([]);

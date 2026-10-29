@@ -92,6 +92,64 @@ const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as {
 
 const TRANSACTION_STATEMENT = /^(BEGIN|COMMIT|END|ROLLBACK|SAVEPOINT|RELEASE)\b/i;
 
+interface ScannedToken {
+  text: string;
+  next: number;
+}
+
+/** Scans a quoted string/identifier (`'`, `"` or `` ` ``) starting at `sql[start]`, including doubled-quote escapes (`''`). */
+function scanQuoted(sql: string, start: number): ScannedToken {
+  const quote = sql[start];
+  let text = quote as string;
+  let i = start + 1;
+  while (i < sql.length) {
+    text += sql[i];
+    if (sql[i] === quote) {
+      if (sql[i + 1] === quote) {
+        text += sql[i + 1];
+        i += 2;
+        continue;
+      }
+      i++;
+      break;
+    }
+    i++;
+  }
+  return { text, next: i };
+}
+
+/** Scans a `[bracketed identifier]` starting at the `[`. Unterminated (no closing `]`) reads to the end of the string. */
+function scanBracketIdentifier(sql: string, start: number): ScannedToken {
+  let text = sql[start] as string;
+  let i = start + 1;
+  while (i < sql.length && sql[i] !== ']') text += sql[i++];
+  if (i < sql.length) {
+    text += sql[i];
+    i++;
+  }
+  return { text, next: i };
+}
+
+/** Scans a `-- line comment` starting at the first `-`, up to (not including) the newline or end of string. */
+function scanLineComment(sql: string, start: number): ScannedToken {
+  let text = '';
+  let i = start;
+  while (i < sql.length && sql[i] !== '\n') text += sql[i++];
+  return { text, next: i };
+}
+
+/** Scans a C-style (slash-star ... star-slash) block comment starting at the `/`. Unterminated reads to the end of the string. */
+function scanBlockComment(sql: string, start: number): ScannedToken {
+  let text = (sql[start] as string) + (sql[start + 1] as string);
+  let i = start + 2;
+  while (i < sql.length && !(sql[i] === '*' && sql[i + 1] === '/')) text += sql[i++];
+  if (i < sql.length) {
+    text += sql[i++];
+    text += sql[i++];
+  }
+  return { text, next: i };
+}
+
 /** Splits a SQL string on top-level `;`, respecting quoted strings, bracket/backtick identifiers, and comments. */
 function splitStatements(sql: string): string[] {
   const statements: string[] = [];
@@ -100,46 +158,27 @@ function splitStatements(sql: string): string[] {
   while (i < sql.length) {
     const ch = sql[i];
     if (ch === "'" || ch === '"' || ch === '`') {
-      const quote = ch;
-      current += ch;
-      i++;
-      while (i < sql.length) {
-        current += sql[i];
-        if (sql[i] === quote) {
-          if (sql[i + 1] === quote) {
-            current += sql[i + 1];
-            i += 2;
-            continue;
-          }
-          i++;
-          break;
-        }
-        i++;
-      }
+      const scanned = scanQuoted(sql, i);
+      current += scanned.text;
+      i = scanned.next;
       continue;
     }
     if (ch === '[') {
-      current += ch;
-      i++;
-      while (i < sql.length && sql[i] !== ']') current += sql[i++];
-      if (i < sql.length) {
-        current += sql[i];
-        i++;
-      }
+      const scanned = scanBracketIdentifier(sql, i);
+      current += scanned.text;
+      i = scanned.next;
       continue;
     }
     if (ch === '-' && sql[i + 1] === '-') {
-      while (i < sql.length && sql[i] !== '\n') current += sql[i++];
+      const scanned = scanLineComment(sql, i);
+      current += scanned.text;
+      i = scanned.next;
       continue;
     }
     if (ch === '/' && sql[i + 1] === '*') {
-      current += sql[i++];
-      current += sql[i++];
-      while (i < sql.length && !(sql[i] === '*' && sql[i + 1] === '/')) current += sql[i++];
-      if (i < sql.length) {
-        current += sql[i++];
-        current += sql[i++];
-      }
+      const scanned = scanBlockComment(sql, i);
+      current += scanned.text;
+      i = scanned.next;
       continue;
     }
     if (ch === ';') {
@@ -433,7 +472,10 @@ export interface SqliteDurableObjectTestExtras {
 }
 
 function createId(opts: CreateSqliteDurableObjectStateOptions) {
-  const value = opts.id ?? (opts.name ? `name:${opts.name}` : `id:${Math.random().toString(36).slice(2)}`);
+  // `crypto.randomUUID()`, not `Math.random()`: just a throwaway unique test
+  // id, but a real (CSPRNG-backed) random source keeps this off Sonar's
+  // pseudo-random-generator watchlist without costing anything here.
+  const value = opts.id ?? (opts.name ? `name:${opts.name}` : `id:${crypto.randomUUID()}`);
   return {
     name: opts.name,
     toString: () => value,

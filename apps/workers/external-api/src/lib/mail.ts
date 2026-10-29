@@ -37,6 +37,13 @@ type AttachmentRow = typeof schema.mailAttachments.$inferSelect;
 /** Either backend's row shape for one message, plus the store's `threadKey`. */
 type AnyMessageRow = (MessageRow | MailMessageRecord) & { threadKey?: string };
 
+/** `obj` without `keys` — an explicit drop instead of destructuring into unused `_name` bindings. */
+function omit<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
+  const copy = { ...obj };
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
 export { encodeMessageCursor, decodeMessageCursor, encodeThreadCursor, decodeThreadCursor };
 
 export function mailPrincipal(c: Context<HonoEnv>): MailPrincipal {
@@ -49,22 +56,20 @@ export function mailPrincipal(c: Context<HonoEnv>): MailPrincipal {
  * the row came from the mailbox store) its internal `threadKey`.
  */
 export function publicMessage(row: MessageRow | MailMessageRecord) {
-  const {
-    rawMessage: _raw,
-    headers: _headers,
-    triggerRunId: _trigger,
-    unsnoozeTriggerRunId: _unsnooze,
-    mailgunMessageId: _mailgun,
-    mailcowMessageId: _mailcow,
-    providerMessageId: _provider,
-    sendProvider: _sendProvider,
-    idempotencyKey: _idempotency,
-    customFields: _custom,
-    deletedAt: _deleted,
-    threadKey: _threadKey,
-    ...rest
-  } = row as AnyMessageRow;
-  return rest;
+  return omit(row as AnyMessageRow, [
+    'rawMessage',
+    'headers',
+    'triggerRunId',
+    'unsnoozeTriggerRunId',
+    'mailgunMessageId',
+    'mailcowMessageId',
+    'providerMessageId',
+    'sendProvider',
+    'idempotencyKey',
+    'customFields',
+    'deletedAt',
+    'threadKey',
+  ]);
 }
 
 /**

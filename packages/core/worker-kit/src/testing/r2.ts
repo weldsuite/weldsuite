@@ -35,6 +35,26 @@ interface StoredObject {
 
 type PutValue = ReadableStream | ArrayBuffer | ArrayBufferView | string | null | Blob;
 
+/** Drains a `ReadableStream` into one concatenated `Uint8Array` — split out of {@link toBytes} so its own loops don't add to that function's branching. */
+async function drainReadableStream(stream: ReadableStream): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const reader = stream.getReader();
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- draining a stream is inherently sequential
+    const { done, value: chunk } = await reader.read();
+    if (done) break;
+    chunks.push(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk as ArrayBufferLike));
+  }
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
 async function toBytes(value: PutValue): Promise<Uint8Array> {
   if (value === null) return new Uint8Array(0);
   if (typeof value === 'string') return new TextEncoder().encode(value);
@@ -42,24 +62,7 @@ async function toBytes(value: PutValue): Promise<Uint8Array> {
   if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
   if (value instanceof ArrayBuffer) return new Uint8Array(value);
   if (typeof Blob !== 'undefined' && value instanceof Blob) return new Uint8Array(await value.arrayBuffer());
-  if (value instanceof ReadableStream) {
-    const chunks: Uint8Array[] = [];
-    const reader = value.getReader();
-    for (;;) {
-      // eslint-disable-next-line no-await-in-loop -- draining a stream is inherently sequential
-      const { done, value: chunk } = await reader.read();
-      if (done) break;
-      chunks.push(chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk as ArrayBufferLike));
-    }
-    const total = chunks.reduce((n, c) => n + c.length, 0);
-    const out = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-      out.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return out;
-  }
+  if (value instanceof ReadableStream) return drainReadableStream(value);
   throw new TypeError('createMemoryR2(): put() received an unsupported value type.');
 }
 

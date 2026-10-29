@@ -264,9 +264,21 @@ function normalizeProjectWhiteboards(rows: (typeof schema.projectWhiteboards.$in
  * `apiOrigin` (no request context, e.g. a future batch job) means no URL
  * rather than the raw one.
  */
+/**
+ * Trailing `/`s stripped, without a `/+$/`-style regex: unanchored at the
+ * start, that pattern's backtracking is O(n²) on an adversarial input (a long
+ * run of `/` immediately followed by a non-`/` character) — a linear scan
+ * from the end is simpler and can't have that problem.
+ */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end -= 1;
+  return value.slice(0, end);
+}
+
 function mailAttachmentDownloadUrl(id: string, apiOrigin: string | undefined): string | null {
   if (!apiOrigin) return null;
-  return `${apiOrigin.replace(/\/+$/, '')}/api/mail-attachments/${encodeURIComponent(id)}/download`;
+  return `${stripTrailingSlashes(apiOrigin)}/api/mail-attachments/${encodeURIComponent(id)}/download`;
 }
 
 function normalizeMailAttachments(

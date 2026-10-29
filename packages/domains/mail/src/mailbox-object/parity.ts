@@ -67,7 +67,6 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { MailAttachment } from '@weldsuite/db/schema/mail-attachments';
-import type { MailMessage } from '@weldsuite/db/schema/mail-messages';
 import { normalizeLegacy } from '../store/model';
 import { PostgresMailboxStore } from '../store/postgres/mailbox-store';
 import type { MailboxRef, MailMessageRecord } from '../store/types';
@@ -198,6 +197,113 @@ function diffOf(id: string, pg: ParityRowSnapshot, obj: ParityRowSnapshot): Pari
 // The merge-join scan
 // ---------------------------------------------------------------------------
 
+/**
+ * The main merge-join step of one page pair: compares matching ids and
+ * records every id seen on only one side, until a page runs out or the row
+ * budget (`maxRows`) is hit. `missing`/`extra`/`different` are mutated in
+ * place (shared across the whole scan); returns the new page indices and
+ * running `scanned` count.
+ */
+function mergePagePair(
+  pgPage: { data: MailMessageRecord[] },
+  objPage: { data: MailMessageRecord[] },
+  bits: Map<string, number>,
+  scanned: number,
+  maxRows: number,
+  missing: string[],
+  extra: string[],
+  different: ParityDiff[],
+): { i: number; j: number; scanned: number } {
+  let i = 0;
+  let j = 0;
+  while (i < pgPage.data.length && j < objPage.data.length && scanned < maxRows) {
+    const p = pgPage.data[i]!;
+    const o = objPage.data[j]!;
+    if (p.id === o.id) {
+      const diff = diffOf(p.id, snapshotPostgres(p), snapshotObject(o, bits.get(o.id)));
+      if (diff) different.push(diff);
+      i++;
+      j++;
+    } else if (p.id < o.id) {
+      missing.push(p.id);
+      i++;
+    } else {
+      extra.push(o.id);
+      j++;
+    }
+    scanned++;
+  }
+  return { i, j, scanned };
+}
+
+/**
+ * Drains one page's leftover tail — but only once the OTHER side is known to
+ * have no further pages at all (see the file comment's pagination note);
+ * otherwise a lone leftover might still catch up on its own next page.
+ */
+function drainLeftoverTail(
+  page: { data: MailMessageRecord[] },
+  startIndex: number,
+  otherSideDone: boolean,
+  scanned: number,
+  maxRows: number,
+  into: string[],
+): { index: number; scanned: number } {
+  let index = startIndex;
+  while (index < page.data.length && otherSideDone && scanned < maxRows) {
+    into.push(page.data[index]!.id);
+    index++;
+    scanned++;
+  }
+  return { index, scanned };
+}
+
+/**
+ * The safe resume point after one round: the smaller of the two prefixes
+ * actually consumed this round, or whichever side made progress, or the
+ * cursor the round started from. See the file's pagination comment for why
+ * this can never skip a row.
+ */
+function commonResumeCursor(
+  lastPg: string | null,
+  lastObj: string | null,
+  pgCursor: string | undefined,
+  objCursor: string | undefined,
+): string | null {
+  if (lastPg !== null && lastObj !== null) return lastPg < lastObj ? lastPg : lastObj;
+  return lastPg ?? lastObj ?? pgCursor ?? objCursor ?? null;
+}
+
+interface RoundPages {
+  pgPage: { data: MailMessageRecord[]; cursor: string | null };
+  objPage: { data: MailMessageRecord[]; cursor: string | null };
+  pgDone: boolean;
+  objDone: boolean;
+  /** Both sides returned nothing this round — nothing left to compare. */
+  empty: boolean;
+}
+
+/** Fetches one round's page from each side (an empty stand-in once a side is already `*Done`) and folds in the updated done flags. */
+async function fetchRoundPages(
+  storage: WritableStorage,
+  postgresStore: PostgresMailboxStore,
+  ref: MailboxRef,
+  pgCursor: string | undefined,
+  objCursor: string | undefined,
+  pgDone: boolean,
+  objDone: boolean,
+): Promise<RoundPages> {
+  const pgPage = pgDone ? { data: [] as MailMessageRecord[], cursor: null } : await postgresStore.exportPage({ cursor: pgCursor, limit: PAGE_SIZE });
+  const objPage = objDone ? { data: [] as MailMessageRecord[], cursor: null } : reads.exportPage(storage.sql, ref, { cursor: objCursor, limit: PAGE_SIZE });
+  return {
+    pgPage,
+    objPage,
+    pgDone: pgDone || pgPage.cursor === null,
+    objDone: objDone || objPage.cursor === null,
+    empty: pgPage.data.length === 0 && objPage.data.length === 0,
+  };
+}
+
 async function runScan(
   storage: WritableStorage,
   db: Database,
@@ -226,64 +332,46 @@ async function runScan(
   const different: ParityDiff[] = [];
 
   while (scanned < maxRows && !(pgDone && objDone)) {
-    const pgPage = pgDone ? { data: [] as MailMessageRecord[], cursor: null } : await postgresStore.exportPage({ cursor: pgCursor, limit: PAGE_SIZE });
-    const objPage = objDone ? { data: [] as MailMessageRecord[], cursor: null } : reads.exportPage(storage.sql, ref, { cursor: objCursor, limit: PAGE_SIZE });
-    if (pgPage.cursor === null) pgDone = true;
-    if (objPage.cursor === null) objDone = true;
-    if (pgPage.data.length === 0 && objPage.data.length === 0) break;
+    const round = await fetchRoundPages(storage, postgresStore, ref, pgCursor, objCursor, pgDone, objDone);
+    pgDone = round.pgDone;
+    objDone = round.objDone;
+    if (round.empty) break;
+    const { pgPage, objPage } = round;
 
     const bits = objectBodyBits(storage.sql, objPage.data.map((r) => r.id));
 
-    let i = 0;
-    let j = 0;
-    while (i < pgPage.data.length && j < objPage.data.length && scanned < maxRows) {
-      const p = pgPage.data[i]!;
-      const o = objPage.data[j]!;
-      if (p.id === o.id) {
-        const diff = diffOf(p.id, snapshotPostgres(p), snapshotObject(o, bits.get(o.id)));
-        if (diff) different.push(diff);
-        i++;
-        j++;
-      } else if (p.id < o.id) {
-        missing.push(p.id);
-        i++;
-      } else {
-        extra.push(o.id);
-        j++;
-      }
-      scanned++;
-    }
+    const merged = mergePagePair(pgPage, objPage, bits, scanned, maxRows, missing, extra, different);
+    let i = merged.i;
+    let j = merged.j;
+    scanned = merged.scanned;
+
     // A leftover tail in one page only means something once the OTHER side
     // is known to have no more rows at all (otherwise it might still catch
     // up on its own next page) — see the file comment's pagination note.
-    while (i < pgPage.data.length && objDone && scanned < maxRows) {
-      missing.push(pgPage.data[i]!.id);
-      i++;
-      scanned++;
-    }
-    while (j < objPage.data.length && pgDone && scanned < maxRows) {
-      extra.push(objPage.data[j]!.id);
-      j++;
-      scanned++;
-    }
+    const pgDrain = drainLeftoverTail(pgPage, i, objDone, scanned, maxRows, missing);
+    i = pgDrain.index;
+    scanned = pgDrain.scanned;
+    const objDrain = drainLeftoverTail(objPage, j, pgDone, scanned, maxRows, extra);
+    j = objDrain.index;
+    scanned = objDrain.scanned;
 
     // A leftover tail can remain here for two different reasons: (a) one
     // side's page ran dry before the other's but isn't globally `*Done` yet
     // (the drain loops above correctly left it alone, pending its own next
     // page), or (b) the row budget (`maxRows`) cut the round off mid-page on
-    // what happens to be each side's last page. Either way, `commonCursor` —
-    // the smaller of the two prefixes actually consumed THIS round — is safe
-    // to resume from: the next round (whether triggered by this same call's
-    // outer loop for reason (a), or by the caller passing this result's
-    // `cursor` back in for reason (b)) re-fetches both sides from a point
-    // already compared up to, in lockstep, making strictly forward progress.
-    // Not an infinite loop, and never skips a row; the only cost is
+    // what happens to be each side's last page. Either way, `commonResumeCursor`'s
+    // result — the smaller of the two prefixes actually consumed THIS round —
+    // is safe to resume from: the next round (whether triggered by this same
+    // call's outer loop for reason (a), or by the caller passing this
+    // result's `cursor` back in for reason (b)) re-fetches both sides from a
+    // point already compared up to, in lockstep, making strictly forward
+    // progress. Not an infinite loop, and never skips a row; the only cost is
     // occasionally re-comparing a handful of ids spanning the gap, which the
     // final dedup absorbs.
     leftover = i < pgPage.data.length || j < objPage.data.length;
     const lastPg = i > 0 ? pgPage.data[i - 1]!.id : null;
     const lastObj = j > 0 ? objPage.data[j - 1]!.id : null;
-    const commonCursor = lastPg !== null && lastObj !== null ? (lastPg < lastObj ? lastPg : lastObj) : (lastPg ?? lastObj ?? pgCursor ?? objCursor ?? null);
+    const commonCursor = commonResumeCursor(lastPg, lastObj, pgCursor, objCursor);
     pgCursor = commonCursor ?? undefined;
     objCursor = commonCursor ?? undefined;
   }

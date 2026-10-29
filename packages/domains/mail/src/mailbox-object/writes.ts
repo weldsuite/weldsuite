@@ -272,6 +272,27 @@ export function bumpThreadLabelMatch(sql: SqlStorage, key: FolderKey, threadKey:
  * (`thread.set`), use `bumpThreadLabelMatch` directly instead (its before/after
  * threads differ, which this helper doesn't model).
  */
+/** One folder key's share of {@link applyFolderKeyDiff}'s work — split out so the loop above it stays a plain iteration. */
+function applyFolderKeyDiffForKey(
+  sql: SqlStorage,
+  key: FolderKey,
+  wasPresent: boolean,
+  isPresent: boolean,
+  threadKey: string,
+  wasRead: boolean,
+  isRead: boolean,
+): void {
+  const wasUnread = wasPresent && !wasRead;
+  const isUnread = isPresent && !isRead;
+  const messagesDelta = (isPresent ? 1 : 0) - (wasPresent ? 1 : 0);
+  const unreadDelta = (isUnread ? 1 : 0) - (wasUnread ? 1 : 0);
+  if (messagesDelta !== 0 || unreadDelta !== 0) bumpLabelCounts(sql, key, { messages: messagesDelta, unread: unreadDelta });
+  if (key === '__total' || key === '__scheduled' || messagesDelta === 0) return;
+  const effect = bumpThreadLabelMatch(sql, key, threadKey, messagesDelta);
+  if (effect === 'created') bumpLabelCounts(sql, key, { threads: 1 });
+  else if (effect === 'removed') bumpLabelCounts(sql, key, { threads: -1 });
+}
+
 function applyFolderKeyDiff(
   sql: SqlStorage,
   before: ReadonlySet<FolderKey>,
@@ -282,17 +303,7 @@ function applyFolderKeyDiff(
 ): void {
   const keys = new Set<FolderKey>([...before, ...after]);
   for (const key of keys) {
-    const wasPresent = before.has(key);
-    const isPresent = after.has(key);
-    const wasUnread = wasPresent && !wasRead;
-    const isUnread = isPresent && !isRead;
-    const messagesDelta = (isPresent ? 1 : 0) - (wasPresent ? 1 : 0);
-    const unreadDelta = (isUnread ? 1 : 0) - (wasUnread ? 1 : 0);
-    if (messagesDelta !== 0 || unreadDelta !== 0) bumpLabelCounts(sql, key, { messages: messagesDelta, unread: unreadDelta });
-    if (key === '__total' || key === '__scheduled' || messagesDelta === 0) continue;
-    const effect = bumpThreadLabelMatch(sql, key, threadKey, messagesDelta);
-    if (effect === 'created') bumpLabelCounts(sql, key, { threads: 1 });
-    else if (effect === 'removed') bumpLabelCounts(sql, key, { threads: -1 });
+    applyFolderKeyDiffForKey(sql, key, before.has(key), after.has(key), threadKey, wasRead, isRead);
   }
 }
 
@@ -482,6 +493,62 @@ function flagGroups(patch: FlagPatch, semantics: 'single' | 'bulk'): ClockGroup[
  * `moveMessagesToLocation` does — so the two semantics only diverge on the
  * way out of a location.
  */
+/**
+ * `isSpam`/`isTrash` share this exact toggle (mirrored below): entering the
+ * location always moves there, resetting any pending snooze in `'bulk'`
+ * semantics; leaving it in `'single'` semantics just drops the location
+ * label, while `'bulk'` restores INBOX and always resets the snooze.
+ */
+function toggleLocationLabel(
+  labels: string[],
+  entering: boolean,
+  location: LocationLabel,
+  semantics: 'single' | 'bulk',
+): { labels: string[]; resetSnooze: boolean } {
+  if (entering) return { labels: moveLabels(labels, location), resetSnooze: semantics === 'bulk' };
+  if (semantics === 'single') return { labels: leaveLocation(labels, location), resetSnooze: false };
+  return { labels: moveLabels(labels, SYSTEM_LABELS.INBOX), resetSnooze: true };
+}
+
+/** The `isStarred`/`isImportant` share of {@link computeFlagPatch}: a plain add/remove label toggle, no snooze side effect. */
+function applyStarImportantPatch(labels: string[], patch: FlagPatch): { labels: string[]; changed: boolean } {
+  let next = labels;
+  let changed = false;
+  if (patch.isStarred !== undefined) {
+    next = patch.isStarred ? addLabels(next, SYSTEM_LABELS.STARRED) : removeLabels(next, SYSTEM_LABELS.STARRED);
+    changed = true;
+  }
+  if (patch.isImportant !== undefined) {
+    next = patch.isImportant ? addLabels(next, SYSTEM_LABELS.IMPORTANT) : removeLabels(next, SYSTEM_LABELS.IMPORTANT);
+    changed = true;
+  }
+  return { labels: next, changed };
+}
+
+/** The `isSpam`/`isTrash` share of {@link computeFlagPatch}: the location toggle (see {@link toggleLocationLabel}), which can also reset a pending snooze. */
+function applyLocationPatch(
+  labels: string[],
+  patch: FlagPatch,
+  semantics: 'single' | 'bulk',
+): { labels: string[]; changed: boolean; resetSnooze: boolean } {
+  let next = labels;
+  let changed = false;
+  let resetSnooze = false;
+  if (patch.isSpam !== undefined) {
+    const toggled = toggleLocationLabel(next, patch.isSpam, SYSTEM_LABELS.SPAM, semantics);
+    next = toggled.labels;
+    if (toggled.resetSnooze) resetSnooze = true;
+    changed = true;
+  }
+  if (patch.isTrash !== undefined) {
+    const toggled = toggleLocationLabel(next, patch.isTrash, SYSTEM_LABELS.TRASH, semantics);
+    next = toggled.labels;
+    if (toggled.resetSnooze) resetSnooze = true;
+    changed = true;
+  }
+  return { labels: next, changed, resetSnooze };
+}
+
 function computeFlagPatch(row: MessageRow, patch: FlagPatch, semantics: 'single' | 'bulk'): Partial<MessageRow> | null {
   const out: Partial<MessageRow> = {};
   if (patch.isRead !== undefined) out.is_read = toBit(patch.isRead);
@@ -491,38 +558,14 @@ function computeFlagPatch(row: MessageRow, patch: FlagPatch, semantics: 'single'
   let labelsChanged = false;
   let resetSnooze = false;
 
-  if (patch.isStarred !== undefined) {
-    labels = patch.isStarred ? addLabels(labels, SYSTEM_LABELS.STARRED) : removeLabels(labels, SYSTEM_LABELS.STARRED);
-    labelsChanged = true;
-  }
-  if (patch.isImportant !== undefined) {
-    labels = patch.isImportant ? addLabels(labels, SYSTEM_LABELS.IMPORTANT) : removeLabels(labels, SYSTEM_LABELS.IMPORTANT);
-    labelsChanged = true;
-  }
-  if (patch.isSpam !== undefined) {
-    if (patch.isSpam) {
-      labels = moveLabels(labels, SYSTEM_LABELS.SPAM);
-      if (semantics === 'bulk') resetSnooze = true;
-    } else if (semantics === 'single') {
-      labels = leaveLocation(labels, SYSTEM_LABELS.SPAM);
-    } else {
-      labels = moveLabels(labels, SYSTEM_LABELS.INBOX);
-      resetSnooze = true;
-    }
-    labelsChanged = true;
-  }
-  if (patch.isTrash !== undefined) {
-    if (patch.isTrash) {
-      labels = moveLabels(labels, SYSTEM_LABELS.TRASH);
-      if (semantics === 'bulk') resetSnooze = true;
-    } else if (semantics === 'single') {
-      labels = leaveLocation(labels, SYSTEM_LABELS.TRASH);
-    } else {
-      labels = moveLabels(labels, SYSTEM_LABELS.INBOX);
-      resetSnooze = true;
-    }
-    labelsChanged = true;
-  }
+  const starImportant = applyStarImportantPatch(labels, patch);
+  labels = starImportant.labels;
+  if (starImportant.changed) labelsChanged = true;
+
+  const location = applyLocationPatch(labels, patch, semantics);
+  labels = location.labels;
+  if (location.changed) labelsChanged = true;
+  if (location.resetSnooze) resetSnooze = true;
 
   if (labelsChanged) Object.assign(out, labelPatch(labels));
   if (resetSnooze) out.snoozed_until = null;
@@ -901,6 +944,47 @@ function insertIngestOutboxRows(sql: SqlStorage, ref: MailboxRef, message: Inges
   );
 }
 
+/** Existing-row dup detection ahead of a fresh ingest insert: by RFC message id (incoming mail only — a `sent` copy is never "the same message already arrived") or by idempotency key (a replayed outbound send). */
+function findIngestDuplicate(sql: SqlStorage, message: IngestMessage): IngestResult | null {
+  if (message.source !== 'sent') {
+    const dup = sql
+      .exec<{ id: string; thread_key: string }>('SELECT id, thread_key FROM messages WHERE rfc_message_id = ? AND deleted_at IS NULL LIMIT 1', message.rfcMessageId)
+      .toArray()[0];
+    if (dup) return { id: message.id, threadKey: dup.thread_key, created: false, duplicateOf: dup.id };
+  }
+  if (message.idempotencyKey) {
+    const dup = sql
+      .exec<{ id: string; thread_key: string }>('SELECT id, thread_key FROM messages WHERE idempotency_key = ? LIMIT 1', message.idempotencyKey)
+      .toArray()[0];
+    if (dup) return { id: message.id, threadKey: dup.thread_key, created: false, duplicateOf: dup.id };
+  }
+  return null;
+}
+
+/** Normalized, de-duplicated label set for a fresh ingest, with SPAM added when the caller marked the message spam but didn't label it so itself. */
+function normalizeIngestLabels(message: IngestMessage): string[] {
+  const labels = [...new Set(message.labels.map(normalizeLabel))];
+  if (message.isSpam && !labels.includes(SYSTEM_LABELS.SPAM)) labels.push(SYSTEM_LABELS.SPAM);
+  return labels;
+}
+
+/** The message_labels/address/attachment/FTS/subscription rows that go in alongside a fresh `messages` insert. */
+function insertIngestSideRows(sql: SqlStorage, message: IngestMessage, labels: readonly string[], at: number): void {
+  for (const label of labels) sql.exec('INSERT OR IGNORE INTO message_labels (label_key, message_id) VALUES (?, ?)', label.toLowerCase(), message.id);
+  insertMessageAddresses(sql, message.id, message.sentAt, addressEntries(message.from, message.to, message.cc, message.bcc));
+  for (const attachment of message.attachments) insertAttachmentRow(sql, message.id, attachment, at);
+  insertFtsRows(sql, message.id, message.subject, message.from, message.to, message.cc, message.searchText);
+  if (message.subscription && !message.isSpam) upsertSubscription(sql, message.subscription, at);
+}
+
+/** One folder key's share of a fresh ingest's label-count/thread-label bookkeeping. */
+function bumpIngestFolderKey(sql: SqlStorage, key: FolderKey, threadKey: string, isRead: boolean): void {
+  bumpLabelCounts(sql, key, { messages: 1, unread: isRead ? 0 : 1 });
+  if (key === '__total' || key === '__scheduled') return;
+  const effect = bumpThreadLabelMatch(sql, key, threadKey, 1);
+  if (effect === 'created') bumpLabelCounts(sql, key, { threads: 1 });
+}
+
 function applyIngest(sql: SqlStorage, ref: MailboxRef, message: IngestMessage, at: number): OpResult {
   const existingById = loadMessageRow(sql, message.id);
   if (existingById) {
@@ -908,27 +992,10 @@ function applyIngest(sql: SqlStorage, ref: MailboxRef, message: IngestMessage, a
     return baseResult({ applied: [message.id], ingest, message: mapMessageRow(existingById, ref) });
   }
 
-  if (message.source !== 'sent') {
-    const dup = sql
-      .exec<{ id: string; thread_key: string }>('SELECT id, thread_key FROM messages WHERE rfc_message_id = ? AND deleted_at IS NULL LIMIT 1', message.rfcMessageId)
-      .toArray()[0];
-    if (dup) {
-      const ingest: IngestResult = { id: message.id, threadKey: dup.thread_key, created: false, duplicateOf: dup.id };
-      return baseResult({ ingest });
-    }
-  }
-  if (message.idempotencyKey) {
-    const dup = sql
-      .exec<{ id: string; thread_key: string }>('SELECT id, thread_key FROM messages WHERE idempotency_key = ? LIMIT 1', message.idempotencyKey)
-      .toArray()[0];
-    if (dup) {
-      const ingest: IngestResult = { id: message.id, threadKey: dup.thread_key, created: false, duplicateOf: dup.id };
-      return baseResult({ ingest });
-    }
-  }
+  const duplicate = findIngestDuplicate(sql, message);
+  if (duplicate) return baseResult({ ingest: duplicate });
 
-  const labels = [...new Set(message.labels.map(normalizeLabel))];
-  if (message.isSpam && !labels.includes(SYSTEM_LABELS.SPAM)) labels.push(SYSTEM_LABELS.SPAM);
+  const labels = normalizeIngestLabels(message);
   const threadKey = message.threadId ?? message.id;
   const sortAt = message.receivedAt ?? message.sentAt ?? message.createdAt;
   const subjectNorm = bareSubject(message.subject).toLowerCase() || null;
@@ -1023,11 +1090,7 @@ function applyIngest(sql: SqlStorage, ref: MailboxRef, message: IngestMessage, a
     at,
   );
 
-  for (const label of labels) sql.exec('INSERT OR IGNORE INTO message_labels (label_key, message_id) VALUES (?, ?)', label.toLowerCase(), message.id);
-  insertMessageAddresses(sql, message.id, message.sentAt, addressEntries(message.from, message.to, message.cc, message.bcc));
-  for (const attachment of message.attachments) insertAttachmentRow(sql, message.id, attachment, at);
-  insertFtsRows(sql, message.id, message.subject, message.from, message.to, message.cc, message.searchText);
-  if (message.subscription && !message.isSpam) upsertSubscription(sql, message.subscription, at);
+  insertIngestSideRows(sql, message, labels, at);
 
   const keys = folderKeys({
     deletedAt: null,
@@ -1036,12 +1099,7 @@ function applyIngest(sql: SqlStorage, ref: MailboxRef, message: IngestMessage, a
     isSpam: labels.includes(SYSTEM_LABELS.SPAM),
     sendStatus: message.sendStatus ?? null,
   });
-  for (const key of keys) {
-    bumpLabelCounts(sql, key, { messages: 1, unread: message.isRead ? 0 : 1 });
-    if (key === '__total' || key === '__scheduled') continue;
-    const effect = bumpThreadLabelMatch(sql, key, threadKey, 1);
-    if (effect === 'created') bumpLabelCounts(sql, key, { threads: 1 });
-  }
+  for (const key of keys) bumpIngestFolderKey(sql, key, threadKey, message.isRead);
   refreshThread(sql, ref, threadKey);
   insertIngestOutboxRows(sql, ref, message, threadKey, at);
 

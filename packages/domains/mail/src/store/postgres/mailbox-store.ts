@@ -132,14 +132,18 @@ function toSecurityStatusValue(status: string | null | undefined): MailSecurityS
     : undefined;
 }
 
-/** Every `mail_messages` row to the store's contract shape: `threadKey` added, `rawMessage` always null, bodies stripped unless asked for. */
+/**
+ * Every `mail_messages` row to the store's contract shape: `threadKey` added,
+ * `rawMessage` always null, bodies stripped unless asked for. The explicit
+ * `textBody`/`htmlBody`/`rawMessage` fields below override whatever `row`
+ * itself carried for them, so there is no need to destructure them out first.
+ */
 function toMessageRecord(row: MailMessage, o: { bodies: boolean } = { bodies: false }): MailMessageRecord {
-  const { textBody, htmlBody, rawMessage: _rawMessage, ...rest } = row;
   return {
-    ...rest,
+    ...row,
     threadKey: row.threadId ?? row.id,
-    textBody: o.bodies ? (textBody ?? null) : undefined,
-    htmlBody: o.bodies ? (htmlBody ?? null) : undefined,
+    textBody: o.bodies ? (row.textBody ?? null) : undefined,
+    htmlBody: o.bodies ? (row.htmlBody ?? null) : undefined,
     rawMessage: null,
   };
 }
@@ -522,6 +526,147 @@ export class PostgresMailboxStore implements MailboxStore {
   // Writes
   // ---------------------------------------------------------------------
 
+  /**
+   * One op kind's share of {@link apply}: every case whose logic is more than
+   * a one-line delegation lives in its own method (named `apply<Kind>Op`) so
+   * the dispatcher itself stays a plain switch, each branch a single call.
+   */
+  private async applyThreadLabelOp(op: Extract<MailboxOp, { kind: 'thread.label' }>, now: Date): Promise<OpResult> {
+    const { affected } = await applyLabelToThread(this.db, this.ref.accountId, op.threadKey, op.label, op.action, now);
+    return affected > 0
+      ? { applied: [op.threadKey], missing: [], stale: [], ready: true }
+      : { applied: [], missing: [op.threadKey], stale: [], ready: true };
+  }
+
+  private async applyThreadReadOp(op: Extract<MailboxOp, { kind: 'thread.read' }>, now: Date): Promise<OpResult> {
+    const result = await markThreadRead(this.db, this.ref.accountId, op.threadKey, op.isRead, now);
+    return { applied: result.updatedIds, missing: [], stale: [], updatedIds: result.updatedIds, ready: true };
+  }
+
+  private async applyFolderReadOp(op: Extract<MailboxOp, { kind: 'folder.read' }>, now: Date): Promise<OpResult> {
+    const result = await markFolderReadForAccounts(
+      this.db,
+      [this.ref.accountId],
+      { labelSlug: op.scope.labelSlug, search: op.scope.search, from: op.scope.from, to: op.scope.to, subject: op.scope.subject, hasAttachment: op.scope.hasAttachment, excludeWords: op.scope.excludeWords },
+      { batchSize: op.batchSize, maxBatches: op.maxBatches, updatedPerAccount: op.keepIds },
+      now,
+    );
+    return {
+      applied: result.updatedIds,
+      missing: [],
+      stale: [],
+      updatedIds: result.updatedIds,
+      more: result.more,
+      ready: true,
+    };
+  }
+
+  private async applyThreadSetOp(op: Extract<MailboxOp, { kind: 'thread.set' }>, now: Date): Promise<OpResult> {
+    const row = await updateMessage(this.db, op.id, { threadId: op.threadId }, now);
+    return row
+      ? { applied: [op.id], missing: [], stale: [], ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
+  private async applyLabelRenameOp(op: Extract<MailboxOp, { kind: 'label.rename' }>, now: Date): Promise<OpResult> {
+    await relabelMessages(this.db, this.ref.accountId, op.from, op.to, now);
+    return { applied: [], missing: [], stale: [], ready: true };
+  }
+
+  private async applyLabelDeleteOp(op: Extract<MailboxOp, { kind: 'label.delete' }>, now: Date): Promise<OpResult> {
+    await stripLabelFromMessages(this.db, this.ref.accountId, op.name, now);
+    return { applied: [], missing: [], stale: [], ready: true };
+  }
+
+  private async applySnoozeWakeOp(op: Extract<MailboxOp, { kind: 'snooze.wake' }>): Promise<OpResult> {
+    const scope = eq(mailMessages.accountId, this.ref.accountId);
+    const { ids } = await wakeDueSnoozedMessages(this.db, { now: new Date(op.now), scope });
+    const next = await nextSnoozeDueAt(this.db, { scope });
+    return {
+      applied: ids,
+      missing: [],
+      stale: [],
+      updatedIds: ids,
+      nextSnoozeDueAt: next ? next.getTime() : null,
+      ready: true,
+    };
+  }
+
+  private async applyScheduledOp(op: Extract<MailboxOp, { kind: 'scheduled' }>, now: Date): Promise<OpResult> {
+    const row = await applyScheduledPatch(this.db, op.id, op.patch, now);
+    return row
+      ? { applied: [op.id], missing: [], stale: [], message: toMessageRecord(row, { bodies: true }), ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
+  private async applyCategoriesOp(op: Extract<MailboxOp, { kind: 'categories' }>, now: Date): Promise<OpResult> {
+    const update: Record<string, unknown> = { categories: op.categories, updatedAt: now };
+    if (op.important !== undefined) update.isImportant = op.important;
+    const [row] = await this.db
+      .update(mailMessages)
+      .set(update as typeof mailMessages.$inferInsert)
+      .where(and(eq(mailMessages.id, op.id), isNull(mailMessages.deletedAt)))
+      .returning({ id: mailMessages.id });
+    return row
+      ? { applied: [op.id], missing: [], stale: [], ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
+  private async applyAttachmentCreateOp(op: Extract<MailboxOp, { kind: 'attachment.create' }>, now: Date): Promise<OpResult> {
+    const row = await createAttachment(this.db, op.attachment, now);
+    return { applied: [row.id], missing: [], stale: [], ready: true };
+  }
+
+  private async applyAttachmentUpdateOp(op: Extract<MailboxOp, { kind: 'attachment.update' }>, now: Date): Promise<OpResult> {
+    const result = await updateAttachment(this.db, op.id, op.patch, now);
+    return result
+      ? { applied: [op.id], missing: [], stale: [], ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
+  private async applyAttachmentDeleteOp(op: Extract<MailboxOp, { kind: 'attachment.delete' }>, now: Date): Promise<OpResult> {
+    const existing = await softDeleteAttachmentRow(this.db, op.id, now);
+    return existing
+      ? { applied: [op.id], missing: [], stale: [], storagePaths: existing.storagePath ? [existing.storagePath] : [], ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
+  private async applyAttachmentAssociateOp(op: Extract<MailboxOp, { kind: 'attachment.associate' }>, now: Date): Promise<OpResult> {
+    await associateAttachments(this.db, op.messageId, op.attachmentIds, now);
+    return { applied: op.attachmentIds, missing: [], stale: [], ready: true };
+  }
+
+  private async applySubscriptionUpsertOp(op: Extract<MailboxOp, { kind: 'subscription.upsert' }>, now: Date): Promise<OpResult> {
+    await reconcileSubscriptions(this.db, this.ref.accountId, op.values, now);
+    return { applied: [], missing: [], stale: [], ready: true };
+  }
+
+  private async applySubscriptionStatusOp(op: Extract<MailboxOp, { kind: 'subscription.status' }>): Promise<OpResult> {
+    const row = await updateSubscriptionStatus(this.db, op.id, op.patch);
+    return row
+      ? { applied: [op.id], missing: [], stale: [], ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
+  private async applyDraftCreateOp(op: Extract<MailboxOp, { kind: 'draft.create' }>, now: Date): Promise<OpResult> {
+    const row = await createDraft(this.db, op.draft, now);
+    return { applied: [row.id], missing: [], stale: [], ready: true };
+  }
+
+  private async applyDraftUpdateOp(op: Extract<MailboxOp, { kind: 'draft.update' }>, now: Date): Promise<OpResult> {
+    const result = await updateDraft(this.db, op.id, op.patch, now);
+    return result
+      ? { applied: [op.id], missing: [], stale: [], ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
+  private async applyDraftDeleteOp(op: Extract<MailboxOp, { kind: 'draft.delete' }>, now: Date): Promise<OpResult> {
+    const existing = await softDeleteDraft(this.db, op.id, now);
+    return existing
+      ? { applied: [op.id], missing: [], stale: [], ready: true }
+      : { applied: [], missing: [op.id], stale: [], ready: true };
+  }
+
   async apply(op: MailboxOp, at?: number): Promise<OpResult> {
     const now = at !== undefined ? new Date(at) : new Date();
     switch (op.kind) {
@@ -540,47 +685,18 @@ export class PostgresMailboxStore implements MailboxStore {
           : this.applyBulkLabelChange(op.kind, op.ids, op.labels, now);
       case 'move':
         return this.applyMove(op.ids, op.location, now);
-      case 'thread.label': {
-        const { affected } = await applyLabelToThread(this.db, this.ref.accountId, op.threadKey, op.label, op.action, now);
-        return affected > 0
-          ? { applied: [op.threadKey], missing: [], stale: [], ready: true }
-          : { applied: [], missing: [op.threadKey], stale: [], ready: true };
-      }
-      case 'thread.read': {
-        const result = await markThreadRead(this.db, this.ref.accountId, op.threadKey, op.isRead, now);
-        return { applied: result.updatedIds, missing: [], stale: [], updatedIds: result.updatedIds, ready: true };
-      }
-      case 'folder.read': {
-        const result = await markFolderReadForAccounts(
-          this.db,
-          [this.ref.accountId],
-          { labelSlug: op.scope.labelSlug, search: op.scope.search, from: op.scope.from, to: op.scope.to, subject: op.scope.subject, hasAttachment: op.scope.hasAttachment, excludeWords: op.scope.excludeWords },
-          { batchSize: op.batchSize, maxBatches: op.maxBatches, updatedPerAccount: op.keepIds },
-          now,
-        );
-        return {
-          applied: result.updatedIds,
-          missing: [],
-          stale: [],
-          updatedIds: result.updatedIds,
-          more: result.more,
-          ready: true,
-        };
-      }
-      case 'thread.set': {
-        const row = await updateMessage(this.db, op.id, { threadId: op.threadId }, now);
-        return row
-          ? { applied: [op.id], missing: [], stale: [], ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
-      case 'label.rename': {
-        await relabelMessages(this.db, this.ref.accountId, op.from, op.to, now);
-        return { applied: [], missing: [], stale: [], ready: true };
-      }
-      case 'label.delete': {
-        await stripLabelFromMessages(this.db, this.ref.accountId, op.name, now);
-        return { applied: [], missing: [], stale: [], ready: true };
-      }
+      case 'thread.label':
+        return this.applyThreadLabelOp(op, now);
+      case 'thread.read':
+        return this.applyThreadReadOp(op, now);
+      case 'folder.read':
+        return this.applyFolderReadOp(op, now);
+      case 'thread.set':
+        return this.applyThreadSetOp(op, now);
+      case 'label.rename':
+        return this.applyLabelRenameOp(op, now);
+      case 'label.delete':
+        return this.applyLabelDeleteOp(op, now);
       case 'delete':
         return op.hard ? this.hardDeleteMessages(op.ids) : this.softDeleteMessages(op.ids, now);
       case 'snooze':
@@ -588,86 +704,34 @@ export class PostgresMailboxStore implements MailboxStore {
         return this.applySnooze(op.id, new Date(op.until), op.kind === 'resnooze', now);
       case 'unsnooze':
         return this.applyUnsnooze(op.id, now);
-      case 'snooze.wake': {
-        const scope = eq(mailMessages.accountId, this.ref.accountId);
-        const { ids } = await wakeDueSnoozedMessages(this.db, { now: new Date(op.now), scope });
-        const next = await nextSnoozeDueAt(this.db, { scope });
-        return {
-          applied: ids,
-          missing: [],
-          stale: [],
-          updatedIds: ids,
-          nextSnoozeDueAt: next ? next.getTime() : null,
-          ready: true,
-        };
-      }
-      case 'scheduled': {
-        const row = await applyScheduledPatch(this.db, op.id, op.patch, now);
-        return row
-          ? { applied: [op.id], missing: [], stale: [], message: toMessageRecord(row, { bodies: true }), ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
+      case 'snooze.wake':
+        return this.applySnoozeWakeOp(op);
+      case 'scheduled':
+        return this.applyScheduledOp(op, now);
       case 'delivery.match':
         return this.applyDeliveryMatch(op, now);
       case 'inbound.finalize':
         return this.applyInboundFinalize(op, now);
-      case 'categories': {
-        const update: Record<string, unknown> = { categories: op.categories, updatedAt: now };
-        if (op.important !== undefined) update.isImportant = op.important;
-        const [row] = await this.db
-          .update(mailMessages)
-          .set(update as typeof mailMessages.$inferInsert)
-          .where(and(eq(mailMessages.id, op.id), isNull(mailMessages.deletedAt)))
-          .returning({ id: mailMessages.id });
-        return row
-          ? { applied: [op.id], missing: [], stale: [], ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
-      case 'attachment.create': {
-        const row = await createAttachment(this.db, op.attachment, now);
-        return { applied: [row.id], missing: [], stale: [], ready: true };
-      }
-      case 'attachment.update': {
-        const result = await updateAttachment(this.db, op.id, op.patch, now);
-        return result
-          ? { applied: [op.id], missing: [], stale: [], ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
-      case 'attachment.delete': {
-        const existing = await softDeleteAttachmentRow(this.db, op.id, now);
-        return existing
-          ? { applied: [op.id], missing: [], stale: [], storagePaths: existing.storagePath ? [existing.storagePath] : [], ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
-      case 'attachment.associate': {
-        await associateAttachments(this.db, op.messageId, op.attachmentIds, now);
-        return { applied: op.attachmentIds, missing: [], stale: [], ready: true };
-      }
+      case 'categories':
+        return this.applyCategoriesOp(op, now);
+      case 'attachment.create':
+        return this.applyAttachmentCreateOp(op, now);
+      case 'attachment.update':
+        return this.applyAttachmentUpdateOp(op, now);
+      case 'attachment.delete':
+        return this.applyAttachmentDeleteOp(op, now);
+      case 'attachment.associate':
+        return this.applyAttachmentAssociateOp(op, now);
       case 'subscription.upsert':
-        await reconcileSubscriptions(this.db, this.ref.accountId, op.values, now);
-        return { applied: [], missing: [], stale: [], ready: true };
-      case 'subscription.status': {
-        const row = await updateSubscriptionStatus(this.db, op.id, op.patch);
-        return row
-          ? { applied: [op.id], missing: [], stale: [], ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
-      case 'draft.create': {
-        const row = await createDraft(this.db, op.draft, now);
-        return { applied: [row.id], missing: [], stale: [], ready: true };
-      }
-      case 'draft.update': {
-        const result = await updateDraft(this.db, op.id, op.patch, now);
-        return result
-          ? { applied: [op.id], missing: [], stale: [], ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
-      case 'draft.delete': {
-        const existing = await softDeleteDraft(this.db, op.id, now);
-        return existing
-          ? { applied: [op.id], missing: [], stale: [], ready: true }
-          : { applied: [], missing: [op.id], stale: [], ready: true };
-      }
+        return this.applySubscriptionUpsertOp(op, now);
+      case 'subscription.status':
+        return this.applySubscriptionStatusOp(op);
+      case 'draft.create':
+        return this.applyDraftCreateOp(op, now);
+      case 'draft.update':
+        return this.applyDraftUpdateOp(op, now);
+      case 'draft.delete':
+        return this.applyDraftDeleteOp(op, now);
       default: {
         const _exhaustive: never = op;
         throw new Error(`Unknown mailbox op: ${JSON.stringify(_exhaustive)}`);
@@ -694,17 +758,16 @@ export class PostgresMailboxStore implements MailboxStore {
     return new Set(rows.map((r) => r.id));
   }
 
-  private async applyIngest(message: IngestMessage, now: Date): Promise<OpResult> {
-    const [byId] = await this.db
-      .select({ id: mailMessages.id, threadId: mailMessages.threadId })
-      .from(mailMessages)
-      .where(eq(mailMessages.id, message.id))
-      .limit(1);
-    if (byId) {
-      const ingest: IngestResult = { id: byId.id, threadKey: byId.threadId ?? byId.id, created: false };
-      return { applied: [], missing: [], stale: [], ingest, ready: true };
-    }
-
+  /**
+   * `message.threadId`, resolved via `message.threadHints` when absent
+   * (`resolveInboundThread`), falling back to the message's own id when
+   * neither yields one. A hint match that turns out to be a true duplicate
+   * short-circuits ingest entirely — `duplicate: true` carries the
+   * already-built {@link OpResult} for {@link applyIngest} to return as-is.
+   */
+  private async resolveIngestThreadId(
+    message: IngestMessage,
+  ): Promise<{ duplicate: true; result: OpResult } | { duplicate: false; threadId: string }> {
     let threadId = message.threadId;
     if (!threadId && message.threadHints) {
       const resolved = await resolveInboundThread(this.db, this.ref.accountId, message.threadHints);
@@ -715,79 +778,81 @@ export class PostgresMailboxStore implements MailboxStore {
           created: false,
           duplicateOf: resolved.threadId,
         };
-        return { applied: [], missing: [], stale: [], ingest, ready: true };
+        return { duplicate: true, result: { applied: [], missing: [], stale: [], ingest, ready: true } };
       }
       threadId = resolved.threadId;
     }
-    threadId = threadId ?? message.id;
+    return { duplicate: false, threadId: threadId ?? message.id };
+  }
 
+  /** The `mail_messages` row values for a fresh ingest insert. */
+  private buildIngestValues(message: IngestMessage, threadId: string, now: Date) {
     const labels = message.labels;
-    const inserted = await this.db
-      .insert(mailMessages)
-      .values({
-        id: message.id,
-        accountId: this.ref.accountId,
-        messageId: message.rfcMessageId,
-        threadId,
-        externalMessageId: message.externalMessageId ?? undefined,
-        providerMessageId: message.providerMessageId ?? undefined,
-        from: message.from,
-        to: message.to,
-        cc: message.cc ?? undefined,
-        bcc: message.bcc ?? undefined,
-        replyTo: message.replyTo ?? undefined,
-        subject: message.subject ?? undefined,
-        preview: message.preview ?? undefined,
-        textBody: message.content?.text ?? undefined,
-        htmlBody: message.content?.html ?? undefined,
-        sentDate: new Date(message.sentAt),
-        receivedDate: message.receivedAt != null ? new Date(message.receivedAt) : undefined,
-        isRead: message.isRead,
-        labels,
-        isSpam: message.isSpam,
-        isStarred: labels.includes(SYSTEM_LABELS.STARRED),
-        isImportant: labels.includes(SYSTEM_LABELS.IMPORTANT),
-        isTrash: labels.includes(SYSTEM_LABELS.TRASH),
-        inReplyTo: message.inReplyTo ?? undefined,
-        references: message.references ?? undefined,
-        isReply: message.isReply,
-        isForwarded: message.isForwarded ?? undefined,
-        priority: toPriorityValue(message.priority),
-        sizeBytes: message.sizeBytes ?? undefined,
-        spfStatus: toSecurityStatusValue(message.spfStatus),
-        dkimStatus: toSecurityStatusValue(message.dkimStatus),
-        dmarcStatus: toSecurityStatusValue(message.dmarcStatus),
-        sendStatus: message.sendStatus ?? undefined,
-        scheduledFor: message.scheduledFor != null ? new Date(message.scheduledFor) : undefined,
-        triggerRunId: message.triggerRunId ?? undefined,
-        idempotencyKey: message.idempotencyKey ?? undefined,
-        deliveryStatus: message.delivery?.status ?? undefined,
-        deliveryDetail: message.delivery?.detail ?? undefined,
-        deliveryUpdatedAt: message.delivery ? new Date(message.delivery.at) : undefined,
-        source: message.source === 'scheduled' ? 'sent' : message.source,
-        hasAttachments: message.attachments.length > 0,
-        attachmentCount: message.attachments.length,
-        headers: message.extra?.headers ?? undefined,
-        customFields: message.extra?.customFields ?? undefined,
-        clickedLinks: message.extra?.clickedLinks ?? undefined,
-        conversationId: message.extra?.conversationId ?? undefined,
-        createdAt: new Date(message.createdAt),
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: mailMessages.id })
-      .returning({ id: mailMessages.id, threadId: mailMessages.threadId });
+    return {
+      id: message.id,
+      accountId: this.ref.accountId,
+      messageId: message.rfcMessageId,
+      threadId,
+      externalMessageId: message.externalMessageId ?? undefined,
+      providerMessageId: message.providerMessageId ?? undefined,
+      from: message.from,
+      to: message.to,
+      cc: message.cc ?? undefined,
+      bcc: message.bcc ?? undefined,
+      replyTo: message.replyTo ?? undefined,
+      subject: message.subject ?? undefined,
+      preview: message.preview ?? undefined,
+      textBody: message.content?.text ?? undefined,
+      htmlBody: message.content?.html ?? undefined,
+      sentDate: new Date(message.sentAt),
+      receivedDate: message.receivedAt != null ? new Date(message.receivedAt) : undefined,
+      isRead: message.isRead,
+      labels,
+      isSpam: message.isSpam,
+      isStarred: labels.includes(SYSTEM_LABELS.STARRED),
+      isImportant: labels.includes(SYSTEM_LABELS.IMPORTANT),
+      isTrash: labels.includes(SYSTEM_LABELS.TRASH),
+      inReplyTo: message.inReplyTo ?? undefined,
+      references: message.references ?? undefined,
+      isReply: message.isReply,
+      isForwarded: message.isForwarded ?? undefined,
+      priority: toPriorityValue(message.priority),
+      sizeBytes: message.sizeBytes ?? undefined,
+      spfStatus: toSecurityStatusValue(message.spfStatus),
+      dkimStatus: toSecurityStatusValue(message.dkimStatus),
+      dmarcStatus: toSecurityStatusValue(message.dmarcStatus),
+      sendStatus: message.sendStatus ?? undefined,
+      scheduledFor: message.scheduledFor != null ? new Date(message.scheduledFor) : undefined,
+      triggerRunId: message.triggerRunId ?? undefined,
+      idempotencyKey: message.idempotencyKey ?? undefined,
+      deliveryStatus: message.delivery?.status ?? undefined,
+      deliveryDetail: message.delivery?.detail ?? undefined,
+      deliveryUpdatedAt: message.delivery ? new Date(message.delivery.at) : undefined,
+      source: message.source === 'scheduled' ? 'sent' : message.source,
+      hasAttachments: message.attachments.length > 0,
+      attachmentCount: message.attachments.length,
+      headers: message.extra?.headers ?? undefined,
+      customFields: message.extra?.customFields ?? undefined,
+      clickedLinks: message.extra?.clickedLinks ?? undefined,
+      conversationId: message.extra?.conversationId ?? undefined,
+      createdAt: new Date(message.createdAt),
+      updatedAt: now,
+    };
+  }
 
-    if (inserted.length === 0) {
-      // Lost a concurrent insert of the same id.
-      const [existing] = await this.db
-        .select({ id: mailMessages.id, threadId: mailMessages.threadId })
-        .from(mailMessages)
-        .where(eq(mailMessages.id, message.id))
-        .limit(1);
-      const ingest: IngestResult = { id: message.id, threadKey: existing?.threadId ?? message.id, created: false };
-      return { applied: [], missing: [], stale: [], ingest, ready: true };
-    }
+  /** Lost a concurrent insert of the same id: the id exists now, so report it as the (not-created-by-us) ingest result. */
+  private async recoverConflictedIngest(message: IngestMessage): Promise<OpResult> {
+    const [existing] = await this.db
+      .select({ id: mailMessages.id, threadId: mailMessages.threadId })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, message.id))
+      .limit(1);
+    const ingest: IngestResult = { id: message.id, threadKey: existing?.threadId ?? message.id, created: false };
+    return { applied: [], missing: [], stale: [], ingest, ready: true };
+  }
 
+  /** Attachment rows and the subscription upsert that ride alongside a successful ingest insert. */
+  private async finishIngestSideEffects(message: IngestMessage, now: Date): Promise<void> {
     if (message.attachments.length > 0) {
       await this.db.insert(mailAttachments).values(
         message.attachments.map((a) => ({
@@ -810,6 +875,31 @@ export class PostgresMailboxStore implements MailboxStore {
     if (message.subscription) {
       await upsertSubscriptionOnMessage(this.db, this.ref.accountId, message.subscription, now);
     }
+  }
+
+  private async applyIngest(message: IngestMessage, now: Date): Promise<OpResult> {
+    const [byId] = await this.db
+      .select({ id: mailMessages.id, threadId: mailMessages.threadId })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, message.id))
+      .limit(1);
+    if (byId) {
+      const ingest: IngestResult = { id: byId.id, threadKey: byId.threadId ?? byId.id, created: false };
+      return { applied: [], missing: [], stale: [], ingest, ready: true };
+    }
+
+    const threadResolution = await this.resolveIngestThreadId(message);
+    if (threadResolution.duplicate) return threadResolution.result;
+
+    const inserted = await this.db
+      .insert(mailMessages)
+      .values(this.buildIngestValues(message, threadResolution.threadId, now))
+      .onConflictDoNothing({ target: mailMessages.id })
+      .returning({ id: mailMessages.id, threadId: mailMessages.threadId });
+
+    if (inserted.length === 0) return this.recoverConflictedIngest(message);
+
+    await this.finishIngestSideEffects(message, now);
 
     const ingest: IngestResult = { id: message.id, threadKey: inserted[0]!.threadId ?? inserted[0]!.id, created: true };
     return { applied: [message.id], missing: [], stale: [], ingest, ready: true };
@@ -826,36 +916,43 @@ export class PostgresMailboxStore implements MailboxStore {
     return { applied, missing, stale: [], ready: true };
   }
 
+  /** Adds or removes `label` on every id in `idsArr`, in bulk. */
+  private async applyBulkLabelToggle(label: string, on: boolean, idsArr: string[], now: Date): Promise<void> {
+    if (on) await bulkAddLabelToMessages(this.db, label, idsArr, now);
+    else await bulkRemoveLabelFromMessages(this.db, label, idsArr, now);
+  }
+
+  /** {@link applyBulkFlags}'s per-field writes, once there is at least one existing id to apply them to. */
+  private async applyBulkFlagFields(idsArr: string[], patch: FlagPatch, now: Date): Promise<void> {
+    if (patch.isRead !== undefined) {
+      await this.db.update(mailMessages).set({ isRead: patch.isRead, updatedAt: now }).where(inArray(mailMessages.id, idsArr));
+    }
+    if (patch.isFlagged !== undefined) {
+      await this.db
+        .update(mailMessages)
+        .set({ isFlagged: patch.isFlagged, updatedAt: now })
+        .where(inArray(mailMessages.id, idsArr));
+    }
+    if (patch.isStarred !== undefined) {
+      await this.applyBulkLabelToggle(SYSTEM_LABELS.STARRED, patch.isStarred, idsArr, now);
+    }
+    if (patch.isImportant !== undefined) {
+      await this.applyBulkLabelToggle(SYSTEM_LABELS.IMPORTANT, patch.isImportant, idsArr, now);
+    }
+    // isSpam before isTrash, same precedence `labelsForFlagPatch` uses when
+    // a caller somehow sets both.
+    if (patch.isSpam !== undefined) {
+      await moveMessagesToLocation(this.db, idsArr, patch.isSpam ? SYSTEM_LABELS.SPAM : SYSTEM_LABELS.INBOX, now);
+    }
+    if (patch.isTrash !== undefined) {
+      await moveMessagesToLocation(this.db, idsArr, patch.isTrash ? SYSTEM_LABELS.TRASH : SYSTEM_LABELS.INBOX, now);
+    }
+  }
+
   private async applyBulkFlags(ids: string[], patch: FlagPatch, now: Date): Promise<OpResult> {
     const existing = await this.existingIds(ids);
     const idsArr = [...existing];
-    if (idsArr.length > 0) {
-      if (patch.isRead !== undefined) {
-        await this.db.update(mailMessages).set({ isRead: patch.isRead, updatedAt: now }).where(inArray(mailMessages.id, idsArr));
-      }
-      if (patch.isFlagged !== undefined) {
-        await this.db
-          .update(mailMessages)
-          .set({ isFlagged: patch.isFlagged, updatedAt: now })
-          .where(inArray(mailMessages.id, idsArr));
-      }
-      if (patch.isStarred !== undefined) {
-        if (patch.isStarred) await bulkAddLabelToMessages(this.db, SYSTEM_LABELS.STARRED, idsArr, now);
-        else await bulkRemoveLabelFromMessages(this.db, SYSTEM_LABELS.STARRED, idsArr, now);
-      }
-      if (patch.isImportant !== undefined) {
-        if (patch.isImportant) await bulkAddLabelToMessages(this.db, SYSTEM_LABELS.IMPORTANT, idsArr, now);
-        else await bulkRemoveLabelFromMessages(this.db, SYSTEM_LABELS.IMPORTANT, idsArr, now);
-      }
-      // isSpam before isTrash, same precedence `labelsForFlagPatch` uses when
-      // a caller somehow sets both.
-      if (patch.isSpam !== undefined) {
-        await moveMessagesToLocation(this.db, idsArr, patch.isSpam ? SYSTEM_LABELS.SPAM : SYSTEM_LABELS.INBOX, now);
-      }
-      if (patch.isTrash !== undefined) {
-        await moveMessagesToLocation(this.db, idsArr, patch.isTrash ? SYSTEM_LABELS.TRASH : SYSTEM_LABELS.INBOX, now);
-      }
-    }
+    if (idsArr.length > 0) await this.applyBulkFlagFields(idsArr, patch, now);
     return { applied: idsArr, missing: ids.filter((id) => !existing.has(id)), stale: [], ready: true };
   }
 

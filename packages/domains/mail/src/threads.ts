@@ -181,7 +181,11 @@ async function resolveAccountScope(
 
 /** The ids array a `COALESCE(threadId, id) = ANY(...)` / account-id condition compares against. */
 function textArraySql(values: string[]): SQL {
-  return sql`ARRAY[${sql.join(values.map((v) => sql`${v}`), sql`, `)}]::text[]`;
+  const items = sql.join(
+    values.map((v) => sql`${v}`),
+    sql`, `,
+  );
+  return sql`ARRAY[${items}]::text[]`;
 }
 
 /**

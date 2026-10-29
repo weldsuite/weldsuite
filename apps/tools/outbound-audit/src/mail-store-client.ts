@@ -48,13 +48,25 @@ export interface MailStoreAdminConfig {
   adminEmail: string;
 }
 
+/**
+ * Trailing `/`s stripped, without a `/+$/`-style regex: unanchored at the
+ * start, that pattern's backtracking is O(n²) on an adversarial input (a long
+ * run of `/` immediately followed by a non-`/` character) — a linear scan
+ * from the end is simpler and can't have that problem.
+ */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end -= 1;
+  return value.slice(0, end);
+}
+
 /** Reads `MAIL_STORE_ADMIN_URL` / `OUTBOUND_ADMIN_SECRET` / `MAIL_STORE_ADMIN_EMAIL` (README.md). Null when any is missing. */
 export function mailStoreAdminConfigFromEnv(env: NodeJS.ProcessEnv): MailStoreAdminConfig | null {
   const baseUrl = env.MAIL_STORE_ADMIN_URL?.trim();
   const secret = env.OUTBOUND_ADMIN_SECRET?.trim();
   const adminEmail = env.MAIL_STORE_ADMIN_EMAIL?.trim();
   if (!baseUrl || !secret || !adminEmail) return null;
-  return { baseUrl: baseUrl.replace(/\/+$/, ''), secret, adminEmail };
+  return { baseUrl: stripTrailingSlashes(baseUrl), secret, adminEmail };
 }
 
 async function adminGet(config: MailStoreAdminConfig, path: string): Promise<unknown> {

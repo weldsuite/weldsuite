@@ -39,7 +39,6 @@ vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   getWorkspaceContextForOrg: async () => ({ id: WORKSPACE_ID, clerkOrgId: CLERK_ORG_ID, db: holder.db }),
 }));
 
-// eslint-disable-next-line import/first -- must follow the vi.mock above
 import { testFixturesRoutes } from './index';
 
 let db: Database;
