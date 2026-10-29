@@ -1,0 +1,42 @@
+{
+  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5).",
+  "suites": [
+    {
+      "name": "core: me",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/me/permissions.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/me/",
+        "packages/core/permissions/src/"
+      ]
+    },
+    {
+      "name": "core: feature-flags",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/feature-flags/feature-flags.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/feature-flags/",
+        "packages/core/feature-flags/src/"
+      ]
+    },
+    {
+      "name": "core: access-requests",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/access-requests/access-requests.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/access-requests/",
+        "apps/workers/app-api/src/services/access-requests.ts",
+        "packages/core/realtime/src/server/"
+      ]
+    }
+  ]
+}

@@ -19,11 +19,14 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::json;
-use tower_http::trace::TraceLayer;
-use weldsuite_auth::{AuthContext, ClerkVerifier, clerk_auth};
-use weldsuite_db::{Tenant, TenantPermissionQueries, Workspaces, workspace_db};
-use weldsuite_kit::{ApiError, Data, api_cors, request_id};
-use weldsuite_permissions::{app_context, resolve_effective_permissions};
+use tower_http::trace::{DefaultMakeSpan, TraceLayer};
+use weldsuite_auth::SessionVerifier;
+use weldsuite_db::{TenantPermissionQueries, Workspaces};
+use weldsuite_kit::{ApiError, api_cors, request_id};
+use weldsuite_permissions::{PermissionGate, app_context};
+use weldsuite_pipeline::FlagGate;
+
+use crate::infra::Infra;
 
 /// What the handlers share.
 #[derive(Clone)]
@@ -31,38 +34,105 @@ pub(crate) struct AppState {
     pub(crate) service: &'static str,
     pub(crate) environment: String,
     pub(crate) workspaces: Arc<Workspaces>,
-    pub(crate) verifier: Arc<ClerkVerifier>,
+    /// Unused by conformance builds, which take the test's context instead.
+    #[cfg_attr(feature = "conformance", allow(dead_code))]
+    pub(crate) verifier: Arc<SessionVerifier>,
     /// `PERMISSIONS_APP_ENFORCE`, reported to clients by `/api/me/permissions`.
     pub(crate) permissions_app_enforce: bool,
     /// Set on SIGTERM: `/readyz` fails so the pod leaves the Service first.
     pub(crate) draining: Arc<AtomicBool>,
+    /// Events, realtime, cache and flag source.
+    pub(crate) infra: Infra,
+    /// `requirePermission(...)` for the routes.
+    pub(crate) permissions: Arc<PermissionGate<TenantPermissionQueries>>,
+    pub(crate) flags: Arc<FlagGate>,
+    /// What conformance builds record instead of publishing.
+    #[cfg(feature = "conformance")]
+    pub(crate) recorders: crate::conformance::Recorders,
 }
 
+impl AppState {
+    /// The permission gate on the request's tenant database.
+    pub(crate) fn permission_gate(
+        app_enforced: bool,
+    ) -> Arc<PermissionGate<TenantPermissionQueries>> {
+        Arc::new(
+            PermissionGate::new(|extensions| {
+                extensions
+                    .get::<weldsuite_db::Tenant>()
+                    .map(|tenant| TenantPermissionQueries::new(tenant.db.clone()))
+                    .ok_or_else(|| {
+                        tracing::error!("permissions: no tenant database on the request");
+                        ApiError::internal()
+                    })
+            })
+            .app_enforced(app_enforced),
+        )
+    }
+}
+
+/// A per-request `PERMISSIONS_APP_ENFORCE`, set by conformance mode so a test
+/// can run with enforcement on, as the workers read it per request.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AppEnforcedOverride(pub(crate) bool);
+
 pub(crate) fn router(state: AppState) -> Router {
-    let api = Router::new()
-        .route("/me/permissions", get(me_permissions))
+    // Layers run outside in, in `apiAuth()`'s order: session → tenant
+    // database → licence and read-only → feature flags.
+    let api = crate::routes::api(&state)
         .fallback(not_found)
         .layer(axum::middleware::from_fn_with_state(
-            Arc::clone(&state.workspaces),
-            workspace_db,
+            Arc::clone(&state.flags),
+            weldsuite_pipeline::feature_flags,
         ))
-        .layer(axum::middleware::from_fn_with_state(
-            Arc::clone(&state.verifier),
-            clerk_auth,
-        ));
+        .layer(axum::middleware::from_fn(weldsuite_pipeline::licence_gate));
+    let api = authenticated(api, &state);
 
-    Router::new()
-        .route("/livez", get(livez))
+    let root = Router::new();
+    #[cfg(feature = "conformance")]
+    let root = root.route(
+        "/__conformance/side-effects",
+        get(crate::conformance::side_effects),
+    );
+    root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
         .route("/robots.txt", get(robots))
+        .route("/config.json", get(config_json))
         .nest("/api", api)
         .fallback(not_found)
         .with_state(state)
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
-        .layer(TraceLayer::new_for_http())
+        // One INFO span per request, so the default `info` filter keeps it
+        // for the trace exporter.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
+        )
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// Session token → tenant database, as `apiAuth()` does.
+#[cfg(not(feature = "conformance"))]
+fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    api.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.workspaces),
+        weldsuite_db::workspace_db,
+    ))
+    .layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.verifier),
+        weldsuite_auth::clerk_auth,
+    ))
+}
+
+/// Conformance builds take the test's context from a header instead.
+#[cfg(feature = "conformance")]
+fn authenticated(api: Router<AppState>, _state: &AppState) -> Router<AppState> {
+    api.layer(axum::middleware::from_fn_with_state(
+        Arc::new(crate::conformance::Pools::default()),
+        crate::conformance::auth,
+    ))
 }
 
 async fn livez() -> &'static str {
@@ -125,6 +195,31 @@ async fn health(State(state): State<AppState>) -> Response {
         .into_response()
 }
 
+/// `GET /config.json`: what this backend offers, for the EU and self-hosted
+/// frontends. `modules` is the core platform plus every module ported to Rust
+/// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`); a client hides the
+/// apps of any other module. Global never asks: it runs every module in
+/// TypeScript.
+async fn config_json() -> Response {
+    let modules: Vec<&str> = std::iter::once("core")
+        .chain(
+            weldsuite_catalogs::api_modules()
+                .iter()
+                .filter(|module| module.rust && module.id != "core")
+                .map(|module| module.id.as_str()),
+        )
+        .collect();
+    (
+        [(header::CACHE_CONTROL, "no-cache")],
+        Json(json!({
+            "backend": "rust",
+            "version": env!("CARGO_PKG_VERSION"),
+            "modules": modules,
+        })),
+    )
+        .into_response()
+}
+
 async fn robots() -> &'static str {
     "User-agent: *\nDisallow: /\n"
 }
@@ -137,30 +232,6 @@ async fn not_found(OriginalUri(uri): OriginalUri) -> ApiError {
         "NOT_FOUND",
         format!("{} not found", uri.path()),
     )
-}
-
-/// `GET /api/me/permissions`: the caller's effective permissions in this
-/// workspace, for clients that gate their UI. Every member may read their own.
-async fn me_permissions(
-    State(state): State<AppState>,
-    auth: AuthContext,
-    tenant: Tenant,
-) -> Result<Data<serde_json::Value>, ApiError> {
-    let queries = TenantPermissionQueries::new(tenant.db.clone());
-    let resolved = resolve_effective_permissions(&queries, &auth.user_id)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "me: resolving permissions failed");
-            ApiError::internal().with_message("Failed to fetch permissions")
-        })?;
-    Ok(Data(json!({
-        "permissions": resolved.permissions,
-        "denies": resolved.denies,
-        "appEnforced": state.permissions_app_enforce,
-        "role": resolved.role,
-        "roleId": resolved.role_id,
-        "isOwner": resolved.is_owner,
-    })))
 }
 
 /// `Date#toISOString()`: UTC, milliseconds, `Z`.
@@ -236,9 +307,11 @@ mod tests {
             "../../../crates/auth/tests/fixtures/clerk-tokens.json"
         ))
         .expect("fixture");
-        let verifier =
-            ClerkVerifier::from_pem(fixture["publicKeyPem"].as_str().expect("pem"), None)
-                .expect("key");
+        let verifier = weldsuite_auth::ClerkVerifier::from_pem(
+            fixture["publicKeyPem"].as_str().expect("pem"),
+            None,
+        )
+        .expect("key");
         AppState {
             service: "weldsuite",
             environment: "test".to_owned(),
@@ -247,9 +320,18 @@ mod tests {
                 Keyring::default(),
                 WorkspaceConfig::default(),
             )),
-            verifier: Arc::new(verifier),
+            verifier: Arc::new(verifier.into()),
             permissions_app_enforce: false,
             draining: Arc::new(AtomicBool::new(false)),
+            infra: crate::infra::Infra::disconnected(weldsuite_events::TaskTracker::new()),
+            permissions: AppState::permission_gate(false),
+            flags: Arc::new(weldsuite_pipeline::FlagGate::new(
+                Arc::new(weldsuite_ports::DefaultFlags),
+                "test",
+                None,
+            )),
+            #[cfg(feature = "conformance")]
+            recorders: crate::conformance::Recorders::default(),
         }
     }
 
@@ -311,6 +393,20 @@ mod tests {
             (status, body.as_str()),
             (StatusCode::SERVICE_UNAVAILABLE, "draining")
         );
+    }
+
+    #[tokio::test]
+    async fn config_offers_core_and_the_ported_modules() {
+        let (status, _, body) = call(state(), get("/config.json")).await;
+        assert_eq!(status, StatusCode::OK);
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["backend"], "rust");
+        assert_eq!(body["modules"][0], "core");
+        let ported = weldsuite_catalogs::api_modules()
+            .iter()
+            .filter(|m| m.rust)
+            .count();
+        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
     }
 
     #[tokio::test]

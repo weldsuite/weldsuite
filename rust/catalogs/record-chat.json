@@ -1,0 +1,13 @@
+{
+  "owners": {
+    "company": "crm",
+    "contact": "crm",
+    "doc": "docs",
+    "domain": "host",
+    "person": "crm",
+    "project": "flow",
+    "sheet": "sheets",
+    "task": "flow"
+  },
+  "prefix": "/api/chat-entity-channels/"
+}

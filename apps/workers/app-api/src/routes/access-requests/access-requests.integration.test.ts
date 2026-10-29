@@ -67,3 +67,22 @@ describe('access requests · grant ceiling', () => {
     expect(after!.permissions).toContain('billing:read');
   });
 });
+
+describe('access requests · my pending', () => {
+  it("lists the caller's pending requests", async () => {
+    const asked = await send(app('user_requester'), '', 'POST', { permission: 'team:read', pageLabel: 'Team' });
+    expect(asked.status).toBe(201);
+    const again = await send(app('user_requester'), '', 'POST', { permission: 'team:read' });
+    expect(again.status).toBe(200);
+
+    const res = await app('user_requester').request('/api/access-requests/me/pending');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ permission: string; status: string }>; pagination: { totalCount: number } };
+    expect(body.data.map((r) => r.permission)).toContain('team:read');
+    expect(body.data.every((r) => r.status === 'pending')).toBe(true);
+    expect(body.pagination.totalCount).toBe(body.data.length);
+
+    const other = await app('user_admin').request('/api/access-requests/me/pending');
+    expect(((await other.json()) as { data: unknown[] }).data).toEqual([]);
+  });
+});

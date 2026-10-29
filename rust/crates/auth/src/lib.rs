@@ -17,10 +17,12 @@
 //! - come from an authorized party (`azp`): a first-party origin, a
 //!   configured extra origin, or no claim at all (native apps).
 
+mod keys;
 mod middleware;
 mod second_factor;
 mod verifier;
 
+pub use keys::{CLERK_JWKS_URL, SessionVerifier};
 pub use middleware::clerk_auth;
 pub use second_factor::{
     DEFAULT_SECOND_FACTOR_MAX_AGE_MINUTES, MFA_REQUIRED, REVERIFICATION_REQUIRED,

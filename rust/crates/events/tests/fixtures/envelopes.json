@@ -1,0 +1,292 @@
+{
+  "sensitiveKeys": [
+    "accountNumberEncrypted",
+    "credentialsEncrypted",
+    "fiscalCredentialsEncrypted",
+    "imapCredentials",
+    "recipientTinEncrypted",
+    "salesTaxCredentialsEncrypted",
+    "sensitiveEncrypted",
+    "smtpCredentials",
+    "ssnEncrypted"
+  ],
+  "cases": [
+    {
+      "name": "request publish uses the Clerk org id and source api",
+      "kind": "context",
+      "idBytes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        255
+      ],
+      "nowMs": 1800000000123,
+      "input": {
+        "workspaceId": "ws_m1x2k3l4a8b9c0d1",
+        "clerkOrgId": "org_2abc",
+        "userId": "user_2abc",
+        "entityType": "knowledge_page",
+        "action": "created",
+        "entityId": "kp_1",
+        "data": {
+          "id": "kp_1",
+          "parentId": null,
+          "spaceId": "ks_1",
+          "title": "Untitled"
+        }
+      },
+      "json": "{\"id\":\"evt_00010203040506ff\",\"eventType\":\"knowledge_page:created\",\"entityType\":\"knowledge_page\",\"entityId\":\"kp_1\",\"action\":\"created\",\"data\":{\"id\":\"kp_1\",\"parentId\":null,\"spaceId\":\"ks_1\",\"title\":\"Untitled\"},\"metadata\":{\"workspaceId\":\"org_2abc\",\"userId\":\"user_2abc\",\"timestamp\":\"2027-01-15T08:00:00.123Z\",\"source\":\"api\"}}"
+    },
+    {
+      "name": "request publish without an org id falls back to workspaces.id",
+      "kind": "context",
+      "idBytes": [
+        16,
+        32,
+        48,
+        64,
+        80,
+        96,
+        112,
+        128
+      ],
+      "nowMs": 1800000000000,
+      "input": {
+        "workspaceId": "ws_m1x2k3l4a8b9c0d1",
+        "userId": "user_2abc",
+        "entityType": "knowledge_space",
+        "action": "deleted",
+        "entityId": "ks_1",
+        "data": {
+          "id": "ks_1"
+        }
+      },
+      "json": "{\"id\":\"evt_1020304050607080\",\"eventType\":\"knowledge_space:deleted\",\"entityType\":\"knowledge_space\",\"entityId\":\"ks_1\",\"action\":\"deleted\",\"data\":{\"id\":\"ks_1\"},\"metadata\":{\"workspaceId\":\"ws_m1x2k3l4a8b9c0d1\",\"userId\":\"user_2abc\",\"timestamp\":\"2027-01-15T08:00:00.000Z\",\"source\":\"api\"}}"
+    },
+    {
+      "name": "changes, access list and an explicit source",
+      "kind": "context",
+      "idBytes": [
+        171,
+        205,
+        239,
+        1,
+        35,
+        69,
+        103,
+        137
+      ],
+      "nowMs": 1767225599999,
+      "input": {
+        "workspaceId": "ws_1",
+        "clerkOrgId": "org_1",
+        "userId": "user_1",
+        "entityType": "knowledge_page",
+        "action": "updated",
+        "entityId": "kp_2",
+        "data": {
+          "id": "kp_2",
+          "nested": {
+            "list": [
+              1,
+              "two",
+              true,
+              null
+            ],
+            "n": 1.5
+          },
+          "title": "New"
+        },
+        "changes": {
+          "title": {
+            "new": "New",
+            "old": "Old"
+          }
+        },
+        "accessUserIds": [
+          "user_1",
+          "user_2"
+        ],
+        "source": "web"
+      },
+      "json": "{\"id\":\"evt_abcdef0123456789\",\"eventType\":\"knowledge_page:updated\",\"entityType\":\"knowledge_page\",\"entityId\":\"kp_2\",\"action\":\"updated\",\"data\":{\"id\":\"kp_2\",\"nested\":{\"list\":[1,\"two\",true,null],\"n\":1.5},\"title\":\"New\"},\"changes\":{\"title\":{\"new\":\"New\",\"old\":\"Old\"}},\"accessUserIds\":[\"user_1\",\"user_2\"],\"metadata\":{\"workspaceId\":\"org_1\",\"userId\":\"user_1\",\"timestamp\":\"2025-12-31T23:59:59.999Z\",\"source\":\"web\"}}"
+    },
+    {
+      "name": "null changes and an empty access list are left out",
+      "kind": "context",
+      "idBytes": [
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9,
+        9
+      ],
+      "nowMs": 1800000000001,
+      "input": {
+        "workspaceId": "ws_1",
+        "clerkOrgId": "org_1",
+        "userId": "user_1",
+        "entityType": "knowledge_space_member",
+        "action": "removed",
+        "entityId": "ks_1",
+        "data": {
+          "spaceId": "ks_1",
+          "userId": "user_9"
+        },
+        "changes": null,
+        "accessUserIds": []
+      },
+      "json": "{\"id\":\"evt_0909090909090909\",\"eventType\":\"knowledge_space_member:removed\",\"entityType\":\"knowledge_space_member\",\"entityId\":\"ks_1\",\"action\":\"removed\",\"data\":{\"spaceId\":\"ks_1\",\"userId\":\"user_9\"},\"metadata\":{\"workspaceId\":\"org_1\",\"userId\":\"user_1\",\"timestamp\":\"2027-01-15T08:00:00.001Z\",\"source\":\"api\"}}"
+    },
+    {
+      "name": "raw publish defaults to source system and carries the workflow depth",
+      "kind": "raw",
+      "idBytes": [
+        255,
+        254,
+        253,
+        252,
+        251,
+        250,
+        249,
+        248
+      ],
+      "nowMs": 1800000000500,
+      "input": {
+        "workspaceId": "org_raw",
+        "userId": "system",
+        "entityType": "customer",
+        "action": "created",
+        "entityId": "cus_1",
+        "data": {
+          "id": "cus_1",
+          "name": "Acme"
+        },
+        "workflowDepth": 2
+      },
+      "json": "{\"id\":\"evt_fffefdfcfbfaf9f8\",\"eventType\":\"customer:created\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"action\":\"created\",\"data\":{\"id\":\"cus_1\",\"name\":\"Acme\"},\"metadata\":{\"workspaceId\":\"org_raw\",\"userId\":\"system\",\"timestamp\":\"2027-01-15T08:00:00.500Z\",\"source\":\"system\",\"workflowDepth\":2}}"
+    },
+    {
+      "name": "workflow depth zero is kept",
+      "kind": "raw",
+      "idBytes": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "nowMs": 1800000000501,
+      "input": {
+        "workspaceId": "org_raw",
+        "userId": "user_1",
+        "entityType": "customer",
+        "action": "archived",
+        "entityId": "cus_1",
+        "data": {
+          "id": "cus_1"
+        },
+        "source": "api",
+        "workflowDepth": 0
+      },
+      "json": "{\"id\":\"evt_0101010101010101\",\"eventType\":\"customer:archived\",\"entityType\":\"customer\",\"entityId\":\"cus_1\",\"action\":\"archived\",\"data\":{\"id\":\"cus_1\"},\"metadata\":{\"workspaceId\":\"org_raw\",\"userId\":\"user_1\",\"timestamp\":\"2027-01-15T08:00:00.501Z\",\"source\":\"api\",\"workflowDepth\":0}}"
+    },
+    {
+      "name": "sensitive columns are scrubbed at any depth, in data and changes",
+      "kind": "context",
+      "idBytes": [
+        222,
+        173,
+        190,
+        239,
+        0,
+        0,
+        0,
+        1
+      ],
+      "nowMs": 1800000000777,
+      "input": {
+        "workspaceId": "ws_1",
+        "clerkOrgId": "org_1",
+        "userId": "user_1",
+        "entityType": "customer",
+        "action": "updated",
+        "entityId": "cus_2",
+        "data": {
+          "accounts": [
+            {
+              "accountNumberEncrypted": "x",
+              "last4": "1234"
+            },
+            {
+              "credentialsEncrypted": "x",
+              "id": "bc_1"
+            },
+            "plain"
+          ],
+          "id": "cus_2",
+          "party": {
+            "name": "Acme",
+            "sensitiveEncrypted": "x",
+            "ssnEncrypted": "x"
+          },
+          "sensitiveEncrypted": "x",
+          "smtpCredentials": {
+            "password": "x"
+          }
+        },
+        "changes": {
+          "accountNumberEncrypted": {
+            "new": "b",
+            "old": "a"
+          },
+          "name": {
+            "new": "Acme",
+            "old": "Acme Inc"
+          }
+        }
+      },
+      "json": "{\"id\":\"evt_deadbeef00000001\",\"eventType\":\"customer:updated\",\"entityType\":\"customer\",\"entityId\":\"cus_2\",\"action\":\"updated\",\"data\":{\"accounts\":[{\"last4\":\"1234\"},{\"id\":\"bc_1\"},\"plain\"],\"id\":\"cus_2\",\"party\":{\"name\":\"Acme\"}},\"changes\":{\"name\":{\"new\":\"Acme\",\"old\":\"Acme Inc\"}},\"metadata\":{\"workspaceId\":\"org_1\",\"userId\":\"user_1\",\"timestamp\":\"2027-01-15T08:00:00.777Z\",\"source\":\"api\"}}"
+    },
+    {
+      "name": "custom object records publish as co_<slug>",
+      "kind": "customObject",
+      "idBytes": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        0
+      ],
+      "nowMs": 1800000000999,
+      "input": {
+        "workspaceId": "ws_1",
+        "clerkOrgId": "org_1",
+        "userId": "user_1",
+        "entityType": "co_machine",
+        "action": "created",
+        "entityId": "cor_1",
+        "data": {
+          "fields": {
+            "serial": "A-1"
+          },
+          "id": "cor_1"
+        }
+      },
+      "json": "{\"id\":\"evt_0706050403020100\",\"eventType\":\"co_machine:created\",\"entityType\":\"co_machine\",\"entityId\":\"cor_1\",\"action\":\"created\",\"data\":{\"fields\":{\"serial\":\"A-1\"},\"id\":\"cor_1\"},\"metadata\":{\"workspaceId\":\"org_1\",\"userId\":\"user_1\",\"timestamp\":\"2027-01-15T08:00:00.999Z\",\"source\":\"api\"}}"
+    }
+  ]
+}

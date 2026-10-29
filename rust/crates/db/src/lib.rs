@@ -11,21 +11,31 @@
 //! `packages/core/db/src/schema/`, which stays the one definition of the
 //! tables; migrations stay with Drizzle too.
 
+mod atomically;
 mod crypto;
 mod middleware;
 mod permissions;
+pub mod pg_errors;
 mod restrictions;
+mod rows;
 mod workspaces;
 
+pub use atomically::{TransactionFuture, atomically, atomically_with};
 pub use crypto::{
     DecryptError, Keyring, decrypt_workspace_database_url, resolve_database_url,
     workspace_database_url_aad,
 };
 pub use middleware::workspace_db;
 pub use permissions::TenantPermissionQueries;
+pub use pg_errors::{
+    MovedDatabaseFailure, classify_moved_database_error, database_error, has_pg_error_code,
+    is_foreign_key_violation, is_missing_table, is_password_auth_failure, is_read_only_transaction,
+    is_unique_violation, pg_error_code,
+};
 pub use restrictions::{
     ReadOnlyReason, RestrictionInput, WorkspaceRestrictions, compute_workspace_restrictions,
 };
+pub use rows::{camel_case, js_row, js_timestamp};
 pub use sqlx::PgPool;
 pub use workspaces::{
     Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError, Workspaces,

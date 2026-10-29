@@ -83,6 +83,7 @@
     "./schemas/outbound-mail": "./src/schemas/outbound-mail.ts",
     "./schemas/account": "./src/schemas/account.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
+    "./schemas/me": "./src/schemas/me.ts",
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
     "./schemas/meeting-sessions": "./src/schemas/meeting-sessions.ts",
     "./schemas/weldagent": "./src/schemas/weldagent.ts",

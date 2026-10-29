@@ -54,6 +54,7 @@
       "/public/partner-territories",
       "/public/user-apps"
     ],
+    "rust": false,
     "worker": "app-api"
   },
   {
@@ -89,6 +90,7 @@
       "/api/pipelines",
       "/api/sequences"
     ],
+    "rust": false,
     "worker": "crm-api"
   },
   {
@@ -132,6 +134,7 @@
       "/api/tickets",
       "/public/helpcenter"
     ],
+    "rust": false,
     "worker": "desk-api"
   },
   {
@@ -163,6 +166,7 @@
       "/api/mail-weldmail",
       "/api/mailboxes"
     ],
+    "rust": false,
     "worker": "mail-api"
   },
   {
@@ -199,6 +203,7 @@
       "/api/time-entries",
       "/api/whiteboards"
     ],
+    "rust": false,
     "worker": "flow-api"
   },
   {
@@ -254,6 +259,7 @@
       "/api/received-fiscal-documents",
       "/public/fiscal-webhooks"
     ],
+    "rust": false,
     "worker": "books-api"
   },
   {
@@ -288,6 +294,7 @@
       "/public/commerce-portal",
       "/webhooks/woocommerce"
     ],
+    "rust": false,
     "worker": "commerce-api"
   },
   {
@@ -314,6 +321,7 @@
       "/api/wms-activity",
       "/api/wms-suppliers"
     ],
+    "rust": false,
     "worker": "stash-api"
   },
   {
@@ -331,6 +339,7 @@
       "/api/email-forwards",
       "/public/webhooks/realtime-register"
     ],
+    "rust": false,
     "worker": "host-api"
   },
   {
@@ -349,6 +358,7 @@
       "/api/calendars",
       "/api/working-hours"
     ],
+    "rust": false,
     "worker": "calendar-api"
   },
   {
@@ -368,6 +378,7 @@
       "/api/webhooks/cloudflare-realtime",
       "/public/meeting-recordings"
     ],
+    "rust": false,
     "worker": "meet-api"
   },
   {
@@ -396,6 +407,7 @@
       "/api/chat-status",
       "/public/chat-calls"
     ],
+    "rust": false,
     "worker": "chat-api"
   },
   {
@@ -416,6 +428,7 @@
       "/api/telephony",
       "/public/webhooks/telnyx"
     ],
+    "rust": false,
     "worker": "call-api"
   },
   {
@@ -452,6 +465,7 @@
       "/api/workflow-webhooks",
       "/api/workflows"
     ],
+    "rust": false,
     "worker": "connect-api"
   },
   {
@@ -465,6 +479,7 @@
       "/api/chat-agent",
       "/api/weldagent"
     ],
+    "rust": false,
     "worker": "agent-api"
   },
   {
@@ -479,6 +494,7 @@
       "/api/enrichments",
       "/api/welddata"
     ],
+    "rust": false,
     "worker": "data-api"
   },
   {
@@ -491,6 +507,7 @@
     "prefixes": [
       "/api/knowledge"
     ],
+    "rust": false,
     "worker": "know-api"
   },
   {
@@ -503,6 +520,7 @@
     "prefixes": [
       "/api/weldhr"
     ],
+    "rust": false,
     "worker": "hr-api"
   },
   {
@@ -523,6 +541,7 @@
       "/api/social-team-members",
       "/public/social/postpeer"
     ],
+    "rust": false,
     "worker": "social-api"
   },
   {
@@ -537,6 +556,7 @@
       "/api/ad-campaigns",
       "/api/ad-connections"
     ],
+    "rust": false,
     "worker": "ads-api"
   },
   {
@@ -549,6 +569,7 @@
     "prefixes": [
       "/api/weldpass"
     ],
+    "rust": false,
     "worker": "pass-api"
   },
   {
@@ -562,6 +583,7 @@
       "/api/reach",
       "/public/reach"
     ],
+    "rust": false,
     "worker": "reach-api"
   },
   {
@@ -574,6 +596,7 @@
     "prefixes": [
       "/api/sheets"
     ],
+    "rust": false,
     "worker": "sheets-api"
   },
   {
@@ -586,6 +609,7 @@
     "prefixes": [
       "/api/sign"
     ],
+    "rust": false,
     "worker": "sign-api"
   },
   {
@@ -598,6 +622,7 @@
     "prefixes": [
       "/api/docs"
     ],
+    "rust": false,
     "worker": "docs-api"
   },
   {
@@ -610,6 +635,7 @@
     "prefixes": [
       "/api/panel"
     ],
+    "rust": false,
     "worker": "panel-api"
   }
 ]

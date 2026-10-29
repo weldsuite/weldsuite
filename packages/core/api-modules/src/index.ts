@@ -71,7 +71,23 @@ export interface ApiModule {
    * WeldAgent, which is workspace-level and metered by credits.
    */
   apps: readonly string[] | null;
+  /**
+   * Ported to the Rust backend (`rust/`, ADR API-014): its conformance suite
+   * passes, so the Kubernetes editions (EU, self-hosted) serve it. The Rust
+   * server mounts only these, and their `/config.json` offers only these.
+   * Global ignores the flag: it always runs the TypeScript worker. Set it by
+   * adding the id to `RUST_PORTED_MODULES` (playbook step 6), then run
+   * `pnpm rust:catalogs`.
+   */
+  rust: boolean;
 }
+
+/**
+ * Modules the Rust backend serves (see `ApiModule.rust`). A module listed
+ * here must have a suite in rust/conformance/suites.json; the Rust catalogs
+ * tests check that.
+ */
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>([]);
 
 const mod = (
   id: ApiModuleId,
@@ -85,6 +101,7 @@ const mod = (
   devPort,
   prefixes,
   apps,
+  rust: RUST_PORTED_MODULES.has(id),
 });
 
 export const API_MODULES: readonly ApiModule[] = [
@@ -507,8 +524,9 @@ export function missingLicensedApp(module: ApiModule, licensedApps: ReadonlySet<
  * paths also open to the apps of the module that owns the record. The WeldChat
  * lists (`/api/chat-entity-channels`, `/summary`) stay WeldChat's.
  */
-const RECORD_CHAT_PREFIX = '/api/chat-entity-channels/';
-const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
+/** A record's chat opens to the apps of the record's module too (`licenceAppsForPath`). */
+export const RECORD_CHAT_PREFIX = '/api/chat-entity-channels/';
+export const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
   company: 'crm',
   person: 'crm',
   contact: 'crm',

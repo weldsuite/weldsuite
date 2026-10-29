@@ -16,6 +16,10 @@ pub(crate) enum ClerkKey {
     Pem(String),
     /// `CLERK_JWKS_FILE`: a JWKS document on disk (a mounted `ConfigMap`).
     Jwks(String),
+    /// `CLERK_JWKS_URL`: a JWKS document fetched and refreshed over HTTP.
+    JwksUrl(String),
+    /// `CLERK_SECRET_KEY`: the keys fetched from Clerk's Backend API.
+    SecretKey(String),
 }
 
 /// Log lines as JSON (for the cluster's log pipeline) or text (local runs).
@@ -44,6 +48,95 @@ pub(crate) struct Config {
     /// How long `/readyz` fails before the server stops accepting
     /// connections, so the Service stops routing to the pod first.
     pub(crate) shutdown_delay: Duration,
+    pub(crate) infra: InfraConfig,
+}
+
+/// Where feature flag values come from (`FEATURE_FLAGS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FlagSourceKind {
+    /// Every flag at its catalog default, as the workers without Flagship.
+    Defaults,
+    /// The master database's flag overrides (`MasterDbFlagSource`).
+    MasterDb,
+}
+
+/// The open-source services behind the ports (ADR OPS-013). Each is optional:
+/// without it the server runs, and the side effect it carries is skipped with
+/// a warning, as the workers do without the binding.
+#[derive(Clone)]
+#[cfg_attr(feature = "conformance", allow(dead_code))]
+pub(crate) struct InfraConfig {
+    /// `VALKEY_URL`: cache and realtime publish.
+    pub(crate) valkey_url: Option<String>,
+    pub(crate) valkey_cache_prefix: String,
+    /// The WebSocket gateway subscribes under the same prefix.
+    pub(crate) valkey_realtime_prefix: String,
+    /// `NATS_URL`: the entity-event stream.
+    pub(crate) nats_url: Option<String>,
+    pub(crate) nats_user: Option<(String, String)>,
+    pub(crate) nats_token: Option<String>,
+    pub(crate) nats_stream: String,
+    pub(crate) nats_subject_prefix: String,
+    /// `NATS_ENSURE_STREAMS=true`: create or update the stream at start.
+    pub(crate) nats_ensure_streams: bool,
+    pub(crate) flags: FlagSourceKind,
+    pub(crate) flags_refresh: Duration,
+    /// `TEST_FIXTURES_TOKEN`: unlocks `X-Test-Flags` outside production.
+    pub(crate) test_fixtures_token: Option<String>,
+}
+
+impl fmt::Debug for InfraConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InfraConfig")
+            .field("valkey", &self.valkey_url.as_ref().map(|_| "<set>"))
+            .field("nats", &self.nats_url.as_ref().map(|_| "<set>"))
+            .field("nats_stream", &self.nats_stream)
+            .field("flags", &self.flags)
+            .finish_non_exhaustive()
+    }
+}
+
+impl InfraConfig {
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        problems: &mut Vec<String>,
+        refresh_seconds: u64,
+    ) -> Self {
+        let flags = match lookup("FEATURE_FLAGS").as_deref() {
+            None | Some("defaults") => FlagSourceKind::Defaults,
+            Some("master-db") => FlagSourceKind::MasterDb,
+            Some(_) => {
+                problems.push("FEATURE_FLAGS must be defaults or master-db".to_owned());
+                FlagSourceKind::Defaults
+            }
+        };
+        let nats_user = match (lookup("NATS_USER"), lookup("NATS_PASSWORD")) {
+            (Some(user), Some(password)) => Some((user, password)),
+            (None, None) => None,
+            _ => {
+                problems.push("NATS_USER and NATS_PASSWORD go together".to_owned());
+                None
+            }
+        };
+        Self {
+            valkey_url: lookup("VALKEY_URL"),
+            valkey_cache_prefix: lookup("VALKEY_CACHE_PREFIX")
+                .unwrap_or_else(|| "cache:".to_owned()),
+            valkey_realtime_prefix: lookup("VALKEY_REALTIME_PREFIX")
+                .unwrap_or_else(|| "realtime:".to_owned()),
+            nats_url: lookup("NATS_URL"),
+            nats_user,
+            nats_token: lookup("NATS_TOKEN"),
+            nats_stream: lookup("NATS_ENTITY_EVENTS_STREAM")
+                .unwrap_or_else(|| weldsuite_adapters_oss::DEFAULT_ENTITY_EVENTS_STREAM.to_owned()),
+            nats_subject_prefix: lookup("NATS_ENTITY_EVENTS_SUBJECT")
+                .unwrap_or_else(|| weldsuite_events::DEFAULT_SUBJECT_PREFIX.to_owned()),
+            nats_ensure_streams: lookup("NATS_ENSURE_STREAMS").as_deref() == Some("true"),
+            flags,
+            flags_refresh: Duration::from_secs(refresh_seconds),
+            test_fixtures_token: lookup("TEST_FIXTURES_TOKEN"),
+        }
+    }
 }
 
 impl fmt::Debug for Config {
@@ -58,6 +151,7 @@ impl fmt::Debug for Config {
             .field("workspaces", &self.workspaces)
             .field("log_format", &self.log_format)
             .field("shutdown_delay", &self.shutdown_delay)
+            .field("infra", &self.infra)
             .finish_non_exhaustive()
     }
 }
@@ -101,10 +195,12 @@ impl Config {
 
         let port = number(&mut problems, "PORT", 8080);
         let master_max_connections = number(&mut problems, "DATABASE_MASTER_MAX_CONNECTIONS", 10);
-        let tenant_max_connections = number(&mut problems, "TENANT_POOL_MAX_CONNECTIONS", 5);
-        let max_tenant_pools = number(&mut problems, "TENANT_POOLS_MAX", 200);
+        let tenant_max_connections = number(&mut problems, "TENANT_POOL_MAX_CONNECTIONS", 1);
+        let max_tenant_pools = number(&mut problems, "TENANT_POOLS_MAX", 2000);
         let cache_ttl = number(&mut problems, "WORKSPACE_CACHE_TTL_SECONDS", 300);
         let shutdown_delay = number(&mut problems, "SHUTDOWN_DELAY_SECONDS", 5);
+        let flags_refresh = number(&mut problems, "FEATURE_FLAGS_REFRESH_SECONDS", 30);
+        let infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
 
         let host: IpAddr = match lookup("HOST") {
             None => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -128,19 +224,27 @@ impl Config {
             v2: lookup("DATABASE_ENCRYPTION_KEY_V2"),
         };
 
-        let clerk_key = match (lookup("CLERK_JWT_KEY"), lookup("CLERK_JWKS_FILE")) {
-            (Some(pem), _) => ClerkKey::Pem(pem.replace("\\n", "\n")),
-            (None, Some(path)) => match read_file(&path) {
-                Ok(jwks) => ClerkKey::Jwks(jwks),
-                Err(error) => {
+        // In order of preference: a fixed key, then keys fetched over HTTP.
+        let clerk_key = if let Some(pem) = lookup("CLERK_JWT_KEY") {
+            ClerkKey::Pem(pem.replace("\\n", "\n"))
+        } else if let Some(path) = lookup("CLERK_JWKS_FILE") {
+            read_file(&path).map_or_else(
+                |error| {
                     problems.push(format!("CLERK_JWKS_FILE {path} cannot be read: {error}"));
                     ClerkKey::Jwks(String::new())
-                }
-            },
-            (None, None) => {
-                problems.push("CLERK_JWT_KEY or CLERK_JWKS_FILE is required".to_owned());
-                ClerkKey::Pem(String::new())
-            }
+                },
+                ClerkKey::Jwks,
+            )
+        } else if let Some(url) = lookup("CLERK_JWKS_URL") {
+            ClerkKey::JwksUrl(url)
+        } else if let Some(secret) = lookup("CLERK_SECRET_KEY") {
+            ClerkKey::SecretKey(secret)
+        } else {
+            problems.push(
+                "one of CLERK_JWT_KEY, CLERK_JWKS_FILE, CLERK_JWKS_URL or CLERK_SECRET_KEY is required"
+                    .to_owned(),
+            );
+            ClerkKey::Pem(String::new())
         };
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
@@ -173,6 +277,7 @@ impl Config {
             },
             log_format,
             shutdown_delay: Duration::from_secs(shutdown_delay),
+            infra,
         })
     }
 }

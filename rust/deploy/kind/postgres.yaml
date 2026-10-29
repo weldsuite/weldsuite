@@ -1,5 +1,6 @@
-# A throwaway Postgres for the kind smoke test. Not for anything real: no
-# volume, a password in plain text. Real clusters run CloudNativePG.
+# A throwaway Postgres for the kind smoke test, with pgvector (the tenant
+# schema needs it). Not for anything real: no volume, a password in plain
+# text. Real clusters run CloudNativePG.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,11 +15,11 @@ spec:
     spec:
       containers:
         - name: postgres
-          image: postgres:17-alpine
+          image: pgvector/pgvector:pg17
           env:
             - { name: POSTGRES_USER, value: weldsuite }
             - { name: POSTGRES_PASSWORD, value: weldsuite }
-            - { name: POSTGRES_DB, value: weldsuite }
+            - { name: POSTGRES_DB, value: master }
           ports:
             - containerPort: 5432
           readinessProbe:

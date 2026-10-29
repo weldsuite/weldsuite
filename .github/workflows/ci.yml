@@ -59,33 +59,38 @@ jobs:
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
   # Not a required check yet: add "Rust" to branch protection once the
   # workspace holds real code.
-  rust:
-    name: Rust
+  # ── Rust backend (rust/, ADR API-014) ─────────────────────────────────────
+  # Three jobs and one aggregator, as OPS-007 does it: "Rust" is the check to
+  # require in branch protection; the jobs under it can change freely.
+  rust-checks:
+    name: Rust · checks
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: rust
-    # The weldsuite-db integration test runs against this.
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: weldsuite
-          POSTGRES_PASSWORD: weldsuite
-          POSTGRES_DB: weldsuite
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U weldsuite"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 20
+    timeout-minutes: 30
     env:
-      WELDSUITE_TEST_DATABASE_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/weldsuite
+      # The integration tests run against these (started below): a scratch
+      # database, the master + tenant schema built from the journaled
+      # migrations, Valkey and NATS JetStream.
+      WELDSUITE_TEST_DATABASE_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/scratch
+      WELDSUITE_TEST_MASTER_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/master
+      WELDSUITE_TEST_TENANT_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/tenant
+      WELDSUITE_TEST_VALKEY_URL: redis://127.0.0.1:6379
+      WELDSUITE_TEST_NATS_URL: nats://127.0.0.1:4222
     steps:
       - uses: actions/checkout@v4
+      - name: Start Postgres (pgvector), Valkey and NATS
+        run: |
+          set -euo pipefail
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=weldsuite -e POSTGRES_PASSWORD=weldsuite -e POSTGRES_DB=scratch pgvector/pgvector:pg17
+          docker run -d --name valkey -p 6379:6379 valkey/valkey:8-alpine
+          docker run -d --name nats -p 4222:4222 nats:2-alpine -js
+          for _ in $(seq 1 60); do docker exec pg pg_isready -U weldsuite >/dev/null 2>&1 && break; sleep 1; done
+          sleep 2
+          docker exec pg psql -U weldsuite -d scratch -c "create database master" -c "create database tenant"
+      - uses: ./.github/actions/setup-monorepo
+      - name: Build master and tenant from the migrations
+        run: pnpm exec tsx scripts/rust-test-db.ts --master "$WELDSUITE_TEST_MASTER_URL" --tenant "$WELDSUITE_TEST_TENANT_URL"
       - name: Install the pinned toolchain
+        working-directory: rust
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
@@ -94,20 +99,27 @@ jobs:
         with:
           tool: cargo-deny
       - name: Format
+        working-directory: rust
         run: cargo fmt --all --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        working-directory: rust
+        run: |
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          cargo clippy -p weldsuite --features conformance --all-targets --locked -- -D warnings
       - name: Test
+        working-directory: rust
         run: cargo test --workspace --locked
       - name: Licences, advisories and sources
+        working-directory: rust
         run: cargo deny check
 
-  # The image and the Helm chart, deployed into a kind cluster
+  # The image (amd64, and the arm64 cross-build) and the Helm chart, deployed
+  # into kind with Postgres, Valkey and NATS: the full authenticated pipeline
   # (rust/deploy/kind/smoke-test.sh).
   rust-image:
-    name: Rust image and chart
+    name: Rust · image and chart
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -119,21 +131,93 @@ jobs:
           tags: weldsuite:dev
           cache-from: type=gha,scope=rust-image
           cache-to: type=gha,mode=max,scope=rust-image
-      - name: The image runs
-        run: docker run --rm weldsuite:dev version
+      - name: The image runs, without the conformance feature
+        run: |
+          set -euo pipefail
+          version="$(docker run --rm weldsuite:dev version)"
+          echo "$version"
+          case "$version" in
+            *conformance*) echo "the release image was built with the test-only conformance feature" >&2; exit 1 ;;
+          esac
+      - name: Cross-build the arm64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust
+          platforms: linux/arm64
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=rust-image-arm64
+          cache-to: type=gha,mode=max,scope=rust-image-arm64
       - uses: azure/setup-helm@v4
       - name: Lint the chart
         run: |
           helm lint rust/deploy/helm/weldsuite -f rust/deploy/helm/weldsuite/ci/test-values.yaml
           helm template smoke rust/deploy/helm/weldsuite -f rust/deploy/helm/weldsuite/ci/test-values.yaml > /dev/null
+      - uses: ./.github/actions/setup-monorepo
       - uses: helm/kind-action@v1
         with:
           cluster_name: weldsuite-smoke
-      - name: Deploy into kind and check it
+      - name: Deploy into kind and run the pipeline
         env:
           KIND_CLUSTER: weldsuite-smoke
           KEEP_CLUSTER: "1"
         run: rust/deploy/kind/smoke-test.sh
+
+  # Phase P2: the worker tests of every ported route run against a conformance
+  # build of the Rust server and are compared with the Hono app (bodies,
+  # schemas, side effects). On a PR only the suites its changes touch; on
+  # develop and main all of them. Also the route coverage of every worker the
+  # change touches, as a report.
+  rust-conformance:
+    name: Rust · conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-monorepo
+      - name: Install the pinned toolchain
+        working-directory: rust
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+          key: conformance
+      - name: Conformance suites
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            pnpm rust:conformance --changed "origin/${{ github.base_ref }}"
+          else
+            pnpm rust:conformance
+          fi
+      - name: Route coverage of the changed workers
+        if: github.event_name == 'pull_request'
+        run: pnpm rust:conformance --coverage-changed "origin/${{ github.base_ref }}"
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-report
+          path: rust/target/conformance/**/*.md
+          if-no-files-found: ignore
+
+  rust-all:
+    name: Rust
+    needs: [rust-checks, rust-image, rust-conformance]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every Rust job
+        run: |
+          set -euo pipefail
+          echo "checks: ${{ needs.rust-checks.result }}"
+          echo "image and chart: ${{ needs.rust-image.result }}"
+          echo "conformance: ${{ needs.rust-conformance.result }}"
+          test "${{ needs.rust-checks.result }}" = "success"
+          test "${{ needs.rust-image.result }}" = "success"
+          test "${{ needs.rust-conformance.result }}" = "success"
 
   # app-api plus every module worker and domain is ~17 minutes of tsc.
   # Four-wide on one runner is already at that machine's CPU limit (~5 min).
