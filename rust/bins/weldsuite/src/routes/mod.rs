@@ -80,48 +80,58 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = if mounts("sign") {
-        let sign = weldsuite_sign::SignState {
-            events: state.infra.events.clone(),
-            session_secret: state.sign_session_secret.clone(),
-            files: file_stores(state),
-        };
+        let sign = sign_state(state);
+        // The finalize job runs where the jobs adapter calls it: in this
+        // process, or from Restate through this pod's jobs endpoint.
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_sign::FinalizeJob {
+                tenants: Arc::new(crate::cron::WorkspaceTenants(Arc::clone(&state.workspaces))),
+                master: state.workspaces.master().clone(),
+                services: sign.services(),
+            });
         router.nest("/sign", weldsuite_sign::router(sign, &state.permissions))
     } else {
         router
     };
-    // Core files, drive, search and storage (P4c): mounted unconditionally
-    // once complete.
-    if cfg!(feature = "conformance") {
-        let files = core_files_state(state);
-        // The 30-day purge `DELETE /api/files/:id` starts.
-        state
-            .infra
-            .job_registry
-            .register(weldsuite_core_files::TrashPurgeJob::new(
-                tenant_databases(state),
-                file_stores(state),
-            ));
-        let gate = &state.permissions;
-        return router
-            .nest(
-                "/storage",
-                weldsuite_core_files::storage_router(files.clone(), gate),
-            )
-            .nest(
-                "/files",
-                weldsuite_core_files::files_router(files.clone(), gate),
-            )
-            .nest(
-                "/folders",
-                weldsuite_core_files::folders_router(files.clone(), gate),
-            )
-            .nest(
-                "/drive",
-                weldsuite_core_files::drive_router(files.clone(), gate),
-            )
-            .nest("/search", weldsuite_core_files::search_router(files, gate));
+    core_files(router, state)
+}
+
+/// Core files, drive, search and storage (P4c), with the 30-day purge
+/// `DELETE /api/files/:id` starts. Conformance builds only until complete,
+/// like [`core_team`].
+fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !cfg!(feature = "conformance") {
+        return router;
     }
+    let files = core_files_state(state);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_core_files::TrashPurgeJob::new(
+            tenant_databases(state),
+            file_stores(state),
+        ));
+    let gate = &state.permissions;
     router
+        .nest(
+            "/storage",
+            weldsuite_core_files::storage_router(files.clone(), gate),
+        )
+        .nest(
+            "/files",
+            weldsuite_core_files::files_router(files.clone(), gate),
+        )
+        .nest(
+            "/folders",
+            weldsuite_core_files::folders_router(files.clone(), gate),
+        )
+        .nest(
+            "/drive",
+            weldsuite_core_files::drive_router(files.clone(), gate),
+        )
+        .nest("/search", weldsuite_core_files::search_router(files, gate))
 }
 
 /// The routes served before authentication, at their full paths:
@@ -178,6 +188,22 @@ fn tenant_databases(state: &AppState) -> weldsuite_core_files::TenantDatabases {
                 .map_err(|error| error.to_string())
         })
     })
+}
+
+/// WeldSign's handle on the app: databases, files, mail, cache, flags, jobs.
+pub(crate) fn sign_state(state: &AppState) -> weldsuite_sign::SignState {
+    weldsuite_sign::SignState {
+        events: state.infra.events.clone(),
+        session_secret: state.sign_session_secret.clone(),
+        files: file_stores(state),
+        master: Some(state.workspaces.master().clone()),
+        mail: state.infra.mail.clone(),
+        cache: state.infra.cache.clone(),
+        flags: Arc::clone(&state.infra.flags),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+        portal_url: state.sign_portal_url.clone(),
+        environment: Some(Arc::from(state.environment.as_str())),
+    }
 }
 
 /// The private bucket and the legacy public one, when object storage is

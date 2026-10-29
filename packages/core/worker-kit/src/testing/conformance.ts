@@ -44,6 +44,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { Database } from '../env';
 import { pgliteClientOf } from './pglite';
+import { wireCompatiblePglite } from './pglite-wire';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
@@ -94,9 +95,10 @@ export const ROUTE_HEADER = 'X-Weld-Route';
  * `CLERK_JWT_KEY` (and `CLERK_AUTHORIZED_PARTIES`) let a test sign its own
  * session tokens for the routes that verify one themselves.
  */
-const FORWARDED_ENV = [
+export const FORWARDED_ENV = [
   'PERMISSIONS_APP_ENFORCE',
   'SIGN_SESSION_SECRET',
+  'SIGN_PORTAL_URL',
   'R2_PUBLIC_URL',
   'ENVIRONMENT',
   'PUBLIC_APP_URL',
@@ -104,6 +106,13 @@ const FORWARDED_ENV = [
   'CLERK_JWT_KEY',
   'CLERK_AUTHORIZED_PARTIES',
 ] as const;
+
+/** The test's env values the Rust server reads, as strings. */
+export function forwardedEnv(env: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
+  );
+}
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -202,7 +211,7 @@ interface RustSideEffects {
   mail: RustMail[];
 }
 
-async function rustSideEffects(target: ConformanceTarget): Promise<RustSideEffects> {
+export async function rustSideEffects(target: ConformanceTarget): Promise<RustSideEffects> {
   const response = await fetch(`${target.url}/__conformance/side-effects`);
   const body = (await response.json()) as Omit<SideEffects, 'mail'> & { mail?: RustMail[] };
   const mail = body.mail ?? [];
@@ -267,7 +276,7 @@ export interface ConformanceRequest {
 
 // ── the shared database ─────────────────────────────────────────────────────
 
-type PGliteClient = NonNullable<ReturnType<typeof pgliteClientOf>>;
+export type PGliteClient = NonNullable<ReturnType<typeof pgliteClientOf>>;
 
 const servers = new Map<PGliteClient, Promise<string>>();
 
@@ -285,13 +294,20 @@ async function freePort(): Promise<number> {
 }
 
 /** A Postgres URL for the test's pglite, starting its socket server once. */
-function databaseUrlFor(client: PGliteClient): Promise<string> {
+export function databaseUrlFor(client: PGliteClient): Promise<string> {
   let url = servers.get(client);
   if (!url) {
     url = (async () => {
       const { PGLiteSocketServer } = await import('@electric-sql/pglite-socket');
       const port = await freePort();
-      const server = new PGLiteSocketServer({ db: client as never, port, host: '127.0.0.1', maxConnections: 8 });
+      // wireCompatiblePglite: one ReadyForQuery per Sync after a failed
+      // statement, or the Rust connection falls out of step (./pglite-wire.ts).
+      const server = new PGLiteSocketServer({
+        db: wireCompatiblePglite(client) as never,
+        port,
+        host: '127.0.0.1',
+        maxConnections: 8,
+      });
       await server.start();
       process.once('beforeExit', () => void server.stop());
       // A unique name per database: the Rust server keys its pools by URL, and a
@@ -305,7 +321,7 @@ function databaseUrlFor(client: PGliteClient): Promise<string> {
 }
 
 /** A drizzle handle on a copy of the test's database, for the TypeScript side of a write. */
-async function cloneDatabase(
+export async function cloneDatabase(
   client: PGliteClient,
   kind: 'tenant' | 'master' = 'tenant',
 ): Promise<{ db: Database; close: () => Promise<void> }> {
@@ -337,6 +353,10 @@ export function conformanceMasterDb<T>(db: T): T {
 // ── comparison ──────────────────────────────────────────────────────────────
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+/** A WeldSign signing link (`<portal>/r/<token>`): the token is 32 random bytes, new per run. */
+const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
+/** A SHA-256 in hex. */
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /**
@@ -360,22 +380,6 @@ function isMintedExpiry(value: unknown): boolean {
 }
 
 /**
- * A write's string with its per-run parts replaced: upload tokens, an upload
- * key's random segment, URL signatures, then any other `Date.now()` (the
- * upload key's segment first, since it holds one).
- */
-function normalizeString(value: string, key: string | undefined): string {
-  if (key === 'cursor') return '<cursor>';
-  if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
-  if (GENERATED_ID.test(value)) return '<id>';
-  return value
-    .replace(UPLOAD_TOKEN, '<upload-token>')
-    .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
-    .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
-    .replace(EPOCH_MS, '<epoch-ms>');
-}
-
-/**
  * Sorted keys, and for writes the values that differ by construction between
  * two runs replaced by placeholders: new ids, timestamps, cursors, upload
  * tokens and the random segment of an upload's key, and what a signing
@@ -393,9 +397,31 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
         .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
     );
   }
-  if (isWrite && typeof value === 'string') return normalizeString(value, key);
+  if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
   return value;
+}
+
+/** A string in a write's answer, with what differs per run by construction replaced. */
+function normalizeWrittenString(value: string, key: string | undefined): string {
+  if (key === 'cursor') return '<cursor>';
+  // WeldSign's signed PDF: pdf-lib and lopdf write different bytes for the
+  // same drawn content (object numbers, number formatting, compression), so
+  // its SHA-256 differs by construction. It reaches a side effect only in
+  // `sign_envelope:completed` (the finalize job); the drawn content is
+  // checked by rust/modules/sign's tests against pdf-lib's output.
+  if (key === 'finalSha256' && SHA256_HEX.test(value)) return '<sha256>';
+  // "Sign now" answers a fresh link, new per run by construction.
+  if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
+  if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
+  if (GENERATED_ID.test(value)) return '<id>';
+  // Storage: upload tokens, an upload key's random segment and a signed
+  // URL's credential, then any other `Date.now()` (the key's segment holds one).
+  return value
+    .replace(UPLOAD_TOKEN, '<upload-token>')
+    .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
+    .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
+    .replace(EPOCH_MS, '<epoch-ms>');
 }
 
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */
@@ -469,7 +495,7 @@ export interface ConformanceRecord {
   schemaError: string | null;
 }
 
-async function currentTest(): Promise<{ file?: string; test?: string }> {
+export async function currentTest(): Promise<{ file?: string; test?: string }> {
   try {
     const { expect } = await import('vitest');
     const state = expect.getState();
@@ -486,7 +512,7 @@ async function appendLines(dir: string, lines: readonly unknown[]): Promise<void
   await appendFile(path.join(dir, `conformance-${process.pid}.jsonl`), text);
 }
 
-async function record(dir: string, entry: ConformanceRecord): Promise<void> {
+export async function record(dir: string, entry: ConformanceRecord): Promise<void> {
   await appendLines(dir, [{ kind: 'request', ...entry }]);
 }
 
@@ -556,9 +582,6 @@ async function masterDatabaseUrl(masterDb: Database | undefined): Promise<string
 
 /** The test's context as the Rust server's conformance mode reads it. */
 async function testContext(ctx: ConformanceContext, env: Record<string, unknown>, databaseUrl: string) {
-  const forwardedEnv = Object.fromEntries(
-    FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
-  );
   return {
     userId: ctx.userId,
     orgId: ctx.orgId,
@@ -570,7 +593,7 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     masterDatabaseUrl: await masterDatabaseUrl(ctx.masterDb),
     permissions: ctx.permissions,
     flags: await flagValues(ctx.flags),
-    env: forwardedEnv,
+    env: forwardedEnv(env),
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
     // And its KV namespace, so Rust shares its keys.

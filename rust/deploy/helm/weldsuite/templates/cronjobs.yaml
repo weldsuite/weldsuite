@@ -1,0 +1,88 @@
+{{- /*
+One CronJob per enabled entry of cron.jobs: `weldsuite cron <name>` with the
+server's environment and Secret (the workers' Cron Triggers). The pods carry
+component=cron, so the api Service and NetworkPolicy never select them.
+*/}}
+{{- range $name, $job := .Values.cron.jobs }}
+{{- if $job.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-%s" (include "weldsuite.fullname" $) $name | trunc 52 | trimSuffix "-" }}
+  labels:
+    {{- include "weldsuite.cronLabels" $ | nindent 4 }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: {{ $job.activeDeadlineSeconds | default 840 }}
+      template:
+        metadata:
+          annotations:
+            {{- if not $.Values.secret.existingSecret }}
+            checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") $ | sha256sum }}
+            {{- end }}
+            {{- with $.Values.podAnnotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          labels:
+            {{- include "weldsuite.cronLabels" $ | nindent 12 }}
+            {{- with $.Values.podLabels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        spec:
+          restartPolicy: Never
+          {{- with $.Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "weldsuite.serviceAccountName" $ }}
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml $.Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: cron
+              image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default $.Chart.AppVersion }}"
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              args: ["cron", {{ $name | quote }}]
+              env:
+                {{- include "weldsuite.env" $ | nindent 16 }}
+              envFrom:
+                - secretRef:
+                    name: {{ include "weldsuite.secretName" $ }}
+              securityContext:
+                {{- toYaml $.Values.securityContext | nindent 16 }}
+              resources:
+                {{- toYaml $.Values.cron.resources | nindent 16 }}
+              {{- if $.Values.clerkJwks.enabled }}
+              volumeMounts:
+                - name: clerk-jwks
+                  mountPath: /etc/weldsuite/clerk
+                  readOnly: true
+              {{- end }}
+          {{- if $.Values.clerkJwks.enabled }}
+          volumes:
+            - name: clerk-jwks
+              configMap:
+                name: {{ include "weldsuite.jwksConfigMap" $ }}
+          {{- end }}
+          {{- with $.Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $.Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+{{- end }}
+{{- end }}

@@ -68,13 +68,6 @@ templates).
   Conformance builds give those routes only what the test shares (its env,
   buckets, KV, and a `SessionVerifier` for its own `CLERK_JWT_KEY`), through
   `conformance::public`.
-- A Cloudflare Workflow is a `weldsuite_ports::Job`, registered in
-  `infra.job_registry` from `routes/mod.rs` and started through the Jobs port
-  where TypeScript calls `create()`, with the same instance id as the key. A
-  Workflow that opens with `step.sleepUntil(date)` is a delayed start:
-  `JobRequest::with_delay` / `starting_at` (Restate holds it durably; the
-  in-process adapter waits in a task). `core_files::TrashPurgeJob` is the
-  example.
 
 ## SQL
 
@@ -156,6 +149,40 @@ templates).
    takes the request's `RequestCache` first and its state's cache
    otherwise, as it does with `FileStores`. Another namespace needs its name
    in `KV_BINDINGS` and in `KvBridges::request_cache`.
+9. Database errors work as they do on Postgres: a route may hit a unique
+   violation or any other failing statement, and later requests in the same
+   file still run on the same connection. Port the TypeScript behaviour
+   as it is (a plain insert that fails, not an `on conflict do nothing`
+   stand-in), and keep such tests where they belong in the file. pglite 0.4
+   answers a failed extended-protocol message with an extra ReadyForQuery,
+   which put sqlx's connection out of step; the harness serves pglite
+   through `wireCompatiblePglite` (`packages/core/worker-kit/src/testing/pglite-wire.ts`),
+   which drops it, so each Sync gets exactly one.
+
+## Jobs, crons and generated files
+
+- A Workflow is a `Job` (`weldsuite_ports::jobs`) named `<module>.<job>`,
+  registered in `bins/weldsuite/src/routes/mod.rs` where the module's state is
+  built; one run per key (the Workflow instance id), one `step` per `step.do`
+  with its retries. Conformance builds run jobs in the process, on the tracker
+  `/__conformance/side-effects` waits for.
+- A Workflow that opens with `step.sleepUntil(date)` is a delayed start, at
+  the `create()` call that TypeScript makes: `JobRequest::with_delay` /
+  `starting_at`. Restate holds the invocation durably until it is due; the
+  in-process adapter waits in a task, and a restart loses it.
+  `core_files::TrashPurgeJob` (the 30-day trash purge) is the example.
+- A Cron Trigger is a `weldsuite cron <name>` subcommand
+  (`bins/weldsuite/src/cron.rs`) and an entry in the chart's `cron.jobs`. A
+  due-index sweep uses `weldsuite_db::due_index::run_sweep` (rows keyed by
+  `workspaces.id`, not the Clerk org id).
+- A cron test calls the job's function, not a route: wrap the call in
+  `conformanceSweep` (`worker-kit/src/testing/conformance-cron.ts`) and serve
+  the job at `/__conformance/cron/<name>` (`bins/weldsuite/src/conformance.rs`).
+  It compares the result, events, mail and due index.
+- Output that can't be byte for byte the same (the signed PDF: pdf-lib vs
+  `lopdf`): test what it contains against fixtures the TypeScript code wrote
+  (`modules/sign/tools/pdf-fixtures.mts`), and normalise only the values
+  derived from the bytes (the hash) in `normalizeForDiff`, with a comment.
 
 ## Checks before a commit
 
