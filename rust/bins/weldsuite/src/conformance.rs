@@ -325,6 +325,8 @@ impl Pools {
             extensions.insert(self.outbound.apps_http(bridge));
             // Third-party HTTP of the ported modules (Expo push, APNs).
             extensions.insert(self.outbound.outbound_http(bridge));
+            // WeldMail's MX lookups (DNS over HTTPS).
+            extensions.insert(self.mail.doh(bridge));
             // WeldPass's pushes to Cloudflare and Vercel.
             extensions.insert(self.outbound.pass_http(bridge));
         }

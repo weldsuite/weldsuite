@@ -644,6 +644,25 @@
         "rust/modules/crm/",
         "rust/crates/crm-domain/"
       ]
+    },
+    {
+      "name": "mail: outbound",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-sending/index.test.ts",
+        "src/routes/internal-outbound/index.test.ts",
+        "src/routes/mail-accounts/send.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/routes/mail-sending/",
+        "apps/workers/mail-api/src/routes/internal-outbound/",
+        "apps/workers/mail-api/src/lib/admin-auth.ts",
+        "packages/domains/mail/src/outbound/",
+        "packages/clients/app-api-client/src/schemas/outbound-mail.ts",
+        "rust/crates/mail-domain/src/outbound/",
+        "rust/modules/mail/"
+      ]
     }
   ]
 }

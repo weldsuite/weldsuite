@@ -57,6 +57,16 @@ import {
   roleSummarySchema,
 } from '@weldsuite/app-api-client/schemas/roles';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
+import {
+  outboundInspectionSchema,
+  outboundPlatformStatusSchema,
+  outboundRefreshResultSchema,
+  outboundReviewResultSchema,
+  outboundSubscribeResultSchema,
+  outboundUsageSchema,
+  replyMailResponseSchema,
+  sendMailResponseSchema,
+} from '@weldsuite/app-api-client/schemas/outbound-mail';
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
@@ -516,6 +526,15 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/companies/:id/detail', envelope: 'single', data: companyDetailSchema },
   { method: 'GET', route: '/api/companies/:id/navigation', envelope: 'single', data: recordNavigationSchema },
   // crm: end
+  // mail (outbound): the customer's sending limits and the guard's staff API
+  { method: 'GET', route: '/api/mail-sending/usage', envelope: 'single', data: outboundUsageSchema.nullable() },
+  { method: 'POST', route: '/api/mail-accounts/:id/send', envelope: 'single', data: sendMailResponseSchema },
+  { method: 'POST', route: '/api/mail-messages/:id/reply', envelope: 'single', data: replyMailResponseSchema },
+  { method: 'GET', route: '/internal/outbound/inspect', envelope: 'single', data: outboundInspectionSchema },
+  { method: 'POST', route: '/internal/outbound/refresh', envelope: 'single', data: outboundRefreshResultSchema },
+  { method: 'POST', route: '/internal/outbound/review', envelope: 'single', data: outboundReviewResultSchema },
+  { method: 'GET', route: '/internal/outbound/platform', envelope: 'single', data: outboundPlatformStatusSchema },
+  { method: 'POST', route: '/internal/outbound/sending-events/subscribe', envelope: 'single', data: outboundSubscribeResultSchema },
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

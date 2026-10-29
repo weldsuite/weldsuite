@@ -14,6 +14,10 @@
 //! function it mirrors named in its doc comment.
 
 pub mod access;
+pub mod contacts;
+pub mod html;
 pub mod outbound;
+pub mod recipients;
+pub mod send;
 pub mod store;
 pub mod text;

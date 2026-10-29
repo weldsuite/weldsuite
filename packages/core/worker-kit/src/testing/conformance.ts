@@ -424,6 +424,12 @@ const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
 /** Seconds either side of now an `expiresAt` may be, to count as one minted by the request. */
 const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
+/**
+ * A fresh RFC 5322 Message-ID a send minted (`<32 random hex@sender domain>`,
+ * `buildRfc5322`'s `generateMessageId`): new per run by construction. The
+ * domain is kept; the parsed messages are compared as side effects too.
+ */
+const FRESH_MESSAGE_ID = /^<[0-9a-f]{32}@([^>]+)>$/;
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -466,6 +472,7 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
+  if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential, then any other `Date.now()` (the key's segment holds one).
