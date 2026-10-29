@@ -113,7 +113,7 @@ ENVIRONMENT = "development"
 PARTNER_PORTAL_URL = "http://localhost:3203"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 R2_PUBLIC_URL = "https://weldsuite-storage-test.weldsuite.org"
@@ -192,6 +192,21 @@ bucket_name = "weldsuite-storage-test"
 [[r2_buckets]]
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
+
+# EU-jurisdiction bucket for mail bodies + raw MIME
+# (docs/plans/weldmail-mailbox-store-design.md decision 7), owned by mail-api.
+# Only the dashboard sidebar badge and drive aggregation read the mailbox
+# store here, and neither touches a body — bound anyway because
+# `@weldsuite/mail-domain/store`'s `MailStoreEnv` requires it for the
+# object-mode client to type-check, the same reason `MAILBOX_STORE` below is
+# wired even though this worker never calls it directly either (`lib/mail-
+# store-context.ts`). A local `wrangler dev` simulates R2 regardless of this
+# name, so it doesn't need to exist in Cloudflare the way the test/production
+# buckets do.
+[[r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-dev"
+jurisdiction = "eu"
 
 # Cloudflare Queues: ENTITY_EVENTS hub (Phase 2). Hub fans out to audit/analytics/search.
 [[queues.producers]]
@@ -276,6 +291,10 @@ service = "weldsuite-docs-api-dev"
 [[services]]
 binding = "SIGN_API"
 service = "weldsuite-sign-api-dev"
+
+[[services]]
+binding = "PANEL_API"
+service = "weldsuite-panel-api-dev"
 
 [[services]]
 binding = "AGENT_API"
@@ -384,6 +403,29 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-dev"
 
+# Mailbox store (docs/plans/weldmail-mailbox-store-design.md, design §8):
+# MailboxStoreObject (one per mailbox) and MailIndex (one per workspace), both
+# hosted by mail-api and bound here by name, like the outbound guard's
+# Durable Objects above. Reached only through `@weldsuite/mail-domain/store`'s
+# `getWorkspaceMail` (`lib/mail-store-context.ts`) — never `idFromName`d here
+# directly.
+[[durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-dev"
+
+[[durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api-dev"
+
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-dev"
+
 [[ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "1101"
@@ -429,7 +471,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner-test.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -474,6 +516,14 @@ bucket_name = "weldsuite-storage-test"
 [[env.test.r2_buckets]]
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
+
+# EU-jurisdiction bucket for mail bodies + raw MIME (decision 7), owned by
+# mail-api; created with `wrangler r2 bucket create weldsuite-mail-test
+# --jurisdiction eu` (ops step, must exist before this deploys).
+[[env.test.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-test"
+jurisdiction = "eu"
 
 [[env.test.queues.producers]]
 binding = "ENTITY_EVENTS"
@@ -525,6 +575,10 @@ service = "weldsuite-docs-api-test"
 [[env.test.services]]
 binding = "SIGN_API"
 service = "weldsuite-sign-api-test"
+
+[[env.test.services]]
+binding = "PANEL_API"
+service = "weldsuite-panel-api-test"
 
 [[env.test.services]]
 binding = "AGENT_API"
@@ -621,6 +675,25 @@ name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
 script_name = "weldsuite-mail-api-test"
 
+# Mailbox store (test): mail-api's Durable Objects
+# (docs/plans/weldmail-mailbox-store-design.md, design §8).
+[[env.test.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api-test"
+
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[env.test.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-test"
+
 [[env.test.ratelimits]]
 name = "OUTBOUND_BACKSTOP"
 namespace_id = "2101"
@@ -668,7 +741,7 @@ CLERK_AUTHORIZED_PARTIES = ""
 PARTNER_PORTAL_URL = "https://partner.weldsuite.org"
 # Modules that moved to their own worker; app-api forwards their paths over
 # the matching <MODULE>_API service binding (@weldsuite/worker-kit/forward).
-API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs"
+API_FORWARD_MODULES = "pass,know,host,social,ads,hr,stash,commerce,crm,data,books,calendar,meet,call,desk,mail,flow,chat,agent,connect,reach,sheets,sign,docs,panel"
 NEON_DEFAULT_REGION = "aws-eu-central-1"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
@@ -714,6 +787,14 @@ bucket_name = "weldsuite-storage"
 [[env.production.r2_buckets]]
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private"
+
+# EU-jurisdiction bucket for mail bodies + raw MIME (decision 7), owned by
+# mail-api; created with `wrangler r2 bucket create weldsuite-mail
+# --jurisdiction eu` (ops step, must exist before this deploys).
+[[env.production.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail"
+jurisdiction = "eu"
 
 [[env.production.queues.producers]]
 binding = "ENTITY_EVENTS"
@@ -771,6 +852,10 @@ service = "weldsuite-docs-api"
 [[env.production.services]]
 binding = "SIGN_API"
 service = "weldsuite-sign-api"
+
+[[env.production.services]]
+binding = "PANEL_API"
+service = "weldsuite-panel-api"
 
 [[env.production.services]]
 binding = "AGENT_API"
@@ -865,6 +950,25 @@ script_name = "weldsuite-mail-api"
 [[env.production.durable_objects.bindings]]
 name = "OUTBOUND_PLATFORM"
 class_name = "OutboundPlatformBudget"
+script_name = "weldsuite-mail-api"
+
+# Mailbox store (production): mail-api's Durable Objects
+# (docs/plans/weldmail-mailbox-store-design.md, design §8).
+[[env.production.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api"
+
+[[env.production.durable_objects.bindings]]
+name = "MAIL_INDEX"
+class_name = "MailIndex"
+script_name = "weldsuite-mail-api"
+
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts plan allowances and pays overage from the credit wallet.
+[[env.production.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
 script_name = "weldsuite-mail-api"
 
 [[env.production.ratelimits]]

@@ -52,6 +52,9 @@ const ENTITY_CONFIG: Record<
   bill: { path: (id) => `/bills/${id}`, titleFields: ['billNumber', 'number', 'name'] },
   project: { path: (id) => `/projects/${id}`, titleFields: ['name', 'title', 'code'] },
   task: { path: (id) => `/tasks/${id}`, titleFields: ['title', 'name'] },
+  // sheets-api answers 404 for a spreadsheet the caller may not open (WeldDrive
+  // sharing), so a private one reads as "deleted" rather than "no access".
+  sheet: { path: (id) => `/sheets/${id}`, titleFields: ['name'] },
   domain: { path: (id) => `/domains/${id}`, titleFields: ['fullDomain', 'name'] },
 };
 

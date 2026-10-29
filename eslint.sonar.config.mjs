@@ -113,6 +113,7 @@ const REVIEWED = [
       'apps/web/docs/scripts/capture-screenshots-all.mjs',
       'scripts/dev-api.mjs',
       'scripts/lint-sonar-new.mjs',
+      'scripts/rust-conformance.ts',
       'packages/sdk/cli/src/commands/dev.ts',
     ],
   },
@@ -145,6 +146,18 @@ const REVIEWED = [
     rule: 'sonarjs/no-hardcoded-ip',
     reason: 'Dotted chart-of-accounts codes such as 1.1.4.10 (Brazilian plano de contas), not IP addresses.',
     files: ['packages/domains/books/src/jurisdictions/br/chart-of-accounts.ts'],
+  },
+  {
+    rule: 'sonarjs/hashing',
+    reason:
+      "MD5 used as an HTTP ETag/content checksum in the in-memory R2 test fake, matching real R2's own (also MD5-based) etag format — not a password, token or any other sensitive use.",
+    files: ['packages/core/worker-kit/src/testing/r2.ts'],
+  },
+  {
+    rule: 'sonarjs/redundant-type-aliases',
+    reason:
+      "`FolderKey` (object-derived folder/thread-label keys) is open-ended — system keys plus any lower-cased user label — so there is no narrower literal union to give it; the alias is documented self-description, not a safety boundary.",
+    files: ['packages/domains/mail/src/store/model.ts', 'packages/domains/mail/src/store/types.ts'],
   },
 ];
 

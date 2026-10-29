@@ -24,8 +24,9 @@ import { sheetsQueryKey, useSheetMutations } from '../store/use-sheet-store';
 import { MissingSheet, PanelToggle, SheetHeader, type SheetStatus } from './sheet-chrome';
 import { DownloadMenu } from './download-menu';
 import { PeerAvatars } from './peer-avatars';
-import { DataPanel } from './data-panel';
+import { DataPanel, useDataSources } from './data-panel';
 import { VersionsPanel, versionsQueryKey } from './versions-panel';
+import { SheetAgentContext } from './sheet-agent-context';
 
 /** How often, at most, this person's cursor goes out to the others. */
 const PRESENCE_MS = 120;
@@ -86,6 +87,11 @@ export function LiveSheet({ sheetId, embedded = false, onBack }: { sheetId: stri
   author.current = { id: user?.id ?? '', name: user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || '' };
   const members = useWorkspaceMemberDirectory();
   const people = useMemo(() => (members.data?.data ?? []).map((m) => ({ id: m.userId, name: m.name || m.email || m.userId })), [members.data]);
+  const dataSources = useDataSources(sheetId);
+  const tableLabels = useMemo(
+    () => Object.fromEntries((dataSources.data ?? []).map((s) => [s.id, t.sheetData.objects[s.objectType]])),
+    [dataSources.data, t],
+  );
   const [, statusChanged] = useReducer((n: number) => n + 1, 0);
   const connection = useRef<SheetConnection | null>(null);
   const strings = useRef(tw);
@@ -254,9 +260,11 @@ export function LiveSheet({ sheetId, embedded = false, onBack }: { sheetId: stri
         )}
         <ShareDialog target={shareTarget} onOpenChange={(open) => !open && setShareTarget(null)} />
       </SheetHeader>
+      <SheetAgentContext controller={controller} sheetId={sheetId} name={name || tw.home.untitled} />
       <div className="min-h-0 flex-1">
         <SheetEditor
           controller={controller}
+          tableLabels={tableLabels}
           panels={{
             comments: <CommentsPanel controller={controller} sheetId={sheetId} people={people} />,
             versions: (

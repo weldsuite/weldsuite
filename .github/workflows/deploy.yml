@@ -88,6 +88,7 @@ jobs:
       release_weldflow: ${{ steps.changes.outputs.weldflow }}
       release_weldagent: ${{ steps.changes.outputs.weldagent }}
       release_weldcalendar: ${{ steps.changes.outputs.weldcalendar }}
+      release_weldhr: ${{ steps.changes.outputs.weldhr }}
       workers: ${{ steps.matrix.outputs.workers }}
       module_workers: ${{ steps.modules.outputs.module_workers }}
       vercel_apps: ${{ steps.vercel.outputs.vercel_apps }}
@@ -247,6 +248,13 @@ jobs:
               - 'packages/core/api-modules/**'
               - 'packages/design/mobile-ui/**'
               - 'packages/core/notifications/**'
+            weldhr:
+              - 'apps/mobile/weldhr-app/**'
+              - 'packages/clients/app-api-client/**'
+              - 'packages/clients/api-client/**'
+              - 'packages/core/api-modules/**'
+              - 'packages/design/mobile-ui/**'
+              - 'packages/core/notifications/**'
             all_workers:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
@@ -376,6 +384,10 @@ jobs:
               - 'packages/core/worker-kit/**'
               - 'packages/core/feature-flags/**'
               - 'packages/core/ai/**'
+            panel-ingest:
+              - 'apps/workers/panel-ingest/**'
+              - 'packages/domains/panel/**'
+              - 'packages/sdk/panel-sdk/**'
 
       - name: Resolve change flags
         id: changes
@@ -395,6 +407,7 @@ jobs:
           WELDFLOW: ${{ steps.filter.outputs.weldflow }}
           WELDAGENT: ${{ steps.filter.outputs.weldagent }}
           WELDCALENDAR: ${{ steps.filter.outputs.weldcalendar }}
+          WELDHR: ${{ steps.filter.outputs.weldhr }}
           ALL_WORKERS: ${{ steps.filter.outputs.all_workers }}
           W_APP_API: ${{ steps.filter.outputs.app-api }}
           W_BILLING: ${{ steps.filter.outputs.billing-worker }}
@@ -415,6 +428,7 @@ jobs:
           W_HELPDESK_WIDGET: ${{ steps.filter.outputs.helpdesk-widget-api }}
           W_HELPDESK_WORKFLOW: ${{ steps.filter.outputs.helpdesk-workflow-worker }}
           W_REACH_WARMUP: ${{ steps.filter.outputs.reach-warmup-worker }}
+          W_PANEL_INGEST: ${{ steps.filter.outputs.panel-ingest }}
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
@@ -434,6 +448,7 @@ jobs:
               echo "weldflow=true"
               echo "weldagent=true"
               echo "weldcalendar=true"
+              echo "weldhr=true"
               echo "all_workers=true"
               echo "app-api=true"
               echo "billing-worker=true"
@@ -454,6 +469,7 @@ jobs:
               echo "helpdesk-widget-api=true"
               echo "helpdesk-workflow-worker=true"
               echo "reach-warmup-worker=true"
+              echo "panel-ingest=true"
             } >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -472,6 +488,7 @@ jobs:
             echo "weldflow=$WELDFLOW"
             echo "weldagent=$WELDAGENT"
             echo "weldcalendar=$WELDCALENDAR"
+            echo "weldhr=$WELDHR"
             echo "all_workers=$ALL_WORKERS"
             echo "app-api=$W_APP_API"
             echo "billing-worker=$W_BILLING"
@@ -492,6 +509,7 @@ jobs:
             echo "helpdesk-widget-api=$W_HELPDESK_WIDGET"
             echo "helpdesk-workflow-worker=$W_HELPDESK_WORKFLOW"
             echo "reach-warmup-worker=$W_REACH_WARMUP"
+            echo "panel-ingest=$W_PANEL_INGEST"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build worker matrix
@@ -517,12 +535,13 @@ jobs:
           W_HELPDESK_WIDGET: ${{ steps.changes.outputs.helpdesk-widget-api }}
           W_HELPDESK_WORKFLOW: ${{ steps.changes.outputs.helpdesk-workflow-worker }}
           W_REACH_WARMUP: ${{ steps.changes.outputs.reach-warmup-worker }}
+          W_PANEL_INGEST: ${{ steps.changes.outputs.panel-ingest }}
         run: |
           set -euo pipefail
-          ALL='["app-api","billing-worker","audit-log-worker","entity-events-worker","analytics-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker","reach-warmup-worker"]'
+          ALL='["app-api","billing-worker","audit-log-worker","entity-events-worker","analytics-worker","external-api","integration-webhook-worker","integration-sync-worker","mail-inbound-worker","personal-api","realtime-worker","workspace-worker","workflow-worker","mcp-server","agent-runtime","discord-bot-worker","helpdesk-widget-api","helpdesk-workflow-worker","reach-warmup-worker","panel-ingest"]'
           if [ "$ALL_WORKERS" = "true" ]; then
             echo "workers=$ALL" >> "$GITHUB_OUTPUT"
-            echo "Deploying all 19 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
+            echo "Deploying all 20 workers (lockfile, workspace graph, @weldsuite/db graph changed, or manual dispatch)"
             exit 0
           fi
 
@@ -547,6 +566,7 @@ jobs:
           add helpdesk-widget-api "$W_HELPDESK_WIDGET"
           add helpdesk-workflow-worker "$W_HELPDESK_WORKFLOW"
           add reach-warmup-worker "$W_REACH_WARMUP"
+          add panel-ingest "$W_PANEL_INGEST"
 
           if [ ${#selected[@]} -eq 0 ]; then
             echo 'workers=[]' >> "$GITHUB_OUTPUT"
@@ -969,6 +989,51 @@ jobs:
           EAS_PROJECT_ID: 65953f2a-f287-47d0-9ad2-a48dc8206991
         with:
           app-dir: apps/mobile/weldcalendar-app
+          channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
+          message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
+
+  mobile-weldhr:
+    name: Release WeldHR (mobile)
+    needs: [prepare, workers, mobile-preflight]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      (needs.workers.result == 'success' || needs.workers.result == 'skipped') &&
+      needs.prepare.outputs.release_weldhr == 'true' &&
+      needs.mobile-preflight.outputs.expo_token == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.cf_env }}
+    steps:
+      - uses: actions/checkout@v4
+      # app.config.js refuses a CI build while app.json still has the scaffold
+      # project id, so until `eas init` has been run and committed this job
+      # skips with a warning instead of failing every deploy.
+      - name: Check EAS project
+        id: eas
+        run: |
+          set -euo pipefail
+          id="$(jq -r '.expo.extra.eas.projectId // ""' apps/mobile/weldhr-app/app.json)"
+          if [ -z "$id" ] || [ "$id" = "00000000-0000-0000-0000-000000000000" ]; then
+            echo "::warning title=WeldHR OTA skipped::apps/mobile/weldhr-app has no EAS project yet. Run 'eas init' there and commit the project id."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/setup-monorepo
+        if: steps.eas.outputs.ready == 'true'
+      - uses: expo/expo-github-action@c7b66a9c327a43a8fa7c0158e7f30d6040d2481e # 8.2.1
+        if: steps.eas.outputs.ready == 'true'
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Release
+        if: steps.eas.outputs.ready == 'true'
+        uses: ./.github/actions/mobile-release
+        env:
+          EXPO_PUBLIC_APP_API_URL: ${{ needs.prepare.outputs.cf_env == 'test' && 'https://app-api-test.weldsuite.org' || 'https://app-api.weldsuite.org' }}
+          EXPO_PUBLIC_API_MODULES: all
+          EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ needs.prepare.outputs.cf_env == 'test' && 'pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXYk' || 'pk_live_Y2xlcmsud2VsZHN1aXRlLm9yZyQ' }}
+        with:
+          app-dir: apps/mobile/weldhr-app
           channel: ${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }}
           message: deploy ${{ needs.prepare.outputs.sha }} (${{ needs.prepare.outputs.cf_env == 'test' && 'preview' || 'production' }})
 

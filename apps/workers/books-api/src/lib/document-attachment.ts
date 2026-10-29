@@ -13,7 +13,6 @@ export async function streamDocumentAttachment(
   args: {
     attachmentKeys: string[] | null | undefined;
     index: number;
-    workspaceId: string | null | undefined;
   },
 ): Promise<Response> {
   if (!Number.isInteger(args.index) || args.index < 0) {
@@ -25,13 +24,13 @@ export async function streamDocumentAttachment(
     return error.notFound(c, 'Attachment', String(args.index));
   }
 
-  const workspaceId = args.workspaceId?.trim();
-  if (!workspaceId) {
+  const clerkOrgId = c.get('clerkOrgId')?.trim();
+  if (!clerkOrgId) {
     return error.orgRequired(c);
   }
   // Uploads sit under the Clerk org id, accounting-inbox mail under
   // `workspaces.id` (mail-inbound-worker): accept the workspace under either.
-  if (!isWorkspaceObjectKey(fileKey, workspaceId, c.get('internalWorkspaceId'))) {
+  if (!isWorkspaceObjectKey(fileKey, clerkOrgId, c.get('workspaceId'))) {
     return error.forbidden(c, 'Attachment is outside this workspace');
   }
 

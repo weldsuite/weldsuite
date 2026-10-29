@@ -65,6 +65,7 @@ export const RESERVED_WORKSPACE_SLUGS: readonly string[] = [
   'weldknow',
   'weldmail',
   'weldmeet',
+  'weldpanel',
   'weldpass',
   'weldreach',
   'weldsheets',

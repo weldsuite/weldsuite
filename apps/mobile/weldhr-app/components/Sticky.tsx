@@ -1,122 +1,135 @@
 /**
  * Sticky section headers, the way iOS lists do them. While a list scrolls,
- * the header of the section at the top stays pinned above it; the next
- * section's header slides up underneath, pushes the pinned one out, and takes
- * its place.
+ * the header of the section at the top stays at the top; the next section's
+ * header slides up under it, pushes it out and takes its place.
  *
- * `Screen` owns the scroll view and provides the scroll position and the
- * pinned slot; a list registers its sections with `useStickySections`, which
- * says which one is at the top, and hands its header to `Pinned`.
+ * Each header stays in its own section and is moved down by a transform
+ * worked out on the UI thread from the scroll position, so nothing waits for
+ * React: there is no copy to swap in, the header that leaves keeps sliding
+ * until it is off the screen, and the one that arrives is already in place.
+ *
+ * `Screen` owns the scroll view and provides the scroll position; a list
+ * measures its sections with `useStickySections`, wraps each one in
+ * `StickySection` (a direct child of the screen's content) and its header in
+ * `StickyHeader`.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { LayoutChangeEvent, ViewStyle } from 'react-native';
-import Animated, {
-  useAnimatedReaction,
-  useAnimatedStyle,
-  useSharedValue,
-  type AnimatedStyle,
-  type SharedValue,
-} from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+import { createContext, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { StyleSheet, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, type SharedValue } from 'react-native-reanimated';
 
 interface StickyScroll {
   /** The scroll view's content offset. */
   scrollY: SharedValue<number>;
-  /** What sits pinned at the top of the scroll view; null for nothing. */
-  setPinned: (node: ReactNode) => void;
 }
 
 export const StickyScrollContext = createContext<StickyScroll | null>(null);
 
-/** Where section tops are, which one is at the top for `scrollY`. Runs on the UI thread too. */
-function activeSection(offsets: number[], scrollY: number): number {
-  'worklet';
-  let index = -1;
-  for (let i = 0; i < offsets.length; i++) {
-    const top = offsets[i];
-    if (top !== undefined && top <= scrollY + 1) index = i;
-  }
-  return index;
-}
-
 export interface StickySections {
-  /** The section whose header is pinned, or -1 while the first one is still in place. */
-  active: number;
-  /** For the onLayout of section `index`'s outer view, a direct child of the screen's content. */
-  onSectionLayout: (index: number) => (event: LayoutChangeEvent) => void;
-  /** Moves the pinned header up as the next section's header pushes it out. */
-  slide: { style: AnimatedStyle<ViewStyle>; onLayout: (event: LayoutChangeEvent) => void };
+  count: number;
+  /** How far apart the tops of two headers are while one pushes the other out. */
+  stack: number;
+  scrollY: SharedValue<number>;
+  /** Each section's top and height in the scroll content. */
+  tops: SharedValue<number[]>;
+  heights: SharedValue<number[]>;
+  /** Each section's header height. */
+  headers: SharedValue<number[]>;
+  measure: (kind: 'section' | 'header', index: number) => (event: LayoutChangeEvent) => void;
 }
 
 /**
- * Which of `count` sections is at the top of the screen's scroll view.
- * `textTop` is how far below a section's top its header text starts: the
- * next header pushes the pinned one only once its text reaches the pinned
- * text, so the two lines stack close together and slide away as one.
+ * The measurements `count` sections' headers ride on. `stack` is how far
+ * below a leaving header's top the arriving one's top sits when it starts
+ * to push: the header text's height plus a small gap, so the two lines stack
+ * close together and slide away as one.
  */
-export function useStickySections(count: number, textTop: number): StickySections {
+export function useStickySections(count: number, stack: number): StickySections {
   const scroll = useContext(StickyScrollContext);
   const fallback = useSharedValue(0);
-  const scrollY = scroll?.scrollY ?? fallback;
-  const offsets = useSharedValue<number[]>([]);
-  const height = useSharedValue(0);
-  const [active, setActive] = useState(-1);
-  const layouts = useRef<number[]>([]);
+  const tops = useSharedValue<number[]>([]);
+  const heights = useSharedValue<number[]>([]);
+  const headers = useSharedValue<number[]>([]);
+  const layouts = useRef({ tops: [] as number[], heights: [] as number[], headers: [] as number[] });
 
+  // A week with fewer days leaves no stale sections behind.
   useEffect(() => {
-    layouts.current = layouts.current.slice(0, count);
-    offsets.value = layouts.current;
-  }, [count, offsets]);
+    const l = layouts.current;
+    l.tops = l.tops.slice(0, count);
+    l.heights = l.heights.slice(0, count);
+    l.headers = l.headers.slice(0, count);
+    tops.value = l.tops;
+    heights.value = l.heights;
+    headers.value = l.headers;
+  }, [count, tops, heights, headers]);
 
-  useAnimatedReaction(
-    () => activeSection(offsets.value, scrollY.value),
-    (index, previous) => {
-      if (index !== previous) scheduleOnRN(setActive, index);
-    },
-  );
-
-  // Pinned at 0 until the next header's text reaches the bottom of the pinned
-  // header (its text plus a small gap), then it rides up with it.
-  const style = useAnimatedStyle(() => {
-    const index = activeSection(offsets.value, scrollY.value);
-    const next = offsets.value[index + 1];
-    const push =
-      index >= 0 && next !== undefined && height.value > 0 ? next - scrollY.value - (height.value - textTop) : 0;
-    return { transform: [{ translateY: Math.min(0, push) }] };
-  });
-
-  const onSectionLayout = (index: number) => (event: LayoutChangeEvent) => {
-    const next = [...layouts.current];
-    next[index] = event.nativeEvent.layout.y;
-    layouts.current = next;
-    offsets.value = next;
+  const measure = (kind: 'section' | 'header', index: number) => (event: LayoutChangeEvent) => {
+    const { y, height } = event.nativeEvent.layout;
+    const l = layouts.current;
+    if (kind === 'header') {
+      l.headers = withAt(l.headers, index, height);
+      headers.value = l.headers;
+      return;
+    }
+    l.tops = withAt(l.tops, index, y);
+    l.heights = withAt(l.heights, index, height);
+    tops.value = l.tops;
+    heights.value = l.heights;
   };
 
-  const onLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      height.value = event.nativeEvent.layout.height;
-    },
-    [height],
+  return { count, stack, scrollY: scroll?.scrollY ?? fallback, tops, heights, headers, measure };
+}
+
+const withAt = (values: number[], index: number, value: number) => {
+  const next = [...values];
+  next[index] = value;
+  return next;
+};
+
+/**
+ * A section, drawn over the sections after it: its header rides up over the
+ * top of the next one while that one pushes it out.
+ */
+export function StickySection({
+  sticky,
+  index,
+  children,
+}: Readonly<{ sticky: StickySections; index: number; children: ReactNode }>) {
+  return (
+    <View onLayout={sticky.measure('section', index)} style={{ zIndex: sticky.count - index }}>
+      {children}
+    </View>
   );
-  const slide = useMemo(() => ({ style, onLayout }), [style, onLayout]);
-
-  return { active, onSectionLayout, slide };
 }
 
-/** Puts `children` in the pinned slot at the top of the screen's scroll view while mounted. */
-export function Pinned({ slide, children }: Readonly<{ slide: StickySections['slide']; children: ReactNode }>) {
-  const scroll = useContext(StickyScrollContext);
-  const setPinned = scroll?.setPinned;
-  useEffect(() => {
-    setPinned?.(
-      children ? (
-        <Animated.View style={slide.style} onLayout={slide.onLayout}>
-          {children}
-        </Animated.View>
-      ) : null,
-    );
-  }, [setPinned, children, slide.style, slide.onLayout]);
-  useEffect(() => () => setPinned?.(null), [setPinned]);
-  return null;
+/**
+ * A section's header. In place until its section reaches the top, then held
+ * at the top while the section scrolls under it, until the next header is
+ * `stack` below it (or, for the last one, its section ends) and it moves on
+ * with the content.
+ */
+export function StickyHeader({
+  sticky,
+  index,
+  style,
+  children,
+}: Readonly<{ sticky: StickySections; index: number; style?: StyleProp<ViewStyle>; children: ReactNode }>) {
+  const { scrollY, tops, heights, headers, stack } = sticky;
+  const ride = useAnimatedStyle(() => {
+    const top = tops.value[index];
+    if (top === undefined) return { transform: [{ translateY: 0 }] };
+    const next = tops.value[index + 1];
+    const room = next === undefined ? (heights.value[index] ?? 0) - (headers.value[index] ?? 0) : next - top - stack;
+    return { transform: [{ translateY: Math.min(Math.max(scrollY.value - top, 0), Math.max(room, 0)) }] };
+  });
+  return (
+    <Animated.View onLayout={sticky.measure('header', index)} style={[styles.header, style, ride]}>
+      {children}
+    </Animated.View>
+  );
 }
+
+const styles = StyleSheet.create({
+  // Over its section's rows, which scroll under it.
+  header: { zIndex: 1 },
+});

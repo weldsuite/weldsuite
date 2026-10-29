@@ -428,6 +428,20 @@
       "when": 1792850028284,
       "tag": "0060_weldsign_link_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1793120151379,
+      "tag": "0061_weldpanel_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1793257409615,
+      "tag": "0062_feature_flag_overrides",
+      "breakpoints": true
     }
   ]
 }

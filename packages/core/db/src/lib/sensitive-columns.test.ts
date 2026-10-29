@@ -106,6 +106,18 @@ describe('selectableColumns', () => {
     expect('salesTaxCredentialsEncrypted' in columns!).toBe(false);
     expect('ssnLast4' in columns!).toBe(true);
   });
+
+  it('strips a mail account\'s OAuth/IMAP/SMTP credentials and provider config', () => {
+    const columns = selectableColumns('mail_accounts', getTableColumns(schema.mailAccounts));
+    expect(columns).toBeDefined();
+    expect('accessToken' in columns!).toBe(false);
+    expect('refreshToken' in columns!).toBe(false);
+    expect('apiKey' in columns!).toBe(false);
+    expect('passwordHash' in columns!).toBe(false);
+    expect('providerConfig' in columns!).toBe(false);
+    expect('isShared' in columns!).toBe(true);
+    expect('email' in columns!).toBe(true);
+  });
 });
 
 describe('scrubSensitiveKeys', () => {

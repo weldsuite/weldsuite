@@ -131,7 +131,8 @@ app.post('/', requirePermission('invoices:create'), zValidator('json', createDoc
   const userId = c.get('userId');
   // The key comes from the client and OCR later reads it: it must be one of
   // this workspace's uploads (TASK-620).
-  if (!isWorkspaceObjectKey(data.fileKey, c.get('workspaceId'))) {
+  // Uploads sit under `workspaces/<Clerk org id>/`.
+  if (!isWorkspaceObjectKey(data.fileKey, c.get('clerkOrgId'))) {
     return error.badRequest(c, 'fileKey is not a file of this workspace');
   }
 
@@ -187,12 +188,11 @@ app.get('/:id', requirePermission('invoices:read'), async (c) => {
 // POST /:id/process — trigger OCR processing via Claude through AI Gateway
 app.post('/:id/process', requirePermission('invoices:update'), async (c) => {
   const db = c.get('tenantDb');
-  // workspaceId here is the Clerk orgId — that is what the OCR credit
-  // tracking (weldagent_usage + credit consume) keys on, matching the
-  // legacy api-worker semantics.
-  const workspaceId = c.get('workspaceId');
+  // The OCR key check matches uploads under the Clerk org id; the credit wallet
+  // is resolved from the workspace id (resolveAiMetering takes either).
+  const clerkOrgId = c.get('clerkOrgId');
   const userId = c.get('userId');
-  if (!workspaceId || !userId) return error.unauthorized(c);
+  if (!clerkOrgId || !userId) return error.unauthorized(c);
 
   try {
     const id = c.req.param('id');
@@ -206,11 +206,11 @@ app.post('/:id/process', requirePermission('invoices:update'), async (c) => {
     await db.update(t).set({ status: 'processing', updatedAt: new Date() }).where(eq(t.id, id));
 
     try {
-      const metering = await resolveAiMetering(c.env, workspaceId, userId);
+      const metering = await resolveAiMetering(c.env, c.get('workspaceId'), userId);
       const ocrResult = await processDocumentOcr(c.env, {
         fileKey: doc.fileKey,
         mimeType: doc.mimeType,
-        workspaceId,
+        workspaceId: clerkOrgId,
         userId,
         documentId: id,
         metering,

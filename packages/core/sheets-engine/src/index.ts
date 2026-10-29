@@ -98,7 +98,7 @@ export type { Chart, ChartAnchor, ChartSeries, ChartType } from './model/charts'
 export { cloneComment, cloneDataTable, commentAfter, isCommentEntry } from './model/anchors';
 export type { DataTable, SheetComment } from './model/anchors';
 export { dataTableOp, findDataTable, readValues, valuesOp } from './ops/tables';
-export type { CellInput, DataTableWrite, ReadValues } from './ops/tables';
+export type { CellInput, DataTablePlace, DataTableWrite, ReadValues } from './ops/tables';
 export { chartData, chartSourceOf, guessChartSource, refText, resolveRef, seriesFromRange } from './charts/data';
 export type { ChartData, ChartSource, RangeAt, SeriesData } from './charts/data';
 export { PIVOT_FUNCTIONS, computePivot, isPivotFormula, parsePivotFormula, pivotFormula, valueLabel } from './pivot/pivot';

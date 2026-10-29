@@ -13,9 +13,19 @@
 
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
+import { matchedRoutes } from 'hono/route';
 import { initPermissionMiddleware } from '@weldsuite/permissions/server';
 import type { ResolvedPermissions } from '@weldsuite/permissions/types';
 import type { Database, KitEnv, KitVariables } from '../env';
+import {
+  ROUTE_HEADER,
+  conformanceRequest,
+  conformanceTarget,
+  createSideEffectRecorder,
+  recordInventory,
+  recordOnlyRequest,
+  recordOnlyTarget,
+} from './conformance';
 
 // One-time init: the `requirePermission` middleware throws if its DB
 // query factory was never registered. Tests pre-cache `userPermissions`
@@ -37,10 +47,9 @@ function ensurePermissionsInit() {
 export interface TestContext {
   userId: string;
   orgId: string | null;
-  workspaceId: string;
   /** `workspaces.id` of the workspace; defaults to `ws_test_default`. */
-  internalWorkspaceId?: string;
-  /** Clerk org id of the workspace; defaults to `orgId`. */
+  workspaceId: string;
+  /** Clerk org id of the workspace; defaults to `orgId` (`org_test_default`). */
   clerkOrgId?: string | null;
   sessionId: string;
   /** Clerk's `fva` claim; defaults to both factors just verified, so `requireSecondFactor` passes. */
@@ -86,8 +95,7 @@ export function permissions(...keys: string[]): ResolvedPermissions {
 const defaultContext = (): TestContext => ({
   userId: 'user_test_default',
   orgId: 'org_test_default',
-  workspaceId: 'org_test_default',
-  internalWorkspaceId: 'ws_test_default',
+  workspaceId: 'ws_test_default',
   sessionId: 'sess_test_default',
   factorVerificationAge: [0, 0],
   tenantDb: createMockDb(),
@@ -105,6 +113,9 @@ const defaultEnv = (): KitEnv => ({
  * Build a fresh Hono app, mount one router under `basePath`, and return
  * helpers for issuing requests. Tests should treat the returned `app` as
  * disposable — create a new one per test for full isolation.
+ *
+ * With `CONFORMANCE_TARGET=rust`, `request()` runs on the Rust backend and is
+ * compared with this app (./conformance.ts).
  */
 export function createTestApp<E extends KitEnv, V extends KitVariables>(
   basePath: string,
@@ -113,30 +124,54 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
 ) {
   ensurePermissionsInit();
   const ctx: TestContext = { ...defaultContext(), ...options.context };
-  const env = { ...defaultEnv(), ...options.env } as E;
+  const target = conformanceTarget();
+  const recorder = target ? null : recordOnlyTarget();
+  // Conformance mode records what the app sends to the queue and realtime.
+  const sideEffects = target ? createSideEffectRecorder() : null;
+  const env = {
+    ...defaultEnv(),
+    ...(sideEffects?.bindings ?? {}),
+    ...options.env,
+  } as E;
 
-  const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {
-    const set = c.set as (key: string, value: unknown) => void;
-    set('requestId', 'req_test');
-    set('userId', ctx.userId);
-    set('orgId', ctx.orgId);
-    set('sessionId', ctx.sessionId);
-    set('factorVerificationAge', ctx.factorVerificationAge);
-    set('tenantDb', ctx.tenantDb);
-    set('workspaceId', ctx.workspaceId);
-    set('internalWorkspaceId', ctx.internalWorkspaceId);
-    set('clerkOrgId', ctx.clerkOrgId === undefined ? ctx.orgId : ctx.clerkOrgId);
-    // Cache the pre-resolved permissions so `requirePermission` bypasses its
-    // DB query entirely.
-    if (ctx.permissions) set('userPermissions', ctx.permissions);
-    // Mirror featureFlagsMiddleware so flag-gated routes can be tested.
-    if (ctx.flags) set('flags', ctx.flags);
-    await next();
-  });
+  const buildApp = (tenantDb: Database) => {
+    const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {
+      const set = c.set as (key: string, value: unknown) => void;
+      set('requestId', 'req_test');
+      set('userId', ctx.userId);
+      set('orgId', ctx.orgId);
+      set('sessionId', ctx.sessionId);
+      set('factorVerificationAge', ctx.factorVerificationAge);
+      set('tenantDb', tenantDb);
+      set('workspaceId', ctx.workspaceId);
+      set('clerkOrgId', ctx.clerkOrgId === undefined ? ctx.orgId : ctx.clerkOrgId);
+      // Cache the pre-resolved permissions so `requirePermission` bypasses its
+      // DB query entirely.
+      if (ctx.permissions) set('userPermissions', ctx.permissions);
+      // Mirror featureFlagsMiddleware so flag-gated routes can be tested.
+      if (ctx.flags) set('flags', ctx.flags);
+      await next();
+      // Conformance mode reports which route answered: the last matched
+      // handler that isn't a middleware.
+      if (target || recorder) {
+        const endpoint = matchedRoutes(c)
+          .filter((r) => r.method !== 'ALL')
+          .at(-1);
+        if (endpoint) c.res.headers.set(ROUTE_HEADER, endpoint.path);
+      }
+    });
 
-  const app = new Hono<{ Bindings: E; Variables: V }>();
-  app.use('*', stubAuth);
-  app.route(basePath, router);
+    const built = new Hono<{ Bindings: E; Variables: V }>();
+    built.use('*', stubAuth);
+    built.route(basePath, router);
+    return built;
+  };
+  const app = buildApp(ctx.tenantDb);
+  // Recorded before the first request goes out, so the report has the routes.
+  const reporting = target ?? recorder;
+  const inventory = reporting ? recordInventory(reporting, app.routes) : Promise.resolve();
+  const runHere = (input: string, init?: RequestInit) =>
+    Promise.resolve(app.request(input, init, env as unknown as Record<string, unknown>, executionCtx));
 
   // Routes fire side effects (entity events, webhook fan-out, calendar sync)
   // through `c.executionCtx.waitUntil(...)`. Outside the Workers runtime that
@@ -146,6 +181,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
   const executionCtx = {
     waitUntil: (promise: Promise<unknown>) => {
       if (typeof promise?.catch === 'function') promise.catch(() => {});
+      if (sideEffects && promise) sideEffects.track(promise);
     },
     passThroughOnException: () => {},
     props: {},
@@ -157,8 +193,26 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     env,
     executionCtx,
     /** Convenience wrapper around `app.request()` that injects env + executionCtx. */
-    request: (input: string, init?: RequestInit) =>
-      app.request(input, init, env as unknown as Record<string, unknown>, executionCtx),
+    request: async (input: string, init?: RequestInit): Promise<Response> => {
+      if (target) {
+        await inventory;
+        return conformanceRequest({
+          target,
+          ctx: { ...ctx, clerkOrgId: ctx.clerkOrgId === undefined ? ctx.orgId : ctx.clerkOrgId },
+          env: env as unknown as Record<string, unknown>,
+          input,
+          init,
+          runTypeScript: async (tenantDb, path, requestInit) =>
+            buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
+          sideEffects: sideEffects!,
+        });
+      }
+      if (recorder) {
+        await inventory;
+        return recordOnlyRequest(recorder, init?.method ?? 'GET', input, () => runHere(input, init));
+      }
+      return runHere(input, init);
+    },
   };
 }
 

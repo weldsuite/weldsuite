@@ -2,20 +2,24 @@
  * Workspace AI agents — TanStack Query hooks.
  */
 
+import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { useAppApi } from '@/lib/api/use-app-api';
+import { runsPollInterval, runsWatchAtom } from './agent-runs-watch';
 import type {
   CreateWorkspaceAgentInput,
   UpdateWorkspaceAgentInput,
   UpdateWorkspaceAgentAccessInput,
   UpdateWorkspaceAgentSubagentsInput,
   WorkspaceAgent,
+  WorkspaceAgentDetail,
   WorkspaceAgentRun,
 } from '@weldsuite/app-api-client/schemas/workspace-agents';
 
 const AGENT_ROOT = ['workspace-agents'] as const;
 
-const agentKeys = {
+export const agentKeys = {
   all: AGENT_ROOT,
   list: (filters?: { status?: string }) => [...AGENT_ROOT, 'list', filters] as const,
   detail: (id: string) => [...AGENT_ROOT, 'detail', id] as const,
@@ -29,14 +33,8 @@ export type Agent = WorkspaceAgent;
 
 export type AgentRun = WorkspaceAgentRun;
 
-export interface AgentWithRuns extends WorkspaceAgent {
+export interface AgentWithRuns extends WorkspaceAgentDetail {
   recentRuns: AgentRun[];
-  availableTools?: Array<{
-    id: string;
-    name: string;
-    description: string;
-    requiredPermissions: string[];
-  }>;
 }
 
 export function useAgents(filters?: { status?: string }, enabled = true) {
@@ -71,17 +69,40 @@ export function useAgent(id: string) {
   });
 }
 
+/**
+ * The agent's latest runs. While one is queued or running, or one the user
+ * just started has not shown up yet (see {@link useWatchAgentRuns}), the list
+ * re-reads itself every few seconds.
+ */
 export function useAgentRuns(agentId: string) {
   const api = useAppApi();
+  const watch = useAtomValue(runsWatchAtom)[agentId];
   return useQuery({
     queryKey: agentKeys.runs(agentId),
     queryFn: async () => {
-      const res = await api.workspaceAgents.listRuns(agentId);
+      const res = await api.workspaceAgents.listRuns(agentId, 30);
       const runs = res.data ?? [];
       return { runs, total: runs.length };
     },
     enabled: !!agentId,
+    refetchInterval: (query) => runsPollInterval(query.state.data?.runs ?? [], watch),
   });
+}
+
+/** Call right after starting a run: the run list then follows it until it has finished. */
+export function useWatchAgentRuns() {
+  const qc = useQueryClient();
+  const setWatch = useSetAtom(runsWatchAtom);
+  return useCallback(
+    (agentId: string) => {
+      const cached = qc.getQueryData<{ runs: AgentRun[] }>(agentKeys.runs(agentId));
+      setWatch((prev) => ({
+        ...prev,
+        [agentId]: { since: Date.now(), knownRunIds: cached ? cached.runs.map((run) => run.id) : null },
+      }));
+    },
+    [qc, setWatch],
+  );
 }
 
 export function useAgentTools() {
@@ -206,9 +227,12 @@ export function useDeleteAgent() {
 export function useRunAgent() {
   const api = useAppApi();
   const qc = useQueryClient();
+  const watchRuns = useWatchAgentRuns();
   return useMutation({
     mutationFn: ({ id, message }: { id: string; message?: string }) =>
       api.workspaceAgents.run(id, { message }),
+    // The run is on the list while it works, not only once the call returns.
+    onMutate: (vars) => watchRuns(vars.id),
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: agentKeys.runs(vars.id) });
       void qc.invalidateQueries({ queryKey: agentKeys.detail(vars.id) });

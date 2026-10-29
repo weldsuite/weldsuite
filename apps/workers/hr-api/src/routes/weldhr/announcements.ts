@@ -17,7 +17,7 @@ import {
   listAnnouncements,
   updateAnnouncement,
 } from '../../services/weldhr/announcements';
-import { actor, db, emit, hrJson, param, workspaceIdOf } from './helpers';
+import { actor, db, emit, hrJson, param, orgIdOf } from './helpers';
 
 export const announcementsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -30,7 +30,7 @@ announcementsRoutes.post('/', requirePermission('announcements:create'), hrJson(
   if (notify) {
     // Fan-out runs after the response; the row gets `notifiedAt` when it is done.
     c.executionCtx.waitUntil(
-      notifyAnnouncement(db(c), c.env, workspaceIdOf(c), row, actor(c)).catch((err) => {
+      notifyAnnouncement(db(c), c.env, orgIdOf(c), row, actor(c)).catch((err) => {
         console.error('[weldhr] announcement push failed:', err);
       }),
     );

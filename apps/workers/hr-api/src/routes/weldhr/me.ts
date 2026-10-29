@@ -76,7 +76,7 @@ import {
   linkInvitedEmployees,
   param,
   receiptBucket,
-  workspaceIdOf,
+  orgIdOf,
   type HrContext,
 } from './helpers';
 import { requirePayrollFlag } from './payroll/flag';
@@ -234,7 +234,7 @@ meRoutes.post('/declarations/:declarationId/cancel', async (c) => {
 meRoutes.post('/declarations/:declarationId/receipt', async (c) => {
   const employeeId = await selfEmployeeId(c);
   const file = receiptFileFrom(await c.req.parseBody());
-  const row = await attachDeclarationReceipt(db(c), receiptBucket(c), workspaceIdOf(c), param(c, 'declarationId'), file, employeeId);
+  const row = await attachDeclarationReceipt(db(c), receiptBucket(c), orgIdOf(c), param(c, 'declarationId'), file, employeeId);
   emit(c, 'hr_declaration', 'updated', row.id, { employeeId, status: row.status });
   return success(c, toPublicDeclaration(row));
 });
@@ -242,7 +242,7 @@ meRoutes.post('/declarations/:declarationId/receipt', async (c) => {
 meRoutes.get('/declarations/:declarationId/receipt', async (c) => {
   const employeeId = await selfEmployeeId(c);
   return receiptResponse(
-    await loadDeclarationReceipt(db(c), receiptBucket(c), workspaceIdOf(c), param(c, 'declarationId'), employeeId),
+    await loadDeclarationReceipt(db(c), receiptBucket(c), orgIdOf(c), param(c, 'declarationId'), employeeId),
   );
 });
 

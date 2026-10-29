@@ -1,0 +1,21 @@
+# Chart values for the kind smoke test (smoke-test.sh). The Clerk key is set
+# by the script from a throwaway key it generates (mint-token.mjs).
+image:
+  repository: weldsuite
+  tag: dev
+  pullPolicy: Never
+replicaCount: 1
+config:
+  environment: kind
+  logFormat: text
+  shutdownDelaySeconds: 1
+  nats:
+    ensureStreams: true
+secret:
+  values:
+    DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/master
+    VALKEY_URL: redis://valkey:6379
+    NATS_URL: nats://nats:4222
+    CLERK_JWT_KEY: set by smoke-test.sh
+podDisruptionBudget:
+  enabled: false

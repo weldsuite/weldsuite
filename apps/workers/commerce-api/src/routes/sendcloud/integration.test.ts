@@ -11,7 +11,7 @@ import { getSendcloudSettings } from '@weldsuite/sendcloud/settings';
 import { sendcloudRoutes } from './index';
 
 let db: Database;
-const workspaceId = 'org_test_default';
+const clerkOrgId = 'org_test_default';
 
 beforeAll(async () => {
   const handle = await createPgliteDb();
@@ -67,7 +67,7 @@ describe('POST /api/sendcloud/connect', () => {
         context: {
           permissions: permissions('integrations:create', 'integrations:read'),
           tenantDb: db,
-          workspaceId,
+          clerkOrgId,
         },
       });
       const res = await request('/api/sendcloud/connect', {
@@ -81,7 +81,7 @@ describe('POST /api/sendcloud/connect', () => {
       expect(json.data.senders[0]?.id).toBe(1);
       expect(json.data.methods[0]?.code).toBe('postnl:standard');
 
-      const stored = await getSendcloudSettings(db, workspaceId);
+      const stored = await getSendcloudSettings(db, clerkOrgId);
       expect(stored.publicKey).toBe('pk_live');
       expect(stored.secretKey).toBe('sk_live');
     } finally {
@@ -98,7 +98,7 @@ describe('POST /api/sendcloud/connect', () => {
         context: {
           permissions: permissions('integrations:create'),
           tenantDb: db,
-          workspaceId,
+          clerkOrgId,
         },
       });
       const res = await request('/api/sendcloud/connect', {

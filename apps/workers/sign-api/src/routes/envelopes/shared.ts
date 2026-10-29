@@ -5,11 +5,12 @@ import { hasContextPermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { DataFor } from '@weldsuite/entity-events/events';
 import { error } from '@weldsuite/worker-kit/response';
-import { getMasterDb, getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
 import type { SignEnvelope } from '@weldsuite/db/schema';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import type { Env, Variables } from '../../types';
 import { SignError, invalid } from '@weldsuite/sign-domain/errors';
+import { MeterLimitError } from '@weldsuite/credits/meters';
 import { getEnvelopeDetail, memberProfile, type DetailAccess, type SignViewer } from '@weldsuite/sign-domain/envelopes';
 import type { Actor, SendContext } from '@weldsuite/sign-domain/sending';
 
@@ -42,11 +43,11 @@ export async function accessOf(c: Ctx, viewer?: SignViewer): Promise<DetailAcces
 }
 
 /** What sending and the lifecycle need: the tenant and master DBs and both workspace ids. */
-export async function sendContextOf(c: Ctx): Promise<SendContext> {
-  const orgId = c.get('workspaceId');
-  if (!orgId) throw invalid('No workspace selected');
-  const workspace = await getWorkspaceForOrg(c.env, orgId);
-  return { env: c.env, db: c.get('tenantDb'), master: getMasterDb(c.env), clerkOrgId: orgId, workspaceId: workspace.id };
+export function sendContextOf(c: Ctx): SendContext {
+  const clerkOrgId = c.get('clerkOrgId');
+  const workspaceId = c.get('workspaceId');
+  if (!clerkOrgId || !workspaceId) throw invalid('No workspace selected');
+  return { env: c.env, db: c.get('tenantDb'), master: getMasterDb(c.env), clerkOrgId, workspaceId };
 }
 
 /** The member acting, as recorded on the evidence trail. */
@@ -63,6 +64,10 @@ export async function detailFor(c: Ctx, envelope: SignEnvelope, viewer?: SignVie
 
 /** Turn a service error into the API's error envelope; rethrow anything else. */
 export function respondToSignError(c: Ctx, err: unknown): Response {
+  if (err instanceof MeterLimitError) {
+    const { meter, used, allowance, required, currentBalance } = err.result;
+    return error.paymentRequired(c, err.code, err.message, { meter, used, allowance, required, currentBalance });
+  }
   if (!(err instanceof SignError)) throw err;
   if (err.kind === 'not_found') return error.notFound(c, err.resource ?? 'Resource');
   if (err.kind === 'conflict') return error.conflict(c, err.message);

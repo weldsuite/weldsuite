@@ -153,7 +153,7 @@ type Answer = { data?: any; error?: { code: string; message: string } };
 
 function api(ws: Ws, granted = MANAGER) {
   const { request } = createTestApp('/api/sso', ssoRoutes, {
-    context: { orgId: ws.orgId, workspaceId: ws.orgId, userId: 'user_admin', permissions: granted },
+    context: { orgId: ws.orgId, workspaceId: ws.id, userId: 'user_admin', permissions: granted },
   });
   return async (method: string, path: string, body?: unknown) => {
     const res = await request(`/api/sso${path === '/' ? '' : path}`, {

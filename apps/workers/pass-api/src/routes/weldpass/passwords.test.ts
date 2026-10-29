@@ -45,15 +45,15 @@ beforeAll(async () => {
   );
 }, 60_000);
 
-/** A caller in `workspaceId` holding exactly `grants`. */
-function as(userId: string, grants: string[] = ['passwords:use', 'passwords:create'], workspaceId = 'org_pw') {
+/** A caller in the workspace with Clerk org id `clerkOrgId`, holding exactly `grants`. */
+function as(userId: string, grants: string[] = ['passwords:use', 'passwords:create'], clerkOrgId = 'org_pw') {
   const { request } = createTestApp(BASE, weldpassRoutes, {
     context: {
       userId,
       permissions: permissions(...grants),
       tenantDb: db,
-      workspaceId,
-      orgId: workspaceId,
+      clerkOrgId,
+      orgId: clerkOrgId,
     },
     env: { WELDPASS_ROOT_KEY: ROOT_KEY },
   });

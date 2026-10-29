@@ -275,8 +275,9 @@ app.post(
   requirePermission('domains:create'),
   zValidator('json', checkoutInput),
   async (c) => {
-    const workspaceId = c.get('workspaceId');
-    if (!workspaceId) return error.orgRequired(c);
+    // Stripe session metadata keeps carrying the Clerk org id (same value as before).
+    const orgId = c.get('clerkOrgId');
+    if (!orgId) return error.orgRequired(c);
     const rtr = getRealtimeRegistrar(c.env);
     if (!rtr) {
       return c.json(
@@ -289,7 +290,7 @@ app.post(
     const origin = c.req.header('origin') ?? 'https://app.weldsuite.org';
     try {
       const result = await domainsService.createCheckout(c.get('tenantDb'), rtr, getMasterDb(c.env), {
-        workspaceId,
+        workspaceId: orgId,
         stripeSecretKey: c.env.STRIPE_SECRET_KEY,
         origin,
         input: c.req.valid('json'),
@@ -662,8 +663,9 @@ app.post('/:id/sync', requirePermission('domains:update'), async (c) => {
 
 app.post('/:id/renew', requirePermission('domains:update'), async (c) => {
   const id = c.req.param('id');
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.orgRequired(c);
+  // Stripe invoice metadata keeps carrying the Clerk org id, as the renewal cron sends it.
+  const orgId = c.get('clerkOrgId');
+  if (!orgId) return error.orgRequired(c);
   const clients = registrarClients(c.env);
   const existing = await domainsService.getDomain(c.get('tenantDb'), id);
   if (!existing) return error.notFound(c, 'Domain', id);
@@ -689,7 +691,7 @@ app.post('/:id/renew', requirePermission('domains:update'), async (c) => {
   try {
     const result = await chargeAndRenewDomain(c.get('tenantDb'), clients.rtr, getMasterDb(c.env), {
       domainId: id,
-      workspaceId,
+      workspaceId: orgId,
       stripeSecretKey: c.env.STRIPE_SECRET_KEY,
     });
     if (!result.ok) {

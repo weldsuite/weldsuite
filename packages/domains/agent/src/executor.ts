@@ -42,6 +42,8 @@ import {
 } from './tools';
 import { getSubagents, type SerializedAgent } from './agents';
 import { agentViewerFor, canEditAgent } from './access';
+import { approvalLabel, approvalRecipients, heldForApprovalMessage } from './approval-labels';
+import { describeRecordTokens } from './record-tokens';
 import {
   budgetForUsd,
   buildManagedTools,
@@ -204,11 +206,20 @@ export function toolsForAgentTurn(input: {
   );
 }
 
+/**
+ * How every workspace agent talks about records, whatever its own
+ * instructions say: people read names, not database keys.
+ */
+export const PRESENTATION_RULES =
+  'Never show internal ids (for example prj_…, task_…, per_…, apr_…, agt_…), tool names or raw field keys to the user. ' +
+  'Refer to records by their name, title or number.';
+
 /** The agent's own system prompt, as stored on its Anthropic agent object. */
-function buildSystemPrompt(agent: AgentExecutorInput['agent']): string {
+export function buildSystemPrompt(agent: AgentExecutorInput['agent']): string {
   if (agentNeedsSetup(agent.systemPrompt)) {
     return (
       `You are "${agent.name}", a workspace AI agent in WeldSuite that is being configured for the first time.\n\n` +
+      `${PRESENTATION_RULES}\n\n` +
       SETUP_INTERVIEW_INSTRUCTIONS
     );
   }
@@ -216,6 +227,7 @@ function buildSystemPrompt(agent: AgentExecutorInput['agent']): string {
   return (
     `You are "${agent.name}", a workspace AI agent in WeldSuite. ` +
     'You act on workspace data only through the WeldSuite tools you have been given. Never invent IDs or claim you mutated data without a successful tool result. ' +
+    `${PRESENTATION_RULES} ` +
     'Prefer WeldSuite tools (people, tickets, tasks, chat) when they fit. When you have them, use your sandbox (bash, files) for scripts, data work and code, ' +
     'web search / fetch to look things up, and browser_* only for interactive websites without an API. ' +
     'When you need a decision or a missing detail from the user, ask it with ask_user (one question, concrete options) and end your turn. ' +
@@ -248,11 +260,12 @@ async function buildSessionSystem(input: AgentExecutorInput): Promise<string> {
 // ---------------------------------------------------------------------------
 
 /**
- * Tell the agent's owner an approval is waiting, like a manager asked to sign
- * off. Not when the owner is the one who asked (they see it in their chat).
- * Never throws.
+ * Tell the people who must act that an approval is waiting: the agent's owner,
+ * like a manager asked to sign off (not when they asked themselves and see it
+ * in their chat), and whoever asked in a WeldChat room, where there is no chat
+ * of theirs to show it. Never throws.
  */
-async function notifyApprovalOwner(ctx: ToolContext, approvalId: string, toolName: string): Promise<void> {
+async function notifyApprovalPeople(ctx: ToolContext, approvalId: string, label: string): Promise<void> {
   if (!ctx.env) return;
   try {
     const [agent] = await ctx.db
@@ -260,18 +273,28 @@ async function notifyApprovalOwner(ctx: ToolContext, approvalId: string, toolNam
       .from(schema.weldagentAgents)
       .where(eq(schema.weldagentAgents.id, ctx.agentId))
       .limit(1);
-    if (!agent?.ownerId || agent.ownerId === ctx.actorUserId) return;
-    const { sendWeldAgentApprovalNotification } = await import('@weldsuite/notifications');
-    await sendWeldAgentApprovalNotification({
-      db: ctx.db as unknown as NotificationDatabase,
-      env: ctx.env as unknown as NotificationEnv,
-      workspaceId: ctx.workspaceId,
-      userId: agent.ownerId,
-      agentId: ctx.agentId,
-      agentName: agent.name,
-      approvalId,
-      toolName,
+    if (!agent) return;
+    const recipients = approvalRecipients({
+      ownerId: agent.ownerId,
+      actorUserId: ctx.actorUserId,
+      inChannel: Boolean(ctx.channelId),
     });
+    if (recipients.length === 0) return;
+    const { sendWeldAgentApprovalNotification } = await import('@weldsuite/notifications');
+    await Promise.all(
+      recipients.map((userId) =>
+        sendWeldAgentApprovalNotification({
+          db: ctx.db as unknown as NotificationDatabase,
+          env: ctx.env as unknown as NotificationEnv,
+          workspaceId: ctx.workspaceId,
+          userId,
+          agentId: ctx.agentId,
+          agentName: agent.name,
+          approvalId,
+          label,
+        }),
+      ),
+    );
   } catch (err) {
     console.warn('[weldagent] approval notification failed:', err instanceof Error ? err.message : err);
   }
@@ -284,7 +307,13 @@ async function executePlatformTool(
   invocations: StoredToolInvocation[],
   opts: { autoReviewEnabled?: boolean; skipApprovals?: boolean },
 ): Promise<{ result: unknown; isError: boolean }> {
-  invocations.push({ toolName: def.name, state: 'call', args: input });
+  // One stored entry per call: it starts as `call` and takes its final state.
+  const entry: StoredToolInvocation = { toolName: def.name, state: 'call', args: input };
+  invocations.push(entry);
+  const settle = (state: 'result' | 'error', result: unknown) => {
+    entry.state = state;
+    entry.result = result;
+  };
   try {
     const { toolRiskLevel, createApproval, findPriorApproval, allowsAutoReview } = await import('./parity');
     const risk = toolRiskLevel(def.name, input);
@@ -294,34 +323,35 @@ async function executePlatformTool(
         allowsAutoReview(def.name) &&
         (await findPriorApproval(ctx.db, ctx.agentId, def.name));
       if (!autoOk) {
+        const args = (input && typeof input === 'object' ? input : { value: input }) as Record<string, unknown>;
         const approval = await createApproval(ctx.db, {
           agentId: ctx.agentId,
           conversationId: ctx.conversationId ?? ctx.channelId ?? null,
           toolName: def.name,
-          args: (input && typeof input === 'object'
-            ? (input as Record<string, unknown>)
-            : { value: input }) as Record<string, unknown>,
+          args,
           riskLevel: 'high',
           createdBy: ctx.actorUserId,
         });
-        await notifyApprovalOwner(ctx, approval.id, def.name);
-        const blocked = {
+        const label = approvalLabel(def.name, args);
+        await notifyApprovalPeople(ctx, approval.id, label);
+        // The stored step carries the approval to decide (the chat and the
+        // room render its buttons from it); the model is told it is held,
+        // without an id it could repeat to the user.
+        settle('result', {
           pendingApproval: true,
           approvalId: approval.id,
-          message:
-            `Action "${def.name}" is waiting for human approval and has NOT run yet. ` +
-            'It runs automatically once approved. Tell the user it is pending — do not claim it is done, and do not retry it.',
-        };
-        invocations.push({ toolName: def.name, state: 'result', args: input, result: blocked });
-        return { result: blocked, isError: false };
+          label,
+          message: `Waiting for approval: ${label}`,
+        });
+        return { result: { pendingApproval: true, message: heldForApprovalMessage(label) }, isError: false };
       }
     }
     const result = await def.execute(ctx, input);
-    invocations.push({ toolName: def.name, state: 'result', args: input, result });
+    settle('result', result);
     return { result, isError: false };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Tool failed';
-    invocations.push({ toolName: def.name, state: 'error', args: input, result: { error: message } });
+    settle('error', { error: message });
     return { result: { error: message }, isError: true };
   }
 }
@@ -427,8 +457,10 @@ class TurnFollower {
   stopped: 'timeout' | 'cancelled' | null = null;
   private readonly seen = new Set<string>();
   private readonly kickoffIds = new Set<string>();
-  /** Built-in tool calls by event id, so results can be matched to names. */
-  private readonly builtinCalls = new Map<string, string>();
+  /** Built-in tool calls by event id: the stored step each result completes. */
+  private readonly builtinCalls = new Map<string, StoredToolInvocation>();
+  /** Questions already put to the user this turn (as streamed), so a repeat is not shown twice. */
+  private readonly questionsEmitted = new Set<string>();
   /** Session threads (sub-agents and copies) by id. */
   private readonly threads = new Map<string, ThreadAgent>();
   /** Preview text already emitted per agent.message id (streaming only). */
@@ -552,6 +584,9 @@ class TurnFollower {
   private emitQuestion(input: unknown): void {
     const question = parseAgentQuestion(input);
     if (!question) return;
+    const key = JSON.stringify(question);
+    if (this.questionsEmitted.has(key)) return;
+    this.questionsEmitted.add(key);
     this.beginMessage();
     this.emit(encodeQuestionMarker(question));
   }
@@ -674,8 +709,10 @@ class TurnFollower {
       ]);
       return;
     }
-    this.builtinCalls.set(ev.id, ev.name);
-    this.params.invocations.push({ toolName: ev.name, state: 'call', args: ev.input });
+    // One stored step per call: its result (below) completes this entry.
+    const step: StoredToolInvocation = { toolName: ev.name, state: 'call', args: ev.input };
+    this.builtinCalls.set(ev.id, step);
+    this.params.invocations.push(step);
     if (ev.evaluated_permission !== 'ask') return;
     // Paused for approval with nobody to ask: deny, never blanket-allow.
     await this.send([
@@ -685,11 +722,15 @@ class TurnFollower {
 
   private onBuiltinToolResult(ev: EventOf<'agent.tool_result'>): void {
     const text = blocksText(ev.content);
-    this.params.invocations.push({
-      toolName: this.builtinCalls.get(ev.tool_use_id) ?? 'tool',
-      state: ev.is_error ? 'error' : 'result',
-      result: text.length > MAX_STORED_RESULT_CHARS ? `${text.slice(0, MAX_STORED_RESULT_CHARS)}…` : text,
-    });
+    const state = ev.is_error ? 'error' : 'result';
+    const result = text.length > MAX_STORED_RESULT_CHARS ? `${text.slice(0, MAX_STORED_RESULT_CHARS)}…` : text;
+    const step = this.builtinCalls.get(ev.tool_use_id);
+    if (step) {
+      step.state = state;
+      step.result = result;
+    } else {
+      this.params.invocations.push({ toolName: 'tool', state, result });
+    }
   }
 
   private onIdle(ev: EventOf<'session.status_idle'>): void {
@@ -794,17 +835,20 @@ export async function driveTurn(params: DriveTurnParams): Promise<TurnOutcome> {
 
 function transcript(messages: AgentExecutorInput['messages']): string {
   return messages
-    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+    .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${describeRecordTokens(m.content)}`)
     .join('\n\n');
 }
 
-/** The user message for a turn, with any history the session has not seen. */
+/**
+ * The user message for a turn, with any history the session has not seen.
+ * Records the user tagged (`<@sheet:id|Budget>`) are spelled out with their ids.
+ */
 function turnMessage(
   messages: AgentExecutorInput['messages'],
   unseen: AgentExecutorInput['messages'],
   olderOmitted = false,
 ): string {
-  const latest = messages[messages.length - 1]?.content ?? '';
+  const latest = describeRecordTokens(messages[messages.length - 1]?.content ?? '');
   if (unseen.length === 0) return latest;
   const intro = olderOmitted
     ? 'This is a long-running chat. The most recent part of it (for context; you did not see these messages yet; older messages are not included):\n\n'
@@ -1181,10 +1225,44 @@ async function openOrReuseSession(input: AgentExecutorInput, turn: PreparedTurn)
   };
 }
 
-/** Runs a custom tool call: refused when the tool is not allowed this turn. */
-function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocations: StoredToolInvocation[]) {
+/** A sub-agent's call: its own tools, narrowed to the actor, attributed to it. */
+function runMemberTool(
+  input: Pick<AgentExecutorInput, 'toolContext' | 'skipApprovals'>,
+  member: SubagentMember,
+  name: string,
+  args: unknown,
+  invocations: StoredToolInvocation[],
+) {
+  const def = member.tools.find((tool) => tool.name === name);
+  if (!def) {
+    const error = `Tool "${name}" is not available to ${member.agent.name} right now.`;
+    invocations.push({ toolName: name, state: 'error', args, result: { error } });
+    return { result: { error }, isError: true };
+  }
+  return executePlatformTool(
+    def,
+    { ...input.toolContext, agentId: member.agent.id, actorCanEdit: member.canEdit },
+    args,
+    invocations,
+    {
+      autoReviewEnabled: member.agent.autoReviewEnabled,
+      skipApprovals: input.skipApprovals,
+    },
+  );
+}
+
+/**
+ * Runs a custom tool call: refused when the tool is not allowed this turn.
+ * Exported for tests.
+ */
+export function customToolRunner(
+  input: Pick<AgentExecutorInput, 'toolContext' | 'agent' | 'skipApprovals'>,
+  turn: Pick<PreparedTurn, 'allowedNow' | 'declared' | 'setup' | 'canEdit' | 'team' | 'ref'>,
+  invocations: StoredToolInvocation[],
+) {
   const allowedNames = new Set(turn.allowedNow.map((tool) => tool.name));
-  let asked = false;
+  /** The question this turn already put to the user, and what the tool answered. */
+  let asked: { key: string; result: unknown } | null = null;
   return async (name: string, args: unknown, threadAgent: ThreadAgent | null) => {
     // A thread is this agent (primary, or a copy of itself: its main object),
     // one of its sub-agents (a worker object), or unidentified: refused.
@@ -1194,32 +1272,17 @@ function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocat
       invocations.push({ toolName: name, state: 'error', args, result: { error } });
       return { result: { error }, isError: true };
     }
-    if (member) {
-      // A sub-agent's call: its own tools, narrowed to the actor, attributed to it.
-      const def = member.tools.find((tool) => tool.name === name);
-      if (!def) {
-        const error = `Tool "${name}" is not available to ${member.agent.name} right now.`;
-        invocations.push({ toolName: name, state: 'error', args, result: { error } });
-        return { result: { error }, isError: true };
-      }
-      return executePlatformTool(
-        def,
-        { ...input.toolContext, agentId: member.agent.id, actorCanEdit: member.canEdit },
-        args,
-        invocations,
-        {
-          autoReviewEnabled: member.agent.autoReviewEnabled,
-          skipApprovals: input.skipApprovals,
-        },
-      );
-    }
+    if (member) return runMemberTool(input, member, name, args, invocations);
     // One question per turn: the user answers one card, then the agent continues.
-    if (name === ASK_USER_TOOL_NAME && asked) {
+    // The same question again (the model asked twice in one go) gets the same
+    // answer and is not recorded again; a different one is refused.
+    const questionKey = name === ASK_USER_TOOL_NAME ? JSON.stringify(args ?? null) : null;
+    if (questionKey !== null && asked) {
+      if (asked.key === questionKey) return { result: asked.result, isError: false };
       const error = 'You already asked a question this turn. End your turn and wait for the answer.';
       invocations.push({ toolName: name, state: 'error', args, result: { error } });
       return { result: { error }, isError: true };
     }
-    if (name === ASK_USER_TOOL_NAME) asked = true;
     const def = turn.declared.find((tool) => tool.name === name);
     if (!def || !allowedNames.has(name)) {
       const error =
@@ -1229,10 +1292,18 @@ function customToolRunner(input: AgentExecutorInput, turn: PreparedTurn, invocat
       invocations.push({ toolName: name, state: 'error', args, result: { error } });
       return { result: { error }, isError: true };
     }
-    return executePlatformTool(def, { ...input.toolContext, actorCanEdit: turn.canEdit }, args, invocations, {
-      autoReviewEnabled: input.agent.autoReviewEnabled,
-      skipApprovals: input.skipApprovals,
-    });
+    const outcome = await executePlatformTool(
+      def,
+      { ...input.toolContext, actorCanEdit: turn.canEdit },
+      args,
+      invocations,
+      {
+        autoReviewEnabled: input.agent.autoReviewEnabled,
+        skipApprovals: input.skipApprovals,
+      },
+    );
+    if (questionKey !== null && !outcome.isError) asked = { key: questionKey, result: outcome.result };
+    return outcome;
   };
 }
 

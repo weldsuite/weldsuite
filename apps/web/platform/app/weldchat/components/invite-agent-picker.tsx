@@ -13,7 +13,6 @@ import { Bot, Plus, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
-import { ScrollArea } from '@weldsuite/ui/components/scroll-area';
 import { useCan } from '@weldsuite/permissions/react';
 import type { WorkspaceAgent } from '@weldsuite/app-api-client/schemas/workspace-agents';
 import { useAgents } from '@/hooks/queries/use-agent-queries';
@@ -105,13 +104,15 @@ export function InviteAgentPicker({ channelId, onClose }: Readonly<InviteAgentPi
           autoFocus
         />
       </div>
-      <ScrollArea className="max-h-[200px] mt-1">
+      {/* A plain scroll box: Radix ScrollArea's table-layout viewport grows to the
+          longest description instead of truncating it. */}
+      <div className="mt-1 max-h-[200px] overflow-x-hidden overflow-y-auto">
         <div className="py-1">
           {visible.map((agent) => (
             <Button
               key={agent.id}
               variant="ghost"
-              className="w-full h-auto flex items-center gap-2.5 px-2 py-1.5 rounded-md text-left text-sm hover:bg-accent transition-colors"
+              className="w-full h-auto flex items-center justify-start gap-2.5 px-2 py-1.5 rounded-md text-left text-sm hover:bg-accent transition-colors"
               onClick={() => {
                 void inviteAgent(agent);
                 setSearch('');
@@ -133,7 +134,7 @@ export function InviteAgentPicker({ channelId, onClose }: Readonly<InviteAgentPi
             <p className="text-sm text-muted-foreground text-center py-3">{t.weldchat.memberList.noAgentsToInvite}</p>
           )}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

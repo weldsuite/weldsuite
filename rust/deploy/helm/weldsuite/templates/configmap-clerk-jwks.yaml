@@ -1,0 +1,13 @@
+{{- if and .Values.clerkJwks.enabled (not .Values.clerkJwks.existingConfigMap) }}
+{{- if not .Values.clerkJwks.json }}
+{{- fail "clerkJwks.enabled needs clerkJwks.existingConfigMap or clerkJwks.json" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "weldsuite.jwksConfigMap" . }}
+  labels:
+    {{- include "weldsuite.labels" . | nindent 4 }}
+data:
+  jwks.json: {{ .Values.clerkJwks.json | quote }}
+{{- end }}

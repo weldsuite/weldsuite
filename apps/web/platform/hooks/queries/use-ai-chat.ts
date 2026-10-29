@@ -16,6 +16,7 @@ import { useAuth } from '@clerk/clerk-react';
 import { apiUrl } from '@/lib/api/public-env';
 import { randomSuffix } from '@/lib/random';
 import { questionMarkersToText } from '@weldsuite/app-api-client/schemas/weldagent-questions';
+import type { AiChatContext } from '@weldsuite/app-api-client/schemas/ai';
 
 export interface ChatMessage {
   id: string;
@@ -33,6 +34,8 @@ interface UseWeldAgentChatOptions {
   model?: string;
   /** When set, chat runs as a workspace agent with its tools + instructions. */
   agentId?: string | null;
+  /** What the user has open (a spreadsheet), read when a message is sent. */
+  context?: AiChatContext;
   /**
    * Messages to seed the conversation with (e.g. history loaded for a saved
    * chat). Applied whenever the array identity changes, so pass a stable
@@ -61,6 +64,7 @@ export function useWeldAgentChat({
   system,
   model,
   agentId,
+  context,
   initialMessages,
   onUserMessage,
   onAssistantMessage,
@@ -70,6 +74,9 @@ export function useWeldAgentChat({
   const [error, setError] = useState<ChatError>(null);
   const [isSending, setIsSending] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  // The selection moves while the chat is open: send where the user is now.
+  const contextRef = useRef(context);
+  contextRef.current = context;
 
   // Keep the latest persistence callbacks without re-creating streamTurn.
   const onUserMessageRef = useRef(onUserMessage);
@@ -108,6 +115,7 @@ export function useWeldAgentChat({
             system,
             model,
             ...(agentId ? { agentId } : {}),
+            ...(contextRef.current ? { context: contextRef.current } : {}),
           }),
           signal: controller.signal,
         });
@@ -182,5 +190,10 @@ export function useWeldAgentChat({
     setIsSending(false);
   }, []);
 
-  return { messages, sendMessage, retry, reset, isSending, error };
+  /** Interrupt a reply that is still streaming, keeping what arrived so far. */
+  const stop = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  return { messages, sendMessage, retry, reset, stop, isSending, error };
 }

@@ -1,16 +1,16 @@
 /**
  * A time input that opens the day's quarter hours in a sheet, one line per
  * hour, scrolled to the chosen one. Plain JS like DateField, so it needs no
- * native picker in the build.
+ * native picker in the build; the same field under the same label.
  */
 
 import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Clock3 } from 'lucide-react-native';
 import { Sheet } from '@weldsuite/mobile-ui/components/Sheet';
-import { useTheme } from '@weldsuite/mobile-ui/contexts/ThemeContext';
 
 import { BRAND } from '@/constants/brand';
+import { FormLabel, useFieldBox } from './Form';
 
 interface TimeFieldProps {
   label: string;
@@ -25,7 +25,7 @@ const QUARTERS = [0, 15, 30, 45];
 const pad = (n: number) => String(n).padStart(2, '0');
 
 export function TimeField({ label, value, onChange, testID }: Readonly<TimeFieldProps>) {
-  const { colors } = useTheme();
+  const { colors, box, value: valueStyle } = useFieldBox();
   const [open, setOpen] = useState(false);
   const list = useRef<ScrollView>(null);
   // Open with the chosen hour in view, two lines down from the top. Scrolled
@@ -34,16 +34,16 @@ export function TimeField({ label, value, onChange, testID }: Readonly<TimeField
   const scrollToChosen = () => list.current?.scrollTo({ y: Math.max(0, hour - 2) * HOUR_ROW, animated: false });
 
   return (
-    <View style={styles.field}>
-      <Text style={[styles.label, { color: colors.text }]}>{label}</Text>
+    <View>
+      <FormLabel>{label}</FormLabel>
       <Pressable
         onPress={() => setOpen(true)}
         accessibilityRole="button"
         accessibilityLabel={`${label}: ${value}`}
         testID={testID}
-        style={({ pressed }) => [styles.input, { backgroundColor: colors.inputBackground, opacity: pressed ? 0.8 : 1 }]}
+        style={({ pressed }) => [box, pressed && styles.pressed]}
       >
-        <Text style={[styles.value, { color: colors.text }]}>{value}</Text>
+        <Text style={valueStyle}>{value}</Text>
         <Clock3 size={18} color={colors.mutedForeground} />
       </Pressable>
       {open ? (
@@ -91,17 +91,7 @@ export function TimeField({ label, value, onChange, testID }: Readonly<TimeField
 }
 
 const styles = StyleSheet.create({
-  field: { gap: 6 },
-  label: { fontSize: 14, fontWeight: '500' },
-  input: {
-    minHeight: 46,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  value: { fontSize: 16, fontVariant: ['tabular-nums'] },
+  pressed: { opacity: 0.8 },
   // Seven hours in view. A height of its own, so it scrolls itself inside the
   // sheet's scroll view (which would otherwise grow to fit all 24).
   hours: { height: HOUR_ROW * 7 },

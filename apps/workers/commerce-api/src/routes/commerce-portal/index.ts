@@ -30,10 +30,10 @@ import { findCompanyParty, loadPortalSettings } from '../../services/commerce-po
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-// These staff routes use `internalWorkspaceId` (`workspaces.id`), not
-// `workspaceId` (still the Clerk org id): the public portal keys its sessions,
-// one-time codes and rate limits by `workspaces.id` (portal-slug.ts), so a
-// challenge stored under the org id is one the buyer can never redeem.
+// The public portal keys its sessions, one-time codes and rate limits by
+// `workspaces.id` (portal-slug.ts), the same value as these staff routes'
+// `workspaceId`; a challenge stored under the Clerk org id would be one the
+// buyer can never redeem.
 async function workspaceSlug(env: Env, workspaceId: string): Promise<string | null> {
   try {
     const masterDb = getMasterDb(env);
@@ -114,7 +114,7 @@ async function upsertPortalSettings(
 
 app.get('/settings', requirePermission('companies:read'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('internalWorkspaceId');
+  const workspaceId = c.get('workspaceId');
   try {
     const row = await loadPortalSettings(db);
     const slug = workspaceId ? await workspaceSlug(c.env, workspaceId) : null;
@@ -128,7 +128,7 @@ app.get('/settings', requirePermission('companies:read'), async (c) => {
 
 app.patch('/settings', requirePermission('companies:update'), zValidator('json', updateCommercePortalSettingsSchema), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('internalWorkspaceId');
+  const workspaceId = c.get('workspaceId');
   const body = c.req.valid('json');
   const now = new Date();
   try {
@@ -199,7 +199,7 @@ async function issueChallengeAndEmail(opts: {
 app.post('/access/invite', requirePermission('companies:update'), zValidator('json', inviteCommercePortalAccessSchema), async (c) => {
   const db = c.get('tenantDb');
   const userId = c.get('userId');
-  const workspaceId = c.get('internalWorkspaceId');
+  const workspaceId = c.get('workspaceId');
   const { personId, companyId } = c.req.valid('json');
   const now = new Date();
 
@@ -318,7 +318,7 @@ app.post('/access/:id/revoke', requirePermission('companies:update'), async (c) 
 
 app.post('/access/:id/resend', requirePermission('companies:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('internalWorkspaceId');
+  const workspaceId = c.get('workspaceId');
   const id = c.req.param('id');
   try {
     const [existing] = await db.select().from(schema.commercePortalAccess).where(eq(schema.commercePortalAccess.id, id)).limit(1);

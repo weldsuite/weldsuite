@@ -163,9 +163,12 @@ app.get('/:id', requirePermission('files:read'), async (c) => {
   }
 });
 
-/** True when `key` is under the caller's own `workspaces/<id>/` prefix. */
+/**
+ * True when `key` is under the caller's own `workspaces/<id>/` prefix. Uploads
+ * are keyed by the Clerk org id until phase 3 (workspace-id plan).
+ */
 function isOwnWorkspaceKey(c: Context<{ Bindings: Env; Variables: Variables }>, key: string): boolean {
-  return isWorkspaceObjectKey(key, c.get('workspaceId') || c.get('orgId'));
+  return isWorkspaceObjectKey(key, c.get('clerkOrgId'));
 }
 
 // ============================================================================
@@ -269,8 +272,9 @@ app.patch('/:id', requirePermission('files:update'), zValidator('json', updateDr
 
 app.delete('/:id', requirePermission('files:delete'), async (c) => {
   const id = c.req.param('id');
-  const workspaceId = c.get('workspaceId') || c.get('orgId');
-  if (!workspaceId) return error.orgRequired(c);
+  // Workflow params carry the Clerk org id (a sleeping instance may be 30 days old).
+  const orgId = c.get('clerkOrgId');
+  if (!orgId) return error.orgRequired(c);
   try {
     const opened = await openFile(c, id, 'edit');
     if (opened instanceof Response) return opened;
@@ -283,7 +287,7 @@ app.delete('/:id', requirePermission('files:delete'), async (c) => {
       await c.env.TRASH_CLEANUP.create({
         id: `trash-${id}-${result.deletedAt.getTime()}`,
         params: {
-          workspaceId,
+          workspaceId: orgId,
           fileId: id,
           fileKey: result.row.fileKey || result.row.storagePath,
           deletedAt: result.deletedAt.toISOString(),

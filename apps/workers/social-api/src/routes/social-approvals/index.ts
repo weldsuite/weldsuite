@@ -73,7 +73,7 @@ function scheduleErrorMessage(err: unknown): string {
 async function autoScheduleApprovedPost(
   c: Ctx,
   db: Db,
-  workspaceId: string,
+  orgId: string,
   post: typeof posts.$inferSelect,
 ): Promise<{
   scheduled: boolean;
@@ -86,7 +86,7 @@ async function autoScheduleApprovedPost(
       post.scheduledAt instanceof Date
         ? post.scheduledAt.toISOString()
         : new Date(post.scheduledAt).toISOString();
-    const publishResult = await publishPost(db, socialContext(c.env), workspaceId, post.id, {
+    const publishResult = await publishPost(db, socialContext(c.env), orgId, post.id, {
       now: false,
       scheduledAt,
       timezone: post.timezone ?? undefined,
@@ -219,7 +219,7 @@ app.post('/', requirePermission('posts:create'), zValidator('json', createSocial
  */
 app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const userId = c.get('userId') ?? 'system';
   const id = c.req.param('id');
   const decisionNotes = await readDecisionNotes(c);
@@ -260,7 +260,7 @@ app.post('/:id/approve', requirePermission('posts:update'), async (c) => {
       })
       .where(eq(posts.id, post.id));
 
-    const { scheduled, scheduleError, publishResult } = await autoScheduleApprovedPost(c, db, workspaceId, post);
+    const { scheduled, scheduleError, publishResult } = await autoScheduleApprovedPost(c, db, orgId, post);
 
     publishEntityEvent({
       c,

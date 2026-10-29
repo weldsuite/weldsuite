@@ -68,6 +68,7 @@ import { createReachApi } from '@weldsuite/app-api-client/domains/reach';
 import { createSheetsApi } from '@weldsuite/app-api-client/domains/sheets';
 import { createDocsApi } from '@weldsuite/app-api-client/domains/docs';
 import { createWeldSignApi } from '@weldsuite/app-api-client/domains/weldsign';
+import { createWeldPanelApi } from '@weldsuite/app-api-client/domains/weldpanel';
 import { createAppAccessApi } from '@weldsuite/app-api-client/domains/app-access';
 import { createSsoApi } from '@weldsuite/app-api-client/domains/sso';
 import { createWeldHrPayrollApi } from '@weldsuite/app-api-client/domains/weldhr-payroll';
@@ -207,6 +208,8 @@ export function useAppApi() {
       // WeldDocs records (docs-api); a document's content goes over its room socket.
       docs: createDocsApi(lazyClient),
       weldsign: createWeldSignApi(lazyClient),
+      // WeldPanel (panel-api): projects and their install check.
+      weldpanel: createWeldPanelApi(lazyClient),
       appAccess: createAppAccessApi(lazyClient),
       // Enterprise single sign-on: domain proof, SAML connection, on/off and
       // the add-on subscription (its billing paths are forwarded to billing-worker).

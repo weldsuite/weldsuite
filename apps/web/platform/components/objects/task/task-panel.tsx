@@ -700,6 +700,11 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
     <EntityDetailView
       {...shell.entityDetailViewProps}
       sidebarDivider={chatHasMessages}
+      // A task whose chat has messages gives the conversation the height the
+      // details leave over; until then the chat is just its composer and the
+      // details extend down to it (same as the company and person panels).
+      sidebarFill={chatHasMessages}
+      sidebarFitContent={!chatHasMessages}
       avatar={<TaskAvatar status={task?.status} onToggle={handleToggle} />}
       title={
         task
@@ -718,8 +723,10 @@ export function TaskPanel(props: Readonly<ObjectPanelComponentProps>) {
         />
       }
       sidebar={chatSidebar}
-      sidebarDefaultSize={mode === 'panel' ? 200 : 500}
-      sidebarMinSize={mode === 'panel' ? 140 : 320}
+      // The chat holds a header bar and the composer (about 125px) before its first
+      // message row, so the panel default has to leave room for the list above them.
+      sidebarDefaultSize={mode === 'panel' ? 320 : 500}
+      sidebarMinSize={mode === 'panel' ? 200 : 320}
       sidebarMaxSize={mode === 'panel' ? undefined : 900}
       // Panel mode: no persistKey so the chat always opens fresh at the
       // default size. Persisting was a footgun — once any earlier build

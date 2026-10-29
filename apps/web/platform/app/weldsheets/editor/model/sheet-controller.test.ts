@@ -1,10 +1,23 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyOp, EN_LOCALE, NL_LOCALE, type Op } from '@weldsuite/sheets-engine';
+import { applyOp, EN_LOCALE, MAX_ROWS, NL_LOCALE, type Op } from '@weldsuite/sheets-engine';
 import { copySelection, parseHtmlTable, parseTsv, pasteInto } from './clipboard';
-import { acceptsReference, functionPrefixAt, referenceText, refsInEdit, suggestFunctions } from './formula-edit';
+import {
+  acceptsReference,
+  applySuggestion,
+  argumentCounts,
+  callAt,
+  formulaSuggestions,
+  functionPrefixAt,
+  referenceText,
+  refsInEdit,
+  signatureTokens,
+  type SuggestionMatch,
+} from './formula-edit';
 import { handleEditKey, handleGridKey, type KeyInput } from './keyboard';
 import { cellSelection, wholeColumns, wholeRows } from './selection';
 import { adjustDecimals, SheetController } from './sheet-controller';
+
+const names = (match: SuggestionMatch | null) => match?.items.map((s) => s.name) ?? [];
 
 function make(locale: 'en' | 'nl' = 'en') {
   const onOp = vi.fn();
@@ -371,6 +384,114 @@ describe('clipboard', () => {
     expect(value(ctl, 0, 0)).toBeNull();
     expect(value(ctl, 3, 3)).toBe('moved');
   });
+
+  it('grows the sheet to fit a paste past its last row and column, undone with it', () => {
+    const { ctl, onOp } = make();
+    const { rowCount, colCount } = ctl.sheet;
+    ctl.select(cellSelection(rowCount - 1, colCount - 1));
+    pasteInto(ctl, 'a\tb\nc\td\ne\tf\n', null);
+    expect(ctl.sheet.rowCount).toBe(rowCount + 2);
+    expect(ctl.sheet.colCount).toBe(colCount + 1);
+    expect(value(ctl, rowCount + 1, colCount)).toBe('f');
+    expect(onOp).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'batch' }));
+    ctl.undo();
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+    expect(ctl.sheet.colCount).toBe(colCount);
+  });
+
+  it('grows the sheet for a copy pasted inside WeldSheets past its last row', () => {
+    const { ctl } = make();
+    const rowCount = ctl.sheet.rowCount;
+    ctl.setInput(0, 0, '1');
+    ctl.setInput(1, 0, '=A1+1');
+    ctl.select({ ranges: [{ r1: 0, c1: 0, r2: 1, c2: 0 }], active: { row: 0, col: 0 }, anchor: { row: 0, col: 0 } });
+    const payload = copySelection(ctl);
+    ctl.select(cellSelection(rowCount - 1, 0));
+    pasteInto(ctl, payload.text, payload.html);
+    expect(ctl.sheet.rowCount).toBe(rowCount + 1);
+    expect(ctl.engine.getCell(ctl.activeSheetId, rowCount, 0)?.f).toBe(`A${rowCount}+1`);
+  });
+
+  it('leaves the grid size alone for a paste that fits', () => {
+    const { ctl, onOp } = make();
+    const rowCount = ctl.sheet.rowCount;
+    pasteInto(ctl, 'a\tb\n', null);
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+    expect(onOp).toHaveBeenLastCalledWith(expect.not.objectContaining({ ops: [expect.objectContaining({ type: 'setGridSize' })] }));
+  });
+});
+
+describe('adding rows at the bottom', () => {
+  it('adds empty rows after the last one, undoably', () => {
+    const { ctl, onOp } = make();
+    const rowCount = ctl.sheet.rowCount;
+    ctl.addRows(1000);
+    expect(ctl.sheet.rowCount).toBe(rowCount + 1000);
+    expect(onOp).toHaveBeenLastCalledWith({ type: 'setGridSize', sheetId: ctl.activeSheetId, rowCount: rowCount + 1000 });
+    ctl.setInput(rowCount + 999, 0, 'last');
+    expect(value(ctl, rowCount + 999, 0)).toBe('last');
+    ctl.undo();
+    ctl.undo();
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+  });
+
+  it('stops at the sheet maximum and ignores nothing to add', () => {
+    const { ctl, onOp } = make();
+    ctl.addRows(0);
+    expect(onOp).not.toHaveBeenCalled();
+    ctl.addRows(10_000_000);
+    expect(ctl.sheet.rowCount).toBe(MAX_ROWS);
+    onOp.mockClear();
+    ctl.addRows(1);
+    expect(onOp).not.toHaveBeenCalled();
+  });
+
+  it('does nothing on a read-only sheet', () => {
+    const { ctl } = make();
+    const rowCount = ctl.sheet.rowCount;
+    ctl.setReadOnly(true);
+    ctl.addRows(1000);
+    expect(ctl.sheet.rowCount).toBe(rowCount);
+  });
+});
+
+describe('connected tables on the grid', () => {
+  function withTable() {
+    const made = make();
+    const range = { r1: 2, c1: 1, r2: 5, c2: 3 };
+    applyOp(made.ctl.engine, { type: 'patchDataTables', sheetId: made.ctl.activeSheetId, set: [{ id: 'ds1', range }] });
+    return { ...made, range };
+  }
+
+  it('finds the table a cell is in and selects all of it', () => {
+    const { ctl, range } = withTable();
+    expect(ctl.dataTableAt(3, 2)?.id).toBe('ds1');
+    expect(ctl.dataTableAt(6, 2)).toBeUndefined();
+    ctl.selectDataTable('ds1');
+    expect(ctl.selection.ranges).toEqual([range]);
+    expect(ctl.selection.active).toEqual({ row: 2, col: 1 });
+  });
+
+  it('hands a table action to the data panel once, and opens it', () => {
+    const { ctl } = withTable();
+    ctl.requestTableAction('ds1', 'refresh');
+    expect(ctl.panel).toBe('data');
+    expect(ctl.takeTableRequest()).toEqual({ id: 'ds1', action: 'refresh' });
+    expect(ctl.takeTableRequest()).toBeNull();
+    ctl.setReadOnly(true);
+    ctl.requestTableAction('ds1', 'disconnect');
+    expect(ctl.tableRequest).toBeNull();
+  });
+
+  it('puts the sheet filter on the table header and takes it off again', () => {
+    const { ctl, range } = withTable();
+    ctl.toggleTableFilter('ds1');
+    expect(ctl.sheet.filter).toEqual({ range, columns: [] });
+    expect(ctl.tableFiltered('ds1')).toBe(true);
+    ctl.toggleTableFilter('ds1');
+    expect(ctl.sheet.filter).toBeNull();
+    expect(ctl.tableFiltered('ds1')).toBe(false);
+  });
 });
 
 describe('formula editing helpers', () => {
@@ -395,7 +516,64 @@ describe('formula editing helpers', () => {
     expect(functionPrefixAt('=SU', 3)).toEqual({ start: 1, prefix: 'SU' });
     expect(functionPrefixAt('=A1+xl', 6)).toEqual({ start: 4, prefix: 'xl' });
     expect(functionPrefixAt('=SUM(A1)', 8)).toBeNull();
-    expect(suggestFunctions('xloo')).toEqual(['XLOOKUP']);
+    expect(names(formulaSuggestions('=xloo', 5))).toEqual(['XLOOKUP']);
+  });
+
+  it('lists names that start with the text first, then names that contain it, defined names included', () => {
+    expect(names(formulaSuggestions('=lookup', 7))).toEqual(['LOOKUP', 'HLOOKUP', 'VLOOKUP', 'XLOOKUP']);
+    expect(names(formulaSuggestions('=SUM(ax', 7, ['Tax', 'Axis', 'Rates']))).toEqual(['Axis', 'MAX', 'MAXA', 'MAXIFS', 'Tax']);
+    expect(names(formulaSuggestions('=Rates', 6, ['Rates']))).toEqual([]);
+  });
+
+  it('does not take a cell reference for part of a function name', () => {
+    expect(names(formulaSuggestions('=G10', 4))).toEqual([]);
+    expect(names(formulaSuggestions('=SUM(A1:G10', 11))).toEqual([]);
+    expect(names(formulaSuggestions('=n2', 3))).toEqual([]);
+    expect(names(formulaSuggestions('=X2', 3))).toEqual([]);
+    // Names that start with it are still offered, but Enter keeps the reference.
+    const log = formulaSuggestions('=LOG1', 5)!;
+    expect(names(log)).toEqual(['LOG10']);
+    expect(log.reference).toBe(true);
+    expect(formulaSuggestions('=LOG', 4)!.reference).toBe(false);
+  });
+
+  it('puts a taken suggestion in place of the whole word, with one opening parenthesis', () => {
+    const match = formulaSuggestions('=A1+vlo', 7)!;
+    expect(applySuggestion('=A1+vlo', match, { kind: 'function', name: 'VLOOKUP' })).toEqual({ text: '=A1+VLOOKUP(', caret: 12 });
+    const inside = formulaSuggestions('=SU(A1)', 3)!;
+    expect(applySuggestion('=SU(A1)', inside, { kind: 'function', name: 'SUM' })).toEqual({ text: '=SUM(A1)', caret: 5 });
+    const name = formulaSuggestions('=ta', 3, ['Tax'])!;
+    expect(applySuggestion('=ta', name, { kind: 'name', name: 'Tax' })).toEqual({ text: '=Tax', caret: 4 });
+  });
+
+  it('finds the call and argument the caret is in', () => {
+    const en = { decimal: '.' } as const;
+    expect(callAt('=SUM(A1, B', 10, en)).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=IF(A1>0, ROUND(B1, 2', 21, en)).toEqual({ name: 'ROUND', start: 10, argIndex: 1 });
+    expect(callAt('=IF(A1>0, ROUND(B1, 2), ', 24, en)).toEqual({ name: 'IF', start: 1, argIndex: 2 });
+    expect(callAt('=SUM((A1+B1), ', 14, en)).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=CONCAT("a,b", {1,2}, ', 22, en)).toEqual({ name: 'CONCAT', start: 1, argIndex: 2 });
+    expect(callAt("=SUM('a,b'!A1, ", 15, en)).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=SUM(1,5; 2', 11, { decimal: ',' })).toEqual({ name: 'SUM', start: 1, argIndex: 1 });
+    expect(callAt('=SUM(A1)', 8, en)).toBeNull();
+    expect(callAt('SUM(A1', 6, en)).toBeNull();
+  });
+
+  it('spells out the repeating arguments as more are typed', () => {
+    expect(signatureTokens('number1, [number2], …', 0)).toEqual({ tokens: ['number1', '[number2]', '…'], active: 0 });
+    expect(signatureTokens('number1, [number2], …', 3)).toEqual({ tokens: ['number1', '[number2]', '[number3]', '[number4]', '…'], active: 3 });
+    expect(signatureTokens('sum_range, criteria_range1, criteria1, [criteria_range2, criteria2], …', 5).tokens).toEqual([
+      'sum_range',
+      'criteria_range1',
+      'criteria1',
+      '[criteria_range2',
+      'criteria2]',
+      '[criteria_range3',
+      'criteria3]',
+      '…',
+    ]);
+    expect(signatureTokens('number, num_digits', 2)).toEqual({ tokens: ['number', 'num_digits'], active: -1 });
+    expect(argumentCounts('lookup_value, table_array, col_index_num, [range_lookup]')).toEqual({ required: 3, total: 4, repeats: false });
   });
 });
 

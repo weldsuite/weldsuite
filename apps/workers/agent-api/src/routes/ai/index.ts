@@ -27,6 +27,7 @@ import {
 } from '@weldsuite/permissions/server';
 import {
   billedModelId,
+  createTextStreamResponse,
   generateText,
   streamText,
   isGatewayConfigured,
@@ -49,8 +50,21 @@ import {
 import { getAgent } from '@weldsuite/agent-domain/agents';
 import { canAccessAgent } from '@weldsuite/agent-domain/access';
 import { agentViewer } from '../../services/weldagent/viewer';
+import { personaPermissions } from '../../services/weldagent/persona-permissions';
 import { streamAgentChat, runAgentOnce } from '@weldsuite/agent-domain/executor';
+import {
+  buildPersonaCall,
+  createPersonaTextTransform,
+  personaReplyText,
+  sumStepUsage,
+  type PermissionCheck,
+  type PersonaCall,
+} from '@weldsuite/agent-domain/persona';
 import { isWorkspaceAgentModel } from '@weldsuite/app-api-client/schemas/workspace-agents';
+import { aiChatContextSchema } from '@weldsuite/app-api-client/schemas/ai';
+import { describeUserTags, taggedSheetsIn } from '@weldsuite/agent-domain/record-tokens';
+import { openSheetInstructions } from '@weldsuite/agent-domain/sheets-tools';
+import type { PersonaSheets } from '@weldsuite/agent-domain/persona';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -86,15 +100,9 @@ const chatSchema = z.object({
   maxTokens: z.number().int().min(1).max(8192).optional(),
   /** When set, load a workspace agent and run with its tools + instructions. */
   agentId: z.string().min(1).max(30).optional(),
+  /** What the person has open (a spreadsheet), for the agent to work on. */
+  context: aiChatContextSchema.optional(),
 });
-
-/** Base persona for the WeldAgent chat panel. Extra `system` context is appended. */
-const WELDAGENT_SYSTEM =
-  'You are WeldAgent, the AI assistant built into the WeldSuite business platform. ' +
-  'You help the user with their CRM, mail, projects, tasks, helpdesk, commerce and ' +
-  'accounting work. Be concise, direct and practical. Use plain text — no markdown ' +
-  'headings — and keep answers short unless the user asks for detail. If you are not ' +
-  'sure about something in the user\'s workspace, say so rather than inventing data.';
 
 /**
  * POST /generate — generate text via the AI gateway.
@@ -185,7 +193,7 @@ app.post(
 type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 type ChatInput = z.infer<typeof chatSchema>;
 type ChatTurn = { role: 'user' | 'assistant'; content: string };
-type ChatParts = { extraSystem: string; chatMessages: ChatTurn[] };
+type ChatParts = { extraSystem: string; chatMessages: ChatTurn[]; sheets: PersonaSheets };
 type Metering = Awaited<ReturnType<typeof resolveAiMetering>>;
 type WorkspaceAgent = NonNullable<Awaited<ReturnType<typeof getAgent>>>;
 type ResolvedPermissions = NonNullable<Awaited<ReturnType<typeof ensurePermissionsResolved>>>;
@@ -204,22 +212,53 @@ function aiErrorResponse(c: AppContext, err: unknown) {
 
 /**
  * Fold `system` turns (plus the optional extra `system` field) into one system
- * string and keep only the user/assistant turns as chat messages.
+ * string and keep only the user/assistant turns as chat messages. The
+ * spreadsheets the person points at are the open one (`context.sheet`) and
+ * the ones tagged in their messages (`<@sheet:id|Budget>`); the tags are then
+ * spelled out for the model.
  */
-function splitChatMessages(messages: ChatInput['messages'], system: string | undefined): ChatParts {
+function splitChatMessages(
+  messages: ChatInput['messages'],
+  system: string | undefined,
+  context?: ChatInput['context'],
+): ChatParts {
   const extraSystem = [
     ...messages.filter((m) => m.role === 'system').map((m) => m.content),
     ...(system ? [system] : []),
   ].join('\n\n');
-  const chatMessages = messages
+  const turns = messages
     .filter((m): m is ChatTurn => m.role !== 'system')
     .map((m) => ({ role: m.role, content: m.content }));
-  return { extraSystem, chatMessages };
+  return {
+    extraSystem,
+    chatMessages: describeUserTags(turns),
+    sheets: { open: context?.sheet ?? null, tagged: taggedSheetsIn(turns) },
+  };
 }
 
-/** The WeldAgent persona, extended with any extra system context. */
-function buildSystemPrompt(extraSystem: string): string {
-  return extraSystem ? `${WELDAGENT_SYSTEM}\n\n${extraSystem}` : WELDAGENT_SYSTEM;
+/**
+ * What the default WeldAgent may read for the person chatting: the permission
+ * keys its tools need, checked deny-aware like any route, never an agent's grants.
+ */
+async function personaPermissionCheck(c: AppContext): Promise<PermissionCheck> {
+  const held = new Set(await personaPermissions(c));
+  return (key) => held.has(key);
+}
+
+/**
+ * The default WeldAgent's instructions and tools for this caller: read-only
+ * lookups, plus the spreadsheet tools for the sheets they point at.
+ */
+async function preparePersona(c: AppContext, chat: ChatParts): Promise<PersonaCall> {
+  return buildPersonaCall({
+    db: c.get('tenantDb'),
+    workspaceId: c.get('workspaceId'),
+    userId: c.get('userId'),
+    env: c.env,
+    holds: await personaPermissionCheck(c),
+    extraSystem: chat.extraSystem || undefined,
+    sheets: chat.sheets,
+  });
 }
 
 /** Ops credit state from one edge-cached KV read; empty = fee order. */
@@ -261,7 +300,9 @@ function buildAgentRunArgs(
   const { agent, resolved } = loaded;
   return {
     env: c.env,
-    workspaceId: c.get('workspaceId'),
+    // The agent runtime keeps the Clerk org id (Anthropic metadata, sandbox id, job
+    // params); resolveAiMetering inside it accepts either id (workspace-id plan).
+    workspaceId: c.get('clerkOrgId'),
     actorUserId: c.get('userId'),
     agent: {
       id: agent.id,
@@ -281,11 +322,14 @@ function buildAgentRunArgs(
       db: c.get('tenantDb'),
       agentId: agent.id,
       actorUserId: c.get('userId'),
-      workspaceId: c.get('workspaceId'),
+      workspaceId: c.get('clerkOrgId'),
       env: c.env,
     },
     messages: chat.chatMessages,
-    extraSystem: chat.extraSystem || undefined,
+    // The agent works on the open sheet with its own spreadsheet tools, if it has them.
+    extraSystem:
+      [chat.extraSystem, chat.sheets.open ? openSheetInstructions(chat.sheets.open) : ''].filter(Boolean).join('\n\n') ||
+      undefined,
     actorPermissions: resolved.permissions,
   };
 }
@@ -323,12 +367,12 @@ async function chatWithPersona(
   chat: ChatParts,
 ) {
   const modelId = input.model ?? recommended.copilot.free;
-  const systemPrompt = buildSystemPrompt(chat.extraSystem);
 
   try {
     await assertAiCredits(metering);
 
     const credits = await loadCreditStates(c);
+    const persona = await preparePersona(c, chat);
 
     let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;
     const { value: result } = await runWithFallback(
@@ -348,8 +392,11 @@ async function chatWithPersona(
       ({ model: resolved }) =>
         generateText({
           model: resolved,
-          system: systemPrompt,
+          system: persona.system,
           messages: chat.chatMessages,
+          // Read-only lookups, then the answer: a few model requests per reply.
+          tools: persona.tools,
+          stopWhen: persona.stopWhen,
           temperature: input.temperature,
           maxOutputTokens: input.maxTokens,
           maxRetries: 1,
@@ -357,6 +404,8 @@ async function chatWithPersona(
     );
 
     const servedModelId = billedModelId(modelId, result);
+    // `result.usage` adds up every model request of the reply (AI SDK 7), so a
+    // reply with lookups is charged for all of them.
     const creditsUsed = await chargeAiUsage(metering, {
       modelId: servedModelId,
       usage: result.usage,
@@ -367,7 +416,7 @@ async function chatWithPersona(
     });
 
     return success(c, {
-      text: result.text,
+      text: personaReplyText(result.text),
       model: servedModelId,
       finishReason: result.finishReason,
       usage: result.usage,
@@ -392,7 +441,7 @@ app.post(
   zValidator('json', chatSchema),
   async (c) => {
     const input = c.req.valid('json');
-    const chat = splitChatMessages(input.messages, input.system);
+    const chat = splitChatMessages(input.messages, input.system, input.context);
     if (chat.chatMessages.length === 0) {
       return error.badRequest(c, 'At least one user message is required');
     }
@@ -443,45 +492,53 @@ async function streamWithPersona(
   chat: ChatParts,
 ) {
   const modelId = input.model ?? recommended.copilot.free;
-  const systemPrompt = buildSystemPrompt(chat.extraSystem);
 
   try {
     const credits = await loadCreditStates(c);
     const attempt = pickGateway(c.env, { modelId, credits });
+    const persona = await preparePersona(c, chat);
+
+    const charge = (servedModelId: string, usage: Parameters<typeof providerCostUsd>[1]) => {
+      // Zero when service credit covered the attempt; else the served model's factor (BYOK = 1).
+      const costFactor = attempt.costFactor === 0 ? 0 : gatewayCostFactor(attempt.ai.config, servedModelId);
+      const cost = providerCostUsd(servedModelId, usage) * costFactor;
+      c.executionCtx.waitUntil(
+        chargeAiUsage(metering, {
+          modelId: servedModelId,
+          usage,
+          op: 'chat',
+          gateway: attempt.gateway as Gateway,
+          providerCostUsd: cost,
+          coveredByServiceCredit: false,
+        }).catch((chargeErr) => {
+          console.error('[ai/chat/stream] credit charge failed (untracked):', chargeErr);
+        }),
+      );
+    };
 
     const result = streamText({
       model: attempt.model,
-      system: systemPrompt,
+      system: persona.system,
       messages: chat.chatMessages,
+      // Read-only lookups, then the answer: a few model requests per reply.
+      tools: persona.tools,
+      stopWhen: persona.stopWhen,
       temperature: input.temperature,
       maxOutputTokens: input.maxTokens,
       maxRetries: 1,
       onError: ({ error: streamErr }) => {
         console.error('[ai/chat/stream] model error:', streamErr);
       },
-      onFinish: (event) => {
-        const { usage } = event;
-        // A refused third-party model streams from the fallback model instead.
-        const servedModelId = billedModelId(modelId, event);
-        // Zero when service credit covered the attempt; else the served model's factor (BYOK = 1).
-        const costFactor = attempt.costFactor === 0 ? 0 : gatewayCostFactor(attempt.ai.config, servedModelId);
-        const cost = providerCostUsd(servedModelId, usage) * costFactor;
-        c.executionCtx.waitUntil(
-          chargeAiUsage(metering, {
-            modelId: servedModelId,
-            usage,
-            op: 'chat',
-            gateway: attempt.gateway as Gateway,
-            providerCostUsd: cost,
-            coveredByServiceCredit: false,
-          }).catch((chargeErr) => {
-            console.error('[ai/chat/stream] credit charge failed (untracked):', chargeErr);
-          }),
-        );
+      // `event.usage` adds up every model request of the reply (AI SDK 7). A
+      // refused third-party model streams from the fallback model instead.
+      onFinish: (event) => charge(billedModelId(modelId, event), event.usage),
+      // The client left mid-reply: still bill the model requests that ran.
+      onAbort: ({ steps }) => {
+        if (steps.length > 0) charge(modelId, sumStepUsage(steps));
       },
     });
 
-    return result.toTextStreamResponse();
+    return createTextStreamResponse({ stream: result.fullStream.pipeThrough(createPersonaTextTransform()) });
   } catch (err) {
     return error.internal(c, err instanceof Error ? err.message : 'AI request failed');
   }
@@ -490,7 +547,8 @@ async function streamWithPersona(
 /**
  * POST /chat/stream — the streaming twin of /chat.
  *
- * Returns a `text/plain` token stream (AI SDK `toTextStreamResponse`) the client
+ * Returns a `text/plain` token stream (the AI SDK's text stream response, with
+ * the text of each lookup step set apart by a blank line) the client
  * appends to the assistant message as it arrives. Credits are hard-gated BEFORE
  * the stream opens (402 when empty); the actual token charge happens in
  * `onFinish` via `waitUntil`, once usage is known. Streaming uses `pickGateway`
@@ -508,7 +566,7 @@ app.post(
     }
     const metering = await resolveAiMetering(c.env, c.get('workspaceId'), c.get('userId'));
 
-    const chat = splitChatMessages(input.messages, input.system);
+    const chat = splitChatMessages(input.messages, input.system, input.context);
     if (chat.chatMessages.length === 0) {
       return error.badRequest(c, 'At least one user message is required');
     }

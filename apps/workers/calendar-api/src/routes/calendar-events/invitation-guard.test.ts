@@ -90,7 +90,7 @@ function request(method: string, path: string, body: unknown) {
       permissions: permissions('events:read', 'events:create', 'events:update'),
       userId: USER_ID,
       orgId: ORG_ID,
-      workspaceId: ORG_ID,
+      clerkOrgId: ORG_ID,
       tenantDb: db,
     },
     env: { RESEND_API_KEY: 're_test', ENVIRONMENT: 'production' },

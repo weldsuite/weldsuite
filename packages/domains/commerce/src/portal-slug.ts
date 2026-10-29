@@ -20,6 +20,7 @@ import type { Database, DbEnv } from '@weldsuite/worker-kit/env';
 export type PortalSlugVariables = {
   tenantDb: Database;
   workspaceId: string;
+  clerkOrgId: string;
   orgId: string | null;
 };
 
@@ -34,6 +35,7 @@ export interface PortalSlugContext {
   get(key: 'tenantDb'): Database | undefined;
   set(key: 'tenantDb', value: PortalSlugVariables['tenantDb']): void;
   set(key: 'workspaceId', value: PortalSlugVariables['workspaceId']): void;
+  set(key: 'clerkOrgId', value: PortalSlugVariables['clerkOrgId']): void;
   set(key: 'orgId', value: PortalSlugVariables['orgId']): void;
   json(body: { error: { code: string; message: string } }, status: 400 | 404 | 500): Response;
 }
@@ -124,9 +126,10 @@ export function commercePortalSlugMiddleware() {
       const tenantDb = await getTenantDbForWorkspace(c.env, entry.clerkOrgId);
       c.set('tenantDb', tenantDb);
       c.set('workspaceId', entry.workspaceId);
-      // Clerk-authenticated routes key everything workspace-scoped (entity
-      // events, realtime hubs) by the Clerk org id. Expose it so a public
-      // router that publishes can use the same key.
+      // Entity events and realtime hubs are still keyed by the Clerk org id.
+      // Expose it, as the Clerk-authenticated routes do, so a public router
+      // that publishes uses the same key.
+      c.set('clerkOrgId', entry.clerkOrgId);
       c.set('orgId', entry.clerkOrgId);
       await next();
     } catch (err) {

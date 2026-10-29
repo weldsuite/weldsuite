@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ChevronRight, Users } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { AssistantMessage } from '@/components/weldagent/chat/chat-message';
 import type { ThreadDelegation } from './thread';
 
 function DelegationStep({ delegation }: Readonly<{ delegation: ThreadDelegation }>) {
@@ -31,7 +32,11 @@ function DelegationStep({ delegation }: Readonly<{ delegation: ThreadDelegation 
           )}
           <div>
             <p className="text-[11px] font-medium uppercase tracking-wide">{t.report}</p>
-            <p className="whitespace-pre-wrap text-foreground/80">{delegation.report ?? t.noReport}</p>
+            {delegation.report?.trim() ? (
+              <AssistantMessage content={delegation.report} className="text-[13px] text-foreground/80" />
+            ) : (
+              <p className="text-foreground/80">{t.noReport}</p>
+            )}
           </div>
         </div>
       )}

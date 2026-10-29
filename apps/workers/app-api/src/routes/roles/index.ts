@@ -28,6 +28,7 @@ import { createRoleSchema, updateRoleSchema } from '@weldsuite/app-api-client/sc
 import type { Env, Variables } from '../../types';
 import { error, noContent, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import { bumpPermissionsVersion } from '@weldsuite/db/lib/permissions-cache';
 import * as rolesService from '../../services/roles';
 import { cleanupRoleLinksOnRoleDelete } from '@weldsuite/chat-domain/weldchat-role-links';
 import { publishChatMemberLeft } from '@weldsuite/chat-domain/realtime/weldchat-publisher';
@@ -164,6 +165,8 @@ app.post('/', requirePermission('roles:create'), zValidator('json', createRoleSc
       if (result.reason === 'ungrantable') return ungrantableError(c, result);
       return roleNameError(c, result.reason);
     }
+    // No bump: a brand-new role isn't assigned to any member yet, so no
+    // resolveEffectivePermissions() result could change.
     return success(c, result.role, 201);
   } catch (err) {
     console.error('[app-api/roles] create failed:', err);
@@ -184,6 +187,8 @@ app.put('/:roleId', requirePermission('roles:update'), zValidator('json', update
       if (result.reason === 'ungrantable') return ungrantableError(c, result);
       return roleNameError(c, result.reason);
     }
+    // Every member assigned this role resolves differently now.
+    await bumpPermissionsVersion(c.env, c.get('workspaceId'));
     return success(c, result.role);
   } catch (err) {
     console.error('[app-api/roles] update failed:', err);
@@ -214,6 +219,9 @@ app.delete('/:roleId', requirePermission('roles:delete'), async (c) => {
 
     const now = new Date();
     await db.update(roles).set({ deletedAt: now, updatedAt: now }).where(eq(roles.id, roleId));
+    // getRolePermissions filters on isNull(roles.deletedAt), so every member
+    // whose roleId pointed here now resolves to no role-derived permissions.
+    await bumpPermissionsVersion(c.env, c.get('workspaceId'));
 
     // Best-effort, exactly as in api-worker: drop every chat-channel link for
     // this role and clear the memberships it drove (keyed by

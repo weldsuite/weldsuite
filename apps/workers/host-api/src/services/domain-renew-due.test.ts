@@ -113,7 +113,8 @@ describe('markDomainRenewDue', () => {
     const d1 = createSqliteD1(MIGRATION);
     const app = new Hono<{ Bindings: Env; Variables: Variables }>();
     app.use('*', async (c, next) => {
-      c.set('workspaceId', 'org_host');
+      c.set('workspaceId', 'ws_host');
+      c.set('clerkOrgId', 'org_host');
       await next();
     });
     app.use('/api/domains/*', markDomainRenewDue);

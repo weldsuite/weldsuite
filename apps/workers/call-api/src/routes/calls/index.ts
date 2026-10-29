@@ -42,13 +42,13 @@ const t = schema.voipCalls;
  */
 async function resolveMetering(
   env: Env,
-  orgId: string,
+  workspaceId: string,
 ): Promise<{ masterDb: MasterDatabase; internalWsId: string } | null> {
   try {
     const masterDb = getMasterDb(env);
-    const internalWsId = await resolveInternalWorkspaceId(masterDb, orgId);
+    const internalWsId = await resolveInternalWorkspaceId(masterDb, workspaceId);
     if (!internalWsId) {
-      console.warn(`[app-api/calls] no master workspace for org ${orgId} — unmetered`);
+      console.warn(`[app-api/calls] no master workspace for ${workspaceId} — unmetered`);
       return null;
     }
     return { masterDb, internalWsId };
@@ -300,10 +300,10 @@ function buildCallUpdateFields(data: UpdateCallData): Record<string, any> {
  */
 async function settleCallCredits(
   env: Env,
-  orgId: string,
+  workspaceId: string,
   call: { callId: string; userId: string; durationSecs: number; direction: string },
 ): Promise<{ creditsConsumed: number; creditTransactionId: string | undefined } | null> {
-  const metering = await resolveMetering(env, orgId);
+  const metering = await resolveMetering(env, workspaceId);
   if (!metering) return null;
   const { callId, userId, durationSecs, direction } = call;
   const cost = Math.ceil(durationSecs / 60) * SERVICE_CREDIT_RATES.voipCallPerMinute;

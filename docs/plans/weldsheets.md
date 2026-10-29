@@ -146,7 +146,9 @@ project sheet follows the project's membership instead of Drive roles.
   the access of the person who connected the table; whoever changes what it
   lists becomes that person, and a scheduled refresh stops (with a reason on
   the table) when they lose the object's permission or edit access to the
-  sheet.
+  sheet. A new table goes on a tab of its own, named after its object, at
+  A1 with its header row frozen and filtered; the sheet grows to hold every
+  record, and a filter on the table's header follows it on each refresh.
 - **WeldAgent tools**: `find_spreadsheets`, `create_spreadsheet`,
   `list_spreadsheet_tabs`, `read_spreadsheet_range`,
   `write_spreadsheet_range`, run in sheets-api on the engine (writes through
@@ -358,7 +360,13 @@ Freeze and merge came with phase 2.
 
 - Connected tables and the agent tools (above). A WeldSuite data panel
   connects, edits, refreshes and disconnects tables (disconnecting leaves the
-  values); a table is outlined on the grid.
+  values). On the grid a table has a tinted header row and banded records,
+  and while the active cell is in it a chip with its object's name: pressing
+  it selects the whole table, and its menu refreshes, filters, edits or
+  disconnects it.
+- Sheets start at 1,000 rows (like Google Sheets); a bar under the last row
+  adds more (1,000 by default), and a paste past the last row or column
+  grows the sheet to fit.
 - WeldFlow project sheets are WeldSheets spreadsheets that live with the
   project: created, renamed, duplicated and deleted from the project's Sheets
   page, opened in the WeldSheets editor inside the project. An .xlsx saved by

@@ -1,18 +1,44 @@
 import { useState, type ReactNode } from 'react';
-import Markdown from 'react-markdown';
+import Markdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { CheckCircle2, ChevronRight, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getTranslations } from '@/lib/i18n';
+import { renderChatTokens } from '@/app/weldchat/lib/render-tokens';
+import { EntityMentionChip } from '@/app/weldchat/components/entity-mention-chip';
+
+/** A message's text with the records it tags (`<@sheet:id|Budget>`) shown as chips. */
+function withRecordChips(text: string): ReactNode {
+  if (!text.includes('<@')) return text;
+  return renderChatTokens(text, {
+    renderUser: (seg, key) => <span key={key}>@{seg.displayName ?? seg.userId}</span>,
+    renderEntity: (seg, key) => (
+      <EntityMentionChip key={key} type={seg.entityType} id={seg.entityId} fallbackLabel={seg.label} />
+    ),
+  });
+}
 
 export function UserMessage({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[min(85%,560px)] whitespace-pre-wrap break-words rounded-2xl bg-muted px-4 py-2.5 text-[15px] leading-relaxed text-foreground">
-        {children}
+        {typeof children === 'string' ? withRecordChips(children) : children}
       </div>
     </div>
   );
 }
+
+/** GitHub-flavoured markdown: agents answer with tables, strikethrough and bare links. */
+const REMARK_PLUGINS = [remarkGfm];
+
+const MARKDOWN_COMPONENTS: Components = {
+  // A wide table scrolls inside the reply instead of widening the chat.
+  table: ({ node: _node, ...props }) => (
+    <div className="my-2 overflow-x-auto rounded-lg border">
+      <table {...props} className="my-0 w-full text-[13px]" />
+    </div>
+  ),
+};
 
 /** Agent replies read as a document: no bubble, markdown rendered. */
 export function AssistantMessage({ content, className }: Readonly<{ content: string; className?: string }>) {
@@ -23,11 +49,14 @@ export function AssistantMessage({ content, className }: Readonly<{ content: str
         'prose prose-sm max-w-none break-words text-[15px] leading-relaxed text-foreground dark:prose-invert',
         'prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-headings:mb-2 prose-headings:mt-4 prose-headings:font-semibold',
         'prose-pre:rounded-lg prose-pre:bg-muted prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none',
+        'prose-th:bg-muted/60 prose-th:px-3 prose-th:py-1.5 prose-th:text-left prose-td:px-3 prose-td:py-1.5 prose-td:align-top',
         '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
         className,
       )}
     >
-      <Markdown>{content}</Markdown>
+      <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+        {content}
+      </Markdown>
     </div>
   );
 }

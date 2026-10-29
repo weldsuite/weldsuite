@@ -1,0 +1,11 @@
+apiVersion: v2
+name: weldsuite
+description: The WeldSuite backend (the Rust API server) for Kubernetes, the EU and self-hosted editions.
+type: application
+version: 0.1.0
+appVersion: "0.0.0"
+home: https://github.com/weldsuite/weldsuite
+sources:
+  - https://github.com/weldsuite/weldsuite/tree/develop/rust
+keywords:
+  - weldsuite

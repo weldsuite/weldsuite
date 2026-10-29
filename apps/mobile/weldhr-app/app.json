@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.weldsuite.weldhr",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationCategoryType": "public.app-category.business"
       }
     },
     "android": {
@@ -23,6 +24,16 @@
       "package": "com.weldsuite.weldhr",
       "permissions": [
         "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "com.google.android.gms.permission.AD_ID"
       ]
     },
     "plugins": [
@@ -43,9 +54,6 @@
                 "modular_headers": true
               }
             ]
-          },
-          "android": {
-            "usesCleartextTraffic": true
           }
         }
       ],
@@ -101,7 +109,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "00000000-0000-0000-0000-000000000000"
+        "projectId": "8464ff51-e6c8-44ba-95bc-908430b0291e"
       }
     },
     "owner": "weldsuite",

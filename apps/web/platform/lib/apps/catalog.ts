@@ -145,6 +145,14 @@ const FALLBACK_CATALOG: Record<string, AppDefinition> = {
     category: 'Productivity',
     path: '/weldsign',
   },
+  weldpanel: {
+    code: 'weldpanel',
+    name: 'WeldPanel',
+    description: 'See how people use your website or app: traffic, funnels and retention, with session recordings and heatmaps',
+    icon: 'ChartSpline',
+    category: 'Sales & Marketing',
+    path: '/weldpanel',
+  },
   welddocs: {
     code: 'welddocs',
     name: 'WeldDocs',

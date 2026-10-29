@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertCircle, MoreVertical } from 'lucide-react';
@@ -19,6 +19,12 @@ import { definitionOf, draftOf, newDraft, type SourceDraft } from './data-source
 import { DataSourceForm, useFieldLabel } from './data-source-form';
 
 export const dataSourcesQueryKey = (sheetId: string) => [...sheetsQueryKey, 'data-sources', sheetId] as const;
+
+/** The sheet's connected tables (the panel lists them; the grid names their chips after them). */
+export function useDataSources(sheetId: string) {
+  const sheets = useAppApi().sheets;
+  return useQuery({ queryKey: dataSourcesQueryKey(sheetId), queryFn: async () => (await sheets.dataSources(sheetId)).data });
+}
 
 /** The table being connected (source null) or changed. */
 interface Editing {
@@ -64,8 +70,8 @@ export function DataPanel({
   people: Person[];
   onClose: () => void;
 }) {
-  // The page made this element once: follow the selection (where a new table starts) here.
-  useSyncExternalStore(controller.subscribe, controller.getVersion);
+  // The page made this element once: follow the workbook (where tables are) and requests from the grid here.
+  const version = useSyncExternalStore(controller.subscribe, controller.getVersion);
   const { t } = useI18n();
   const td = t.weldsheets.dataSources;
   const sheets = useAppApi().sheets;
@@ -73,10 +79,12 @@ export function DataPanel({
   const { can } = usePermissions();
   const label = useFieldLabel();
   const key = dataSourcesQueryKey(sheetId);
-  const list = useQuery({ queryKey: key, queryFn: async () => (await sheets.dataSources(sheetId)).data });
+  const list = useDataSources(sheetId);
   const readable = SHEET_DATA_OBJECT_KEYS.filter((k) => can(SHEET_DATA_OBJECTS[k].permission));
   const [editing, setEditing] = useState<Editing | null>(null);
   const [removing, setRemoving] = useState<SheetDataSource | null>(null);
+  /** A table just connected: shown (its new tab opened) once its first refresh reaches the workbook. */
+  const [arriving, setArriving] = useState<string | null>(null);
   const refetch = () => queryClient.invalidateQueries({ queryKey: key });
 
   const report = (result: SheetDataRefreshResult) => {
@@ -88,13 +96,13 @@ export function DataPanel({
     mutationFn: async ({ source, draft }: Editing) => {
       const definition = definitionOf(draft);
       if (source) return (await sheets.updateDataSource(sheetId, source.id, { definition, refresh: draft.refresh })).data;
-      const { row, col } = controller.selection.active;
-      const target = { tabId: controller.activeSheetId, row, col };
+      const target = { newTab: t.sheetData.objects[draft.objectType] };
       return (await sheets.createDataSource(sheetId, { objectType: draft.objectType, definition, refresh: draft.refresh, target })).data;
     },
-    onSuccess: (result) => {
+    onSuccess: (result, { source }) => {
       setEditing(null);
       report(result);
+      if (!source && result.refreshed) setArriving(result.source.id);
       void refetch();
     },
     onError: () => toast.error(td.failed),
@@ -120,8 +128,26 @@ export function DataPanel({
     const first = readable[0];
     if (first) setEditing({ source: null, draft: newDraft(first, label) });
   };
-  const { row, col } = controller.selection.active;
   const sources = list.data;
+
+  // The new table's tab arrives over the room, after the request that wrote it.
+  useEffect(() => {
+    if (!arriving || !findDataTable(controller.engine, arriving)) return;
+    setArriving(null);
+    showTable(controller, arriving);
+  }, [arriving, controller, version]);
+
+  // A refresh, edit or disconnect asked for from a table's chip on the grid.
+  const refreshSource = refresh.mutate;
+  useEffect(() => {
+    if (!sources || !controller.tableRequest) return;
+    const request = controller.takeTableRequest()!;
+    const source = sources.find((s) => s.id === request.id);
+    if (!source || !canEdit) return;
+    if (request.action === 'refresh') refreshSource(source);
+    else if (request.action === 'edit') setEditing({ source, draft: draftOf(source) });
+    else setRemoving(source);
+  }, [sources, controller, canEdit, refreshSource, version]);
 
   return (
     <RulePanel title={td.title} closeLabel={td.close} onClose={onClose}>
@@ -138,7 +164,7 @@ export function DataPanel({
           onChange={(draft) => setEditing({ ...editing, draft })}
           objects={editing.source ? [] : readable}
           onObjectChange={(objectType: SheetDataObjectKey) => setEditing({ ...editing, draft: newDraft(objectType, label) })}
-          at={editing.source ? undefined : `${controller.sheet.name}!${formatA1(row, col)}`}
+          at={editing.source ? undefined : t.sheetData.objects[editing.draft.objectType]}
           saving={save.isPending}
           onSave={() => save.mutate(editing)}
           onCancel={() => setEditing(null)}

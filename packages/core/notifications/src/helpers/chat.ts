@@ -54,6 +54,45 @@ export async function sendChatMentionNotification<Env extends NotificationEnv>(
   });
 }
 
+interface ChatAgentReplyParams<Env extends NotificationEnv> {
+  db: Database;
+  env: Env;
+  workspaceId: string;
+  /** The person the agent answered. */
+  recipientUserId: string;
+  agentId: string;
+  agentName: string;
+  channelId: string;
+  messageId: string;
+  preview: string;
+}
+
+/** A workspace agent answered someone in a room: "<agent> replied to you", not a mention. */
+export async function sendChatAgentReplyNotification<Env extends NotificationEnv>(
+  params: ChatAgentReplyParams<Env>,
+): Promise<string | null> {
+  const { db, env, workspaceId, recipientUserId, agentId, agentName, channelId, messageId, preview } = params;
+  return createAndDeliverNotification({
+    db,
+    env,
+    workspaceId,
+    userId: recipientUserId,
+    title: `${agentName} replied to you`,
+    body: preview,
+    category: 'weldchat',
+    // A reply, so it lists under the chat activity "replies" filter.
+    notificationType: 'chat_thread_reply',
+    entityType: 'chat_message',
+    entityId: messageId,
+    actionUrl: `/weldchat/${channelId}?messageId=${messageId}`,
+    severity: 'info',
+    actorType: 'user',
+    actorId: agentId,
+    excludeChannels: ['email'],
+    data: { chatChannelId: channelId },
+  });
+}
+
 interface ChatThreadReplyParams<Env extends NotificationEnv> {
   db: Database;
   env: Env;

@@ -11,11 +11,16 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { RealtimePublisher } from '@weldsuite/realtime/server';
-import { sendChatMentionNotification } from '@weldsuite/notifications';
+import {
+  sendChatAgentReplyNotification,
+  sendChatMentionNotification,
+  stripMarkdown,
+} from '@weldsuite/notifications';
 import type { NotificationEnv } from '@weldsuite/notifications/types';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { SEARCH_ENTITY_TYPES_SET } from '@weldsuite/core-api-client/schemas/search';
 import { buildMessagePreview } from './message-preview';
 import type { ChatReplyReference } from './reply-reference';
 
@@ -54,6 +59,11 @@ export interface PostAgentChatMessageContext {
   invokerUserId: string;
 }
 
+/**
+ * The mention ids in `content`, after `extra`. A record reference
+ * (`<@sheet:sht_1|Budget>`, a type from `SEARCH_ENTITY_TYPES`) mentions nobody,
+ * so it adds nothing: its type word is not a user id.
+ */
 export function extractChatMentions(content: string, extra: string[] = []): string[] {
   const found: string[] = [...extra];
   const mentionRegex = /<@([^>]+)>/g;
@@ -66,6 +76,7 @@ export function extractChatMentions(content: string, extra: string[] = []): stri
       mentionId &&
       mentionId !== 'everyone' &&
       !mentionId.startsWith('entity:') &&
+      !(colonIdx !== -1 && SEARCH_ENTITY_TYPES_SET.has(mentionId)) &&
       !found.includes(mentionId)
     ) {
       found.push(mentionId);
@@ -140,12 +151,14 @@ function isPersonMention(id: string): boolean {
 /**
  * Unread-mention counter, realtime ping and notification for each person the
  * reply mentions or is for. Room members only; failures are logged, never thrown.
+ * People the reply is only for (`replyTo`: they asked, nobody wrote their
+ * name) hear "<agent> replied to you"; people it names hear "mentioned you".
  */
 async function notifyMentionedPeople(
   rt: RealtimePublisher | null,
   ctx: PostAgentChatMessageContext,
   members: RoomMember[],
-  message: { messageId: string; preview: string; mentions: string[] },
+  message: { messageId: string; preview: string; mentions: string[]; replyTo: ReadonlySet<string> },
 ): Promise<void> {
   const { db, env, orgId, channelId, agentId, agentName } = ctx;
   const { chatChannelMembers } = schema;
@@ -175,17 +188,31 @@ async function notifyMentionedPeople(
         console.error('[chat-domain] agent mention realtime publish failed:', e);
       }
       try {
-        await sendChatMentionNotification({
-          db: db as never,
-          env,
-          workspaceId: orgId,
-          mentionedUserId: userId,
-          authorUserId: agentId,
-          authorName: agentName,
-          channelId,
-          messageId: message.messageId,
-          preview: message.preview,
-        });
+        if (message.replyTo.has(userId)) {
+          await sendChatAgentReplyNotification({
+            db: db as never,
+            env,
+            workspaceId: orgId,
+            recipientUserId: userId,
+            agentId,
+            agentName,
+            channelId,
+            messageId: message.messageId,
+            preview: message.preview,
+          });
+        } else {
+          await sendChatMentionNotification({
+            db: db as never,
+            env,
+            workspaceId: orgId,
+            mentionedUserId: userId,
+            authorUserId: agentId,
+            authorName: agentName,
+            channelId,
+            messageId: message.messageId,
+            preview: message.preview,
+          });
+        }
       } catch (e) {
         console.error('[chat-domain] agent mention notification failed:', e);
       }
@@ -198,9 +225,17 @@ async function publishAgentMessageRealtime(
   rt: RealtimePublisher,
   ctx: PostAgentChatMessageContext,
   members: RoomMember[],
-  message: { id: string; content: string; parentId?: string | null; replyTo?: ChatReplyReference },
+  message: {
+    id: string;
+    content: string;
+    parentId?: string | null;
+    replyTo?: ChatReplyReference;
+    /** What the caller attached (e.g. `approvals`), so a live message renders like a fetched one. */
+    metadata?: Record<string, unknown>;
+  },
 ): Promise<void> {
   const { orgId, channelId, agentId, agentName, agentIcon } = ctx;
+  const hasMetadata = message.metadata !== undefined && Object.keys(message.metadata).length > 0;
 
   try {
     await rt.chatMessage(channelId, {
@@ -212,6 +247,7 @@ async function publishAgentMessageRealtime(
       authorType: 'agent',
       threadId: message.parentId ?? undefined,
       replyTo: message.replyTo,
+      ...(hasMetadata ? { metadata: message.metadata } : {}),
     });
   } catch (e) {
     console.error('[app-api/chat] agent message realtime publish failed:', e);
@@ -241,10 +277,13 @@ export async function postAgentChatMessage(
   const id = generateId('msg');
   const now = new Date();
   const hop = input.hop ?? 0;
+  const namedMentions = extractChatMentions(input.content, input.mentions ?? []);
   const allMentions = extractChatMentions(input.content, [
     ...(input.mentions ?? []),
     ...(input.notifyUserIds ?? []),
   ]);
+  // Asked, but not named: these hear "replied to you", not "mentioned you".
+  const replyTo = new Set((input.notifyUserIds ?? []).filter((userId) => !namedMentions.includes(userId)));
 
   await db.insert(chatMessages).values({
     id,
@@ -267,7 +306,8 @@ export async function postAgentChatMessage(
     updatedAt: now,
   });
 
-  const preview = await buildMessagePreview(db, input.content);
+  // Agents write markdown; the room list and notifications show plain text.
+  const preview = await buildMessagePreview(db, stripMarkdown(input.content));
   await db
     .update(chatChannels)
     .set({
@@ -298,9 +338,10 @@ export async function postAgentChatMessage(
       content: input.content,
       parentId: input.parentId,
       replyTo: input.replyTo ?? undefined,
+      metadata: input.metadata,
     });
   }
-  await notifyMentionedPeople(rt, ctx, members, { messageId: id, preview, mentions: allMentions });
+  await notifyMentionedPeople(rt, ctx, members, { messageId: id, preview, mentions: allMentions, replyTo });
 
   return message;
 }

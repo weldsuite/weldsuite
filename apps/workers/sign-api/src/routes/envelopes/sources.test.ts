@@ -71,7 +71,7 @@ const storage = memoryBucket();
 
 function app(grants: string[] = [...SIGN, ...CRM, 'files:read'], userId = 'user_alice') {
   return createTestApp(BASE, envelopesRoutes, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId, workspaceId: ORG, orgId: ORG },
+    context: { permissions: permissions(...grants), tenantDb: db, userId, orgId: ORG },
     env: { PRIVATE_STORAGE: storage.bucket },
   });
 }

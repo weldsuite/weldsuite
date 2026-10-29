@@ -33,6 +33,7 @@ let shared: string;
 let privateAssigned: string;
 let privateUnassigned: string;
 let privateMessage: string;
+let withCredentials: string;
 
 async function seedMember(userId: string, role: string) {
   const now = new Date();
@@ -85,6 +86,14 @@ beforeAll(async () => {
   shared = await seedAccount({ isShared: true });
   privateAssigned = await seedAccount({ isShared: false, assignedUserIds: [ASSIGNEE] });
   privateUnassigned = await seedAccount({ isShared: false, assignedUserIds: null });
+  withCredentials = await seedAccount({
+    isShared: true,
+    accessToken: 'secret-access-token',
+    refreshToken: 'secret-refresh-token',
+    apiKey: 'secret-api-key',
+    passwordHash: 'secret-password-hash',
+    providerConfig: { clientId: 'secret-client-id' },
+  });
 
   await seedMessage(shared);
   privateMessage = await seedMessage(privateAssigned);
@@ -144,6 +153,34 @@ describe('listMailAccounts', () => {
 
   it('lists a private mailbox for its assignee', async () => {
     expect(await listedIds(ASSIGNEE)).toContain(privateAssigned);
+  });
+});
+
+// Bug fix: `GET /api/mail-accounts` used to `select()` every column, so the
+// list and detail responses carried the encrypted credentials straight to
+// the browser.
+describe('credential columns never come back from the service layer', () => {
+  it('listMailAccounts omits credentials and provider secrets', async () => {
+    const { data } = await listMailAccounts(db, ADMIN, { limit: 100, scope: 'manage' });
+    const row = data.find((a) => a.id === withCredentials);
+    expect(row).toBeDefined();
+    expect(row).not.toHaveProperty('accessToken');
+    expect(row).not.toHaveProperty('refreshToken');
+    expect(row).not.toHaveProperty('apiKey');
+    expect(row).not.toHaveProperty('passwordHash');
+    expect(row).not.toHaveProperty('providerConfig');
+    // Sanity: the row is still otherwise intact.
+    expect(row?.isShared).toBe(true);
+  });
+
+  it('getMailAccount omits credentials and provider secrets', async () => {
+    const row = await getMailAccount(db, withCredentials, ADMIN);
+    expect(row).not.toBeNull();
+    expect(row).not.toHaveProperty('accessToken');
+    expect(row).not.toHaveProperty('refreshToken');
+    expect(row).not.toHaveProperty('apiKey');
+    expect(row).not.toHaveProperty('passwordHash');
+    expect(row).not.toHaveProperty('providerConfig');
   });
 });
 

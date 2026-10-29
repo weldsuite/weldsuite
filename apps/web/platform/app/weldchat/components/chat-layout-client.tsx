@@ -14,7 +14,6 @@ import { usePathname } from '@/lib/router';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { AgentProfilePanel } from './agent-profile-panel';
 import { ChatHeader } from './chat-header';
-import { MemberListPanel } from './member-list-panel';
 import { PinnedMessagesPanel } from './pinned-messages-panel';
 import { ThreadPanel } from './thread-panel';
 import { BookmarksPanel } from './bookmarks-panel';
@@ -36,11 +35,10 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // Sibling routes (`dm`, `activity`, `drafts`, `directories`, `bookmarks`, `records`,
   // `search`, `thread`) are not conversations and never count as a channel id,
   // so they trigger no channel fetches or panels.
-  const { channelId: currentChannelId, isChannelPage, isDmPage } = parseWeldChatPath(pathname);
+  const { channelId: currentChannelId, isDmPage } = parseWeldChatPath(pathname);
 
-  // Initial value picked by the effect below once the current channel has
-  // been fetched — entity channels default to the linked-entity view, normal
-  // channels default to the member list.
+  // The right-hand rail: a thread, pinned messages, bookmarks or the filters. The
+  // channel's people and details live in the object panel (ChannelPanel), not here.
   const [rightPanelState, setRightPanelState] = useState<RightPanel>(null);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   // The thread remembers the channel it was opened in: a thread is only valid
@@ -58,11 +56,6 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
   // (panel → panel swaps should be instant). Reset to false on close so a
   // fresh open animates normally.
   const [skipProfilePanelAnim, setSkipProfilePanelAnim] = useState(false);
-
-  // Clear any stale 'members' rail-panel selection when the channel changes.
-  useEffect(() => {
-    setRightPanelState((prev) => (prev === 'members' ? null : prev));
-  }, [isChannelPage, currentChannelId]);
 
   // Drop a thread that belongs to the previous channel, and a half-made reply /
   // edit, which also point at a message of the old channel. The panel itself is
@@ -305,7 +298,6 @@ export function ChatLayoutClient({ children }: Readonly<{ children: ReactNode }>
                       makes the panel fill the remaining height below the
                       close bar. */}
                   <div className="max-md:flex-1 max-md:min-h-0 max-md:overflow-hidden md:contents">
-                    {effectiveRightPanel === 'members' && <MemberListPanel channelId={currentChannelId} />}
                     {effectiveRightPanel === 'pinned' && <PinnedMessagesPanel channelId={currentChannelId} />}
                     {effectiveRightPanel === 'bookmarks' && <BookmarksPanel />}
                     {effectiveRightPanel === 'filters' && <ChatFiltersPanel />}

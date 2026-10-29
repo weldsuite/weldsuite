@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ArgsError, markdownTarget, parseArgs } from './args';
 
 describe('parseArgs', () => {
-  it('defaults to 30 days, every workspace, markdown to stdout', () => {
+  it('defaults to 30 days, every workspace, markdown to stdout, postgres mail source', () => {
     const options = parseArgs([]);
     expect(options).toEqual({
       days: 30,
@@ -13,6 +13,7 @@ describe('parseArgs', () => {
       redact: false,
       top: 5,
       env: null,
+      mailSource: 'postgres',
       help: false,
     });
     expect(markdownTarget(options)).toBe('stdout');
@@ -29,6 +30,7 @@ describe('parseArgs', () => {
       '--redact',
       '--top', '10',
       '--env', 'production',
+      '--mail-source', 'auto',
     ]);
     expect(options).toMatchObject({
       days: 7,
@@ -39,8 +41,14 @@ describe('parseArgs', () => {
       redact: true,
       top: 10,
       env: 'production',
+      mailSource: 'auto',
     });
     expect(markdownTarget(options)).toEqual({ file: 'reports/prod.md' });
+  });
+
+  it('accepts export as a mail source and rejects an unknown one', () => {
+    expect(parseArgs(['--mail-source', 'export']).mailSource).toBe('export');
+    expect(() => parseArgs(['--mail-source', 'ledger'])).toThrow('--mail-source must be one of postgres, export, auto');
   });
 
   it('sends JSON to stdout instead of markdown when --json has no file', () => {

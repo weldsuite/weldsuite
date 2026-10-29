@@ -43,7 +43,8 @@ export type ApiModuleId =
   | 'reach'
   | 'sheets'
   | 'sign'
-  | 'docs';
+  | 'docs'
+  | 'panel';
 
 export interface ApiModule {
   id: ApiModuleId;
@@ -70,7 +71,23 @@ export interface ApiModule {
    * WeldAgent, which is workspace-level and metered by credits.
    */
   apps: readonly string[] | null;
+  /**
+   * Ported to the Rust backend (`rust/`, ADR API-014): its conformance suite
+   * passes, so the Kubernetes editions (EU, self-hosted) serve it. The Rust
+   * server mounts only these, and their `/config.json` offers only these.
+   * Global ignores the flag: it always runs the TypeScript worker. Set it by
+   * adding the id to `RUST_PORTED_MODULES` (playbook step 6), then run
+   * `pnpm rust:catalogs`.
+   */
+  rust: boolean;
 }
+
+/**
+ * Modules the Rust backend serves (see `ApiModule.rust`). A module listed
+ * here must have a suite in rust/conformance/suites.json; the Rust catalogs
+ * tests check that.
+ */
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>([]);
 
 const mod = (
   id: ApiModuleId,
@@ -84,6 +101,7 @@ const mod = (
   devPort,
   prefixes,
   apps,
+  rust: RUST_PORTED_MODULES.has(id),
 });
 
 export const API_MODULES: readonly ApiModule[] = [
@@ -428,6 +446,10 @@ export const API_MODULES: readonly ApiModule[] = [
   mod('sign', 8823, ['weldsign'], ['/api/sign']),
   // WeldDocs. Its worker is docs-api (with the DocRoom Durable Object).
   mod('docs', 8824, ['welddocs'], ['/api/docs']),
+  // WeldPanel (product analytics and session recordings,
+  // docs/plans/weldpanel.md). Tracked sites never call this worker: they send
+  // to the public collector apps/workers/panel-ingest on its own host.
+  mod('panel', 8825, ['weldpanel'], ['/api/panel']),
 ];
 
 const BY_ID = new Map(API_MODULES.map((m) => [m.id, m]));
@@ -502,8 +524,9 @@ export function missingLicensedApp(module: ApiModule, licensedApps: ReadonlySet<
  * paths also open to the apps of the module that owns the record. The WeldChat
  * lists (`/api/chat-entity-channels`, `/summary`) stay WeldChat's.
  */
-const RECORD_CHAT_PREFIX = '/api/chat-entity-channels/';
-const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
+/** A record's chat opens to the apps of the record's module too (`licenceAppsForPath`). */
+export const RECORD_CHAT_PREFIX = '/api/chat-entity-channels/';
+export const RECORD_CHAT_OWNER: Readonly<Record<string, ApiModuleId>> = {
   company: 'crm',
   person: 'crm',
   contact: 'crm',

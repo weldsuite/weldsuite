@@ -29,7 +29,13 @@ export { logSafe } from './log-safe';
 export { clerkMiddleware } from './middleware/clerk';
 export { featureFlagsMiddleware } from './middleware/feature-flags';
 export { licenceGate } from './middleware/licence-gate';
+export {
+  PERMISSIONS_CACHE_TTL_SECONDS,
+  resolveEffectivePermissionsCached,
+  type PermissionsCacheEnv,
+} from './permission-cache';
 export { requestId } from './middleware/request-id';
+export { requestTiming, RequestTiming, type TimingMetric, type TimingSummary } from './timing';
 export { workspaceDbMiddleware } from './middleware/workspace-db';
 export {
   computeWorkspaceRestrictions,

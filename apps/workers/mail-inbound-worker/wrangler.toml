@@ -34,6 +34,23 @@ id = "748b8f38937f4807b3978cacb17e1880"
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
 
+# EU-jurisdiction bucket for mail bodies + raw MIME
+# (docs/plans/weldmail-mailbox-store-design.md decision 7). Created with
+# `wrangler r2 bucket create weldsuite-mail-dev --jurisdiction eu` (ops step).
+[[r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-dev"
+jurisdiction = "eu"
+
+# The mailbox Durable Object, owned by mail-api (design §8). Bound by
+# `script_name` to mail-api's own local dev name — never `idFromName`d here
+# directly; `@weldsuite/mail-domain/store`'s `getWorkspaceMail` is the only
+# call site (design §2's `mailboxStub`).
+[[durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-dev"
+
 [[services]]
 binding = "REALTIME"
 service = "weldsuite-realtime"
@@ -68,6 +85,20 @@ binding = "AI"
 [[env.test.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage-test"
+
+[[env.test.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail-test"
+jurisdiction = "eu"
+
+[[env.test.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api-test"
+
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -107,6 +138,20 @@ binding = "AI"
 [[env.production.r2_buckets]]
 binding = "STORAGE"
 bucket_name = "weldsuite-storage"
+
+[[env.production.r2_buckets]]
+binding = "MAIL_STORAGE"
+bucket_name = "weldsuite-mail"
+jurisdiction = "eu"
+
+[[env.production.durable_objects.bindings]]
+name = "MAILBOX_STORE"
+class_name = "MailboxStoreObject"
+script_name = "weldsuite-mail-api"
+
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"

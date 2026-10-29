@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -10,5 +11,11 @@ export default defineConfig({
     // matching the app-api / workflow-worker convention.
     reporters: ['default', 'junit'],
     outputFile: { junit: './test-results/vitest-junit.xml' },
+  },
+  resolve: {
+    alias: {
+      // Workers-only module: the UsageMeter Durable Object extends its base class.
+      'cloudflare:workers': path.resolve(__dirname, '../worker-kit/src/testing/cloudflare-workers-stub.ts'),
+    },
   },
 });

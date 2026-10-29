@@ -77,6 +77,8 @@ describe('executeDecidedApproval', () => {
     expect(persistAssistantMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: 'conv_1',
+        // What was done, in words: never the tool's name.
+        content: 'Approved — created the task "Follow up".',
         metadata: { kind: 'approval_outcome', approvalId: 'apr_1' },
       }),
     );
@@ -109,7 +111,9 @@ describe('executeDecidedApproval', () => {
     });
     expect(res).toEqual({ ran: true, ok: false, error: 'db down' });
     expect(persistAssistantMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining('failed: db down') }),
+      expect.objectContaining({
+        content: 'Approved, but I could not create the task "Follow up": db down',
+      }),
     );
   });
 
@@ -126,7 +130,7 @@ describe('executeDecidedApproval', () => {
     expect(persistAssistantMessage).not.toHaveBeenCalled();
     expect(postAgentChatMessage).toHaveBeenCalledWith(
       expect.objectContaining({ channelId: 'ch_1', agentId: 'agt_1' }),
-      expect.objectContaining({ content: expect.stringContaining('Approved and done') }),
+      expect.objectContaining({ content: 'Approved — created the task "X".' }),
     );
   });
 
@@ -144,7 +148,7 @@ describe('executeDecidedApproval', () => {
     expect(res).toEqual({ ran: false, ok: true });
     expect(spy).not.toHaveBeenCalled();
     expect(persistAssistantMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining('rejected') }),
+      expect.objectContaining({ content: 'Rejected — I did not create the task "Follow up".' }),
     );
   });
 });

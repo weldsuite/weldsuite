@@ -285,6 +285,7 @@ const WORKFLOW_CALL_CONCURRENCY = 10;
 const ENROLLMENT_ID_CHUNK = 200;
 
 interface SequenceRunContext {
+  /** Clerk org id: it becomes the EXECUTE_SEQUENCE workflow's `workspaceId` param. */
   workspaceId: string;
   userId: string;
   sequenceId: string;
@@ -494,7 +495,7 @@ app.post(
   zValidator('json', enrollSchema),
   async (c) => {
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const userId = c.get('userId');
     const sequenceId = c.req.param('id');
     const { personIds, customerIds } = c.req.valid('json');
@@ -605,7 +606,7 @@ app.post(
         .returning({ id: e.id, customerId: e.customerId });
 
       if (isActiveSequence) {
-        await startEnrollmentRuns(c, db, { workspaceId, userId, sequenceId }, inserted);
+        await startEnrollmentRuns(c, db, { workspaceId: clerkOrgId, userId, sequenceId }, inserted);
       }
 
       return success(c, {
@@ -633,7 +634,7 @@ app.post(
  */
 app.post('/:id/launch', requirePermission('contacts:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   const userId = c.get('userId');
   const sequenceId = c.req.param('id');
 
@@ -658,7 +659,7 @@ app.post('/:id/launch', requirePermission('contacts:update'), async (c) => {
       return error.badRequest(c, 'Enroll at least one person before launching this sequence');
     }
 
-    const { activated } = await activateSequence(c, db, { workspaceId, userId, sequenceId }, { resumePaused: false });
+    const { activated } = await activateSequence(c, db, { workspaceId: clerkOrgId, userId, sequenceId }, { resumePaused: false });
 
     publishEntityEvent({
       c,
@@ -682,7 +683,7 @@ app.post('/:id/launch', requirePermission('contacts:update'), async (c) => {
  */
 app.post('/:id/start', requirePermission('contacts:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   const userId = c.get('userId');
   const sequenceId = c.req.param('id');
 
@@ -694,7 +695,7 @@ app.post('/:id/start', requirePermission('contacts:update'), async (c) => {
       .limit(1);
     if (!sequence) return error.notFound(c, 'Sequence', sequenceId);
 
-    const triggered = await startPendingRuns(c, db, { workspaceId, userId, sequenceId });
+    const triggered = await startPendingRuns(c, db, { workspaceId: clerkOrgId, userId, sequenceId });
 
     return success(c, { triggered });
   } catch (err) {
@@ -714,7 +715,7 @@ app.post('/:id/start', requirePermission('contacts:update'), async (c) => {
  */
 app.post('/:id/resume', requirePermission('contacts:update'), async (c) => {
   const db = c.get('tenantDb');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   const userId = c.get('userId');
   const sequenceId = c.req.param('id');
 
@@ -729,7 +730,7 @@ app.post('/:id/resume', requirePermission('contacts:update'), async (c) => {
     const { activated, resumed } = await activateSequence(
       c,
       db,
-      { workspaceId, userId, sequenceId },
+      { workspaceId: clerkOrgId, userId, sequenceId },
       { resumePaused: true },
     );
 
@@ -841,7 +842,7 @@ app.patch(
   requirePermission('contacts:update'),
   async (c) => {
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    const clerkOrgId = c.get('clerkOrgId');
     const userId = c.get('userId');
     const sequenceId = c.req.param('sequenceId');
     const enrollmentId = c.req.param('enrollmentId');
@@ -878,7 +879,7 @@ app.patch(
         await wakeRuns(c, [existing.executionId]);
       } else {
         // Never started (e.g. paused before its first run): start it now.
-        await startEnrollmentRuns(c, db, { workspaceId, userId, sequenceId }, [
+        await startEnrollmentRuns(c, db, { workspaceId: clerkOrgId, userId, sequenceId }, [
           { id: enrollmentId, customerId: existing.customerId },
         ]);
       }

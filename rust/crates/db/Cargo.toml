@@ -1,0 +1,31 @@
+[package]
+name = "weldsuite-db"
+description = "Master and tenant databases: workspace resolution, tenant connection pools and the permission lookups"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-permissions = { workspace = true }
+aws-lc-rs = { workspace = true }
+axum = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["formatting", "macros", "parsing"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+weldsuite-permissions = { workspace = true }
+weldsuite-pipeline = { workspace = true }
+# rt-multi-thread, sync and time: the spike tool in examples/tenant_bench.
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,7 @@
+# Pinned so CI, local builds and the release image compile with the same
+# compiler. Bump deliberately, in its own PR, together with `rust-version` in
+# Cargo.toml.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

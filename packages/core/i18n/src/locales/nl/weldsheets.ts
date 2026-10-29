@@ -52,6 +52,11 @@ export const weldsheets = {
     count: 'Aantal',
     min: 'Min',
     max: 'Max',
+    addRows: 'Toevoegen',
+    addRowsCount: 'Aantal rijen om toe te voegen',
+    addRowsSuffix: 'extra rijen onderaan',
+    suggestions: 'Formulesuggesties',
+    namedRange: 'Benoemd bereik',
   },
 
   toolbar: {
@@ -536,7 +541,10 @@ export const weldsheets = {
       hourly: 'Elk uur',
       daily: 'Elke dag',
     },
-    at: 'Begint bij {cell}. Selecteer een andere cel om hem te verplaatsen.',
+    at: 'Komt op een nieuw tabblad, {name}.',
+    table: 'Tabel',
+    filterTable: 'Tabel filteren',
+    unfilterTable: 'Filter verwijderen',
     save: 'Opslaan',
     cancel: 'Annuleren',
     rows: '{count} records',
@@ -559,7 +567,16 @@ export const weldsheets = {
       no_permission: 'De persoon die deze tabel koppelde kan deze records niet meer lezen. Bewerk hem om ze met jouw toegang te tonen.',
       no_access: 'De persoon die deze tabel koppelde kan de sheet niet meer bewerken. Bewerk hem om ze met jouw toegang te tonen.',
       failed: 'De records konden niet worden opgehaald. Probeer het later opnieuw.',
-      unplaced: 'De tabel past niet meer op zijn plek: het tabblad is verwijderd of de sheet heeft te weinig rijen of kolommen.',
+      unplaced: 'De tabel kon niet worden geschreven: het tabblad is verwijderd of hij past niet op de sheet.',
+    },
+  },
+
+  /** Het WeldAgent-paneel naast een geopende sheet. */
+  agent: {
+    suggestions: {
+      summarize: 'Vat deze sheet samen',
+      totals: 'Voeg onder de selectie een totaalrij toe',
+      explain: 'Leg de formules in de selectie uit',
     },
   },
 };

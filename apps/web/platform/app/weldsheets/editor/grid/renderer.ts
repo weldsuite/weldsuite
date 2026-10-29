@@ -11,8 +11,6 @@ const DEFAULT_FONT_PT = 10;
 const CELL_PADDING = 4;
 /** How far left of the viewport to look for text that overflows into it. */
 const OVERFLOW_LOOKBEHIND = 30;
-/** Outline of a connected table (WeldSuite data). */
-const DATA_TABLE_COLOR = '#4285f4';
 
 type HAlign = 'left' | 'center' | 'right';
 
@@ -136,6 +134,7 @@ function withClip(ctx: CanvasRenderingContext2D, clip: Rect, draw: () => void): 
 function drawPane(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
   if (rows.length === 0 || cols.length === 0) return;
   const sheet = state.controller.sheet;
+  if (sheet.dataTables.length) drawTableBands(ctx, state, rows, cols);
   drawFills(ctx, state, rows, cols);
   if (sheet.props.gridlines !== false) drawGridlines(ctx, state.theme, rows, cols);
   const merges = visibleMerges(sheet, rows, cols);
@@ -144,17 +143,54 @@ function drawPane(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segme
   for (const m of merges) drawCellText(ctx, state, m.r1, m.c1, rangeRect(state.layout, sheet, m), m);
   drawBorders(ctx, state, rows, cols);
   if (sheet.comments.length) drawCommentMarks(ctx, state, rows, cols);
-  if (sheet.dataTables.length) drawDataTables(ctx, state);
+  if (sheet.dataTables.length) drawTableLines(ctx, state, rows, cols);
 }
 
-/** A thin outline around connected tables: a refresh rewrites what is inside. */
-function drawDataTables(ctx: CanvasRenderingContext2D, state: RenderState): void {
-  const sheet = state.controller.sheet;
-  ctx.strokeStyle = DATA_TABLE_COLOR;
+/** The visible part of a connected table's columns in this pane: its left and right edge, or null. */
+function tableSpan(range: Range, cols: Segment[]): [number, number] | null {
+  const inside = cols.filter((c) => c.index >= range.c1 && c.index <= range.c2);
+  if (inside.length === 0) return null;
+  const last = inside[inside.length - 1]!;
+  return [inside[0]!.start, last.start + last.size];
+}
+
+/**
+ * Connected tables drawn as tables: a tinted header row and every other
+ * record banded. A cell's own fill draws over them.
+ */
+function drawTableBands(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
+  for (const { range } of state.controller.sheet.dataTables) {
+    const span = tableSpan(range, cols);
+    if (!span) continue;
+    for (const r of rows) {
+      const fill = tableRowFill(state.theme, range, r.index);
+      if (!fill) continue;
+      ctx.fillStyle = fill;
+      ctx.fillRect(span[0], r.start, span[1] - span[0], r.size);
+    }
+  }
+}
+
+/** A connected table's fill for one row: its header's, a banded record's, or none. */
+function tableRowFill(theme: GridTheme, range: Range, row: number): string | null {
+  if (row < range.r1 || row > range.r2) return null;
+  if (row === range.r1) return theme.tableHeader;
+  return (row - range.r1) % 2 === 0 ? theme.tableBand : null;
+}
+
+/** A line under each connected table's header row. */
+function drawTableLines(ctx: CanvasRenderingContext2D, state: RenderState, rows: Segment[], cols: Segment[]): void {
+  ctx.strokeStyle = state.theme.tableLine;
   ctx.lineWidth = 1;
-  for (const table of sheet.dataTables) {
-    const rect = rangeRect(state.layout, sheet, table.range);
-    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+  for (const { range } of state.controller.sheet.dataTables) {
+    const header = rows.find((r) => r.index === range.r1);
+    const span = header && tableSpan(range, cols);
+    if (!header || !span) continue;
+    const y = Math.round(header.start + header.size) - 0.5;
+    ctx.beginPath();
+    ctx.moveTo(span[0], y);
+    ctx.lineTo(span[1], y);
+    ctx.stroke();
   }
 }
 

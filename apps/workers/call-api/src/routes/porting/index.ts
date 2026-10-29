@@ -460,8 +460,9 @@ async function handleDocumentUpload(
   c: PortingContext<'/:id/loa' | '/:id/bill-copy'>,
   type: PortDocType,
 ) {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) return error.internal(c, 'Workspace context missing');
+  // R2 keys (port-orders/<org>/…) are keyed by the Clerk org id.
+  const orgId = c.get('clerkOrgId');
+  if (!orgId) return error.internal(c, 'Workspace context missing');
 
   const id = c.req.param('id');
   const db = c.get('tenantDb');
@@ -483,7 +484,7 @@ async function handleDocumentUpload(
   const file = form?.get('file') as unknown;
   if (!file || !(file instanceof File)) return error.badRequest(c, 'Missing "file" form field');
 
-  const stored = await storePortDocument(c, { workspaceId, portingOrderId: id, type, file });
+  const stored = await storePortDocument(c, { workspaceId: orgId, portingOrderId: id, type, file });
   if ('response' in stored) return stored.response;
   const { key, pdfBytes } = stored;
 
@@ -805,7 +806,7 @@ app.post('/:id/refresh', requirePermission(PORTING_PERMISSION), async (c) => {
 // ---------- Cancel ----------
 
 app.delete('/:id', requirePermission(PORTING_PERMISSION), async (c) => {
-  const workspaceId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
 
   const id = c.req.param('id');
   const db = c.get('tenantDb');
@@ -834,8 +835,8 @@ app.delete('/:id', requirePermission(PORTING_PERMISSION), async (c) => {
     }
   }
 
-  if (workspaceId) {
-    await deletePortDocs(c.env, workspaceId, draft.id);
+  if (orgId) {
+    await deletePortDocs(c.env, orgId, draft.id);
   }
 
   await db

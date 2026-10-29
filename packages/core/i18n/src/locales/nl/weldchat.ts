@@ -818,6 +818,7 @@ export const weldchat = {
     mentionAutocomplete: {
       agent: 'Agent',
       addToChat: 'Toevoegen aan chat',
+      agentsHeading: 'Agents',
     },
     entityDetailPanel: {
       untitledTask: 'Taak zonder titel',
@@ -873,6 +874,24 @@ export const weldchat = {
       noAgentsToInvite: 'Geen agents om toe te voegen',
       agentAdded: '{name} doet nu mee in deze chat',
       addAgentFailed: '{name} kon niet aan deze chat worden toegevoegd',
+      viewAgentProfile: 'Agentprofiel bekijken',
+      agentActions: 'Agent-acties',
+      removeAgentTitle: '{name} uit deze chat verwijderen?',
+      removeAgentDescription: '{name} reageert niet meer als iemand de agent hier noemt. Je kunt de agent op elk moment weer toevoegen.',
+      removeAgentConfirm: 'Agent verwijderen',
+      agentRemoved: '{name} is uit deze chat verwijderd',
+      removeAgentFailed: '{name} kon niet uit deze chat worden verwijderd',
+    },
+    approvalCard: {
+      waitingFor: 'Wacht op goedkeuring: {label}',
+      approve: 'Goedkeuren',
+      reject: 'Afwijzen',
+      approved: 'Goedgekeurd: {label}',
+      rejected: 'Afgewezen: {label}',
+      alreadyHandled: 'Al afgehandeld: {label}',
+      decideFailed: 'Je keuze kon niet worden verstuurd. Probeer het opnieuw.',
+      notAllowed: 'Alleen de eigenaar van de agent of de persoon die het vroeg kan dit beslissen.',
+      actionFailed: 'Goedgekeurd, maar de actie is mislukt: {error}',
     },
     messageList: {
       loadOlderMessages: 'Oudere berichten laden',

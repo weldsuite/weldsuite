@@ -41,6 +41,7 @@ import {
   addCallActionListener,
   configureNativeCalls,
   endNativeCall,
+  isCallKitAvailable,
   isNativeCallsAvailable,
   releaseLockScreen,
   reportIncomingCall,
@@ -48,8 +49,11 @@ import {
   type NativeCallAction,
 } from '@/modules/weldchat-calls';
 
-/** iPhone rings through CallKit (also over the lock screen) instead of the in-app ring screen. */
-const RINGS_THROUGH_CALLKIT = Platform.OS === 'ios' && isNativeCallsAvailable;
+/**
+ * iPhone rings through CallKit (also over the lock screen) instead of the
+ * in-app ring screen, except in mainland China, where CallKit is not allowed.
+ */
+const RINGS_THROUGH_CALLKIT = isCallKitAvailable();
 
 const RINGTONE = require('@/assets/sounds/ringtone.wav');
 

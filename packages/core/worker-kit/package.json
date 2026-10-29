@@ -25,14 +25,19 @@
     "./middleware/request-id": "./src/middleware/request-id.ts",
     "./middleware/second-factor": "./src/middleware/second-factor.ts",
     "./middleware/workspace-db": "./src/middleware/workspace-db.ts",
+    "./permission-cache": "./src/permission-cache.ts",
     "./pg-errors": "./src/pg-errors.ts",
     "./random": "./src/random.ts",
     "./response": "./src/response.ts",
     "./storage": "./src/storage.ts",
     "./testing": "./src/testing/harness.ts",
     "./testing/pglite": "./src/testing/pglite.ts",
+    "./testing/conformance": "./src/testing/conformance.ts",
     "./testing/d1": "./src/testing/d1.ts",
+    "./testing/durable-sqlite": "./src/testing/durable-sqlite.ts",
+    "./testing/r2": "./src/testing/r2.ts",
     "./testing/sweeps": "./src/testing/sweeps.ts",
+    "./timing": "./src/timing.ts",
     "./webhook-token": "./src/webhook-token.ts",
     "./workspace-moving": "./src/workspace-moving.ts"
   },
@@ -53,12 +58,14 @@
     "drizzle-orm": "^0.45.2"
   },
   "peerDependencies": {
-    "hono": "^4.0.0",
-    "@electric-sql/pglite": "^0.4.5"
+    "@electric-sql/pglite": "^0.4.5",
+    "hono": "^4.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@electric-sql/pglite": "^0.4.5",
+    "@electric-sql/pglite-socket": "0.1.5",
+    "@weldsuite/app-api-client": "workspace:*",
     "@types/node": "^20",
     "@weldsuite/typescript-config": "workspace:*",
     "hono": "4.13.13",

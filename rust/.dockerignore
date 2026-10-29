@@ -1,0 +1,4 @@
+target
+deploy
+**/tests
+*.md

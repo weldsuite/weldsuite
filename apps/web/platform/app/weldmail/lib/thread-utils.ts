@@ -8,6 +8,20 @@
 import type { MailMessageRow } from '@weldsuite/app-api-client/domains/mail-messages';
 
 /**
+ * A message as it comes back on a *thread list* (`GET /api/mail-labels/threads`,
+ * `useMailLabelThreads` / `useInfiniteMailLabelThreads`). The server stopped
+ * sending body/raw fields on that endpoint (WeldMail storage plan, phase 1
+ * item 6: https://github.com/weldsuite/weldsuite-documentation — the thread
+ * list payload was hundreds of KB to MB per page). Read a message's body from
+ * the message/thread *detail* queries (`useMailMessage`, `useMailThread`)
+ * instead — never from `ThreadSummary.messages`.
+ */
+export type ThreadListMessageRow = Omit<
+  MailMessageRow,
+  'textBody' | 'htmlBody' | 'rawMessage' | 'headers' | 'customFields' | 'clickedLinks'
+>;
+
+/**
  * Thread summary interface representing a grouped conversation
  */
 export interface ThreadSummary {
@@ -32,7 +46,8 @@ export interface ThreadSummary {
   labels: string[]; // Union of all message labels
   scheduledFor?: string | Date | null; // Scheduling time
   sendStatus?: string | null; // 'scheduled' | 'sent' | 'cancelled'
-  messages: MailMessageRow[]; // All messages in thread (for detail view)
+  /** Thread-list message rows — no bodies. See `ThreadListMessageRow`. */
+  messages: ThreadListMessageRow[];
   accountId?: string; // Present in unified view
   accountEmail?: string; // Present in unified view
   accountDisplayName?: string; // Present in unified view

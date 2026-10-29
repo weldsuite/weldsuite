@@ -7,8 +7,8 @@
  *   app.route('/api/weldpass', weldpassRoutes);      // authed
  *   export default { fetch: app.fetch };
  *
- * Global middleware (in order): request id, logger, CORS, X-Weld-App app
- * context. Also `/robots.txt`, `/health` (master DB ping) and the JSON
+ * Global middleware (in order): request id, request timing (Server-Timing),
+ * logger, CORS, X-Weld-App app context. Also `/robots.txt`, `/health` (master DB ping) and the JSON
  * notFound/onError envelope that `@weldsuite/api-client` expects. `onError`
  * answers a database that moved under the request (read-only 25006, rotated
  * password 28P01) with 503 WORKSPACE_MOVING + `Retry-After`.
@@ -31,17 +31,28 @@ import { featureFlagsMiddleware } from './middleware/feature-flags';
 import { licenceGate } from './middleware/licence-gate';
 import { requestId } from './middleware/request-id';
 import { workspaceDbMiddleware } from './middleware/workspace-db';
+import { resolveEffectivePermissionsCached } from './permission-cache';
+import { requestTiming, timePermissionQueries } from './timing';
 import { classifyMovedDatabaseError, workspaceMovingResponse } from './workspace-moving';
 
 let permissionsInitialized = false;
 
-/** Register the Drizzle-backed permission lookups once per isolate. */
+/**
+ * Register the Drizzle-backed permission lookups once per isolate, and cache
+ * the resolved result in KV (./permission-cache.ts) so `requirePermission` /
+ * `ensurePermissionsResolved` cost no tenant query at all on a cache hit.
+ */
 export function ensurePermissionMiddleware(): void {
   if (permissionsInitialized) return;
   permissionsInitialized = true;
   initPermissionMiddleware({
     createQueries: (c) =>
-      createDrizzlePermissionQueries(c.get('tenantDb'), schema, { eq, and, isNull }),
+      timePermissionQueries(
+        createDrizzlePermissionQueries(c.get('tenantDb'), schema, { eq, and, isNull }),
+        c.get('timing'),
+      ),
+    resolve: (c, queries, userId) =>
+      resolveEffectivePermissionsCached(c.env, c.get('workspaceId'), userId, queries, c.get('timing')),
   });
 }
 
@@ -65,6 +76,8 @@ export function createModuleApi<
 
   if (options.forwardModules) app.use('*', moduleForwarder({ from: options.service }) as MiddlewareHandler);
   app.use('*', requestId());
+  // Server-Timing + one log line per request that reached a workspace (./timing.ts).
+  app.use('*', requestTiming(options.service));
   app.use('*', logger());
   app.use('*', apiCors());
   // X-Weld-App → c.get('app'), read by requirePermission for app-scoped keys.
@@ -131,7 +144,7 @@ export function createModuleApi<
       // A rotated password means the URL in the cached entry is dead. Drop the
       // entry so the next request resolves the workspace from master again
       // instead of failing the same way until the TTL runs out.
-      if (moved === 'password_rotated') await forgetWorkspaceContext(c.env, orgId, c.get('internalWorkspaceId'));
+      if (moved === 'password_rotated') await forgetWorkspaceContext(c.env, orgId, c.get('workspaceId'));
       return workspaceMovingResponse(c);
     }
 

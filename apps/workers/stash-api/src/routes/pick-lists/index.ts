@@ -271,7 +271,7 @@ app.post('/:id/ship', requirePermission('picklists:update'), async (c) => {
       senderId: body.senderId,
       shippingOptionCode: body.shippingOptionCode,
       weightKg: body.weightKg,
-      workspaceId: c.get('workspaceId'),
+      clerkOrgId: c.get('clerkOrgId'),
       keyring: {
         v1: c.env.DATABASE_ENCRYPTION_KEY,
         v2: c.env.DATABASE_ENCRYPTION_KEY_V2,

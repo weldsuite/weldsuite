@@ -6,7 +6,7 @@
  * `send_email` binding.
  */
 
-import { and, asc, desc, eq, inArray, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, getTableColumns, inArray, ilike, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { schema } from '@weldsuite/worker-kit/db';
 import type { Database } from '@weldsuite/worker-kit/db';
 import {
@@ -22,6 +22,8 @@ import {
   resolveCustomLabelNames,
   SYSTEM_LABELS,
 } from './labels';
+import { labelsForFlagPatch } from './store/model';
+import { batchQueries } from './db-batch';
 
 const { mailAccounts, mailMessages, mailAttachments, mailDrafts, people: contacts } = schema;
 
@@ -55,6 +57,20 @@ export interface MessageFilters {
   excludeTrash?: boolean;
   /** Leave out spam. */
   excludeSpam?: boolean;
+  /**
+   * Exact address match across from/to/cc/bcc — the CRM Emails tab and the
+   * store's `MessageListQuery.counterparty` (design §5, §2). Unlike `from`
+   * this is case-insensitive equality, not a `LIKE` substring, and it checks
+   * every participant role, not only the sender.
+   */
+  counterparty?: string;
+  /**
+   * A pre-resolved keyset position `(sentDate, id)` — the store's
+   * `MessageCursor`, already decoded by the caller. Skips the `cursor`
+   * id-lookup below entirely; set this instead of `cursor` when the caller
+   * already has both values (design task B4).
+   */
+  cursorValue?: { sentDate: Date; id: string };
 }
 
 /** The message carries this system label. */
@@ -91,6 +107,31 @@ export function senderMatches(value: string): SQL {
 export function anyRecipientMatches(value: string): SQL {
   const pattern = containsPattern(value);
   return sql`(${recipientMatches(sql`${mailMessages.to}`, pattern)} OR ${recipientMatches(sql`${mailMessages.cc}`, pattern)})`;
+}
+
+/** One of the addresses in a recipient column matches exactly (case-insensitive), not a substring. */
+function recipientEquals(column: SQL, address: string): SQL {
+  return sql`EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(${column}) = 'array' THEN ${column} ELSE '[]'::jsonb END) AS recipient
+    WHERE lower(recipient->>'email') = ${address}
+  )`;
+}
+
+/**
+ * The message's sender or any To/Cc/Bcc recipient is exactly this address
+ * (case-insensitive) — the CRM Emails tab's `counterparty` filter (design §5:
+ * "exact address match"), as opposed to `senderMatches`/`anyRecipientMatches`,
+ * which are substring filters over From/To/Cc only.
+ */
+export function counterpartyCondition(address: string): SQL {
+  const normalized = address.trim().toLowerCase();
+  return sql`(
+    lower(${mailMessages.from}->>'email') = ${normalized}
+    OR ${recipientEquals(sql`${mailMessages.to}`, normalized)}
+    OR ${recipientEquals(sql`${mailMessages.cc}`, normalized)}
+    OR ${recipientEquals(sql`${mailMessages.bcc}`, normalized)}
+  )`;
 }
 
 /**
@@ -156,6 +197,7 @@ function buildMessageConditions(filters: MessageFilters, labelNames: string[] = 
   if (filters.threadId) conditions.push(eq(mailMessages.threadId, filters.threadId));
   if (filters.label) conditions.push(labelCondition(filters.label, labelNames));
   if (filters.from?.trim()) conditions.push(senderMatches(filters.from));
+  if (filters.counterparty?.trim()) conditions.push(counterpartyCondition(filters.counterparty));
   if (filters.excludeTrash) conditions.push(sql`NOT ${hasSystemLabel(SYSTEM_LABELS.TRASH)}`);
   if (filters.excludeSpam) conditions.push(sql`NOT ${hasSystemLabel(SYSTEM_LABELS.SPAM)}`);
 
@@ -169,7 +211,15 @@ export async function listMessages(db: Database, filters: MessageFilters) {
     : [];
   const conditions = buildMessageConditions(filters, labelNames);
 
-  if (filters.cursor) {
+  let hasCursorCondition = false;
+  if (filters.cursorValue) {
+    // Already-decoded keyset position (the store's `MessageCursor`) — no
+    // id-lookup round trip needed, unlike the legacy `cursor` string below.
+    conditions.push(
+      sql`(${mailMessages.sentDate} < ${filters.cursorValue.sentDate} OR (${mailMessages.sentDate} = ${filters.cursorValue.sentDate} AND ${mailMessages.id} < ${filters.cursorValue.id}))`,
+    );
+    hasCursorCondition = true;
+  } else if (filters.cursor) {
     const [cur] = await db
       .select({ sentDate: mailMessages.sentDate, id: mailMessages.id })
       .from(mailMessages)
@@ -179,11 +229,12 @@ export async function listMessages(db: Database, filters: MessageFilters) {
       conditions.push(
         sql`(${mailMessages.sentDate} < ${cur.sentDate} OR (${mailMessages.sentDate} = ${cur.sentDate} AND ${mailMessages.id} < ${cur.id}))`,
       );
+      hasCursorCondition = true;
     }
   }
 
   const where = and(...conditions);
-  const filterConditions = filters.cursor ? conditions.slice(0, -1) : conditions;
+  const filterConditions = hasCursorCondition ? conditions.slice(0, -1) : conditions;
   const countWhere = and(...filterConditions);
 
   const [rows, countRes] = await Promise.all([
@@ -233,6 +284,101 @@ export async function listMessages(db: Database, filters: MessageFilters) {
   return { data, hasMore, cursor, totalCount };
 }
 
+// Every `mail_messages` column except bodies, raw MIME and the two JSONB
+// blobs no list view reads — the same set `threads.ts`'s `ThreadListMessage`
+// picks (the design's lean list row, `store/types.ts` `MailMessageListRow`).
+// Redefined here rather than imported from `./threads`, which already
+// imports from this file, to avoid a module cycle.
+const {
+  textBody: _wideTextBody,
+  htmlBody: _wideHtmlBody,
+  rawMessage: _wideRawMessage,
+  headers: _wideHeaders,
+  customFields: _wideCustomFields,
+  clickedLinks: _wideClickedLinks,
+  ...wideListColumns
+} = getTableColumns(mailMessages);
+
+/**
+ * `listMessages`'s filter/pagination semantics, but the full lean-row column
+ * set (`MailMessageListRow`) instead of the ~20-column projection the live
+ * `GET /api/mail-messages` route serializes today. Used by the store (design
+ * task B4: `PostgresMailboxStore.listMessages`), which must return the
+ * contract's full `MailMessageListRow` shape; `listMessages` itself is left
+ * untouched so today's route keeps its exact response shape.
+ */
+export async function listMessagesWide(db: Database, filters: MessageFilters) {
+  const limit = Math.min(filters.limit ?? 50, 100);
+  const labelNames = filters.label
+    ? await resolveCustomLabelNames(db, filters.label, filters.accountId)
+    : [];
+  const conditions = buildMessageConditions(filters, labelNames);
+
+  let hasCursorCondition = false;
+  if (filters.cursorValue) {
+    conditions.push(
+      sql`(${mailMessages.sentDate} < ${filters.cursorValue.sentDate} OR (${mailMessages.sentDate} = ${filters.cursorValue.sentDate} AND ${mailMessages.id} < ${filters.cursorValue.id}))`,
+    );
+    hasCursorCondition = true;
+  } else if (filters.cursor) {
+    const [cur] = await db
+      .select({ sentDate: mailMessages.sentDate, id: mailMessages.id })
+      .from(mailMessages)
+      .where(eq(mailMessages.id, filters.cursor))
+      .limit(1);
+    if (cur?.sentDate) {
+      conditions.push(
+        sql`(${mailMessages.sentDate} < ${cur.sentDate} OR (${mailMessages.sentDate} = ${cur.sentDate} AND ${mailMessages.id} < ${cur.id}))`,
+      );
+      hasCursorCondition = true;
+    }
+  }
+
+  const where = and(...conditions);
+  const filterConditions = hasCursorCondition ? conditions.slice(0, -1) : conditions;
+  const countWhere = and(...filterConditions);
+
+  const [rows, countRes] = await Promise.all([
+    db
+      .select(wideListColumns)
+      .from(mailMessages)
+      .where(where)
+      .orderBy(desc(mailMessages.sentDate), desc(mailMessages.id))
+      .limit(limit + 1),
+    db.select({ count: sql<number>`count(*)::int` }).from(mailMessages).where(countWhere),
+  ]);
+
+  const hasMore = rows.length > limit;
+  const data = hasMore ? rows.slice(0, limit) : rows;
+  const cursor = hasMore && data.length > 0 ? data[data.length - 1]!.id : null;
+  const totalCount = Number(countRes[0]?.count ?? 0);
+
+  await enrichSenderContacts(db, data);
+
+  return { data, hasMore, cursor, totalCount };
+}
+
+/**
+ * Lean rows for a set of ids within one account — the store's `getMessages`
+ * (locate, bulk checks). `includeDeleted` also returns a soft-deleted row:
+ * used only to resolve a legacy pagination cursor's sort position when the
+ * message it points at was deleted since the page it came from was served
+ * (so the list doesn't restart from page 1), never to serve its content.
+ */
+export async function getLiveMessagesByIds(db: Database, accountId: string, ids: string[], opts?: { includeDeleted?: boolean }) {
+  if (ids.length === 0) return [];
+  return db
+    .select(wideListColumns)
+    .from(mailMessages)
+    .where(
+      and(
+        eq(mailMessages.accountId, accountId),
+        inArray(mailMessages.id, ids),
+        opts?.includeDeleted ? undefined : isNull(mailMessages.deletedAt),
+      ),
+    );
+}
+
 function collectSenderEmails(rows: Array<{ from: unknown }>): Set<string> {
   const senderEmails = new Set<string>();
   for (const msg of rows) {
@@ -263,23 +409,19 @@ function buildContactLookups(
 }
 
 /** `accountId::email` to display name, for senders that are the mailbox itself. */
-async function loadOwnMailboxNames(
-  db: Database,
-  rows: Array<{ accountId?: string | null }>,
-): Promise<Map<string, string>> {
-  const accountIds = [...new Set(rows.map((r) => r.accountId).filter((id): id is string => !!id))];
+function ownMailboxNameMap(
+  accounts: Array<{ id: string; email: string; displayName: string | null }>,
+): Map<string, string> {
   const names = new Map<string, string>();
-  if (accountIds.length === 0) return names;
-  const accounts = await db
-    .select({ id: mailAccounts.id, email: mailAccounts.email, displayName: mailAccounts.displayName })
-    .from(mailAccounts)
-    .where(inArray(mailAccounts.id, accountIds));
   for (const a of accounts) {
     const name = a.displayName?.trim();
     if (a.email && name) names.set(`${a.id}::${a.email.toLowerCase()}`, name);
   }
   return names;
 }
+
+type OwnMailboxAccountRow = { id: string; email: string; displayName: string | null };
+type SenderContactRow = { email: string | null; firstName: string | null; lastName: string | null; avatarUrl: string | null };
 
 /**
  * Resolve every sender's display name and avatar in place, the one rule the
@@ -294,17 +436,40 @@ export async function enrichSenderContacts(
 ): Promise<void> {
   const senderEmails = collectSenderEmails(rows);
   if (senderEmails.size === 0) return;
-  const ownNames = await loadOwnMailboxNames(db, rows);
+  const accountIds = [...new Set(rows.map((r) => r.accountId).filter((id): id is string => !!id))];
 
-  const contactRows = await db
-    .select({
-      email: contacts.email,
-      firstName: contacts.firstName,
-      lastName: contacts.lastName,
-      avatarUrl: contacts.avatarUrl,
-    })
-    .from(contacts)
-    .where(and(inArray(contacts.email, [...senderEmails]), isNull(contacts.deletedAt)));
+  const contactsQuery = (h: Database) =>
+    h
+      .select({
+        email: contacts.email,
+        firstName: contacts.firstName,
+        lastName: contacts.lastName,
+        avatarUrl: contacts.avatarUrl,
+      })
+      .from(contacts)
+      .where(and(inArray(contacts.email, [...senderEmails]), isNull(contacts.deletedAt)));
+
+  let ownNames: Map<string, string>;
+  let contactRows: SenderContactRow[];
+  if (accountIds.length === 0) {
+    // Nothing to look an own-mailbox name up for — one round trip, not two.
+    ownNames = new Map();
+    contactRows = await contactsQuery(db);
+  } else {
+    const accountsQuery = (h: Database) =>
+      h
+        .select({ id: mailAccounts.id, email: mailAccounts.email, displayName: mailAccounts.displayName })
+        .from(mailAccounts)
+        .where(inArray(mailAccounts.id, accountIds));
+    // Independent reads (neither depends on the other's result) — one round
+    // trip for both instead of two.
+    const [accounts, rows2] = (await batchQueries(db, (h) => [accountsQuery(h), contactsQuery(h)])) as [
+      OwnMailboxAccountRow[],
+      SenderContactRow[],
+    ];
+    ownNames = ownMailboxNameMap(accounts);
+    contactRows = rows2;
+  }
 
   const { nameMap, avatarMap } = buildContactLookups(contactRows);
 
@@ -442,39 +607,41 @@ export async function getMessageStats(
   const ids = typeof accountIds === 'string' ? [accountIds] : accountIds;
   if (ids.length === 0) return { ...EMPTY_STATS };
   const conditions: SQL[] = [isNull(mailMessages.deletedAt)!, inArray(mailMessages.accountId, ids)];
-  const draftConditions: SQL[] = [isNull(mailDrafts.deletedAt)!, inArray(mailDrafts.accountId, ids)];
 
   const labels = sql`COALESCE(${mailMessages.labels}, '[]'::jsonb)`;
   const has = (label: string) => sql`${labels} @> ${JSON.stringify([label])}::jsonb`;
   const live = sql`NOT ${inTrashOrSpamCondition()}`;
   const unread = sql`${mailMessages.isRead} = false`;
   const count = (condition: SQL) => sql<number>`count(*) filter (where ${condition})::int`;
+  // Drafts live in a different table; folded into the same statement as a
+  // scalar subquery rather than a second round trip.
+  const idsArrayItems = sql.join(
+    ids.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const idsArray = sql`ARRAY[${idsArrayItems}]::text[]`;
+  const drafts = sql<number>`(SELECT count(*)::int FROM ${mailDrafts} WHERE ${mailDrafts.deletedAt} IS NULL AND ${mailDrafts.accountId} = ANY(${idsArray}))`;
 
-  const [[row], [draftRow]] = await Promise.all([
-    db
-      .select({
-        total: sql<number>`count(*)::int`,
-        unread: count(unread),
-        inboxUnread: count(sql`${has('INBOX')} AND ${live} AND ${unread}`),
-        starred: count(sql`(${has('STARRED')} OR ${mailMessages.isStarred} = true) AND ${live}`),
-        importantUnread: count(
-          sql`(${has('IMPORTANT')} OR ${mailMessages.isImportant} = true) AND ${live} AND ${unread}`,
-        ),
-        sentUnread: count(sql`${has('SENT')} AND ${live} AND ${unread}`),
-        archiveUnread: count(sql`${has('ARCHIVE')} AND ${live} AND ${unread}`),
-        trashUnread: count(sql`${has('TRASH')} AND ${unread}`),
-        spam: count(has('SPAM')),
-        snoozed: count(sql`${has('SNOOZED')} AND ${live}`),
-        scheduled: count(sql`${has('SCHEDULED')} AND ${mailMessages.sendStatus} = 'scheduled' AND ${live}`),
-      })
-      .from(mailMessages)
-      .where(and(...conditions)),
-    db
-      .select({ drafts: sql<number>`count(*)::int` })
-      .from(mailDrafts)
-      .where(and(...draftConditions)),
-  ]);
-  return { ...EMPTY_STATS, ...row, drafts: draftRow?.drafts ?? 0 };
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      unread: count(unread),
+      inboxUnread: count(sql`${has('INBOX')} AND ${live} AND ${unread}`),
+      starred: count(sql`(${has('STARRED')} OR ${mailMessages.isStarred} = true) AND ${live}`),
+      importantUnread: count(
+        sql`(${has('IMPORTANT')} OR ${mailMessages.isImportant} = true) AND ${live} AND ${unread}`,
+      ),
+      sentUnread: count(sql`${has('SENT')} AND ${live} AND ${unread}`),
+      archiveUnread: count(sql`${has('ARCHIVE')} AND ${live} AND ${unread}`),
+      trashUnread: count(sql`${has('TRASH')} AND ${unread}`),
+      spam: count(has('SPAM')),
+      snoozed: count(sql`${has('SNOOZED')} AND ${live}`),
+      scheduled: count(sql`${has('SCHEDULED')} AND ${mailMessages.sendStatus} = 'scheduled' AND ${live}`),
+      drafts,
+    })
+    .from(mailMessages)
+    .where(and(...conditions));
+  return { ...EMPTY_STATS, ...row };
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +663,7 @@ export async function updateMessage(
   db: Database,
   id: string,
   data: UpdateMessageInput,
+  now: Date = new Date(),
 ): Promise<typeof mailMessages.$inferSelect | null> {
   const [existing] = await db
     .select()
@@ -504,7 +672,7 @@ export async function updateMessage(
     .limit(1);
   if (!existing) return null;
 
-  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  const patch: Record<string, unknown> = { updatedAt: now };
   for (const [k, v] of Object.entries(data)) {
     if (v !== undefined) patch[k] = v;
   }
@@ -526,47 +694,9 @@ export async function updateMessage(
   return after!;
 }
 
-/** Leave a location (`TRASH` / `SPAM`): back to the inbox unless the mail already sits somewhere else. */
-function leaveLocation(labels: string[], location: string): string[] {
-  const next = removeLabels(labels, location);
-  const elsewhere = [SYSTEM_LABELS.TRASH, SYSTEM_LABELS.SPAM, SYSTEM_LABELS.ARCHIVE].some((l) =>
-    next.includes(l),
-  );
-  return elsewhere ? next : addLabels(next, SYSTEM_LABELS.INBOX);
-}
-
-/**
- * The labels array (and the flags a move implies) that a patch of the boolean
- * flags leads to. Null when the patch sets none of the mirrored flags.
- */
-function labelsForFlagPatch(
-  existing: string[] | null,
-  data: UpdateMessageInput,
-): { labels: string[]; isTrash?: boolean; isSpam?: boolean } | null {
-  const mirrored = [data.isStarred, data.isImportant, data.isSpam, data.isTrash];
-  if (mirrored.every((v) => v === undefined)) return null;
-
-  let labels = [...(existing ?? [])];
-  const toggle = (value: boolean | undefined, label: string) => {
-    if (value === undefined) return;
-    labels = value ? addLabels(labels, label) : removeLabels(labels, label);
-  };
-  toggle(data.isStarred, SYSTEM_LABELS.STARRED);
-  toggle(data.isImportant, SYSTEM_LABELS.IMPORTANT);
-  if (data.isSpam === true) labels = addLabels(labels, SYSTEM_LABELS.SPAM);
-  else if (data.isSpam === false) labels = leaveLocation(labels, SYSTEM_LABELS.SPAM);
-  if (data.isTrash === true) labels = addLabels(labels, SYSTEM_LABELS.TRASH);
-  else if (data.isTrash === false) labels = leaveLocation(labels, SYSTEM_LABELS.TRASH);
-
-  const moved = data.isSpam !== undefined || data.isTrash !== undefined;
-  return moved
-    ? {
-        labels,
-        isTrash: labels.includes(SYSTEM_LABELS.TRASH),
-        isSpam: labels.includes(SYSTEM_LABELS.SPAM),
-      }
-    : { labels };
-}
+// `leaveLocation` and the labels-from-a-flag-patch logic moved to
+// `./store/model` (`labelsForFlagPatch`) so the mailbox object can share them
+// (design task A3); imported above, re-used here unchanged.
 
 /**
  * Soft-delete a message. Returns the identifying fields the route needs
@@ -575,6 +705,7 @@ function labelsForFlagPatch(
 export async function softDeleteMessage(
   db: Database,
   id: string,
+  now: Date = new Date(),
 ): Promise<{ id: string; accountId: string; subject: string | null } | null> {
   const [existing] = await db
     .select({
@@ -589,7 +720,7 @@ export async function softDeleteMessage(
 
   await db
     .update(mailMessages)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .set({ deletedAt: now, updatedAt: now })
     .where(eq(mailMessages.id, id));
   return existing;
 }
@@ -609,8 +740,8 @@ export async function bulkUpdateMessages(
   db: Database,
   messageIds: string[],
   action: BulkAction,
+  now: Date = new Date(),
 ): Promise<{ affected: number }> {
-  const now = new Date();
   const where = and(inArray(mailMessages.id, messageIds), isNull(mailMessages.deletedAt));
 
   switch (action) {
@@ -621,10 +752,10 @@ export async function bulkUpdateMessages(
       await db.update(mailMessages).set({ isRead: false, updatedAt: now }).where(where);
       break;
     case 'star':
-      await bulkAddLabelToMessages(db, SYSTEM_LABELS.STARRED, messageIds);
+      await bulkAddLabelToMessages(db, SYSTEM_LABELS.STARRED, messageIds, now);
       break;
     case 'unstar':
-      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.STARRED, messageIds);
+      await bulkRemoveLabelFromMessages(db, SYSTEM_LABELS.STARRED, messageIds, now);
       break;
     case 'flag':
       await db.update(mailMessages).set({ isFlagged: true, updatedAt: now }).where(where);
@@ -633,10 +764,10 @@ export async function bulkUpdateMessages(
       await db.update(mailMessages).set({ isFlagged: false, updatedAt: now }).where(where);
       break;
     case 'trash':
-      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.TRASH);
+      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.TRASH, now);
       break;
     case 'restore':
-      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.INBOX);
+      await moveMessagesToLocation(db, messageIds, SYSTEM_LABELS.INBOX, now);
       break;
     case 'delete':
       await db.update(mailMessages).set({ deletedAt: now, updatedAt: now }).where(where);
@@ -649,6 +780,7 @@ export async function addMessageLabels(
   db: Database,
   id: string,
   rawLabels: string[],
+  now: Date = new Date(),
 ): Promise<string[] | null> {
   const [existing] = await db
     .select({ labels: mailMessages.labels, accountId: mailMessages.accountId })
@@ -660,7 +792,7 @@ export async function addMessageLabels(
   const next = addLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)
-    .set({ labels: next, ...flagsForLabelChange(labels, 'add'), updatedAt: new Date() })
+    .set({ labels: next, ...flagsForLabelChange(labels, 'add'), updatedAt: now })
     .where(eq(mailMessages.id, id));
   return next;
 }
@@ -669,6 +801,7 @@ export async function removeMessageLabels(
   db: Database,
   id: string,
   rawLabels: string[],
+  now: Date = new Date(),
 ): Promise<string[] | null> {
   const [existing] = await db
     .select({ labels: mailMessages.labels, accountId: mailMessages.accountId })
@@ -680,7 +813,7 @@ export async function removeMessageLabels(
   const next = removeLabels(existing.labels as string[] | null, ...labels);
   await db
     .update(mailMessages)
-    .set({ labels: next, ...flagsForLabelChange(labels, 'remove'), updatedAt: new Date() })
+    .set({ labels: next, ...flagsForLabelChange(labels, 'remove'), updatedAt: now })
     .where(eq(mailMessages.id, id));
   return next;
 }

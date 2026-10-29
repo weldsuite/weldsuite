@@ -13,6 +13,7 @@ import { MailDetailWrapper } from '../../components/mail-detail-wrapper';
 import { MobileMailLayout } from '../../components/mobile-mail-layout';
 import { MailThreadListProvider } from '../../contexts/mail-thread-list-context';
 import { useOptimisticThreadList } from '../../hooks/use-optimistic-thread-list';
+import { useMailOpenTiming } from '../../hooks/use-mail-open-timing';
 import { mailThreadListKey } from '../../lib/optimistic-thread-list';
 import { useI18n } from '@/lib/i18n/provider';
 import { useQueryClient } from '@tanstack/react-query';
@@ -87,6 +88,7 @@ export default function LabelLayout({
     { accountId, labelSlug, pageSize: PAGE_SIZE, ...threadSearch },
     !isDraftsView,
   );
+  useMailOpenTiming(threadsQuery, !isDraftsView);
 
   // Drafts are stored separately — use dedicated hook when in drafts view
   const draftsQuery = useMailDrafts(accountId, isDraftsView);

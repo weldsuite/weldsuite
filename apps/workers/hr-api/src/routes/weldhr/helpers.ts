@@ -41,11 +41,15 @@ export function receiptBucket(c: HrContext): R2Bucket {
   return c.env.STORAGE;
 }
 
-/** The tenant the request was authenticated into; the auth chain always sets it. */
-export function workspaceIdOf(c: HrContext): string {
-  const workspaceId = c.get('workspaceId');
-  if (!workspaceId) throw new Error('WeldHR route reached without a workspace');
-  return workspaceId;
+/**
+ * The Clerk org id of the tenant the request was authenticated into; the auth
+ * chain always sets it. R2 keys (`workspaces/<org>/hr/…`) and the notification
+ * scope are still keyed by it, not by `workspaces.id`.
+ */
+export function orgIdOf(c: HrContext): string {
+  const orgId = c.get('clerkOrgId');
+  if (!orgId) throw new Error('WeldHR route reached without a workspace');
+  return orgId;
 }
 
 /** Path parameter the route is known to declare; fails loudly if a route is renamed. */

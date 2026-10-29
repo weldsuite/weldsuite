@@ -20,15 +20,17 @@ export const resolveAccessRequestSchema = z.object({
 
 export type ResolveAccessRequestInput = z.infer<typeof resolveAccessRequestSchema>;
 
-export interface AccessRequest {
-  id: string;
-  requesterId: string;
-  permission: string;
-  pageLabel: string | null;
-  pagePath: string | null;
-  status: 'pending' | 'approved' | 'denied';
-  resolvedBy: string | null;
-  resolvedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+export const accessRequestSchema = z.object({
+  id: z.string(),
+  requesterId: z.string(),
+  permission: z.string(),
+  pageLabel: z.string().nullable(),
+  pagePath: z.string().nullable(),
+  status: z.enum(['pending', 'approved', 'denied']),
+  resolvedBy: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type AccessRequest = z.infer<typeof accessRequestSchema>;

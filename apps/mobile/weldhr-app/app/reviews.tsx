@@ -6,6 +6,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { CheckCircle2, Circle } from 'lucide-react-native';
 import type { HrSelfCoachingLog, HrSelfEvaluation } from '@weldsuite/app-api-client/domains/weldhr';
 import { Button } from '@weldsuite/mobile-ui/components/Button';
@@ -15,7 +16,7 @@ import { useToast } from '@weldsuite/mobile-ui/contexts/ToastContext';
 
 import { EmptyState } from '@/components/EmptyState';
 import { QueryBody } from '@/components/QueryBody';
-import { Inset, Screen, Segments } from '@/components/Screen';
+import { Inset, Screen, TabStrip } from '@/components/Screen';
 import { usePalette } from '@/hooks/use-palette';
 import { useAcknowledge, useCoaching, useEvaluations } from '@/hooks/use-weldhr-queries';
 import { formatDate, formatDateRange, withCount } from '@/lib/format';
@@ -44,7 +45,7 @@ export default function ReviewsScreen() {
         void evaluations.refetch();
       }}
       segments={
-        <Segments
+        <TabStrip
           value={tab}
           onChange={setTab}
           options={[
@@ -54,43 +55,46 @@ export default function ReviewsScreen() {
         />
       }
     >
-      {tab === 'coaching' ? (
-        <QueryBody query={coaching}>
-          {(logs) =>
-            logs.length === 0 ? (
-              <EmptyState illustration="chat" title={t.reviews.noCoaching} />
-            ) : (
-              <Inset style={styles.cards}>
-                {logs.map((log) => (
-                  <CoachingCard
-                    key={log.id}
-                    log={log}
-                    onAcknowledge={() => setTarget({ kind: 'coaching', id: log.id })}
-                  />
-                ))}
-              </Inset>
-            )
-          }
-        </QueryBody>
-      ) : (
-        <QueryBody query={evaluations}>
-          {(rows) =>
-            rows.length === 0 ? (
-              <EmptyState illustration="chat" title={t.reviews.noEvaluations} />
-            ) : (
-              <Inset style={styles.cards}>
-                {rows.map((evaluation) => (
-                  <EvaluationCard
-                    key={evaluation.id}
-                    evaluation={evaluation}
-                    onAcknowledge={() => setTarget({ kind: 'evaluation', id: evaluation.id })}
-                  />
-                ))}
-              </Inset>
-            )
-          }
-        </QueryBody>
-      )}
+      {/* Keyed by the tab, so the other list fades in instead of popping in. */}
+      <Animated.View key={tab} entering={FadeIn.duration(180)} style={styles.view}>
+        {tab === 'coaching' ? (
+          <QueryBody query={coaching}>
+            {(logs) =>
+              logs.length === 0 ? (
+                <EmptyState illustration="chat" title={t.reviews.noCoaching} />
+              ) : (
+                <Inset style={styles.cards}>
+                  {logs.map((log) => (
+                    <CoachingCard
+                      key={log.id}
+                      log={log}
+                      onAcknowledge={() => setTarget({ kind: 'coaching', id: log.id })}
+                    />
+                  ))}
+                </Inset>
+              )
+            }
+          </QueryBody>
+        ) : (
+          <QueryBody query={evaluations}>
+            {(rows) =>
+              rows.length === 0 ? (
+                <EmptyState illustration="chat" title={t.reviews.noEvaluations} />
+              ) : (
+                <Inset style={styles.cards}>
+                  {rows.map((evaluation) => (
+                    <EvaluationCard
+                      key={evaluation.id}
+                      evaluation={evaluation}
+                      onAcknowledge={() => setTarget({ kind: 'evaluation', id: evaluation.id })}
+                    />
+                  ))}
+                </Inset>
+              )
+            }
+          </QueryBody>
+        )}
+      </Animated.View>
       {target ? <AcknowledgeSheet target={target} onClose={() => setTarget(null)} /> : null}
     </Screen>
   );
@@ -251,6 +255,7 @@ function AcknowledgeSheet({ target, onClose }: Readonly<{ target: Target; onClos
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  view: { flexGrow: 1 },
   cards: { gap: 12, marginTop: 8 },
   card: { borderRadius: 16, borderWidth: StyleSheet.hairlineWidth, padding: 16, gap: 8 },
   tag: { fontSize: 14, fontWeight: '600' },

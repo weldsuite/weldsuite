@@ -14,6 +14,7 @@ export const nl: Translations = {
     save: 'Opslaan',
     submit: 'Versturen',
     close: 'Sluiten',
+    clear: 'Wissen',
     retry: 'Opnieuw proberen',
     dash: '—',
     somethingWrong: 'Er ging iets mis. Trek omlaag om het opnieuw te proberen.',
@@ -23,6 +24,12 @@ export const nl: Translations = {
     today: 'Vandaag',
     tomorrow: 'Morgen',
     total: 'Totaal',
+    filter: 'Filter',
+    enableAll: 'Alles aanzetten',
+    disableAll: 'Alles uitzetten',
+    apply: 'Toepassen',
+    clearSearch: 'Zoekopdracht wissen',
+    clearFilters: 'Filters wissen',
     hm: '{h}u {m}m',
   },
 
@@ -42,10 +49,23 @@ export const nl: Translations = {
     title: 'Maak je werkruimte aan',
     description:
       'Maak eerst je werkruimte aan op onze website om WeldHR te gebruiken. Kom daarna hier terug om in te loggen.',
-    goToWebsite: 'Naar weldsuite.com',
+    goToWebsite: 'Naar app.weldsuite.org',
     created: 'Ik heb mijn werkruimte aangemaakt',
     checking: 'Controleren...',
     signOut: 'Uitloggen',
+  },
+
+  deleteAccount: {
+    action: 'Account verwijderen',
+    title: 'Je account verwijderen?',
+    message:
+      'Hiermee verwijder je het WeldSuite-account {email} definitief en verdwijn je uit elke werkruimte. Dit kan niet ongedaan worden gemaakt. Je werkgever bewaart je medewerkersdossier, loonstroken en aanvragen, zoals de wet vereist; vraag HR daarnaar.',
+    confirm: 'Account verwijderen',
+    workspacesDeleted: 'Je bent het enige lid van {workspaces}, dus die wordt ook verwijderd.',
+    blockedTitle: 'Draag eerst je werkruimtes over',
+    blockedMessage:
+      'Je bent de enige beheerder van {workspaces}, waar nog andere leden in zitten. Maak iemand anders beheerder, of verwijder de leden, op app.weldsuite.org. Daarna kun je je account verwijderen.',
+    failed: 'Je account kon niet worden verwijderd. Probeer het opnieuw of mail naar privacy@weldsuite.com.',
   },
 
   notLinked: {
@@ -84,6 +104,13 @@ export const nl: Translations = {
     newExpense: 'Nieuwe declaratie',
     imBetter: 'Ik ben beter',
     requestShift: 'Dienst aanvragen',
+    requestShiftHint: 'Vraag een extra dienst aan',
+    reportSickHint: 'Laat je leidinggevende het weten',
+    imBetterHint: 'Beëindig je ziekmelding',
+    newExpenseHint: 'Declareer kosten met een bon',
+    uploadReceipt: 'Bon uploaden',
+    uploadReceiptHint: 'Kies een foto van een bon',
+    photoReceipt: 'Foto van bon maken',
     openShiftsToSignUp: { one: '{count} open dienst om je voor aan te melden', other: '{count} open diensten om je voor aan te melden' },
     unreadAnnouncements: { one: '{count} ongelezen mededeling', other: '{count} ongelezen mededelingen' },
   },
@@ -192,6 +219,9 @@ export const nl: Translations = {
     cancelled: 'Declaratie ingetrokken',
     paidOn: 'Uitbetaald op {date}',
     reviewNote: 'Opmerking: {note}',
+    search: 'Zoek in declaraties',
+    noResults: 'Geen declaraties gevonden',
+    noResultsDescription: 'Probeer een ander woord, bedrag of categorie.',
   },
 
   expenseForm: {
@@ -210,6 +240,7 @@ export const nl: Translations = {
     receiptType: 'Gebruik een JPG-, PNG- of WebP-foto, of een PDF.',
     receiptSize: 'De bon is groter dan 10 MB.',
     cameraDenied: 'Geef in Instellingen toegang tot de camera om bonnen te fotograferen.',
+    noCamera: 'Dit apparaat heeft geen camera. Kies een foto.',
     libraryDenied: "Geef in Instellingen toegang tot je foto's om bonnen toe te voegen.",
     amountInvalid: 'Vul een bedrag boven nul in.',
     descriptionRequired: 'Geef aan waarvoor de kosten waren.',
@@ -295,6 +326,7 @@ export const nl: Translations = {
     employeeNumberLabel: 'Personeelsnummer',
     signOut: 'Uitloggen',
     version: 'Versie {version}',
+    versionLabel: 'Versie',
   },
 
   schedule: {
@@ -307,6 +339,7 @@ export const nl: Translations = {
     planned: '{hours} gepland',
     worked: 'Gewerkt {range}',
     workedOfPlanned: '{worked} van {planned}',
+    hoursOff: '{hours} vrij',
     notClockedIn: 'Niet ingeklokt',
     withoutShift: 'Zonder dienst',
   },
@@ -318,7 +351,6 @@ export const nl: Translations = {
     time: 'Tijd',
     length: 'Duur',
     work: 'Werkzaamheden',
-    company: 'Bedrijf',
     notes: 'Notitie',
     planned: 'Gepland',
     breaks: 'Pauzes',
@@ -423,10 +455,25 @@ export const nl: Translations = {
     by: 'Door {name}',
     notFound: 'Deze mededeling bestaat niet meer',
     justNow: 'Zojuist',
-    minutesAgo: '{count} min geleden',
-    hoursAgo: '{count} uur geleden',
+    minutesAgo: '{count}m',
+    hoursAgo: '{count}u',
     yesterday: 'Gisteren',
-    daysAgo: '{count} dagen geleden',
+    daysAgo: '{count}d',
+  },
+
+  announcementForm: {
+    title: 'Nieuwe mededeling',
+    titleLabel: 'Titel',
+    titlePlaceholder: 'Waar gaat het over?',
+    body: 'Bericht',
+    bodyPlaceholder: 'Schrijf je mededeling',
+    pinned: 'Bovenaan vastpinnen',
+    pinnedHint: 'Vastgepinde mededelingen blijven boven nieuwere staan.',
+    notify: 'Een pushmelding versturen',
+    notifyHint: 'Iedereen krijgt hem één keer in de WeldHR-app.',
+    post: 'Plaatsen',
+    posted: 'Mededeling geplaatst',
+    failed: 'Deze mededeling kon niet worden geplaatst.',
   },
 
   location: {
@@ -452,6 +499,15 @@ export const nl: Translations = {
     note: 'Opmerking',
     balance: 'Saldo {year}',
     cancel: 'Verlof annuleren',
+  },
+
+  expenseDetail: {
+    title: 'Declaratie',
+    notFound: 'Deze declaratie bestaat niet meer',
+    submitted: 'Ingediend',
+    reviewed: 'Beoordeeld',
+    paid: 'Uitbetaald',
+    note: 'Opmerking',
   },
 
   sickDetail: {
@@ -486,14 +542,17 @@ export const nl: Translations = {
     waiting: 'Wacht op goedkeuring',
     left: 'Over',
     openRequests: 'Aanvragen',
-    noOpenRequests: 'Geen openstaande aanvragen',
     reviewed: 'Beoordeeld',
-    nothingReviewed: 'Nog niets beoordeeld',
     sickLeave: 'Ziekteverlof',
     reportSick: 'Ziek melden',
-    noSickLeave: 'Geen ziekteverlof',
     nobodyAbsent: 'Niemand is afwezig',
     nobodyAbsentDescription: 'Goedgekeurd verlof en ziekmeldingen staan hier',
+    noAbsence: 'Geen afwezigheid in {year}',
+    leaveDays: '{days} verlof',
+    sickDays: '{days} ziek',
+    search: 'Zoek in aanvragen',
+    noResults: 'Geen aanvragen gevonden',
+    noResultsDescription: 'Probeer een andere naam, datum of verlofsoort.',
   },
 
   attendanceStatus: {

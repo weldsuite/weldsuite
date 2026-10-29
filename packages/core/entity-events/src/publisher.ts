@@ -41,6 +41,8 @@ export interface EntityEventPublisherEnv {
 
 export interface EntityEventPublisherVariables {
   workspaceId: string;
+  /** The workspace's Clerk org id, when the entry point knows it (see publishEntityEvent). */
+  clerkOrgId?: string;
   userId: string;
   tenantDb: TenantDb;
 }
@@ -170,7 +172,11 @@ export function publishEntityEvent<
   const tasks = enqueueHubEntityEvent(
     {
       env: c.env,
-      workspaceId: c.get('workspaceId') ?? '',
+      // Events keep the Clerk org id until their consumers move to `workspaces.id`
+      // (phase 2b of docs/plans/workspace-id-standardization.md): they persist it
+      // in Workflow params, D1 rows and R2 keys. Every consumer resolves either id,
+      // so an entry point that only knows `workspaces.id` (the portals) is fine.
+      workspaceId: c.get('clerkOrgId') ?? c.get('workspaceId') ?? '',
       userId: c.get('userId'),
       entityType,
       entityId,

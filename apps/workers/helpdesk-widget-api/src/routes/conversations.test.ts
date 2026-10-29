@@ -44,12 +44,12 @@ vi.mock('../lib/desk-live', () => ({
   visitorDisplayName: vi.fn(() => Promise.resolve('Visitor')),
 }));
 
-const WORKSPACE = 'ws_1';
+const ORG_ID = 'org_1';
 const CONVERSATION = 'dconv_1';
 const VISITOR = 'visitor_1';
 const R2 = 'https://storage.example.org';
 const FILE = '1700000000000_att_abc123xyz_screenshot.png';
-const GOOD_URL = `${R2}/widgets/${WORKSPACE}/${CONVERSATION}/${FILE}`;
+const GOOD_URL = `${R2}/widgets/${ORG_ID}/${CONVERSATION}/${FILE}`;
 
 const head = vi.fn();
 const env = { R2_PUBLIC_URL: R2, STORAGE: { head } } as unknown as Env;
@@ -58,7 +58,9 @@ function buildApp() {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
   app.use('*', async (c, next) => {
     c.set('tenantDb', {} as Variables['tenantDb']);
-    c.set('workspaceId', WORKSPACE);
+    c.set('workspaceId', 'ws_1');
+    // Attachment keys, realtime and assignment are keyed by the Clerk org id.
+    c.set('clerkOrgId', ORG_ID);
     c.set('widgetId', 'wdg_1');
     await next();
   });
@@ -110,7 +112,7 @@ describe('POST /:id/messages auto-assignment', () => {
     const { status } = await send({ body: 'hello?' });
     expect(status).toBe(201);
     await vi.waitFor(() => expect(mocks.notifyTeamOfVisitorMessage).toHaveBeenCalled());
-    expect(mocks.autoAssignConversation).toHaveBeenCalledWith(env, expect.anything(), WORKSPACE, expect.objectContaining({ id: CONVERSATION }));
+    expect(mocks.autoAssignConversation).toHaveBeenCalledWith(env, expect.anything(), ORG_ID, expect.objectContaining({ id: CONVERSATION }));
     expect(mocks.notifyTeamOfVisitorMessage.mock.calls[0][0].conversation.assigneeId).toBe('user_ann');
   });
 
@@ -129,7 +131,7 @@ describe('POST /:id/messages with attachments', () => {
   it('accepts an attachment URL issued for this conversation and stores it', async () => {
     const { status } = await send({ attachments: [attachment(GOOD_URL)] });
     expect(status).toBe(201);
-    expect(head).toHaveBeenCalledWith(`widgets/${WORKSPACE}/${CONVERSATION}/${FILE}`);
+    expect(head).toHaveBeenCalledWith(`widgets/${ORG_ID}/${CONVERSATION}/${FILE}`);
     const input = mocks.appendDeskMessage.mock.calls[0][1];
     expect(input.body).toBeNull();
     // The stored object's size wins over the client's claim.
@@ -145,11 +147,11 @@ describe('POST /:id/messages with attachments', () => {
   });
 
   it.each([
-    ['another host', `https://evil.example.com/widgets/${WORKSPACE}/${CONVERSATION}/${FILE}`],
-    ['another conversation', `${R2}/widgets/${WORKSPACE}/dconv_other/${FILE}`],
+    ['another host', `https://evil.example.com/widgets/${ORG_ID}/${CONVERSATION}/${FILE}`],
+    ['another conversation', `${R2}/widgets/${ORG_ID}/dconv_other/${FILE}`],
     ['another workspace', `${R2}/widgets/ws_other/${CONVERSATION}/${FILE}`],
-    ['a path traversal', `${R2}/widgets/${WORKSPACE}/${CONVERSATION}/../dconv_other/${FILE}`],
-    ['an unrelated object', `${R2}/widgets/${WORKSPACE}/${CONVERSATION}/secret.txt`],
+    ['a path traversal', `${R2}/widgets/${ORG_ID}/${CONVERSATION}/../dconv_other/${FILE}`],
+    ['an unrelated object', `${R2}/widgets/${ORG_ID}/${CONVERSATION}/secret.txt`],
     ['a query string', `${GOOD_URL}?x=1`],
   ])('rejects a URL on %s', async (_label, url) => {
     const { status } = await send({ attachments: [attachment(url)] });

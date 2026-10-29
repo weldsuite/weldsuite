@@ -42,9 +42,9 @@ import {
   hasContextPermission,
   ensurePermissionsResolved,
   getPermissionsFromContext,
-  resolveEffectivePermissions,
   createDrizzlePermissionQueries,
 } from '@weldsuite/permissions/server';
+import { resolveEffectivePermissionsCached } from '@weldsuite/worker-kit/permission-cache';
 import {
   SYSTEM_ROLES,
   canGrantPermission,
@@ -79,6 +79,7 @@ import { syncClerkSeatLimit } from '../../services/billing';
 import { invitationRedirectUrl } from '../../services/invitation-redirect';
 import { logSafe } from '@weldsuite/worker-kit/log-safe';
 import { releaseRemovedMemberUserId } from '@weldsuite/db/lib/workspace-members';
+import { bumpPermissionsVersion } from '@weldsuite/db/lib/permissions-cache';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -120,7 +121,7 @@ async function ensurePermissionsLoaded(c: any): Promise<void> {
   const userId: string | undefined = c.get('userId');
   if (!userId) return;
   const queries = createDrizzlePermissionQueries(c.get('tenantDb'), schema, { eq, and, isNull });
-  const resolved = await resolveEffectivePermissions(queries, userId);
+  const resolved = await resolveEffectivePermissionsCached(c.env, c.get('workspaceId'), userId, queries, c.get('timing'));
   c.set('userPermissions', resolved);
 }
 
@@ -388,6 +389,7 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
     const { workspaceMembers } = schema;
     const clerkMembershipIds = membershipsData.data.map((m) => m.id);
     const clerkInvitationIds = invitationsData.data.map((i) => i.id);
+    let changedActiveMembers = false;
 
     // Soft-delete ACTIVE members whose clerkMembershipId is no longer in Clerk.
     // Only touches rows that have a clerkMembershipId — OWNER rows provisioned
@@ -406,6 +408,7 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
         )
         .returning({ userId: workspaceMembers.userId });
 
+      if (departed.length > 0) changedActiveMembers = true;
       // Their personal API keys leave with them.
       for (const { userId } of departed) {
         await revokeRemovedMemberKeys(c.env, db, userId);
@@ -413,6 +416,8 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
     }
 
     // Soft-delete PENDING members whose clerkInvitationId is no longer pending.
+    // PENDING rows never resolve permissions (getMember requires ACTIVE), so
+    // this branch never needs a cache bump.
     if (clerkInvitationIds.length > 0) {
       await db
         .update(workspaceMembers)
@@ -438,6 +443,9 @@ app.post('/sync', requirePermission('team:read'), async (c) => {
           ),
         );
     }
+
+    // Removing an ACTIVE member changes their resolved permissions to nothing.
+    if (changedActiveMembers) await bumpPermissionsVersion(c.env, c.get('workspaceId'));
 
     return success(c, { synced: true });
   } catch (err) {
@@ -867,6 +875,9 @@ app.post('/invite', async (c) => {
     return error[failure.kind](c, failure.message);
   }
   if (direct.status === 'added') {
+    // A brand-new ACTIVE row: bump so a cached "no member" resolution for
+    // this user (from a request made before they joined) is never reused.
+    await bumpPermissionsVersion(c.env, c.get('workspaceId'));
     return success(
       c,
       { memberId: direct.memberId, memberType: 'EXTERNAL_GUEST', activated: true },
@@ -1095,6 +1106,7 @@ app.patch('/:id', requirePermission('team:update'), async (c) => {
   Object.assign(update, pickMemberFieldUpdates(body));
 
   await db.update(workspaceMembers).set(update).where(eq(workspaceMembers.id, memberId));
+  await bumpPermissionsVersion(c.env, c.get('workspaceId'));
 
   return success(c, { id: memberId });
 });
@@ -1144,9 +1156,11 @@ app.delete('/:id', requirePermission('team:delete'), async (c) => {
     .set({ deletedAt: new Date(), updatedAt: new Date() })
     .where(eq(workspaceMembers.id, memberId));
 
-  // A cancelled invitation never signed in, so it has no keys to revoke.
+  // A cancelled invitation never signed in, so it has no keys to revoke, and
+  // never resolved permissions either (PENDING rows don't), so no bump.
   if (member.status !== 'PENDING') {
     await revokeRemovedMemberKeys(c.env, db, member.userId);
+    await bumpPermissionsVersion(c.env, c.get('workspaceId'));
   }
 
   return noContent(c);

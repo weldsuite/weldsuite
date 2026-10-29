@@ -1299,6 +1299,7 @@ export {
   type NewAiGatewayCredit,
 } from './ai-gateway-costs';
 export { systemSettings, type SystemSetting, type NewSystemSetting, SETTING_CATEGORIES, type SettingCategory } from './system-settings';
+export { featureFlagOverrides, type FeatureFlagOverride, type NewFeatureFlagOverride } from './feature-flag-overrides';
 export { enterpriseInquiries, inquiryStatusEnum, type EnterpriseInquiry, type NewEnterpriseInquiry } from './enterprise-inquiries';
 export { featureRequests, featureTypeEnum, featureStatusEnum, type FeatureRequest, type NewFeatureRequest, type FeatureType, type FeatureStatus } from './feature-requests';
 // Per-workspace access to apps that are on request only (WeldReach first).
@@ -1336,6 +1337,18 @@ export {
 } from './reach-routes';
 // WeldSign: signing-link tokens -> workspace, envelope and recipient.
 export { signLinkRegistry, type SignLink, type NewSignLink } from './weldsign-links';
+// WeldPanel: project tokens and secret keys -> workspace and project, and monthly usage.
+export {
+  panelProjectRegistry,
+  panelKeyRegistry,
+  panelUsageMonthly,
+  type PanelProjectRegistryRow,
+  type NewPanelProjectRegistryRow,
+  type PanelKey,
+  type NewPanelKey,
+  type PanelUsageMonth,
+  type NewPanelUsageMonth,
+} from './weldpanel-registry';
 // WeldReach warmup network: the cross-workspace mailbox pool and its messages.
 export {
   reachWarmupMailboxes,

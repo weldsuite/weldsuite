@@ -22,15 +22,15 @@ describe('parseAmount', () => {
 
 describe('formatDateRange', () => {
   it('collapses a single day and a shared month', () => {
-    expect(formatDateRange('2026-11-03', '2026-11-07', 'en-GB', NOW)).toBe('3 – 7 Nov');
-    expect(formatDateRange('2026-10-30', '2026-11-02', 'en-GB', NOW)).toBe('30 Oct – 2 Nov');
+    expect(formatDateRange('2026-11-03', '2026-11-07', 'en-GB', NOW)).toBe('3 - 7 Nov');
+    expect(formatDateRange('2026-10-30', '2026-11-02', 'en-GB', NOW)).toBe('30 Oct - 2 Nov');
     expect(formatDateRange('2026-11-03', '2026-11-03', 'en-GB', NOW)).toBe(
       new Date(2026, 10, 3).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }),
     );
   });
 
   it('shows years when the range leaves this year', () => {
-    expect(formatDateRange('2026-12-30', '2027-01-02', 'en-GB', NOW)).toBe('30 Dec 2026 – 2 Jan 2027');
+    expect(formatDateRange('2026-12-30', '2027-01-02', 'en-GB', NOW)).toBe('30 Dec 2026 - 2 Jan 2027');
   });
 });
 
@@ -68,7 +68,7 @@ describe('hours and clocks', () => {
 
   it('spells out a day and a span', () => {
     expect(formatLongDay('2026-10-25', 'en-GB', NOW)).toBe('Sunday 25 October');
-    expect(formatSpan('2026-10-19', '2026-10-25', 'en-GB')).toBe('19 Oct – 25 Oct');
+    expect(formatSpan('2026-10-19', '2026-10-25', 'en-GB')).toBe('19 Oct - 25 Oct');
     expect(formatSpan('2026-10-19', '2026-10-19', 'en-GB')).toBe('19 Oct');
   });
 });

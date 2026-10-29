@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
 import { fillTarget } from '../model/autofill';
 import { copySelection, moveCells, pasteInto } from '../model/clipboard';
-import { acceptsReference, functionPrefixAt, isFormulaText, referenceText, refsInEdit, suggestFunctions } from '../model/formula-edit';
+import { FormulaAssistPopup, useFormulaAssist } from '../formula-assist';
+import { acceptsReference, referenceText, refsInEdit } from '../model/formula-edit';
 import { handleEditKey, handleGridKey } from '../model/keyboard';
 import { MAX_COLS, MAX_ROWS, type Chart, type Range } from '@weldsuite/sheets-engine';
+import { Button } from '@weldsuite/ui/components/button';
+import { Input } from '@weldsuite/ui/components/input';
 import { useI18n } from '@/lib/i18n/provider';
 import { chartAt, draggedChart, HANDLE_CURSOR, samePlace, type ChartHandle } from '../charts/chart-geometry';
 import { removeChart, saveChart } from '../model/charts';
@@ -23,12 +26,15 @@ import {
 import type { SheetController } from '../model/sheet-controller';
 import { fitToData } from './autofit';
 import { GridContextMenu } from './grid-context-menu';
+import { TableChip } from './table-chip';
 import {
+  colLeft,
   computeLayout,
   hitTest,
   physicalScrollSize,
   rangeRect,
   rowHeaderWidth,
+  rowTop,
   scrollContentSize,
   scrollIntoView,
   toLogicalScroll,
@@ -80,12 +86,19 @@ interface DragPreview {
 const HANDLE_GRIP = 5;
 const EDGE_GRIP = 3;
 
+/** The bar under the last row that adds rows at the bottom, as in Google Sheets. */
+const ADD_ROWS_HEIGHT = 48;
+const ADD_ROWS_DEFAULT = '1000';
+const TABLE_CHIP_HEIGHT = 22;
+
 interface Props {
   controller: SheetController;
   /** The formula bar's input: point mode inserts references there when it is being typed in. */
   barInputRef?: RefObject<HTMLTextAreaElement | null>;
   /** Opens the "Create pivot table" dialog (context menu). */
   onCreatePivot?: () => void;
+  /** What each connected table lists, by its id: the name on its chip. */
+  tableLabels?: Record<string, string>;
 }
 
 /**
@@ -93,7 +106,7 @@ interface Props {
  * supplies scrollbars and wheel/touch scrolling), and one textarea that is
  * both the keyboard sink and the in-cell editor.
  */
-export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
+export function SheetGrid({ controller, barInputRef, onCreatePivot, tableLabels }: Props) {
   const version = useSyncExternalStore(controller.subscribe, controller.getVersion);
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -112,7 +125,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   /** An open filter menu (on a filter header cell) or dropdown list (on a list cell). */
   const [cellMenu, setCellMenu] = useState<{ kind: 'filter' | 'list'; row: number; col: number } | null>(null);
   const [, setLabelClock] = useState(0);
-  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const [addRowsCount, setAddRowsCount] = useState(ADD_ROWS_DEFAULT);
   const themeRef = useRef<GridTheme | null>(null);
   const layoutRef = useRef<GridLayout | null>(null);
   const dragRef = useRef<Drag | null>(null);
@@ -124,10 +137,15 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   /** Ctrl+Shift+V was pressed: the paste that follows pastes values only. */
   const pasteValues = useRef(false);
   const lastActive = useRef<string>('');
+  /** A table chip's menu is open: the grid leaves the focus with it. */
+  const chipMenuOpen = useRef(false);
 
   const sheet = controller.sheet;
   const editing = controller.editing;
-  const content = scrollContentSize(sheet);
+  const canAddRows = !controller.readOnly && sheet.rowCount < MAX_ROWS;
+  // The scroll space ends past the last row by the add-rows bar.
+  const cells = scrollContentSize(sheet);
+  const content = { width: cells.width, height: cells.height + (canAddRows ? ADD_ROWS_HEIGHT : 0) };
   const headerW = rowHeaderWidth(sheet.rowCount);
   const frozenW = sheet.cols.offsetOf(Math.min(sheet.freeze.cols, sheet.colCount));
   const frozenH = sheet.rows.offsetOf(Math.min(sheet.freeze.rows, sheet.rowCount));
@@ -247,10 +265,10 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   });
 
   // The editor follows the active cell and keeps focus unless the formula bar has it,
-  // or a field in a side panel, dialog or the find bar does (a chart panel saves as it is typed in).
+  // or a field in a side panel, dialog, the find bar or the add-rows bar does (a chart panel saves as it is typed in).
   useEffect(() => {
-    if (editing?.origin === 'bar') return;
-    if (document.activeElement?.closest('aside, [role="dialog"], [role="search"]')) return;
+    if (editing?.origin === 'bar' || chipMenuOpen.current) return;
+    if (document.activeElement?.closest('aside, form, [role="dialog"], [role="search"]')) return;
     editorRef.current?.focus({ preventScroll: true });
   }, [version, editing?.origin]);
 
@@ -729,8 +747,6 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   // Keyboard, typing, clipboard (all on the textarea)
   // -------------------------------------------------------------------------
 
-  const suggestions = editing && editing.origin === 'cell' ? currentSuggestions(editing.text, caret) : [];
-
   const placeCaret = (pos: number) => {
     requestAnimationFrame(() => {
       const el = activeInput();
@@ -740,15 +756,11 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     });
   };
 
-  const acceptSuggestion = (name: string) => {
-    const edit = controller.editing;
-    if (!edit) return;
-    const at = functionPrefixAt(edit.text, caret);
-    if (!at) return;
-    const text = `${edit.text.slice(0, at.start)}${name}(${edit.text.slice(caret)}`;
+  // Function and name suggestions, and the argument hint, for an in-cell edit (the formula bar has its own).
+  const assist = useFormulaAssist(controller, editing?.origin === 'cell' ? editing.text : null, caret, (text, pos) => {
     controller.updateEdit(text);
-    placeCaret(at.start + name.length + 1);
-  };
+    placeCaret(pos);
+  });
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing) return;
@@ -758,7 +770,7 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
       e.preventDefault();
       return;
     }
-    if (suggestions.length && handleSuggestionKey(e)) return;
+    if (assist.onKeyDown(e)) return;
     const handled = controller.editing ? handleEditKey(controller, e) : handleGridKey(controller, e, pageRows());
     if (handled) e.preventDefault();
   };
@@ -779,27 +791,13 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
     return true;
   };
 
-  const handleSuggestionKey = (e: React.KeyboardEvent): boolean => {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      const step = e.key === 'ArrowDown' ? 1 : -1;
-      setSuggestionIndex((i) => (i + step + suggestions.length) % suggestions.length);
-      e.preventDefault();
-      return true;
-    }
-    if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
-      acceptSuggestion(suggestions[Math.min(suggestionIndex, suggestions.length - 1)]!);
-      e.preventDefault();
-      return true;
-    }
-    return false;
-  };
-
   const pageRows = () => Math.max(1, Math.floor(viewH / sheet.rows.defaultSize) - 1);
 
   const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
-    setCaret(e.target.selectionStart ?? text.length);
-    setSuggestionIndex(0);
+    const pos = e.target.selectionStart ?? text.length;
+    setCaret(pos);
+    assist.noteTyping(text, pos);
     if (controller.editing) controller.updateEdit(text, 'cell');
     else controller.beginEdit({ text });
   };
@@ -830,6 +828,38 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
   const editRect = rangeRect(layout, sheet, activeMerge ?? { r1: active.row, c1: active.col, r2: active.row, c2: active.col });
   const editStyle = controller.engine.workbook.style(sheet, active.row, active.col);
   const editorVisible = !!editing;
+  const addRowsTop = canAddRows ? rowTop(layout, sheet, sheet.rowCount) : size.height;
+
+  // The chip of the connected table the active cell is in, on the table's top edge
+  // (over the column headers when the table starts at the top).
+  const activeTable = editing ? undefined : controller.dataTableAt(controller.selection.active.row, controller.selection.active.col);
+  const chipPlace = (() => {
+    if (!activeTable) return null;
+    const { r1, c1, r2 } = activeTable.range;
+    const top = rowTop(layout, sheet, r1) - TABLE_CHIP_HEIGHT;
+    if (rowTop(layout, sheet, r2) + sheet.rows.sizeOf(r2) <= COL_HEADER_HEIGHT || top >= size.height) return null;
+    return { top: Math.max(0, top), left: Math.max(headerW + 2, colLeft(layout, sheet, c1)), height: TABLE_CHIP_HEIGHT };
+  })();
+
+  const addRows = (e: React.FormEvent) => {
+    e.preventDefault();
+    const count = Number.parseInt(addRowsCount, 10);
+    if (Number.isNaN(count) || count <= 0) {
+      setAddRowsCount(ADD_ROWS_DEFAULT);
+      return;
+    }
+    if (!controller.commitEdit()) return;
+    controller.addRows(count);
+    editorRef.current?.focus({ preventScroll: true });
+  };
+
+  /** The add-rows bar sits over the canvas, not in the scroller: wheel turns over it still scroll the grid. */
+  const scrollBy = (e: React.WheelEvent) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollTop += e.deltaY;
+    el.scrollLeft += e.deltaX;
+  };
 
   return (
     <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden select-none" data-testid="sheet-grid">
@@ -860,6 +890,44 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
           />
         </div>
       </GridContextMenu>
+      {activeTable && chipPlace && (
+        <TableChip
+          label={tableLabels?.[activeTable.id] ?? t.weldsheets.dataSources.table}
+          style={chipPlace}
+          readOnly={controller.readOnly}
+          filtered={controller.tableFiltered(activeTable.id)}
+          onPick={() => controller.selectDataTable(activeTable.id)}
+          onAction={(action) => controller.requestTableAction(activeTable.id, action)}
+          onToggleFilter={() => controller.toggleTableFilter(activeTable.id)}
+          onOpenChange={(open) => {
+            chipMenuOpen.current = open;
+          }}
+          onClosed={() => editorRef.current?.focus({ preventScroll: true })}
+        />
+      )}
+      {addRowsTop < size.height && (
+        <form
+          onSubmit={addRows}
+          onWheel={scrollBy}
+          className="absolute z-10 flex items-center gap-2 text-sm text-muted-foreground"
+          style={{ top: addRowsTop, left: headerW + 12, height: ADD_ROWS_HEIGHT }}
+          data-testid="add-rows"
+        >
+          <Button type="submit" variant="outline" size="sm" className="h-7">
+            {t.weldsheets.editor.addRows}
+          </Button>
+          <Input
+            type="number"
+            min={1}
+            max={MAX_ROWS - sheet.rowCount}
+            value={addRowsCount}
+            onChange={(e) => setAddRowsCount(e.target.value)}
+            aria-label={t.weldsheets.editor.addRowsCount}
+            className="h-7 w-24"
+          />
+          <span>{t.weldsheets.editor.addRowsSuffix}</span>
+        </form>
+      )}
       <textarea
         ref={editorRef}
         rows={editing ? editing.text.split('\n').length : 1}
@@ -898,38 +966,9 @@ export function SheetGrid({ controller, barInputRef, onCreatePivot }: Props) {
       {cellMenu?.kind === 'list' && (
         <ListMenu controller={controller} row={cellMenu.row} col={cellMenu.col} rect={cellRect(cellMenu.row, cellMenu.col)} onClose={() => setCellMenu(null)} />
       )}
-      {suggestions.length > 0 && (
-        <ul
-          className="absolute z-20 min-w-[180px] rounded-md border bg-popover py-1 text-sm text-popover-foreground shadow-md"
-          style={{ left: editRect.x, top: editRect.y + editRect.h + 2 }}
-          role="listbox"
-        >
-          {suggestions.map((name, i) => (
-            <li
-              key={name}
-              role="option"
-              aria-selected={i === suggestionIndex}
-              className={`cursor-pointer px-3 py-1 font-mono ${i === suggestionIndex ? 'bg-accent' : ''}`}
-              onPointerDown={(e) => {
-                e.preventDefault();
-                acceptSuggestion(name);
-              }}
-            >
-              {name}
-            </li>
-          ))}
-        </ul>
-      )}
+      {editorVisible && <FormulaAssistPopup assist={assist} controller={controller} style={{ left: editRect.x, top: editRect.y + editRect.h + 2 }} />}
     </div>
   );
-}
-
-function currentSuggestions(text: string, caret: number): string[] {
-  if (!isFormulaText(text)) return [];
-  const at = functionPrefixAt(text, caret);
-  if (!at) return [];
-  const list = suggestFunctions(at.prefix);
-  return list.length === 1 && list[0] === at.prefix.toUpperCase() ? [] : list;
 }
 
 function measureEditor(text: string, style: Parameters<typeof fontFor>[0]): number {

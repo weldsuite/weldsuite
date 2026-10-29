@@ -431,8 +431,7 @@ app.post('/charts/data', requirePermission('settings:read'), zValidator('json', 
   const config = c.req.valid('json');
   try {
     const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
-    const workspaceId = c.get('workspaceId') as string;
-    const data = await queryAnalytics(c.env, [workspaceId, c.get('internalWorkspaceId')], config);
+    const data = await queryAnalytics(c.env, [c.get('workspaceId'), c.get('clerkOrgId')], config);
     return success(c, data);
   } catch (err) {
     console.error('[app-api/helpdesk-analytics] chart data failed:', err);
@@ -453,10 +452,10 @@ app.post('/charts/batch-data', requirePermission('settings:read'), async (c) => 
   }> };
   try {
     const { queryAnalytics } = await import('@weldsuite/core-domain/analytics-query');
-    const workspaceId = c.get('workspaceId') as string;
+    const workspaceRefs = [c.get('workspaceId'), c.get('clerkOrgId')];
     const entries = await Promise.all(
       body.charts.map(async (chart) => {
-        const data = await queryAnalytics(c.env, [workspaceId, c.get('internalWorkspaceId')], chart);
+        const data = await queryAnalytics(c.env, workspaceRefs, chart);
         return [chart.chartId, data] as const;
       }),
     );

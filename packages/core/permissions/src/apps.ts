@@ -164,6 +164,11 @@ export const PERMISSION_APPS: readonly PermissionAppDefinition[] = [
     objects: ['sign_envelopes', 'sign_templates'],
   },
   {
+    code: 'weldpanel',
+    label: 'WeldPanel',
+    objects: ['panel_projects', 'panel_reports', 'panel_recordings', 'panel_people'],
+  },
+  {
     code: 'weldreach',
     label: 'WeldReach',
     objects: ['reach_campaigns', 'reach_prospects', 'reach_inbox', 'reach_mailboxes', 'reach_settings'],

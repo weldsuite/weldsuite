@@ -55,7 +55,8 @@ app.post('/', requireScope('chat_drafts:write'), zValidator('json', createChatDr
   const values = {
     ...body,
     id,
-    workspaceId: (body.workspaceId as string | undefined) ?? c.get('workspaceId'),
+    // chat_drafts.workspace_id holds the Clerk org id (dropped in phase 3 of the workspace-id plan).
+    workspaceId: (body.workspaceId as string | undefined) ?? c.get('clerkOrgId') ?? c.get('workspaceId'),
     userId: (body.userId as string | undefined) ?? c.get('userId'),
     content: (body.body as string | undefined) ?? (body.content as string | undefined) ?? '',
     createdAt: now,

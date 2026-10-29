@@ -38,6 +38,7 @@ function internal() {
     c.set('internalTrusted', true);
     c.set('tenantDb', db);
     c.set('workspaceId', 'ws_test');
+    c.set('clerkOrgId', 'org_test');
     c.set('orgId', 'org_test');
     c.set('userId', 'system');
     await next();

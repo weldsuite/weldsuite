@@ -32,21 +32,21 @@ beforeAll(async () => {
   db = handle.db;
 }, 60_000);
 
-/** An app whose caller holds exactly `grants`, in workspace `workspaceId`. */
-function app(grants: string[], workspaceId = 'org_test_default') {
+/** An app whose caller holds exactly `grants`, in the workspace with Clerk org id `clerkOrgId`. */
+function app(grants: string[], clerkOrgId = 'org_test_default') {
   return createTestApp(BASE, weldpassRoutes, {
     context: {
       permissions: permissions(...grants),
       tenantDb: db,
-      workspaceId,
-      orgId: workspaceId,
+      clerkOrgId,
+      orgId: clerkOrgId,
     },
     env: { WELDPASS_ROOT_KEY: ROOT_KEY },
   });
 }
 
-async function createProject(name: string, workspaceId = 'org_test_default') {
-  const { request } = app(['secrets:manage'], workspaceId);
+async function createProject(name: string, clerkOrgId = 'org_test_default') {
+  const { request } = app(['secrets:manage'], clerkOrgId);
   const res = await request(`${BASE}/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

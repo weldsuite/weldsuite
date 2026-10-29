@@ -103,16 +103,20 @@ export function QuestionCard({ question, active, answer, disabled, onAnswer }: R
             <button
               key={option.label}
               type="button"
-              disabled={!interactive}
+              // Stays in the tab order and the accessibility tree while it cannot be used (a reply is on its way).
+              aria-disabled={!interactive}
+              aria-pressed={multi ? isSelected : undefined}
+              aria-keyshortcuts={String(index + 1)}
               onClick={() => pick(option.label)}
               className={cn(
                 'group flex w-full items-start gap-3 rounded-lg px-2.5 py-2 text-left transition-colors',
-                'hover:bg-accent focus-visible:bg-accent focus-visible:outline-none',
+                'hover:bg-accent focus-visible:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 isSelected && 'bg-accent',
-                !interactive && 'pointer-events-none',
+                !interactive && 'cursor-default opacity-70 hover:bg-transparent',
               )}
             >
               <span
+                aria-hidden
                 className={cn(
                   'mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-medium tabular-nums',
                   isSelected
@@ -169,12 +173,12 @@ export function QuestionCard({ question, active, answer, disabled, onAnswer }: R
         ) : (
           <button
             type="button"
-            disabled={!interactive}
-            onClick={() => setWriting(true)}
+            aria-disabled={!interactive}
+            onClick={() => interactive && setWriting(true)}
             className={cn(
               'flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors',
-              'hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:outline-none',
-              !interactive && 'pointer-events-none',
+              'hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              !interactive && 'cursor-default opacity-70 hover:bg-transparent hover:text-muted-foreground',
             )}
           >
             <PencilLine className="ml-0.5 h-4 w-4 shrink-0" />
@@ -188,7 +192,7 @@ export function QuestionCard({ question, active, answer, disabled, onAnswer }: R
           <button
             type="button"
             disabled={!interactive || selected.length === 0}
-            onClick={() => onAnswer(answerFromOptions(selected))}
+            onClick={() => interactive && onAnswer(answerFromOptions(selected))}
             className="rounded-full bg-foreground px-3.5 py-1.5 text-xs font-medium text-background transition-opacity disabled:opacity-30"
           >
             {t.continue}

@@ -143,7 +143,7 @@ app.post(
         webhookSync: webhookSyncFor(c),
       });
       if (!result) return error.notFound(c, 'Workflow template', id);
-      await syncWorkflowPollIndex(c.env, db, c.get('workspaceId'));
+      await syncWorkflowPollIndex(c.env, db, c.get('clerkOrgId'));
       publishEntityEvent({
         c,
         entityType: 'workflow',

@@ -9,6 +9,7 @@
 
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
+  billedModelId,
   generateText,
   recommended,
   runWithFallback,
@@ -34,13 +35,8 @@ import { findAccessibleAgentRow, type AgentViewer } from './access';
 import { runAgentOnce, REQUEST_RUN_TIMEOUT_MS } from './executor';
 import { isManagedAgentsConfigured } from './managed-agents';
 import { asText } from '@weldsuite/text';
-
-const WELDAGENT_SYSTEM =
-  'You are WeldAgent, the AI assistant built into the WeldSuite business platform. ' +
-  'You help the user with their CRM, mail, projects, tasks, helpdesk, commerce and ' +
-  'accounting work. Be concise, direct and practical. Use plain text — no markdown ' +
-  'headings — and keep answers short unless the user asks for detail. If you are not ' +
-  'sure about something in the user\'s workspace, say so rather than inventing data.';
+import { buildPersonaCall, holdsPermissions, personaReplyText } from './persona';
+import { describeUserTags, taggedSheetsIn } from './record-tokens';
 
 export class ConversationNotFoundError extends Error {
   constructor(conversationId: string) {
@@ -76,6 +72,11 @@ export interface AcceptedTurn {
   historyOffset: number;
   /** Permissions of the user driving the turn — narrows the agent's grants. */
   actorPermissions?: string[] | null;
+  /**
+   * The persona keys (`personaPermissionKeys`) the user holds, checked
+   * deny-aware by the route: what the default WeldAgent may look up for them.
+   */
+  personaPermissions?: string[] | null;
   /** The user's IANA timezone, when the client sent one. */
   timezone?: string | null;
 }
@@ -88,6 +89,7 @@ export interface AcceptedTurnRef {
   userMessageId: string;
   agentId: string | null;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
 }
 
@@ -203,10 +205,14 @@ function serializeMessage(row: typeof schema.weldagentMessages.$inferSelect): We
 }
 
 async function generatePersonalReply(params: {
+  db: AgentDb;
   env: Env;
   workspaceId: string;
   userId: string;
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  /** The persona keys the user holds, deny-aware: what the default WeldAgent may look up for them. */
+  personaPermissions?: string[] | null;
+  timezone?: string | null;
 }): Promise<TurnGeneratorResult> {
   if (!isGatewayConfigured(params.env)) {
     throw new Error('AI gateway is not configured');
@@ -219,6 +225,17 @@ async function generatePersonalReply(params: {
   const credits = params.env.WORKSPACE_CACHE
     ? toCreditStates(await readGatewayCreditSnapshot(params.env.WORKSPACE_CACHE))
     : [];
+  // Read-only lookups, limited to what this user may read themselves, and the
+  // spreadsheets they tagged.
+  const persona = await buildPersonaCall({
+    db: params.db,
+    workspaceId: params.workspaceId,
+    userId: params.userId,
+    env: params.env,
+    holds: holdsPermissions(params.personaPermissions ?? []),
+    sheets: { tagged: taggedSheetsIn(params.messages) },
+    timezone: params.timezone,
+  });
 
   let served: { gateway: Gateway; providerCostUsd: number; covered: boolean } | undefined;
   const { value: result } = await runWithFallback(
@@ -238,14 +255,17 @@ async function generatePersonalReply(params: {
     ({ model: resolved }) =>
       generateText({
         model: resolved,
-        system: WELDAGENT_SYSTEM,
-        messages: params.messages,
+        system: persona.system,
+        messages: describeUserTags(params.messages),
+        tools: persona.tools,
+        stopWhen: persona.stopWhen,
         maxRetries: 1,
       }),
   );
 
+  // `result.usage` adds up every model request of the reply (AI SDK 7).
   const creditsUsed = await chargeAiUsage(metering, {
-    modelId,
+    modelId: billedModelId(modelId, result),
     usage: result.usage,
     op: 'chat',
     gateway: served?.gateway,
@@ -253,7 +273,7 @@ async function generatePersonalReply(params: {
     coveredByServiceCredit: served?.covered,
   });
 
-  return { text: result.text, creditsUsed, success: true };
+  return { text: personaReplyText(result.text), creditsUsed, success: true };
 }
 
 /** Tells the agent the user's clock, so "7:00" means their 7:00. */
@@ -272,6 +292,7 @@ export async function defaultTurnGenerator(params: {
   agentId: string | null;
   conversationId?: string;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
   timeoutMs?: number;
 }): Promise<TurnGeneratorResult> {
@@ -322,10 +343,13 @@ export async function defaultTurnGenerator(params: {
   }
 
   return generatePersonalReply({
+    db: params.db,
     env: params.env,
     workspaceId: params.workspaceId,
     userId: params.userId,
     messages: params.messages,
+    personaPermissions: params.personaPermissions,
+    timezone: params.timezone,
   });
 }
 
@@ -342,6 +366,7 @@ export async function acceptConversationTurn(params: {
   content: string;
   agentId?: string;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
   /** When set, the bound agent must be one this viewer may use. */
   viewer?: AgentViewer;
@@ -424,6 +449,7 @@ export async function acceptConversationTurn(params: {
     chatMessages,
     historyOffset: history.offset,
     actorPermissions: params.actorPermissions ?? null,
+    personaPermissions: params.personaPermissions ?? null,
     timezone: params.timezone ?? null,
   };
 }
@@ -436,6 +462,7 @@ export function toAcceptedTurnRef(accepted: AcceptedTurn): AcceptedTurnRef {
     userMessageId: accepted.userMessage.id,
     agentId: accepted.boundAgentId,
     actorPermissions: accepted.actorPermissions ?? null,
+    personaPermissions: accepted.personaPermissions ?? null,
     timezone: accepted.timezone ?? null,
   };
 }
@@ -499,6 +526,7 @@ export async function loadAcceptedTurn(db: AgentDb, ref: AcceptedTurnRef): Promi
     chatMessages: toModelHistory(history.rows),
     historyOffset: history.offset,
     actorPermissions: ref.actorPermissions ?? null,
+    personaPermissions: ref.personaPermissions ?? null,
     timezone: ref.timezone ?? null,
   };
 }
@@ -591,15 +619,29 @@ export async function persistFailedAssistantTurn(params: {
   };
 }
 
+/**
+ * A chat reply that arrives within this long of the question is one the person
+ * waited for in the chat: it needs no "replied" notification. A longer turn is
+ * work they probably left for, so it gets one.
+ */
+export const INTERACTIVE_REPLY_WINDOW_MS = 30_000;
+
+/** Whether a finished chat turn notifies the person: `notify` when given, else only for a turn long enough that they left. */
+export function shouldNotifyChatReply(params: { notify?: boolean; elapsedMs: number }): boolean {
+  return params.notify ?? params.elapsedMs >= INTERACTIVE_REPLY_WINDOW_MS;
+}
+
 export async function finishAcceptedTurn(params: {
   db: AgentDb;
   env: Env;
   accepted: AcceptedTurn;
   generate?: TurnGenerator;
+  /** Force the "replied" notification on or off; unset: only after a turn long enough that the person left. */
   notify?: boolean;
   timeoutMs?: number;
 }): Promise<CompleteTurnResult> {
   const { accepted, db } = params;
+  const startedAt = Date.now();
 
   try {
     const generate =
@@ -615,6 +657,7 @@ export async function finishAcceptedTurn(params: {
           agentId: input.agentId,
           conversationId: accepted.conversationId,
           actorPermissions: accepted.actorPermissions,
+          personaPermissions: accepted.personaPermissions,
           timezone: accepted.timezone,
           timeoutMs: params.timeoutMs,
         }));
@@ -636,7 +679,7 @@ export async function finishAcceptedTurn(params: {
       toolInvocations: generated.toolInvocations,
     });
 
-    if (params.notify !== false && generated.success) {
+    if (generated.success && shouldNotifyChatReply({ notify: params.notify, elapsedMs: Date.now() - startedAt })) {
       let agentName: string | null = null;
       if (accepted.boundAgentId) {
         const agent = await getAgent(db, accepted.boundAgentId);
@@ -682,6 +725,7 @@ export async function completeConversationTurn(params: {
   content: string;
   agentId?: string;
   actorPermissions?: string[] | null;
+  personaPermissions?: string[] | null;
   timezone?: string | null;
   viewer?: AgentViewer;
   generate?: TurnGenerator;
@@ -697,6 +741,7 @@ export async function completeConversationTurn(params: {
     content: params.content,
     agentId: params.agentId,
     actorPermissions: params.actorPermissions,
+    personaPermissions: params.personaPermissions,
     timezone: params.timezone,
     viewer: params.viewer,
   });

@@ -47,12 +47,13 @@ const TIMEZONES = [
 app.get('/', requirePermission('accounts:read'), async (c) => {
   try {
     const db = c.get('tenantDb');
-    const workspaceId = c.get('workspaceId');
+    // The social settings row is keyed by the Clerk org id (the row id is the org id).
+    const orgId = c.get('clerkOrgId');
 
     const [settings] = await db
       .select()
       .from(workspaceSettings)
-      .where(eq(workspaceSettings.id, workspaceId))
+      .where(eq(workspaceSettings.id, orgId))
       .limit(1);
 
     const custom = (settings?.customSettings ?? {}) as Record<string, unknown>;
@@ -98,12 +99,12 @@ app.put(
     const data = c.req.valid('json');
     try {
       const db = c.get('tenantDb');
-      const workspaceId = c.get('workspaceId');
+      const orgId = c.get('clerkOrgId');
 
       const [existing] = await db
         .select()
         .from(workspaceSettings)
-        .where(eq(workspaceSettings.id, workspaceId))
+        .where(eq(workspaceSettings.id, orgId))
         .limit(1);
 
       const custom = ((existing?.customSettings ?? {}) as Record<string, unknown>);
@@ -119,10 +120,10 @@ app.put(
         await db
           .update(workspaceSettings)
           .set({ customSettings: newCustomSettings, updatedAt: now })
-          .where(eq(workspaceSettings.id, workspaceId));
+          .where(eq(workspaceSettings.id, orgId));
       } else {
         await db.insert(workspaceSettings).values({
-          id: workspaceId,
+          id: orgId,
           customSettings: newCustomSettings,
           createdAt: now,
           updatedAt: now,
@@ -132,7 +133,7 @@ app.put(
       publishEntityEvent({
         c,
         entityType: 'social_settings',
-        entityId: workspaceId,
+        entityId: orgId,
         action: 'updated',
         data: data as unknown as Record<string, unknown>,
       });

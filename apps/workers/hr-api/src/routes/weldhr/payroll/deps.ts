@@ -5,31 +5,25 @@
  */
 
 import { keyringFromEnv } from '@weldsuite/db/lib/crypto';
-import { getMasterDb, getWorkspaceForOrg } from '@weldsuite/worker-kit/db';
+import { getMasterDb } from '@weldsuite/worker-kit/db';
 import { createBooksBridge, defaultEngines, defaultPdf, type PayrollDeps } from '../../../services/weldhr/payroll/deps';
 import { createDigipoortGateway } from '../../../services/weldhr/payroll/digipoort';
 import { digipoortAvailable } from '../../../services/weldhr/payroll/filings';
 import { createPayrollNotifier } from '../../../services/weldhr/payroll/notifier';
 import { writeUsageEvents } from '../../../services/weldhr/payroll/usage';
 import { flagOn } from './flag';
-import { workspaceIdOf, type HrContext } from '../helpers';
+import { orgIdOf, type HrContext } from '../helpers';
 
 export function payrollDeps(c: HrContext): PayrollDeps {
-  const workspaceKey = workspaceIdOf(c);
+  const workspaceKey = orgIdOf(c);
   const deps: PayrollDeps = {
     engines: defaultEngines,
     pdf: defaultPdf,
     keyring: keyringFromEnv(c.env),
     bucket: c.env.STORAGE ?? null,
     workspaceKey,
-    // The billing ledger keys on the master workspace id; the Clerk org id is the fallback.
-    usageWorkspaceId: async () => {
-      try {
-        return (await getWorkspaceForOrg(c.env, workspaceKey)).id;
-      } catch {
-        return workspaceKey;
-      }
-    },
+    // The billing ledger keys on the master workspace id.
+    usageWorkspaceId: async () => c.get('workspaceId'),
     books: createBooksBridge(c.env.BOOKS_INTERNAL),
     meter: (events) => writeUsageEvents(getMasterDb(c.env), events),
     digipoort: createDigipoortGateway(c.env),

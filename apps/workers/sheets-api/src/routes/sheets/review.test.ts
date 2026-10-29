@@ -25,8 +25,10 @@ let agentReadOnly = false;
 vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weldsuite/worker-kit/db')>()),
   getTenantDbForWorkspace: async () => db,
-  getWorkspaceContextForOrg: async (_env: unknown, workspaceId: string) => ({
-    id: workspaceId,
+  // The agent's path param is the Clerk org id; the lookup hands back both ids, like the real one.
+  getWorkspaceContextForOrg: async (_env: unknown, ref: string) => ({
+    id: 'ws_test_default',
+    clerkOrgId: ref,
     db,
     suspended: false,
     licensedApps: null,
@@ -178,6 +180,22 @@ describe('connected tables', () => {
     expect((await app().request(`/api/sheets/${sheet.id}/data-sources/${created.source.id}`, json('DELETE'))).status).toBe(204);
     expect(await room.readRange(meta, { range: 'B3' })).toMatchObject({ values: [['Acme']] });
     expect(await call<SheetDataSource[]>(app().request(`/api/sheets/${sheet.id}/data-sources`))).toEqual([]);
+  });
+
+  it('puts a table on a new tab of its own, at A1', async () => {
+    await member(ALICE, 'OWNER');
+    await db.insert(schema.companies).values({ id: 'co_1', name: 'Acme', displayName: 'Acme', leadScore: 10 } as typeof schema.companies.$inferInsert);
+    const sheet = await create({ name: 'CRM' });
+    const meta = metaFor(sheet.id);
+    const room = rooms.roomFor(`${WORKSPACE}:${sheet.id}`).room;
+    const created = await call<SheetDataRefreshResult>(
+      app().request(`/api/sheets/${sheet.id}/data-sources`, json('POST', { objectType: 'companies', definition, target: { newTab: 'Companies' } })),
+      201,
+    );
+    expect(created.refreshed).toBe(true);
+    const tabs = await room.tabs(meta);
+    expect(tabs.map((t) => t.name)).toEqual(['Sheet1', 'Companies']);
+    expect(await room.readRange(meta, { range: 'Companies!A1:B2' })).toMatchObject({ values: [['Company', 'Staff'], ['Acme', 10]] });
   });
 
   it('needs the object’s own read permission to connect or change one', async () => {

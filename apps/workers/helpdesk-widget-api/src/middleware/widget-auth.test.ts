@@ -50,7 +50,7 @@ function seed(settings: Record<string, unknown>) {
 function buildApp() {
   const app = new Hono<{ Bindings: Env; Variables: Variables }>();
   app.use('/api/*', widgetAuthMiddleware());
-  app.get('/api/ping', (c) => c.json({ ok: true, workspaceId: c.get('workspaceId') }));
+  app.get('/api/ping', (c) => c.json({ ok: true, workspaceId: c.get('workspaceId'), clerkOrgId: c.get('clerkOrgId') }));
   app.post('/api/ping', (c) => c.json({ ok: true }));
   return app;
 }
@@ -60,6 +60,7 @@ async function call(headers: Record<string, string>, method: 'GET' | 'POST' = 'G
   const body = (await res.json()) as {
     ok?: boolean;
     workspaceId?: string;
+    clerkOrgId?: string;
     error?: { code: string; message: string };
   };
   return { status: res.status, body };
@@ -94,7 +95,8 @@ describe('widgetAuthMiddleware · identification', () => {
   it('exposes the workspace to the route on success', async () => {
     const { status, body } = await call(withWidget());
     expect(status).toBe(200);
-    expect(body.workspaceId).toBe('org_clerk');
+    expect(body.workspaceId).toBe('ws_internal');
+    expect(body.clerkOrgId).toBe('org_clerk');
   });
 });
 

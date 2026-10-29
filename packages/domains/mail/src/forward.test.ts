@@ -26,6 +26,9 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { Database } from '@weldsuite/worker-kit/db';
 import type { MailSendEnv as Env } from './send';
+import { rawMimeKey } from './store/bodies';
+
+const WORKSPACE_ID = 'ws_test';
 
 const { mailAccounts, mailMessages, mailAttachments } = schema;
 
@@ -34,23 +37,26 @@ const USER = 'user_test';
 const SELF = 'me@test.dev';
 const NOTE_BYTES = new TextEncoder().encode('inbound note');
 
-/** In-memory R2: the original's file lives outside the caller's upload prefix, as inbound stores it. */
+/**
+ * In-memory R2: the original's file lives outside the caller's upload prefix,
+ * as inbound stores it. One map backs both `STORAGE` (attachments) and
+ * `MAIL_STORAGE` (raw MIME); keys never overlap.
+ */
 const stored = new Map<string, { bytes: Uint8Array; contentType?: string }>();
-const env = {
-  STORAGE: {
-    get: async (key: string) => {
-      const obj = stored.get(key);
-      if (!obj) return null;
-      return {
-        arrayBuffer: async () => obj.bytes.slice().buffer,
-        httpMetadata: { contentType: obj.contentType },
-      };
-    },
-    put: async (key: string, value: ArrayBuffer, options?: { httpMetadata?: { contentType?: string } }) => {
-      stored.set(key, { bytes: new Uint8Array(value), contentType: options?.httpMetadata?.contentType });
-    },
+const memoryBucket = {
+  get: async (key: string) => {
+    const obj = stored.get(key);
+    if (!obj) return null;
+    return {
+      arrayBuffer: async () => obj.bytes.slice().buffer,
+      httpMetadata: { contentType: obj.contentType },
+    };
   },
-} as unknown as Env;
+  put: async (key: string, value: ArrayBuffer, options?: { httpMetadata?: { contentType?: string } }) => {
+    stored.set(key, { bytes: new Uint8Array(value), contentType: options?.httpMetadata?.contentType });
+  },
+};
+const env = { STORAGE: memoryBucket, MAIL_STORAGE: memoryBucket } as unknown as Env;
 
 let db: Database;
 
@@ -209,6 +215,45 @@ describe('forwardAndPersist (pglite, dryRun)', () => {
     expect(attachments[0]!.fileName).toBe('[QA] Inbound 02 with attachment.eml');
     const eml = new TextDecoder().decode(stored.get(attachments[0]!.storagePath!)!.bytes);
     expect(eml).toBe(raw);
+  });
+
+  it('prefers the R2 raw copy over the Postgres rawMessage column, keyed by workspaceId/accountId/messageId', async () => {
+    const accountId = await seedAccount();
+    const pgRaw = 'From: weldhost@gmail.com\r\nSubject: pg copy\r\n\r\nstale postgres copy';
+    const original = await seedIncoming(accountId, { rawMessage: pgRaw });
+    const r2Raw = 'From: weldhost@gmail.com\r\nSubject: r2 copy\r\n\r\nthe real raw bytes';
+    stored.set(rawMimeKey({ workspaceId: WORKSPACE_ID, accountId, messageId: original }), {
+      bytes: new TextEncoder().encode(r2Raw),
+      contentType: 'message/rfc822',
+    });
+
+    const result = await forwardAndPersist(
+      env, db, ORG, USER, original,
+      { to: ['someone@example.com'], body: 'Original attached', asAttachment: true },
+      { dryRun: true, outbound: { workspaceId: WORKSPACE_ID } },
+    );
+
+    const { attachments } = await sentCopy(result.messageId);
+    const eml = new TextDecoder().decode(stored.get(attachments[0]!.storagePath!)!.bytes);
+    expect(eml).toBe(r2Raw);
+    expect(eml).not.toBe(pgRaw);
+  });
+
+  it('falls back to rawMessage when R2 has nothing stored for that ref, even with a workspaceId', async () => {
+    const accountId = await seedAccount();
+    const pgRaw = 'From: weldhost@gmail.com\r\nSubject: only in postgres\r\n\r\nbody';
+    const original = await seedIncoming(accountId, { rawMessage: pgRaw });
+    // No R2 object seeded at rawMimeKey({ workspaceId: WORKSPACE_ID, accountId, messageId: original }).
+
+    const result = await forwardAndPersist(
+      env, db, ORG, USER, original,
+      { to: ['someone@example.com'], asAttachment: true },
+      { dryRun: true, outbound: { workspaceId: WORKSPACE_ID } },
+    );
+
+    const { attachments } = await sentCopy(result.messageId);
+    const eml = new TextDecoder().decode(stored.get(attachments[0]!.storagePath!)!.bytes);
+    expect(eml).toBe(pgRaw);
   });
 
   it('rebuilds the .eml, files included, when no raw message was stored', async () => {

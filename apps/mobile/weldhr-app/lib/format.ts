@@ -5,6 +5,9 @@
 
 import { parseIsoDate } from './dates';
 
+/** Between the two ends of a range: a hyphen, narrower than an en dash. */
+export const RANGE = ' - ';
+
 /** "Mon 3 Mar"; the year only when it is not this year. */
 export function formatDay(iso: string | null | undefined, locale: string, now: Date = new Date()): string {
   const date = parseIsoDate(iso ?? null);
@@ -24,12 +27,12 @@ export function formatDate(iso: string | null | undefined, locale: string): stri
   return date.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-/** "3 – 7 Mar", "28 Feb – 3 Mar", or a single day when both ends match. */
+/** "3 - 7 Mar", "28 Feb - 3 Mar", or a single day when both ends match. */
 export function formatDateRange(start: string, end: string, locale: string, now: Date = new Date()): string {
   if (start === end) return formatDay(start, locale, now);
   const from = parseIsoDate(start);
   const to = parseIsoDate(end);
-  if (!from || !to) return `${start} – ${end}`;
+  if (!from || !to) return `${start}${RANGE}${end}`;
   const withYear = to.getFullYear() !== now.getFullYear() || from.getFullYear() !== to.getFullYear();
   const sameMonth = from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear();
   const right = to.toLocaleDateString(locale, { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) });
@@ -40,7 +43,7 @@ export function formatDateRange(start: string, end: string, locale: string, now:
         month: 'short',
         ...(from.getFullYear() !== to.getFullYear() ? { year: 'numeric' } : {}),
       });
-  return `${left} – ${right}`;
+  return `${left}${RANGE}${right}`;
 }
 
 /** "09:05" from an ISO timestamp, in the phone's time zone. */
@@ -132,7 +135,7 @@ export function formatShortDate(iso: string, locale: string): string {
   return date.toLocaleDateString(locale, { day: 'numeric', month: 'short' }).replace('.', '');
 }
 
-/** "19 Oct – 25 Oct", both ends spelled out the way the week navigator shows them. */
+/** "19 Oct - 25 Oct", both ends spelled out the way the week navigator shows them. */
 export function formatSpan(start: string, end: string, locale: string): string {
-  return start === end ? formatShortDate(start, locale) : `${formatShortDate(start, locale)} – ${formatShortDate(end, locale)}`;
+  return start === end ? formatShortDate(start, locale) : `${formatShortDate(start, locale)}${RANGE}${formatShortDate(end, locale)}`;
 }

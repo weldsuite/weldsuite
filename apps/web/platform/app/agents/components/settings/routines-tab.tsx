@@ -22,6 +22,7 @@ import {
 import { errorMessage } from '../chat/labels';
 import { SettingsSection } from './general-tab';
 import { browserTimezone, describeCron, formatNextRun } from '../routine-schedule';
+import { describeEvent } from '../event-labels';
 
 type SchedulePreset = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom';
 const SCHEDULE_PRESETS: SchedulePreset[] = ['hourly', 'daily', 'weekdays', 'weekly', 'custom'];
@@ -34,9 +35,9 @@ const SCHEDULE_CRON: Record<Exclude<SchedulePreset, 'custom'>, string> = {
 };
 
 function scheduleLabel(routine: AgentRoutine): string {
-  const t = getTranslations('common').agents.detail.parity.routines;
-  if (routine.scheduleKind === 'event' && routine.eventKey) return t.onEvent.replace('{event}', routine.eventKey);
-  const labels = getTranslations('common').agents.detail.routineNotice.schedule;
+  const detail = getTranslations('common').agents.detail;
+  if (routine.scheduleKind === 'event' && routine.eventKey) return describeEvent(routine.eventKey, detail.events);
+  const labels = detail.routineNotice.schedule;
   const words = describeCron(routine.cronExpr, labels, getLocale()) || routine.scheduleKind;
   return routine.timezone ? `${words} · ${routine.timezone}` : words;
 }
@@ -216,9 +217,9 @@ export function RoutinesTab({ agent }: Readonly<{ agent: AgentWithRuns }>) {
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {agent.eventSubscriptions.map((ev) => (
-              <Badge key={ev} variant="secondary" className="gap-1 font-mono text-[11px] font-normal">
+              <Badge key={ev} variant="secondary" className="gap-1 text-[11px] font-normal" title={ev}>
                 <Zap className="h-3 w-3" />
-                {ev}
+                {describeEvent(ev, t.events)}
               </Badge>
             ))}
           </div>

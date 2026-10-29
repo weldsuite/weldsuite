@@ -123,6 +123,13 @@ name = "execute-workflow-dev"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts runs against the plan and pays overage from the wallet.
+[[durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-dev"
+
 # Phase 4: hub SUB_WELDCONNECT → entity-workflows* (entity_event matching)
 #   wrangler queues create entity-workflows-dev
 #   wrangler queues create entity-workflows-dlq-dev
@@ -149,6 +156,14 @@ ENVIRONMENT = "test"
 APP_API_URL = "https://app-api-test.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
+
+# weldmail-mailbox-store: the generic create_record/update_record/delete_record/
+# query_data actions refuse a mail_message when the workspace's mail has moved
+# to the mailbox object (engine/entity-tables.ts). Same Flagship app as
+# mail-api/crm-api's [[env.test.flagship]].
+[[env.test.flagship]]
+binding = "FLAGSHIP"
+app_id = "d8c58a91-9e17-432b-b4e8-0f2c9959490e"
 
 [[env.test.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -179,6 +194,13 @@ name = "execute-workflow-test"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
 
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts runs against the plan and pays overage from the wallet.
+[[env.test.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api-test"
+
 [[env.test.queues.consumers]]
 queue = "entity-workflows-test"
 max_batch_size = 10
@@ -203,6 +225,12 @@ ENVIRONMENT = "production"
 APP_API_URL = "https://app-api.weldsuite.org"
 CF_ACCOUNT_ID = "cfcf560df8dc675d15337abcfbf6d9bd"
 AI_BYOK_PROVIDERS = "anthropic"
+
+# weldmail-mailbox-store — same Flagship app as mail-api/crm-api's
+# [[env.production.flagship]]; see the [env.test.flagship] comment above.
+[[env.production.flagship]]
+binding = "FLAGSHIP"
+app_id = "895f413b-8b8d-4e6f-bb14-399721deb17e"
 
 [[env.production.kv_namespaces]]
 binding = "WORKSPACE_CACHE"
@@ -234,6 +262,13 @@ entrypoint = "ConnectInternal"
 name = "execute-workflow"
 binding = "EXECUTE_WORKFLOW"
 class_name = "ExecuteWorkflowWorkflow"
+
+# Usage meters (@weldsuite/credits/meters): mail-api's UsageMeter, one per
+# workspace, counts runs against the plan and pays overage from the wallet.
+[[env.production.durable_objects.bindings]]
+name = "USAGE_METER"
+class_name = "UsageMeter"
+script_name = "weldsuite-mail-api"
 
 [[env.production.queues.consumers]]
 queue = "entity-workflows"

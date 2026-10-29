@@ -23,6 +23,7 @@ import {
   runSearch,
   searchContacts,
   searchCustomers,
+  searchSheets,
   type RunSearchParams,
 } from './search';
 
@@ -61,6 +62,7 @@ describe('buildResultUrl · records outside the CRM', () => {
     ['bill', 'bill_1', '/weldbooks/bills/bill_1'],
     ['project', 'prj_1', '/weldflow/project/prj_1'],
     ['task', 'tsk_1', '/weldflow/task/tsk_1'],
+    ['sheet', 'sht_1', '/weldsheets/sht_1'],
     ['domain', 'dom_1', '/weldhost/domains/dom_1'],
   ])('links a %s to where the platform opens it', (type, id, url) => {
     expect(buildResultUrl(type, id)).toBe(url);
@@ -191,5 +193,148 @@ describe('searchContacts / searchCustomers', () => {
         url: '/weldcrm/people?stack=person:per_jane',
       }),
     ]);
+  });
+});
+
+// A spreadsheet is a WeldDrive file plus a `sheets` row, so who finds it in
+// search is who may open it: the owner, the people it is shared with, anyone
+// when its general access is open, and workspace admins.
+describe('searchSheets · who finds a spreadsheet', () => {
+  let db: Database;
+
+  const ANN = 'user_ann'; // owns every file below
+  const BOB = 'user_bob'; // gets one shared with him
+  const CAROL = 'user_carol'; // a member nothing is shared with
+  const ADMIN = 'user_admin';
+
+  async function sheet(
+    id: string,
+    name: string,
+    opts: { access?: 'restricted' | 'workspace_view' | 'workspace_edit'; entityType?: string; deleted?: boolean } = {},
+  ) {
+    const now = new Date();
+    await db.insert(schema.files).values({
+      id: `file_${id}`,
+      fileName: name,
+      mimeType: 'application/vnd.weldsuite.sheet+json',
+      fileSize: 1,
+      fileType: 'spreadsheet',
+      storagePath: `workspaces/w/sheets/${id}`,
+      uploadedById: ANN,
+      generalAccess: opts.access ?? 'restricted',
+      entityType: opts.entityType ?? null,
+      entityId: opts.entityType ? 'prj_1' : null,
+      deletedAt: opts.deleted ? now : null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.sheets).values({ id, fileId: `file_${id}`, createdAt: now, updatedAt: now });
+  }
+
+  async function ids(userId: string | null, q = 'budget', limit = 10) {
+    const group = await searchSheets(db, 'ws_test', q, limit, userId);
+    return group.items.map((item) => item.id);
+  }
+
+  beforeAll(async () => {
+    db = (await createPgliteDb()).db;
+    const now = new Date();
+    await db.insert(schema.workspaceMembers).values(
+      [ANN, BOB, CAROL, ADMIN].map((userId) => ({
+        id: `wm_${userId}`,
+        userId,
+        email: `${userId}@test.dev`,
+        role: userId === ADMIN ? 'ADMIN' : 'MEMBER',
+        createdAt: now,
+        updatedAt: now,
+      })) as (typeof schema.workspaceMembers.$inferInsert)[],
+    );
+
+    await sheet('sht_private', 'Budget private');
+    await sheet('sht_shared', 'Budget shared');
+    await sheet('sht_open', 'Budget open', { access: 'workspace_view' });
+    await sheet('sht_exact', 'Budget', { access: 'workspace_edit' });
+    await sheet('sht_trashed', 'Budget trashed', { access: 'workspace_edit', deleted: true });
+    // A WeldFlow project's sheet follows the project's members, not the drive.
+    await sheet('sht_project', 'Budget project', { access: 'workspace_edit', entityType: 'project' });
+    await sheet('sht_forecast', 'Forecast', { access: 'workspace_edit' });
+    await sheet('sht_pct', 'Margin 100%', { access: 'workspace_edit' });
+    await sheet('sht_pct_not', 'Margin 1000', { access: 'workspace_edit' });
+    await db.insert(schema.driveShares).values({
+      id: 'dsh_1',
+      fileId: 'file_sht_shared',
+      userId: BOB,
+      role: 'viewer',
+      sharedBy: ANN,
+    });
+  }, 60_000);
+
+  it('gives the owner every spreadsheet of theirs that is not in the trash', async () => {
+    expect((await ids(ANN)).sort()).toEqual(['sht_exact', 'sht_open', 'sht_private', 'sht_shared']);
+  });
+
+  it('never returns a private spreadsheet to someone who cannot open it', async () => {
+    // Bob: the shared one and the open ones. Not Ann's restricted sheet.
+    expect((await ids(BOB)).sort()).toEqual(['sht_exact', 'sht_open', 'sht_shared']);
+    // Carol: only what is open to the workspace.
+    expect((await ids(CAROL)).sort()).toEqual(['sht_exact', 'sht_open']);
+  });
+
+  it('gives a workspace admin every spreadsheet, private ones included', async () => {
+    expect((await ids(ADMIN)).sort()).toEqual(['sht_exact', 'sht_open', 'sht_private', 'sht_shared']);
+  });
+
+  it('returns nothing without a user, whatever is open to the workspace', async () => {
+    expect(await ids(null)).toEqual([]);
+  });
+
+  it('leaves out the trash and the sheets of a WeldFlow project, even for an admin', async () => {
+    const found = await ids(ADMIN);
+    expect(found).not.toContain('sht_trashed');
+    expect(found).not.toContain('sht_project');
+  });
+
+  it('ranks an exact name first, titles a hit with the file name and links the sheet page', async () => {
+    const group = await searchSheets(db, 'ws_test', 'budget', 10, ANN);
+    expect(group.type).toBe('sheet');
+    expect(group.items[0]).toEqual(
+      expect.objectContaining({
+        id: 'sht_exact',
+        type: 'sheet',
+        title: 'Budget',
+        url: '/weldsheets/sht_exact',
+        score: 1,
+      }),
+    );
+  });
+
+  it('matches a typed % or _ as itself, not as a wildcard', async () => {
+    expect(await ids(ANN, '100%')).toEqual(['sht_pct']);
+    expect(await ids(ANN, 'margin 100_')).toEqual([]);
+  });
+
+  it('reports hasMore when there are more matches than the limit', async () => {
+    const group = await searchSheets(db, 'ws_test', 'budget', 2, ADMIN);
+    expect(group.items).toHaveLength(2);
+    expect(group.hasMore).toBe(true);
+  });
+
+  it('runs through runSearch for the searcher, and only for a member who may read spreadsheets', async () => {
+    const run = (userId: string | null | undefined, perms: RunSearchParams['perms']) =>
+      runSearch(db, 'ws_test', { q: 'budget', types: ['sheet'], limit: 10, perms, userId });
+
+    const bob = await run(BOB, { hasAny: () => true });
+    expect(bob.permittedTypes).toContain('sheet');
+    expect(bob.groups).toHaveLength(1);
+    expect(bob.groups[0]!.items.map((item) => item.id).sort()).toEqual(['sht_exact', 'sht_open', 'sht_shared']);
+
+    // No searcher (the caller passed none): no spreadsheets, and no failure.
+    const nobody = await run(undefined, { hasAny: () => true });
+    expect(nobody.groups[0]!.items).toEqual([]);
+
+    // Without sheets:read the type is not searched at all.
+    const denied = await run(ANN, { hasAny: (required) => !required.includes('sheets:read') });
+    expect(denied.permittedTypes).not.toContain('sheet');
+    expect(denied.groups).toEqual([]);
   });
 });

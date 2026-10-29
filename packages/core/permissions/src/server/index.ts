@@ -2,6 +2,7 @@
 export {
   resolveEffectivePermissions,
   createDrizzlePermissionQueries,
+  PERMISSIONS_RESOLUTION_VERSION,
   type PermissionDbQuery,
 } from './resolver';
 

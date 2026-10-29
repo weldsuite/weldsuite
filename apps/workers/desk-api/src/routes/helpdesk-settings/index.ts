@@ -275,7 +275,7 @@ app.get('/widget', requirePermission('settings:read'), async (c) => {
           id: generateId('wr'),
           widgetId,
           // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
-          workspaceId: c.get('internalWorkspaceId')!,
+          workspaceId: c.get('workspaceId'),
           widgetName: 'Default Widget',
           isActive: true,
           createdAt: new Date(),
@@ -293,7 +293,7 @@ app.get('/widget', requirePermission('settings:read'), async (c) => {
           id: generateId('wr'),
           widgetId,
           // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
-          workspaceId: c.get('internalWorkspaceId')!,
+          workspaceId: c.get('workspaceId'),
           widgetName: widgetSettings.widgetName ?? 'Default Widget',
           isActive: true,
           createdAt: new Date(),
@@ -356,7 +356,7 @@ app.put('/widget', requirePermission('settings:update'), zValidator('json', widg
           id: generateId('wr'),
           widgetId,
           // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
-          workspaceId: c.get('internalWorkspaceId')!,
+          workspaceId: c.get('workspaceId'),
           widgetName: data.widgetName ?? 'Default Widget',
           isActive: true,
           createdAt: new Date(),
@@ -474,7 +474,7 @@ app.post('/widgets', requirePermission('settings:create'), zValidator('json', wi
         id: generateId('wr'),
         widgetId,
         // widget_registry.workspace_id references workspaces.id, never the Clerk org id.
-        workspaceId: c.get('internalWorkspaceId')!,
+        workspaceId: c.get('workspaceId'),
         widgetName: data.widgetName ?? 'New Widget',
         isActive: true,
         createdAt: now,

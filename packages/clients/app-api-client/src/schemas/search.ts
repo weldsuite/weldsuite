@@ -18,6 +18,7 @@ export const SEARCH_ENTITY_TYPES = [
   'bill',
   'project',
   'task',
+  'sheet',
   'domain',
 ] as const;
 

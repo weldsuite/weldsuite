@@ -190,4 +190,36 @@ describe('ensureMemberLinked', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('bumps the permission cache for the given workspace when a row is activated', async () => {
+    await db.insert(workspaceMembers).values({
+      id: generateId('mbr'),
+      userId: 'pending_clerk_orginv_bump',
+      email: 'bump@test.dev',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      clerkInvitationId: 'orginv_bump',
+    });
+    vi.stubGlobal('fetch', clerkMemberships([{ orgId: ORG_ID, role: 'org:admin', email: 'bump@test.dev' }]));
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_bump', 'ws_bump');
+
+    expect(cache.get('permv:ws_bump')).toEqual(expect.any(String));
+  });
+
+  it('does not touch the permission cache when no workspace id is given', async () => {
+    await db.insert(workspaceMembers).values({
+      id: generateId('mbr'),
+      userId: 'pending_clerk_orginv_nobump',
+      email: 'nobump@test.dev',
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      clerkInvitationId: 'orginv_nobump',
+    });
+    vi.stubGlobal('fetch', clerkMemberships([{ orgId: ORG_ID, role: 'org:admin', email: 'nobump@test.dev' }]));
+
+    await ensureMemberLinked(env, db as never, ORG_ID, 'user_nobump');
+
+    expect([...cache.keys()].some((k) => k.startsWith('permv:'))).toBe(false);
+  });
 });

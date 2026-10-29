@@ -67,14 +67,14 @@ async function loadAuthor(db: Variables['tenantDb'], userId: string | null | und
  *     entity-event queue) so the inbox updates in the same second.
  */
 async function publishDeskChange(
-  c: { env: Env; get: (key: 'workspaceId') => string },
+  c: { env: Env; get: (key: 'clerkOrgId') => string },
   conversation: DeskConversation,
   message: DeskMessage,
   authors: Map<string, DeskAuthorInfo>,
 ) {
   if (!c.env.REALTIME) return;
   const rt = new RealtimePublisher(c.env.REALTIME, { internalSecret: c.env.REALTIME_INTERNAL_SECRET });
-  const orgId = c.get('workspaceId');
+  const orgId = c.get('clerkOrgId');
   const jobs: Promise<unknown>[] = [
     rt.publish(orgId, 'desk_conversation', 'updated', conversation, message.authorId ?? 'system'),
     rt.publish(orgId, 'desk_message', 'created', message, message.authorId ?? 'system'),
@@ -173,16 +173,16 @@ const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const UPLOADED_NAME = /^\d+_att_[A-Za-z0-9]+_[A-Za-z0-9._-]+$/;
 
 /** Where a conversation's agent files live: R2 key prefix and its public URL. */
-function attachmentLocation(env: Env, workspaceId: string, conversationId: string) {
+function attachmentLocation(env: Env, clerkOrgId: string, conversationId: string) {
   if (!env.R2_PUBLIC_URL) return null;
-  const keyPrefix = `desk/${workspaceId}/${conversationId}/`;
+  const keyPrefix = `desk/${clerkOrgId}/${conversationId}/`;
   return { keyPrefix, urlPrefix: `${withoutTrailingSlash(env.R2_PUBLIC_URL)}/${keyPrefix}` };
 }
 
 app.post('/:id/attachments', requirePermission('conversations:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const location = attachmentLocation(c.env, c.get('workspaceId'), id);
+  const location = attachmentLocation(c.env, c.get('clerkOrgId'), id);
   if (!c.env.STORAGE || !location) return error.unavailable(c, 'File upload is not configured');
 
   const [exists] = await db
@@ -237,7 +237,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
   if (data.attachments?.length) {
     // Only files uploaded to this conversation: a reply must not make the
     // inbox (or the customer's email) link to an arbitrary URL.
-    const location = attachmentLocation(c.env, c.get('workspaceId'), id);
+    const location = attachmentLocation(c.env, c.get('clerkOrgId'), id);
     const owned = (url: string) =>
       location !== null &&
       url.startsWith(location.urlPrefix) &&
@@ -275,7 +275,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
     if (conversation.channel === 'email' && data.kind === 'message') {
       try {
         await sendDeskEmailReply(c.env, db, conversation, message, {
-          clerkOrgId: c.get('workspaceId'),
+          clerkOrgId: c.get('clerkOrgId'),
           waitUntil: (promise) => c.executionCtx.waitUntil(promise),
         });
       } catch (err) {

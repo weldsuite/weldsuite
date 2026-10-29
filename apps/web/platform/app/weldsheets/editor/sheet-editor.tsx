@@ -23,10 +23,13 @@ import { Toolbar } from './toolbar';
 export function SheetEditor({
   controller,
   panels = {},
+  tableLabels,
 }: {
   controller: SheetController;
   /** Panels the page provides (they need the sheet's record). */
   panels?: Partial<Record<'comments' | 'versions' | 'data', ReactNode>>;
+  /** What each connected table lists ("Companies"), by its id: the name on its chip. */
+  tableLabels?: Record<string, string>;
 }) {
   useSyncExternalStore(controller.subscribe, controller.getVersion);
   const barInputRef = useRef<HTMLTextAreaElement>(null);
@@ -41,7 +44,7 @@ export function SheetEditor({
         <FormulaBar controller={controller} inputRef={barInputRef} />
         <div className="flex min-h-0 flex-1">
           <div className="relative flex min-w-0 flex-1 flex-col">
-            <SheetGrid controller={controller} barInputRef={barInputRef} onCreatePivot={() => setCreatingPivot(true)} />
+            <SheetGrid controller={controller} barInputRef={barInputRef} onCreatePivot={() => setCreatingPivot(true)} tableLabels={tableLabels} />
             {controller.find && <FindBar controller={controller} />}
           </div>
           {panel === 'formats' && <FormatsPanel controller={controller} />}

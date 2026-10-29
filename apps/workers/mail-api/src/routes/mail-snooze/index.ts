@@ -10,6 +10,14 @@
  *
  * URLs are flat: `accountId` rides in the path so a single
  * `/messages/:messageId` segment is unambiguous within an account.
+ *
+ * Every snooze/unsnooze/resnooze/list call goes through
+ * `workspaceMailFromContext`'s `store`/`access` (design
+ * docs/plans/weldmail-mailbox-store-design.md, task D2); the store's
+ * `snooze`/`resnooze`/`unsnooze` ops call the exact same
+ * `@weldsuite/mail-domain/snooze` functions this route used to call directly
+ * in `postgres` mode, so a thrown `MailSnoozeError` (bad "until", not
+ * currently snoozed) still surfaces the same way.
  */
 
 import { Hono } from 'hono';
@@ -18,10 +26,9 @@ import { z } from 'zod';
 import { requirePermission } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
-import * as snooze from '@weldsuite/mail-domain/snooze';
 import { MailSnoozeError } from '@weldsuite/mail-domain/snooze';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
 import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,14 +52,19 @@ app.get(
   zValidator('query', snoozedListQuery),
   async (c) => {
     try {
-      const db = c.get('tenantDb');
-      const userId = c.get('userId');
+      const { store, access } = await workspaceMailFromContext(c);
       const { accountId } = c.req.valid('query');
       if (accountId) {
-        const allowed = await checkAccountAccess(db, accountId, userId);
-        if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+        if (!(await access.canOpen(accountId))) {
+          return error.forbidden(c, 'Access to this mail account is not allowed');
+        }
+        const rows = await store.mailbox(accountId).listSnoozed();
+        return success(c, rows);
       }
-      const rows = await snooze.listSnoozedMessages(db, { accountId });
+      // No accountId: unified snoozed list across every mailbox the caller
+      // may open, never every mailbox in the workspace (MAIL-003).
+      const scopedAccountIds = await access.accessibleAccountIds();
+      const rows = await store.listSnoozed(scopedAccountIds);
       return success(c, rows);
     } catch (err) {
       console.error('[app-api/mail-snooze] list failed:', err);
@@ -68,19 +80,18 @@ app.post(
   async (c) => {
     const { accountId, messageId } = c.req.param();
     const { until } = c.req.valid('json');
-    const db = c.get('tenantDb');
-    const allowed = await checkAccountAccess(db, accountId, c.get('userId'));
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
-      const result = await snooze.snoozeMessage(
-        db,
-        accountId,
-        messageId,
-        new Date(until),
-      );
+      const { store, access } = await workspaceMailFromContext(c);
+      const allowed = await access.canOpen(accountId);
+      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+      const untilDate = new Date(until);
+      const result = await store.mailbox(accountId).apply({ kind: 'snooze', id: messageId, until: untilDate.getTime() });
+      if (!result.applied.includes(messageId)) {
+        return error.notFound(c, 'Message');
+      }
       // Tell the snooze sweep when to look at this workspace (D1 due index).
-      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('workspaceId'), new Date(until));
-      return success(c, result);
+      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('clerkOrgId'), untilDate);
+      return success(c, { id: messageId, snoozedUntil: untilDate.toISOString() });
     } catch (err) {
       if (err instanceof MailSnoozeError) return mapSnoozeError(c, err);
       console.error('[app-api/mail-snooze] snooze failed:', err);
@@ -94,12 +105,15 @@ app.post(
   requirePermission('messages:update'),
   async (c) => {
     const { accountId, messageId } = c.req.param();
-    const db = c.get('tenantDb');
-    const allowed = await checkAccountAccess(db, accountId, c.get('userId'));
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
-      const result = await snooze.unsnoozeMessage(db, accountId, messageId);
-      return success(c, result);
+      const { store, access } = await workspaceMailFromContext(c);
+      const allowed = await access.canOpen(accountId);
+      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+      const result = await store.mailbox(accountId).apply({ kind: 'unsnooze', id: messageId });
+      if (!result.applied.includes(messageId)) {
+        return error.notFound(c, 'Message');
+      }
+      return success(c, { id: messageId });
     } catch (err) {
       if (err instanceof MailSnoozeError) return mapSnoozeError(c, err);
       console.error('[app-api/mail-snooze] unsnooze failed:', err);
@@ -115,18 +129,17 @@ app.post(
   async (c) => {
     const { accountId, messageId } = c.req.param();
     const { until } = c.req.valid('json');
-    const db = c.get('tenantDb');
-    const allowed = await checkAccountAccess(db, accountId, c.get('userId'));
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
     try {
-      const result = await snooze.resnoozeMessage(
-        db,
-        accountId,
-        messageId,
-        new Date(until),
-      );
-      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('workspaceId'), new Date(until));
-      return success(c, result);
+      const { store, access } = await workspaceMailFromContext(c);
+      const allowed = await access.canOpen(accountId);
+      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+      const untilDate = new Date(until);
+      const result = await store.mailbox(accountId).apply({ kind: 'resnooze', id: messageId, until: untilDate.getTime() });
+      if (!result.applied.includes(messageId)) {
+        return error.notFound(c, 'Message');
+      }
+      await markWorkspaceDue(c.env.SCHEDULE_INDEX, 'mail_snooze', c.get('clerkOrgId'), untilDate);
+      return success(c, { id: messageId, snoozedUntil: untilDate.toISOString() });
     } catch (err) {
       if (err instanceof MailSnoozeError) return mapSnoozeError(c, err);
       console.error('[app-api/mail-snooze] resnooze failed:', err);

@@ -32,7 +32,7 @@ import { createIntegrationSchema, updateIntegrationSchema } from '@weldsuite/cor
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { getWorkspaceForOrg, schema, type Database } from '@weldsuite/worker-kit/db';
+import { schema, type Database } from '@weldsuite/worker-kit/db';
 import {
   getWebhookWorkerUrl,
   triggerConnectionSync,
@@ -275,24 +275,23 @@ app.post('/connections/attio/callback', requirePermission('integrations:create')
     } as unknown as typeof t.$inferInsert);
 
     // 6. Store KV mapping: connectionId → workspaceId (for webhook worker).
-    //    MUST be the INTERNAL workspace id, not the Clerk org id: every reader
-    //    (integration-webhook-worker's getTenantDbForWorkspaceById, and the
-    //    X-Internal-Workspace-Id header it forwards to routes/integrations/
-    //    internal.ts) looks the value up against `workspaces.id`. Note
-    //    `c.get('workspaceId')` is the CLERK ORG id (middleware/workspace-db.ts)
-    //    — using it here 500s every inbound Attio webhook. The KV namespace is
-    //    shared with api-worker, so a wrong value poisons that keyspace too.
-    const { id: internalWorkspaceId } = await getWorkspaceForOrg(c.env, orgId);
+    //    MUST be `workspaces.id` (`c.get('workspaceId')`), not the Clerk org id:
+    //    every reader (integration-webhook-worker's getTenantDbForWorkspaceById,
+    //    and the X-Internal-Workspace-Id header it forwards to routes/integrations/
+    //    internal.ts) looks the value up against `workspaces.id`. The org id
+    //    would 500 every inbound Attio webhook. The KV namespace is shared with
+    //    api-worker, so a wrong value poisons that keyspace too.
+    const workspaceId = c.get('workspaceId');
     await env.WORKSPACE_CACHE.put(
       `intconn:${connectionId}`,
-      JSON.stringify({ workspaceId: internalWorkspaceId, provider: 'attio' }),
+      JSON.stringify({ workspaceId, provider: 'attio' }),
       { expirationTtl: 86400 * 365 }, // Long TTL (renewed on sync)
     );
 
     await upsertCrmIndex({
       env: c.env,
       connectionId,
-      workspaceId: internalWorkspaceId,
+      workspaceId,
       clerkOrgId: orgId,
       provider: 'attio',
       syncIntervalHours: 6,
@@ -548,15 +547,15 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
       await db.insert(schema.integrationFieldMappings).values(fieldMappingValues);
     }
 
-    // Store KV mapping for webhook worker — INTERNAL workspace id, not the
-    // Clerk org id that `c.get('workspaceId')` holds. See the Attio callback
+    // Store KV mapping for webhook worker — `workspaces.id`
+    // (`c.get('workspaceId')`), not the Clerk org id. See the Attio callback
     // above: readers resolve it against `workspaces.id`, and the Google
     // Calendar push path additionally forwards it as X-Internal-Workspace-Id
     // to routes/integrations/internal.ts, which resolves it the same way.
-    const { id: internalWorkspaceId } = await getWorkspaceForOrg(c.env, orgId);
+    const workspaceId = c.get('workspaceId');
     await env.WORKSPACE_CACHE.put(
       `intconn:${connectionId}`,
-      JSON.stringify({ workspaceId: internalWorkspaceId, provider }),
+      JSON.stringify({ workspaceId, provider }),
       { expirationTtl: 86400 * 365 },
     );
 
@@ -565,7 +564,7 @@ app.post('/connections/:provider/callback', requirePermission('integrations:crea
     await upsertCrmIndex({
       env: c.env,
       connectionId,
-      workspaceId: internalWorkspaceId,
+      workspaceId,
       clerkOrgId: orgId,
       provider,
       syncIntervalHours: profile.syncSettings.syncIntervalHours,

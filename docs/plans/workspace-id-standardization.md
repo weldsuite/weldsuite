@@ -1,8 +1,9 @@
 # One workspace identifier: `workspaces.id` everywhere
 
-Status: phase 1 in review. Phases 2–5 not started. Decision record:
+Status: phase 1 shipped (weldsuite#1348, in production 2026-10-27). Phase 2a
+(request path) in review. Phases 2b–5 not started. Decision record:
 [SEC-011](https://github.com/weldsuite/weldsuite-documentation/blob/main/adr/SEC-011-workspaces-id-is-the-workspace-identifier.md)
-(Proposed), which replaces the identifier rule of SEC-001 ("the request
+(Accepted), which replaces the identifier rule of SEC-001 ("the request
 context carries the Clerk org id"). SEC-001's main decision stands: Clerk is
 the identity provider, and one Clerk organization is one workspace.
 
@@ -45,9 +46,10 @@ The two ids are also already mixed, and that loses data today:
 ## Rules for new code
 
 - Name the id you mean: `workspaceId` for `workspaces.id`, `clerkOrgId` for
-  Clerk's. Until phase 2, `c.get('workspaceId')` is still the org id on the
-  Clerk paths; use `c.get('internalWorkspaceId')` for `workspaces.id` and
-  `c.get('clerkOrgId')` for the org id.
+  Clerk's. Since phase 2a, `c.get('workspaceId')` is `workspaces.id` on every
+  entry point and `c.get('clerkOrgId')` is the org id. A store still keyed by
+  the org id is written and read with `c.get('clerkOrgId')`, so the remaining
+  dependencies on Clerk's id can be found with a search.
 - Store and send `workspaces.id`. A new table, registry, D1 index, KV key, R2
   prefix, event field or Workflow param takes `workspaces.id`.
 - Look a workspace up with `matchWorkspaceRef(ref)`
@@ -64,7 +66,7 @@ params (TrashCleanup up to 30 days; CRM sequences, scheduled mail and
 deferred notifications until their send time), so every reader must accept
 both ids for as long as any of those can still carry the old one.
 
-### Phase 1: readers accept both ids (this PR)
+### Phase 1: readers accept both ids (shipped)
 
 No writer changes what it stores, except where it was wrong.
 
@@ -91,38 +93,57 @@ No writer changes what it stores, except where it was wrong.
   mail is stored under `workspaces/<ws>/`); `provisionWorkspace` no longer
   creates rows with `id` = org id.
 
-### Phase 2: the request context and writers switch
+### Phase 2a: the request path switches (this PR)
 
-- `workspaceDbMiddleware` sets `workspaceId` to `workspaces.id`;
-  `internalWorkspaceId` goes away. external-api, mcp-server, helpdesk-widget-api,
-  the HR portal and the internal entrypoints set it the same way. The test
-  harness defaults to a `ws_` id.
-- Audit every `c.get('workspaceId')` read (≈265) and `c.get('orgId')` read
-  (≈235). Clerk calls move to `c.get('clerkOrgId')`. Code that keys
-  persisted state must keep finding the old keys:
-  - **R2**: new objects go under `workspaces/<ws>/…`. Stored keys are kept in
-    rows, so old objects stay readable; every prefix check uses
-    `isWorkspaceObjectKey(key, workspaceId, clerkOrgId)` (mail send and
-    scheduled send, HR receipts and payslips). The private-files cookie and
-    its path scope must cover both prefixes.
-  - **KV**: short-TTL keys (rate limits, caches, OTPs) just switch. Long-lived
-    or TTL-less entries keyed or valued by the org id read both, or are
-    rewritten: `webhook:<id>`, `gh-install:<id>`, `rtr:process:<id>`, BR
-    fiscal hooks, W-9 tokens, the HR portal host map, `discord_guild:<id>`,
-    `rtk-meeting:<id>`, the social post map, `books:active:<org>`.
-  - **Durable Objects**: `WorkspaceHub`, `SupportRoom`, `hrportal:<org>`,
-    `DocRoom` and `SheetRoom` (`<org>:<id>`), `desk:<org>` assignment router and
-    the agent sandbox are named by the org id and hold state. Decide per
-    object: keep the org-derived name (clients reach the hub through their
-    token, not the name), or rename with a hand-over (a doc room must
-    checkpoint before its name changes, or live edits split across two rooms).
-  - **D1** `schedule_index`, `weldagent_routine_index`, `workspace_due_index`:
-    a writer switching ids would leave a second row for the same workspace;
-    backfill (phase 3) ships together with this switch.
-- Entity events, queue messages and Workflow params carry `workspaces.id`.
-  Every consumer already accepts both (phase 1).
-- Feature-flag targeting: the Flagship `workspaceId` attribute becomes
-  `workspaces.id`, after rewriting any rule that targets an org id.
+The request context means what it says; nothing stored changes.
+
+- `workspaceDbMiddleware` sets `workspaceId` to `workspaces.id` and `clerkOrgId`
+  to the org id; `internalWorkspaceId` is gone. The other entry points set the
+  same pair: external-api and mcp-server (from the API session), the
+  helpdesk widget, the help center, the commerce portal, books' and sheets'
+  internal entrypoints and the e2e fixture guard. The test harness defaults
+  to `ws_test_default` and `org_test_default`.
+- Every `c.get('workspaceId')` read was classified. It stays `workspaceId` when
+  it resolves the workspace (tenant DB, credits and AI metering, either-id
+  lookups) or hits a store already keyed by `workspaces.id`. It became
+  `c.get('clerkOrgId')`, the same value as before, where it addresses a store
+  or a system still keyed by the org id: R2 keys and prefix checks, KV keys and
+  values, D1 index rows, Durable Object names, tenant `workspace_id` columns,
+  org-keyed master registries, Workflow params and instance ids, realtime,
+  links sent out, other workers' headers and bodies, Clerk calls, third-party
+  payloads and response fields clients already read.
+- Entity events keep the org id (`publishEntityEvent` stamps `clerkOrgId`
+  first): their consumers persist it (phase 2b).
+- Feature flags send `workspaceId` = `workspaces.id` and a `clerkOrgId`
+  attribute. No Flagship rule targeted an org id (confirmed 2026-10-27).
+- `c.get('orgId')` (the raw session claim) is left as it is; it equals
+  `clerkOrgId` on the Clerk paths.
+
+### Phase 2b: events, queues and Workflows carry `workspaces.id`
+
+Every consumer resolves either id (phase 1), but several persist what they get:
+the WeldConnect engine passes it to data actions, app-api's internal
+send-email (`clerkOrgId`), realtime and notifications; WeldAgent jobs key KV
+and the sandbox by it; the analytics table stores it. For each consumer, make
+its persisted uses explicit (as 2a did for routes), then stamp `workspaces.id`
+in `publishEntityEvent`, `publishEntityEventRaw` and Workflow params. Sleeping
+Workflows created before the switch still carry the org id, so the engine keeps
+accepting both until the longest sleep (TrashCleanup, 30 days) has passed.
+
+Mixed ids found while doing 2a, left for 2b and 3:
+
+- books `public-w9` and `public-fiscal-webhooks` publish entity events with
+  `workspaces.id`, every other publisher with the org id.
+- connect `integrations/internal.ts` mixes the two ids in one handler, and the
+  `intconn:` KV prefix holds entries under both.
+- GitHub install state JWTs carry the org id.
+- Private-file reads accept only an org-id prefix, so accounting-inbox objects
+  (stored under `workspaces/<ws>/`) cannot be read through them.
+- sheets' `isWorkspaceObjectKey` call passes only the org id.
+- agent-api's routine backfill names jobs by `ws.clerkOrgId || ws.id`.
+- `@weldsuite/notifications` names a parameter `workspaceId` that holds the org
+  id; the `slack_team` KV value names one `internalWorkspaceId`.
+- app-api still reads `c.get('orgId')` (the raw claim) in about 66 places.
 
 ### Phase 3: stored data moves to `workspaces.id`
 
@@ -146,6 +167,25 @@ Needs approved migrations (master) and one-off scripts (D1, tenants).
   every tenant. (WeldPass encryption does not bind the workspace id: its AAD
   is project/vault, so nothing needs re-sealing.)
 - Analytics: the Iceberg table is append-only; readers keep matching both ids.
+- Each store moves as a unit, writers and readers in the same change. Search
+  for `c.get('clerkOrgId')` to find them (phase 2a made each one explicit):
+  - **R2**: new objects go under `workspaces/<ws>/…`. Stored keys are kept in
+    rows, so old objects stay readable; every prefix check uses
+    `isWorkspaceObjectKey(key, workspaceId, clerkOrgId)` (mail send and
+    scheduled send, HR receipts and payslips). The private-files cookie and
+    its path scope must cover both prefixes.
+  - **KV**: short-TTL keys (rate limits, caches, OTPs) just switch, writer,
+    reader and purger together. Long-lived or TTL-less entries keyed or
+    valued by the org id read both, or are rewritten: `webhook:<id>`,
+    `gh-install:<id>`, `rtr:process:<id>`, BR fiscal hooks, W-9 tokens,
+    `discord_guild:<id>`, `rtk-meeting:<id>`, the social post map,
+    `books:active:<org>`.
+  - **Durable Objects**: `WorkspaceHub`, `SupportRoom`, `hrportal:<org>`,
+    `DocRoom` and `SheetRoom` (`<org>:<id>`), `desk:<org>` assignment router and
+    the agent sandbox are named by the org id and hold state. Decide per
+    object: keep the org-derived name (clients reach the hub through their
+    token, not the name), or rename with a hand-over (a doc room must
+    checkpoint before its name changes, or live edits split across two rooms).
 
 ### Phase 4: clients and contracts
 

@@ -1,0 +1,3632 @@
+{
+  "appCodeAliases": {
+    "accounting": "weldbooks",
+    "books": "weldbooks",
+    "calendar": "weldcalendar",
+    "call": "weldcall",
+    "chat": "weldchat",
+    "commerce": "weldcommerce",
+    "connect": "weldconnect",
+    "crm": "weldcrm",
+    "data": "welddata",
+    "desk": "welddesk",
+    "drive": "welddrive",
+    "helpdesk": "welddesk",
+    "host": "weldhost",
+    "know": "weldknow",
+    "knowledge": "weldknow",
+    "mail": "weldmail",
+    "meet": "weldmeet",
+    "parcel": "weldstash",
+    "projects": "weldflow",
+    "social": "weldsocial",
+    "stash": "weldstash",
+    "task": "weldconnect",
+    "tasks": "weldconnect",
+    "weldparcel": "weldstash",
+    "weldwms": "weldstash",
+    "wms": "weldstash"
+  },
+  "apps": [
+    {
+      "code": "weldcrm",
+      "label": "WeldCRM",
+      "objects": [
+        "companies",
+        "people",
+        "contacts",
+        "leads",
+        "opportunities",
+        "activities",
+        "pipelines",
+        "quotes",
+        "lists",
+        "telephony",
+        "tasks",
+        "workflows"
+      ]
+    },
+    {
+      "code": "weldcommerce",
+      "label": "WeldCommerce",
+      "objects": [
+        "products",
+        "orders",
+        "categories",
+        "discounts",
+        "websites",
+        "inventory",
+        "companies",
+        "people"
+      ]
+    },
+    {
+      "code": "weldstash",
+      "label": "WeldStash",
+      "objects": [
+        "products",
+        "inventory",
+        "warehouses",
+        "picklists",
+        "locations",
+        "suppliers",
+        "orders",
+        "parcels",
+        "carriers",
+        "boxes",
+        "returns",
+        "pickups",
+        "integrations"
+      ]
+    },
+    {
+      "code": "weldbooks",
+      "label": "WeldBooks",
+      "objects": [
+        "entities",
+        "invoices",
+        "bills",
+        "journal",
+        "accounts",
+        "banking",
+        "reports",
+        "settings",
+        "taxes",
+        "tax_ids"
+      ]
+    },
+    {
+      "code": "welddesk",
+      "label": "WeldDesk",
+      "objects": [
+        "tickets",
+        "conversations",
+        "articles",
+        "agents",
+        "departments",
+        "slas",
+        "settings",
+        "companies",
+        "people",
+        "activities",
+        "telephony",
+        "workflows",
+        "integrations"
+      ]
+    },
+    {
+      "code": "weldflow",
+      "label": "WeldFlow",
+      "objects": [
+        "projects",
+        "tasks",
+        "milestones",
+        "time",
+        "files",
+        "companies",
+        "channels",
+        "messages",
+        "integrations"
+      ]
+    },
+    {
+      "code": "weldmail",
+      "label": "WeldMail",
+      "objects": [
+        "accounts",
+        "messages",
+        "templates",
+        "campaigns",
+        "companies",
+        "people",
+        "contacts",
+        "opportunities",
+        "pipelines",
+        "activities",
+        "channels",
+        "tasks",
+        "events",
+        "calendars",
+        "domains"
+      ]
+    },
+    {
+      "code": "weldchat",
+      "label": "WeldChat",
+      "objects": [
+        "channels",
+        "messages",
+        "settings",
+        "tasks",
+        "agents"
+      ]
+    },
+    {
+      "code": "weldmeet",
+      "label": "WeldMeet",
+      "objects": [
+        "meetings",
+        "sessions",
+        "recordings",
+        "people",
+        "calendars"
+      ]
+    },
+    {
+      "code": "weldcalendar",
+      "label": "WeldCalendar",
+      "objects": [
+        "events",
+        "calendars",
+        "bookings",
+        "meetings",
+        "tasks",
+        "people",
+        "integrations"
+      ]
+    },
+    {
+      "code": "weldcall",
+      "label": "WeldCall",
+      "objects": [
+        "activities",
+        "telephony"
+      ]
+    },
+    {
+      "code": "welddrive",
+      "label": "WeldDrive",
+      "objects": [
+        "files",
+        "folders"
+      ]
+    },
+    {
+      "code": "weldconnect",
+      "label": "WeldConnect",
+      "objects": [
+        "workflows",
+        "workflow-executions",
+        "workflow-templates",
+        "workflow-variables",
+        "workflow-webhooks",
+        "integrations",
+        "entities",
+        "accounts"
+      ]
+    },
+    {
+      "code": "weldhost",
+      "label": "WeldHost",
+      "objects": [
+        "domains",
+        "dns",
+        "email",
+        "transfers"
+      ]
+    },
+    {
+      "code": "weldsocial",
+      "label": "WeldSocial",
+      "objects": [
+        "accounts",
+        "posts",
+        "campaigns",
+        "analytics"
+      ]
+    },
+    {
+      "code": "weldads",
+      "label": "WeldAds",
+      "objects": [
+        "ad_accounts",
+        "ad_campaigns"
+      ]
+    },
+    {
+      "code": "weldknow",
+      "label": "WeldKnow",
+      "objects": [
+        "knowledge"
+      ]
+    },
+    {
+      "code": "welddata",
+      "label": "WeldData",
+      "objects": [
+        "prospects",
+        "lists",
+        "companies"
+      ]
+    },
+    {
+      "code": "weldpass",
+      "label": "WeldPass",
+      "objects": [
+        "secrets",
+        "passwords"
+      ]
+    },
+    {
+      "code": "weldsheets",
+      "label": "WeldSheets",
+      "objects": [
+        "sheets"
+      ]
+    },
+    {
+      "code": "welddocs",
+      "label": "WeldDocs",
+      "objects": [
+        "docs"
+      ]
+    },
+    {
+      "code": "weldsign",
+      "label": "WeldSign",
+      "objects": [
+        "sign_envelopes",
+        "sign_templates"
+      ]
+    },
+    {
+      "code": "weldpanel",
+      "label": "WeldPanel",
+      "objects": [
+        "panel_projects",
+        "panel_reports",
+        "panel_recordings",
+        "panel_people"
+      ]
+    },
+    {
+      "code": "weldreach",
+      "label": "WeldReach",
+      "objects": [
+        "reach_campaigns",
+        "reach_prospects",
+        "reach_inbox",
+        "reach_mailboxes",
+        "reach_settings"
+      ]
+    },
+    {
+      "code": "weldhr",
+      "label": "WeldHR",
+      "objects": [
+        "employees",
+        "attendance",
+        "leave",
+        "declarations",
+        "absences",
+        "coaching",
+        "evaluations",
+        "announcements",
+        "payroll",
+        "companies",
+        "people"
+      ]
+    }
+  ],
+  "employeeMemberPermissions": [
+    "general:read",
+    "team:read",
+    "employees:self",
+    "channels:read",
+    "channels:create",
+    "messages:read",
+    "messages:create",
+    "messages:update",
+    "messages:delete",
+    "settings:read"
+  ],
+  "objects": [
+    {
+      "key": "general",
+      "label": "General Settings",
+      "permissions": [
+        {
+          "key": "general:read",
+          "label": "View general settings"
+        },
+        {
+          "key": "general:update",
+          "label": "Edit general settings"
+        }
+      ]
+    },
+    {
+      "key": "team",
+      "label": "Team Members",
+      "permissions": [
+        {
+          "key": "team:read",
+          "label": "View team members"
+        },
+        {
+          "key": "team:create",
+          "label": "Invite team members"
+        },
+        {
+          "key": "team:update",
+          "label": "Edit team members"
+        },
+        {
+          "key": "team:delete",
+          "label": "Remove team members"
+        },
+        {
+          "description": "Invite outside collaborators (clients, freelancers, vendors) into specific channels. Guests are scoped to invited channels and do not consume a paid seat.",
+          "key": "team:invite_external",
+          "label": "Invite external guests"
+        }
+      ]
+    },
+    {
+      "key": "working-hours",
+      "label": "Working Hours",
+      "permissions": [
+        {
+          "key": "working-hours:edit-self",
+          "label": "edit-self (working hours)"
+        }
+      ]
+    },
+    {
+      "key": "teams",
+      "label": "Teams & Groups",
+      "permissions": [
+        {
+          "key": "teams:read",
+          "label": "View teams & groups"
+        },
+        {
+          "key": "teams:create",
+          "label": "Create teams & groups"
+        },
+        {
+          "key": "teams:update",
+          "label": "Edit teams & groups"
+        },
+        {
+          "key": "teams:delete",
+          "label": "Delete teams & groups"
+        }
+      ]
+    },
+    {
+      "key": "roles",
+      "label": "Roles & Permissions",
+      "permissions": [
+        {
+          "key": "roles:read",
+          "label": "View roles & permissions"
+        },
+        {
+          "key": "roles:create",
+          "label": "Create roles & permissions"
+        },
+        {
+          "key": "roles:update",
+          "label": "Edit roles & permissions"
+        },
+        {
+          "key": "roles:delete",
+          "label": "Delete roles & permissions"
+        }
+      ]
+    },
+    {
+      "key": "apikeys",
+      "label": "API Keys",
+      "permissions": [
+        {
+          "key": "apikeys:read",
+          "label": "View api keys"
+        },
+        {
+          "key": "apikeys:create",
+          "label": "Create api keys"
+        },
+        {
+          "key": "apikeys:delete",
+          "label": "Delete api keys"
+        }
+      ]
+    },
+    {
+      "key": "billing",
+      "label": "Billing",
+      "permissions": [
+        {
+          "key": "billing:read",
+          "label": "View billing"
+        },
+        {
+          "key": "billing:manage",
+          "label": "Manage billing"
+        }
+      ]
+    },
+    {
+      "key": "sso",
+      "label": "Single Sign-On",
+      "permissions": [
+        {
+          "key": "sso:read",
+          "label": "View single sign-on settings"
+        },
+        {
+          "description": "Verify the company domain, connect the identity provider and switch SSO on or off. Buying the SSO add-on also needs Manage billing.",
+          "key": "sso:manage",
+          "label": "Configure single sign-on"
+        }
+      ]
+    },
+    {
+      "key": "leads",
+      "label": "Leads",
+      "permissions": [
+        {
+          "key": "leads:read",
+          "label": "View leads"
+        },
+        {
+          "key": "leads:create",
+          "label": "Create leads"
+        },
+        {
+          "key": "leads:update",
+          "label": "Edit leads"
+        },
+        {
+          "key": "leads:delete",
+          "label": "Delete leads"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit leads they own. Grant to managers and sales ops who need cross-team visibility.",
+          "key": "leads:scope:all",
+          "label": "See all leads (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "contacts",
+      "label": "Contacts",
+      "permissions": [
+        {
+          "key": "contacts:read",
+          "label": "View contacts"
+        },
+        {
+          "key": "contacts:create",
+          "label": "Create contacts"
+        },
+        {
+          "key": "contacts:update",
+          "label": "Edit contacts"
+        },
+        {
+          "key": "contacts:delete",
+          "label": "Delete contacts"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit contacts they own.",
+          "key": "contacts:scope:all",
+          "label": "See all contacts (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "people",
+      "label": "People",
+      "permissions": [
+        {
+          "key": "people:read",
+          "label": "View people"
+        },
+        {
+          "key": "people:create",
+          "label": "Create people"
+        },
+        {
+          "key": "people:update",
+          "label": "Edit people"
+        },
+        {
+          "key": "people:delete",
+          "label": "Delete people"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit people they own.",
+          "key": "people:scope:all",
+          "label": "See all people (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "opportunities",
+      "label": "Opportunities",
+      "permissions": [
+        {
+          "key": "opportunities:read",
+          "label": "View opportunities"
+        },
+        {
+          "key": "opportunities:create",
+          "label": "Create opportunities"
+        },
+        {
+          "key": "opportunities:update",
+          "label": "Edit opportunities"
+        },
+        {
+          "key": "opportunities:delete",
+          "label": "Delete opportunities"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit opportunities they own. Grant to managers and admins who need cross-team visibility.",
+          "key": "opportunities:scope:all",
+          "label": "See all opportunities (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "activities",
+      "label": "Activities",
+      "permissions": [
+        {
+          "key": "activities:read",
+          "label": "View activities"
+        },
+        {
+          "key": "activities:create",
+          "label": "Create activities"
+        },
+        {
+          "key": "activities:update",
+          "label": "Edit activities"
+        },
+        {
+          "key": "activities:delete",
+          "label": "Delete activities"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit activities they own. Grant to managers and admins who need cross-team visibility.",
+          "key": "activities:scope:all",
+          "label": "See all activities (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "pipelines",
+      "label": "Pipelines",
+      "permissions": [
+        {
+          "key": "pipelines:read",
+          "label": "View pipelines"
+        },
+        {
+          "key": "pipelines:create",
+          "label": "Create pipelines"
+        },
+        {
+          "key": "pipelines:update",
+          "label": "Edit pipelines"
+        },
+        {
+          "key": "pipelines:delete",
+          "label": "Delete pipelines"
+        },
+        {
+          "key": "pipelines:manage",
+          "label": "Manage pipelines"
+        }
+      ]
+    },
+    {
+      "key": "quotes",
+      "label": "Quotes",
+      "permissions": [
+        {
+          "key": "quotes:read",
+          "label": "View quotes"
+        },
+        {
+          "key": "quotes:create",
+          "label": "Create quotes"
+        },
+        {
+          "key": "quotes:update",
+          "label": "Edit quotes"
+        },
+        {
+          "key": "quotes:delete",
+          "label": "Delete quotes"
+        }
+      ]
+    },
+    {
+      "key": "telephony",
+      "label": "Phone Numbers & Porting",
+      "permissions": [
+        {
+          "key": "telephony:read",
+          "label": "View phone numbers & porting"
+        },
+        {
+          "key": "telephony:manage",
+          "label": "Manage phone numbers & porting"
+        }
+      ]
+    },
+    {
+      "key": "products",
+      "label": "Products",
+      "permissions": [
+        {
+          "key": "products:read",
+          "label": "View products"
+        },
+        {
+          "key": "products:create",
+          "label": "Create products"
+        },
+        {
+          "key": "products:update",
+          "label": "Edit products"
+        },
+        {
+          "key": "products:delete",
+          "label": "Delete products"
+        }
+      ]
+    },
+    {
+      "key": "inventory",
+      "label": "Inventory",
+      "permissions": [
+        {
+          "key": "inventory:read",
+          "label": "View inventory"
+        },
+        {
+          "key": "inventory:create",
+          "label": "Create inventory"
+        },
+        {
+          "key": "inventory:update",
+          "label": "Edit inventory"
+        },
+        {
+          "key": "inventory:delete",
+          "label": "Delete inventory"
+        },
+        {
+          "key": "inventory:manage",
+          "label": "Manage inventory"
+        }
+      ]
+    },
+    {
+      "key": "orders",
+      "label": "Orders",
+      "permissions": [
+        {
+          "key": "orders:read",
+          "label": "View orders"
+        },
+        {
+          "key": "orders:create",
+          "label": "Create orders"
+        },
+        {
+          "key": "orders:update",
+          "label": "Edit orders"
+        },
+        {
+          "key": "orders:delete",
+          "label": "Delete orders"
+        }
+      ]
+    },
+    {
+      "key": "picklists",
+      "label": "Pick Lists",
+      "permissions": [
+        {
+          "key": "picklists:read",
+          "label": "View pick lists"
+        },
+        {
+          "key": "picklists:create",
+          "label": "Create pick lists"
+        },
+        {
+          "key": "picklists:update",
+          "label": "Edit pick lists"
+        },
+        {
+          "key": "picklists:delete",
+          "label": "Delete pick lists"
+        }
+      ]
+    },
+    {
+      "key": "locations",
+      "label": "Locations",
+      "permissions": [
+        {
+          "key": "locations:read",
+          "label": "View locations"
+        },
+        {
+          "key": "locations:create",
+          "label": "Create locations"
+        },
+        {
+          "key": "locations:update",
+          "label": "Edit locations"
+        },
+        {
+          "key": "locations:delete",
+          "label": "Delete locations"
+        }
+      ]
+    },
+    {
+      "key": "warehouses",
+      "label": "Warehouses",
+      "permissions": [
+        {
+          "key": "warehouses:read",
+          "label": "View warehouses"
+        },
+        {
+          "key": "warehouses:create",
+          "label": "Create warehouses"
+        },
+        {
+          "key": "warehouses:update",
+          "label": "Edit warehouses"
+        },
+        {
+          "key": "warehouses:delete",
+          "label": "Delete warehouses"
+        },
+        {
+          "key": "warehouses:manage",
+          "label": "Manage warehouses"
+        }
+      ]
+    },
+    {
+      "key": "suppliers",
+      "label": "Suppliers",
+      "permissions": [
+        {
+          "key": "suppliers:read",
+          "label": "View suppliers"
+        },
+        {
+          "key": "suppliers:create",
+          "label": "Create suppliers"
+        },
+        {
+          "key": "suppliers:update",
+          "label": "Edit suppliers"
+        },
+        {
+          "key": "suppliers:delete",
+          "label": "Delete suppliers"
+        }
+      ]
+    },
+    {
+      "key": "customers",
+      "label": "Customers",
+      "permissions": [
+        {
+          "key": "customers:read",
+          "label": "View customers"
+        },
+        {
+          "key": "customers:create",
+          "label": "Create customers"
+        },
+        {
+          "key": "customers:update",
+          "label": "Edit customers"
+        },
+        {
+          "key": "customers:delete",
+          "label": "Delete customers"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit customers they own. Grant to managers, admins, and sales ops who need cross-team visibility.",
+          "key": "customers:scope:all",
+          "label": "See all customers (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "companies",
+      "label": "Companies",
+      "permissions": [
+        {
+          "key": "companies:read",
+          "label": "View companies"
+        },
+        {
+          "key": "companies:create",
+          "label": "Create companies"
+        },
+        {
+          "key": "companies:update",
+          "label": "Edit companies"
+        },
+        {
+          "key": "companies:delete",
+          "label": "Delete companies"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit companies they own.",
+          "key": "companies:scope:all",
+          "label": "See all companies (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "lists",
+      "label": "Lists",
+      "permissions": [
+        {
+          "key": "lists:read",
+          "label": "View lists"
+        },
+        {
+          "key": "lists:create",
+          "label": "Create lists"
+        },
+        {
+          "key": "lists:update",
+          "label": "Edit lists"
+        },
+        {
+          "key": "lists:delete",
+          "label": "Delete lists"
+        }
+      ]
+    },
+    {
+      "key": "discounts",
+      "label": "Discounts",
+      "permissions": [
+        {
+          "key": "discounts:read",
+          "label": "View discounts"
+        },
+        {
+          "key": "discounts:create",
+          "label": "Create discounts"
+        },
+        {
+          "key": "discounts:update",
+          "label": "Edit discounts"
+        },
+        {
+          "key": "discounts:delete",
+          "label": "Delete discounts"
+        }
+      ]
+    },
+    {
+      "key": "categories",
+      "label": "Categories",
+      "permissions": [
+        {
+          "key": "categories:read",
+          "label": "View categories"
+        },
+        {
+          "key": "categories:create",
+          "label": "Create categories"
+        },
+        {
+          "key": "categories:update",
+          "label": "Edit categories"
+        },
+        {
+          "key": "categories:delete",
+          "label": "Delete categories"
+        }
+      ]
+    },
+    {
+      "key": "websites",
+      "label": "Websites",
+      "permissions": [
+        {
+          "key": "websites:read",
+          "label": "View websites"
+        },
+        {
+          "key": "websites:create",
+          "label": "Create websites"
+        },
+        {
+          "key": "websites:update",
+          "label": "Edit websites"
+        },
+        {
+          "key": "websites:delete",
+          "label": "Delete websites"
+        },
+        {
+          "key": "websites:manage",
+          "label": "Manage websites"
+        }
+      ]
+    },
+    {
+      "key": "entities",
+      "label": "Legal Entities",
+      "permissions": [
+        {
+          "key": "entities:read",
+          "label": "View legal entities"
+        },
+        {
+          "key": "entities:create",
+          "label": "Create legal entities"
+        },
+        {
+          "key": "entities:update",
+          "label": "Edit legal entities"
+        },
+        {
+          "key": "entities:delete",
+          "label": "Delete legal entities"
+        },
+        {
+          "key": "entities:manage",
+          "label": "Manage legal entities"
+        }
+      ]
+    },
+    {
+      "key": "invoices",
+      "label": "Invoices",
+      "permissions": [
+        {
+          "key": "invoices:read",
+          "label": "View invoices"
+        },
+        {
+          "key": "invoices:create",
+          "label": "Create invoices"
+        },
+        {
+          "key": "invoices:update",
+          "label": "Edit invoices"
+        },
+        {
+          "key": "invoices:delete",
+          "label": "Delete invoices"
+        }
+      ]
+    },
+    {
+      "key": "bills",
+      "label": "Bills",
+      "permissions": [
+        {
+          "key": "bills:read",
+          "label": "View bills"
+        },
+        {
+          "key": "bills:create",
+          "label": "Create bills"
+        },
+        {
+          "key": "bills:update",
+          "label": "Edit bills"
+        },
+        {
+          "key": "bills:delete",
+          "label": "Delete bills"
+        }
+      ]
+    },
+    {
+      "key": "journal",
+      "label": "Journal Entries",
+      "permissions": [
+        {
+          "key": "journal:read",
+          "label": "View journal entries"
+        },
+        {
+          "key": "journal:create",
+          "label": "Create journal entries"
+        },
+        {
+          "key": "journal:update",
+          "label": "Edit journal entries"
+        },
+        {
+          "key": "journal:delete",
+          "label": "Delete journal entries"
+        },
+        {
+          "key": "journal:manage",
+          "label": "Manage journal entries"
+        }
+      ]
+    },
+    {
+      "key": "accounts",
+      "label": "Accounts",
+      "permissions": [
+        {
+          "key": "accounts:read",
+          "label": "View accounts"
+        },
+        {
+          "key": "accounts:create",
+          "label": "Create accounts"
+        },
+        {
+          "key": "accounts:update",
+          "label": "Edit accounts"
+        },
+        {
+          "key": "accounts:delete",
+          "label": "Delete accounts"
+        },
+        {
+          "key": "accounts:manage",
+          "label": "Manage accounts"
+        }
+      ]
+    },
+    {
+      "key": "banking",
+      "label": "Banking",
+      "permissions": [
+        {
+          "key": "banking:read",
+          "label": "View banking"
+        },
+        {
+          "key": "banking:create",
+          "label": "Create banking"
+        },
+        {
+          "key": "banking:update",
+          "label": "Edit banking"
+        },
+        {
+          "key": "banking:delete",
+          "label": "Delete banking"
+        },
+        {
+          "key": "banking:manage",
+          "label": "Manage banking"
+        }
+      ]
+    },
+    {
+      "key": "reports",
+      "label": "Reports",
+      "permissions": [
+        {
+          "key": "reports:read",
+          "label": "View reports"
+        },
+        {
+          "key": "reports:manage",
+          "label": "Manage reports"
+        }
+      ]
+    },
+    {
+      "key": "taxes",
+      "label": "Taxes",
+      "permissions": [
+        {
+          "key": "taxes:read",
+          "label": "View sales tax, tax returns and 1099s"
+        },
+        {
+          "key": "taxes:create",
+          "label": "Create agencies, rates, certificates and returns"
+        },
+        {
+          "key": "taxes:update",
+          "label": "Edit agencies, rates, certificates and returns"
+        },
+        {
+          "key": "taxes:delete",
+          "label": "Delete agencies, rates and certificates"
+        },
+        {
+          "key": "taxes:file",
+          "label": "Mark tax returns and 1099s filed and record their payment"
+        }
+      ]
+    },
+    {
+      "key": "tax_ids",
+      "label": "Tax IDs",
+      "permissions": [
+        {
+          "description": "Every reveal is recorded in the tax ID reveal log.",
+          "key": "tax_ids:reveal",
+          "label": "Reveal full TINs, SSNs and bank account numbers"
+        }
+      ]
+    },
+    {
+      "key": "tickets",
+      "label": "Tickets",
+      "permissions": [
+        {
+          "key": "tickets:read",
+          "label": "View tickets"
+        },
+        {
+          "key": "tickets:create",
+          "label": "Create tickets"
+        },
+        {
+          "key": "tickets:update",
+          "label": "Edit tickets"
+        },
+        {
+          "key": "tickets:delete",
+          "label": "Delete tickets"
+        }
+      ]
+    },
+    {
+      "key": "conversations",
+      "label": "Conversations",
+      "permissions": [
+        {
+          "key": "conversations:read",
+          "label": "View conversations"
+        },
+        {
+          "key": "conversations:create",
+          "label": "Create conversations"
+        },
+        {
+          "key": "conversations:update",
+          "label": "Edit conversations"
+        },
+        {
+          "key": "conversations:delete",
+          "label": "Delete conversations"
+        }
+      ]
+    },
+    {
+      "key": "articles",
+      "label": "Knowledge Base Articles",
+      "permissions": [
+        {
+          "key": "articles:read",
+          "label": "View knowledge base articles"
+        },
+        {
+          "key": "articles:create",
+          "label": "Create knowledge base articles"
+        },
+        {
+          "key": "articles:update",
+          "label": "Edit knowledge base articles"
+        },
+        {
+          "key": "articles:delete",
+          "label": "Delete knowledge base articles"
+        }
+      ]
+    },
+    {
+      "key": "agents",
+      "label": "Agents",
+      "permissions": [
+        {
+          "key": "agents:read",
+          "label": "View agents"
+        },
+        {
+          "key": "agents:create",
+          "label": "Create agents"
+        },
+        {
+          "key": "agents:update",
+          "label": "Edit agents"
+        },
+        {
+          "key": "agents:delete",
+          "label": "Delete agents"
+        },
+        {
+          "key": "agents:manage",
+          "label": "Manage agents"
+        }
+      ]
+    },
+    {
+      "key": "departments",
+      "label": "Departments",
+      "permissions": [
+        {
+          "key": "departments:read",
+          "label": "View departments"
+        },
+        {
+          "key": "departments:create",
+          "label": "Create departments"
+        },
+        {
+          "key": "departments:update",
+          "label": "Edit departments"
+        },
+        {
+          "key": "departments:delete",
+          "label": "Delete departments"
+        },
+        {
+          "key": "departments:manage",
+          "label": "Manage departments"
+        }
+      ]
+    },
+    {
+      "key": "slas",
+      "label": "SLAs",
+      "permissions": [
+        {
+          "key": "slas:read",
+          "label": "View slas"
+        },
+        {
+          "key": "slas:create",
+          "label": "Create slas"
+        },
+        {
+          "key": "slas:update",
+          "label": "Edit slas"
+        },
+        {
+          "key": "slas:delete",
+          "label": "Delete slas"
+        },
+        {
+          "key": "slas:manage",
+          "label": "Manage slas"
+        }
+      ]
+    },
+    {
+      "key": "settings",
+      "label": "Module Settings",
+      "permissions": [
+        {
+          "key": "settings:read",
+          "label": "View module settings"
+        },
+        {
+          "key": "settings:update",
+          "label": "Edit module settings"
+        },
+        {
+          "key": "settings:manage",
+          "label": "Manage module settings"
+        }
+      ]
+    },
+    {
+      "key": "knowledge",
+      "label": "Knowledge Base",
+      "permissions": [
+        {
+          "key": "knowledge:read",
+          "label": "View knowledge base"
+        },
+        {
+          "key": "knowledge:create",
+          "label": "Create knowledge base"
+        },
+        {
+          "key": "knowledge:update",
+          "label": "Edit knowledge base"
+        },
+        {
+          "key": "knowledge:delete",
+          "label": "Delete knowledge base"
+        },
+        {
+          "key": "knowledge:manage",
+          "label": "Manage knowledge base"
+        }
+      ]
+    },
+    {
+      "key": "sheets",
+      "label": "Spreadsheets (WeldSheets)",
+      "permissions": [
+        {
+          "description": "Spreadsheets this person owns or that are shared with them.",
+          "key": "sheets:read",
+          "label": "Open spreadsheets"
+        },
+        {
+          "key": "sheets:create",
+          "label": "Create spreadsheets"
+        },
+        {
+          "key": "sheets:update",
+          "label": "Edit spreadsheets"
+        },
+        {
+          "description": "Comment on spreadsheets shared with them to view, without editing them.",
+          "key": "sheets:comment",
+          "label": "Comment on spreadsheets"
+        },
+        {
+          "key": "sheets:delete",
+          "label": "Delete spreadsheets"
+        },
+        {
+          "key": "sheets:share",
+          "label": "Share spreadsheets"
+        },
+        {
+          "description": "See every spreadsheet in the workspace and change who it is shared with.",
+          "key": "sheets:manage",
+          "label": "Administer spreadsheets"
+        }
+      ]
+    },
+    {
+      "key": "docs",
+      "label": "Documents (WeldDocs)",
+      "permissions": [
+        {
+          "description": "Documents this person owns or that are shared with them.",
+          "key": "docs:read",
+          "label": "Open documents"
+        },
+        {
+          "key": "docs:create",
+          "label": "Create documents"
+        },
+        {
+          "key": "docs:update",
+          "label": "Edit documents"
+        },
+        {
+          "description": "Comment on documents shared with them to view, without editing them.",
+          "key": "docs:comment",
+          "label": "Comment on documents"
+        },
+        {
+          "key": "docs:delete",
+          "label": "Delete documents"
+        },
+        {
+          "key": "docs:share",
+          "label": "Share documents"
+        },
+        {
+          "description": "See every document in the workspace and change who it is shared with.",
+          "key": "docs:manage",
+          "label": "Administer documents"
+        }
+      ]
+    },
+    {
+      "key": "sign_envelopes",
+      "label": "Signature requests (WeldSign)",
+      "permissions": [
+        {
+          "description": "Requests this person sent or is a recipient of.",
+          "key": "sign_envelopes:read",
+          "label": "View signature requests"
+        },
+        {
+          "key": "sign_envelopes:create",
+          "label": "Create signature requests"
+        },
+        {
+          "key": "sign_envelopes:update",
+          "label": "Edit draft signature requests"
+        },
+        {
+          "key": "sign_envelopes:delete",
+          "label": "Delete signature requests"
+        },
+        {
+          "description": "Counts towards the monthly WeldSign limit of the plan.",
+          "key": "sign_envelopes:send",
+          "label": "Send signature requests"
+        },
+        {
+          "key": "sign_envelopes:void",
+          "label": "Void sent signature requests"
+        },
+        {
+          "description": "See every signature request in the workspace and change the WeldSign settings.",
+          "key": "sign_envelopes:manage",
+          "label": "Administer WeldSign"
+        }
+      ]
+    },
+    {
+      "key": "sign_templates",
+      "label": "Signature templates",
+      "permissions": [
+        {
+          "key": "sign_templates:read",
+          "label": "View signature templates"
+        },
+        {
+          "key": "sign_templates:create",
+          "label": "Create signature templates"
+        },
+        {
+          "key": "sign_templates:update",
+          "label": "Edit signature templates"
+        },
+        {
+          "key": "sign_templates:delete",
+          "label": "Delete signature templates"
+        }
+      ]
+    },
+    {
+      "key": "panel_projects",
+      "label": "Tracked projects (WeldPanel)",
+      "permissions": [
+        {
+          "key": "panel_projects:read",
+          "label": "View tracked projects (weldpanel)"
+        },
+        {
+          "key": "panel_projects:create",
+          "label": "Create tracked projects (weldpanel)"
+        },
+        {
+          "key": "panel_projects:update",
+          "label": "Edit tracked projects (weldpanel)"
+        },
+        {
+          "key": "panel_projects:delete",
+          "label": "Delete tracked projects (weldpanel)"
+        },
+        {
+          "key": "panel_projects:manage",
+          "label": "Manage tracked projects (weldpanel)"
+        }
+      ]
+    },
+    {
+      "key": "panel_reports",
+      "label": "Analytics reports and dashboards",
+      "permissions": [
+        {
+          "key": "panel_reports:read",
+          "label": "View analytics reports and dashboards"
+        },
+        {
+          "key": "panel_reports:create",
+          "label": "Create analytics reports and dashboards"
+        },
+        {
+          "key": "panel_reports:update",
+          "label": "Edit analytics reports and dashboards"
+        },
+        {
+          "key": "panel_reports:delete",
+          "label": "Delete analytics reports and dashboards"
+        }
+      ]
+    },
+    {
+      "key": "panel_recordings",
+      "label": "Session recordings (WeldPanel)",
+      "permissions": [
+        {
+          "key": "panel_recordings:read",
+          "label": "Watch session recordings"
+        },
+        {
+          "key": "panel_recordings:delete",
+          "label": "Delete session recordings"
+        }
+      ]
+    },
+    {
+      "key": "panel_people",
+      "label": "Tracked users (WeldPanel)",
+      "permissions": [
+        {
+          "description": "Profiles can include the user's email and name.",
+          "key": "panel_people:read",
+          "label": "View tracked user profiles"
+        },
+        {
+          "description": "Removes the profile, its events and its recordings (GDPR erasure).",
+          "key": "panel_people:delete",
+          "label": "Erase tracked users"
+        }
+      ]
+    },
+    {
+      "key": "parcels",
+      "label": "Parcels",
+      "permissions": [
+        {
+          "key": "parcels:read",
+          "label": "View parcels"
+        },
+        {
+          "key": "parcels:create",
+          "label": "Create parcels"
+        },
+        {
+          "key": "parcels:update",
+          "label": "Edit parcels"
+        },
+        {
+          "key": "parcels:delete",
+          "label": "Delete parcels"
+        }
+      ]
+    },
+    {
+      "key": "carriers",
+      "label": "Carriers",
+      "permissions": [
+        {
+          "key": "carriers:read",
+          "label": "View carriers"
+        },
+        {
+          "key": "carriers:create",
+          "label": "Create carriers"
+        },
+        {
+          "key": "carriers:update",
+          "label": "Edit carriers"
+        },
+        {
+          "key": "carriers:delete",
+          "label": "Delete carriers"
+        },
+        {
+          "key": "carriers:manage",
+          "label": "Manage carriers"
+        }
+      ]
+    },
+    {
+      "key": "boxes",
+      "label": "Box Templates",
+      "permissions": [
+        {
+          "key": "boxes:read",
+          "label": "View box templates"
+        },
+        {
+          "key": "boxes:create",
+          "label": "Create box templates"
+        },
+        {
+          "key": "boxes:update",
+          "label": "Edit box templates"
+        },
+        {
+          "key": "boxes:delete",
+          "label": "Delete box templates"
+        }
+      ]
+    },
+    {
+      "key": "returns",
+      "label": "Returns",
+      "permissions": [
+        {
+          "key": "returns:read",
+          "label": "View returns"
+        },
+        {
+          "key": "returns:create",
+          "label": "Create returns"
+        },
+        {
+          "key": "returns:update",
+          "label": "Edit returns"
+        },
+        {
+          "key": "returns:delete",
+          "label": "Delete returns"
+        }
+      ]
+    },
+    {
+      "key": "pickups",
+      "label": "Pickups",
+      "permissions": [
+        {
+          "key": "pickups:read",
+          "label": "View pickups"
+        },
+        {
+          "key": "pickups:create",
+          "label": "Create pickups"
+        },
+        {
+          "key": "pickups:update",
+          "label": "Edit pickups"
+        },
+        {
+          "key": "pickups:delete",
+          "label": "Delete pickups"
+        }
+      ]
+    },
+    {
+      "key": "webhooks",
+      "label": "Webhooks",
+      "permissions": [
+        {
+          "key": "webhooks:read",
+          "label": "View webhooks"
+        },
+        {
+          "key": "webhooks:create",
+          "label": "Create webhooks"
+        },
+        {
+          "key": "webhooks:update",
+          "label": "Edit webhooks"
+        },
+        {
+          "key": "webhooks:delete",
+          "label": "Delete webhooks"
+        },
+        {
+          "key": "webhooks:manage",
+          "label": "Manage webhooks"
+        }
+      ]
+    },
+    {
+      "key": "projects",
+      "label": "Projects",
+      "permissions": [
+        {
+          "key": "projects:read",
+          "label": "View projects"
+        },
+        {
+          "key": "projects:create",
+          "label": "Create projects"
+        },
+        {
+          "key": "projects:update",
+          "label": "Edit projects"
+        },
+        {
+          "key": "projects:delete",
+          "label": "Delete projects"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit projects they own. Grant to managers and admins who need cross-team visibility.",
+          "key": "projects:scope:all",
+          "label": "See all projects (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "tasks",
+      "label": "Tasks",
+      "permissions": [
+        {
+          "key": "tasks:read",
+          "label": "View tasks"
+        },
+        {
+          "key": "tasks:create",
+          "label": "Create tasks"
+        },
+        {
+          "key": "tasks:update",
+          "label": "Edit tasks"
+        },
+        {
+          "key": "tasks:delete",
+          "label": "Delete tasks"
+        }
+      ]
+    },
+    {
+      "key": "milestones",
+      "label": "Milestones",
+      "permissions": [
+        {
+          "key": "milestones:read",
+          "label": "View milestones"
+        },
+        {
+          "key": "milestones:create",
+          "label": "Create milestones"
+        },
+        {
+          "key": "milestones:update",
+          "label": "Edit milestones"
+        },
+        {
+          "key": "milestones:delete",
+          "label": "Delete milestones"
+        }
+      ]
+    },
+    {
+      "key": "time",
+      "label": "Time Entries",
+      "permissions": [
+        {
+          "key": "time:read",
+          "label": "View time entries"
+        },
+        {
+          "key": "time:create",
+          "label": "Create time entries"
+        },
+        {
+          "key": "time:update",
+          "label": "Edit time entries"
+        },
+        {
+          "key": "time:delete",
+          "label": "Delete time entries"
+        }
+      ]
+    },
+    {
+      "key": "files",
+      "label": "Files",
+      "permissions": [
+        {
+          "key": "files:read",
+          "label": "View files"
+        },
+        {
+          "key": "files:create",
+          "label": "Create files"
+        },
+        {
+          "key": "files:update",
+          "label": "Edit files"
+        },
+        {
+          "key": "files:delete",
+          "label": "Delete files"
+        }
+      ]
+    },
+    {
+      "key": "messages",
+      "label": "Messages",
+      "permissions": [
+        {
+          "key": "messages:read",
+          "label": "View messages"
+        },
+        {
+          "key": "messages:create",
+          "label": "Create messages"
+        },
+        {
+          "key": "messages:update",
+          "label": "Edit messages"
+        },
+        {
+          "key": "messages:delete",
+          "label": "Delete messages"
+        }
+      ]
+    },
+    {
+      "key": "templates",
+      "label": "Templates",
+      "permissions": [
+        {
+          "key": "templates:read",
+          "label": "View templates"
+        },
+        {
+          "key": "templates:create",
+          "label": "Create templates"
+        },
+        {
+          "key": "templates:update",
+          "label": "Edit templates"
+        },
+        {
+          "key": "templates:delete",
+          "label": "Delete templates"
+        }
+      ]
+    },
+    {
+      "key": "campaigns",
+      "label": "Campaigns",
+      "permissions": [
+        {
+          "key": "campaigns:read",
+          "label": "View campaigns"
+        },
+        {
+          "key": "campaigns:create",
+          "label": "Create campaigns"
+        },
+        {
+          "key": "campaigns:update",
+          "label": "Edit campaigns"
+        },
+        {
+          "key": "campaigns:delete",
+          "label": "Delete campaigns"
+        }
+      ]
+    },
+    {
+      "key": "channels",
+      "label": "Channels",
+      "permissions": [
+        {
+          "key": "channels:read",
+          "label": "View channels"
+        },
+        {
+          "key": "channels:create",
+          "label": "Create channels"
+        },
+        {
+          "key": "channels:update",
+          "label": "Edit channels"
+        },
+        {
+          "key": "channels:delete",
+          "label": "Delete channels"
+        }
+      ]
+    },
+    {
+      "key": "posts",
+      "label": "Posts",
+      "permissions": [
+        {
+          "key": "posts:read",
+          "label": "View posts"
+        },
+        {
+          "key": "posts:create",
+          "label": "Create posts"
+        },
+        {
+          "key": "posts:update",
+          "label": "Edit posts"
+        },
+        {
+          "key": "posts:delete",
+          "label": "Delete posts"
+        }
+      ]
+    },
+    {
+      "key": "analytics",
+      "label": "Analytics",
+      "permissions": [
+        {
+          "key": "analytics:read",
+          "label": "View analytics"
+        }
+      ]
+    },
+    {
+      "key": "ad_accounts",
+      "label": "Ad Accounts",
+      "permissions": [
+        {
+          "key": "ad_accounts:read",
+          "label": "View ad accounts"
+        },
+        {
+          "key": "ad_accounts:update",
+          "label": "Edit ad accounts"
+        }
+      ]
+    },
+    {
+      "key": "ad_campaigns",
+      "label": "Ad Campaigns",
+      "permissions": [
+        {
+          "key": "ad_campaigns:read",
+          "label": "View ad campaigns"
+        },
+        {
+          "key": "ad_campaigns:create",
+          "label": "Create ad campaigns"
+        },
+        {
+          "key": "ad_campaigns:update",
+          "label": "Edit ad campaigns"
+        }
+      ]
+    },
+    {
+      "key": "domains",
+      "label": "Domains",
+      "permissions": [
+        {
+          "key": "domains:read",
+          "label": "View domains"
+        },
+        {
+          "key": "domains:create",
+          "label": "Create domains"
+        },
+        {
+          "key": "domains:update",
+          "label": "Edit domains"
+        },
+        {
+          "key": "domains:delete",
+          "label": "Delete domains"
+        }
+      ]
+    },
+    {
+      "key": "dns",
+      "label": "DNS Records",
+      "permissions": [
+        {
+          "key": "dns:read",
+          "label": "View dns records"
+        },
+        {
+          "key": "dns:create",
+          "label": "Create dns records"
+        },
+        {
+          "key": "dns:update",
+          "label": "Edit dns records"
+        },
+        {
+          "key": "dns:delete",
+          "label": "Delete dns records"
+        }
+      ]
+    },
+    {
+      "key": "email",
+      "label": "Email Forwarding",
+      "permissions": [
+        {
+          "key": "email:read",
+          "label": "View email forwarding"
+        },
+        {
+          "key": "email:create",
+          "label": "Create email forwarding"
+        },
+        {
+          "key": "email:update",
+          "label": "Edit email forwarding"
+        },
+        {
+          "key": "email:delete",
+          "label": "Delete email forwarding"
+        }
+      ]
+    },
+    {
+      "key": "transfers",
+      "label": "Domain Transfers",
+      "permissions": [
+        {
+          "key": "transfers:read",
+          "label": "View domain transfers"
+        },
+        {
+          "key": "transfers:create",
+          "label": "Create domain transfers"
+        },
+        {
+          "key": "transfers:update",
+          "label": "Edit domain transfers"
+        },
+        {
+          "key": "transfers:delete",
+          "label": "Delete domain transfers"
+        }
+      ]
+    },
+    {
+      "key": "workflows",
+      "label": "Workflows",
+      "permissions": [
+        {
+          "key": "workflows:read",
+          "label": "View workflows"
+        },
+        {
+          "key": "workflows:create",
+          "label": "Create workflows"
+        },
+        {
+          "key": "workflows:update",
+          "label": "Edit workflows"
+        },
+        {
+          "key": "workflows:delete",
+          "label": "Delete workflows"
+        }
+      ]
+    },
+    {
+      "key": "workflow-executions",
+      "label": "Workflow Executions",
+      "permissions": [
+        {
+          "key": "workflow-executions:read",
+          "label": "View workflow executions"
+        },
+        {
+          "key": "workflow-executions:update",
+          "label": "Edit workflow executions"
+        }
+      ]
+    },
+    {
+      "key": "workflow-templates",
+      "label": "Workflow Templates",
+      "permissions": [
+        {
+          "key": "workflow-templates:read",
+          "label": "View workflow templates"
+        },
+        {
+          "key": "workflow-templates:create",
+          "label": "Create workflow templates"
+        },
+        {
+          "key": "workflow-templates:update",
+          "label": "Edit workflow templates"
+        },
+        {
+          "key": "workflow-templates:delete",
+          "label": "Delete workflow templates"
+        }
+      ]
+    },
+    {
+      "key": "workflow-variables",
+      "label": "Workflow Variables",
+      "permissions": [
+        {
+          "key": "workflow-variables:read",
+          "label": "View workflow variables"
+        },
+        {
+          "key": "workflow-variables:create",
+          "label": "Create workflow variables"
+        },
+        {
+          "key": "workflow-variables:update",
+          "label": "Edit workflow variables"
+        },
+        {
+          "key": "workflow-variables:delete",
+          "label": "Delete workflow variables"
+        }
+      ]
+    },
+    {
+      "key": "workflow-webhooks",
+      "label": "Workflow Webhooks",
+      "permissions": [
+        {
+          "key": "workflow-webhooks:read",
+          "label": "View workflow webhooks"
+        },
+        {
+          "key": "workflow-webhooks:create",
+          "label": "Create workflow webhooks"
+        },
+        {
+          "key": "workflow-webhooks:update",
+          "label": "Edit workflow webhooks"
+        },
+        {
+          "key": "workflow-webhooks:delete",
+          "label": "Delete workflow webhooks"
+        }
+      ]
+    },
+    {
+      "key": "integrations",
+      "label": "Integrations",
+      "permissions": [
+        {
+          "key": "integrations:github:manage",
+          "label": "Manage GitHub integration (install, disconnect, configure sync)"
+        },
+        {
+          "key": "integrations:read",
+          "label": "View integrations"
+        },
+        {
+          "key": "integrations:create",
+          "label": "Connect integrations"
+        },
+        {
+          "key": "integrations:update",
+          "label": "Edit integrations"
+        },
+        {
+          "key": "integrations:delete",
+          "label": "Disconnect integrations"
+        }
+      ]
+    },
+    {
+      "key": "folders",
+      "label": "Folders",
+      "permissions": [
+        {
+          "key": "folders:read",
+          "label": "View folders"
+        },
+        {
+          "key": "folders:create",
+          "label": "Create folders"
+        },
+        {
+          "key": "folders:update",
+          "label": "Edit folders"
+        },
+        {
+          "key": "folders:delete",
+          "label": "Delete folders"
+        }
+      ]
+    },
+    {
+      "key": "events",
+      "label": "Events",
+      "permissions": [
+        {
+          "key": "events:read",
+          "label": "View events"
+        },
+        {
+          "key": "events:create",
+          "label": "Create events"
+        },
+        {
+          "key": "events:update",
+          "label": "Edit events"
+        },
+        {
+          "key": "events:delete",
+          "label": "Delete events"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit events they own. Grant to managers and admins who need cross-team visibility.",
+          "key": "events:scope:all",
+          "label": "See all events (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "calendars",
+      "label": "Calendars",
+      "permissions": [
+        {
+          "key": "calendars:read",
+          "label": "View calendars"
+        },
+        {
+          "key": "calendars:create",
+          "label": "Create calendars"
+        },
+        {
+          "key": "calendars:update",
+          "label": "Edit calendars"
+        },
+        {
+          "key": "calendars:delete",
+          "label": "Delete calendars"
+        },
+        {
+          "key": "calendars:manage",
+          "label": "Manage calendars"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit calendars they own. Grant to managers and admins who need cross-team visibility.",
+          "key": "calendars:scope:all",
+          "label": "See all calendars (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "bookings",
+      "label": "Bookings",
+      "permissions": [
+        {
+          "key": "bookings:read",
+          "label": "View bookings"
+        },
+        {
+          "key": "bookings:create",
+          "label": "Create bookings"
+        },
+        {
+          "key": "bookings:update",
+          "label": "Edit bookings"
+        },
+        {
+          "key": "bookings:delete",
+          "label": "Delete bookings"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit bookings they own. Grant to managers and admins who need cross-team visibility.",
+          "key": "bookings:scope:all",
+          "label": "See all bookings (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "meetings",
+      "label": "Meetings",
+      "permissions": [
+        {
+          "key": "meetings:read",
+          "label": "View meetings"
+        },
+        {
+          "key": "meetings:create",
+          "label": "Create meetings"
+        },
+        {
+          "key": "meetings:update",
+          "label": "Edit meetings"
+        },
+        {
+          "key": "meetings:delete",
+          "label": "Delete meetings"
+        },
+        {
+          "description": "Without this grant, the user can only read/edit meetings they own. Grant to managers and admins who need cross-team visibility.",
+          "key": "meetings:scope:all",
+          "label": "See all meetings (not only their own)"
+        }
+      ]
+    },
+    {
+      "key": "sessions",
+      "label": "Sessions",
+      "permissions": [
+        {
+          "key": "sessions:read",
+          "label": "View sessions"
+        },
+        {
+          "key": "sessions:create",
+          "label": "Create sessions"
+        },
+        {
+          "key": "sessions:update",
+          "label": "Edit sessions"
+        },
+        {
+          "key": "sessions:delete",
+          "label": "Delete sessions"
+        }
+      ]
+    },
+    {
+      "key": "recordings",
+      "label": "Recordings",
+      "permissions": [
+        {
+          "key": "recordings:read",
+          "label": "View recordings"
+        },
+        {
+          "key": "recordings:delete",
+          "label": "Delete recordings"
+        }
+      ]
+    },
+    {
+      "key": "prospects",
+      "label": "Lead Database",
+      "permissions": [
+        {
+          "key": "prospects:read",
+          "label": "View lead database"
+        },
+        {
+          "key": "prospects:create",
+          "label": "Create lead database"
+        },
+        {
+          "key": "prospects:update",
+          "label": "Edit lead database"
+        },
+        {
+          "key": "prospects:delete",
+          "label": "Delete lead database"
+        }
+      ]
+    },
+    {
+      "key": "weldapps",
+      "label": "WeldApps",
+      "permissions": [
+        {
+          "key": "weldapps:read",
+          "label": "View user-created apps"
+        },
+        {
+          "description": "Create user-created apps and deploy new versions to this workspace.",
+          "key": "weldapps:develop",
+          "label": "Develop apps"
+        },
+        {
+          "description": "Submit apps for review and manage their public App Store listing.",
+          "key": "weldapps:publish",
+          "label": "Publish apps to the public store"
+        },
+        {
+          "description": "Install/uninstall user-created apps and approve the API scopes they request.",
+          "key": "weldapps:manage",
+          "label": "Install & manage apps"
+        }
+      ]
+    },
+    {
+      "key": "weldagent",
+      "label": "WeldAgent",
+      "permissions": [
+        {
+          "key": "weldagent:read",
+          "label": "View workspace AI agents"
+        },
+        {
+          "key": "weldagent:create",
+          "label": "Create workspace AI agents"
+        },
+        {
+          "key": "weldagent:update",
+          "label": "Edit workspace AI agents"
+        },
+        {
+          "key": "weldagent:delete",
+          "label": "Delete workspace AI agents"
+        },
+        {
+          "description": "Send messages to workspace agents and trigger manual runs. Tool actions are still limited by each agent’s own permission grants.",
+          "key": "weldagent:use",
+          "label": "Chat with and run AI agents"
+        },
+        {
+          "description": "Full control over workspace AI agents, including activating event listeners and assigning platform permission grants.",
+          "key": "weldagent:manage",
+          "label": "Manage AI agents"
+        }
+      ]
+    },
+    {
+      "key": "computer",
+      "label": "Agent computer",
+      "permissions": [
+        {
+          "description": "Shell, files, and code interpreter on the workspace’s Cloudflare Sandbox.",
+          "key": "computer:use",
+          "label": "Use workspace computer"
+        },
+        {
+          "description": "Navigate and automate pages with Cloudflare Browser Run.",
+          "key": "browser:use",
+          "label": "Use cloud browser"
+        }
+      ]
+    },
+    {
+      "key": "secrets",
+      "label": "Secrets (WeldPass)",
+      "permissions": [
+        {
+          "key": "secrets:read",
+          "label": "View secret names and metadata"
+        },
+        {
+          "description": "Decrypt and read stored values. Every reveal is written to the WeldPass audit trail.",
+          "key": "secrets:reveal",
+          "label": "Reveal secret values"
+        },
+        {
+          "key": "secrets:create",
+          "label": "Create secrets and vault projects"
+        },
+        {
+          "key": "secrets:update",
+          "label": "Edit secrets"
+        },
+        {
+          "key": "secrets:delete",
+          "label": "Delete secrets"
+        },
+        {
+          "description": "Push a vault environment to Cloudflare Workers, Cloudflare Pages or Vercel.",
+          "key": "secrets:sync",
+          "label": "Sync secrets to deploy targets"
+        },
+        {
+          "description": "Configure environments, sync targets, and the Cloudflare/Vercel API tokens WeldPass deploys with.",
+          "key": "secrets:manage",
+          "label": "Manage vaults and provider credentials"
+        }
+      ]
+    },
+    {
+      "key": "passwords",
+      "label": "Passwords (WeldPass)",
+      "permissions": [
+        {
+          "description": "A personal vault, plus the shared vaults this person is added to.",
+          "key": "passwords:use",
+          "label": "Use the password manager"
+        },
+        {
+          "key": "passwords:create",
+          "label": "Create shared vaults"
+        },
+        {
+          "description": "See every shared vault and change who is in it. Does not open personal vaults; reading a shared vault still requires being a member, and joining one is recorded.",
+          "key": "passwords:manage",
+          "label": "Administer shared vaults"
+        }
+      ]
+    },
+    {
+      "key": "reach_campaigns",
+      "label": "Outreach campaigns",
+      "permissions": [
+        {
+          "key": "reach_campaigns:read",
+          "label": "View outreach campaigns"
+        },
+        {
+          "key": "reach_campaigns:create",
+          "label": "Create outreach campaigns"
+        },
+        {
+          "key": "reach_campaigns:update",
+          "label": "Edit outreach campaigns"
+        },
+        {
+          "key": "reach_campaigns:delete",
+          "label": "Delete outreach campaigns"
+        }
+      ]
+    },
+    {
+      "key": "reach_prospects",
+      "label": "Outreach prospects",
+      "permissions": [
+        {
+          "key": "reach_prospects:read",
+          "label": "View outreach prospects"
+        },
+        {
+          "key": "reach_prospects:create",
+          "label": "Create outreach prospects"
+        },
+        {
+          "key": "reach_prospects:update",
+          "label": "Edit outreach prospects"
+        },
+        {
+          "key": "reach_prospects:delete",
+          "label": "Delete outreach prospects"
+        }
+      ]
+    },
+    {
+      "key": "reach_inbox",
+      "label": "Outreach replies",
+      "permissions": [
+        {
+          "key": "reach_inbox:read",
+          "label": "View replies"
+        },
+        {
+          "key": "reach_inbox:update",
+          "label": "Label and handle replies"
+        },
+        {
+          "description": "Send an answer from the outreach mailbox the prospect replied to.",
+          "key": "reach_inbox:reply",
+          "label": "Answer replies"
+        }
+      ]
+    },
+    {
+      "key": "reach_mailboxes",
+      "label": "Outreach mailboxes and domains",
+      "permissions": [
+        {
+          "key": "reach_mailboxes:read",
+          "label": "View outreach mailboxes and domains"
+        },
+        {
+          "description": "Each mailbox is billed monthly to the workspace.",
+          "key": "reach_mailboxes:create",
+          "label": "Create outreach mailboxes and connect domains"
+        },
+        {
+          "key": "reach_mailboxes:update",
+          "label": "Edit, pause and resume outreach mailboxes"
+        },
+        {
+          "key": "reach_mailboxes:delete",
+          "label": "Delete outreach mailboxes and disconnect domains"
+        }
+      ]
+    },
+    {
+      "key": "reach_settings",
+      "label": "Outreach settings",
+      "permissions": [
+        {
+          "key": "reach_settings:read",
+          "label": "View outreach settings"
+        },
+        {
+          "key": "reach_settings:update",
+          "label": "Edit outreach settings"
+        }
+      ]
+    },
+    {
+      "key": "employees",
+      "label": "Employees (WeldHR)",
+      "permissions": [
+        {
+          "key": "employees:read",
+          "label": "View employees, teams and client assignments"
+        },
+        {
+          "key": "employees:create",
+          "label": "Add employees"
+        },
+        {
+          "key": "employees:update",
+          "label": "Edit employees, assignments and onboarding"
+        },
+        {
+          "key": "employees:delete",
+          "label": "Delete employees"
+        },
+        {
+          "description": "Date of birth, national and tax ids, home address, emergency contact, bank details and pay. Every read is written to the WeldHR audit trail.",
+          "key": "employees:sensitive",
+          "label": "View and edit sensitive employee data"
+        },
+        {
+          "description": "Departments, checklist templates, evaluation forms, KPI definitions, leave types and what employees may do themselves in My HR.",
+          "key": "employees:manage",
+          "label": "Manage WeldHR settings"
+        },
+        {
+          "description": "Their own employee record only: profile, leave, expense declarations, sick reports, attendance, onboarding tasks, coaching, evaluations, payslips, and their own tax and bank details. Requires being linked to an employee.",
+          "key": "employees:self",
+          "label": "Use My HR"
+        }
+      ]
+    },
+    {
+      "key": "attendance",
+      "label": "Attendance",
+      "permissions": [
+        {
+          "key": "attendance:read",
+          "label": "View attendance"
+        },
+        {
+          "key": "attendance:create",
+          "label": "Create attendance"
+        },
+        {
+          "key": "attendance:update",
+          "label": "Edit attendance"
+        },
+        {
+          "key": "attendance:delete",
+          "label": "Delete attendance"
+        },
+        {
+          "key": "attendance:approve",
+          "label": "approve (attendance)"
+        }
+      ]
+    },
+    {
+      "key": "leave",
+      "label": "Leave",
+      "permissions": [
+        {
+          "key": "leave:read",
+          "label": "View leave"
+        },
+        {
+          "key": "leave:create",
+          "label": "Create leave"
+        },
+        {
+          "key": "leave:update",
+          "label": "Edit leave"
+        },
+        {
+          "key": "leave:delete",
+          "label": "Delete leave"
+        },
+        {
+          "key": "leave:approve",
+          "label": "approve (leave)"
+        }
+      ]
+    },
+    {
+      "key": "declarations",
+      "label": "Expense declarations",
+      "permissions": [
+        {
+          "key": "declarations:read",
+          "label": "View expense declarations"
+        },
+        {
+          "key": "declarations:create",
+          "label": "Create expense declarations"
+        },
+        {
+          "key": "declarations:update",
+          "label": "Edit expense declarations"
+        },
+        {
+          "key": "declarations:delete",
+          "label": "Delete expense declarations"
+        },
+        {
+          "key": "declarations:approve",
+          "label": "approve (expense declarations)"
+        }
+      ]
+    },
+    {
+      "key": "absences",
+      "label": "Sick reports",
+      "permissions": [
+        {
+          "key": "absences:read",
+          "label": "View sick reports"
+        },
+        {
+          "key": "absences:create",
+          "label": "Create sick reports"
+        },
+        {
+          "key": "absences:update",
+          "label": "Edit sick reports"
+        },
+        {
+          "key": "absences:delete",
+          "label": "Delete sick reports"
+        }
+      ]
+    },
+    {
+      "key": "coaching",
+      "label": "Coaching logs",
+      "permissions": [
+        {
+          "key": "coaching:read",
+          "label": "View coaching logs"
+        },
+        {
+          "key": "coaching:create",
+          "label": "Create coaching logs"
+        },
+        {
+          "key": "coaching:update",
+          "label": "Edit coaching logs"
+        },
+        {
+          "key": "coaching:delete",
+          "label": "Delete coaching logs"
+        }
+      ]
+    },
+    {
+      "key": "evaluations",
+      "label": "Evaluations and KPIs",
+      "permissions": [
+        {
+          "key": "evaluations:read",
+          "label": "View evaluations and kpis"
+        },
+        {
+          "key": "evaluations:create",
+          "label": "Create evaluations and kpis"
+        },
+        {
+          "key": "evaluations:update",
+          "label": "Edit evaluations and kpis"
+        },
+        {
+          "key": "evaluations:delete",
+          "label": "Delete evaluations and kpis"
+        }
+      ]
+    },
+    {
+      "key": "announcements",
+      "label": "Announcements",
+      "permissions": [
+        {
+          "key": "announcements:read",
+          "label": "View announcements"
+        },
+        {
+          "key": "announcements:create",
+          "label": "Create announcements"
+        },
+        {
+          "key": "announcements:update",
+          "label": "Edit announcements"
+        },
+        {
+          "key": "announcements:delete",
+          "label": "Delete announcements"
+        }
+      ]
+    },
+    {
+      "key": "payroll",
+      "label": "Payroll (WeldHR)",
+      "permissions": [
+        {
+          "description": "Every employee's pay, payslips, totals and tax filings.",
+          "key": "payroll:read",
+          "label": "View pay runs, payslips and filings"
+        },
+        {
+          "description": "Compensation, pay components, tax settings and bank details; create and calculate pay runs.",
+          "key": "payroll:prepare",
+          "label": "Prepare payroll"
+        },
+        {
+          "description": "Approve calculated pay runs, download payment files and mark runs paid.",
+          "key": "payroll:approve",
+          "label": "Approve and pay payroll"
+        },
+        {
+          "description": "Employers, pay schedules, the WeldBooks link, and submitting or recording tax filings.",
+          "key": "payroll:manage",
+          "label": "Manage payroll settings and filings"
+        }
+      ]
+    },
+    {
+      "key": "weldobjects",
+      "label": "WeldObjects",
+      "permissions": [
+        {
+          "key": "weldobjects:read",
+          "label": "View custom objects"
+        },
+        {
+          "description": "Create, edit and delete custom object types, their fields and their relationships. Deleting an object type deletes every record in it — grant this like a settings permission, not a data one.",
+          "key": "weldobjects:manage",
+          "label": "Define & manage custom objects"
+        }
+      ]
+    }
+  ],
+  "systemRoles": {
+    "ADMIN": {
+      "description": "Can manage team members, roles, and most settings",
+      "isSystem": true,
+      "name": "Admin",
+      "permissions": [
+        "general:read",
+        "general:update",
+        "team:read",
+        "team:create",
+        "team:update",
+        "team:delete",
+        "team:invite_external",
+        "teams:read",
+        "teams:create",
+        "teams:update",
+        "teams:delete",
+        "roles:read",
+        "roles:create",
+        "roles:update",
+        "roles:delete",
+        "apikeys:read",
+        "apikeys:create",
+        "apikeys:delete",
+        "billing:read",
+        "working-hours:edit-self",
+        "sso:read",
+        "sso:manage",
+        "leads:read",
+        "leads:create",
+        "leads:update",
+        "leads:delete",
+        "contacts:read",
+        "contacts:create",
+        "contacts:update",
+        "contacts:delete",
+        "opportunities:read",
+        "opportunities:create",
+        "opportunities:update",
+        "opportunities:delete",
+        "activities:read",
+        "activities:create",
+        "activities:update",
+        "activities:delete",
+        "pipelines:read",
+        "pipelines:create",
+        "pipelines:update",
+        "pipelines:delete",
+        "pipelines:manage",
+        "quotes:read",
+        "quotes:create",
+        "quotes:update",
+        "quotes:delete",
+        "telephony:read",
+        "telephony:manage",
+        "products:read",
+        "products:create",
+        "products:update",
+        "products:delete",
+        "inventory:read",
+        "inventory:create",
+        "inventory:update",
+        "inventory:delete",
+        "inventory:manage",
+        "orders:read",
+        "orders:create",
+        "orders:update",
+        "orders:delete",
+        "picklists:read",
+        "picklists:create",
+        "picklists:update",
+        "picklists:delete",
+        "locations:read",
+        "locations:create",
+        "locations:update",
+        "locations:delete",
+        "warehouses:read",
+        "warehouses:create",
+        "warehouses:update",
+        "warehouses:delete",
+        "warehouses:manage",
+        "suppliers:read",
+        "suppliers:create",
+        "suppliers:update",
+        "suppliers:delete",
+        "entities:read",
+        "entities:create",
+        "entities:update",
+        "entities:delete",
+        "entities:manage",
+        "invoices:read",
+        "invoices:create",
+        "invoices:update",
+        "invoices:delete",
+        "bills:read",
+        "bills:create",
+        "bills:update",
+        "bills:delete",
+        "journal:read",
+        "journal:create",
+        "journal:update",
+        "journal:delete",
+        "journal:manage",
+        "accounts:read",
+        "accounts:create",
+        "accounts:update",
+        "accounts:delete",
+        "accounts:manage",
+        "banking:read",
+        "banking:create",
+        "banking:update",
+        "banking:delete",
+        "banking:manage",
+        "customers:read",
+        "customers:create",
+        "customers:update",
+        "customers:delete",
+        "reports:read",
+        "reports:manage",
+        "tickets:read",
+        "tickets:create",
+        "tickets:update",
+        "tickets:delete",
+        "conversations:read",
+        "conversations:create",
+        "conversations:update",
+        "conversations:delete",
+        "articles:read",
+        "articles:create",
+        "articles:update",
+        "articles:delete",
+        "agents:read",
+        "agents:create",
+        "agents:update",
+        "agents:delete",
+        "agents:manage",
+        "departments:read",
+        "departments:create",
+        "departments:update",
+        "departments:delete",
+        "departments:manage",
+        "slas:read",
+        "slas:create",
+        "slas:update",
+        "slas:delete",
+        "slas:manage",
+        "settings:read",
+        "settings:update",
+        "settings:manage",
+        "parcels:read",
+        "parcels:create",
+        "parcels:update",
+        "parcels:delete",
+        "carriers:read",
+        "carriers:create",
+        "carriers:update",
+        "carriers:delete",
+        "carriers:manage",
+        "boxes:read",
+        "boxes:create",
+        "boxes:update",
+        "boxes:delete",
+        "returns:read",
+        "returns:create",
+        "returns:update",
+        "returns:delete",
+        "pickups:read",
+        "pickups:create",
+        "pickups:update",
+        "pickups:delete",
+        "webhooks:read",
+        "webhooks:create",
+        "webhooks:update",
+        "webhooks:delete",
+        "webhooks:manage",
+        "projects:read",
+        "projects:create",
+        "projects:update",
+        "projects:delete",
+        "tasks:read",
+        "tasks:create",
+        "tasks:update",
+        "tasks:delete",
+        "milestones:read",
+        "milestones:create",
+        "milestones:update",
+        "milestones:delete",
+        "time:read",
+        "time:create",
+        "time:update",
+        "time:delete",
+        "files:read",
+        "files:create",
+        "files:update",
+        "files:delete",
+        "messages:read",
+        "messages:create",
+        "messages:update",
+        "messages:delete",
+        "templates:read",
+        "templates:create",
+        "templates:update",
+        "templates:delete",
+        "campaigns:read",
+        "campaigns:create",
+        "campaigns:update",
+        "campaigns:delete",
+        "domains:read",
+        "domains:create",
+        "domains:update",
+        "domains:delete",
+        "dns:read",
+        "dns:create",
+        "dns:update",
+        "dns:delete",
+        "email:read",
+        "email:create",
+        "email:update",
+        "email:delete",
+        "channels:read",
+        "channels:create",
+        "channels:update",
+        "channels:delete",
+        "workflows:read",
+        "workflows:create",
+        "workflows:update",
+        "workflows:delete",
+        "workflow-executions:read",
+        "workflow-executions:update",
+        "workflow-templates:read",
+        "workflow-templates:create",
+        "workflow-templates:update",
+        "workflow-templates:delete",
+        "workflow-variables:read",
+        "workflow-variables:create",
+        "workflow-variables:update",
+        "workflow-variables:delete",
+        "workflow-webhooks:read",
+        "workflow-webhooks:create",
+        "workflow-webhooks:update",
+        "workflow-webhooks:delete",
+        "integrations:github:manage",
+        "integrations:read",
+        "integrations:create",
+        "integrations:update",
+        "integrations:delete",
+        "folders:read",
+        "folders:create",
+        "folders:update",
+        "folders:delete",
+        "events:read",
+        "events:create",
+        "events:update",
+        "events:delete",
+        "calendars:read",
+        "calendars:create",
+        "calendars:update",
+        "calendars:delete",
+        "calendars:manage",
+        "bookings:read",
+        "bookings:create",
+        "bookings:update",
+        "bookings:delete",
+        "meetings:read",
+        "meetings:create",
+        "meetings:update",
+        "meetings:delete",
+        "sessions:read",
+        "sessions:create",
+        "sessions:update",
+        "sessions:delete",
+        "recordings:read",
+        "recordings:delete",
+        "posts:read",
+        "posts:create",
+        "posts:update",
+        "posts:delete",
+        "analytics:read",
+        "ad_accounts:read",
+        "ad_accounts:update",
+        "ad_campaigns:read",
+        "ad_campaigns:create",
+        "ad_campaigns:update",
+        "customers:scope:all",
+        "contacts:scope:all",
+        "leads:scope:all",
+        "opportunities:scope:all",
+        "activities:scope:all",
+        "calendars:scope:all",
+        "events:scope:all",
+        "bookings:scope:all",
+        "meetings:scope:all",
+        "projects:scope:all",
+        "companies:read",
+        "companies:create",
+        "companies:update",
+        "companies:delete",
+        "companies:scope:all",
+        "people:read",
+        "people:create",
+        "people:update",
+        "people:delete",
+        "people:scope:all",
+        "lists:read",
+        "lists:create",
+        "lists:update",
+        "lists:delete",
+        "prospects:read",
+        "prospects:create",
+        "prospects:update",
+        "prospects:delete",
+        "weldapps:read",
+        "weldapps:develop",
+        "weldapps:publish",
+        "weldapps:manage",
+        "weldagent:read",
+        "weldagent:create",
+        "weldagent:update",
+        "weldagent:delete",
+        "weldagent:use",
+        "weldagent:manage",
+        "weldobjects:read",
+        "weldobjects:manage",
+        "weldobjects:*:read",
+        "weldobjects:*:create",
+        "weldobjects:*:update",
+        "weldobjects:*:delete",
+        "weldobjects:*:scope:all",
+        "secrets:read",
+        "secrets:reveal",
+        "secrets:create",
+        "secrets:update",
+        "secrets:delete",
+        "secrets:sync",
+        "secrets:manage",
+        "passwords:use",
+        "passwords:create",
+        "passwords:manage",
+        "employees:read",
+        "employees:create",
+        "employees:update",
+        "employees:delete",
+        "employees:sensitive",
+        "employees:manage",
+        "employees:self",
+        "attendance:read",
+        "attendance:create",
+        "attendance:update",
+        "attendance:delete",
+        "attendance:approve",
+        "leave:read",
+        "leave:create",
+        "leave:update",
+        "leave:delete",
+        "leave:approve",
+        "declarations:read",
+        "declarations:create",
+        "declarations:update",
+        "declarations:delete",
+        "declarations:approve",
+        "absences:read",
+        "absences:create",
+        "absences:update",
+        "absences:delete",
+        "coaching:read",
+        "coaching:create",
+        "coaching:update",
+        "coaching:delete",
+        "evaluations:read",
+        "evaluations:create",
+        "evaluations:update",
+        "evaluations:delete",
+        "announcements:read",
+        "announcements:create",
+        "announcements:update",
+        "announcements:delete",
+        "payroll:read",
+        "payroll:prepare",
+        "payroll:approve",
+        "payroll:manage",
+        "knowledge:read",
+        "knowledge:create",
+        "knowledge:update",
+        "knowledge:delete",
+        "knowledge:manage",
+        "sheets:read",
+        "sheets:create",
+        "sheets:update",
+        "sheets:comment",
+        "sheets:delete",
+        "sheets:share",
+        "sheets:manage",
+        "docs:read",
+        "docs:create",
+        "docs:update",
+        "docs:comment",
+        "docs:delete",
+        "docs:share",
+        "docs:manage",
+        "sign_envelopes:read",
+        "sign_envelopes:create",
+        "sign_envelopes:update",
+        "sign_envelopes:delete",
+        "sign_envelopes:send",
+        "sign_envelopes:void",
+        "sign_envelopes:manage",
+        "sign_templates:read",
+        "sign_templates:create",
+        "sign_templates:update",
+        "sign_templates:delete",
+        "panel_projects:read",
+        "panel_projects:create",
+        "panel_projects:update",
+        "panel_projects:delete",
+        "panel_projects:manage",
+        "panel_reports:read",
+        "panel_reports:create",
+        "panel_reports:update",
+        "panel_reports:delete",
+        "panel_recordings:read",
+        "panel_recordings:delete",
+        "panel_people:read",
+        "panel_people:delete",
+        "reach_campaigns:read",
+        "reach_campaigns:create",
+        "reach_campaigns:update",
+        "reach_campaigns:delete",
+        "reach_prospects:read",
+        "reach_prospects:create",
+        "reach_prospects:update",
+        "reach_prospects:delete",
+        "reach_inbox:read",
+        "reach_inbox:update",
+        "reach_inbox:reply",
+        "reach_mailboxes:read",
+        "reach_mailboxes:create",
+        "reach_mailboxes:update",
+        "reach_mailboxes:delete",
+        "reach_settings:read",
+        "reach_settings:update"
+      ]
+    },
+    "MEMBER": {
+      "description": "Standard access to assigned apps and features",
+      "isSystem": true,
+      "name": "Member",
+      "permissions": [
+        "general:read",
+        "team:read",
+        "teams:read",
+        "working-hours:edit-self",
+        "leads:read",
+        "leads:create",
+        "leads:update",
+        "contacts:read",
+        "contacts:create",
+        "contacts:update",
+        "opportunities:read",
+        "opportunities:create",
+        "opportunities:update",
+        "activities:read",
+        "activities:create",
+        "activities:update",
+        "pipelines:read",
+        "quotes:read",
+        "quotes:create",
+        "quotes:update",
+        "companies:read",
+        "companies:create",
+        "companies:update",
+        "people:read",
+        "people:create",
+        "people:update",
+        "lists:read",
+        "lists:create",
+        "lists:update",
+        "prospects:read",
+        "prospects:create",
+        "prospects:update",
+        "products:read",
+        "products:create",
+        "products:update",
+        "inventory:read",
+        "inventory:update",
+        "orders:read",
+        "orders:create",
+        "orders:update",
+        "picklists:read",
+        "picklists:create",
+        "picklists:update",
+        "locations:read",
+        "warehouses:read",
+        "suppliers:read",
+        "invoices:read",
+        "invoices:create",
+        "invoices:update",
+        "bills:read",
+        "bills:create",
+        "bills:update",
+        "journal:read",
+        "accounts:read",
+        "banking:read",
+        "suppliers:create",
+        "suppliers:update",
+        "customers:read",
+        "customers:create",
+        "customers:update",
+        "reports:read",
+        "tickets:read",
+        "tickets:create",
+        "tickets:update",
+        "conversations:read",
+        "conversations:create",
+        "conversations:update",
+        "articles:read",
+        "agents:read",
+        "departments:read",
+        "slas:read",
+        "settings:read",
+        "parcels:read",
+        "parcels:create",
+        "parcels:update",
+        "carriers:read",
+        "boxes:read",
+        "returns:read",
+        "returns:create",
+        "returns:update",
+        "pickups:read",
+        "pickups:create",
+        "projects:read",
+        "projects:create",
+        "projects:update",
+        "tasks:read",
+        "tasks:create",
+        "tasks:update",
+        "milestones:read",
+        "milestones:create",
+        "milestones:update",
+        "time:read",
+        "time:create",
+        "time:update",
+        "time:delete",
+        "files:read",
+        "files:create",
+        "messages:read",
+        "messages:create",
+        "messages:update",
+        "messages:delete",
+        "templates:read",
+        "campaigns:read",
+        "domains:read",
+        "dns:read",
+        "email:read",
+        "channels:read",
+        "channels:create",
+        "meetings:read",
+        "meetings:create",
+        "meetings:update",
+        "sessions:read",
+        "sessions:create",
+        "recordings:read",
+        "workflows:read",
+        "workflows:create",
+        "workflows:update",
+        "workflows:delete",
+        "workflow-executions:read",
+        "workflow-executions:update",
+        "workflow-templates:read",
+        "workflow-templates:create",
+        "workflow-templates:update",
+        "workflow-variables:read",
+        "workflow-variables:create",
+        "workflow-variables:update",
+        "workflow-webhooks:read",
+        "workflow-webhooks:create",
+        "workflow-webhooks:update",
+        "integrations:read",
+        "integrations:create",
+        "integrations:update",
+        "files:update",
+        "folders:read",
+        "folders:create",
+        "folders:update",
+        "events:read",
+        "events:create",
+        "events:update",
+        "calendars:read",
+        "bookings:read",
+        "bookings:create",
+        "bookings:update",
+        "posts:read",
+        "posts:create",
+        "posts:update",
+        "analytics:read",
+        "ad_accounts:read",
+        "ad_accounts:update",
+        "ad_campaigns:read",
+        "ad_campaigns:create",
+        "ad_campaigns:update",
+        "weldapps:read",
+        "weldagent:read",
+        "weldagent:use",
+        "weldobjects:read",
+        "weldobjects:*:read",
+        "weldobjects:*:create",
+        "weldobjects:*:update",
+        "passwords:use",
+        "passwords:create",
+        "knowledge:read",
+        "knowledge:create",
+        "knowledge:update",
+        "knowledge:delete",
+        "sheets:read",
+        "sheets:create",
+        "sheets:update",
+        "sheets:comment",
+        "sheets:delete",
+        "sheets:share",
+        "docs:read",
+        "docs:create",
+        "docs:update",
+        "docs:comment",
+        "docs:delete",
+        "docs:share",
+        "sign_envelopes:read",
+        "sign_envelopes:create",
+        "sign_envelopes:update",
+        "sign_envelopes:delete",
+        "sign_envelopes:send",
+        "sign_envelopes:void",
+        "sign_templates:read",
+        "panel_projects:read",
+        "panel_reports:read",
+        "panel_reports:create",
+        "panel_reports:update",
+        "panel_reports:delete",
+        "panel_recordings:read",
+        "panel_people:read",
+        "employees:self",
+        "reach_campaigns:read",
+        "reach_campaigns:create",
+        "reach_campaigns:update",
+        "reach_campaigns:delete",
+        "reach_prospects:read",
+        "reach_prospects:create",
+        "reach_prospects:update",
+        "reach_prospects:delete",
+        "reach_inbox:read",
+        "reach_inbox:update",
+        "reach_inbox:reply",
+        "reach_mailboxes:read",
+        "reach_settings:read"
+      ]
+    },
+    "OWNER": {
+      "description": "Full access to all workspace settings and data",
+      "isSystem": true,
+      "name": "Owner",
+      "permissions": [
+        "*"
+      ]
+    },
+    "VIEWER": {
+      "description": "Read-only access to workspace data",
+      "isSystem": true,
+      "name": "Viewer",
+      "permissions": [
+        "general:read",
+        "team:read",
+        "teams:read",
+        "leads:read",
+        "contacts:read",
+        "opportunities:read",
+        "activities:read",
+        "pipelines:read",
+        "quotes:read",
+        "telephony:read",
+        "products:read",
+        "inventory:read",
+        "orders:read",
+        "picklists:read",
+        "locations:read",
+        "warehouses:read",
+        "suppliers:read",
+        "entities:read",
+        "invoices:read",
+        "bills:read",
+        "journal:read",
+        "accounts:read",
+        "banking:read",
+        "customers:read",
+        "reports:read",
+        "tickets:read",
+        "conversations:read",
+        "articles:read",
+        "agents:read",
+        "departments:read",
+        "slas:read",
+        "settings:read",
+        "parcels:read",
+        "carriers:read",
+        "boxes:read",
+        "returns:read",
+        "pickups:read",
+        "webhooks:read",
+        "projects:read",
+        "tasks:read",
+        "milestones:read",
+        "time:read",
+        "files:read",
+        "messages:read",
+        "templates:read",
+        "campaigns:read",
+        "domains:read",
+        "dns:read",
+        "email:read",
+        "channels:read",
+        "workflows:read",
+        "workflow-executions:read",
+        "workflow-templates:read",
+        "workflow-variables:read",
+        "workflow-webhooks:read",
+        "integrations:read",
+        "folders:read",
+        "events:read",
+        "calendars:read",
+        "bookings:read",
+        "meetings:read",
+        "sessions:read",
+        "recordings:read",
+        "posts:read",
+        "analytics:read",
+        "ad_accounts:read",
+        "ad_campaigns:read",
+        "prospects:read",
+        "weldapps:read",
+        "weldagent:read",
+        "weldobjects:read",
+        "weldobjects:*:read",
+        "knowledge:read",
+        "sheets:read",
+        "docs:read",
+        "sign_envelopes:read",
+        "sign_templates:read",
+        "panel_projects:read",
+        "panel_reports:read",
+        "reach_campaigns:read",
+        "reach_prospects:read",
+        "reach_inbox:read",
+        "reach_mailboxes:read"
+      ]
+    }
+  }
+}

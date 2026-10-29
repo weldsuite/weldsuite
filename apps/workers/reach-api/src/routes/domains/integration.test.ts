@@ -45,7 +45,7 @@ const ALL = ['reach_mailboxes:read', 'reach_mailboxes:create', 'reach_mailboxes:
 
 function api(keys: string[] = ALL, access = approvedAccess()) {
   return createTestApp('/api/reach/domains', withAppAccess(domainRoutes, access), {
-    context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'org_acme' },
+    context: { permissions: permissions(...keys), tenantDb: db, workspaceId: 'ws_acme', clerkOrgId: 'org_acme' },
   }).request;
 }
 const json = (method: string, body?: unknown): RequestInit => ({

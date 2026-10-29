@@ -5,6 +5,15 @@
  * this surface is read/write of the holding table, plus a list filtered
  * by `accountId` for the compose-resume UI.
  *
+ * Every read/write goes through `workspaceMailFromContext`'s `store`/`access`
+ * (design docs/plans/weldmail-mailbox-store-design.md, task D2): the store's
+ * `draft.create`/`draft.update`/`draft.delete` ops call the exact same
+ * `@weldsuite/mail-domain/drafts` functions this route used to call directly
+ * in `postgres` mode, and `getDraft`/`listDrafts` wrap the same reads, so
+ * `postgres` mode's behaviour is unchanged. `postgres`/`shadow` keep today's
+ * 403 for a draft whose account exists but is closed to the caller;
+ * `object`/`object-only` collapse that to 404 too (design §5's "Locate").
+ *
  * Entity events: `mail_draft:created | updated | deleted`.
  */
 
@@ -15,10 +24,16 @@ import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Env, Variables } from '../../types';
 import { cursorPagination, error, list, noContent, success } from '@weldsuite/worker-kit/response';
-import * as drafts from '@weldsuite/mail-domain/drafts';
-import { checkAccountAccess } from '@weldsuite/mail-domain/access';
+import { getDraft as getDraftRowUnscoped } from '@weldsuite/mail-domain/drafts';
+import { generateId } from '@weldsuite/worker-kit/id';
+import { workspaceMailFromContext } from '../../lib/mail-store-context';
+import type { Database } from '@weldsuite/worker-kit/db';
+import type { MailAccess, MailStoreMode, WorkspaceMailStore } from '@weldsuite/mail-domain/store';
+import type { MailDraft } from '@weldsuite/db/schema/mail-drafts';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+type AppContext = import('hono').Context<{ Bindings: Env; Variables: Variables }>;
 
 const listQuery = z.object({
   accountId: z.string().optional(),
@@ -46,16 +61,49 @@ const baseBody = {
 const createBody = z.object({ accountId: z.string().min(1), ...baseBody });
 const updateBody = z.object(baseBody).partial();
 
+type LocateDraftResult = { ok: true; accountId: string; draft: MailDraft } | { ok: false; response: Response };
+
+/**
+ * `GET /:id`, `PUT`/`PATCH /:id`, `DELETE /:id` — 404 for a missing draft,
+ * 403 for one whose account is closed to the caller (unchanged in
+ * `postgres`/`shadow`; `object`/`object-only` answer 404 for both, design
+ * §5's "Locate").
+ */
+async function locateDraftOrRespond(
+  c: AppContext,
+  db: Database,
+  store: WorkspaceMailStore,
+  access: MailAccess,
+  mode: MailStoreMode,
+  id: string,
+): Promise<LocateDraftResult> {
+  const accessibleIds = await access.accessibleAccountIds();
+  const located = accessibleIds.length > 0 ? await store.locateDraft(id, accessibleIds) : null;
+  if (located) return { ok: true, accountId: located.accountId, draft: located.draft };
+  if (mode === 'postgres' || mode === 'shadow') {
+    const existing = await getDraftRowUnscoped(db, id);
+    if (!existing) return { ok: false, response: error.notFound(c, 'Draft', id) };
+    return { ok: false, response: error.forbidden(c, 'Access to this mail account is not allowed') };
+  }
+  return { ok: false, response: error.notFound(c, 'Draft', id) };
+}
+
 app.get('/', requirePermission('messages:read'), zValidator('query', listQuery), async (c) => {
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
     const filters = c.req.valid('query');
+    const { store, access } = await workspaceMailFromContext(c);
+    const limit = filters.limit ?? 50;
+
     if (filters.accountId) {
-      const allowed = await checkAccountAccess(db, filters.accountId, userId);
-      if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
+      if (!(await access.canOpen(filters.accountId))) {
+        return error.forbidden(c, 'Access to this mail account is not allowed');
+      }
+      const result = await store.mailbox(filters.accountId).listDrafts({ limit, cursor: filters.cursor });
+      return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
     }
-    const result = await drafts.listDrafts(db, filters);
+
+    const accountIds = await access.accessibleAccountIds();
+    const result = await store.listDrafts(accountIds, { limit, cursor: filters.cursor });
     return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
   } catch (err) {
     console.error('[app-api/mail-drafts] list failed:', err);
@@ -67,12 +115,10 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
   const id = c.req.param('id');
   try {
     const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const row = await drafts.getDraft(db, id);
-    if (!row) return error.notFound(c, 'Draft', id);
-    const allowed = await checkAccountAccess(db, row.accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    return success(c, row);
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateDraftOrRespond(c, db, store, access, mode, id);
+    if (!located.ok) return located.response;
+    return success(c, located.draft);
   } catch (err) {
     console.error('[app-api/mail-drafts] get failed:', err);
     return error.internal(c, 'Failed to fetch draft');
@@ -81,12 +127,14 @@ app.get('/:id', requirePermission('messages:read'), async (c) => {
 
 app.post('/', requirePermission('messages:create'), zValidator('json', createBody), async (c) => {
   try {
-    const db = c.get('tenantDb');
-    const userId = c.get('userId');
     const data = c.req.valid('json');
-    const allowed = await checkAccountAccess(db, data.accountId, userId);
+    const { store, access } = await workspaceMailFromContext(c);
+    const allowed = await access.canOpen(data.accountId);
     if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const row = await drafts.createDraft(db, data);
+    const id = generateId('draft');
+    await store.mailbox(data.accountId).apply({ kind: 'draft.create', draft: { id, ...data } });
+    const row = await store.mailbox(data.accountId).getDraft(id);
+    if (!row) return error.internal(c, 'Failed to create draft');
     publishEntityEvent({
       c,
       entityType: 'mail_draft',
@@ -106,23 +154,23 @@ const updateRoute = async (
 ) => {
   const id = c.req.param('id');
   const data = c.req.valid('json' as never) as z.infer<typeof updateBody>;
-  const db = c.get('tenantDb');
-  const userId = c.get('userId');
-  const existing = await drafts.getDraft(db, id);
-  if (!existing) return error.notFound(c, 'Draft', id);
-  const allowed = await checkAccountAccess(db, existing.accountId, userId);
-  if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
   try {
-    const result = await drafts.updateDraft(db, id, data);
-    if (!result) return error.notFound(c, 'Draft', id);
+    const db = c.get('tenantDb');
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateDraftOrRespond(c, db, store, access, mode, id);
+    if (!located.ok) return located.response;
+    const result = await store.mailbox(located.accountId).apply({ kind: 'draft.update', id, patch: data });
+    if (!result.applied.includes(id)) return error.notFound(c, 'Draft', id);
+    const after = await store.mailbox(located.accountId).getDraft(id);
+    if (!after) return error.notFound(c, 'Draft', id);
     publishEntityEvent({
       c,
       entityType: 'mail_draft',
       entityId: id,
       action: 'updated',
-      data: { id, accountId: result.after.accountId, subject: result.after.subject ?? null },
+      data: { id, accountId: after.accountId, subject: after.subject ?? null },
     });
-    return success(c, result.after);
+    return success(c, after);
   } catch (err) {
     console.error('[app-api/mail-drafts] update failed:', err);
     return error.internal(c, 'Failed to update draft');
@@ -136,19 +184,17 @@ app.delete('/:id', requirePermission('messages:delete'), async (c) => {
   const id = c.req.param('id');
   try {
     const db = c.get('tenantDb');
-    const userId = c.get('userId');
-    const existing = await drafts.getDraft(db, id);
-    if (!existing) return error.notFound(c, 'Draft', id);
-    const allowed = await checkAccountAccess(db, existing.accountId, userId);
-    if (!allowed) return error.forbidden(c, 'Access to this mail account is not allowed');
-    const deleted = await drafts.softDeleteDraft(db, id);
-    if (!deleted) return error.notFound(c, 'Draft', id);
+    const { store, access, mode } = await workspaceMailFromContext(c);
+    const located = await locateDraftOrRespond(c, db, store, access, mode, id);
+    if (!located.ok) return located.response;
+    const result = await store.mailbox(located.accountId).apply({ kind: 'draft.delete', id });
+    if (!result.applied.includes(id)) return error.notFound(c, 'Draft', id);
     publishEntityEvent({
       c,
       entityType: 'mail_draft',
       entityId: id,
       action: 'deleted',
-      data: { id, accountId: deleted.accountId, subject: null },
+      data: { id, accountId: located.accountId, subject: null },
     });
     return noContent(c);
   } catch (err) {

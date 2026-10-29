@@ -88,7 +88,7 @@ function Article({ announcement }: Readonly<{ announcement: HrSelfAnnouncement }
 }
 
 const styles = StyleSheet.create({
-  article: { paddingHorizontal: 16, paddingTop: 20, gap: 10 },
+  article: { paddingHorizontal: 16, paddingTop: 4, gap: 10 },
   pinned: {
     flexDirection: 'row',
     alignItems: 'center',

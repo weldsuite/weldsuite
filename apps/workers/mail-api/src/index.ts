@@ -36,6 +36,7 @@ import { mailWeldMailRoutes } from './routes/mail-weldmail';
 import { mailboxesRoutes } from './routes/mailboxes';
 import { mailSendingRoutes } from './routes/mail-sending';
 import { internalOutboundRoutes } from './routes/internal-outbound';
+import { internalMailStoreRoutes } from './routes/internal-mail-store';
 import {
   handleOutboundReviewBatch,
   handleSendingEventsBatch,
@@ -48,6 +49,11 @@ const app = createModuleApi<Env, Variables>({ service: 'mail-api' });
 // Outbound guard staff API (admin console, shared secret; not Clerk). Kept off
 // the /api/* auth chain on purpose. docs/plans/weldmail-outbound-abuse.md.
 app.route('/internal/outbound', internalOutboundRoutes);
+
+// Mailbox store staff API: backfill/catch-up, full parity, reverse sync and
+// rebuild (docs/plans/weldmail-mailbox-store-design.md §4, §9 task C4). Same
+// shared-secret pattern as /internal/outbound, also kept off /api/*.
+app.route('/internal/mail-store', internalMailStoreRoutes);
 
 // Mailbox directory — Clerk-authenticated but org-LESS: WeldMail lists every
 // workspace mailbox the user can see without flipping the active org (personal
@@ -89,6 +95,19 @@ export { SendScheduledEmailWorkflow } from '@weldsuite/mail-domain/workflows/sen
 // ledger per workspace, and the platform budget. Every worker that sends mail
 // binds them from here by script_name.
 export { OutboundLedger, OutboundPlatformBudget } from '@weldsuite/mail-domain/outbound/ledger';
+
+// Mailbox store (docs/plans/weldmail-mailbox-store-design.md): one
+// MailboxStoreObject per mailbox and one MailIndex per workspace, both
+// EU-jurisdiction SQLite Durable Objects. Cloudflare requires DO classes to
+// be exported from the worker entry point even though nothing in this file
+// calls them directly — `store/object/*` (this package) and other workers
+// reach them only through `env.MAILBOX_STORE`/`env.MAIL_INDEX`.
+export { MailboxStoreObject } from '@weldsuite/mail-domain/mailbox-object';
+export { MailIndex } from '@weldsuite/mail-domain/mail-index';
+// Usage meters (@weldsuite/credits/meters): one per workspace, counting plan
+// allowances and paying overage from the credit wallet. Hosted here (module
+// workers deploy first); the metering workers bind it by script_name.
+export { UsageMeter } from '@weldsuite/credits/meter-object';
 
 /** Queues this worker consumes, by name prefix (the suffix is the environment). */
 const OUTBOUND_REVIEW_QUEUE = 'mail-outbound-review-';

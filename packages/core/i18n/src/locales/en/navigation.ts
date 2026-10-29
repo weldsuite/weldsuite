@@ -158,6 +158,10 @@ export const navigation = {
         envelopes: 'Signature requests',
         templates: 'Templates',
       },
+      weldpanel: {
+        overview: 'Overview',
+        projects: 'Projects',
+      },
       welddocs: {
         documents: 'Documents',
       },

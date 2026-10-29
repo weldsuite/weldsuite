@@ -29,7 +29,7 @@ import {
   toPublicDeclaration,
   updateDeclaration,
 } from '../../services/weldhr/declarations';
-import { actor, hrJson, db, emit, param, receiptBucket, workspaceIdOf } from './helpers';
+import { actor, hrJson, db, emit, param, receiptBucket, orgIdOf } from './helpers';
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -106,12 +106,12 @@ declarationsRoutes.post(
   requirePermission('declarations:create', 'declarations:update'),
   async (c) => {
     const file = receiptFileFrom(await c.req.parseBody());
-    const row = await attachDeclarationReceipt(db(c), receiptBucket(c), workspaceIdOf(c), param(c, 'declarationId'), file);
+    const row = await attachDeclarationReceipt(db(c), receiptBucket(c), orgIdOf(c), param(c, 'declarationId'), file);
     emit(c, 'hr_declaration', 'updated', row.id, { employeeId: row.employeeId, status: row.status });
     return success(c, toPublicDeclaration(row));
   },
 );
 
 declarationsRoutes.get('/:declarationId/receipt', requirePermission('declarations:read'), async (c) => {
-  return receiptResponse(await loadDeclarationReceipt(db(c), receiptBucket(c), workspaceIdOf(c), param(c, 'declarationId')));
+  return receiptResponse(await loadDeclarationReceipt(db(c), receiptBucket(c), orgIdOf(c), param(c, 'declarationId')));
 });

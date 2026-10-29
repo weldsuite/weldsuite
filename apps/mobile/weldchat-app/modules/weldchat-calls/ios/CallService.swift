@@ -17,8 +17,17 @@ import UIKit
 ///
 /// Everything here runs on the main queue (PushKit and CallKit both deliver
 /// there), except the JS hand-off, which is guarded by `lock`.
+///
+/// China's MIIT does not allow CallKit (App Review guideline 5). On a phone
+/// whose region is mainland China none of this runs: no PushKit registry (a
+/// VoIP push must be reported to CallKit), no CXProvider, no VoIP token. JS
+/// then drops the call token and rings with the in-app screen, and the server
+/// sends the ordinary "Incoming call" push instead.
 final class CallService: NSObject {
   static let shared = CallService()
+
+  /// Read once per process, so a region change applies from the next launch.
+  static let isCallKitAllowed: Bool = Locale.current.region?.identifier != "CN"
 
   private static let tokenKey = "weldchat.calls.voipToken"
   private static let declineUrlKey = "weldchat.calls.declineUrl"
@@ -30,8 +39,19 @@ final class CallService: NSObject {
     var answered = false
   }
 
-  private let provider: CXProvider
-  private let controller = CXCallController()
+  /// Lazy so a phone in China never creates one (see `isCallKitAllowed`).
+  private lazy var provider: CXProvider = {
+    let configuration = CXProviderConfiguration()
+    configuration.supportsVideo = true
+    configuration.maximumCallGroups = 1
+    configuration.maximumCallsPerCallGroup = 1
+    configuration.supportedHandleTypes = [.generic]
+    configuration.includesCallsInRecents = true
+    let provider = CXProvider(configuration: configuration)
+    provider.setDelegate(self, queue: nil)
+    return provider
+  }()
+  private lazy var controller = CXCallController()
   private var registry: PKPushRegistry?
   private var calls: [UUID: KnownCall] = [:]
   /// Calls that stopped ringing here, so JS cannot ring them again while the
@@ -45,20 +65,17 @@ final class CallService: NSObject {
   var tokenListener: ((String) -> Void)?
 
   private override init() {
-    let configuration = CXProviderConfiguration()
-    configuration.supportsVideo = true
-    configuration.maximumCallGroups = 1
-    configuration.maximumCallsPerCallGroup = 1
-    configuration.supportedHandleTypes = [.generic]
-    configuration.includesCallsInRecents = true
-    provider = CXProvider(configuration: configuration)
     super.init()
-    provider.setDelegate(self, queue: nil)
   }
 
   /// Called at launch (WeldChatCallsAppDelegate). PushKit hands over a VoIP push
   /// that woke the app as soon as a registry with a delegate exists.
   func start() {
+    guard Self.isCallKitAllowed else {
+      // A token from before (another region) must not be registered again.
+      UserDefaults.standard.removeObject(forKey: Self.tokenKey)
+      return
+    }
     guard registry == nil else { return }
     let registry = PKPushRegistry(queue: .main)
     registry.delegate = self
@@ -66,7 +83,9 @@ final class CallService: NSObject {
     self.registry = registry
   }
 
-  var voipToken: String? { UserDefaults.standard.string(forKey: Self.tokenKey) }
+  var voipToken: String? {
+    Self.isCallKitAllowed ? UserDefaults.standard.string(forKey: Self.tokenKey) : nil
+  }
 
   /// Persisted: a CallKit Decline on an app that was not running happens before JS does.
   var declineUrl: String? {
@@ -149,6 +168,10 @@ final class CallService: NSObject {
   /// Show a ring in CallKit. From a VoIP push (`completion` is PushKit's) or
   /// from JS (the realtime ring while the app runs).
   func reportIncoming(_ payload: [String: String], completion: (() -> Void)? = nil) {
+    guard Self.isCallKitAllowed else {
+      completion?()
+      return
+    }
     let callId = payload["callId"] ?? ""
     let uuid = callId.isEmpty ? UUID() : Self.uuid(for: callId)
     // JS ringing a call CallKit already shows, or one that just stopped here.

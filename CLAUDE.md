@@ -77,6 +77,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 
 **`apps/hosted-apps/`**, First-party WeldApps (Vite + `@weldsuite/app-sdk`). These are **not** compiled into the platform SPA: CI deploys each `apps/hosted-apps/<code>/` with `weld app deploy` to the test/production registries. See [apps/hosted-apps/README.md](apps/hosted-apps/README.md).
 
+**`rust/`**, the Rust backend (Cargo workspace, ADR API-014): one `weldsuite` binary and image for the Kubernetes deployments (EU and self-hosted), installed with the Helm chart in `rust/deploy/helm/weldsuite`. The Cloudflare workers stay TypeScript; modules are ported one at a time and both answer the same API. Toolchain pinned in `rust/rust-toolchain.toml`; `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:deny` from the root; CI check `Rust` (aggregates `Rust · checks`, `Rust · image and chart`, `Rust · conformance`). Plan and rules: [rust/README.md](rust/README.md). **After changing entity events, permissions, feature flags, `api-modules` or `FIRST_PARTY_ORIGINS`, run `pnpm rust:catalogs` and commit `rust/` changes**; the Lint job fails when the export is stale. **A route listed in `rust/conformance/suites.json` is served by both backends: change its behaviour in TypeScript and Rust together**, and `pnpm rust:conformance` (the `Rust · conformance` CI job) checks they still answer alike, side effects included.
+
 > **Secrets tooling note:** worker secrets are keyed by bare worker name in `scripts/secrets/manifest.ts`; the sync scripts resolve them under **`apps/workers/<name>`**.
 
 ### Packages (`packages/`), grouped by role
@@ -362,7 +364,7 @@ All three legacy backends were **deleted from the repo on 2026-07-17**. There is
 - JSONB columns typed via `.$type<T>()`
 - **Master DB**: cross-tenant (workspaces, users, billing)
 - **Tenant DB**: per-workspace business data
-- **Workspace ids**: `workspaces.id` (`ws_…`) is the identifier; the Clerk org id (`org_…`) is only for Clerk calls and Clerk webhooks (ADR SEC-011, `docs/plans/workspace-id-standardization.md`). Mid-migration: `c.get('workspaceId')` is still the org id on Clerk paths, so use `c.get('internalWorkspaceId')` / `c.get('clerkOrgId')`, store `workspaces.id` in anything new, and look up a value that may be either id with `matchWorkspaceRef` (`@weldsuite/db/lib/workspace-ref`), never by its prefix.
+- **Workspace ids**: `workspaces.id` (`ws_…`) is the identifier; the Clerk org id (`org_…`) is only for Clerk calls and Clerk webhooks (ADR SEC-011, `docs/plans/workspace-id-standardization.md`). `c.get('workspaceId')` is `workspaces.id` on every entry point; `c.get('clerkOrgId')` is the org id, used for Clerk calls and for the stores still keyed by it (R2 prefixes, KV, D1 indexes, Durable Object names, entity events, Workflow params) until each moves. Store `workspaces.id` in anything new, and look up a value that may be either id with `matchWorkspaceRef` (`@weldsuite/db/lib/workspace-ref`), never by its prefix.
 - Production uses Cloudflare Hyperdrive; dev uses direct Neon URL
 - Field-level encryption supported via worker secret
 - **Adding columns/tables to `packages/core/db/src/schema/` is fine. Do NOT create migration files, ask the user first.**

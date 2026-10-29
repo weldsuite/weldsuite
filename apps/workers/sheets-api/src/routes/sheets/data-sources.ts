@@ -26,7 +26,9 @@ import {
   updateSheetDataSourceSchema,
   type SheetDataRefreshResult,
 } from '@weldsuite/app-api-client/schemas/sheets';
+import type { DataTablePlace } from '@weldsuite/sheets-engine';
 import type { Env, Variables } from '../../types';
+import { newTabId } from '../../room/people';
 import type { SheetRecord } from '../../services/sheets';
 import { buildRefresh } from '../../services/data-sources/refresh';
 import {
@@ -54,9 +56,9 @@ app.get('/', requirePermission('sheets:read'), async (c) => {
 
 app.post('/', requirePermission('sheets:update'), zValidator('json', createSheetDataSourceSchema), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const sheet = await editableSheet(c);
   if (sheet instanceof Response) return sheet;
   const input = c.req.valid('json');
@@ -74,16 +76,19 @@ app.post('/', requirePermission('sheets:update'), zValidator('json', createSheet
     createdById: userId,
   });
   publishEntityEvent({ c, entityType: 'sheet_data_source', entityId: row.id, action: 'created', data: dataSourceEventData(row) });
-  const result = await refreshNow(c, { sheet, workspaceId, userId, source: row, at: { sheetId: input.target.tabId, row: input.target.row, col: input.target.col } });
-  await reschedule(c, sheet, workspaceId);
+  const { target } = input;
+  const at: DataTablePlace =
+    'newTab' in target ? { newSheet: { id: newTabId(), name: target.newTab } } : { sheetId: target.tabId, row: target.row, col: target.col };
+  const result = await refreshNow(c, { sheet, clerkOrgId, userId, source: row, at });
+  await reschedule(c, sheet, clerkOrgId);
   return success(c, result, 201);
 });
 
 app.patch('/:sourceId', requirePermission('sheets:update'), zValidator('json', updateSheetDataSourceSchema), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const sheet = await editableSheet(c);
   if (sheet instanceof Response) return sheet;
   const db = c.get('tenantDb');
@@ -104,38 +109,38 @@ app.patch('/:sourceId', requirePermission('sheets:update'), zValidator('json', u
   });
   if (!row) return error.notFound(c, 'Data source', sourceId);
   publishEntityEvent({ c, entityType: 'sheet_data_source', entityId: row.id, action: 'updated', data: dataSourceEventData(row) });
-  const result = await refreshNow(c, { sheet, workspaceId, userId, source: row });
-  await reschedule(c, sheet, workspaceId);
+  const result = await refreshNow(c, { sheet, clerkOrgId, userId, source: row });
+  await reschedule(c, sheet, clerkOrgId);
   return success(c, result);
 });
 
 app.post('/:sourceId/refresh', requirePermission('sheets:update'), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const sheet = await editableSheet(c);
   if (sheet instanceof Response) return sheet;
   const sourceId = c.req.param('sourceId');
   const source = await getDataSource(c.get('tenantDb'), sheet.id, sourceId);
   if (!source) return error.notFound(c, 'Data source', sourceId);
-  const result = await refreshNow(c, { sheet, workspaceId, userId, source });
-  await reschedule(c, sheet, workspaceId);
+  const result = await refreshNow(c, { sheet, clerkOrgId, userId, source });
+  await reschedule(c, sheet, clerkOrgId);
   return success(c, result);
 });
 
 app.delete('/:sourceId', requirePermission('sheets:update'), async (c) => {
   const userId = c.get('userId');
-  const workspaceId = c.get('workspaceId');
+  const clerkOrgId = c.get('clerkOrgId');
   if (!userId) return error.unauthorized(c);
-  if (!workspaceId) return error.orgRequired(c);
+  if (!clerkOrgId) return error.orgRequired(c);
   const sheet = await editableSheet(c);
   if (sheet instanceof Response) return sheet;
   const sourceId = c.req.param('sourceId');
   const row = await deleteDataSource(c.get('tenantDb'), sheet.id, sourceId);
   if (!row) return error.notFound(c, 'Data source', sourceId);
-  await roomFor(c, workspaceId, sheet).dropDataTable(roomMeta(sheet, workspaceId), row.id, userId);
-  await reschedule(c, sheet, workspaceId);
+  await roomFor(c, clerkOrgId, sheet).dropDataTable(roomMeta(sheet, clerkOrgId), row.id, userId);
+  await reschedule(c, sheet, clerkOrgId);
   publishEntityEvent({ c, entityType: 'sheet_data_source', entityId: row.id, action: 'deleted', data: dataSourceEventData(row) });
   return noContent(c);
 });
@@ -146,14 +151,14 @@ app.delete('/:sourceId', requirePermission('sheets:update'), async (c) => {
  */
 async function refreshNow(
   c: Ctx,
-  params: { sheet: SheetRecord; workspaceId: string; userId: string; source: DataSourceRecord; at?: { sheetId: string; row: number; col: number } },
+  params: { sheet: SheetRecord; clerkOrgId: string; userId: string; source: DataSourceRecord; at?: DataTablePlace },
 ): Promise<SheetDataRefreshResult> {
   const db = c.get('tenantDb');
-  const { sheet, workspaceId, userId, source } = params;
+  const { sheet, clerkOrgId, userId, source } = params;
   const plan = await buildRefresh(db, source, sheet.file);
   let failure = plan.ok ? null : plan.error;
   if (plan.ok) {
-    const written = await roomFor(c, workspaceId, sheet).writeDataTable(roomMeta(sheet, workspaceId), { ...plan.write, at: params.at }, userId);
+    const written = await roomFor(c, clerkOrgId, sheet).writeDataTable(roomMeta(sheet, clerkOrgId), { ...plan.write, at: params.at }, userId);
     if (!written.ok) failure = 'unplaced';
   }
   const row = (await recordRefresh(db, source, { at: new Date(), rowCount: plan.ok ? plan.rowCount : 0, error: failure })) ?? source;
@@ -162,9 +167,9 @@ async function refreshNow(
 }
 
 /** Tells the room when the sheet's next scheduled refresh is due. */
-async function reschedule(c: Ctx, sheet: SheetRecord, workspaceId: string): Promise<void> {
+async function reschedule(c: Ctx, sheet: SheetRecord, clerkOrgId: string): Promise<void> {
   const next = await nextDueAt(c.get('tenantDb'), sheet.id);
-  await roomFor(c, workspaceId, sheet).scheduleRefresh(roomMeta(sheet, workspaceId), next ? next.getTime() : null);
+  await roomFor(c, clerkOrgId, sheet).scheduleRefresh(roomMeta(sheet, clerkOrgId), next ? next.getTime() : null);
 }
 
 export default app;

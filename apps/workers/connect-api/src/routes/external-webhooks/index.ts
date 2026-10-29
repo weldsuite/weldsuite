@@ -257,12 +257,14 @@ app.post('/:id/rotate-secret', requirePermission('webhooks:update'), async (c) =
 app.post('/:id/test', requirePermission('webhooks:update'), async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const workspaceId = c.get('workspaceId') ?? '';
+  // The Clerk org id: it is stamped into the `webhook.test` payload (like every
+  // entity event's `workspaceId`) and keys the webhook_retry index.
+  const clerkOrgId = c.get('clerkOrgId') ?? '';
   try {
-    const result = await sendTestWebhook(db, id, workspaceId);
+    const result = await sendTestWebhook(db, id, clerkOrgId);
     if (!result) return error.notFound(c, 'Webhook', id);
-    if (!result.delivered && workspaceId) {
-      await scheduleWebhookRetryIndex(c.env, workspaceId);
+    if (!result.delivered && clerkOrgId) {
+      await scheduleWebhookRetryIndex(c.env, clerkOrgId);
     }
     return success(c, result);
   } catch (err) {
