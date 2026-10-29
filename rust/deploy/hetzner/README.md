@@ -165,12 +165,61 @@ cert-manager, Traefik, CloudNativePG, the backup plugin) → `secrets` →
 `configs` (Postgres clusters, poolers, backups, the issuer) → `services`
 (NATS, Valkey, Restate, Zitadel) → `apps` (weldsuite).
 
-## 7. Zitadel's first admin
+## 7. Zitadel: first admin, the WeldSuite project, sign-in
 
 Zitadel starts with the organisation's human `admin` and the password from
 `zitadel-first-admin`. Sign in at `https://auth.<domain>/ui/console`, change
-the password, add a second admin and MFA, then create the project and the OIDC
-application for the platform (see "Not yet" below).
+the password, add a second admin and MFA. Then, in that (the instance's
+default) organisation:
+
+1. **Project** `WeldSuite`, with the roles `admin` and `member` (Clerk's
+   `org:admin` and `org:member` without the prefix). Turn on "Assert roles on
+   authentication" and "Check authorization on authentication", so only
+   people with a grant in some workspace can sign in. Its **resource id** is
+   the tokens' audience: `ZITADEL_PROJECT_ID` in
+   `flux/clusters/eu/cluster-settings.yaml` (quoted; it is 18 digits).
+2. **Web application** `platform` in the project: type *User Agent*,
+   authentication *PKCE*, redirect URIs on `https://app.<domain>` (the auth
+   facade's callback, P4 4.F5), and **Auth token type: JWT**: the server
+   verifies access tokens as JWTs against Zitadel's JWKS and never
+   introspects. Its client id is `ZITADEL_WEB_CLIENT_ID`, which the server
+   hands the frontends in `/config.json`. Commit the settings.
+3. **Scopes** the platform asks for: `openid profile email offline_access`,
+   `urn:zitadel:iam:org:project:id:<project id>:aud` (puts the project in
+   `aud`), `urn:zitadel:iam:org:projects:roles`, and
+   `urn:zitadel:iam:org:roles:id:<workspace org id>` for the active
+   workspace. The token's `urn:zitadel:iam:org:project:<project id>:roles`
+   claim then names that one organisation, which the server takes as the
+   session's (`config.auth.oidc.orgClaim` in the app's values). Without the
+   narrowing scope, someone in two workspaces gets `ORG_REQUIRED`, never a
+   guessed workspace. (The chart's default claim, `urn:zitadel:iam:org:id`
+   from the `urn:zitadel:iam:org:id:<org id>` scope, is only set when the
+   workspace is the person's own organisation; checked on Zitadel v4.19.)
+4. **Second factor**: the server's step-up check reads `auth_time` and
+   `amr`; Zitadel puts `mfa` in `amr` after two factors or a passkey. Require
+   MFA in the login policy, or let step-up send the user back through
+   `prompt=login`.
+5. **Service user** for the server's identity adapter (`ZitadelIdentity`:
+   invitations, memberships, organisations): a machine user `weldsuite-api`
+   with the instance manager role `IAM_OWNER` and a personal access token.
+   Keep the token for when the team routes are ported (`ZITADEL_SERVICE_TOKEN`
+   in `weldsuite-env`); nothing reads it yet.
+6. **A workspace is a Zitadel organisation.** Until provisioning is ported
+   (P4 4a), per workspace: create the organisation, grant it the `WeldSuite`
+   project with both roles, grant its people a role, and store its
+   organisation id in the workspace row, where Global keeps the Clerk org id:
+
+   ```sql
+   update workspaces set clerk_org_id = '<zitadel org id>' where id = 'ws_…';
+   ```
+
+   The server looks a session's organisation up in `workspaces.clerk_org_id`
+   (or `workspaces.id`), so no schema change is needed.
+
+The server fetches Zitadel's discovery document and keys from
+`https://auth.<domain>` through the load balancer. If pods can't reach it
+that way, set `config.auth.oidc.jwksUrl` to a URL they can; Zitadel picks its
+instance by host name, so an in-cluster URL needs that host.
 
 ## 8. The master database schema
 
@@ -230,11 +279,11 @@ Be clear about this before anyone signs a contract:
   P1, know and (in progress) sign. Every other module is TypeScript-only and
   not available on this cluster (P4, P6, P8). The EU `/config.json` offers
   only ported modules.
-- **Sign-in.** Zitadel runs, but the server still verifies Clerk-shaped
-  session tokens (`CLERK_JWKS_URL`), and the frontends still use Clerk. The
-  OIDC identity adapter (SEC-012) and the frontends' auth facade with runtime
-  config (P4 4.F1/4.F2/4.F5) are needed before anyone can sign in through
-  Zitadel.
+- **Sign-in.** The server verifies Zitadel's tokens (`AUTH_PROVIDER=oidc`,
+  step 7), but the frontends still use Clerk: the auth facade with runtime
+  config (P4 4.F1/4.F2/4.F5) is needed before anyone can sign in through
+  Zitadel. The Zitadel identity adapter exists; the team routes that call it
+  (invitations, members) are not ported yet.
 - **Workspace lifecycle.** Signup, onboarding and database provisioning
   (P4 4a) are not ported; tenant databases are made by hand (above).
 - **Frontends.** The SPA, the sign portal and the help center are not part of
