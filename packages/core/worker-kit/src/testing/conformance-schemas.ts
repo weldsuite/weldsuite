@@ -44,7 +44,12 @@ import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/fe
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
-import { accountDeletionStatusSchema, deleteAccountResultSchema } from '@weldsuite/app-api-client/schemas/account';
+import {
+  accountDeletionStatusSchema,
+  authSessionRevokedSchema,
+  authSessionsRevokedSchema,
+  deleteAccountResultSchema,
+} from '@weldsuite/app-api-client/schemas/account';
 import { acceptedInvitationSchema, invitationDetailsSchema } from '@weldsuite/app-api-client/schemas/invitations';
 import {
   deleteWorkspaceResultSchema,
@@ -81,7 +86,8 @@ import {
   teamMemberListItemSchema,
   teamMemberSelfSchema,
 } from '@weldsuite/app-api-client/schemas/team-members';
-import { memberLimitsSchema, myRoleSchema } from '@weldsuite/app-api-client/schemas/member-limits';
+import { memberLimitsSchema, myRoleSchema, prepaidSeatsSchema } from '@weldsuite/app-api-client/schemas/member-limits';
+import { ssoBillingViewSchema, ssoConfigViewSchema } from '@weldsuite/app-api-client/schemas/sso';
 import {
   inviteMemberResultSchema,
   resendInviteResultSchema,
@@ -211,6 +217,24 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/team-members/:id/resend-invite', envelope: 'single', data: resendInviteResultSchema },
   { method: 'GET', route: '/api/member-limits', envelope: 'single', data: memberLimitsSchema },
   { method: 'GET', route: '/api/my-role', envelope: 'single', data: myRoleSchema },
+  // core: prepaid-seats
+  { method: 'GET', route: '/api/prepaid-seats', envelope: 'single', data: prepaidSeatsSchema },
+  // core: auth-sessions
+  { method: 'POST', route: '/api/auth-sessions/revoke-all', envelope: 'single', data: authSessionsRevokedSchema },
+  { method: 'POST', route: '/api/auth-sessions/:sessionId/revoke', envelope: 'single', data: authSessionRevokedSchema },
+  // core: sso (every configuration write answers with the configuration)
+  { method: 'GET', route: '/api/sso', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'PUT', route: '/api/sso/domain', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'DELETE', route: '/api/sso/domain', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'POST', route: '/api/sso/domain/verify', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'PUT', route: '/api/sso/connection', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'DELETE', route: '/api/sso/connection', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'POST', route: '/api/sso/connection/activate', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'POST', route: '/api/sso/connection/deactivate', envelope: 'single', data: ssoConfigViewSchema },
+  { method: 'GET', route: '/api/sso/billing', envelope: 'single', data: ssoBillingViewSchema },
+  { method: 'POST', route: '/api/sso/billing/subscribe', envelope: 'single', data: ssoBillingViewSchema },
+  { method: 'POST', route: '/api/sso/billing/cancel', envelope: 'single', data: ssoBillingViewSchema },
+  { method: 'POST', route: '/api/sso/billing/resume', envelope: 'single', data: ssoBillingViewSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },

@@ -294,13 +294,10 @@ pub(crate) async fn auth(
     if let Some(stores) = pools.buckets.file_stores(&context.files) {
         extensions.insert(stores);
     }
-    // The identity provider answers from the test's fetch stub.
+    // The identity provider and the other third parties answer from the
+    // test's fetch stub.
     if let Some(bridge) = context.outbound.as_deref() {
-        extensions.insert(weldsuite_ports::IdentityProvider(
-            pools.outbound.identity(bridge),
-        ));
-        // Expo's push API too (`POST /api/push-tokens/test`).
-        extensions.insert(pools.outbound.expo(bridge));
+        pools.outbound.extend(extensions, bridge);
     }
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);

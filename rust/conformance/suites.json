@@ -309,6 +309,54 @@
       ]
     },
     {
+      "name": "core: prepaid-seats",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/prepaid-seats/prepaid-seats.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/prepaid-seats/",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "packages/clients/app-api-client/src/schemas/member-limits.ts",
+        "rust/modules/core-team/src/groups/prepaid_seats.rs",
+        "rust/modules/core-team/src/groups/seats.rs"
+      ]
+    },
+    {
+      "name": "core: auth-sessions",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/auth-sessions/auth-sessions.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/auth-sessions/",
+        "packages/clients/app-api-client/src/schemas/account.ts",
+        "rust/modules/core-platform/src/groups/auth_sessions.rs",
+        "rust/crates/ports/src/identity.rs",
+        "rust/bins/weldsuite/src/conformance_outbound.rs"
+      ]
+    },
+    {
+      "name": "core: sso",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/sso/sso.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/sso/",
+        "apps/workers/app-api/src/services/sso.ts",
+        "packages/domains/core/src/sso.ts",
+        "packages/clients/app-api-client/src/schemas/sso.ts",
+        "packages/core/worker-kit/src/dns-lookup.ts",
+        "rust/modules/core-platform/src/groups/sso.rs",
+        "rust/bins/weldsuite/src/conformance_outbound.rs"
+      ]
+    },
+    {
       "name": "core: my-role",
       "module": "core",
       "workspace": "apps/workers/app-api",

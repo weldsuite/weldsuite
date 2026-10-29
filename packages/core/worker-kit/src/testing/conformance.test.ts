@@ -21,6 +21,16 @@ describe('conformance comparison', () => {
     expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
   });
 
+  it('normalises random hex tokens on writes only', () => {
+    const ts = { data: { value: 'weldsuite-sso-verification=0f1e2d3c4b5a69788796a5b4c3d2e1f0' } };
+    const rust = { data: { value: 'weldsuite-sso-verification=1234567890123abcdef0123456789abc' } };
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
+    // Longer or shorter hex runs are not tokens.
+    expect(normalizeForDiff('a'.repeat(33), true)).toBe('a'.repeat(33));
+    expect(normalizeForDiff('a'.repeat(31), true)).toBe('a'.repeat(31));
+  });
+
   it('reports missing fields, extra fields and length differences', () => {
     expect(firstDifference({ a: 1 }, { a: 1, b: 2 })).toBe('$.b: undefined vs 2');
     expect(firstDifference({ a: [1] }, { a: [1, 2] })).toBe('$.a: 1 items vs 2');

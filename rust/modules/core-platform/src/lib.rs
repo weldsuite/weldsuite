@@ -38,6 +38,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, DynRealtimePublisher, Identity};
 
 pub use access::{Caller, PlatformError, PlatformResult, answer, now, validate, validate_query};
+pub use groups::sso::{DnsGateway, DnsTransport};
 
 /// What the handlers share, cloned from the app state.
 #[derive(Clone)]
