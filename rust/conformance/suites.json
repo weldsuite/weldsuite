@@ -893,6 +893,20 @@
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
         "rust/crates/desk-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/helpcenter-settings/domains",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        },
+        {
+          "route": "POST /api/helpcenter-settings/domains/:id/verify",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        },
+        {
+          "route": "DELETE /api/helpcenter-settings/domains/:id",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        }
       ]
     },
     {
