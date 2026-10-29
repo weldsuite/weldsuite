@@ -5,11 +5,19 @@
 # platform and cross-compiles for the target, so an arm64 image doesn't build
 # under emulation.
 #
-# Build from rust/:  docker build -t weldsuite:dev rust
-#                    docker buildx build --platform linux/amd64,linux/arm64 rust
-# Run:               docker run --env-file .env -p 8080:8080 weldsuite:dev   (command defaults to `serve`)
+# Build from the repository root, with rust/ as the context and the Drizzle
+# migrations as a second, named one (`weldsuite migrate` embeds them):
+#   docker build --build-context drizzle=packages/core/db/drizzle -t weldsuite:dev rust
+#   docker buildx build --build-context drizzle=packages/core/db/drizzle \
+#     --platform linux/amd64,linux/arm64 rust
+# Run:   docker run --env-file .env -p 8080:8080 weldsuite:dev   (command defaults to `serve`)
 
 ARG RUST_VERSION=1.99.1
+
+# The journaled migrations (packages/core/db/drizzle/{master,tenant}-migrations),
+# replaced by --build-context drizzle=…. Left empty, the build stops with a
+# message that says so (crates/migrations/build.rs).
+FROM scratch AS drizzle
 
 FROM --platform=$BUILDPLATFORM rust:${RUST_VERSION}-slim-bookworm AS build
 ARG TARGETARCH
@@ -38,6 +46,9 @@ COPY catalogs catalogs
 COPY crates crates
 COPY modules modules
 COPY bins bins
+# Embedded in the binary, so the image needs no files and no Node to migrate.
+COPY --from=drizzle . /src/drizzle
+ENV WELDSUITE_DRIZZLE_DIR=/src/drizzle
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target,id=weldsuite-target-${TARGETARCH} \
     target="$(cat /rust-target)" \

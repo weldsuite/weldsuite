@@ -6,7 +6,7 @@
 # a job run through Restate, then the same with OIDC sign-in against a
 # stand-in issuer.
 #
-#   docker build -t weldsuite:dev rust
+#   docker build --build-context drizzle=packages/core/db/drizzle -t weldsuite:dev rust
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
 #
 # Needs docker, kind, kubectl, helm, node and the repo's pnpm install (for the

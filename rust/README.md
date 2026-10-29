@@ -32,13 +32,15 @@ rust/
   conformance/          suites.json: the worker tests each ported route must pass (P2)
   docs/spikes.md        the answers to spikes S3 (PgBouncer) and S4 (thousands of tenants)
   Dockerfile            the image (distroless, nonroot, cross-compiled for arm64); context is rust/
-  bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs); consume, cron later
+  bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs), `migrate` (migrate.rs); consume, cron later
   crates/kit/           envelope, errors, ids, CORS, request id, pagination, cursors, zod-shaped validation
   crates/catalogs/      entity events, permission keys, flags, API modules (+ Rust flag), origins
   crates/auth/          session tokens: Clerk's or an OIDC provider's (Zitadel; discovery, fetched JWKS), step-up second factor
   crates/permissions/   @weldsuite/permissions: matching, per-app checks, grants, resolution, route layer
-  crates/db/            master DB, workspace → tenant pool, database_url decryption, Postgres errors,
+  crates/db/            master DB, workspace → tenant pool, database_url sealing and opening, Postgres errors,
                         atomically, Drizzle-shaped rows, permission lookups
+  crates/migrations/    the journaled Drizzle migrations, embedded at build time, and the runner behind
+                        `weldsuite migrate` (the TypeScript runners' twin; see "Migrations" below)
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
   crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity), their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
@@ -80,7 +82,7 @@ The integration tests need throwaway services and are skipped without them:
 
 | Variable | Service | Tests |
 |---|---|---|
-| `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database) | `weldsuite-db`, the flag table |
+| `WELDSUITE_TEST_DATABASE_URL` | Postgres (a scratch database; its role creates databases for `weldsuite-migrations` and the CloudNativePG provisioner) | `weldsuite-db`, the flag table, the migration runner, the provisioner |
 | `WELDSUITE_TEST_MASTER_URL`, `WELDSUITE_TEST_TENANT_URL` | Postgres with pgvector, built by `pnpm exec tsx scripts/rust-test-db.ts` from the journaled migrations | the SQL against the real schema |
 | `WELDSUITE_TEST_VALKEY_URL` | Valkey (`redis://…`) | cache and pub/sub adapters |
 | `WELDSUITE_TEST_NATS_URL` | NATS with JetStream (`nats://…`) | event bus adapter |
@@ -106,10 +108,32 @@ its id goes into `RUST_PORTED_MODULES` (`@weldsuite/api-modules`), the server
 mounts it, and its suite becomes part of the parity gate: CI runs it on every
 PR that touches the module, so a feature lands in both backends.
 
+## Migrations
+
+`weldsuite migrate` applies the journaled Drizzle SQL
+(`packages/core/db/drizzle/{master,tenant}-migrations`) to the master database
+and to every active workspace's tenant database. `crates/migrations/build.rs`
+embeds the SQL in the binary, so an image carries exactly the migrations its
+code was built for and needs no Node (the Dockerfile takes the folder as the
+`drizzle` build context). It is the TypeScript runners' twin: the master as
+`pnpm db:migrate:master` does it (`drizzle.__drizzle_migrations`), each tenant
+as `apps/tools/migrate-databases` does it (`public.__drizzle_migrations`), with
+the same rows, the same one-transaction run, the same tenant selection and
+move skipping, `--dry-run`, `--only <id>`, `--check-journal` and
+`--apply-skipped`; a database either runner migrated is up to date for the
+other. Additions: `--concurrency <n>`, and a transaction-scoped advisory lock
+so two Rust runners on one database take turns.
+
+```bash
+DATABASE_URL_MASTER=postgres://… DATABASE_ENCRYPTION_KEY_V2=… weldsuite migrate --dry-run
+weldsuite migrate --master --tenants --concurrency 4
+weldsuite migrate --tenants --only ws_123 --check-journal
+```
+
 ## Running it
 
 ```bash
-docker build -t weldsuite:dev rust
+docker build --build-context drizzle=packages/core/db/drizzle -t weldsuite:dev rust   # from the repo root
 rust/deploy/kind/smoke-test.sh     # kind + Postgres + Valkey + NATS + RustFS + Restate + the chart; a signed request through the pipeline, a job through Restate
 ```
 

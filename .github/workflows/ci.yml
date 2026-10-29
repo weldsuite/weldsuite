@@ -144,6 +144,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: rust
+          # The migrations `weldsuite migrate` embeds (rust/Dockerfile).
+          build-contexts: drizzle=packages/core/db/drizzle
           load: true
           tags: weldsuite:dev
           cache-from: type=gha,scope=rust-image
@@ -160,6 +162,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: rust
+          build-contexts: drizzle=packages/core/db/drizzle
           platforms: linux/arm64
           outputs: type=cacheonly
           cache-from: type=gha,scope=rust-image-arm64

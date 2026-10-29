@@ -1,6 +1,6 @@
 //! The `weldsuite` binary. One image runs every role through a subcommand:
-//! `serve` today; `consume`, `cron <job>` and the admin commands as they are
-//! ported.
+//! `serve` and `migrate` today; `consume`, `cron <job>` and the admin
+//! commands as they are ported.
 //!
 //! Configuration is environment variables only (`config.rs`); the Helm chart
 //! in `rust/deploy/helm/weldsuite` sets them.
@@ -13,6 +13,7 @@ mod conformance_files;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
 mod infra;
+mod migrate;
 mod routes;
 mod server;
 mod telemetry;
@@ -32,6 +33,8 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
+  migrate    apply the database migrations to the master and every tenant
+             database (weldsuite migrate --help)
   version    print the version and exit
   help       print this message and exit";
 
@@ -47,9 +50,10 @@ fn version() -> String {
 }
 
 fn main() -> ExitCode {
-    let command = std::env::args().nth(1);
-    match command.as_deref() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
         Some("serve") => serve(),
+        Some("migrate") => migrate::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS
@@ -73,7 +77,7 @@ fn serve() -> ExitCode {
             return ExitCode::from(78); // EX_CONFIG
         }
     };
-    let telemetry = telemetry::init(config.log_format);
+    let telemetry = telemetry::init(config.log_format, "info");
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()

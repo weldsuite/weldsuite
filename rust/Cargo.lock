@@ -3594,6 +3594,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-know",
+ "weldsuite-migrations",
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
@@ -3812,6 +3813,19 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-migrations"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "hex",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "weldsuite-db",
 ]
 
 [[package]]
