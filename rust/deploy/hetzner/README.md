@@ -336,15 +336,20 @@ Estimates from the design doc, at Hetzner list prices: dormant ≈ €70/month
 
 Be clear about this before anyone signs a contract:
 
-- **Modules.** The Rust backend serves only what is ported: the core routes of
-  P1, know and (in progress) sign. Every other module is TypeScript-only and
-  not available on this cluster (P4, P6, P8). The EU `/config.json` offers
-  only ported modules.
+- **Modules.** The Rust backend serves what is marked ported
+  (`RUST_PORTED_MODULES` in `packages/core/api-modules`): the core platform
+  (team and settings, files and drive, search, custom objects, WeldApps,
+  notifications, audit logs, API keys, credits, onboarding), WeldKnow,
+  WeldSign, WeldPass and the calendar. CRM, Flow, Chat, Desk and Mail have
+  Rust crates that aren't marked ported yet; they and every other module are
+  TypeScript-only and not on this cluster (P6, P8). `/config.json` lists the
+  offered modules, and the platform hides the rest (work package 4.F3).
 - **Sign-in.** The server verifies Zitadel's tokens (`AUTH_PROVIDER=oidc`,
   step 7) and the platform signs in through Zitadel with its auth facade
-  (OIDC with PKCE, from `/config.json`). The core team routes that call the
-  identity adapter (invitations, members) are still served in conformance
-  builds only.
+  (OIDC with PKCE, from `/config.json`). Invitations and member changes go
+  through the Zitadel identity adapter; the identity sync (above) catches up
+  on changes made in Zitadel within about a minute. No SAML connections
+  (`sso-connections` is listed as unavailable).
 - **Workspace lifecycle.** Signup, onboarding, provisioning, the identity
   sync and the deletion sweeps run (above). Not on this cluster: sample
   data and the default helpdesk workflows (their modules aren't ported), the
@@ -354,15 +359,19 @@ Be clear about this before anyone signs a contract:
 - **Frontends.** The server serves the platform SPA from its image at
   `app.<domain>` (built with `VITE_RUNTIME_CONFIG=on`: it reads
   `/config.json` and calls the API on its own origin). The sign portal runs
-  at `sign.<domain>`, but the server's `/public/sign-portal/*` endpoints it
-  calls are not ported yet, so a signing link answers "not found" until they
-  are. Not here yet: the help center, a CDN (Bunny.net) in front of
-  `app.<domain>`, and `/config.json`'s `env` map for the public keys Global
-  bakes in (Stripe, Mapbox, the portal URLs), so those features are off.
+  at `sign.<domain>` and calls the server's `/public/sign-portal/*` with the
+  shared `SIGN_PORTAL_SECRET` (ADR FE-017); the server needs
+  `SIGN_SESSION_SECRET` for signer sessions. `/config.json` carries the
+  public settings in `config.publicEnv` (Mapbox, the portal URLs) and lists
+  the `unavailableFeatures` the platform hides (billing, credit top-up,
+  paid apps, desktop sign-in, analytics, the search reindex). Not here yet:
+  the help center and a CDN (Bunny.net) in front of `app.<domain>`.
 - **Billing.** Mollie for the EU edition (P5, needs a BILL ADR). No billing
   runs here.
-- **Other EU services** in the design: system email (SMTP adapter in progress
-  on a separate branch), LiveKit + TURN, Haraka MX, Mistral, sipgate.
+- **Other EU services** in the design: system email goes out over SMTP
+  (`SMTP_URL`); not here yet: LiveKit + TURN, Haraka MX (ADR MAIL-010),
+  Mistral or an in-cluster model for embeddings (without
+  `consume.embeddings` the semantic search index is off), sipgate.
 - **Operations** (P5): the EU registry and signed images (5.4), observability
   and alerting (5.5), the drill runner (5.6), DNS failover between locations,
   object storage replication, HA for Valkey (Sentinel or replicas) and a
