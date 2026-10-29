@@ -12,7 +12,7 @@ use axum::response::{IntoResponse, Response};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events::{
-    SIGN_TEMPLATE_CREATED, SIGN_TEMPLATE_DELETED, SIGN_TEMPLATE_UPDATED,
+    SIGN_ENVELOPE_CREATED, SIGN_TEMPLATE_CREATED, SIGN_TEMPLATE_DELETED, SIGN_TEMPLATE_UPDATED,
 };
 use weldsuite_catalogs::permission_keys::SIGN_TEMPLATES_UPDATE;
 use weldsuite_db::{PgPool, js_row};
@@ -20,12 +20,14 @@ use weldsuite_kit::validation::{Field, Issues, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 
 use crate::envelopes::{
-    DetailAccess, Viewer, delete_draft, envelope_detail, load_sign_settings, load_template,
-    member_profile, page_query, read_changes, recipient_dto, touch_envelope, update_envelope,
+    DetailAccess, Viewer, delete_draft, detail_for, envelope_detail,
+    event_data as envelope_event_data, list_documents, list_fields, list_recipients,
+    load_sign_settings, load_template, member_profile, page_query, read_changes, recipient_dto,
+    record_event, touch_envelope, update_envelope,
 };
 use crate::recipients::{
-    AUTH_MODES, EMAIL, LOCALES, MAX_RECIPIENTS, NAME, ROLES, get_recipient, recipient_count,
-    remove_recipient, routing_order,
+    AUTH_MODES, EMAIL, LOCALES, MAX_RECIPIENTS, NAME, NewRecipient, ROLES, add_recipient,
+    get_recipient, recipient_count, remove_recipient, routing_order,
 };
 use crate::{
     Caller, SignError, SignResult, SignState, answer, like_pattern, now, offset_page, text,
@@ -469,4 +471,402 @@ pub(crate) async fn remove_role(
         }
         .await,
     )
+}
+
+// ── POST /:id/use ──────────────────────────────────────────────────────────
+
+/// The person who fills one role (`templateRecipientSchema`).
+struct RolePerson {
+    role_id: String,
+    name: String,
+    email: String,
+    person_id: Option<String>,
+    locale: Option<String>,
+    auth_mode: Option<String>,
+    access_code: Option<String>,
+}
+
+/// `useTemplateSchema`: title, message and one person per role.
+fn read_use(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+) -> (Field<String>, Field<String>, Vec<RolePerson>) {
+    let title = issues.text_with(
+        fields,
+        "title",
+        Presence::Optional,
+        Text::trimmed(Some(1), Some(255)),
+    );
+    let message = issues.text_with(
+        fields,
+        "message",
+        Presence::Nullish,
+        Text::trimmed(None, Some(5000)),
+    );
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let max = Some(MAX_RECIPIENTS as usize);
+    let people = issues.list(
+        fields,
+        "recipients",
+        Presence::Required,
+        Some(1),
+        max,
+        |issues, item| {
+            let item = issues.object(item)?;
+            let role_id = issues.text(item, "roleId", Presence::Required, Some(1), Some(30));
+            let name = issues.text_with(item, "name", Presence::Required, NAME);
+            let email = issues.text_with(item, "email", Presence::Required, EMAIL);
+            let person_id = issues.text(item, "personId", Presence::Nullish, None, Some(30));
+            let locale = issues.choice(item, "locale", Presence::Optional, &LOCALES);
+            let auth_mode = issues.choice(item, "authMode", Presence::Optional, &AUTH_MODES);
+            let access_code = issues.text_with(
+                item,
+                "accessCode",
+                Presence::Nullish,
+                Text::trimmed(Some(4), Some(64)),
+            );
+            Some(RolePerson {
+                role_id: role_id.into_option()?,
+                name: name.into_option()?,
+                email: email.into_option()?,
+                person_id: person_id.into_option(),
+                locale: locale.into_option(),
+                auth_mode: auth_mode.into_option(),
+                access_code: access_code.into_option(),
+            })
+        },
+    );
+    (title, message, people.into_option().unwrap_or_default())
+}
+
+/// A copy recipient signs nothing and opens the request by link alone.
+fn auth_mode_for(role: &Value, person: &RolePerson) -> String {
+    if role["role"] == "cc" {
+        "link".to_owned()
+    } else {
+        person
+            .auth_mode
+            .clone()
+            .unwrap_or_else(|| text(role, "authMode").to_owned())
+    }
+}
+
+/// Who fills each role (`peopleByRole`): every role once, no stray roles, no
+/// address twice, codes where needed.
+fn check_people(roles: &[Value], people: &[RolePerson]) -> SignResult<()> {
+    let mut role_ids: Vec<&str> = people.iter().map(|p| p.role_id.as_str()).collect();
+    role_ids.sort_unstable();
+    role_ids.dedup();
+    if role_ids.len() != people.len() {
+        return Err(SignError::invalid("Each role can be filled once"));
+    }
+    for person in people {
+        if !roles.iter().any(|r| r["id"] == person.role_id.as_str()) {
+            return Err(SignError::invalid(format!(
+                "Role {} is not part of this template",
+                person.role_id
+            )));
+        }
+    }
+    let mut emails: Vec<&str> = Vec::new();
+    for role in roles {
+        let role_name = text(role, "roleName");
+        let Some(person) = people.iter().find(|p| role["id"] == p.role_id.as_str()) else {
+            return Err(SignError::invalid(format!("Fill the role {role_name}")));
+        };
+        if emails.contains(&person.email.as_str()) {
+            return Err(SignError::invalid(format!(
+                "{} fills more than one role",
+                person.email
+            )));
+        }
+        emails.push(&person.email);
+        if auth_mode_for(role, person) == "access_code" && person.access_code.is_none() {
+            return Err(SignError::invalid(format!(
+                "{role_name} needs an access code"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// A new draft request from a template, with a person in every role
+/// (`useTemplate`). Fails as a whole: anything already written is removed.
+pub(crate) async fn use_template(
+    State(state): State<SignState>,
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    answer(
+        async {
+            let (title, message, people) = validate(&headers, &body, read_use)?;
+            // The PDFs are copied under workspaces/<org>/…, keyed by the Clerk org id.
+            let Some(org_id) = caller.clerk_org_id.clone() else {
+                return Ok(weldsuite_kit::ApiError::org_required().into_response());
+            };
+            let db = &caller.db;
+            let template = load_template(db, &id).await?;
+            let template_id = text(&template, "id").to_owned();
+            let roles = list_recipients(db, &template_id).await?;
+            check_people(&roles, &people)?;
+
+            let (name, email) = member_profile(db, &caller.user_id).await?;
+            let title = title
+                .into_option()
+                .unwrap_or_else(|| text(&template, "title").to_owned());
+            let message = match message {
+                Field::Absent => template["message"].as_str().map(str::to_owned),
+                other => other.into_option(),
+            };
+            let draft: Value = sqlx::query_scalar(
+                "insert into sign_envelopes
+                     (id, kind, status, title, message, sender_user_id, sender_name, sender_email)
+                 values ($1, 'envelope', 'draft', $2, $3, $4, $5, $6)
+                 returning to_jsonb(sign_envelopes)",
+            )
+            .bind(generate_id("sgn"))
+            .bind(&title)
+            .bind(message)
+            .bind(&caller.user_id)
+            .bind(&name)
+            .bind(&email)
+            .fetch_one(db)
+            .await?;
+            let draft = js_row(draft);
+            let draft_id = text(&draft, "id").to_owned();
+            record_event(
+                db,
+                &draft_id,
+                "created",
+                (&caller.user_id, name.as_deref(), email.as_deref()),
+            )
+            .await?;
+
+            let mut written = Vec::new();
+            let target = Draft {
+                template: &template,
+                roles: &roles,
+                people: &people,
+                org_id: &org_id,
+                id: &draft_id,
+            };
+            if let Err(error) = fill_draft(&caller, &state, &target, &mut written).await {
+                // Leave nothing half made: the draft, its rows and the files copied so far.
+                let _ = delete_draft(db, &draft).await;
+                crate::documents::delete_files_later(&caller, &state, written);
+                return Err(error);
+            }
+
+            let row: Value =
+                sqlx::query_scalar("select to_jsonb(e) from sign_envelopes e where id = $1")
+                    .bind(&draft_id)
+                    .fetch_one(db)
+                    .await?;
+            let row = js_row(row);
+            let mut data = envelope_event_data(&row);
+            data["templateId"] = json!(template_id);
+            caller.publish(&state, SIGN_ENVELOPE_CREATED, &draft_id, &data);
+            Ok(Created(detail_for(&caller, &row, None).await?).into_response())
+        }
+        .await,
+    )
+}
+
+/// What a template is copied into.
+struct Draft<'a> {
+    template: &'a Value,
+    roles: &'a [Value],
+    people: &'a [RolePerson],
+    org_id: &'a str,
+    id: &'a str,
+}
+
+/// The template's settings, PDFs, roles (as people) and fields on the draft.
+async fn fill_draft(
+    caller: &Caller,
+    state: &SignState,
+    draft: &Draft<'_>,
+    written: &mut Vec<String>,
+) -> SignResult<()> {
+    let db = &caller.db;
+    let template = draft.template;
+    let template_id = text(template, "id");
+    sqlx::query(
+        "update sign_envelopes set template_id = $2, signing_order_enabled = $3,
+             reminder_after_days = $4::int, reminder_every_days = $5::int,
+             reminder_max_count = $6::int
+         where id = $1",
+    )
+    .bind(draft.id)
+    .bind(template_id)
+    .bind(template["signingOrderEnabled"] == true)
+    .bind(template["reminderAfterDays"].as_i64())
+    .bind(template["reminderEveryDays"].as_i64())
+    .bind(template["reminderMaxCount"].as_i64())
+    .execute(db)
+    .await?;
+
+    let document_ids = copy_documents(caller, state, draft, written).await?;
+
+    let recipient_ids = add_people(caller, state, draft).await?;
+
+    let fields = list_fields(db, template_id).await?;
+    if fields.is_empty() {
+        return Ok(());
+    }
+    let lookup = |pairs: &[(String, String)], old: &str| {
+        pairs
+            .iter()
+            .find(|(from, _)| from == old)
+            .map(|(_, to)| to.clone())
+    };
+    let ids: Vec<String> = fields.iter().map(|_| generate_id("sgf")).collect();
+    let document_refs: Vec<Option<String>> = fields
+        .iter()
+        .map(|f| lookup(&document_ids, text(f, "documentId")))
+        .collect();
+    let recipient_refs: Vec<Option<String>> = fields
+        .iter()
+        .map(|f| lookup(&recipient_ids, text(f, "recipientId")))
+        .collect();
+    let boxes: Vec<Value> = fields
+        .iter()
+        .map(|f| {
+            json!({
+                "type": f["type"], "page": f["page"], "x": f["x"], "y": f["y"],
+                "width": f["width"], "height": f["height"], "required": f["required"],
+                "label": f["label"],
+            })
+        })
+        .collect();
+    // One statement, as Drizzle's multi-row insert.
+    sqlx::query(
+        "insert into sign_fields
+             (id, envelope_id, document_id, recipient_id, type, page, x, y, width, height,
+              required, label)
+         select u.id, $2, u.document_id, u.recipient_id, u.f->>'type', (u.f->>'page')::int,
+                (u.f->>'x')::real, (u.f->>'y')::real, (u.f->>'width')::real,
+                (u.f->>'height')::real, (u.f->>'required')::boolean, u.f->>'label'
+         from unnest($1::varchar[], $3::varchar[], $4::varchar[], $5::jsonb[])
+              as u(id, document_id, recipient_id, f)",
+    )
+    .bind(&ids)
+    .bind(draft.id)
+    .bind(&document_refs)
+    .bind(&recipient_refs)
+    .bind(&boxes)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// One recipient per role, with the person given for it; the new recipient
+/// id per role id.
+async fn add_people(
+    caller: &Caller,
+    state: &SignState,
+    draft: &Draft<'_>,
+) -> SignResult<Vec<(String, String)>> {
+    let db = &caller.db;
+    let secret = caller.session_secret(state);
+    let mut recipient_ids: Vec<(String, String)> = Vec::new();
+    for role in draft.roles {
+        let Some(person) = draft
+            .people
+            .iter()
+            .find(|p| role["id"] == p.role_id.as_str())
+        else {
+            continue;
+        };
+        let cc = role["role"] == "cc";
+        let locale = person
+            .locale
+            .clone()
+            .unwrap_or_else(|| if role["locale"] == "nl" { "nl" } else { "en" }.to_owned());
+        let recipient = add_recipient(
+            db,
+            draft.id,
+            NewRecipient {
+                role: role["role"].as_str().map(str::to_owned),
+                role_name: role["roleName"].as_str().map(str::to_owned),
+                name: Some(person.name.clone()),
+                email: person.email.clone(),
+                person_id: person.person_id.clone(),
+                locale: Some(locale),
+                routing_order: role["routingOrder"].as_i64(),
+                auth_mode: Some(auth_mode_for(role, person)),
+                access_code: if cc { None } else { person.access_code.clone() },
+            },
+            secret.as_deref(),
+        )
+        .await?;
+        recipient_ids.push((
+            text(role, "id").to_owned(),
+            text(&recipient, "id").to_owned(),
+        ));
+    }
+
+    Ok(recipient_ids)
+}
+
+/// Copy the template's PDFs to the draft's own keys (`copyDocuments`), so
+/// deleting either never touches the other. The new id per template document.
+async fn copy_documents(
+    caller: &Caller,
+    state: &SignState,
+    draft: &Draft<'_>,
+    written: &mut Vec<String>,
+) -> SignResult<Vec<(String, String)>> {
+    let docs = list_documents(&caller.db, text(draft.template, "id")).await?;
+    if docs.is_empty() {
+        return Err(SignError::invalid("This template has no documents"));
+    }
+    let files = caller
+        .files(state)
+        .ok_or_else(|| SignError::Internal("no file store configured (S3_ENDPOINT)".to_owned()))?;
+    let mut ids = Vec::with_capacity(docs.len());
+    for doc in &docs {
+        let object = files
+            .private
+            .get_boxed(text(doc, "storageKey"))
+            .await
+            .map_err(|e| SignError::Internal(format!("file store: {e}")))?
+            .ok_or_else(|| {
+                SignError::Internal(format!(
+                    "The file of template document {} is missing",
+                    text(doc, "id")
+                ))
+            })?;
+        let id = generate_id("sgd");
+        let key = crate::documents::document_key(draft.org_id, draft.id, &id);
+        let options = weldsuite_ports::PutOptions::content_type("application/pdf")
+            .with_metadata("sha256", text(doc, "sha256"));
+        files
+            .private
+            .put_boxed(&key, object.bytes, &options)
+            .await
+            .map_err(|e| SignError::Internal(format!("file store: {e}")))?;
+        written.push(key.clone());
+        sqlx::query(
+            "insert into sign_documents
+                 (id, envelope_id, name, position, storage_key, size_bytes, page_count,
+                  page_sizes, sha256)
+             values ($1, $2, $3, $4::int, $5, $6::int, $7::int, $8, $9)",
+        )
+        .bind(&id)
+        .bind(draft.id)
+        .bind(text(doc, "name"))
+        .bind(doc["position"].as_i64())
+        .bind(&key)
+        .bind(doc["sizeBytes"].as_i64())
+        .bind(doc["pageCount"].as_i64())
+        .bind(&doc["pageSizes"])
+        .bind(text(doc, "sha256"))
+        .execute(&caller.db)
+        .await?;
+        ids.push((text(doc, "id").to_owned(), id));
+    }
+    Ok(ids)
 }

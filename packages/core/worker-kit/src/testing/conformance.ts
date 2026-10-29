@@ -295,12 +295,15 @@ function firstObjectDifference(a: Record<string, unknown>, b: Record<string, unk
 interface Captured {
   status: number;
   headers: Headers;
+  /** The body as it came: a PDF is not text. */
+  bytes: Uint8Array;
   text: string;
   json: unknown;
 }
 
 async function capture(response: Response): Promise<Captured> {
-  const text = await response.text();
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const text = new TextDecoder().decode(bytes);
   let json: unknown;
   if ((response.headers.get('content-type') ?? '').includes('json') && text) {
     try {
@@ -309,7 +312,7 @@ async function capture(response: Response): Promise<Captured> {
       json = undefined;
     }
   }
-  return { status: response.status, headers: response.headers, text, json };
+  return { status: response.status, headers: response.headers, bytes, text, json };
 }
 
 // ── recording ───────────────────────────────────────────────────────────────
@@ -471,7 +474,7 @@ function compareRuns({ ts, rust, tsEffects, rustEffects }: Runs, isWrite: boolea
   if (ts.json !== undefined || rust.json !== undefined) {
     const body = firstDifference(normalizeForDiff(ts.json, isWrite), normalizeForDiff(rust.json, isWrite));
     if (body) return body;
-  } else if (ts.text !== rust.text) {
+  } else if (Buffer.compare(ts.bytes, rust.bytes) !== 0) {
     return 'response bodies differ';
   }
   // New event ids and timestamps differ by construction, even on a read.
@@ -491,6 +494,20 @@ function checkSchema(
   return { schema: error === null ? 'ok' : 'fail', schemaError: error };
 }
 
+/**
+ * A body both runs can send: text as it is, anything else (a multipart
+ * `FormData`, a `Blob`, bytes) serialised once, so both get the same bytes
+ * and the same multipart boundary, which goes into `headers`.
+ */
+async function replayableBody(body: BodyInit | null | undefined, headers: Headers): Promise<string | Uint8Array | undefined> {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body === 'string') return body;
+  const serialised = new Request('http://conformance.local/', { method: 'POST', body });
+  const type = serialised.headers.get('content-type');
+  if (type && !headers.has('content-type')) headers.set('content-type', type);
+  return new Uint8Array(await serialised.arrayBuffer());
+}
+
 /** Run one test request against Rust and TypeScript, compare, and return Rust's response. */
 export async function conformanceRequest(request: ConformanceRequest): Promise<Response> {
   const { target, ctx, env, init } = request;
@@ -506,12 +523,9 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   }
   const context = await testContext(ctx, env, await databaseUrlFor(client));
 
-  // A request body can be read once: keep it as text for both runs.
-  const body = init?.body ?? undefined;
-  if (body !== undefined && typeof body !== 'string') {
-    throw new Error('Conformance mode supports string request bodies only (JSON.stringify the body).');
-  }
+  // A request body can be read once: keep it as text or bytes for both runs.
   const headers = new Headers(init?.headers);
+  const body = await replayableBody(init?.body, headers);
   const rustHeaders = new Headers(headers);
   rustHeaders.set(CONFORMANCE_HEADER, Buffer.from(JSON.stringify(context)).toString('base64'));
 
@@ -552,5 +566,5 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   }
 
   const nullBody = [101, 204, 205, 304].includes(rust.status);
-  return new Response(nullBody ? null : rust.text, { status: rust.status, headers: rust.headers });
+  return new Response(nullBody ? null : rust.bytes, { status: rust.status, headers: rust.headers });
 }

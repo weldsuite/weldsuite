@@ -132,6 +132,12 @@ where
             axum::routing::delete(templates::remove).route_layer(need(SIGN_TEMPLATES_DELETE)),
         )
         .route(
+            "/{id}/use",
+            post(templates::use_template)
+                .route_layer(need(SIGN_TEMPLATES_READ))
+                .route_layer(need(SIGN_ENVELOPES_CREATE)),
+        )
+        .route(
             "/{id}/roles",
             post(templates::add_role).route_layer(need(SIGN_TEMPLATES_UPDATE)),
         )

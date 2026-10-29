@@ -188,7 +188,7 @@ fn too_big() -> SignError {
     ))
 }
 
-fn document_key(org_id: &str, envelope_id: &str, document_id: &str) -> String {
+pub(crate) fn document_key(org_id: &str, envelope_id: &str, document_id: &str) -> String {
     format!("workspaces/{org_id}/weldsign/{envelope_id}/documents/{document_id}.pdf")
 }
 

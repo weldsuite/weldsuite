@@ -163,10 +163,26 @@ pub(crate) async fn recipient_count(
     .await?)
 }
 
-async fn add_recipient(
+/// A recipient to add (`addRecipient`'s input). `role_name` is the template
+/// role this person fills, when the envelope came from one.
+pub(crate) struct NewRecipient {
+    pub(crate) role: Option<String>,
+    pub(crate) role_name: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) email: String,
+    pub(crate) person_id: Option<String>,
+    pub(crate) locale: Option<String>,
+    pub(crate) routing_order: Option<i64>,
+    pub(crate) auth_mode: Option<String>,
+    pub(crate) access_code: Option<String>,
+}
+
+/// Add a recipient (`addRecipient`): at most 50, one row per address, the
+/// access code stored as a keyed hash.
+pub(crate) async fn add_recipient(
     db: &PgPool,
     envelope_id: &str,
-    input: RecipientInput,
+    input: NewRecipient,
     secret: Option<&str>,
 ) -> SignResult<Value> {
     let (existing, last) = recipient_count(db, envelope_id).await?;
@@ -175,54 +191,36 @@ async fn add_recipient(
             "An envelope can have at most {MAX_RECIPIENTS} recipients"
         )));
     }
-    let email = input.email.into_option().unwrap_or_default();
-    assert_email_free(db, envelope_id, &email, None).await?;
+    assert_email_free(db, envelope_id, &input.email, None).await?;
 
-    let role = input
-        .role
-        .into_option()
-        .unwrap_or_else(|| "signer".to_owned());
+    let role = input.role.unwrap_or_else(|| "signer".to_owned());
     // A copy recipient never opens the request to sign it: no identity to check.
     let auth_mode = if role == "cc" {
         "link".to_owned()
     } else {
-        input
-            .auth_mode
-            .into_option()
-            .unwrap_or_else(|| "link".to_owned())
+        input.auth_mode.unwrap_or_else(|| "link".to_owned())
     };
     let id = generate_id("sgr");
-    let hash = access_code_hash(
-        secret,
-        &id,
-        &auth_mode,
-        input.access_code.as_set().map(String::as_str),
-        None,
-    )?;
+    let hash = access_code_hash(secret, &id, &auth_mode, input.access_code.as_deref(), None)?;
     // New people go last; with signing order off the number is not used.
     let order = input
         .routing_order
-        .into_option()
         .unwrap_or_else(|| last.map_or(1, |n| i64::from(n) + 1));
     let row: Value = sqlx::query_scalar(
         "insert into sign_recipients
              (id, envelope_id, role, role_name, name, email, person_id, locale, routing_order,
               auth_mode, access_code_hash)
-         values ($1, $2, $3, null, $4, $5, $6, $7, $8::int, $9, $10)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9::int, $10, $11)
          returning to_jsonb(sign_recipients)",
     )
     .bind(&id)
     .bind(envelope_id)
     .bind(&role)
-    .bind(input.name.into_option())
-    .bind(&email)
-    .bind(input.person_id.into_option())
-    .bind(
-        input
-            .locale
-            .into_option()
-            .unwrap_or_else(|| "en".to_owned()),
-    )
+    .bind(input.role_name)
+    .bind(input.name)
+    .bind(&input.email)
+    .bind(input.person_id)
+    .bind(input.locale.unwrap_or_else(|| "en".to_owned()))
     .bind(order)
     .bind(&auth_mode)
     .bind(hash)
@@ -343,6 +341,17 @@ pub(crate) async fn create(
             let envelope = load_draft(&caller.db, &id, &viewer).await?;
             let envelope_id = text(&envelope, "id");
             let secret = caller.session_secret(&state);
+            let input = NewRecipient {
+                role: input.role.into_option(),
+                role_name: None,
+                name: input.name.into_option(),
+                email: input.email.into_option().unwrap_or_default(),
+                person_id: input.person_id.into_option(),
+                locale: input.locale.into_option(),
+                routing_order: input.routing_order.into_option(),
+                auth_mode: input.auth_mode.into_option(),
+                access_code: input.access_code.into_option(),
+            };
             let recipient =
                 add_recipient(&caller.db, envelope_id, input, secret.as_deref()).await?;
             touch_envelope(&caller.db, envelope_id).await?;
