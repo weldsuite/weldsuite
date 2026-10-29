@@ -204,6 +204,8 @@ export async function createMasterPgliteDb(): Promise<{ db: any; close: () => Pr
       }
     }
 
+    // Conformance mode serves it to the Rust server like the tenant database.
+    clients.set(db, client);
     cachedMaster = {
       db,
       close: async () => {
