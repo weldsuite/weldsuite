@@ -55,7 +55,9 @@ rust/
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
-                        modules/core-team (team, roles, settings, preferences, app catalog);
+                        modules/core-team (team, roles, settings, preferences, app catalog),
+                        modules/core-onboarding (signup: /api/onboarding, the workspace.provision job,
+                        the identity sync, the deletion sweeps);
                         core areas are mounted in conformance builds only until complete
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
@@ -158,8 +160,10 @@ share one origin and the app finds the API through `/config.json`
 `rust/Dockerfile.dockerignore`.
 
 `weldsuite cron <job>` runs one scheduled job and exits, with the same
-environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`,
-every 15 minutes. The server reads environment variables only (`bins/weldsuite/src/config.rs`):
+environment (the chart's CronJobs, `cron.jobs` in its values): `sign-lifecycle`
+every 15 minutes, `identity-sync` every minute (the identity provider's
+changes into the databases, what Clerk's webhooks do on Global),
+`workspace-deletion` daily and `workspace-teardown` hourly. The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 
 | Variable | |
 |---|---|
@@ -181,6 +185,9 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 | `RESTATE_INGRESS_URL`, `RESTATE_ADMIN_URL`, `RESTATE_DEPLOYMENT_URI`, `JOBS_PORT` | durable jobs on Restate: start through the ingress; each pod serves the jobs service on `JOBS_PORT` (9080) and registers `RESTATE_DEPLOYMENT_URI` with the admin API at start. Unset: jobs run in the server process and a restart loses them |
 | `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
 | `STORAGE_SIGNING_KEY` | signs the files cookie and the signed URLs that open private objects (`/api/storage`); the same value as app-api's, so either backend accepts the other's. Unset: `POST /api/storage/access` and `/sign` answer 503, and a private object opens only with a session token |
+| `ZITADEL_API_URL`, `ZITADEL_SERVICE_TOKEN`, `ZITADEL_PROJECT_ID`, `ZITADEL_HOST`, `ZITADEL_INVITE_URL_TEMPLATE` | the identity provider's management API (`crates/adapters-oss/src/zitadel.rs`): a service user's token (`IAM_OWNER`), the WeldSuite project, the `Host` for an in-cluster URL, the invite link (optional; unset: no identity provider) |
+| `TENANT_SHARDS`, `TENANT_REGION`, `FIELD_ENCRYPTION_AAD_WRITES` | new workspace databases on CloudNativePG shards (a JSON list, `crates/adapters-oss/src/cnpg.rs`), their region, and sealing their URLs as v3. With shards and Zitadel set the server serves `/api/onboarding` and runs `workspace.provision` (optional) |
+| `PARTNER_PORTAL_URL` | the reseller portal named in a territory request's email (default `https://partner.weldsuite.org`) |
 | `SPA_DIR` | serve the built SPA in this directory for every path the routes don't answer; the image sets `/srv/spa`, empty serves the API alone |
 | `EXTERNAL_API_URL`, `USER_APP_BUNDLE_SIGNING_KEY` (else `INTERNAL_API_SECRET`), `USER_APP_BUNDLE_ORIGIN`, `USER_APP_FRAME_ANCESTORS`, `WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS` | WeldApps: where the app gateway forwards to (external-api), the bundle-link signing secret (the same value as app-api's, so links open on either backend), the dedicated bundle origin, extra `frame-ancestors`, and the workspaces whose apps are first-party (all optional; without a signing secret, private bundles fail closed) |
 | `FEATURE_FLAGS` (`defaults`/`master-db`), `FEATURE_FLAGS_REFRESH_SECONDS` | where flag values come from |
@@ -194,10 +201,7 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
-Not there yet: the Zitadel `Identity` adapter wired into the server (it
-waits for the team routes that call the port), the CloudNativePG
-`DatabaseProvisioner` wired in (it waits for the provisioning job of P4 4a;
-its shards will come from `TENANT_SHARDS`, see `crates/adapters-oss/src/cnpg.rs`), group-claim workspaces for a
+Not there yet: group-claim workspaces for a
 customer's own provider (P7), the Neon API fallback for a workspace without a stored `database_url` (the
 Kubernetes editions always store it), Clerk member linking on
 `/api/me/permissions`, and an admin screen for `feature_flag_overrides` (the table

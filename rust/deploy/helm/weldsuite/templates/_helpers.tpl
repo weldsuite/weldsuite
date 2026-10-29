@@ -153,6 +153,28 @@ cron jobs and the migration Job read the same settings
 - name: SIGN_PORTAL_URL
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.config.identity.zitadel }}
+{{- if .apiUrl }}
+- name: ZITADEL_API_URL
+  value: {{ .apiUrl | quote }}
+- name: ZITADEL_PROJECT_ID
+  value: {{ required "config.identity.zitadel.projectId is required with config.identity.zitadel.apiUrl" .projectId | toString | quote }}
+{{- with .host }}
+- name: ZITADEL_HOST
+  value: {{ . | quote }}
+{{- end }}
+{{- with .inviteUrlTemplate }}
+- name: ZITADEL_INVITE_URL_TEMPLATE
+  value: {{ . | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .Values.config.tenants.region }}
+- name: TENANT_REGION
+  value: {{ . | quote }}
+{{- end }}
+- name: FIELD_ENCRYPTION_AAD_WRITES
+  value: {{ .Values.config.aadWrites | toString | quote }}
 {{- with .Values.config.extraEnv }}
 {{- toYaml . | nindent 0 }}
 {{- end }}

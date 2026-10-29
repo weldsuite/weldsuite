@@ -108,6 +108,29 @@ config:
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:
     portalUrl: ""
+  # The identity provider's management API (Zitadel, ADR SEC-012):
+  # onboarding creates a workspace's organization through it, the team
+  # routes change members, and the identity-sync cron reads its changes.
+  # ZITADEL_SERVICE_TOKEN (a service user's personal access token, IAM_OWNER)
+  # goes in the Secret. Empty apiUrl: no identity provider.
+  identity:
+    zitadel:
+      apiUrl: ""             # http://zitadel.zitadel.svc:8080
+      # The instance's external domain, sent as Host when apiUrl is in-cluster.
+      host: ""
+      projectId: ""
+      # Where Zitadel's invite email links to ({{.UserID}}, {{.Code}}, {{.OrgID}}).
+      inviteUrlTemplate: ""
+  # New workspace databases (P4 4a): the provisioner places them on the
+  # CloudNativePG shards in TENANT_SHARDS (in the Secret, it holds the admin
+  # passwords). With it set the server serves /api/onboarding and runs the
+  # workspace.provision job.
+  tenants:
+    # neon_shared_projects.region of the shards (empty: "default").
+    region: ""
+  # Seal new workspaces.database_url values as v3 (bound to the workspace);
+  # every Rust reader opens v3, so a new cluster can have it on.
+  aadWrites: false
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -131,6 +154,10 @@ config:
 #   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
+#   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
+#   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
+#                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
+#                                unset: no new workspaces)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
@@ -321,6 +348,25 @@ cron:
       schedule: "*/15 * * * *"
       # Kill a run that hangs before the next one is due.
       activeDeadlineSeconds: 840
+    # The identity provider's changes (users, organizations, memberships)
+    # into the databases: what Clerk's webhooks do on Global. Needs
+    # config.identity.
+    identity-sync:
+      enabled: false
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
+    # Workspaces past their scheduled deletion lose their organization (the
+    # identity sync then tears the database down). Needs config.identity.
+    workspace-deletion:
+      enabled: false
+      schedule: "0 3 * * *"
+      activeDeadlineSeconds: 3000
+    # Deleted workspaces whose database teardown never finished, after 48
+    # hours. Needs TENANT_SHARDS.
+    workspace-teardown:
+      enabled: false
+      schedule: "17 * * * *"
+      activeDeadlineSeconds: 3000
   resources:
     requests:
       cpu: 50m
