@@ -91,7 +91,7 @@ impl Jobs for InProcessJobs {
             }
             self.set(&request.key, RunState::Running);
             let this = self.clone();
-            self.tracker.spawn(async move {
+            let run = async move {
                 let ctx = InProcessContext { key: request.key };
                 let state = match job.run(&ctx, request.payload).await {
                     Ok(()) => RunState::Succeeded,
@@ -101,7 +101,22 @@ impl Jobs for InProcessJobs {
                     }
                 };
                 this.set(&ctx.key, state);
-            });
+            };
+            match request.delay {
+                // The wait is a plain task, off the tracker: graceful shutdown
+                // waits for running jobs, not for ones due in a month (those
+                // are lost on a restart, like every in-process job).
+                Some(delay) => {
+                    let tracker = self.tracker.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(delay).await;
+                        tracker.spawn(run);
+                    });
+                }
+                None => {
+                    self.tracker.spawn(run);
+                }
+            }
             Ok(())
         })();
         std::future::ready(started)
@@ -259,6 +274,41 @@ mod tests {
         jobs.start(noop).await.expect("started");
         settle(&tracker).await;
         assert_eq!(jobs.finished("k3"), Some(true));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_delayed_job_waits_and_keeps_its_key() {
+        let (registry, attempts, runs) = flaky(0);
+        let tracker = TaskTracker::new();
+        let jobs = InProcessJobs::new(registry, tracker.clone());
+        let request = JobRequest::new("test.flaky", "k4", &serde_json::json!({ "n": 21 }))
+            .expect("a request")
+            .with_delay(Duration::from_hours(30 * 24));
+        jobs.start(request.clone()).await.expect("started");
+        // Started again while it waits: still one run.
+        jobs.start(request).await.expect("started");
+        tokio::time::sleep(Duration::from_hours(29 * 24)).await;
+        assert_eq!(runs.load(Ordering::SeqCst), 0);
+        assert_eq!(jobs.finished("k4"), None);
+        tokio::time::sleep(Duration::from_hours(2 * 24)).await;
+        settle(&tracker).await;
+        assert_eq!(jobs.finished("k4"), Some(true));
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn delays_from_a_start_time() {
+        let request =
+            JobRequest::new("test.flaky", "k", &serde_json::json!({})).expect("a request");
+        assert_eq!(request.delay, None);
+        let past = request
+            .clone()
+            .starting_at(std::time::SystemTime::now() - Duration::from_secs(5));
+        assert_eq!(past.delay, None);
+        let later = request.starting_at(std::time::SystemTime::now() + Duration::from_secs(3600));
+        let delay = later.delay.expect("a delay");
+        assert!(delay > Duration::from_secs(3590) && delay <= Duration::from_secs(3600));
     }
 
     #[test]

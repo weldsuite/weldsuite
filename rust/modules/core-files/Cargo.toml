@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-core-files"
-description = "Core platform files: app-api's /api/files, /api/folders, /api/drive and /api/search"
+description = "Core platform files: app-api's /api/files, /api/folders, /api/drive, /api/search and /api/storage, and the trash purge job"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,12 +17,22 @@ weldsuite-events = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
-axum = { workspace = true, features = ["json", "query"] }
+aws-lc-rs = { workspace = true }
+axum = { workspace = true, features = ["json", "original-uri", "query"] }
+base64 = { workspace = true }
+getrandom = { workspace = true }
+hex = { workspace = true }
 http = { workspace = true }
+http-body-util = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true

@@ -28,7 +28,6 @@ import {
 } from './conformance';
 
 export { conformanceMasterDb } from './conformance';
-export { conformanceKv } from './kv-bridge';
 
 // One-time init: the `requirePermission` middleware throws if its DB
 // query factory was never registered. Tests pre-cache `userPermissions`
@@ -212,8 +211,13 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
           env: env as unknown as Record<string, unknown>,
           input,
           init,
-          runTypeScript: async (tenantDb, path, requestInit) =>
-            buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
+          runTypeScript: async (tenantDb, path, requestInit, runEnv) =>
+            buildApp(tenantDb).request(
+              path,
+              requestInit,
+              runEnv ?? (env as unknown as Record<string, unknown>),
+              executionCtx,
+            ),
           sideEffects: sideEffects!,
         });
       }

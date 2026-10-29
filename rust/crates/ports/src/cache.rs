@@ -122,8 +122,10 @@ impl<C: Cache + ?Sized> Cache for Arc<C> {
     }
 }
 
-/// The cache a request uses in place of the app's, as a request extension:
-/// conformance mode hands each request the test's own KV namespace.
+/// The cache a request uses in place of the app's: conformance builds insert
+/// it as a request extension pointing at the test's own KV namespace, so the
+/// Rust and TypeScript runs share its keys (as [`crate::FileStores`] shares
+/// buckets). Modules that read the cache prefer it.
 #[derive(Clone)]
 pub struct RequestCache(pub Arc<dyn DynCache>);
 

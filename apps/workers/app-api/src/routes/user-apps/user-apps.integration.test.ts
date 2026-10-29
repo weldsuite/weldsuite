@@ -719,14 +719,16 @@ describe('ALL /api/user-apps/code/:code/gateway/*', () => {
     expect(await res.json()).toEqual({ error: { code: 'NOT_FOUND', message: '/v1/nothing-here not found' } });
   });
 
+  // A write: each backend starts from the stale entry (conformance mode
+  // isolates a write's KV, not a read's).
   it('drops a cached token external-api refuses and retries once with a fresh one', async () => {
     const gateway = await installed('ws_gw_stale');
     kv.store.set(
       'uagw:v1:ws_gw_stale:pubapp',
       JSON.stringify({ token: STALE_TOKEN, expiresAt: Date.now() + 30 * 60 * 1000 }),
     );
-    const res = await gateway('/v1/contacts');
-    expect(res.status).toBe(200);
+    const res = await gateway('/v1/contacts', { method: 'POST', headers: JSON_HEADERS, body: '{"name":"Bo"}' });
+    expect(res.status).toBe(201);
     const auths = upstreamCalls.map((c) => c.authorization);
     expect(auths).toContain(`Bearer ${STALE_TOKEN}`);
     expect(auths.at(-1)).toMatch(/^Bearer wsat_[0-9a-f]{40}$/);

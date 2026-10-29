@@ -8,7 +8,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import * as masterSchema from '@weldsuite/db/schema/master';
-import { conformanceKv, conformanceMasterDb, createTestApp } from '@weldsuite/worker-kit/testing';
+import { conformanceMasterDb, createTestApp } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { FakeBucket } from '../../test/user-apps-fixtures';
@@ -142,7 +142,7 @@ beforeAll(async () => {
 }, 180_000);
 
 beforeEach(() => {
-  kv = conformanceKv(new FakeKv());
+  kv = new FakeKv();
 });
 
 describe('public approved app', () => {

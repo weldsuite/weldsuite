@@ -11,7 +11,7 @@ mod conformance;
 #[cfg(feature = "conformance")]
 mod conformance_files;
 #[cfg(feature = "conformance")]
-mod conformance_cache;
+mod conformance_kv;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
 mod infra;
@@ -131,6 +131,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
+        storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
         public_auth,
         #[cfg(feature = "conformance")]
         recorders,

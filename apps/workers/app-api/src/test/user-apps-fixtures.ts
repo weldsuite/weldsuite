@@ -1,10 +1,8 @@
 /**
  * Shared doubles for the WeldApps route tests: a KV namespace and R2 buckets
  * small enough to read, and shareable with the Rust backend in conformance
- * mode (`conformanceKv`, the bucket bridge).
+ * mode (the KV and bucket bridges share any such binding).
  */
-
-import { conformanceKv } from '@weldsuite/worker-kit/testing';
 
 /** A KV namespace over a map (TTLs are not modelled). */
 export class FakeKv {
@@ -25,9 +23,9 @@ export class FakeKv {
   }
 }
 
-/** A fresh KV namespace, shared with the Rust server in conformance mode. */
+/** A fresh KV namespace (conformance mode shares it with the Rust server). */
 export function sharedKv(): FakeKv {
-  return conformanceKv(new FakeKv());
+  return new FakeKv();
 }
 
 interface StoredFile {

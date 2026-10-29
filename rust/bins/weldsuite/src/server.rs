@@ -34,8 +34,8 @@ pub(crate) struct AppState {
     pub(crate) service: &'static str,
     pub(crate) environment: String,
     pub(crate) workspaces: Arc<Workspaces>,
-    /// Unused by conformance builds, which take the test's context instead.
-    #[cfg_attr(feature = "conformance", allow(dead_code))]
+    /// Session tokens: the `/api` layer (not in conformance builds, which
+    /// take the test's context) and the private-object read's bearer check.
     pub(crate) verifier: Arc<SessionVerifier>,
     /// `PERMISSIONS_APP_ENFORCE`, reported to clients by `/api/me/permissions`.
     pub(crate) permissions_app_enforce: bool,
@@ -50,6 +50,8 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// `STORAGE_SIGNING_KEY`, for private-object cookies and signed URLs.
+    pub(crate) storage_signing_key: Option<Arc<str>>,
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
     /// platform's client id. `None` with Clerk.
     pub(crate) public_auth: Option<Arc<serde_json::Value>>,
@@ -102,21 +104,17 @@ pub(crate) fn router(state: AppState) -> Router {
     let api = authenticated(api, &state);
     // Session only, no workspace: app-api mounts these above its guard.
     let api = api.merge(signed_in(crate::routes::account(&state), &state));
-    // Anyone may call these (the CLI's device login); app-api mounts them
-    // above its guard too.
-    let api = api.merge(public(crate::routes::public_api(&state), &state));
+    // Before any authentication, at their full `/api/...` paths: the routes
+    // that check their own credential (an upload token, a files cookie, a
+    // signed URL), as app-api mounts them ahead of `clerkMiddleware`.
+    let public = before_authentication(crate::routes::public(&state), &state);
 
-    let root = Router::new();
+    let root = Router::new().merge(public);
     #[cfg(feature = "conformance")]
     let root = root.route(
         "/__conformance/side-effects",
         get(crate::conformance::side_effects),
     );
-    // The WeldApps bundle host: unauthenticated, outside `/api`.
-    let root = match crate::routes::bundle_host(&state) {
-        Some(bundles) => root.nest("/public/user-apps", public(bundles, &state)),
-        None => root,
-    };
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -149,22 +147,6 @@ async fn bundle_host_guard(
         Some(rejection) => rejection,
         None => next.run(request).await,
     }
-}
-
-/// Routes anyone may call: nothing in front of them.
-#[cfg(not(feature = "conformance"))]
-fn public(router: Router<AppState>, _state: &AppState) -> Router<AppState> {
-    router
-}
-
-/// Conformance builds still take the test's shared databases, buckets, KV
-/// and env from the header, without a session.
-#[cfg(feature = "conformance")]
-fn public(router: Router<AppState>, state: &AppState) -> Router<AppState> {
-    router.layer(axum::middleware::from_fn_with_state(
-        Arc::clone(&state.conformance_pools),
-        crate::conformance::public,
-    ))
 }
 
 /// Session token → tenant database, as `apiAuth()` does.
@@ -204,6 +186,22 @@ fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
 #[cfg(feature = "conformance")]
 fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     authenticated(api, state)
+}
+
+/// The public routes as they are.
+#[cfg(not(feature = "conformance"))]
+fn before_authentication(public: Router<AppState>, _state: &AppState) -> Router<AppState> {
+    public
+}
+
+/// Conformance builds give the public routes what the test shares (its
+/// buckets, KV and env), without a session.
+#[cfg(feature = "conformance")]
+fn before_authentication(public: Router<AppState>, state: &AppState) -> Router<AppState> {
+    public.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public,
+    ))
 }
 
 async fn livez() -> &'static str {
@@ -404,6 +402,7 @@ mod tests {
             )),
             sign_session_secret: None,
             files_public_url: None,
+            storage_signing_key: None,
             public_auth: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),

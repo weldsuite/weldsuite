@@ -168,6 +168,9 @@ pub(crate) struct Config {
     /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
     /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
     pub(crate) files_public_url: Option<String>,
+    /// `STORAGE_SIGNING_KEY`: signs the files cookie and signed URLs that
+    /// open private objects; the same value as app-api's.
+    pub(crate) storage_signing_key: Option<String>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -498,6 +501,7 @@ impl Config {
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
+            storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
         })
     }
 }
