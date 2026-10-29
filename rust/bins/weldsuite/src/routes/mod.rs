@@ -65,6 +65,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = core_team(router, state);
+    let router = core_apps(router, state);
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),
@@ -188,6 +189,92 @@ pub(crate) fn account(state: &AppState) -> Router<AppState> {
     Router::new()
         .nest("/account", weldsuite_core_team::account(team.clone()))
         .nest("/invitations", weldsuite_core_team::invitations(team))
+        .nest(
+            "/auth-desktop",
+            weldsuite_core_apps::auth_desktop(core_apps_state(state)),
+        )
+}
+
+/// WeldApps (`weldsuite-core-apps`): `/api/user-apps` and the CLI login's
+/// approval, behind the session and workspace layers.
+///
+/// Conformance builds only, like [`core_team`].
+fn core_apps(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !cfg!(feature = "conformance") {
+        return router;
+    }
+    let apps = core_apps_state(state);
+    router
+        .nest(
+            "/user-apps",
+            weldsuite_core_apps::user_apps(apps.clone(), &state.permissions),
+        )
+        .nest("/cli-auth", weldsuite_core_apps::cli_auth_approve(apps))
+}
+
+/// The `/api` routes anyone may call (app-api mounts them above its guard):
+/// the CLI's device login. Relative to `/api`.
+///
+/// Conformance builds only, like [`core_team`].
+pub(crate) fn public_api(state: &AppState) -> Router<AppState> {
+    if !cfg!(feature = "conformance") {
+        return Router::new();
+    }
+    Router::new().nest(
+        "/cli-auth",
+        weldsuite_core_apps::cli_auth_public(core_apps_state(state)),
+    )
+}
+
+/// The WeldApps bundle host, `/public/user-apps`. Unauthenticated.
+///
+/// Conformance builds only, like [`core_team`].
+pub(crate) fn bundle_host(state: &AppState) -> Option<Router<AppState>> {
+    cfg!(feature = "conformance")
+        .then(|| weldsuite_core_apps::public_user_apps(core_apps_state(state)))
+}
+
+/// What the WeldApps routers share in the process: the outbound HTTP client,
+/// the env settings they read (`EXTERNAL_API_URL`, the bundle signing secret,
+/// …) and the app gateway's token cache.
+type AppsShared = (
+    std::sync::Arc<dyn weldsuite_core_apps::HttpTransport>,
+    std::sync::Arc<std::collections::HashMap<String, String>>,
+    std::sync::Arc<weldsuite_core_apps::GatewayTokens>,
+);
+
+fn apps_shared() -> &'static AppsShared {
+    static SHARED: std::sync::OnceLock<AppsShared> = std::sync::OnceLock::new();
+    SHARED.get_or_init(|| {
+        (
+            std::sync::Arc::new(weldsuite_core_apps::ReqwestTransport::new()),
+            std::sync::Arc::new(weldsuite_core_apps::CoreAppsState::env_from_process()),
+            std::sync::Arc::default(),
+        )
+    })
+}
+
+/// The env settings of the WeldApps routes, for the server's bundle-host
+/// guard.
+pub(crate) fn apps_env() -> std::sync::Arc<std::collections::HashMap<String, String>> {
+    std::sync::Arc::clone(&apps_shared().1)
+}
+
+fn core_apps_state(state: &AppState) -> weldsuite_core_apps::CoreAppsState {
+    let (http, env, gateway_tokens) = apps_shared();
+    weldsuite_core_apps::CoreAppsState {
+        events: state.infra.events.clone(),
+        master: state.workspaces.master().clone(),
+        workspaces: std::sync::Arc::clone(&state.workspaces),
+        cache: state.infra.cache.clone(),
+        files: file_stores(state),
+        // No identity provider on Kubernetes until the Zitadel adapter (P5,
+        // ADR SEC-012); conformance builds take the test's per request.
+        identity: None,
+        http: std::sync::Arc::clone(http),
+        env: std::sync::Arc::clone(env),
+        gateway_tokens: std::sync::Arc::clone(gateway_tokens),
+    }
 }
 
 fn core_team_state(state: &AppState) -> weldsuite_core_team::CoreTeamState {

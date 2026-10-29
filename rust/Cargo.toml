@@ -21,6 +21,7 @@ publish = false
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-catalogs = { path = "crates/catalogs" }
+weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
 weldsuite-core-files = { path = "modules/core-files" }

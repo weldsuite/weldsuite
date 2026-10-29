@@ -367,6 +367,33 @@ impl Issues {
             .into_option()
     }
 
+    /// An array item as `z.string()` with `rules` then `.regex(pattern,
+    /// message)` (`z.array(z.string().min(1).regex(...))`), reported at the
+    /// item's own path; `None` when invalid. As in [`Issues::pattern`],
+    /// every failing check is reported.
+    pub fn item_pattern(
+        &mut self,
+        item: &Value,
+        rules: Text,
+        matches: impl Fn(&str) -> bool,
+        message: &str,
+    ) -> Option<String> {
+        let text = self.item_text(item, rules);
+        if let Value::String(raw) = item
+            && !matches(raw)
+        {
+            let path = self.path_at(None);
+            self.issues.push(json!({
+                "validation": "regex",
+                "code": "invalid_string",
+                "message": message,
+                "path": path,
+            }));
+            return None;
+        }
+        text
+    }
+
     fn text_at(
         &mut self,
         key: Option<&str>,

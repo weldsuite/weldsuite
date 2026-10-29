@@ -3586,6 +3586,7 @@ dependencies = [
  "weldsuite-adapters-oss",
  "weldsuite-auth",
  "weldsuite-catalogs",
+ "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
  "weldsuite-core-team",
@@ -3647,6 +3648,34 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "weldsuite-core-apps"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hex",
+ "http",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]

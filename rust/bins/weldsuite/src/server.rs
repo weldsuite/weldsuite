@@ -102,6 +102,9 @@ pub(crate) fn router(state: AppState) -> Router {
     let api = authenticated(api, &state);
     // Session only, no workspace: app-api mounts these above its guard.
     let api = api.merge(signed_in(crate::routes::account(&state), &state));
+    // Anyone may call these (the CLI's device login); app-api mounts them
+    // above its guard too.
+    let api = api.merge(public(crate::routes::public_api(&state), &state));
 
     let root = Router::new();
     #[cfg(feature = "conformance")]
@@ -109,6 +112,11 @@ pub(crate) fn router(state: AppState) -> Router {
         "/__conformance/side-effects",
         get(crate::conformance::side_effects),
     );
+    // The WeldApps bundle host: unauthenticated, outside `/api`.
+    let root = match crate::routes::bundle_host(&state) {
+        Some(bundles) => root.nest("/public/user-apps", public(bundles, &state)),
+        None => root,
+    };
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -117,6 +125,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .nest("/api", api)
         .fallback(not_found)
         .with_state(state)
+        .layer(axum::middleware::from_fn(bundle_host_guard))
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
         // One INFO span per request, so the default `info` filter keeps it
@@ -126,6 +135,36 @@ pub(crate) fn router(state: AppState) -> Router {
                 .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
         )
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// With a dedicated WeldApps bundle origin (`USER_APP_BUNDLE_ORIGIN`), that
+/// host serves bundles and nothing else (`bundleHostRejection`).
+async fn bundle_host_guard(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let env = crate::routes::apps_env();
+    match weldsuite_core_apps::bundle_host_rejection(&env, request.headers(), request.uri().path())
+    {
+        Some(rejection) => rejection,
+        None => next.run(request).await,
+    }
+}
+
+/// Routes anyone may call: nothing in front of them.
+#[cfg(not(feature = "conformance"))]
+fn public(router: Router<AppState>, _state: &AppState) -> Router<AppState> {
+    router
+}
+
+/// Conformance builds still take the test's shared databases, buckets, KV
+/// and env from the header, without a session.
+#[cfg(feature = "conformance")]
+fn public(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    router.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public,
+    ))
 }
 
 /// Session token → tenant database, as `apiAuth()` does.

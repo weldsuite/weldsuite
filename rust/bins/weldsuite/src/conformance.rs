@@ -162,10 +162,12 @@ fn hono_pattern(axum_path: &str) -> String {
     axum_path
         .split('/')
         .map(|segment| {
-            segment
-                .strip_prefix('{')
-                .and_then(|s| s.strip_suffix('}'))
-                .map_or_else(|| segment.to_owned(), |name| format!(":{name}"))
+            match segment.strip_prefix('{').and_then(|s| s.strip_suffix('}')) {
+                // A catch-all is Hono's `*`.
+                Some(name) if name.starts_with('*') => "*".to_owned(),
+                Some(name) => format!(":{name}"),
+                None => segment.to_owned(),
+            }
         })
         .collect::<Vec<_>>()
         .join("/")

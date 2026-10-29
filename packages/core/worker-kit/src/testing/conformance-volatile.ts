@@ -35,6 +35,12 @@ const ROUTES: VolatileRoute[] = [
     route: '/api/user-apps/code/:code/bundle-url',
     fields: [{ path: 'data.path', pattern: /\/s\/[^/]+\//g, replacement: '/s/<volatile>/' }],
   },
+  // A version's bundle lives under its new id (`user-apps/<app>/<version>`).
+  {
+    method: 'POST',
+    route: '/api/user-apps/:id/versions',
+    fields: [{ path: 'data.bundleKey', pattern: /uav_[0-9a-z]+/g, replacement: '<id>' }],
+  },
   // CLI login: a fresh device code and user code per run.
   {
     method: 'POST',
