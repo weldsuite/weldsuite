@@ -13,6 +13,8 @@
 //! | [`SystemMail`] | the `SEND_EMAIL` binding behind `@weldsuite/emails` (`workerTransport`) | [`RecordingSystemMail`] |
 //! | [`FlagSource`] | the Cloudflare Flagship binding (`@weldsuite/feature-flags/server`) | [`StaticFlags`] |
 //! | [`Identity`] | Clerk's Backend API (`api.clerk.com/v1`, `@clerk/backend`), ADR SEC-012 | [`MemoryIdentity`] |
+//! | [`BatchHandler`] | a Cloudflare Queues consumer (`queue(batch)`, `ack()`, `retry()`) | (call `handle` directly) |
+//! | [`Embeddings`] | Workers AI embeddings through the AI Gateway (`@weldsuite/ai`) | [`FakeEmbeddings`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
 //! (`impl Future + Send`). Those are not object safe, so each also has a
@@ -25,6 +27,8 @@ use std::fmt;
 use std::pin::Pin;
 
 pub mod cache;
+pub mod consume;
+pub mod embeddings;
 pub mod events;
 pub mod files;
 pub mod flags;
@@ -35,6 +39,8 @@ pub mod mail;
 pub mod realtime;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
+pub use consume::{BatchHandler, Delivery, Disposition};
+pub use embeddings::{Embeddings, FakeEmbeddings};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
     DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions, StoredObject,

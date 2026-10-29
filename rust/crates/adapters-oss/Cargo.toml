@@ -13,6 +13,7 @@ weldsuite-ports = { workspace = true }
 async-nats = { workspace = true, features = ["aws-lc-rs", "jetstream"] }
 base64 = { workspace = true }
 bytes = { workspace = true }
+futures-util = { workspace = true }
 jiff = { workspace = true }
 lettre = { workspace = true }
 reqwest = { workspace = true }
@@ -22,7 +23,7 @@ rusty-s3 = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp", "connection-manager", "tokio-rustls-comp"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
-tokio = { workspace = true, features = ["net", "sync", "time"] }
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]

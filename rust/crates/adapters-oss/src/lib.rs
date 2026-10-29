@@ -12,21 +12,30 @@
 //! | `Jobs` | [`RestateJobs`], with [`serve_endpoint`] and [`register_deployment`] | Cloudflare Workflows |
 //! | `SystemMail` | [`SmtpMail`] (any SMTP relay) | Email Service `SEND_EMAIL` |
 //! | `Identity` | [`ZitadelIdentity`] | Clerk's Backend API |
+//! | `BatchHandler` (consuming) | [`run_consumer`] on a durable `JetStream` consumer | Queue consumers of the hub subscribers |
+//! | `Embeddings` | [`OpenAiEmbeddings`] (any OpenAI-compatible endpoint) | Workers AI through the AI Gateway |
 //!
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
 
+mod embeddings;
 mod flags;
 mod nats;
+mod nats_consume;
 mod restate;
 mod s3;
 mod smtp;
 mod valkey;
 mod zitadel;
 
+pub use embeddings::{OpenAiEmbeddings, OpenAiEmbeddingsOptions};
 pub use flags::{DEFAULT_FLAG_REFRESH, MasterDbFlagSource};
 pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, JetStreamEventBus, NatsOptions, entity_events_stream_config,
+};
+pub use nats_consume::{
+    Action, ConsumerSpec, dead_letter_stream_config, dead_letter_subject, decide, ensure_consumer,
+    run_consumer,
 };
 pub use restate::{
     JOBS_SERVICE, JobCall, RestateJobs, WeldsuiteJobs, register_deployment, serve_endpoint,
