@@ -660,6 +660,43 @@ impl Issues {
         }
     }
 
+    /// An array item as `z.enum([...])` (`z.array(z.enum([...]))`), reported
+    /// at the item's own path; `None` when invalid.
+    pub fn item_choice(&mut self, item: &Value, options: &[&str]) -> Option<String> {
+        let expected = options
+            .iter()
+            .map(|o| format!("'{o}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        match item {
+            Value::String(text) if options.contains(&text.as_str()) => Some(text.clone()),
+            Value::String(text) => {
+                let path = self.path_at(None);
+                self.issues.push(json!({
+                    "received": text,
+                    "code": "invalid_enum_value",
+                    "options": options,
+                    "path": path,
+                    "message": format!("Invalid enum value. Expected {expected}, received '{text}'"),
+                }));
+                None
+            }
+            _ => {
+                self.invalid_type_at(None, &expected, Some(item));
+                None
+            }
+        }
+    }
+
+    /// A failed `.refine(check, { message })` on the field at `key`: Zod's
+    /// `custom` issue. Zod runs a refinement after the field's own checks
+    /// unless its type was wrong, so a too-short string can fail both.
+    pub fn custom(&mut self, key: &str, message: &str) {
+        let path = self.path(key);
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
     /// `z.enum([...])`, required.
     pub fn one_of(
         &mut self,
@@ -1174,6 +1211,33 @@ mod tests {
         assert_eq!(
             issues.whole_number(&Map::new(), "limit", Presence::Optional, limit),
             Field::Absent
+        );
+    }
+
+    #[test]
+    fn refinements_add_a_custom_issue_after_the_string_checks() {
+        // z.object({ name: z.string().trim().min(1).refine(() => false, { message: 'No' }) })
+        //   .safeParse({ name: '  ' }) — the refinement still runs on the too-short string.
+        let body = json!({ "name": "  " });
+        let mut issues = Issues::default();
+        let fields = issues_object(&body);
+        issues.text_with(
+            fields,
+            "name",
+            Presence::Required,
+            Text::trimmed(Some(1), None),
+        );
+        issues.custom("name", "No");
+        assert_eq!(
+            issues.take(),
+            json!([
+                {
+                    "code": "too_small", "minimum": 1, "type": "string", "inclusive": true,
+                    "exact": false, "message": "String must contain at least 1 character(s)",
+                    "path": ["name"]
+                },
+                { "code": "custom", "message": "No", "path": ["name"] }
+            ])
         );
     }
 
