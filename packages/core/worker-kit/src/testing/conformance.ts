@@ -541,11 +541,6 @@ function isRecentEpochMs(value: unknown): boolean {
   return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
 }
 
-/** A `Date.now()` taken within two days of now. */
-function isRecentEpochMs(value: unknown): boolean {
-  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
-  return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
-}
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {

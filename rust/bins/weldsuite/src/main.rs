@@ -17,9 +17,9 @@ mod conformance_mail;
 #[cfg(feature = "conformance")]
 mod conformance_outbound;
 #[cfg(feature = "conformance")]
-mod conformance_workflows;
-#[cfg(feature = "conformance")]
 mod conformance_portal;
+#[cfg(feature = "conformance")]
+mod conformance_workflows;
 mod consume;
 mod cron;
 mod desk_http;

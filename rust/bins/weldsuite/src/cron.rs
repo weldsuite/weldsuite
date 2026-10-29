@@ -132,7 +132,8 @@ async fn mail_outbound_ledgers(config: Config) -> Result<(), Box<dyn std::error:
     )?;
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = crate::infra::connect(&config.infra, &master, tracker.clone()).await?;
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
     let ledger = StoreLedger::new(LedgerDeps {
@@ -206,7 +207,8 @@ async fn calendar_replan(config: Config) -> Result<(), Box<dyn std::error::Error
     ));
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = crate::infra::connect(&config.infra, &master, tracker.clone()).await?;
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
     let tenants: weldsuite_calendar::TenantDatabases = Arc::new(move |reference: String| {
@@ -247,7 +249,8 @@ async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error
     ));
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = crate::infra::connect(&config.infra, &master, tracker.clone()).await?;
+    let infra =
+        crate::infra::connect(&config.infra, &master, &config.keyring, tracker.clone()).await?;
     #[cfg(feature = "conformance")]
     let (infra, _) = crate::conformance::infra(tracker.clone());
     // Purged objects may sit in either bucket: delete from both.
