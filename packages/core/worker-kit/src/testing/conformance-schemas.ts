@@ -27,6 +27,19 @@ import {
   customObjectSchema,
   reorderResultSchema,
 } from '@weldsuite/app-api-client/schemas/custom-objects';
+import {
+  catalogAppDetailSchema,
+  catalogAppListSchema,
+  catalogCodesSchema,
+  installedCatalogAppSchema,
+} from '@weldsuite/app-api-client/schemas/app-catalog';
+import { appAccessViewOrNullSchema, appAccessViewSchema } from '@weldsuite/app-api-client/schemas/reach';
+import {
+  installableAppListSchema,
+  permissionCatalogSchema,
+  roleListSchema,
+  roleSummarySchema,
+} from '@weldsuite/app-api-client/schemas/roles';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
 import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
@@ -147,6 +160,21 @@ const ROUTES: RouteSchema[] = [
   { method: 'PUT', route: '/api/team-members/user/:userId/notes', envelope: 'single', data: memberNoteSchema },
   { method: 'GET', route: '/api/team-members/user/:userId/common', envelope: 'single', data: commonConceptsResponseSchema },
   { method: 'GET', route: '/api/team-members/user/:userId/activity', envelope: 'list', data: memberActivityItemSchema },
+  // core: roles
+  { method: 'GET', route: '/api/roles', envelope: 'single', data: roleListSchema },
+  { method: 'GET', route: '/api/roles/permission-catalog', envelope: 'single', data: permissionCatalogSchema },
+  { method: 'GET', route: '/api/roles/installable-apps', envelope: 'single', data: installableAppListSchema },
+  { method: 'GET', route: '/api/roles/:roleId', envelope: 'single', data: roleSummarySchema },
+  { method: 'POST', route: '/api/roles', envelope: 'single', data: roleSummarySchema },
+  { method: 'PUT', route: '/api/roles/:roleId', envelope: 'single', data: roleSummarySchema },
+  // core: app-catalog (and its access requests)
+  { method: 'GET', route: '/api/app-catalog', envelope: 'single', data: catalogAppListSchema },
+  { method: 'GET', route: '/api/app-catalog/categories', envelope: 'single', data: catalogCodesSchema },
+  { method: 'GET', route: '/api/app-catalog/beta', envelope: 'single', data: catalogCodesSchema },
+  { method: 'GET', route: '/api/app-catalog/:code', envelope: 'single', data: catalogAppDetailSchema },
+  { method: 'POST', route: '/api/app-catalog/:code/install', envelope: 'single', data: installedCatalogAppSchema },
+  { method: 'GET', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewOrNullSchema },
+  { method: 'POST', route: '/api/app-catalog/:code/access-request', envelope: 'single', data: appAccessViewSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },

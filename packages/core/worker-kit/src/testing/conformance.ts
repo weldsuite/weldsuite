@@ -287,6 +287,28 @@ async function cloneDatabase(client: PGliteClient): Promise<{ db: Database; clos
   return { db, close: () => (clone as { close: () => Promise<void> }).close() };
 }
 
+/** A copy of the test's master database, for the TypeScript side of a write. */
+async function cloneMasterDatabase(client: PGliteClient): Promise<{ db: Database; close: () => Promise<void> }> {
+  const [drizzlePg, schema] = await Promise.all([import('drizzle-orm/pglite'), import('@weldsuite/db/schema/master')]);
+  const clone = await client.clone();
+  const db = drizzlePg.drizzle(clone as never, { schema }) as unknown as Database;
+  return { db, close: () => (clone as { close: () => Promise<void> }).close() };
+}
+
+/** The master copy the Hono app reads during a write's TypeScript run. */
+let masterOverride: unknown = null;
+
+/**
+ * The master database the Hono app should use now. A test that mocks
+ * `getMasterDb` returns `conformanceMasterDb(itsDb)`: the test's database,
+ * except during the TypeScript run of a write in conformance mode, where it
+ * is a copy taken before Rust ran (as the tenant database is), so both
+ * backends start from the same master rows.
+ */
+export function conformanceMasterDb<T>(db: T): T {
+  return (masterOverride as T | null) ?? db;
+}
+
 // ── comparison ──────────────────────────────────────────────────────────────
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -551,11 +573,17 @@ async function runBoth(
     return { ...ts, ...(await rustRun()) };
   }
   const clone = await cloneDatabase(client);
+  // The master database too, when the test has one: copied before Rust runs.
+  const masterClient = request.ctx.masterDb ? pgliteClientOf(request.ctx.masterDb) : undefined;
+  const masterCopy = masterClient ? await cloneMasterDatabase(masterClient) : null;
   try {
     const rust = await rustRun();
+    masterOverride = masterCopy?.db ?? null;
     return { ...rust, ...(await typeScript(clone.db)) };
   } finally {
+    masterOverride = null;
     await clone.close();
+    await masterCopy?.close();
   }
 }
 

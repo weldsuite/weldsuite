@@ -180,6 +180,41 @@
       ]
     },
     {
+      "name": "core: roles",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/roles/roles.test.ts",
+        "src/routes/roles/roles-routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/roles/",
+        "apps/workers/app-api/src/services/roles.ts",
+        "packages/core/permissions/src/",
+        "packages/domains/chat/src/weldchat-role-links.ts",
+        "packages/clients/app-api-client/src/schemas/roles.ts",
+        "rust/modules/core-team/src/groups/roles.rs"
+      ]
+    },
+    {
+      "name": "core: app-catalog",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/app-catalog/app-catalog.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/app-catalog/",
+        "apps/workers/app-api/src/routes/app-access/",
+        "apps/workers/app-api/src/services/app-catalog.ts",
+        "apps/workers/app-api/src/services/app-access.ts",
+        "apps/workers/app-api/src/services/partner/managed.ts",
+        "packages/clients/app-api-client/src/schemas/app-catalog.ts",
+        "packages/clients/app-api-client/src/schemas/reach.ts",
+        "rust/modules/core-team/src/groups/app_catalog.rs"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",
