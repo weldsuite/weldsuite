@@ -3,6 +3,7 @@
  * (../../test/crud-suite.ts); runs against Rust in conformance mode.
  */
 
+import { expect, it } from 'vitest';
 import { schema } from '@weldsuite/worker-kit/db';
 import { describeCrud } from '../../test/crud-suite';
 import { helpdeskFeedbackRoutes } from './index';
@@ -31,4 +32,8 @@ describeCrud('/api/helpdesk-feedback', {
   patch: { title: 'Dark mode, please', status: 'planned' },
   invalidPatch: { rating: 2.5 },
   filters: [{ query: 'search=Needle', match: { title: 'Needle request' } }],
+});
+
+it('exports the router the suite mounts', () => {
+  expect(helpdeskFeedbackRoutes.routes.length).toBeGreaterThan(0);
 });

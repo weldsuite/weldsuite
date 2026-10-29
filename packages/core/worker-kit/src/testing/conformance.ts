@@ -132,6 +132,8 @@ export const FORWARDED_ENV = [
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
   'DATABASE_URL_MASTER',
+  // WeldDesk: the Discord bot (agent replies, ticket threads closed).
+  'DISCORD_BOT_TOKEN',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */

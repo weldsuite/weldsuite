@@ -3,6 +3,7 @@
  * (../../test/crud-suite.ts); runs against Rust in conformance mode.
  */
 
+import { expect, it } from 'vitest';
 import { schema } from '@weldsuite/worker-kit/db';
 import { describeCrud, seedTickets } from '../../test/crud-suite';
 import { ticketNotesRoutes } from './index';
@@ -23,4 +24,8 @@ describeCrud('/api/ticket-notes', {
     { query: 'ticketId=tkt_filter', match: { ticketId: 'tkt_filter' } },
     { query: 'authorId=user_filter', match: { authorId: 'user_filter' } },
   ],
+});
+
+it('exports the router the suite mounts', () => {
+  expect(ticketNotesRoutes.routes.length).toBeGreaterThan(0);
 });

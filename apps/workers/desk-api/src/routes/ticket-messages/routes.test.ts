@@ -3,6 +3,7 @@
  * (../../test/crud-suite.ts); runs against Rust in conformance mode.
  */
 
+import { expect, it } from 'vitest';
 import { schema } from '@weldsuite/worker-kit/db';
 import { describeCrud, seedTickets } from '../../test/crud-suite';
 import { ticketMessagesRoutes } from './index';
@@ -43,4 +44,8 @@ describeCrud('/api/ticket-messages', {
     { query: 'authorId=user_filter', match: { authorId: 'user_filter' } },
     { query: 'search=Needle', match: { subject: 'A Needle subject' } },
   ],
+});
+
+it('exports the router the suite mounts', () => {
+  expect(ticketMessagesRoutes.routes.length).toBeGreaterThan(0);
 });

@@ -6,6 +6,7 @@
  * schema can only hand it a string, which Drizzle's timestamp refuses.
  */
 
+import { expect, it } from 'vitest';
 import { schema } from '@weldsuite/worker-kit/db';
 import { describeCrud, seedTickets } from '../../test/crud-suite';
 import { satisfactionSurveysRoutes } from './index';
@@ -26,4 +27,8 @@ describeCrud('/api/satisfaction-surveys', {
     { query: 'customerId=cus_filter', match: { customerId: 'cus_filter' } },
     { query: 'status=answered', match: { status: 'answered' } },
   ],
+});
+
+it('exports the router the suite mounts', () => {
+  expect(satisfactionSurveysRoutes.routes.length).toBeGreaterThan(0);
 });

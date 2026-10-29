@@ -3,6 +3,7 @@
  * (../../test/crud-suite.ts); runs against Rust in conformance mode.
  */
 
+import { expect, it } from 'vitest';
 import { schema } from '@weldsuite/worker-kit/db';
 import { describeCrud } from '../../test/crud-suite';
 import { slasRoutes } from './index';
@@ -19,4 +20,8 @@ describeCrud('/api/slas', {
   patch: { name: 'Platinum', operationalHours: 'business' },
   invalidPatch: { isActive: 'yes' },
   filters: [{ query: 'search=Needle', match: { name: 'Needle SLA' } }],
+});
+
+it('exports the router the suite mounts', () => {
+  expect(slasRoutes.routes.length).toBeGreaterThan(0);
 });

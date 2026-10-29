@@ -3,6 +3,7 @@
  * (../../test/crud-suite.ts); runs against Rust in conformance mode.
  */
 
+import { expect, it } from 'vitest';
 import { schema } from '@weldsuite/worker-kit/db';
 import { describeCrud } from '../../test/crud-suite';
 import { helpdeskNewsRoutes } from './index';
@@ -19,4 +20,8 @@ describeCrud('/api/helpdesk-news', {
   patch: { title: 'Renamed', excerpt: 'short' },
   invalidPatch: { title: 'x'.repeat(501) },
   filters: [{ query: 'search=Needle', match: { title: 'The Needle story' } }],
+});
+
+it('exports the router the suite mounts', () => {
+  expect(helpdeskNewsRoutes.routes.length).toBeGreaterThan(0);
 });
