@@ -56,10 +56,11 @@ fn tracer_provider() -> Result<SdkTracerProvider, Box<dyn std::error::Error>> {
         .build())
 }
 
-/// Install the global subscriber: `RUST_LOG` filter (default `info`), the log
-/// format, and the OTLP layer when configured.
-pub(crate) fn init(format: LogFormat) -> Telemetry {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+/// Install the global subscriber: `RUST_LOG` filter (default
+/// `default_filter`), the log format, and the OTLP layer when configured.
+pub(crate) fn init(format: LogFormat, default_filter: &str) -> Telemetry {
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
     let logs = match format {
         LogFormat::Json => tracing_subscriber::fmt::layer()
             .json()

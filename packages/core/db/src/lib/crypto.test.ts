@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
   aadWritesEnabled,
@@ -293,5 +295,39 @@ describe('workspace database URL, legacy values and the write switch', () => {
 
   it('refuses a plaintext value', async () => {
     await expect(decryptWorkspaceDatabaseUrl(DB_URL, 'ws_a', RING)).rejects.toThrow(/not in a recognized/);
+  });
+});
+
+// ── Values the Rust backend sealed (rust/crates/db/src/crypto.rs) ────────────
+
+interface RustSealedFixture {
+  v1Key: string;
+  v2Key: string;
+  workspaceId: string;
+  url: string;
+  v1: string;
+  v2: string;
+  v3: string;
+}
+
+describe('workspace database URLs sealed by the Rust backend', () => {
+  // The Kubernetes editions' DatabaseProvisioner seals tenant URLs in Rust. Its
+  // test re-seals this fixture with the same IVs and fails unless Rust writes
+  // exactly these strings, so what it opens here is what Rust stores.
+  const fixturePath = fileURLToPath(
+    new URL('../../../../../rust/crates/db/tests/fixtures/database-url-rust-sealed.json', import.meta.url),
+  );
+  const fixture = JSON.parse(readFileSync(fixturePath, 'utf8')) as RustSealedFixture;
+  const ring = { v1: fixture.v1Key, v2: fixture.v2Key };
+
+  it('opens every format', async () => {
+    for (const sealed of [fixture.v1, fixture.v2, fixture.v3]) {
+      expect(await decryptWorkspaceDatabaseUrl(sealed, fixture.workspaceId, ring)).toBe(fixture.url);
+    }
+  });
+
+  it('keeps a v3 value bound to the workspace it was sealed for', async () => {
+    expect(isAadBound(fixture.v3)).toBe(true);
+    await expect(decryptWorkspaceDatabaseUrl(fixture.v3, 'ws_other', ring)).rejects.toThrow(/authentication failed/);
   });
 });

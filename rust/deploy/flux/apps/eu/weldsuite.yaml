@@ -9,6 +9,9 @@ metadata:
   namespace: weldsuite
 spec:
   interval: 10m
+  # Covers the migration Job (a pre-install/pre-upgrade hook, deadline 25
+  # minutes in values/weldsuite.yaml) and the rollout after it.
+  timeout: 30m
   chart:
     spec:
       chart: ./rust/deploy/helm/weldsuite

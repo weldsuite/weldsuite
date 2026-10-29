@@ -12,10 +12,12 @@
 //! | `Jobs` | [`RestateJobs`], with [`serve_endpoint`] and [`register_deployment`] | Cloudflare Workflows |
 //! | `SystemMail` | [`SmtpMail`] (any SMTP relay) | Email Service `SEND_EMAIL` |
 //! | `Identity` | [`ZitadelIdentity`] | Clerk's Backend API |
+//! | `DatabaseProvisioner` | [`CnpgProvisioner`] (CloudNativePG shards behind `PgBouncer`) | Neon provisioning |
 //!
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
 
+mod cnpg;
 mod flags;
 mod nats;
 mod restate;
@@ -24,6 +26,7 @@ mod smtp;
 mod valkey;
 mod zitadel;
 
+pub use cnpg::{CnpgOptions, CnpgProvisioner, CnpgShard, database_names};
 pub use flags::{DEFAULT_FLAG_REFRESH, MasterDbFlagSource};
 pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, JetStreamEventBus, NatsOptions, entity_events_stream_config,

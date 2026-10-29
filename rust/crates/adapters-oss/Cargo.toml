@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-adapters-oss"
-description = "Open-source adapters for the ports: Valkey cache and pub/sub, NATS JetStream, flags from the master database, S3 files, Restate jobs, SMTP mail"
+description = "Open-source adapters for the ports: Valkey cache and pub/sub, NATS JetStream, flags from the master database, S3 files, Restate jobs, SMTP mail, CloudNativePG databases"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,9 +9,14 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+weldsuite-db = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-migrations = { workspace = true }
 weldsuite-ports = { workspace = true }
 async-nats = { workspace = true, features = ["aws-lc-rs", "jetstream"] }
+aws-lc-rs = { workspace = true }
 base64 = { workspace = true }
+hex = { workspace = true }
 bytes = { workspace = true }
 jiff = { workspace = true }
 lettre = { workspace = true }
