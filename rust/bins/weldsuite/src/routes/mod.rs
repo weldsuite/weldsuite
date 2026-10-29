@@ -97,7 +97,48 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = calendar(router, state);
     core_files(router, state)
+}
+
+/// WeldCalendar (`weldsuite-calendar`): calendar-api's `/api/booking-pages`,
+/// `/api/bookings`, `/api/calendar-events`, `/api/calendars` and
+/// `/api/working-hours`.
+fn calendar(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("calendar") {
+        return router;
+    }
+    router.merge(weldsuite_calendar::router(
+        calendar_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldCalendar's handle on the app: events, Google's API, the master
+/// database (the re-plan due index) and the env it reads.
+pub(crate) fn calendar_state(state: &AppState) -> weldsuite_calendar::CalendarState {
+    static GOOGLE: OnceLock<Arc<dyn weldsuite_calendar::GoogleHttp>> = OnceLock::new();
+    let mut env = std::collections::HashMap::new();
+    env.insert("ENVIRONMENT".to_owned(), state.environment.clone());
+    for name in [
+        "APP_URL",
+        "GOOGLE_CALENDAR_CLIENT_ID",
+        "GOOGLE_CALENDAR_CLIENT_SECRET",
+    ] {
+        if let Ok(value) = std::env::var(name) {
+            env.insert(name.to_owned(), value);
+        }
+    }
+    weldsuite_calendar::CalendarState {
+        events: state.infra.events.clone(),
+        google: Some(Arc::clone(GOOGLE.get_or_init(|| {
+            Arc::new(weldsuite_calendar::ReqwestGoogle::default())
+        }))),
+        // Conformance builds use the test's master database only, as the
+        // worker uses its `SCHEDULE_INDEX` only when the test binds one.
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
+        env: Arc::new(env),
+    }
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge

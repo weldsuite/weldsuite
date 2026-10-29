@@ -2,13 +2,18 @@
  * DB-backed integration tests for /api/calendars.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { calendarsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { readSent } from '../../test/sent-mail';
+
+const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
+vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
 
 let db: Database;
 
@@ -325,25 +330,16 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
         userId,
         tenantDb: db,
       },
-      env: { RESEND_API_KEY: 're_test' },
     });
   }
 
-  let fetchSpy: ReturnType<typeof vi.spyOn<typeof globalThis, 'fetch'>>;
   beforeEach(() => {
-    fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(JSON.stringify({ id: 'email_1' }), { status: 200 }));
-  });
-  afterEach(() => {
-    fetchSpy.mockRestore();
+    mail.transport = memoryTransport();
   });
 
-  /** Recipients of every Resend call made so far. */
-  function resendRecipients(): string[] {
-    return fetchSpy.mock.calls
-      .filter(([url]) => String(url).includes('api.resend.com'))
-      .flatMap(([, init]) => (JSON.parse(String(init?.body)) as { to: string[] }).to);
+  /** Recipients of every mail sent so far. */
+  function mailRecipients(): string[] {
+    return readSent(mail.transport).flatMap((m) => m.to);
   }
 
   it('GET /:id/delete-impact counts every event and the upcoming ones with guests', async () => {
@@ -380,7 +376,7 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
     expect(meeting?.status).toBe('cancelled');
 
     // Mail goes out through waitUntil; only the upcoming event's guest is mailed.
-    await vi.waitFor(() => expect(resendRecipients()).toEqual(['guest@example.com']));
+    await vi.waitFor(() => expect(mailRecipients()).toEqual(['guest@example.com']));
   });
 
   it('renders the cancellation mail in the event timezone, not UTC (TASK-760)', async () => {
@@ -414,14 +410,11 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
     expect(res.status).toBe(204);
 
     await vi.waitFor(() => {
-      const mail = fetchSpy.mock.calls
-        .filter(([url]) => String(url).includes('api.resend.com'))
-        .map(([, init]) => JSON.parse(String(init?.body)) as { to: string[]; html: string })
-        .find((m) => m.to.includes('tz-guest@example.com'));
-      expect(mail).toBeDefined();
+      const sent = readSent(mail.transport).find((m) => m.to.includes('tz-guest@example.com'));
+      expect(sent).toBeDefined();
       // The zone is written once, at the end of the range.
-      expect(mail?.html).toContain('10:00 AM – 11:00 AM GMT+2');
-      expect(mail?.html).not.toContain('UTC');
+      expect(sent?.html).toContain('10:00 AM – 11:00 AM GMT+2');
+      expect(sent?.html).not.toContain('UTC');
     });
   });
 
@@ -432,7 +425,7 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
     const [meeting] = await db.select().from(schema.meetings).where(eq(schema.meetings.id, meetingId));
     expect(meeting?.status).toBe('cancelled');
     await new Promise((r) => setTimeout(r, 20));
-    expect(resendRecipients()).toEqual([]);
+    expect(mailRecipients()).toEqual([]);
   });
 
   it('forbids a sharee (even with manage) from deleting', async () => {

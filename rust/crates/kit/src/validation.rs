@@ -505,6 +505,18 @@ impl Issues {
             .push(json!({ "code": "custom", "message": message, "path": path }));
     }
 
+    /// A failed refinement deeper in the body (`ctx.addIssue` of a
+    /// `.superRefine()` on a nested object or array): `path` from the
+    /// current depth, settled after the synchronous checks like
+    /// [`Issues::custom`].
+    pub fn custom_at(&mut self, path: &[Value], message: &str) {
+        let mut full = self.prefix.clone();
+        full.extend(path.iter().cloned());
+        self.issues.push(
+            json!({ "code": "custom", "message": message, "path": Value::Array(full) }),
+        );
+    }
+
     /// A failed `.max(maximum, message)` on the number at `key`: read the
     /// number without its `max`, then call this when it is above `maximum`.
     pub fn number_too_big(&mut self, key: &str, maximum: f64, message: &str) {

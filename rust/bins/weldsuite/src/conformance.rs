@@ -299,6 +299,8 @@ impl Pools {
             extensions.insert(self.outbound.expo(bridge));
             // WeldApps' gateway forwards and lifecycle webhooks.
             extensions.insert(self.outbound.apps_http(bridge));
+            // WeldCalendar's Google Calendar pushes.
+            extensions.insert(self.outbound.calendar_http(bridge));
         }
     }
 

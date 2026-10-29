@@ -1,16 +1,22 @@
 /**
  * /api/calendar-events: time-range + timezone validation, nullable updates,
  * external attendees, attendee diff mails, reschedule notifications, search.
- * Mail is observed by stubbing the Resend `fetch`.
+ * Mail is observed on a memory transport (`workerTransport` mocked), which the
+ * conformance harness compares with the Rust backend's mail.
  */
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { calendarEventsRoutes } from './index';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { readSent, type SentMail } from '../../test/sent-mail';
+
+const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
+vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
 
 const MEETING_URL = 'https://meet.weldsuite.org/acme/wm-dip-zfz-ubv';
 
@@ -21,34 +27,17 @@ beforeAll(async () => {
   db = handle.db;
 }, 60_000);
 
-interface SentMail {
-  to: string[];
-  subject: string;
-  html?: string;
-  attachments: { content: string }[];
-}
-
-let sent: SentMail[] = [];
-
 beforeEach(() => {
-  sent = [];
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_url: string, init: { body: string }) => {
-      const mail = JSON.parse(init.body) as SentMail;
-      // The Resend transport base64-encodes attachment content (Resend's API
-      // contract); decode it back so assertions can read the .ics as text.
-      mail.attachments = mail.attachments?.map((a) => ({
-        ...a,
-        content: Buffer.from(a.content, 'base64').toString('utf-8'),
-      }));
-      sent.push(mail);
-      return new Response('{}', { status: 200 });
-    }),
-  );
+  mail.transport = memoryTransport();
 });
 
-afterEach(() => vi.unstubAllGlobals());
+/** Everything sent since the last reset, as the assertions read it. */
+const sentMails = (): SentMail[] => readSent(mail.transport);
+
+/** Start counting mail afresh (a new transport, so the harness keeps its place). */
+function resetMail(): void {
+  mail.transport = memoryTransport();
+}
 
 let seq = 0;
 const next = () => `${Date.now().toString(36)}${(seq++).toString(36)}`;
@@ -75,7 +64,7 @@ function api(userId: string) {
       userId,
       tenantDb: db,
     },
-    env: { RESEND_API_KEY: 're_test', ENVIRONMENT: 'production' },
+    env: { ENVIRONMENT: 'production' },
   }).request;
 }
 
@@ -110,7 +99,7 @@ async function createEvent(userId: string, extra: Record<string, unknown> = {}) 
 /** Let fire-and-forget mail settle, then return everything sent. */
 async function settle(): Promise<SentMail[]> {
   await new Promise((resolve) => setTimeout(resolve, 250));
-  return sent;
+  return sentMails();
 }
 
 const errorCode = async (res: Response) =>
@@ -228,8 +217,8 @@ describe('timezone', () => {
       endTime: '2026-10-01T22:00:00.000Z',
       attendees: [{ email: 'guest@example.com' }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].html).toContain('11:00 PM GMT+2');
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    expect(sentMails()[0].html).toContain('11:00 PM GMT+2');
   });
 
   it('falls back to the organizer\'s preferred timezone when the event has none', async () => {
@@ -240,9 +229,9 @@ describe('timezone', () => {
       endTime: '2026-10-01T22:00:00.000Z',
       attendees: [{ email: 'guest@example.com' }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
     // The zone is written once, at the end of the range.
-    expect(sent[0].html).toContain('6:00 AM – 7:00 AM GMT+9');
+    expect(sentMails()[0].html).toContain('6:00 AM – 7:00 AM GMT+9');
   });
 });
 
@@ -296,8 +285,8 @@ describe('attendees', () => {
       { email: 'bare@example.com' },
     ]);
 
-    await vi.waitFor(() => expect(sent).toHaveLength(2));
-    for (const mail of sent) {
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(2));
+    for (const mail of sentMails()) {
       expect(mail.subject).toBe('Invitation: Planning');
       expect(mail.html).toContain(`href="${MEETING_URL}"`);
       // Not workspace members: nothing that leads to the authenticated app.
@@ -319,9 +308,9 @@ describe('attendees', () => {
       meetingUrl: MEETING_URL,
       attendees: [{ email: memberEmail.toUpperCase() }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
-    expect(sent[0].html).toContain('https://app.weldsuite.org/w/org_test_default/weldcalendar');
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    expect(sentMails()[0].html).toContain(`href="${MEETING_URL}"`);
+    expect(sentMails()[0].html).toContain('https://app.weldsuite.org/w/org_test_default/weldcalendar');
   });
 
   it('rejects an invalid attendee email and ignores unknown keys', async () => {
@@ -345,7 +334,7 @@ describe('attendees', () => {
   it('collapses duplicate attendee emails so nobody is invited twice', async () => {
     const userId = `user_att_dup_${next()}`;
     await createEvent(userId, { attendees: [{ email: 'dup@example.com' }, { email: 'DUP@example.com' }] });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
     expect(await settle()).toHaveLength(1);
   });
 
@@ -355,16 +344,16 @@ describe('attendees', () => {
       meetingUrl: MEETING_URL,
       attendees: [{ email: 'stay@example.com' }, { email: 'gone@example.com' }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(2));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(2));
+    resetMail();
 
     const res = await send(userId, 'PATCH', `/${id}?sendNotification=true`, {
       attendees: [{ email: 'stay@example.com' }, { email: 'new@example.com', name: 'New' }],
     });
     expect(res.status).toBe(200);
 
-    await vi.waitFor(() => expect(sent).toHaveLength(2));
-    const bySubject = Object.fromEntries(sent.map((m) => [m.subject, m]));
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(2));
+    const bySubject = Object.fromEntries(sentMails().map((m) => [m.subject, m]));
     expect(bySubject['Invitation: Planning'].to).toEqual(['new@example.com']);
     expect(bySubject['Invitation: Planning'].html).toContain(`href="${MEETING_URL}"`);
     // The guest who was taken off is told so; the event itself is not cancelled.
@@ -390,16 +379,16 @@ describe('attendees', () => {
   it('PATCH time change mails retained attendees a reschedule, added ones only the invite', async () => {
     const userId = `user_diff_move_${next()}`;
     const { id } = await createEvent(userId, { attendees: [{ email: 'stay@example.com' }] });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
 
     await send(userId, 'PATCH', `/${id}?sendNotification=true`, {
       startTime: '2030-03-02T10:00:00.000Z',
       endTime: '2030-03-02T11:00:00.000Z',
       attendees: [{ email: 'stay@example.com' }, { email: 'new@example.com' }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(2));
-    const bySubject = Object.fromEntries(sent.map((m) => [m.subject, m.to[0]]));
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(2));
+    const bySubject = Object.fromEntries(sentMails().map((m) => [m.subject, m.to[0]]));
     expect(bySubject['Rescheduled: Planning']).toBe('stay@example.com');
     expect(bySubject['Invitation: Planning']).toBe('new@example.com');
   });
@@ -407,8 +396,8 @@ describe('attendees', () => {
   it('PATCH re-saving the same times is not a reschedule', async () => {
     const userId = `user_diff_same_${next()}`;
     const { id } = await createEvent(userId, { attendees: [{ email: 'stay@example.com' }] });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
     await send(userId, 'PATCH', `/${id}?sendNotification=true`, {
       startTime: '2030-03-01T10:00:00.000Z',
       endTime: '2030-03-01T11:00:00.000Z',
@@ -420,12 +409,12 @@ describe('attendees', () => {
   it('PATCH adding a join link tells the existing attendees (update mail with the link)', async () => {
     const userId = `user_diff_link_${next()}`;
     const { id } = await createEvent(userId, { attendees: [{ email: 'stay@example.com' }] });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
     await send(userId, 'PATCH', `/${id}?sendNotification=true`, { meetingUrl: MEETING_URL, isVirtual: true });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].subject).toBe('Updated: Planning');
-    expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    expect(sentMails()[0].subject).toBe('Updated: Planning');
+    expect(sentMails()[0].html).toContain(`href="${MEETING_URL}"`);
   });
 });
 
@@ -437,27 +426,27 @@ describe('reschedule notifications', () => {
       timezone: 'Europe/Amsterdam',
       attendees: [{ email: 'guest@example.com' }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
 
     const res = await send(userId, 'PATCH', `/${id}/reschedule`, {
       startTime: '2030-03-02T10:00:00.000Z',
       endTime: '2030-03-02T11:00:00.000Z',
     });
     expect(res.status).toBe(200);
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].subject).toBe('Rescheduled: Planning');
-    expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    expect(sentMails()[0].subject).toBe('Rescheduled: Planning');
+    expect(sentMails()[0].html).toContain(`href="${MEETING_URL}"`);
     // The zone is written once, at the end of the range.
-    expect(sent[0].html).toContain('11:00 AM – 12:00 PM GMT+1');
-    expect(sent[0].attachments[0].content).toContain('DTSTART:20300302T100000Z');
+    expect(sentMails()[0].html).toContain('11:00 AM – 12:00 PM GMT+1');
+    expect(sentMails()[0].attachments[0].content).toContain('DTSTART:20300302T100000Z');
   });
 
   it('notifyAttendees: false moves the event without mailing anyone', async () => {
     const userId = `user_resched_quiet_${next()}`;
     const { id } = await createEvent(userId, { attendees: [{ email: 'guest@example.com' }] });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
 
     const res = await send(userId, 'PATCH', `/${id}/reschedule`, {
       startTime: '2030-03-02T10:00:00.000Z',
@@ -477,14 +466,14 @@ describe('cancel mail', () => {
       meetingUrl: MEETING_URL,
       attendees: [{ email: 'guest@example.com' }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
 
     expect((await send(userId, 'DELETE', `/${id}?sendNotification=true`)).status).toBe(204);
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].subject).toBe('Cancelled: Planning');
-    expect(sent[0].html).not.toContain(MEETING_URL);
-    expect(sent[0].attachments[0].content).toContain('METHOD:CANCEL');
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    expect(sentMails()[0].subject).toBe('Cancelled: Planning');
+    expect(sentMails()[0].html).not.toContain(MEETING_URL);
+    expect(sentMails()[0].attachments[0].content).toContain('METHOD:CANCEL');
   });
 });
 
@@ -497,24 +486,24 @@ describe('status change mail', () => {
       meetingUrl: MEETING_URL,
       attendees: [{ email: 'guest@example.com' }],
     });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
 
     const res = await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'cancelled' });
     expect(res.status).toBe(200);
     expect((await eventRow(id)).status).toBe('cancelled');
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].to).toEqual(['guest@example.com']);
-    expect(sent[0].subject).toBe('Cancelled: Planning');
-    expect(sent[0].html).not.toContain(MEETING_URL);
-    expect(sent[0].attachments[0].content).toContain('METHOD:CANCEL');
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    expect(sentMails()[0].to).toEqual(['guest@example.com']);
+    expect(sentMails()[0].subject).toBe('Cancelled: Planning');
+    expect(sentMails()[0].html).not.toContain(MEETING_URL);
+    expect(sentMails()[0].attachments[0].content).toContain('METHOD:CANCEL');
   });
 
   it('PATCH to cancelled without sendNotification mails nobody', async () => {
     const userId = `user_status_quiet_${next()}`;
     const { id } = await createEvent(userId, { attendees: [{ email: 'guest@example.com' }] });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
 
     expect((await send(userId, 'PATCH', `/${id}`, { status: 'cancelled' })).status).toBe(200);
     expect((await eventRow(id)).status).toBe('cancelled');
@@ -529,20 +518,20 @@ describe('status change mail', () => {
       attendees: [{ email: 'guest@example.com' }],
     });
     await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'cancelled' });
-    await vi.waitFor(() => expect(sent).toHaveLength(2));
-    const cancelSequence = Number(/SEQUENCE:(\d+)/.exec(sent[1].attachments[0].content)?.[1]);
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(2));
+    const cancelSequence = Number(/SEQUENCE:(\d+)/.exec(sentMails()[1].attachments[0].content)?.[1]);
+    resetMail();
 
     const res = await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'confirmed' });
     expect(res.status).toBe(200);
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    expect(sent[0].to).toEqual(['guest@example.com']);
-    expect(sent[0].subject).toBe('Back on: Planning');
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    expect(sentMails()[0].to).toEqual(['guest@example.com']);
+    expect(sentMails()[0].subject).toBe('Back on: Planning');
     // The join link is back, and the .ics re-adds the event: a REQUEST that
     // supersedes the cancellation.
-    expect(sent[0].html).toContain(`href="${MEETING_URL}"`);
-    expect(sent[0].html).toContain('11:00 AM – 12:00 PM GMT+1');
-    const ics = sent[0].attachments[0].content;
+    expect(sentMails()[0].html).toContain(`href="${MEETING_URL}"`);
+    expect(sentMails()[0].html).toContain('11:00 AM – 12:00 PM GMT+1');
+    const ics = sentMails()[0].attachments[0].content;
     expect(ics).toContain('METHOD:REQUEST');
     expect(Number(/SEQUENCE:(\d+)/.exec(ics)?.[1])).toBeGreaterThanOrEqual(cancelSequence);
   });
@@ -550,8 +539,8 @@ describe('status change mail', () => {
   it('confirmed <-> tentative is not a cancellation and mails nobody', async () => {
     const userId = `user_status_tentative_${next()}`;
     const { id } = await createEvent(userId, { attendees: [{ email: 'guest@example.com' }] });
-    await vi.waitFor(() => expect(sent).toHaveLength(1));
-    sent.length = 0;
+    await vi.waitFor(() => expect(sentMails()).toHaveLength(1));
+    resetMail();
 
     await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'tentative' });
     await send(userId, 'PATCH', `/${id}?sendNotification=true`, { status: 'confirmed' });

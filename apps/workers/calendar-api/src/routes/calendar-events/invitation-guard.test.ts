@@ -10,7 +10,7 @@
  *   - when the guard refuses, the event is still saved and nobody is mailed;
  *   - when it allows, the invitations go out and the batch is committed.
  * The guard is faked (its own tests live in @weldsuite/mail-domain); mail is
- * observed by stubbing the Resend `fetch`.
+ * observed on a memory transport (`workerTransport` mocked).
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +21,11 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
+import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { readSent } from '../../test/sent-mail';
+
+const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
+vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
 
 const { checkOutboundMock, commitOutboundMock, releaseOutboundMock } = vi.hoisted(() => ({
   checkOutboundMock: vi.fn(),
@@ -48,22 +53,15 @@ beforeAll(async () => {
   db = (await createPgliteDb()).db;
 }, 60_000);
 
-let sent: Array<{ to: string[] }> = [];
-
 beforeEach(() => {
-  sent = [];
+  mail.transport = memoryTransport();
   checkOutboundMock.mockResolvedValue({ ledger: null, reservationId: 'res_1', recipients: [], mode: 'enforce' });
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_url: string, init: { body: string }) => {
-      sent.push(JSON.parse(init.body) as { to: string[] });
-      return new Response('{}', { status: 200 });
-    }),
-  );
 });
 
+/** The mail sent so far. */
+const sent = () => readSent(mail.transport);
+
 afterEach(() => {
-  vi.unstubAllGlobals();
   checkOutboundMock.mockReset();
   commitOutboundMock.mockReset();
   releaseOutboundMock.mockReset();
@@ -93,7 +91,7 @@ function request(method: string, path: string, body: unknown) {
       clerkOrgId: ORG_ID,
       tenantDb: db,
     },
-    env: { RESEND_API_KEY: 're_test', ENVIRONMENT: 'production' },
+    env: { ENVIRONMENT: 'production' },
   }).request(`/api/calendar-events${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },
@@ -115,7 +113,7 @@ async function createBody(extra: Record<string, unknown> = {}) {
 
 /** Wait for a fire-and-forget mail batch to reach `count` sends. */
 async function waitForMails(count: number): Promise<void> {
-  for (let i = 0; i < 60 && sent.length < count; i++) await new Promise((r) => setTimeout(r, 50));
+  for (let i = 0; i < 60 && sent().length < count; i++) await new Promise((r) => setTimeout(r, 50));
 }
 
 describe('the attendee cap', () => {
@@ -124,7 +122,7 @@ describe('the attendee cap', () => {
     expect(res.status).toBe(400);
     expect(JSON.stringify(await res.json())).toContain('100');
     expect(checkOutboundMock).not.toHaveBeenCalled();
-    expect(sent).toHaveLength(0);
+    expect(sent()).toHaveLength(0);
   });
 
   it('update refuses 101 attendees with 400', async () => {
@@ -171,7 +169,7 @@ describe('the outbound guard on invitations', () => {
     expect(input.to).toHaveLength(100);
 
     await new Promise((r) => setTimeout(r, 150));
-    expect(sent).toHaveLength(0);
+    expect(sent()).toHaveLength(0);
     expect(commitOutboundMock).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
@@ -182,7 +180,7 @@ describe('the outbound guard on invitations', () => {
     expect(res.status).toBe(201);
 
     await waitForMails(2);
-    expect(sent.map((m) => m.to[0]).sort()).toEqual(['guest0@example.com', 'guest1@example.com']);
+    expect(sent().map((m) => m.to[0]).sort()).toEqual(['guest0@example.com', 'guest1@example.com']);
     expect(checkOutboundMock).toHaveBeenCalledTimes(1);
     for (let i = 0; i < 60 && commitOutboundMock.mock.calls.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
     expect(commitOutboundMock).toHaveBeenCalledTimes(1);
@@ -202,7 +200,7 @@ describe('the outbound guard on invitations', () => {
     expect(row!.attendees).toHaveLength(3);
     for (let i = 0; i < 60 && checkOutboundMock.mock.calls.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
     await new Promise((r) => setTimeout(r, 150));
-    expect(sent).toHaveLength(0);
+    expect(sent()).toHaveLength(0);
     warn.mockRestore();
   });
 });

@@ -532,6 +532,26 @@
         "rust/modules/sign/",
         "rust/crates/emails/"
       ]
+    },
+    {
+      "name": "calendar",
+      "module": "calendar",
+      "workspace": "apps/workers/calendar-api",
+      "tests": [
+        "src/routes/calendars/integration.test.ts",
+        "src/routes/calendar-events/integration.test.ts",
+        "src/routes/calendar-events/events-api.test.ts",
+        "src/routes/calendar-events/invitation-guard.test.ts",
+        "src/routes/booking-pages/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/calendar-api/src/",
+        "packages/core/db/src/lib/calendar-sync.ts",
+        "packages/clients/core-api-client/src/schemas/bookings.ts",
+        "packages/clients/core-api-client/src/schemas/booking-pages.ts",
+        "rust/modules/calendar/",
+        "rust/crates/calendar-domain/"
+      ]
     }
   ]
 }
