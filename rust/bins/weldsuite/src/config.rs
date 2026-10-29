@@ -52,6 +52,9 @@ pub(crate) struct Config {
     /// `SIGN_SESSION_SECRET`: keys WeldSign's signer sessions and the stored
     /// hash of access codes; the same value as the TypeScript workers'.
     pub(crate) sign_session_secret: Option<String>,
+    /// `S3_PUBLIC_URL`: the public bucket's own URL (the workers'
+    /// `R2_PUBLIC_URL`), for Drive rows that store only a key.
+    pub(crate) files_public_url: Option<String>,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -348,6 +351,7 @@ impl Config {
             shutdown_delay: Duration::from_secs(shutdown_delay),
             infra,
             sign_session_secret: lookup("SIGN_SESSION_SECRET").filter(|s| !s.is_empty()),
+            files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
         })
     }
 }

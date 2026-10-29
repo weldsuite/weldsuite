@@ -44,7 +44,8 @@ rust/
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, flags in the master DB,
                         files over the S3 API
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
-                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know
+                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
+                        modules/sign, modules/core-files (app-api files, folders, drive, search)
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), the chart, a signed request
 ```
@@ -113,6 +114,7 @@ The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache and realtime publish (optional) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET_PRIVATE`, `S3_BUCKET_PUBLIC`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | files: the private bucket and the legacy public one (optional; any S3 store: RustFS, Garage, Ceph RGW, Hetzner, AWS) |
+| `S3_PUBLIC_URL` | the public bucket's own URL (the workers' `R2_PUBLIC_URL`), for Drive rows that store only a key (optional) |
 | `FEATURE_FLAGS` (`defaults`/`master-db`), `FEATURE_FLAGS_REFRESH_SECONDS` | where flag values come from |
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |

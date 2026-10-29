@@ -131,6 +131,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         permissions: AppState::permission_gate(config.permissions_app_enforce),
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
+        files_public_url: config.files_public_url.as_deref().map(Arc::from),
         #[cfg(feature = "conformance")]
         recorders,
     };

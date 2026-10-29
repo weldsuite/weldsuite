@@ -22,6 +22,7 @@ weldsuite-adapters-oss = { path = "crates/adapters-oss" }
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-core-domain = { path = "crates/core-domain" }
+weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }

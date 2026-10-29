@@ -39,22 +39,53 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
-    if mounts("sign") {
+    let router = if mounts("sign") {
         let sign = weldsuite_sign::SignState {
             events: state.infra.events.clone(),
             session_secret: state.sign_session_secret.clone(),
-            files: state
-                .infra
-                .files
-                .clone()
-                .map(|private| weldsuite_ports::FileStores {
-                    private,
-                    public: state.infra.public_files.clone(),
-                }),
+            files: file_stores(state),
         };
-        return router.nest("/sign", weldsuite_sign::router(sign, &state.permissions));
+        router.nest("/sign", weldsuite_sign::router(sign, &state.permissions))
+    } else {
+        router
+    };
+    // Core files, drive and search (P4c): mounted unconditionally once complete.
+    if cfg!(feature = "conformance") {
+        let files = weldsuite_core_files::CoreFilesState {
+            events: state.infra.events.clone(),
+            files: file_stores(state),
+            public_files_url: state.files_public_url.clone(),
+        };
+        let gate = &state.permissions;
+        return router
+            .nest(
+                "/files",
+                weldsuite_core_files::files_router(files.clone(), gate),
+            )
+            .nest(
+                "/folders",
+                weldsuite_core_files::folders_router(files.clone(), gate),
+            )
+            .nest(
+                "/drive",
+                weldsuite_core_files::drive_router(files.clone(), gate),
+            )
+            .nest("/search", weldsuite_core_files::search_router(files, gate));
     }
     router
+}
+
+/// The private bucket and the legacy public one, when object storage is
+/// configured.
+fn file_stores(state: &AppState) -> Option<weldsuite_ports::FileStores> {
+    state
+        .infra
+        .files
+        .clone()
+        .map(|private| weldsuite_ports::FileStores {
+            private,
+            public: state.infra.public_files.clone(),
+        })
 }
 
 /// Whether to serve a module: it is marked ported (`ApiModule.rust`, WP
