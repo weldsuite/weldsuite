@@ -146,6 +146,10 @@ pub(crate) fn calendar_state(state: &AppState) -> weldsuite_calendar::CalendarSt
         // worker uses its `SCHEDULE_INDEX` only when the test binds one.
         master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
         env: Arc::new(env),
+        // No customer-mail transport on Kubernetes yet: attendee mail is off
+        // until the relay is wired into the app (conformance takes the test's).
+        outbound: weldsuite_mail_domain::outbound::OutboundBindings::default(),
+        cache: state.infra.cache.clone(),
     }
 }
 

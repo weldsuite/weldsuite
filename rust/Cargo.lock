@@ -3855,8 +3855,10 @@ dependencies = [
  "weldsuite-calendar-domain",
  "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-kit",
+ "weldsuite-mail-domain",
  "weldsuite-permissions",
  "weldsuite-ports",
 ]

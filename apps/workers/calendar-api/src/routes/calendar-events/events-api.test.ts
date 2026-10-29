@@ -1,8 +1,8 @@
 /**
  * /api/calendar-events: time-range + timezone validation, nullable updates,
  * external attendees, attendee diff mails, reschedule notifications, search.
- * Mail is observed on a memory transport (`workerTransport` mocked), which the
- * conformance harness compares with the Rust backend's mail.
+ * Mail is observed on a `SEND_EMAIL` stub, which the conformance harness
+ * compares with the Rust backend's sends.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,11 +12,11 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { createSendEmailStub } from '@weldsuite/worker-kit/testing/send-email';
 import { readSent, type SentMail } from '../../test/sent-mail';
 
-const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
-vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
+/** The `SEND_EMAIL` binding the routes send through. */
+const mail = { stub: createSendEmailStub() };
 
 const MEETING_URL = 'https://meet.weldsuite.org/acme/wm-dip-zfz-ubv';
 
@@ -28,15 +28,15 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(() => {
-  mail.transport = memoryTransport();
+  mail.stub = createSendEmailStub();
 });
 
 /** Everything sent since the last reset, as the assertions read it. */
-const sentMails = (): SentMail[] => readSent(mail.transport);
+const sentMails = (): SentMail[] => readSent(mail.stub);
 
-/** Start counting mail afresh (a new transport, so the harness keeps its place). */
+/** Start counting mail afresh. */
 function resetMail(): void {
-  mail.transport = memoryTransport();
+  mail.stub = createSendEmailStub();
 }
 
 let seq = 0;
@@ -64,7 +64,7 @@ function api(userId: string) {
       userId,
       tenantDb: db,
     },
-    env: { ENVIRONMENT: 'production' },
+    env: { ENVIRONMENT: 'production', SEND_EMAIL: mail.stub as never },
   }).request;
 }
 

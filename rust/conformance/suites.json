@@ -563,7 +563,8 @@
         "src/routes/calendar-events/invitation-guard.test.ts",
         "src/routes/booking-pages/integration.test.ts",
         "src/routes/bookings/integration.test.ts",
-        "src/routes/working-hours/integration.test.ts"
+        "src/routes/working-hours/integration.test.ts",
+        "src/cron/calendar-replan.test.ts"
       ],
       "paths": [
         "apps/workers/calendar-api/src/",
@@ -571,7 +572,11 @@
         "packages/clients/core-api-client/src/schemas/bookings.ts",
         "packages/clients/core-api-client/src/schemas/booking-pages.ts",
         "rust/modules/calendar/",
-        "rust/crates/calendar-domain/"
+        "rust/crates/calendar-domain/",
+        "packages/core/emails/src/templates/calendar/",
+        "packages/core/emails/src/ics.ts",
+        "packages/core/emails/src/format.ts",
+        "rust/crates/emails/"
       ]
     }
   ]

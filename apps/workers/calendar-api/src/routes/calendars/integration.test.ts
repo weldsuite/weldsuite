@@ -9,11 +9,11 @@ import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
-import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { createSendEmailStub } from '@weldsuite/worker-kit/testing/send-email';
 import { readSent } from '../../test/sent-mail';
 
-const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
-vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
+/** The `SEND_EMAIL` binding the routes send through. */
+const mail = { stub: createSendEmailStub() };
 
 let db: Database;
 
@@ -330,16 +330,17 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
         userId,
         tenantDb: db,
       },
+      env: { SEND_EMAIL: mail.stub as never },
     });
   }
 
   beforeEach(() => {
-    mail.transport = memoryTransport();
+    mail.stub = createSendEmailStub();
   });
 
   /** Recipients of every mail sent so far. */
   function mailRecipients(): string[] {
-    return readSent(mail.transport).flatMap((m) => m.to);
+    return readSent(mail.stub).flatMap((m) => m.to);
   }
 
   it('GET /:id/delete-impact counts every event and the upcoming ones with guests', async () => {
@@ -410,7 +411,7 @@ describe('DELETE /api/calendars/:id · events, meetings and attendee mail', () =
     expect(res.status).toBe(204);
 
     await vi.waitFor(() => {
-      const sent = readSent(mail.transport).find((m) => m.to.includes('tz-guest@example.com'));
+      const sent = readSent(mail.stub).find((m) => m.to.includes('tz-guest@example.com'));
       expect(sent).toBeDefined();
       // The zone is written once, at the end of the range.
       expect(sent?.html).toContain('10:00 AM – 11:00 AM GMT+2');

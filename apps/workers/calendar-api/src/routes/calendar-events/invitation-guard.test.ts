@@ -10,7 +10,7 @@
  *   - when the guard refuses, the event is still saved and nobody is mailed;
  *   - when it allows, the invitations go out and the batch is committed.
  * The guard is faked (its own tests live in @weldsuite/mail-domain); mail is
- * observed on a memory transport (`workerTransport` mocked).
+ * observed on a `SEND_EMAIL` stub.
  */
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,11 +21,11 @@ import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { OutboundDeniedError } from '@weldsuite/mail-domain/outbound';
-import { memoryTransport } from '@weldsuite/emails/transports/memory';
+import { createSendEmailStub } from '@weldsuite/worker-kit/testing/send-email';
 import { readSent } from '../../test/sent-mail';
 
-const mail = vi.hoisted(() => ({ transport: null as ReturnType<typeof memoryTransport> | null }));
-vi.mock('@weldsuite/emails/transports/binding', () => ({ workerTransport: () => mail.transport }));
+/** The `SEND_EMAIL` binding the routes send through. */
+const mail = { stub: createSendEmailStub() };
 
 const { checkOutboundMock, commitOutboundMock, releaseOutboundMock } = vi.hoisted(() => ({
   checkOutboundMock: vi.fn(),
@@ -54,12 +54,12 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(() => {
-  mail.transport = memoryTransport();
+  mail.stub = createSendEmailStub();
   checkOutboundMock.mockResolvedValue({ ledger: null, reservationId: 'res_1', recipients: [], mode: 'enforce' });
 });
 
 /** The mail sent so far. */
-const sent = () => readSent(mail.transport);
+const sent = () => readSent(mail.stub);
 
 afterEach(() => {
   checkOutboundMock.mockReset();
@@ -91,7 +91,7 @@ function request(method: string, path: string, body: unknown) {
       clerkOrgId: ORG_ID,
       tenantDb: db,
     },
-    env: { ENVIRONMENT: 'production' },
+    env: { ENVIRONMENT: 'production', SEND_EMAIL: mail.stub as never },
   }).request(`/api/calendar-events${path}`, {
     method,
     headers: { 'Content-Type': 'application/json' },

@@ -72,6 +72,12 @@ pub struct CalendarState {
     /// The worker's env (`GOOGLE_CALENDAR_CLIENT_ID`, `…_SECRET`,
     /// `ENVIRONMENT`, `APP_URL`); a request's [`RequestEnv`] wins.
     pub env: Arc<std::collections::HashMap<String, String>>,
+    /// `SEND_EMAIL` and the outbound guard's ledgers; a request's
+    /// `RequestOutbound` (conformance) wins. Without a transport no attendee
+    /// mail goes out, as the worker sends none without `SEND_EMAIL`.
+    pub outbound: weldsuite_mail_domain::outbound::OutboundBindings,
+    /// The guard's ownership cache (`WORKSPACE_CACHE`).
+    pub cache: Option<Arc<dyn weldsuite_ports::DynCache>>,
 }
 
 impl std::fmt::Debug for CalendarState {
@@ -257,6 +263,7 @@ pub(crate) struct Caller {
     env: Option<RequestEnv>,
     master: Option<PgPool>,
     http: Option<CalendarHttp>,
+    outbound: Option<weldsuite_mail_domain::outbound::RequestOutbound>,
 }
 
 impl Caller {
@@ -308,6 +315,17 @@ impl Caller {
         self.master.clone().or_else(|| state.master.clone())
     }
 
+    /// The outbound bindings (`SEND_EMAIL`, the guard's ledgers): the
+    /// request's (conformance), else the app's.
+    pub(crate) fn outbound(
+        &self,
+        state: &CalendarState,
+    ) -> weldsuite_mail_domain::outbound::OutboundBindings {
+        self.outbound
+            .as_ref()
+            .map_or_else(|| state.outbound.clone(), |request| request.0.clone())
+    }
+
     /// Outbound HTTP to Google: the request's (conformance), else the app's.
     pub(crate) fn google(&self, state: &CalendarState) -> Option<Arc<dyn GoogleHttp>> {
         self.http
@@ -346,6 +364,10 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     .get::<weldsuite_db::MasterDb>()
                     .map(|master| master.0.clone()),
                 http: parts.extensions.get::<CalendarHttp>().cloned(),
+                outbound: parts
+                    .extensions
+                    .get::<weldsuite_mail_domain::outbound::RequestOutbound>()
+                    .cloned(),
             })
         } else {
             tracing::error!("calendar: a route without the session, tenant or permission layer");
