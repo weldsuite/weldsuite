@@ -209,6 +209,18 @@ impl Issues {
         }
     }
 
+    /// A raw issue at `key` (its `path` filled in), for a check the readers
+    /// here have no rule for (a `z.union`, a `z.preprocess`).
+    pub fn push_issue(&mut self, key: &str, mut issue: Value) {
+        issue["path"] = self.path(key);
+        self.issues.push(issue);
+    }
+
+    /// The path `key` is reported at.
+    pub fn path_of(&self, key: &str) -> Value {
+        self.path(key)
+    }
+
     /// `Err` (a 400 response) when anything was wrong.
     pub fn finish(self) -> Result<(), Invalid> {
         if self.issues.is_empty() {

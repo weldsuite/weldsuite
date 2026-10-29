@@ -151,6 +151,21 @@ import {
 } from '@weldsuite/core-api-client/schemas/drive';
 import { searchResultGroupSchema } from '@weldsuite/app-api-client/schemas/search';
 import {
+  flowAvailableUserSchema,
+  flowGanttMilestoneSchema,
+  flowGanttTaskSchema,
+  flowIdResultSchema,
+  flowImportJobStartedSchema,
+  flowImportJobStatusSchema,
+  flowMemberStatsSchema,
+  flowMemberUpdateSchema,
+  flowProjectMemberSchema,
+  flowProjectPermissionsSchema,
+  flowProjectSchema,
+  flowProjectWorkloadSchema,
+  flowWorkloadOverviewSchema,
+} from '@weldsuite/app-api-client/schemas/flow-responses';
+import {
   confirmUploadResponseSchema,
   filesAccessSchema,
   generateUploadUrlResponseSchema,
@@ -176,6 +191,31 @@ interface RouteSchema {
   envelope: Envelope;
   data: ResponseSchema;
 }
+
+/** WeldFlow (flow-api). */
+const FLOW_ROUTES: RouteSchema[] = [
+  // projects
+  { method: 'GET', route: '/api/projects', envelope: 'list', data: flowProjectSchema },
+  { method: 'POST', route: '/api/projects', envelope: 'single', data: flowIdResultSchema },
+  { method: 'GET', route: '/api/projects/workload/overview', envelope: 'single', data: flowWorkloadOverviewSchema },
+  { method: 'GET', route: '/api/projects/search', envelope: 'array', data: flowProjectSchema },
+  { method: 'GET', route: '/api/projects/:id/permissions', envelope: 'single', data: flowProjectPermissionsSchema },
+  { method: 'GET', route: '/api/projects/:id/gantt/tasks', envelope: 'array', data: flowGanttTaskSchema },
+  { method: 'GET', route: '/api/projects/:id/gantt/milestones', envelope: 'array', data: flowGanttMilestoneSchema },
+  { method: 'GET', route: '/api/projects/:id/workload', envelope: 'single', data: flowProjectWorkloadSchema },
+  { method: 'GET', route: '/api/projects/:id', envelope: 'single', data: flowProjectSchema },
+  { method: 'PATCH', route: '/api/projects/:id', envelope: 'single', data: flowIdResultSchema },
+  { method: 'POST', route: '/api/projects/:projectId/tasks/import-jobs', envelope: 'single', data: flowImportJobStartedSchema },
+  { method: 'GET', route: '/api/projects/:projectId/tasks/import-jobs/:jobId', envelope: 'single', data: flowImportJobStatusSchema },
+  // project members
+  { method: 'GET', route: '/api/project-members', envelope: 'array', data: flowProjectMemberSchema },
+  { method: 'GET', route: '/api/project-members/available', envelope: 'array', data: flowAvailableUserSchema },
+  { method: 'GET', route: '/api/project-members/by-user/:projectId/:userId', envelope: 'single', data: flowProjectMemberSchema },
+  { method: 'GET', route: '/api/project-members/by-user/:projectId/:userId/stats', envelope: 'single', data: flowMemberStatsSchema },
+  { method: 'POST', route: '/api/project-members', envelope: 'single', data: flowIdResultSchema },
+  { method: 'PATCH', route: '/api/project-members/by-user/:projectId/:userId', envelope: 'single', data: flowMemberUpdateSchema },
+  { method: 'GET', route: '/api/project-members/:id', envelope: 'single', data: flowProjectMemberSchema },
+];
 
 const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/me/permissions', envelope: 'single', data: myPermissionsSchema },
@@ -406,6 +446,7 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/storage/access', envelope: 'single', data: filesAccessSchema },
   { method: 'POST', route: '/api/storage/sign', envelope: 'single', data: signedObjectUrlsSchema },
   { method: 'POST', route: '/api/storage/migrate-private', envelope: 'single', data: privateFilesMigrationBatchSchema },
+  ...FLOW_ROUTES,
 ];
 
 /** null when valid, else why not. */

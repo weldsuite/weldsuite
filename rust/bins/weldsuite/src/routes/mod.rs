@@ -97,7 +97,52 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = flow(router, state);
     core_files(router, state)
+}
+
+/// WeldFlow (`weldsuite-flow`): flow-api's prefixes, and the
+/// `flow.import-tasks` job.
+fn flow(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("flow") {
+        return router;
+    }
+    let flow = flow_state(state);
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_flow::ImportTasksJob {
+            tenants: Some(flow_tenants(state)),
+            storage: state.infra.public_files.clone(),
+        });
+    weldsuite_flow::routers(&flow, &state.permissions)
+        .into_iter()
+        .fold(router, |router, (prefix, routes)| router.nest(prefix, routes))
+}
+
+/// WeldFlow's handle on the app: events, files, the master database, jobs.
+pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
+    weldsuite_flow::FlowState {
+        events: state.infra.events.clone(),
+        files: file_stores(state),
+        master: Some(state.workspaces.master().clone()),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+    }
+}
+
+/// A workspace's tenant database for WeldFlow's jobs.
+fn flow_tenants(state: &AppState) -> weldsuite_flow::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
 }
 
 /// Core files, drive, search and storage (P4c), with the 30-day purge

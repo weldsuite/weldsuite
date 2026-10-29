@@ -532,6 +532,44 @@
         "rust/modules/sign/",
         "rust/crates/emails/"
       ]
+    },
+    {
+      "name": "flow: projects",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/projects/integration.test.ts",
+        "src/routes/projects/stats.integration.test.ts",
+        "src/routes/projects/custom-fields.integration.test.ts",
+        "src/routes/projects/coverage.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/projects/",
+        "apps/workers/flow-api/src/routes/project-members/",
+        "packages/clients/app-api-client/src/schemas/projects.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: cross-cutting",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-hardening.integration.test.ts",
+        "src/routes/viewer-writes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
     }
   ]
 }

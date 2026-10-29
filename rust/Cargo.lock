@@ -3656,6 +3656,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
+ "weldsuite-flow",
  "weldsuite-kit",
  "weldsuite-know",
  "weldsuite-permissions",
@@ -3875,6 +3876,41 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-kit",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-flow"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-flow-domain",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-flow-domain"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "time",
+ "weldsuite-events",
+ "weldsuite-kit",
 ]
 
 [[package]]

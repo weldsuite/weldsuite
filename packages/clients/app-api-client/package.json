@@ -11,6 +11,7 @@
     "./schemas/accounting-settings": "./src/schemas/accounting-settings.ts",
     "./schemas/tasks": "./src/schemas/tasks.ts",
     "./schemas/projects": "./src/schemas/projects.ts",
+    "./schemas/flow-responses": "./src/schemas/flow-responses.ts",
     "./schemas/tickets": "./src/schemas/tickets.ts",
     "./schemas/companies": "./src/schemas/companies.ts",
     "./schemas/company-logos": "./src/schemas/company-logos.ts",
