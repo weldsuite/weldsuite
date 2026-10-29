@@ -78,6 +78,7 @@
     "./schemas/commerce-portal": "./src/schemas/commerce-portal.ts",
     "./schemas/weldhr": "./src/schemas/weldhr.ts",
     "./schemas/weldhr-payroll": "./src/schemas/weldhr-payroll.ts",
+    "./schemas/weldpass": "./src/schemas/weldpass.ts",
     "./schemas/weldpass-passwords": "./src/schemas/weldpass-passwords.ts",
     "./schemas/reach": "./src/schemas/reach.ts",
     "./schemas/sheets": "./src/schemas/sheets.ts",

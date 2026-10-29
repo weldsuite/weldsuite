@@ -1,0 +1,583 @@
+{
+  "$comment": "parseTotp and totpCode from apps/workers/pass-api/src/services/weldpass/totp.ts (tools/fixtures.mts); checked by rust/modules/pass/src/totp.rs.",
+  "cases": [
+    {
+      "input": "JBSWY3DPEHPK3PXP",
+      "secretHex": "48656c6c6f21deadbeef",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "996554",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "071271",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "358462",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "742275",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "890699",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "752434",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "706489",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": " jbsw y3dp-ehpk 3pxp== ",
+      "secretHex": "48656c6c6f21deadbeef",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "996554",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "071271",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "358462",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "742275",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "890699",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "752434",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "706489",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": "otpauth://totp/RFC:sha1?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8",
+      "secretHex": "3132333435363738393031323334353637383930",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "94287082",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "07081804",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "14050471",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "89005924",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "69279037",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "65353130",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "40632797",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": "otpauth://totp/RFC:sha256?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA&digits=8&algorithm=SHA256",
+      "secretHex": "3132333435363738393031323334353637383930313233343536373839303132",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "SHA-256",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "46119246",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "68084774",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "67062674",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "91819424",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "90698825",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "77737706",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "25497579",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": "otpauth://totp/RFC:sha512?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA&digits=8&algorithm=sha512",
+      "secretHex": "31323334353637383930313233343536373839303132333435363738393031323334353637383930313233343536373839303132333435363738393031323334",
+      "digits": 8,
+      "period": 30,
+      "algorithm": "SHA-512",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "90693936",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "25091201",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "99943326",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "93441116",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "38618901",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "47863826",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "86257072",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": "OTPAUTH://TOTP/Acme:carol?secret=JBSWY3DPEHPK3PXP&issuer=Acme&period=60",
+      "secretHex": "48656c6c6f21deadbeef",
+      "digits": 6,
+      "period": 60,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "282760",
+          "period": 60,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "912772",
+          "period": 60,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "912772",
+          "period": 60,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "997474",
+          "period": 60,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "949556",
+          "period": 60,
+          "expiresAt": "2033-05-18T03:34:00.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "173196",
+          "period": 60,
+          "expiresAt": "2603-10-11T11:34:00.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "823413",
+          "period": 60,
+          "expiresAt": "2025-10-29T00:01:00.000Z"
+        }
+      ]
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&digits=7abc&period= 45",
+      "secretHex": "48656c6c6f21deadbeef",
+      "digits": 7,
+      "period": 45,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "1996554",
+          "period": 45,
+          "expiresAt": "1970-01-01T00:01:30.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "9376820",
+          "period": 45,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "0941973",
+          "period": 45,
+          "expiresAt": "2005-03-18T01:59:15.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "2226153",
+          "period": 45,
+          "expiresAt": "2009-02-13T23:32:15.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "2877450",
+          "period": 45,
+          "expiresAt": "2033-05-18T03:33:45.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "8645183",
+          "period": 45,
+          "expiresAt": "2603-10-11T11:33:45.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "4964743",
+          "period": 45,
+          "expiresAt": "2025-10-29T00:00:45.000Z"
+        }
+      ]
+    },
+    {
+      "input": "otpauth://totp/x?secret=jbsw%20y3dp&secret=AAAA",
+      "secretHex": "48656c6c6f",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "409098",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "618649",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "130614",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "317958",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "491232",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "607509",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "132369",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSW+Y3DP",
+      "secretHex": "48656c6c6f",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "409098",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "618649",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "130614",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "317958",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "491232",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "607509",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "132369",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": "ıııı",
+      "secretHex": "4210",
+      "digits": 6,
+      "period": 30,
+      "algorithm": "SHA-1",
+      "codes": [
+        {
+          "seconds": 59,
+          "code": "118481",
+          "period": 30,
+          "expiresAt": "1970-01-01T00:01:00.000Z"
+        },
+        {
+          "seconds": 1111111109,
+          "code": "286109",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:58:30.000Z"
+        },
+        {
+          "seconds": 1111111111,
+          "code": "709429",
+          "period": 30,
+          "expiresAt": "2005-03-18T01:59:00.000Z"
+        },
+        {
+          "seconds": 1234567890,
+          "code": "828516",
+          "period": 30,
+          "expiresAt": "2009-02-13T23:32:00.000Z"
+        },
+        {
+          "seconds": 2000000000,
+          "code": "384834",
+          "period": 30,
+          "expiresAt": "2033-05-18T03:33:30.000Z"
+        },
+        {
+          "seconds": 20000000000,
+          "code": "912379",
+          "period": 30,
+          "expiresAt": "2603-10-11T11:33:30.000Z"
+        },
+        {
+          "seconds": 1761696000,
+          "code": "385983",
+          "period": 30,
+          "expiresAt": "2025-10-29T00:00:30.000Z"
+        }
+      ]
+    },
+    {
+      "input": "",
+      "error": "The two-factor secret is empty."
+    },
+    {
+      "input": "   ",
+      "error": "The two-factor secret is empty."
+    },
+    {
+      "input": "not base32 !!!",
+      "error": "The two-factor secret is not valid base32 (letters A–Z and digits 2–7)."
+    },
+    {
+      "input": "A",
+      "error": "The two-factor secret is too short."
+    },
+    {
+      "input": "====",
+      "error": "The two-factor secret is empty."
+    },
+    {
+      "input": "otpauth://hotp/x?secret=JBSWY3DPEHPK3PXP",
+      "error": "Only time-based (TOTP) two-factor codes are supported."
+    },
+    {
+      "input": "otpauth://totp/x",
+      "error": "The otpauth:// link has no secret."
+    },
+    {
+      "input": "otpauth://totp/x?secret=",
+      "error": "The otpauth:// link has no secret."
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&digits=5",
+      "error": "Two-factor codes must be 6 to 8 digits long."
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&digits=9",
+      "error": "Two-factor codes must be 6 to 8 digits long."
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&digits=x",
+      "error": "Two-factor codes must be 6 to 8 digits long."
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&period=4",
+      "error": "The two-factor period is out of range."
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&period=301",
+      "error": "The two-factor period is out of range."
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&algorithm=MD5",
+      "error": "Unsupported two-factor algorithm."
+    },
+    {
+      "input": "otpauth://totp/x?secret=JBSW1",
+      "error": "The two-factor secret is not valid base32 (letters A–Z and digits 2–7)."
+    },
+    {
+      "input": "otpauth://[bad",
+      "error": "The otpauth:// link could not be read."
+    },
+    {
+      "input": "otpauth:///path-only?secret=JBSW",
+      "error": "Only time-based (TOTP) two-factor codes are supported."
+    }
+  ]
+}

@@ -323,6 +323,25 @@
       ]
     },
     {
+      "name": "pass",
+      "module": "pass",
+      "workspace": "apps/workers/pass-api",
+      "tests": [
+        "src/routes/weldpass/index.test.ts",
+        "src/routes/weldpass/passwords.test.ts",
+        "src/routes/weldpass/projects.test.ts",
+        "src/routes/weldpass/sync.test.ts",
+        "src/routes/weldpass/vaults.test.ts"
+      ],
+      "paths": [
+        "apps/workers/pass-api/src/",
+        "packages/clients/app-api-client/src/schemas/weldpass.ts",
+        "packages/clients/app-api-client/src/schemas/weldpass-passwords.ts",
+        "packages/core/cloudflare-deploy/src/",
+        "rust/modules/pass/"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",

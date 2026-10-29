@@ -13,6 +13,8 @@ mod conformance_files;
 #[cfg(feature = "conformance")]
 mod conformance_kv;
 #[cfg(feature = "conformance")]
+mod conformance_mail;
+#[cfg(feature = "conformance")]
 mod conformance_outbound;
 mod cron;
 mod infra;

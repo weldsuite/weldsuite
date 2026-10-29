@@ -555,6 +555,68 @@ impl weldsuite_core_team::ExpoTransport for BridgedExpo {
     }
 }
 
+/// WeldPass's deploy-target calls (Cloudflare's API as the SDK makes them,
+/// Vercel's) through the bridge into the test's fetch stub. A stub that
+/// threw comes back as a failure carrying `String(error)`, which the SDK's
+/// timeout check and Vercel's message read.
+pub(crate) struct BridgedPass {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_pass::HttpTransport for BridgedPass {
+    fn send(
+        &self,
+        request: weldsuite_pass::OutboundRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_pass::OutboundResponse, weldsuite_pass::TransportError>>
+    {
+        use weldsuite_pass::TransportError;
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method = Method::from_bytes(request.method.as_bytes())
+                .map_err(|error| TransportError::Failed(error.to_string()))?;
+            let mut outgoing = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                outgoing = outgoing.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                outgoing = outgoing.body(body);
+            }
+            let response = outgoing
+                .send()
+                .await
+                .map_err(|error| TransportError::Failed(error.to_string()))?;
+            if response.headers().contains_key("x-outbound-error") {
+                let thrown = response.text().await.unwrap_or_default();
+                return Err(TransportError::Failed(thrown));
+            }
+            let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
+            let body = response
+                .bytes()
+                .await
+                .map_err(|error| TransportError::Failed(error.to_string()))?
+                .to_vec();
+            Ok(weldsuite_pass::OutboundResponse {
+                status,
+                headers,
+                body,
+            })
+        })
+    }
+}
+
 /// The bridged providers by bridge URL, made once per test process.
 #[derive(Default)]
 pub(crate) struct OutboundBridges {
@@ -582,6 +644,14 @@ impl OutboundBridges {
     /// Expo's push API behind the test's bridge.
     pub(crate) fn expo(&self, bridge: &str) -> weldsuite_core_team::ExpoGateway {
         weldsuite_core_team::ExpoGateway(Arc::new(BridgedExpo {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// WeldPass's deploy targets behind the test's bridge.
+    pub(crate) fn pass_http(&self, bridge: &str) -> weldsuite_pass::PassHttp {
+        weldsuite_pass::PassHttp(Arc::new(BridgedPass {
             bridge: bridge.trim_end_matches('/').to_owned(),
             client: self.client.clone(),
         }))

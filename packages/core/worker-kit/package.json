@@ -38,6 +38,7 @@
     "./testing/durable-sqlite": "./src/testing/durable-sqlite.ts",
     "./testing/r2": "./src/testing/r2.ts",
     "./testing/sweeps": "./src/testing/sweeps.ts",
+    "./testing/send-email": "./src/testing/send-email-bridge.ts",
     "./timing": "./src/timing.ts",
     "./webhook-token": "./src/webhook-token.ts",
     "./workspace-moving": "./src/workspace-moving.ts"

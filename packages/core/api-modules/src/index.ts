@@ -87,7 +87,7 @@ export interface ApiModule {
  * here must have a suite in rust/conformance/suites.json; the Rust catalogs
  * tests check that.
  */
-export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['know']);
+export const RUST_PORTED_MODULES: ReadonlySet<ApiModuleId> = new Set<ApiModuleId>(['know', 'pass']);
 
 const mod = (
   id: ApiModuleId,
