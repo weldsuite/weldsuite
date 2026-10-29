@@ -41,18 +41,32 @@ where
     let update = || gate.require([MESSAGES_UPDATE]);
     Router::new()
         .route("/mail-messages", get(reads::list).route_layer(read()))
-        .route("/mail-messages/stats", get(reads::stats).route_layer(read()))
-        .route("/mail-messages/bulk", post(writes::bulk).route_layer(update()))
-        .route("/mail-messages/{id}", get(reads::detail).route_layer(read()))
+        .route(
+            "/mail-messages/stats",
+            get(reads::stats).route_layer(read()),
+        )
+        .route(
+            "/mail-messages/bulk",
+            post(writes::bulk).route_layer(update()),
+        )
         .route(
             "/mail-messages/{id}",
-            patch(writes::update).put(writes::update).route_layer(update()),
+            get(reads::detail).route_layer(read()),
+        )
+        .route(
+            "/mail-messages/{id}",
+            patch(writes::update)
+                .put(writes::update)
+                .route_layer(update()),
         )
         .route(
             "/mail-messages/{id}",
             axum::routing::delete(writes::remove).route_layer(gate.require([MESSAGES_DELETE])),
         )
-        .route("/mail-messages/{id}/thread", get(reads::thread).route_layer(read()))
+        .route(
+            "/mail-messages/{id}/thread",
+            get(reads::thread).route_layer(read()),
+        )
         .route(
             "/mail-messages/{id}/labels/add",
             post(writes::add_labels).route_layer(update()),

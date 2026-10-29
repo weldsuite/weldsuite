@@ -127,7 +127,11 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             },
         );
         let cursor = issues.text(q, "cursor", Presence::Optional, None, None);
-        (account.into_option(), limit.into_option(), cursor.into_option())
+        (
+            account.into_option(),
+            limit.into_option(),
+            cursor.into_option(),
+        )
     });
     let (account, limit, cursor) = match query {
         Ok(query) => query,
@@ -168,11 +172,12 @@ async fn locate(caller: &Caller, id: &str) -> MailResult<Value> {
             return Ok(js_row(row));
         }
     }
-    let exists: Option<String> =
-        sqlx::query_scalar("select id from mail_drafts where id = $1 and deleted_at is null limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?;
+    let exists: Option<String> = sqlx::query_scalar(
+        "select id from mail_drafts where id = $1 and deleted_at is null limit 1",
+    )
+    .bind(id)
+    .fetch_optional(&caller.db)
+    .await?;
     match exists {
         None => Err(MailError::not_found("Draft", Some(id))),
         Some(_) => Err(MailError::forbidden(NO_ACCESS)),
@@ -209,12 +214,20 @@ fn read_draft(issues: &mut Issues, body: &Map<String, Value>, out: &mut Map<Stri
         }
     }
     for key in ["body", "htmlBody"] {
-        if let Some(v) = issues.text(body, key, Presence::Optional, None, None).into_option() {
+        if let Some(v) = issues
+            .text(body, key, Presence::Optional, None, None)
+            .into_option()
+        {
             out.insert(key.into(), Value::String(v));
         }
     }
     if let Some(v) = issues
-        .choice(body, "importance", Presence::Optional, &["low", "normal", "high"])
+        .choice(
+            body,
+            "importance",
+            Presence::Optional,
+            &["low", "normal", "high"],
+        )
         .into_option()
     {
         out.insert("importance".into(), Value::String(v));
@@ -421,7 +434,11 @@ async fn update(
 }
 
 /// `DELETE /:id` (`softDeleteDraft`).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let located = locate(&caller, &id).await?;
         let account = located["accountId"].as_str().unwrap_or_default().to_owned();

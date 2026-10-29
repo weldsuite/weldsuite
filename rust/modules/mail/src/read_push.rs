@@ -48,7 +48,11 @@ pub(crate) fn queue_mail_read_push(
 }
 
 /// `buildMailReadPushMessages(tokens, content)`.
-fn build_messages(tokens: &[String], email_ids: &[String], inbox_unread: Option<i64>) -> Vec<Value> {
+fn build_messages(
+    tokens: &[String],
+    email_ids: &[String],
+    inbox_unread: Option<i64>,
+) -> Vec<Value> {
     let mut ids: Vec<&String> = Vec::new();
     for id in email_ids.iter().filter(|id| !id.is_empty()) {
         if !ids.contains(&id) {
@@ -61,7 +65,11 @@ fn build_messages(tokens: &[String], email_ids: &[String], inbox_unread: Option<
     let mut out = Vec::new();
     for to in tokens {
         for chunk in ids.chunks(IDS_PER_PUSH) {
-            let joined = chunk.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(",");
+            let joined = chunk
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
             let mut data = json!({
                 "type": "email_read",
                 "emailIds": joined,
@@ -130,7 +138,12 @@ async fn send_workspace_mail_read_push(
         let mut messages: Vec<Value> = Vec::new();
         for (user, tokens) in &by_user {
             // `new Map(rows)`: a later row wins.
-            let Some(role) = members.iter().rev().find(|(u, _)| u == user).map(|(_, r)| r) else {
+            let Some(role) = members
+                .iter()
+                .rev()
+                .find(|(u, _)| u == user)
+                .map(|(_, r)| r)
+            else {
                 continue;
             };
             let is_admin = role
@@ -159,13 +172,12 @@ async fn send_workspace_mail_read_push(
             }
         }
         for token in invalid {
-            if let Err(error) = sqlx::query(
-                "update device_tokens set is_active = $2::timestamp where token = $1",
-            )
-            .bind(&token)
-            .bind(now())
-            .execute(db)
-            .await
+            if let Err(error) =
+                sqlx::query("update device_tokens set is_active = $2::timestamp where token = $1")
+                    .bind(&token)
+                    .bind(now())
+                    .execute(db)
+                    .await
             {
                 tracing::error!(%error, "[MailReadPush] Failed to deactivate token");
             }

@@ -14,7 +14,7 @@ use weldsuite_db::{PgPool, js_row};
 use weldsuite_kit::validation::js_trim;
 
 use crate::labels::{
-    self, FlagPatchInput, LabelMatch, SCHEDULED, SPAM, STARRED, IMPORTANT, TRASH, add_labels,
+    self, FlagPatchInput, IMPORTANT, LabelMatch, SCHEDULED, SPAM, STARRED, TRASH, add_labels,
     canonical_label_names, flags_for_label_change, labels_for_flag_patch, labels_of,
     normalize_label, remove_labels, to_system_label,
 };
@@ -215,7 +215,12 @@ macro_rules! bind_conditions {
             .bind($filters.is_starred)
             .bind($filters.is_flagged)
             .bind($filters.has_attachments)
-            .bind($filters.thread_id.clone().filter(|t: &String| !t.is_empty()))
+            .bind(
+                $filters
+                    .thread_id
+                    .clone()
+                    .filter(|t: &String| !t.is_empty()),
+            )
             .bind($values.label.is_some())
             .bind(label.names)
             .bind(label.starred)
@@ -271,9 +276,7 @@ pub async fn list_messages_wide(
     .fetch_one(db)
     .await?;
     let mut data: Vec<Value> = rows.into_iter().map(js_row).collect();
-    let has_more = usize::try_from(limit)
-        .ok()
-        .is_some_and(|limit| data.len() > limit);
+    let has_more = usize::try_from(limit).is_ok_and(|limit| data.len() > limit);
     if has_more {
         data.truncate(usize::try_from(limit).unwrap_or(0));
     }
@@ -309,6 +312,14 @@ pub async fn live_messages_by_ids(
     .await?;
     Ok(rows.into_iter().map(js_row).collect())
 }
+
+/// A sender's contact: email, first and last name, avatar.
+type ContactRow = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 
 /// `enrichSenderContacts(db, rows)`: the mailbox's own display name for its
 /// own mail, else the matching contact's name, else the From name; and the
@@ -349,24 +360,19 @@ pub async fn enrich_sender_contacts(db: &PgPool, rows: &mut [Value]) -> Result<(
             }
         }
     }
-    let contacts: Vec<(Option<String>, Option<String>, Option<String>, Option<String>)> =
-        sqlx::query_as(
-            "select email, first_name, last_name, avatar_url from people
+    let contacts: Vec<ContactRow> = sqlx::query_as(
+        "select email, first_name, last_name, avatar_url from people
              where email = any($1::text[]) and deleted_at is null",
-        )
-        .bind(&senders)
-        .fetch_all(db)
-        .await?;
+    )
+    .bind(&senders)
+    .fetch_all(db)
+    .await?;
     let mut names: HashMap<String, String> = HashMap::new();
     let mut avatars: HashMap<String, String> = HashMap::new();
     for (email, first, last, avatar) in contacts {
         let Some(email) = email else { continue };
         let key = email.to_lowercase();
-        let name = format!(
-            "{} {}",
-            first.unwrap_or_default(),
-            last.unwrap_or_default()
-        );
+        let name = format!("{} {}", first.unwrap_or_default(), last.unwrap_or_default());
         let name = js_trim(&name).to_owned();
         if !name.is_empty() {
             names.entry(key.clone()).or_insert(name);
@@ -504,7 +510,10 @@ pub async fn mailbox_message(
 /// `getThread(db, messageId)` as the store hands it out
 /// (`getThreadOfMessage`): the conversation of a message, oldest first, as
 /// records with bodies. A message without a thread is a thread of one.
-pub async fn thread_of_message(db: &PgPool, message_id: &str) -> Result<Option<Value>, sqlx::Error> {
+pub async fn thread_of_message(
+    db: &PgPool,
+    message_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
     let anchor: Option<(Option<String>, String)> = sqlx::query_as(
         "select thread_id, account_id from mail_messages where id = $1 and deleted_at is null limit 1",
     )
@@ -630,6 +639,7 @@ enum FolderKind {
 }
 
 /// `labelCounts(keys)`: messages, unread and threads per folder key.
+#[allow(clippy::too_many_lines)] // one statement and its parameters
 pub async fn label_counts(
     db: &PgPool,
     account_id: &str,
@@ -661,7 +671,10 @@ pub async fn label_counts(
         .fetch_all(db)
         .await?;
         for name in rows {
-            custom_names.entry(name.to_lowercase()).or_default().push(name);
+            custom_names
+                .entry(name.to_lowercase())
+                .or_default()
+                .push(name);
         }
     }
     let mut kinds: Vec<i32> = Vec::with_capacity(keys.len());
@@ -793,10 +806,12 @@ pub async fn existing_ids(db: &PgPool, ids: &[String]) -> Result<Vec<String>, sq
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    sqlx::query_scalar("select id from mail_messages where id = any($1::text[]) and deleted_at is null")
-        .bind(ids)
-        .fetch_all(db)
-        .await
+    sqlx::query_scalar(
+        "select id from mail_messages where id = any($1::text[]) and deleted_at is null",
+    )
+    .bind(ids)
+    .fetch_all(db)
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -890,12 +905,14 @@ pub async fn set_thread_id(
     if found.is_none() {
         return Ok(false);
     }
-    sqlx::query("update mail_messages set thread_id = $2, updated_at = $3::timestamp where id = $1")
-        .bind(id)
-        .bind(thread_id)
-        .bind(iso(now))
-        .execute(db)
-        .await?;
+    sqlx::query(
+        "update mail_messages set thread_id = $2, updated_at = $3::timestamp where id = $1",
+    )
+    .bind(id)
+    .bind(thread_id)
+    .bind(iso(now))
+    .execute(db)
+    .await?;
     Ok(true)
 }
 
@@ -1064,7 +1081,10 @@ pub async fn bulk_flags(
 }
 
 /// `finalLabelsFor(ids)`: each id's labels after a bulk write.
-pub async fn final_labels(db: &PgPool, ids: &[String]) -> Result<Vec<(String, Vec<String>)>, sqlx::Error> {
+pub async fn final_labels(
+    db: &PgPool,
+    ids: &[String],
+) -> Result<Vec<(String, Vec<String>)>, sqlx::Error> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }

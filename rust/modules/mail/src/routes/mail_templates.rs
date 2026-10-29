@@ -46,7 +46,10 @@ where
     let read = || gate.require([TEMPLATES_READ]);
     let create_gate = || gate.require([TEMPLATES_CREATE]);
     Router::new()
-        .route("/mail-templates/categories", get(categories).route_layer(read()))
+        .route(
+            "/mail-templates/categories",
+            get(categories).route_layer(read()),
+        )
         .route("/mail-templates", get(list).route_layer(read()))
         .route("/mail-templates/{id}", get(detail).route_layer(read()))
         .route("/mail-templates", post(create).route_layer(create_gate()))
@@ -64,7 +67,10 @@ where
             "/mail-templates/{id}/duplicate",
             post(duplicate).route_layer(create_gate()),
         )
-        .route("/mail-templates/{id}/render", post(render).route_layer(read()))
+        .route(
+            "/mail-templates/{id}/render",
+            post(render).route_layer(read()),
+        )
         .with_state(state)
 }
 
@@ -95,7 +101,11 @@ async fn categories(caller: Caller) -> Response {
         )
         .fetch_all(&caller.db)
         .await?;
-        let rows: Vec<String> = rows.into_iter().flatten().filter(|c| !c.is_empty()).collect();
+        let rows: Vec<String> = rows
+            .into_iter()
+            .flatten()
+            .filter(|c| !c.is_empty())
+            .collect();
         Ok(Data(rows).into_response())
     }
     .await;
@@ -141,19 +151,19 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let result = async {
         let limit = limit.unwrap_or(50).min(100);
         let category = category.filter(|c| !c.is_empty());
-        let cursor_row: Option<(String, String)> =
-            match cursor.as_deref().filter(|c| !c.is_empty()) {
-                Some(cursor) => {
-                    sqlx::query_as(
-                        "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
+        let cursor_row: Option<(String, String)> = match cursor.as_deref().filter(|c| !c.is_empty())
+        {
+            Some(cursor) => {
+                sqlx::query_as(
+                    "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
                          from mail_templates where id = $1 limit 1",
-                    )
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await?
-                }
-                None => None,
-            };
+                )
+                .bind(cursor)
+                .fetch_optional(&caller.db)
+                .await?
+            }
+            None => None,
+        };
         let (cursor_at, cursor_id) = cursor_row.unzip();
         let rows: Vec<Value> = sqlx::query_scalar(
             "select to_jsonb(t) from mail_templates t
@@ -206,7 +216,12 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// `createBody` / `updateBody`.
-fn read_template(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+#[allow(clippy::too_many_lines)] // one reader per schema field, in order
+fn read_template(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let required = if partial {
         Presence::Optional
     } else {
@@ -219,14 +234,62 @@ fn read_template(issues: &mut Issues, body: &Map<String, Value>, partial: bool) 
         }
     };
     let s = |v: Option<String>| v.map(Value::String);
-    put("name", s(issues.text(body, "name", required, Some(1), Some(255)).into_option()), &mut out);
-    put("subject", s(issues.text(body, "subject", required, Some(1), Some(998)).into_option()), &mut out);
-    put("htmlContent", s(issues.text(body, "htmlContent", required, Some(1), None).into_option()), &mut out);
-    put("textContent", s(issues.text(body, "textContent", Presence::Optional, None, None).into_option()), &mut out);
-    put("category", s(issues.text(body, "category", Presence::Optional, None, Some(100)).into_option()), &mut out);
-    put("description", s(issues.text(body, "description", Presence::Optional, None, None).into_option()), &mut out);
-    put("type", s(issues.choice(body, "type", Presence::Optional, &TYPES).into_option()), &mut out);
-    put("purpose", s(issues.text(body, "purpose", Presence::Optional, None, Some(255)).into_option()), &mut out);
+    put(
+        "name",
+        s(issues
+            .text(body, "name", required, Some(1), Some(255))
+            .into_option()),
+        &mut out,
+    );
+    put(
+        "subject",
+        s(issues
+            .text(body, "subject", required, Some(1), Some(998))
+            .into_option()),
+        &mut out,
+    );
+    put(
+        "htmlContent",
+        s(issues
+            .text(body, "htmlContent", required, Some(1), None)
+            .into_option()),
+        &mut out,
+    );
+    put(
+        "textContent",
+        s(issues
+            .text(body, "textContent", Presence::Optional, None, None)
+            .into_option()),
+        &mut out,
+    );
+    put(
+        "category",
+        s(issues
+            .text(body, "category", Presence::Optional, None, Some(100))
+            .into_option()),
+        &mut out,
+    );
+    put(
+        "description",
+        s(issues
+            .text(body, "description", Presence::Optional, None, None)
+            .into_option()),
+        &mut out,
+    );
+    put(
+        "type",
+        s(issues
+            .choice(body, "type", Presence::Optional, &TYPES)
+            .into_option()),
+        &mut out,
+    );
+    put(
+        "purpose",
+        s(issues
+            .text(body, "purpose", Presence::Optional, None, Some(255))
+            .into_option()),
+        &mut out,
+    );
     let variables = issues.list(
         body,
         "variables",
@@ -237,16 +300,27 @@ fn read_template(issues: &mut Issues, body: &Map<String, Value>, partial: bool) 
             let fields = issues.object(item)?;
             let mut variable = Map::new();
             let before = issues.count();
-            if let Some(name) = issues.text(fields, "name", Presence::Required, None, None).into_option() {
+            if let Some(name) = issues
+                .text(fields, "name", Presence::Required, None, None)
+                .into_option()
+            {
                 variable.insert("name".into(), Value::String(name));
             }
             if let Some(kind) = issues
-                .choice(fields, "type", Presence::Required, &["text", "number", "date", "boolean", "list"])
+                .choice(
+                    fields,
+                    "type",
+                    Presence::Required,
+                    &["text", "number", "date", "boolean", "list"],
+                )
                 .into_option()
             {
                 variable.insert("type".into(), Value::String(kind));
             }
-            if let Some(required) = issues.boolean(fields, "required", Presence::Optional).into_option() {
+            if let Some(required) = issues
+                .boolean(fields, "required", Presence::Optional)
+                .into_option()
+            {
                 variable.insert("required".into(), Value::Bool(required));
             }
             if let Some(default) = fields.get("defaultValue") {
@@ -261,7 +335,11 @@ fn read_template(issues: &mut Issues, body: &Map<String, Value>, partial: bool) 
             (issues.count() == before).then_some(Value::Object(variable))
         },
     );
-    put("variables", variables.into_option().map(Value::Array), &mut out);
+    put(
+        "variables",
+        variables.into_option().map(Value::Array),
+        &mut out,
+    );
     let strings_list = |issues: &mut Issues, key: &str| {
         issues
             .list(body, key, Presence::Optional, None, None, |issues, item| {
@@ -270,10 +348,21 @@ fn read_template(issues: &mut Issues, body: &Map<String, Value>, partial: bool) 
             .into_option()
             .map(|v| json!(v))
     };
-    put("requiredVariables", strings_list(issues, "requiredVariables"), &mut out);
+    put(
+        "requiredVariables",
+        strings_list(issues, "requiredVariables"),
+        &mut out,
+    );
     put("tags", strings_list(issues, "tags"), &mut out);
     for key in ["isActive", "isDefault"] {
-        put(key, issues.boolean(body, key, Presence::Optional).into_option().map(Value::Bool), &mut out);
+        put(
+            key,
+            issues
+                .boolean(body, key, Presence::Optional)
+                .into_option()
+                .map(Value::Bool),
+            &mut out,
+        );
     }
     out
 }
@@ -297,7 +386,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_template(issues, body, false)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_template(issues, body, false)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -343,7 +434,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_template(issues, body, true)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_template(issues, body, true)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -388,7 +481,11 @@ async fn update(
 }
 
 /// `DELETE /:id` (`softDeleteTemplate`).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = template_row(&caller, &id).await? else {
             return Err(MailError::not_found("Template", Some(&id)));
@@ -408,7 +505,11 @@ async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<S
 }
 
 /// `POST /:id/duplicate` (`duplicateTemplate`).
-async fn duplicate(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn duplicate(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         if template_row(&caller, &id).await?.is_none() {
             return Err(MailError::not_found("Template", None));
@@ -429,15 +530,21 @@ async fn duplicate(State(state): State<MailState>, caller: Caller, Path(id): Pat
         .execute(&caller.db)
         .await?;
         let row = row_by_id(&caller, &new_id).await?;
-        caller.publish(&state, EMAIL_TEMPLATE_CREATED, &new_id, &event(&row, &new_id));
+        caller.publish(
+            &state,
+            EMAIL_TEMPLATE_CREATED,
+            &new_id,
+            &event(&row, &new_id),
+        );
         Ok(Created(row).into_response())
     }
     .await;
     answer(result, "Failed to duplicate template")
 }
 
-static VARIABLE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}").expect("the variable pattern compiles"));
+static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}").expect("the variable pattern compiles")
+});
 
 /// `htmlEscape(s)`.
 fn html_escape(text: &str) -> String {
@@ -464,7 +571,12 @@ fn substitute(input: &str, vars: &[(String, Js)], escape: bool) -> String {
 
 /// `POST /:id/render` (`renderTemplate`): subject, HTML (escaped values) and
 /// text with the variables in; the usage counter goes up.
-async fn render(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body: Bytes) -> Response {
+async fn render(
+    caller: Caller,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     // `z.record(z.unknown())`: an object.
     let checked = validate(&headers, &body, |issues, body| {
         issues.nested(body, "variables", Presence::Required, |_, _| ());
@@ -497,8 +609,16 @@ async fn render(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body
                 .with_details(json!({ "missing": missing })),
             ));
         }
-        let subject = substitute(template["subject"].as_str().unwrap_or_default(), &vars, false);
-        let html = substitute(template["htmlContent"].as_str().unwrap_or_default(), &vars, true);
+        let subject = substitute(
+            template["subject"].as_str().unwrap_or_default(),
+            &vars,
+            false,
+        );
+        let html = substitute(
+            template["htmlContent"].as_str().unwrap_or_default(),
+            &vars,
+            true,
+        );
         let text = template["textContent"]
             .as_str()
             .filter(|t| !t.is_empty())
@@ -513,7 +633,10 @@ async fn render(caller: Caller, Path(id): Path<String>, headers: HeaderMap, body
         .bind(&at)
         .execute(&caller.db)
         .await?;
-        Ok(Data(json!({ "subject": subject, "htmlContent": html, "textContent": text })).into_response())
+        Ok(
+            Data(json!({ "subject": subject, "htmlContent": html, "textContent": text }))
+                .into_response(),
+        )
     }
     .await;
     answer(result, "Failed to render template")

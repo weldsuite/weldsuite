@@ -50,9 +50,14 @@ fn read_update(headers: &HeaderMap, body: &Bytes) -> Result<Map<String, Value>, 
             out.insert("threadId".into(), Value::String(v));
         }
         if let Some(v) = issues
-            .list(body, "labels", Presence::Optional, None, None, |issues, item| {
-                issues.item_text(item, Text::default())
-            })
+            .list(
+                body,
+                "labels",
+                Presence::Optional,
+                None,
+                None,
+                |issues, item| issues.item_text(item, Text::default()),
+            )
             .into_option()
         {
             out.insert("labels".into(), json!(v));
@@ -100,7 +105,7 @@ pub(super) async fn update(
         if missing {
             return Err(MailError::not_found("Message", Some(&id)));
         }
-        let after = live_messages_by_ids(&caller.db, &account, &[id.clone()], false)
+        let after = live_messages_by_ids(&caller.db, &account, std::slice::from_ref(&id), false)
             .await?
             .into_iter()
             .next();
@@ -296,7 +301,7 @@ pub(super) async fn remove(
 ) -> Response {
     let result = async {
         let account = locate(&caller, &id, "Message").await?;
-        let before = live_messages_by_ids(&caller.db, &account, &[id.clone()], false)
+        let before = live_messages_by_ids(&caller.db, &account, std::slice::from_ref(&id), false)
             .await?
             .into_iter()
             .next();
@@ -331,9 +336,14 @@ async fn change_labels(
 ) -> Response {
     let labels = validate(headers, body, |issues, body| {
         issues
-            .list(body, "labels", Presence::Required, Some(1), None, |issues, item| {
-                issues.item_text(item, Text::default())
-            })
+            .list(
+                body,
+                "labels",
+                Presence::Required,
+                Some(1),
+                None,
+                |issues, item| issues.item_text(item, Text::default()),
+            )
             .into_option()
             .unwrap_or_default()
     });

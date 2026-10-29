@@ -220,7 +220,8 @@ async fn apply_snooze(
         .await?;
     }
     if let Some(master) = caller.bindings.master(state)
-        && let Some(at) = OffsetDateTime::from_unix_timestamp_nanos(i128::from(until) * 1_000_000).ok()
+        && let Some(at) =
+            OffsetDateTime::from_unix_timestamp_nanos(i128::from(until) * 1_000_000).ok()
     {
         weldsuite_db::due_index::mark_due(&master, SNOOZE_KIND, &caller.workspace_id, at).await;
     }

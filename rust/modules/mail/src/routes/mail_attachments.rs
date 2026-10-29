@@ -246,7 +246,11 @@ async fn associate(
 }
 
 /// `GET /:id/download`: the file, from the workspace's storage only.
-async fn download(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn download(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result: MailResult<Response> = async {
         let accessible = accessible_account_ids(&caller.db, &caller.user_id).await?;
         let Some((_, row)) = locate_attachment(&caller.db, &id, &accessible).await? else {
@@ -330,21 +334,37 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// `createBody` / `updateBody`.
-fn read_attachment(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_attachment(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let required = if partial {
         Presence::Optional
     } else {
         Presence::Required
     };
     let mut out = Map::new();
-    let text = |issues: &mut Issues, key: &str, presence: Presence, min: Option<usize>, max: Option<usize>, out: &mut Map<String, Value>| {
+    let text = |issues: &mut Issues,
+                key: &str,
+                presence: Presence,
+                min: Option<usize>,
+                max: Option<usize>,
+                out: &mut Map<String, Value>| {
         if let Some(v) = issues.text(body, key, presence, min, max).into_option() {
             out.insert(key.into(), Value::String(v));
         }
     };
     text(issues, "messageId", required, Some(1), None, &mut out);
     text(issues, "fileName", required, Some(1), Some(500), &mut out);
-    text(issues, "contentType", Presence::Optional, None, Some(255), &mut out);
+    text(
+        issues,
+        "contentType",
+        Presence::Optional,
+        None,
+        Some(255),
+        &mut out,
+    );
     if let Some(size) = issues
         .whole_number(
             body,
@@ -360,13 +380,44 @@ fn read_attachment(issues: &mut Issues, body: &Map<String, Value>, partial: bool
     {
         out.insert("size".into(), json!(size));
     }
-    text(issues, "storagePath", Presence::Optional, None, Some(1000), &mut out);
-    text(issues, "checksum", Presence::Optional, None, Some(64), &mut out);
-    if let Some(v) = issues.boolean(body, "isInline", Presence::Optional).into_option() {
+    text(
+        issues,
+        "storagePath",
+        Presence::Optional,
+        None,
+        Some(1000),
+        &mut out,
+    );
+    text(
+        issues,
+        "checksum",
+        Presence::Optional,
+        None,
+        Some(64),
+        &mut out,
+    );
+    if let Some(v) = issues
+        .boolean(body, "isInline", Presence::Optional)
+        .into_option()
+    {
         out.insert("isInline".into(), Value::Bool(v));
     }
-    text(issues, "contentId", Presence::Optional, None, Some(255), &mut out);
-    text(issues, "contentDisposition", Presence::Optional, None, Some(100), &mut out);
+    text(
+        issues,
+        "contentId",
+        Presence::Optional,
+        None,
+        Some(255),
+        &mut out,
+    );
+    text(
+        issues,
+        "contentDisposition",
+        Presence::Optional,
+        None,
+        Some(100),
+        &mut out,
+    );
     out
 }
 
@@ -426,7 +477,11 @@ async fn create(
         .bind(data.get("size").and_then(Value::as_i64))
         .bind(text(&data, "storagePath"))
         .bind(text(&data, "checksum"))
-        .bind(data.get("isInline").and_then(Value::as_bool).unwrap_or(false))
+        .bind(
+            data.get("isInline")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        )
         .bind(text(&data, "contentId"))
         .bind(text(&data, "contentDisposition"))
         .bind(&at)
@@ -501,7 +556,9 @@ async fn update(
         .bind(text(&data, "contentDisposition"))
         .execute(&caller.db)
         .await?;
-        if let Some(moved) = text(&data, "messageId").filter(|m| !m.is_empty() && *m != previous_message) {
+        if let Some(moved) =
+            text(&data, "messageId").filter(|m| !m.is_empty() && *m != previous_message)
+        {
             refresh_count(&caller.db, &previous_message, &at).await?;
             refresh_count(&caller.db, moved, &at).await?;
         }
@@ -521,7 +578,11 @@ async fn update(
 }
 
 /// `DELETE /:id`: a soft delete, then the stored file (best effort).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let (_, attachment) = locate_or_respond(&caller, &id).await?;
         let existing: Option<(String, Option<String>)> = sqlx::query_as(
@@ -564,4 +625,3 @@ async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<S
     .await;
     answer(result, "Failed to delete attachment")
 }
-

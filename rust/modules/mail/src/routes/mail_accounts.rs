@@ -58,7 +58,10 @@ where
             "/mail-accounts/setup/labels",
             get(setup_labels).route_layer(read()),
         )
-        .route("/mail-accounts/{id}/labels", get(labels).route_layer(read()))
+        .route(
+            "/mail-accounts/{id}/labels",
+            get(labels).route_layer(read()),
+        )
         .route("/mail-accounts/{id}", get(detail).route_layer(read()))
         .route(
             "/mail-accounts/{id}",
@@ -100,6 +103,7 @@ macro_rules! public_account {
 
 /// `GET /` (`listMailAccounts`): the mailboxes the caller may open, or
 /// every one for an admin's `scope=manage`.
+#[allow(clippy::too_many_lines)] // the query, the list and its count
 async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let filters = validate_query(raw.as_deref(), |issues, q| {
         let limit = issues.number(
@@ -358,6 +362,7 @@ impl AccountInput {
 
 /// Read `createBody` (`partial` = false, `name` and `email` required) or
 /// `updateBody`.
+#[allow(clippy::too_many_lines)] // one reader per schema field, in order
 fn read_account(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> AccountInput {
     let required = if partial {
         Presence::Optional
@@ -484,7 +489,13 @@ fn read_account(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -
     let ai = issues.nested(body, "aiSettings", Presence::Optional, |issues, ai| {
         let mut settings = Map::new();
         if let Some(v) = issues
-            .text(ai, "customInstructions", Presence::Optional, None, Some(2000))
+            .text(
+                ai,
+                "customInstructions",
+                Presence::Optional,
+                None,
+                Some(2000),
+            )
             .into_option()
         {
             settings.insert("customInstructions".into(), Value::String(v));
@@ -579,11 +590,12 @@ async fn assert_weldmail_domain_allowed(
             ApiError::internal().with_message("Failed to create mail account"),
         ));
     };
-    let slug: Option<String> =
-        sqlx::query_scalar("select slug from workspaces where id = $1 or clerk_org_id = $1 limit 1")
-            .bind(org)
-            .fetch_optional(&master)
-            .await?;
+    let slug: Option<String> = sqlx::query_scalar(
+        "select slug from workspaces where id = $1 or clerk_org_id = $1 limit 1",
+    )
+    .bind(org)
+    .fetch_optional(&master)
+    .await?;
     let apex = caller
         .bindings
         .env_value(state, "WELDMAIL_DOMAIN")
@@ -649,7 +661,9 @@ async fn register_in_master_registry(
     email: &str,
 ) {
     let Some(master) = caller.bindings.master(state) else {
-        tracing::error!("[mail-accounts] master registry upsert failed for {email}: no master database");
+        tracing::error!(
+            "[mail-accounts] master registry upsert failed for {email}: no master database"
+        );
         return;
     };
     let run = async {
@@ -685,6 +699,7 @@ async fn register_in_master_registry(
 }
 
 /// `POST /` (`createMailAccount`).
+#[allow(clippy::too_many_lines)] // the TypeScript create flow, step by step
 async fn create(
     State(state): State<MailState>,
     caller: Caller,
@@ -1053,11 +1068,18 @@ async fn assign_users(
     answer(result, "Failed to assign users")
 }
 
+/// A mailbox's access fields with its email, provider and status.
+type AccountIdentity = (Option<bool>, Option<Value>, String, String, String);
+
 /// `DELETE /:id` (`deleteMailAccount`): a soft delete by someone who may
 /// manage the mailbox; a catch-all pointing at it is switched off.
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
-        let row: Option<(Option<bool>, Option<Value>, String, String, String)> = sqlx::query_as(
+        let row: Option<AccountIdentity> = sqlx::query_as(
             "select is_shared, assigned_user_ids, email, provider::text, status::text
              from mail_accounts where id = $1 and deleted_at is null limit 1",
         )
@@ -1126,7 +1148,9 @@ pub(crate) async fn clear_catch_all_for_account(
     .await?;
     let Some(master) = caller.bindings.master(state) else {
         tracing::error!("[mail-domains] no master database to deactivate the catch-all sentinel");
-        return Err(MailError::api(ApiError::internal().with_message("Failed to delete mail account")));
+        return Err(MailError::api(
+            ApiError::internal().with_message("Failed to delete mail account"),
+        ));
     };
     for domain in domains {
         sqlx::query(

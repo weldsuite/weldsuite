@@ -78,7 +78,10 @@ where
     let create_gate = || gate.require([ACCOUNTS_CREATE]);
     Router::new()
         .route("/mail-rules", get(list).route_layer(read()))
-        .route("/mail-rules/reorder", post(reorder).route_layer(update_gate()))
+        .route(
+            "/mail-rules/reorder",
+            post(reorder).route_layer(update_gate()),
+        )
         .route("/mail-rules/{id}", get(detail).route_layer(read()))
         .route("/mail-rules", post(create).route_layer(create_gate()))
         .route(
@@ -89,7 +92,10 @@ where
             "/mail-rules/{id}",
             axum::routing::delete(remove).route_layer(gate.require([ACCOUNTS_DELETE])),
         )
-        .route("/mail-rules/{id}/toggle", post(toggle).route_layer(update_gate()))
+        .route(
+            "/mail-rules/{id}/toggle",
+            post(toggle).route_layer(update_gate()),
+        )
         .route(
             "/mail-rules/{id}/duplicate",
             post(duplicate).route_layer(create_gate()),
@@ -291,6 +297,7 @@ fn string_or_strings(issues: &mut Issues, fields: &Map<String, Value>) -> Option
 }
 
 /// `baseBody` (create) or its `.omit({ accountId }).partial()` (update).
+#[allow(clippy::too_many_lines)] // one reader per schema field, in order
 fn read_rule(issues: &mut Issues, body: &Map<String, Value>, create: bool) -> Map<String, Value> {
     let required = if create {
         Presence::Required
@@ -305,7 +312,10 @@ fn read_rule(issues: &mut Issues, body: &Map<String, Value>, create: bool) -> Ma
     {
         out.insert("accountId".into(), Value::String(v));
     }
-    if let Some(v) = issues.text(body, "name", required, Some(1), Some(255)).into_option() {
+    if let Some(v) = issues
+        .text(body, "name", required, Some(1), Some(255))
+        .into_option()
+    {
         out.insert("name".into(), Value::String(v));
     }
     if let Some(v) = issues
@@ -314,21 +324,28 @@ fn read_rule(issues: &mut Issues, body: &Map<String, Value>, create: bool) -> Ma
     {
         out.insert("description".into(), Value::String(v));
     }
-    let conditions = issues.list(body, "conditions", required, Some(1), None, |issues, item| {
-        let fields = issues.object(item)?;
-        let before = issues.count();
-        let field = issues.choice(fields, "field", Presence::Required, &FIELDS);
-        let operator = issues.choice(fields, "operator", Presence::Required, &OPERATORS);
-        let value = string_or_strings(issues, fields);
-        if issues.count() > before {
-            return None;
-        }
-        Some(json!({
-            "field": field.into_option(),
-            "operator": operator.into_option(),
-            "value": value,
-        }))
-    });
+    let conditions = issues.list(
+        body,
+        "conditions",
+        required,
+        Some(1),
+        None,
+        |issues, item| {
+            let fields = issues.object(item)?;
+            let before = issues.count();
+            let field = issues.choice(fields, "field", Presence::Required, &FIELDS);
+            let operator = issues.choice(fields, "operator", Presence::Required, &OPERATORS);
+            let value = string_or_strings(issues, fields);
+            if issues.count() > before {
+                return None;
+            }
+            Some(json!({
+                "field": field.into_option(),
+                "operator": operator.into_option(),
+                "value": value,
+            }))
+        },
+    );
     if let Some(v) = conditions.into_option() {
         out.insert("conditions".into(), Value::Array(v));
     }
@@ -342,11 +359,17 @@ fn read_rule(issues: &mut Issues, body: &Map<String, Value>, create: bool) -> Ma
         let fields = issues.object(item)?;
         let before = issues.count();
         let mut action = Map::new();
-        if let Some(kind) = issues.choice(fields, "type", Presence::Required, &ACTIONS).into_option() {
+        if let Some(kind) = issues
+            .choice(fields, "type", Presence::Required, &ACTIONS)
+            .into_option()
+        {
             action.insert("type".into(), Value::String(kind));
         }
         for key in ["value", "folderId", "labelId"] {
-            if let Some(v) = issues.text(fields, key, Presence::Optional, None, None).into_option() {
+            if let Some(v) = issues
+                .text(fields, key, Presence::Optional, None, None)
+                .into_option()
+            {
                 action.insert(key.into(), Value::String(v));
             }
         }
@@ -401,15 +424,25 @@ fn read_rule(issues: &mut Issues, body: &Map<String, Value>, create: bool) -> Ma
         out.insert("applyToExisting".into(), Value::Bool(v));
     }
     if let Some(v) = issues
-        .choice(body, "scope", Presence::Optional, &["incoming", "outgoing", "all"])
+        .choice(
+            body,
+            "scope",
+            Presence::Optional,
+            &["incoming", "outgoing", "all"],
+        )
         .into_option()
     {
         out.insert("scope".into(), Value::String(v));
     }
     if let Some(v) = issues
-        .list(body, "folders", Presence::Optional, None, None, |issues, item| {
-            issues.item_text(item, Text::default())
-        })
+        .list(
+            body,
+            "folders",
+            Presence::Optional,
+            None,
+            None,
+            |issues, item| issues.item_text(item, Text::default()),
+        )
         .into_option()
     {
         out.insert("folders".into(), json!(v));
@@ -432,7 +465,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_rule(issues, body, true)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_rule(issues, body, true)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -496,7 +531,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_rule(issues, body, false)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_rule(issues, body, false)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -542,7 +579,11 @@ async fn update(
 }
 
 /// `DELETE /:id` (`softDeleteRule`).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = rule_row(&caller, &id).await? else {
             return Err(MailError::not_found("Rule", Some(&id)));
@@ -566,7 +607,11 @@ async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<S
 }
 
 /// `POST /:id/toggle` (`toggleRule`).
-async fn toggle(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn toggle(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = rule_row(&caller, &id).await? else {
             return Err(MailError::not_found("Rule", Some(&id)));
@@ -576,12 +621,14 @@ async fn toggle(State(state): State<MailState>, caller: Caller, Path(id): Path<S
             return Err(MailError::forbidden(NO_ACCESS));
         }
         let next = !existing["isActive"].as_bool().unwrap_or(false);
-        sqlx::query("update mail_rules set is_active = $2, updated_at = $3::timestamp where id = $1")
-            .bind(&id)
-            .bind(next)
-            .bind(now())
-            .execute(&caller.db)
-            .await?;
+        sqlx::query(
+            "update mail_rules set is_active = $2, updated_at = $3::timestamp where id = $1",
+        )
+        .bind(&id)
+        .bind(next)
+        .bind(now())
+        .execute(&caller.db)
+        .await?;
         let after = row_by_id(&caller, &id).await?;
         let action = if after["isActive"].as_bool() == Some(true) {
             EMAIL_RULE_ENABLED
@@ -596,7 +643,11 @@ async fn toggle(State(state): State<MailState>, caller: Caller, Path(id): Path<S
 }
 
 /// `POST /:id/duplicate` (`duplicateRule`): a disabled copy.
-async fn duplicate(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn duplicate(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = rule_row(&caller, &id).await? else {
             return Err(MailError::not_found("Rule", Some(&id)));

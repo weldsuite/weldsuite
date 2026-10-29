@@ -13,7 +13,9 @@ use weldsuite_kit::cursor::{atob_url, btoa_url};
 use weldsuite_kit::validation::js_trim;
 
 use crate::labels::{self, LabelMatch, SPAM, TRASH, label_folder_hides_archived, to_system_label};
-use crate::messages::{contains_pattern, enrich_sender_contacts, iso, message_record, search_patterns};
+use crate::messages::{
+    contains_pattern, enrich_sender_contacts, iso, message_record, search_patterns,
+};
 use crate::outbound::clock::parse_iso;
 
 /// `MAX_THREAD_PAGE_SIZE`.
@@ -78,8 +80,14 @@ pub fn decode_thread_cursor(raw: Option<&str>) -> Option<ThreadCursor> {
         return None;
     }
     let latest_at = object.get("latestAt")?.as_f64().filter(|n| n.is_finite())?;
-    let account_id = object.get("accountId")?.as_str().filter(|s| !s.is_empty())?;
-    let thread_key = object.get("threadKey")?.as_str().filter(|s| !s.is_empty())?;
+    let account_id = object
+        .get("accountId")?
+        .as_str()
+        .filter(|s| !s.is_empty())?;
+    let thread_key = object
+        .get("threadKey")?
+        .as_str()
+        .filter(|s| !s.is_empty())?;
     Some(ThreadCursor {
         latest_at,
         account_id: account_id.to_owned(),
@@ -332,11 +340,15 @@ fn thread_summary(account_id: &str, thread_id: &str, mut messages: Vec<Value>) -
         .or_else(|| latest_from["email"].as_str().filter(|s| !s.is_empty()))
         .unwrap_or("Unknown")
         .to_owned();
-    let latest_date = [&latest["receivedDate"], &latest["sentDate"], &latest["createdAt"]]
-        .into_iter()
-        .find(|v| !v.is_null())
-        .cloned()
-        .unwrap_or(Value::Null);
+    let latest_date = [
+        &latest["receivedDate"],
+        &latest["sentDate"],
+        &latest["createdAt"],
+    ]
+    .into_iter()
+    .find(|v| !v.is_null())
+    .cloned()
+    .unwrap_or(Value::Null);
     json!({
         "threadId": thread_id,
         "accountId": account_id,
@@ -362,6 +374,7 @@ fn thread_summary(account_id: &str, thread_id: &str, mut messages: Vec<Value>) -
 /// `listThreadsForAccounts(db, accountIds, input)` with the store's
 /// lookahead, as `PostgresMailboxStore.listThreads` /
 /// `PostgresWorkspaceMailStore.listThreads` page it.
+#[allow(clippy::too_many_lines)] // the count, the page and the summaries, as TypeScript reads them
 pub async fn list_threads(
     db: &PgPool,
     account_ids: &[String],
@@ -479,10 +492,7 @@ pub async fn list_threads(
             .iter()
             .filter(|m| {
                 m["accountId"].as_str() == Some(account.as_str())
-                    && m["threadId"]
-                        .as_str()
-                        .or_else(|| m["id"].as_str())
-                        == Some(tk.as_str())
+                    && m["threadId"].as_str().or_else(|| m["id"].as_str()) == Some(tk.as_str())
             })
             .cloned()
             .collect();
@@ -524,7 +534,10 @@ async fn enrich_thread_contacts(db: &PgPool, summaries: &mut [Value]) -> Result<
     let mut all: Vec<Value> = Vec::new();
     let mut counts: Vec<usize> = Vec::new();
     for summary in summaries.iter_mut() {
-        let messages = summary["messages"].as_array_mut().map(std::mem::take).unwrap_or_default();
+        let messages = summary["messages"]
+            .as_array_mut()
+            .map(std::mem::take)
+            .unwrap_or_default();
         counts.push(messages.len());
         all.extend(messages);
     }
@@ -543,7 +556,8 @@ async fn enrich_thread_contacts(db: &PgPool, summaries: &mut [Value]) -> Result<
                     .unwrap_or("Unknown")
                     .to_owned();
                 summary["latestSender"] = Value::String(sender);
-                summary["latestSenderAvatarUrl"] = from.get("avatarUrl").cloned().unwrap_or(Value::Null);
+                summary["latestSenderAvatarUrl"] =
+                    from.get("avatarUrl").cloned().unwrap_or(Value::Null);
             }
         }
         summary["messages"] = Value::Array(messages);

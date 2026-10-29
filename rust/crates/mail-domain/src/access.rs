@@ -81,7 +81,10 @@ pub async fn check_account_access(
 
 /// `accessibleAccountIds(db, userId)`: the live mailboxes the member may
 /// open (`userAccessCondition`), in the database's row order.
-pub async fn accessible_account_ids(db: &PgPool, user_id: &str) -> Result<Vec<String>, sqlx::Error> {
+pub async fn accessible_account_ids(
+    db: &PgPool,
+    user_id: &str,
+) -> Result<Vec<String>, sqlx::Error> {
     let admin = is_admin_or_owner(db, user_id).await?;
     sqlx::query_scalar(
         "select id from mail_accounts

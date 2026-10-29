@@ -31,7 +31,9 @@ use weldsuite_mail_domain::threads::{
 };
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::util::{MailError, MailResult, answer, bump_mailbox_directory, unhandled, validate, validate_query};
+use crate::util::{
+    MailError, MailResult, answer, bump_mailbox_directory, unhandled, validate, validate_query,
+};
 use crate::{Caller, MailState};
 
 pub(crate) const NO_ACCESS: &str = "Access to this mail account is not allowed";
@@ -170,8 +172,9 @@ async fn threads(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             None => accessible_account_ids(&caller.db, &caller.user_id).await?,
         };
         if account_ids.is_empty() {
-            return Ok(Data(json!({ "threads": [], "totalCount": 0, "nextCursor": null }))
-                .into_response());
+            return Ok(
+                Data(json!({ "threads": [], "totalCount": 0, "nextCursor": null })).into_response(),
+            );
         }
         query.cursor = decode_thread_cursor(cursor.as_deref());
         if query.cursor.is_some() {
@@ -180,7 +183,8 @@ async fn threads(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         if account_ids.len() == 1 {
             query.account_id = Some(account_ids[0].clone());
         }
-        let page = list_threads(&caller.db, &account_ids, &query, OffsetDateTime::now_utc()).await?;
+        let page =
+            list_threads(&caller.db, &account_ids, &query, OffsetDateTime::now_utc()).await?;
         Ok(Data(json!({
             "threads": page.threads,
             "totalCount": page.total_count,
@@ -552,16 +556,20 @@ async fn update(
         Ok(None) => return MailError::not_found("Label", Some(&id)).respond(""),
         Err(error) => return unhandled(error.into()),
     };
-    let account = existing["accountId"].as_str().unwrap_or_default().to_owned();
+    let account = existing["accountId"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
     match check_account_access(&caller.db, &account, &caller.user_id).await {
         Ok(true) => {}
         Ok(false) => return MailError::forbidden(NO_ACCESS).respond(""),
         Err(error) => return unhandled(error.into()),
     }
     let result = async {
-        let (_, after) = labels::update_mail_label(&caller.db, &id, &data, OffsetDateTime::now_utc())
-            .await
-            .map_err(label_error)?;
+        let (_, after) =
+            labels::update_mail_label(&caller.db, &id, &data, OffsetDateTime::now_utc())
+                .await
+                .map_err(label_error)?;
         bump_mailbox_directory(&caller, &state).await;
         caller.publish(
             &state,
@@ -576,7 +584,11 @@ async fn update(
 }
 
 /// `DELETE /:id` (`deleteMailLabel`).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = labels::get_mail_label(&caller.db, &id).await? else {
             return Err(MailError::not_found("Label", Some(&id)));

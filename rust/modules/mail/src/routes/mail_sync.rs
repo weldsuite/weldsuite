@@ -94,7 +94,9 @@ async fn sync_messages(
     RawQuery(raw): RawQuery,
 ) -> Response {
     let label = match validate_query(raw.as_deref(), |issues, q| {
-        issues.text(q, "label", Presence::Optional, None, None).into_option()
+        issues
+            .text(q, "label", Presence::Optional, None, None)
+            .into_option()
     }) {
         Ok(label) => label,
         Err(error) => return error.respond(""),
@@ -112,11 +114,16 @@ async fn sync_messages(
 }
 
 /// `POST /accounts/:accountId/full-sync`.
-async fn full_sync(State(state): State<MailState>, caller: Caller, Path(account): Path<String>) -> Response {
+async fn full_sync(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(account): Path<String>,
+) -> Response {
     if let Err(response) = allowed(&caller, &account).await {
         return response;
     }
-    let result = async { Ok(Data(begin_sync(&state, &caller, &account).await?).into_response()) }.await;
+    let result =
+        async { Ok(Data(begin_sync(&state, &caller, &account).await?).into_response()) }.await;
     answer(result, "Failed to perform full sync")
 }
 
@@ -129,7 +136,9 @@ async fn force_resync(
     body: Bytes,
 ) -> Response {
     let label = match validate(&headers, &body, |issues, body| {
-        issues.text(body, "label", Presence::Optional, None, None).into_option()
+        issues
+            .text(body, "label", Presence::Optional, None, None)
+            .into_option()
     }) {
         Ok(label) => label,
         Err(error) => return error.respond(""),
@@ -182,9 +191,17 @@ async fn set_sync_status(
     body: Bytes,
 ) -> Response {
     let input = validate(&headers, &body, |issues, body| {
-        let status = issues.choice(body, "status", Presence::Required, &["idle", "syncing", "error"]);
+        let status = issues.choice(
+            body,
+            "status",
+            Presence::Required,
+            &["idle", "syncing", "error"],
+        );
         let message = issues.text(body, "errorMessage", Presence::Optional, None, None);
-        (status.into_option().unwrap_or_default(), message.into_option())
+        (
+            status.into_option().unwrap_or_default(),
+            message.into_option(),
+        )
     });
     let (status, message) = match input {
         Ok(input) => input,

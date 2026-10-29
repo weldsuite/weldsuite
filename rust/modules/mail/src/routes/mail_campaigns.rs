@@ -114,19 +114,19 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let result = async {
         let limit = limit.unwrap_or(25).min(100);
-        let cursor_row: Option<(String, String)> =
-            match cursor.as_deref().filter(|c| !c.is_empty()) {
-                Some(cursor) => {
-                    sqlx::query_as(
-                        "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
+        let cursor_row: Option<(String, String)> = match cursor.as_deref().filter(|c| !c.is_empty())
+        {
+            Some(cursor) => {
+                sqlx::query_as(
+                    "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
                          from mail_campaigns where id = $1 limit 1",
-                    )
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await?
-                }
-                None => None,
-            };
+                )
+                .bind(cursor)
+                .fetch_optional(&caller.db)
+                .await?
+            }
+            None => None,
+        };
         let (cursor_at, cursor_id) = cursor_row.unzip();
         let rows: Vec<Value> = sqlx::query_scalar(
             "select to_jsonb(c) from mail_campaigns c
@@ -183,7 +183,11 @@ const EMAIL: Text = Text {
 };
 
 /// `recipientListSchema`.
-fn read_recipients(issues: &mut Issues, body: &Map<String, Value>, presence: Presence) -> Option<Value> {
+fn read_recipients(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    presence: Presence,
+) -> Option<Value> {
     issues
         .nested(body, "recipientList", presence, |issues, list| {
             let mut out = Map::new();
@@ -209,24 +213,31 @@ fn read_recipients(issues: &mut Issues, body: &Map<String, Value>, presence: Pre
                 }
             }
             if let Some(v) = issues
-                .list(list, "emails", Presence::Optional, None, None, |issues, item| {
-                    let fields = issues.object(item)?;
-                    let before = issues.count();
-                    let mut entry = Map::new();
-                    if let Some(email) = issues
-                        .text_with(fields, "email", Presence::Required, EMAIL)
-                        .into_option()
-                    {
-                        entry.insert("email".into(), Value::String(email));
-                    }
-                    if let Some(name) = issues
-                        .text(fields, "name", Presence::Optional, None, None)
-                        .into_option()
-                    {
-                        entry.insert("name".into(), Value::String(name));
-                    }
-                    (issues.count() == before).then_some(Value::Object(entry))
-                })
+                .list(
+                    list,
+                    "emails",
+                    Presence::Optional,
+                    None,
+                    None,
+                    |issues, item| {
+                        let fields = issues.object(item)?;
+                        let before = issues.count();
+                        let mut entry = Map::new();
+                        if let Some(email) = issues
+                            .text_with(fields, "email", Presence::Required, EMAIL)
+                            .into_option()
+                        {
+                            entry.insert("email".into(), Value::String(email));
+                        }
+                        if let Some(name) = issues
+                            .text(fields, "name", Presence::Optional, None, None)
+                            .into_option()
+                        {
+                            entry.insert("name".into(), Value::String(name));
+                        }
+                        (issues.count() == before).then_some(Value::Object(entry))
+                    },
+                )
                 .into_option()
             {
                 out.insert("emails".into(), Value::Array(v));
@@ -256,7 +267,12 @@ fn read_recipients(issues: &mut Issues, body: &Map<String, Value>, presence: Pre
 }
 
 /// `createBody` / `updateBody`.
-fn read_campaign(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+#[allow(clippy::too_many_lines)] // one reader per schema field, in order
+fn read_campaign(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let required = if partial {
         Presence::Optional
     } else {
@@ -269,26 +285,88 @@ fn read_campaign(issues: &mut Issues, body: &Map<String, Value>, partial: bool) 
         }
     };
     let s = |v: Option<String>| v.map(Value::String);
-    put(&mut out, "templateId", s(issues.text(body, "templateId", Presence::Optional, None, None).into_option()));
-    put(&mut out, "name", s(issues.text(body, "name", required, Some(1), Some(255)).into_option()));
-    put(&mut out, "subject", s(issues.text(body, "subject", required, Some(1), Some(998)).into_option()));
-    put(&mut out, "preheader", s(issues.text(body, "preheader", Presence::Optional, None, Some(500)).into_option()));
-    put(&mut out, "htmlContent", s(issues.text(body, "htmlContent", required, Some(1), None).into_option()));
-    put(&mut out, "textContent", s(issues.text(body, "textContent", Presence::Optional, None, None).into_option()));
-    put(&mut out, "recipientList", read_recipients(issues, body, required));
-    put(&mut out, "fromName", s(issues.text(body, "fromName", required, Some(1), Some(255)).into_option()));
+    put(
+        &mut out,
+        "templateId",
+        s(issues
+            .text(body, "templateId", Presence::Optional, None, None)
+            .into_option()),
+    );
+    put(
+        &mut out,
+        "name",
+        s(issues
+            .text(body, "name", required, Some(1), Some(255))
+            .into_option()),
+    );
+    put(
+        &mut out,
+        "subject",
+        s(issues
+            .text(body, "subject", required, Some(1), Some(998))
+            .into_option()),
+    );
+    put(
+        &mut out,
+        "preheader",
+        s(issues
+            .text(body, "preheader", Presence::Optional, None, Some(500))
+            .into_option()),
+    );
+    put(
+        &mut out,
+        "htmlContent",
+        s(issues
+            .text(body, "htmlContent", required, Some(1), None)
+            .into_option()),
+    );
+    put(
+        &mut out,
+        "textContent",
+        s(issues
+            .text(body, "textContent", Presence::Optional, None, None)
+            .into_option()),
+    );
+    put(
+        &mut out,
+        "recipientList",
+        read_recipients(issues, body, required),
+    );
+    put(
+        &mut out,
+        "fromName",
+        s(issues
+            .text(body, "fromName", required, Some(1), Some(255))
+            .into_option()),
+    );
     put(
         &mut out,
         "fromEmail",
         s(issues
-            .text_with(body, "fromEmail", required, Text { max: Some(255), ..EMAIL })
+            .text_with(
+                body,
+                "fromEmail",
+                required,
+                Text {
+                    max: Some(255),
+                    ..EMAIL
+                },
+            )
             .into_option()),
     );
     put(
         &mut out,
         "replyToEmail",
         s(issues
-            .text_with(body, "replyToEmail", Presence::Optional, Text { max: Some(255), ..EMAIL })
+            .text_with(
+                body,
+                "replyToEmail",
+                Presence::Optional,
+                Text {
+                    max: Some(255),
+                    ..EMAIL
+                },
+            )
             .into_option()),
     );
     put(
@@ -306,17 +384,35 @@ fn read_campaign(issues: &mut Issues, body: &Map<String, Value>, partial: bool) 
             )
             .into_option()),
     );
-    put(&mut out, "status", s(issues.choice(body, "status", Presence::Optional, &STATUSES).into_option()));
+    put(
+        &mut out,
+        "status",
+        s(issues
+            .choice(body, "status", Presence::Optional, &STATUSES)
+            .into_option()),
+    );
     for key in ["trackOpens", "trackClicks"] {
-        put(&mut out, key, issues.boolean(body, key, Presence::Optional).into_option().map(Value::Bool));
+        put(
+            &mut out,
+            key,
+            issues
+                .boolean(body, key, Presence::Optional)
+                .into_option()
+                .map(Value::Bool),
+        );
     }
     put(
         &mut out,
         "tags",
         issues
-            .list(body, "tags", Presence::Optional, None, None, |issues, item| {
-                issues.item_text(item, Text::default())
-            })
+            .list(
+                body,
+                "tags",
+                Presence::Optional,
+                None,
+                None,
+                |issues, item| issues.item_text(item, Text::default()),
+            )
             .into_option()
             .map(|v| json!(v)),
     );
@@ -355,7 +451,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_campaign(issues, body, false)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_campaign(issues, body, false)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -406,7 +504,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_campaign(issues, body, true)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_campaign(issues, body, true)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -468,7 +568,11 @@ async fn update(
 }
 
 /// `DELETE /:id` (`softDeleteCampaign`).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = campaign_row(&caller, &id).await? else {
             return Err(MailError::not_found("Campaign", Some(&id)));

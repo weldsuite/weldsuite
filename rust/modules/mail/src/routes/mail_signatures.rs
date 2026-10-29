@@ -22,9 +22,7 @@ use weldsuite_kit::validation::{Issues, Number, Presence, Text};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
-use crate::util::{
-    MailError, answer, list_response, now, page, strings, validate, validate_query,
-};
+use crate::util::{MailError, answer, list_response, now, page, strings, validate, validate_query};
 use crate::{Caller, MailState};
 
 const TYPES: [&str; 3] = ["personal", "company", "department"];
@@ -106,7 +104,11 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
             },
         );
         let cursor = issues.text(q, "cursor", Presence::Optional, None, None);
-        (kind.into_option(), limit.into_option(), cursor.into_option())
+        (
+            kind.into_option(),
+            limit.into_option(),
+            cursor.into_option(),
+        )
     });
     let (kind, limit, cursor) = match query {
         Ok(query) => query,
@@ -114,19 +116,19 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     };
     let result = async {
         let limit = limit.unwrap_or(50).min(100);
-        let cursor_row: Option<(String, String)> =
-            match cursor.as_deref().filter(|c| !c.is_empty()) {
-                Some(cursor) => {
-                    sqlx::query_as(
-                        "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
+        let cursor_row: Option<(String, String)> = match cursor.as_deref().filter(|c| !c.is_empty())
+        {
+            Some(cursor) => {
+                sqlx::query_as(
+                    "select to_char(created_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS'), id
                          from mail_signatures where id = $1 limit 1",
-                    )
-                    .bind(cursor)
-                    .fetch_optional(&caller.db)
-                    .await?
-                }
-                None => None,
-            };
+                )
+                .bind(cursor)
+                .fetch_optional(&caller.db)
+                .await?
+            }
+            None => None,
+        };
         let (cursor_at, cursor_id) = cursor_row.unzip();
         let rows: Vec<Value> = sqlx::query_scalar(concat!(
             "select to_jsonb(s) from mail_signatures s
@@ -174,7 +176,11 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// `createBody` / `updateBody`: the given fields in the schema's order.
-fn read_signature(issues: &mut Issues, body: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_signature(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let required = if partial {
         Presence::Optional
     } else {
@@ -193,10 +199,16 @@ fn read_signature(issues: &mut Issues, body: &Map<String, Value>, partial: bool)
     {
         out.insert("content".into(), Value::String(content));
     }
-    if let Some(v) = issues.boolean(body, "isDefault", Presence::Optional).into_option() {
+    if let Some(v) = issues
+        .boolean(body, "isDefault", Presence::Optional)
+        .into_option()
+    {
         out.insert("isDefault".into(), Value::Bool(v));
     }
-    if let Some(v) = issues.choice(body, "type", Presence::Optional, &TYPES).into_option() {
+    if let Some(v) = issues
+        .choice(body, "type", Presence::Optional, &TYPES)
+        .into_option()
+    {
         out.insert("type".into(), Value::String(v));
     }
     let list = |issues: &mut Issues, key: &str| {
@@ -251,7 +263,10 @@ async fn clear_competing_defaults(
     let competing: Vec<String> = defaults
         .into_iter()
         .filter(|(_, accounts)| {
-            accounts_overlap(&accounts.as_ref().map(strings).unwrap_or_default(), account_ids)
+            accounts_overlap(
+                &accounts.as_ref().map(strings).unwrap_or_default(),
+                account_ids,
+            )
         })
         .map(|(id, _)| id)
         .collect();
@@ -441,7 +456,11 @@ async fn update(
 }
 
 /// `DELETE /:id` (`softDeleteSignature`).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = get_signature(&caller, &id).await? else {
             return Err(MailError::not_found("Signature", Some(&id)));

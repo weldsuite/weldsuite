@@ -86,6 +86,7 @@ async fn legacy_cursor(
 }
 
 /// `GET /`.
+#[allow(clippy::too_many_lines)] // the query schema and the three list paths
 pub(super) async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let query = validate_query(raw.as_deref(), |issues, q| {
         let account = issues.text(q, "accountId", Presence::Optional, None, None);
@@ -137,42 +138,38 @@ pub(super) async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         Err(error) => return error.respond(""),
     };
     let result = async {
-        let account_ids = match account.filter(|a| !a.is_empty()) {
-            Some(account) => {
-                if !check_account_access(&caller.db, &account, &caller.user_id).await? {
-                    return Err(MailError::forbidden(NO_ACCESS));
-                }
-                vec![account]
+        let account_ids = if let Some(account) = account.filter(|a| !a.is_empty()) {
+            if !check_account_access(&caller.db, &account, &caller.user_id).await? {
+                return Err(MailError::forbidden(NO_ACCESS));
             }
-            None => {
-                let ids = accessible_account_ids(&caller.db, &caller.user_id).await?;
-                if ids.is_empty() {
-                    return Ok(list_response(Vec::new(), 0, false, None));
-                }
-                ids
+            vec![account]
+        } else {
+            let ids = accessible_account_ids(&caller.db, &caller.user_id).await?;
+            if ids.is_empty() {
+                return Ok(list_response(Vec::new(), 0, false, None));
             }
+            ids
         };
         #[allow(clippy::cast_possible_truncation)]
         let limit = limit.map_or(50, |l| l.ceil() as i64);
         let cursor = legacy_cursor(&caller, &account_ids, cursor.as_deref()).await?;
-        let filters = match counterparty.filter(|c| !c.is_empty()) {
-            Some(counterparty) => MessageFilters {
+        let filters = if let Some(counterparty) = counterparty.filter(|c| !c.is_empty()) {
+            MessageFilters {
                 accessible_account_ids: Some(account_ids),
                 limit: Some(limit),
                 cursor,
                 counterparty: Some(counterparty),
                 ..MessageFilters::default()
-            },
-            None => {
-                filters.limit = Some(limit);
-                filters.cursor = cursor;
-                if account_ids.len() == 1 {
-                    filters.account_id = Some(account_ids[0].clone());
-                } else {
-                    filters.accessible_account_ids = Some(account_ids);
-                }
-                filters
             }
+        } else {
+            filters.limit = Some(limit);
+            filters.cursor = cursor;
+            if account_ids.len() == 1 {
+                filters.account_id = Some(account_ids[0].clone());
+            } else {
+                filters.accessible_account_ids = Some(account_ids);
+            }
+            filters
         };
         let page = list_messages_wide(&caller.db, &filters).await?;
         let next = if page.has_more {
@@ -216,10 +213,11 @@ pub(super) async fn stats(caller: Caller, RawQuery(raw): RawQuery) -> Response {
 pub(crate) async fn locate(caller: &Caller, id: &str, resource: &str) -> MailResult<String> {
     let accessible = accessible_account_ids(&caller.db, &caller.user_id).await?;
     if !accessible.is_empty()
-        && let Some((_, account)) = locate_messages(&caller.db, &[id.to_owned()], &accessible, false)
-            .await?
-            .into_iter()
-            .find(|(found, _)| found == id)
+        && let Some((_, account)) =
+            locate_messages(&caller.db, &[id.to_owned()], &accessible, false)
+                .await?
+                .into_iter()
+                .find(|(found, _)| found == id)
     {
         return Ok(account);
     }

@@ -123,13 +123,12 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 /// `createBody` (with `accountId`) or `updateBody` (without, `.partial()`).
 fn read_folder(issues: &mut Issues, body: &Map<String, Value>, create: bool) -> Map<String, Value> {
     let mut out = Map::new();
-    if create {
-        if let Some(account) = issues
+    if create
+        && let Some(account) = issues
             .text(body, "accountId", Presence::Required, Some(1), None)
             .into_option()
-        {
-            out.insert("accountId".into(), Value::String(account));
-        }
+    {
+        out.insert("accountId".into(), Value::String(account));
     }
     let required = if create {
         Presence::Required
@@ -194,7 +193,9 @@ async fn create(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_folder(issues, body, true)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_folder(issues, body, true)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -243,7 +244,9 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, body| read_folder(issues, body, false)) {
+    let data = match validate(&headers, &body, |issues, body| {
+        read_folder(issues, body, false)
+    }) {
         Ok(data) => data,
         Err(error) => return error.respond(""),
     };
@@ -306,7 +309,11 @@ async fn update(
 }
 
 /// `DELETE /:id` (`softDeleteFolder`).
-async fn remove(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         let Some(existing) = get_folder(&caller, &id).await? else {
             return Err(MailError::not_found("Folder", Some(&id)));
