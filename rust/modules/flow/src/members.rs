@@ -414,7 +414,7 @@ async fn add_member(state: &FlowState, caller: &Caller, input: &AddMember) -> Re
         })
     };
     if let Some((id, deleted, active)) = existing {
-        if !(deleted || !active) {
+        if !deleted && active {
             return Err(Refusal::bad_request(ALREADY_MEMBER));
         }
         sqlx::query(

@@ -234,6 +234,7 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     outside(list_projects(&caller, &q).await)
 }
 
+#[allow(clippy::too_many_lines)]
 async fn list_projects(caller: &Caller, q: &Query) -> Reply {
     let Some(user) = caller.user() else {
         return Err(ApiError::unauthorized().into());
@@ -471,6 +472,7 @@ fn or_default(value: Option<f64>, fallback: f64) -> f64 {
 
 impl MemberLoad {
     /// The person's card: profile, capacity and their `tasks`.
+    #[allow(clippy::needless_pass_by_value)]
     fn card(&self, allocation: f64, tasks: Vec<Value>) -> Value {
         let hours_per_week = or_default(Some(numeric(&self.hours_per_week)), 40.0);
         let capacity = math_round((allocation / 100.0) * hours_per_week);
@@ -1286,8 +1288,7 @@ async fn create_project(
     let manager = match data.get("projectManagerId") {
         Some(Value::Null) | None => caller
             .user()
-            .map(|u| Value::String(u.to_owned()))
-            .unwrap_or(Value::Null),
+            .map_or(Value::Null, |u| Value::String(u.to_owned())),
         Some(value) => value.clone(),
     };
     let mut values = data.clone();
@@ -1343,13 +1344,12 @@ async fn create_project(
         }
     }
     let created = project_row(db, &id, false).await?;
-    let payload = match created {
-        Some(Value::Object(row)) => analytics_payload(&row),
-        _ => {
-            let mut row = data.clone();
-            row.insert("id".to_owned(), json!(id));
-            analytics_payload(&row)
-        }
+    let payload = if let Some(Value::Object(row)) = created {
+        analytics_payload(&row)
+    } else {
+        let mut row = data.clone();
+        row.insert("id".to_owned(), json!(id));
+        analytics_payload(&row)
     };
     caller.publish(state, PROJECT_CREATED, &id, &payload);
     Ok(Created(json!({ "id": id })).into_response())

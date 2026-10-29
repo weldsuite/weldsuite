@@ -586,6 +586,7 @@ async fn create(
     )
 }
 
+#[allow(clippy::too_many_lines)]
 async fn create_file(
     state: &FlowState,
     caller: &Caller,
@@ -607,8 +608,8 @@ async fn create_file(
         || data.get("fileType").and_then(Value::as_str) == Some("folder")
     {
         let name = match (data.get("fileName"), data.get("name")) {
-            (Some(Value::String(name)), _) => name.clone(),
-            (Some(Value::Null) | None, Some(Value::String(name))) => name.clone(),
+            (Some(Value::String(name)), _)
+            | (Some(Value::Null) | None, Some(Value::String(name))) => name.clone(),
             _ => "Untitled folder".to_owned(),
         };
         let row = create_project_folder(

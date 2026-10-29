@@ -64,6 +64,7 @@ impl Js {
     }
 
     /// `obj[key]` of an object.
+    #[allow(dead_code)]
     pub(crate) fn get(&self, key: &str) -> Option<&Self> {
         match self {
             Self::Object(entries) => entries.iter().find(|(k, _)| k == key).map(|(_, v)| v),
@@ -210,6 +211,7 @@ impl<'de> Visitor<'de> for JsVisitor {
 
 /// The request body in JavaScript's key order; `Js::Null` when it isn't
 /// JSON (the validator has refused it by then).
+#[allow(dead_code)]
 pub(crate) fn parse_body(body: &[u8]) -> Js {
     serde_json::from_slice(body).unwrap_or(Js::Null)
 }

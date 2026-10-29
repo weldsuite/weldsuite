@@ -154,7 +154,10 @@ pub async fn project_stats(
 }
 
 /// `withProjectStats`: rows with the computed stats over the stored columns.
-pub fn with_project_stats(rows: Vec<Value>, stats: &HashMap<String, ProjectStats>) -> Vec<Value> {
+pub fn with_project_stats<H: std::hash::BuildHasher>(
+    rows: Vec<Value>,
+    stats: &HashMap<String, ProjectStats, H>,
+) -> Vec<Value> {
     let empty = ProjectStats::empty();
     rows.into_iter()
         .map(|row| match row {
@@ -238,9 +241,9 @@ pub fn milestone_refs(rows: &[Value]) -> Vec<(String, Option<String>)> {
 }
 
 /// `withMilestoneStats`.
-pub fn with_milestone_stats(
+pub fn with_milestone_stats<H: std::hash::BuildHasher>(
     rows: Vec<Value>,
-    stats: &HashMap<String, MilestoneStats>,
+    stats: &HashMap<String, MilestoneStats, H>,
 ) -> Vec<Value> {
     rows.into_iter()
         .map(|row| match row {

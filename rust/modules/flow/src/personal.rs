@@ -188,7 +188,7 @@ async fn list(
             .await?;
         let total: i64 = sqlx::query_scalar(count_sql)
             .bind(flags[0])
-            .bind(Some(caller.user_id.as_str()).filter(|_| flags[1]))
+            .bind(flags[1].then_some(caller.user_id.as_str()))
             .bind(search.as_deref().filter(|_| flags[2]))
             .fetch_one(&caller.db)
             .await?;

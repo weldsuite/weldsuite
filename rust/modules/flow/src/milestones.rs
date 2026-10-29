@@ -138,7 +138,7 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
             .await?,
             None => None,
         };
-    let rows_flags = flags;
+    let fetch_flags = flags;
     // A cursor drops the last condition from the count: the cursor's own
     // when its row was found, else the last filter.
     if q.present("cursor").is_some()
@@ -160,13 +160,13 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
             " or (m.created_at = $8::timestamp and m.id < $9))",
             " order by m.created_at desc, m.id desc limit $10"
         ))
-        .bind(rows_flags[0])
-        .bind(project_id.as_deref().filter(|_| rows_flags[1]))
-        .bind(rows_flags[2])
+        .bind(fetch_flags[0])
+        .bind(project_id.as_deref().filter(|_| fetch_flags[1]))
+        .bind(fetch_flags[2])
         .bind(all)
         .bind(&ids)
-        .bind(status.as_deref().filter(|_| rows_flags[3]))
-        .bind(search.as_deref().filter(|_| rows_flags[4]))
+        .bind(status.as_deref().filter(|_| fetch_flags[3]))
+        .bind(search.as_deref().filter(|_| fetch_flags[4]))
         .bind(cursor.as_ref().map(|c| c.0.as_str()))
         .bind(cursor.as_ref().map(|c| c.1.as_str()))
         .bind(limit + 1)
@@ -185,13 +185,13 @@ async fn list_milestones(caller: &Caller, q: &Query) -> Reply {
         .bind(search.as_deref().filter(|_| flags[4]))
         .fetch_one(db)
         .await?;
-        let (rows, has_more, next) = page(rows.into_iter().map(js_row).collect(), limit);
-        let stats = milestone_stats(db, &milestone_refs(&rows)).await?;
+        let (rows, has_more, cursor) = page(rows.into_iter().map(js_row).collect(), limit);
+        let counters = milestone_stats(db, &milestone_refs(&rows)).await?;
         Ok(paged(
-            with_milestone_stats(rows, &stats),
+            with_milestone_stats(rows, &counters),
             total,
             has_more,
-            next,
+            cursor,
         ))
     }
     .await;
@@ -254,9 +254,8 @@ async fn create(
         Ok(body) => body,
         Err(refused) => return refused.respond("Invalid request body"),
     };
-    let picked = match writable(&body, &WRITABLE, &[]) {
-        Ok(picked) => picked,
-        Err(_) => return ApiError::internal().into_response(),
+    let Ok(picked) = writable(&body, &WRITABLE, &[]) else {
+        return ApiError::internal().into_response();
     };
     let Some(project_id) = picked
         .get("projectId")

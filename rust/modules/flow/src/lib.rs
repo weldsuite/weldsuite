@@ -255,6 +255,7 @@ impl Caller {
     }
 
     /// `publishEntityEvent` with `changes`.
+    #[allow(dead_code)]
     pub(crate) fn publish_changes(
         &self,
         state: &FlowState,

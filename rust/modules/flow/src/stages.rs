@@ -591,6 +591,7 @@ async fn remove(
     )
 }
 
+#[allow(clippy::too_many_lines)]
 async fn remove_stage(
     state: &FlowState,
     caller: &Caller,

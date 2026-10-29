@@ -207,6 +207,7 @@ macro_rules! set_int {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! set_num {
     ($key:literal, $col:literal) => {
         concat!(
@@ -295,6 +296,7 @@ macro_rules! val_int {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! val_num {
     ($key:literal, $default:literal) => {
         concat!(

@@ -11,6 +11,8 @@
 use sqlx::PgPool;
 
 /// The resolved access (`ProjectAccess`).
+// The flags are the TypeScript object's, one per rule.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectAccess {
     /// The member row's role (lowercased), else `owner` for the manager.

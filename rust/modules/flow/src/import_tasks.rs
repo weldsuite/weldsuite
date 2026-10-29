@@ -157,6 +157,7 @@ impl Job for ImportTasksJob {
 }
 
 impl ImportTasksJob {
+    #[allow(clippy::too_many_lines)]
     async fn import(&self, ctx: &dyn JobContext, params: &ImportParams) -> Result<(), JobError> {
         let rows: Value = step(
             ctx,
@@ -459,6 +460,7 @@ fn db_message(error: &sqlx::Error) -> String {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 async fn process_batch(
     db: &PgPool,
     batch: &[Value],
@@ -487,7 +489,7 @@ async fn process_batch(
             inserts.push((row, row_num, title));
         }
     }
-    let mut take_position = || {
+    let take_position = || {
         let mut next = next_position.lock().unwrap_or_else(PoisonError::into_inner);
         let position = *next;
         *next += 1;

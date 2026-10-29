@@ -21,6 +21,7 @@ pub(crate) struct Definition {
     pub(crate) field_type: String,
     pub(crate) options: Option<Value>,
     pub(crate) required: bool,
+    #[allow(dead_code)]
     pub(crate) sort_order: i64,
 }
 
@@ -48,6 +49,7 @@ impl Column {
     }
 
     /// The name the list query's sort and filter switch on.
+    #[allow(dead_code)]
     pub(crate) fn kind(self) -> &'static str {
         match self {
             Self::Text => "text",

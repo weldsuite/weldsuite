@@ -1,7 +1,7 @@
-//! Documents from before WeldDocs: `/api/documents` (`routes/documents/`),
+//! Documents from before `WeldDocs`: `/api/documents` (`routes/documents/`),
 //! `/api/project-documents` and `/api/project-sheets`. A document's
-//! BlockNote JSON lives in `docs`, paired 1:1 with a drive `files` row;
-//! versions in `document_versions`. A WeldDocs row (`content` null or a
+//! `BlockNote` JSON lives in `docs`, paired 1:1 with a drive `files` row;
+//! versions in `document_versions`. A `WeldDocs` row (`content` null or a
 //! checkpoint key) reads as `content: []` and refuses writes with a 409.
 
 use std::sync::Arc;
@@ -304,11 +304,11 @@ async fn guard(
 }
 
 /// The guard as a step: `Err` with the refusal.
-async fn guarded(caller: &Caller, file_id: &str, mode: Mode) -> Result<(), Response> {
+async fn guarded(caller: &Caller, file_id: &str, mode: Mode) -> Result<(), Box<Response>> {
     match guard(caller, file_id, mode).await {
         Ok(None) => Ok(()),
-        Ok(Some(denied)) => Err(denied),
-        Err(error) => Err(outside(Err(error.into()))),
+        Ok(Some(denied)) => Err(Box::new(denied)),
+        Err(error) => Err(Box::new(outside(Err(error.into())))),
     }
 }
 
@@ -316,7 +316,7 @@ async fn guarded(caller: &Caller, file_id: &str, mode: Mode) -> Result<(), Respo
 
 async fn document(caller: Caller, Path(file_id): Path<String>) -> Response {
     if let Err(denied) = guarded(&caller, &file_id, Mode::Read).await {
-        return denied;
+        return *denied;
     }
     reply(
         async {
@@ -340,6 +340,8 @@ async fn document(caller: Caller, Path(file_id): Path<String>) -> Response {
 
 /// The new document's name and object key (`<name>.docx`, sanitised).
 fn document_key(name: &str, clerk_org_id: &str, folder: &str) -> (String, String) {
+    // Case-sensitive, as `name.endsWith('.docx')`.
+    #[allow(clippy::case_sensitive_file_extension_comparisons)]
     let file_name = if name.ends_with(".docx") {
         name.to_owned()
     } else {
@@ -595,7 +597,7 @@ async fn save_content(
         return ApiError::unauthorized().into_response();
     };
     if let Err(denied) = guarded(&caller, &file_id, Mode::Write).await {
-        return denied;
+        return *denied;
     }
     reply(
         async {
@@ -638,7 +640,7 @@ fn publish_doc_updated(state: &FlowState, caller: &Caller, row: &Value) {
 
 async fn list_versions(caller: Caller, Path(file_id): Path<String>) -> Response {
     if let Err(denied) = guarded(&caller, &file_id, Mode::Read).await {
-        return denied;
+        return *denied;
     }
     let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(
         "select jsonb_build_object('id', v.id, 'fileId', v.file_id, 'label', v.label,
@@ -677,7 +679,7 @@ async fn create_version(
         return ApiError::unauthorized().into_response();
     };
     if let Err(denied) = guarded(&caller, &file_id, Mode::Write).await {
-        return denied;
+        return *denied;
     }
     reply(
         async {
@@ -717,7 +719,7 @@ async fn version_row(
 
 async fn version(caller: Caller, Path((file_id, version_id)): Path<(String, String)>) -> Response {
     if let Err(denied) = guarded(&caller, &file_id, Mode::Read).await {
-        return denied;
+        return *denied;
     }
     reply(
         async {
@@ -740,7 +742,7 @@ async fn restore_version(
         return ApiError::unauthorized().into_response();
     };
     if let Err(denied) = guarded(&caller, &file_id, Mode::Write).await {
-        return denied;
+        return *denied;
     }
     reply(
         async {

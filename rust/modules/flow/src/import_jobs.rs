@@ -37,6 +37,7 @@ fn read_rows(headers: &HeaderMap, body: &Bytes) -> Result<Vec<Value>, Refusal> {
     })
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn start(
     State(state): State<FlowState>,
     caller: Caller,
