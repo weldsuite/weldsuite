@@ -67,11 +67,14 @@ spec:
       parameters:
         barmanObjectName: master-backups
 ---
-# The first tenant shard. A workspace's database is created here with
-# CREATE DATABASE by the tenant role (CREATEDB), and its connection string
-# (through the tenants-1-pooler Pooler) goes into workspaces.database_url,
-# encrypted. Automatic placement across shards is the DatabaseProvisioner
-# port of P4 (4a); until then, see README.md "Tenant databases".
+# The first tenant shard. The DatabaseProvisioner's CloudNativePG adapter
+# (rust/crates/adapters-oss/src/cnpg.rs) logs in here as the tenant role
+# (CREATEDB, CREATEROLE) to make each workspace a role of its own and a
+# database it owns, with vector and pg_trgm from template1; the database's
+# URL (through the tenants-1-pooler Pooler, as that role) goes into
+# workspaces.database_url, sealed. postInitSQL only runs when the cluster is
+# made: on an existing cluster, run `ALTER ROLE tenant CREATEDB CREATEROLE`
+# once (README.md "Tenant databases").
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -97,7 +100,7 @@ spec:
       secret:
         name: tenants-1-owner
       postInitSQL:
-        - ALTER ROLE tenant CREATEDB;
+        - ALTER ROLE tenant CREATEDB CREATEROLE;
       postInitTemplateSQL:
         - CREATE EXTENSION IF NOT EXISTS vector;
         - CREATE EXTENSION IF NOT EXISTS pg_trgm;

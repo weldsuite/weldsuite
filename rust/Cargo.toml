@@ -32,6 +32,7 @@ weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
+weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }

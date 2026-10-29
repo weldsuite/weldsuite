@@ -53,7 +53,7 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             return ExitCode::from(78); // EX_CONFIG
         }
     };
-    let telemetry = crate::telemetry::init(config.log_format);
+    let telemetry = crate::telemetry::init(config.log_format, "info");
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

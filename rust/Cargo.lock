@@ -3659,6 +3659,7 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-know",
+ "weldsuite-migrations",
  "weldsuite-permissions",
  "weldsuite-pipeline",
  "weldsuite-ports",
@@ -3670,10 +3671,12 @@ name = "weldsuite-adapters-oss"
 version = "0.0.0"
 dependencies = [
  "async-nats",
+ "aws-lc-rs",
  "axum",
  "base64 0.22.1",
  "bytes",
  "futures-util",
+ "hex",
  "jiff",
  "lettre",
  "redis",
@@ -3686,7 +3689,10 @@ dependencies = [
  "tokio",
  "tracing",
  "weldsuite-catalogs",
+ "weldsuite-db",
  "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-migrations",
  "weldsuite-ports",
 ]
 
@@ -3936,6 +3942,19 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-migrations"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "hex",
+ "regex",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "weldsuite-db",
 ]
 
 [[package]]

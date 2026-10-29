@@ -56,6 +56,21 @@ secret:
 spa:
   enabled: true
 
+# `weldsuite migrate --master --tenants` as a hook Job before every install
+# and upgrade Flux makes: the master database, then every workspace database
+# on the tenant shards, to the migrations built into the release's image. The
+# new pods roll out only once it succeeded. A failure fails the upgrade and
+# Flux rolls the release back; databases the Job already migrated stay
+# migrated (migrations are forward-only, so a release must keep working on
+# the schema its successor migrates to). Its deadline stays under the
+# HelmRelease's spec.timeout (../weldsuite.yaml).
+migrations:
+  enabled: true
+  args: ["--master", "--tenants"]
+  # Workspace databases migrated at once, across the shards' poolers.
+  concurrency: 4
+  activeDeadlineSeconds: 1500
+
 ingress:
   enabled: true
   className: traefik

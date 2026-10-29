@@ -45,7 +45,11 @@ app.kubernetes.io/component: api
 {{- default (printf "%s-clerk-jwks" (include "weldsuite.fullname" .)) .Values.clerkJwks.existingConfigMap }}
 {{- end }}
 
-{{/* The environment of every container that runs the binary: serve and the cron jobs. */}}
+{{/*
+The environment of every container that runs the binary: the server, the
+cron jobs and the migration Job read the same settings
+(rust/bins/weldsuite/src/config.rs).
+*/}}
 {{- define "weldsuite.env" -}}
 - name: PORT
   value: "8080"
@@ -164,6 +168,21 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/part-of: weldsuite
 {{- end }}
 
+{{/*
+The migration Job's labels: the release's, with its own component, so the
+Service, the PodDisruptionBudget and the NetworkPolicy (which select the api
+component) never pick its pod.
+*/}}
+{{- define "weldsuite.migrateLabels" -}}
+helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
+app.kubernetes.io/name: {{ include "weldsuite.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: migrate
+app.kubernetes.io/version: {{ .Values.image.tag | default .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: weldsuite
+{{- end }}
+
 {{- define "weldsuite.signPortal.fullname" -}}
 {{- printf "%s-sign-portal" (include "weldsuite.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
@@ -185,4 +204,16 @@ app.kubernetes.io/part-of: weldsuite
 {{- /* Where the portal reaches the server: its Service, unless set. */ -}}
 {{- define "weldsuite.signPortal.backendUrl" -}}
 {{- default (printf "http://%s.%s.svc:%v" (include "weldsuite.fullname" .) .Release.Namespace .Values.service.port) .Values.signPortal.backendUrl }}
+{{- end }}
+
+{{/*
+The Secret the migration Job reads. A hook runs before the release's own
+resources exist, so a chart-made Secret (secret.values) gets a hook copy.
+*/}}
+{{- define "weldsuite.migrateSecretName" -}}
+{{- if .Values.secret.existingSecret }}
+{{- .Values.secret.existingSecret }}
+{{- else }}
+{{- printf "%s-migrate" (include "weldsuite.fullname" .) }}
+{{- end }}
 {{- end }}

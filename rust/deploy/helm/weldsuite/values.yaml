@@ -138,6 +138,36 @@ secret:
   existingSecret: ""
   values: {}
 
+# The database migrations: a Job that runs `weldsuite migrate` with the same
+# image, Secret and settings as the server, as a Helm pre-install and
+# pre-upgrade hook. The server's pods roll out only after it succeeded; when it
+# fails, the install or upgrade fails and the Job stays for its logs. It needs
+# DATABASE_URL_MASTER, and the encryption keys to open the tenants' stored
+# database URLs. Turn it off only when the migrations run some other way.
+migrations:
+  enabled: true
+  # weldsuite migrate's flags (weldsuite migrate --help): the master database
+  # and every active workspace's database. Add "--apply-skipped" to also apply
+  # migrations Drizzle skipped.
+  args: ["--master", "--tenants"]
+  # Tenant databases migrated at once (the TypeScript runner does one).
+  concurrency: 1
+  # Retries of a failed run; every run starts where the last one stopped.
+  backoffLimit: 2
+  # The whole Job, retries included; keep it under the release's timeout
+  # (helm --timeout, or the HelmRelease's spec.timeout under Flux).
+  activeDeadlineSeconds: 1500
+  # Leave a finished Job this long (unset: until the next install or upgrade).
+  ttlSecondsAfterFinished: null
+  # A succeeded Job is removed; a failed one stays until the next attempt.
+  hookDeletePolicy: before-hook-creation,hook-succeeded
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
 # Verify session tokens against a JWKS document instead of CLERK_JWT_KEY: the
 # document is mounted from a ConfigMap and read at start.
 clerkJwks:
