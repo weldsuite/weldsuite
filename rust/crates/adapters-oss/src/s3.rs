@@ -1,16 +1,22 @@
 //! `FileStore` over the S3 API: MinIO, Garage, Ceph RGW, Hetzner Object
 //! Storage or AWS. `rusty-s3` signs each request (SigV4, presigned URLs with
 //! the content type and metadata among the signed headers); reqwest sends it.
+//!
+//! A create-only put sends `If-None-Match: *` (conditional writes: AWS S3,
+//! MinIO, Ceph RGW and RustFS honour it; a store that ignores it overwrites).
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap};
+use reqwest::header::{
+    CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, HeaderMap, RANGE,
+};
 use reqwest::{Client, Method, StatusCode, Url};
 use rusty_s3::actions::{DeleteObjectsResponse, ObjectIdentifier};
 use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use weldsuite_ports::{
-    FileStore, ObjectInfo, PortError, PutOptions, StoredObject, is_safe_key, unsafe_key,
+    ByteRange, FileStore, ObjectInfo, PortError, PutOptions, RangedObject, Stored, StoredObject,
+    is_safe_key, unsafe_key,
 };
 
 /// How long a signed request stays valid. Each one is sent at once; the margin
@@ -147,17 +153,47 @@ fn info_of(headers: &HeaderMap, size: Option<u64>) -> ObjectInfo {
                 .unwrap_or(0)
         }),
         content_type: headers.get(CONTENT_TYPE).and_then(text),
+        content_disposition: headers.get(CONTENT_DISPOSITION).and_then(text),
+        etag: etag_of(headers),
         metadata,
     }
 }
 
+/// The `ETag` header without its quotes.
+fn etag_of(headers: &HeaderMap) -> Option<String> {
+    let value = headers.get(ETAG)?.to_str().ok()?;
+    let value = value.strip_prefix("W/").unwrap_or(value);
+    Some(value.trim_matches('"').to_owned())
+}
+
+/// `bytes <first>-<last>/<size>` from a 206's `Content-Range`.
+fn content_range(headers: &HeaderMap) -> Option<(u64, u64, u64)> {
+    let value = headers.get(CONTENT_RANGE)?.to_str().ok()?;
+    let (span, size) = value.strip_prefix("bytes ")?.split_once('/')?;
+    let (first, last) = span.split_once('-')?;
+    let (first, last): (u64, u64) = (first.trim().parse().ok()?, last.trim().parse().ok()?);
+    let size = size.trim().parse().ok()?;
+    (last >= first).then(|| (first, last - first + 1, size))
+}
+
 impl FileStore for S3FileStore {
-    async fn put(&self, key: &str, bytes: Vec<u8>, options: &PutOptions) -> Result<(), PortError> {
+    async fn put(
+        &self,
+        key: &str,
+        bytes: Vec<u8>,
+        options: &PutOptions,
+    ) -> Result<Option<Stored>, PortError> {
         Self::check(key)?;
         let mut action = self.bucket.put_object(Some(&self.credentials), key);
         let mut signed = Vec::new();
         if let Some(content_type) = &options.content_type {
             signed.push(("content-type".to_owned(), content_type.clone()));
+        }
+        if let Some(disposition) = &options.content_disposition {
+            signed.push(("content-disposition".to_owned(), disposition.clone()));
+        }
+        if options.create_only {
+            signed.push(("if-none-match".to_owned(), "*".to_owned()));
         }
         for (name, value) in &options.metadata {
             signed.push((
@@ -177,10 +213,67 @@ impl FileStore for S3FileStore {
                 Some(bytes),
             )
             .await?;
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(Self::refused(response, &format!("put {key}")).await)
+        match response.status() {
+            status if status.is_success() => Ok(Some(Stored {
+                etag: etag_of(response.headers()),
+            })),
+            // The key is taken (412), or another conditional write to it is
+            // in flight (409, AWS).
+            StatusCode::PRECONDITION_FAILED | StatusCode::CONFLICT if options.create_only => {
+                Ok(None)
+            }
+            _ => Err(Self::refused(response, &format!("put {key}")).await),
+        }
+    }
+
+    async fn get_range(
+        &self,
+        key: &str,
+        range: ByteRange,
+    ) -> Result<Option<RangedObject>, PortError> {
+        Self::check(key)?;
+        let url = self
+            .bucket
+            .get_object(Some(&self.credentials), key)
+            .sign(SIGNED_FOR);
+        let headers = header_map(std::iter::once((RANGE.to_string(), range.header())))?;
+        let response = self.send(Method::GET, url, headers, None).await?;
+        match response.status() {
+            StatusCode::NOT_FOUND => Ok(None),
+            StatusCode::PARTIAL_CONTENT => {
+                let headers = response.headers().clone();
+                let bytes = response.bytes().await.map_err(PortError::backend)?.to_vec();
+                let Some((offset, length, size)) = content_range(&headers) else {
+                    return Err(PortError::backend(format!(
+                        "S3 get {key}: a 206 without a Content-Range"
+                    )));
+                };
+                Ok(Some(RangedObject {
+                    info: info_of(&headers, Some(size)),
+                    bytes,
+                    range: Some((offset, length)),
+                }))
+            }
+            // The store ignored the range: cut it here.
+            StatusCode::OK => {
+                let headers = response.headers().clone();
+                let bytes = response.bytes().await.map_err(PortError::backend)?.to_vec();
+                let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+                let object = StoredObject {
+                    info: info_of(&headers, Some(size)),
+                    bytes,
+                };
+                Ok(Some(RangedObject::slice(object, range)))
+            }
+            // Past the end: the whole object, as the default does.
+            StatusCode::RANGE_NOT_SATISFIABLE => {
+                Ok(self.get(key).await?.map(|object| RangedObject {
+                    info: object.info,
+                    bytes: object.bytes,
+                    range: None,
+                }))
+            }
+            _ => Err(Self::refused(response, &format!("get {key}")).await),
         }
     }
 
@@ -348,6 +441,20 @@ mod tests {
         assert_eq!(info.content_type.as_deref(), Some("application/pdf"));
         assert_eq!(info.metadata.len(), 1);
         assert_eq!(info.metadata.get("sha256").map(String::as_str), Some("abc"));
+        assert_eq!(info.etag.as_deref(), Some("x"));
+    }
+
+    #[test]
+    fn partial_content_ranges() {
+        let headers = header_map(std::iter::once((
+            "content-range".to_owned(),
+            "bytes 2-4/10".to_owned(),
+        )))
+        .expect("valid headers");
+        assert_eq!(content_range(&headers), Some((2, 3, 10)));
+        let weak = header_map(std::iter::once(("etag".to_owned(), "W/\"abc\"".to_owned())))
+            .expect("valid headers");
+        assert_eq!(etag_of(&weak).as_deref(), Some("abc"));
     }
 
     #[tokio::test]

@@ -4,7 +4,9 @@
 //! and writes the objects the Hono app does.
 //!
 //! `GET|HEAD|PUT|DELETE /object?key=…`; the content type travels as
-//! `Content-Type`, custom metadata as `x-meta-<name>`.
+//! `Content-Type`, the disposition as `Content-Disposition`, custom metadata
+//! as `x-meta-<name>`, the entity tag as `ETag`. A create-only put sends
+//! `If-None-Match: *` and gets a 412 when the key is taken.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -12,7 +14,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use http::{HeaderMap, StatusCode};
 use reqwest::{Client, Method, RequestBuilder};
 use weldsuite_ports::{
-    DynFileStore, FileStore, FileStores, ObjectInfo, PortError, PutOptions, StoredObject,
+    DynFileStore, FileStore, FileStores, ObjectInfo, PortError, PutOptions, StorageBuckets, Stored,
+    StoredObject,
 };
 
 const META_PREFIX: &str = "x-meta-";
@@ -61,24 +64,47 @@ fn info_from(headers: &HeaderMap, size: Option<u64>) -> ObjectInfo {
             .or_else(|| header("content-length").and_then(|n| n.parse().ok()))
             .unwrap_or(0),
         content_type: header("content-type").map(str::to_owned),
+        content_disposition: header("content-disposition").map(str::to_owned),
+        etag: etag_from(headers),
         metadata,
     }
 }
 
+fn etag_from(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("etag")
+        .and_then(|v| v.to_str().ok())
+        .map(|etag| etag.trim_matches('"').to_owned())
+        .filter(|etag| !etag.is_empty())
+}
+
 impl FileStore for HttpFileStore {
-    async fn put(&self, key: &str, bytes: Vec<u8>, options: &PutOptions) -> Result<(), PortError> {
+    async fn put(
+        &self,
+        key: &str,
+        bytes: Vec<u8>,
+        options: &PutOptions,
+    ) -> Result<Option<Stored>, PortError> {
         let mut request = self.request(Method::PUT, key).body(bytes);
         if let Some(content_type) = &options.content_type {
             request = request.header("content-type", content_type);
+        }
+        if let Some(disposition) = &options.content_disposition {
+            request = request.header("content-disposition", disposition);
+        }
+        if options.create_only {
+            request = request.header("if-none-match", "*");
         }
         for (name, value) in &options.metadata {
             request = request.header(format!("{META_PREFIX}{name}"), value);
         }
         let response = self.send(request).await?;
-        if response.status().is_success() {
-            Ok(())
-        } else {
-            Err(status_error(response.status()))
+        match response.status() {
+            status if status.is_success() => Ok(Some(Stored {
+                etag: etag_from(response.headers()),
+            })),
+            StatusCode::PRECONDITION_FAILED if options.create_only => Ok(None),
+            status => Err(status_error(status)),
         }
     }
 
@@ -151,6 +177,16 @@ impl BucketBridges {
         let public = files.get("STORAGE").map(|url| self.store(url));
         Some(FileStores { private, public })
     }
+
+    /// Both buckets, each as the test has it; `None` when it has neither.
+    pub(crate) fn storage_buckets(
+        &self,
+        files: &HashMap<String, String>,
+    ) -> Option<StorageBuckets> {
+        let private = files.get("PRIVATE_STORAGE").map(|url| self.store(url));
+        let public = files.get("STORAGE").map(|url| self.store(url));
+        (private.is_some() || public.is_some()).then_some(StorageBuckets { private, public })
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +220,9 @@ mod tests {
                         .and_then(|v| v.to_str().ok())
                         .map(str::to_owned)
                 };
+                if header("if-none-match").as_deref() == Some("*") && objects.contains_key(&key) {
+                    return StatusCode::PRECONDITION_FAILED.into_response();
+                }
                 objects.insert(
                     key,
                     (
@@ -192,7 +231,7 @@ mod tests {
                         header("x-meta-sha256"),
                     ),
                 );
-                StatusCode::NO_CONTENT.into_response()
+                (StatusCode::NO_CONTENT, [("etag", "\"e1\"")]).into_response()
             }
             "DELETE" => {
                 objects.remove(&key);
@@ -245,14 +284,27 @@ mod tests {
         let store = &*stores.private;
         let key = "workspaces/org_1/weldsign/sgn_1/documents/sgd_1.pdf";
 
-        store
+        let written = store
             .put_boxed(
                 key,
                 vec![1, 2, 3],
                 &PutOptions::content_type("application/pdf").with_metadata("sha256", "abc"),
             )
             .await
-            .expect("put");
+            .expect("put")
+            .expect("stored");
+        assert_eq!(written.etag.as_deref(), Some("e1"));
+        let once = PutOptions {
+            create_only: true,
+            ..PutOptions::default()
+        };
+        assert!(
+            store
+                .put_boxed(key, vec![9], &once)
+                .await
+                .expect("put")
+                .is_none()
+        );
         let object = store.get_boxed(key).await.expect("get").expect("stored");
         assert_eq!(object.bytes, vec![1, 2, 3]);
         assert_eq!(object.info.size, 3);
@@ -273,5 +325,11 @@ mod tests {
         let again = bridges.file_stores(&files).expect("private bucket");
         assert!(Arc::ptr_eq(&stores.private, &again.private));
         assert!(bridges.file_stores(&HashMap::new()).is_none());
+        // A test with only the public bucket: no `FileStores`, but buckets.
+        let public_only = HashMap::from([("STORAGE".to_owned(), base)]);
+        assert!(bridges.file_stores(&public_only).is_none());
+        let buckets = bridges.storage_buckets(&public_only).expect("buckets");
+        assert!(buckets.private.is_none() && buckets.public.is_some());
+        assert!(bridges.storage_buckets(&HashMap::new()).is_none());
     }
 }

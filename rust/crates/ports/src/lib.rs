@@ -34,8 +34,8 @@ pub mod realtime;
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
-    DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions, StoredObject,
-    get_stored, is_safe_key, unsafe_key,
+    ByteRange, DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions,
+    RangedObject, StorageBuckets, Stored, StoredObject, get_stored, is_safe_key, unsafe_key,
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use in_process_jobs::InProcessJobs;
