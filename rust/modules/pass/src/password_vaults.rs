@@ -241,7 +241,10 @@ pub(crate) async fn list_vaults(
             if ids.is_empty() {
                 return Ok::<Vec<(String, i64)>, sqlx::Error>(Vec::new());
             }
-            sqlx::query_as::<_, (String, i64)>(sql).bind(ids).fetch_all(db).await
+            sqlx::query_as::<_, (String, i64)>(sql)
+                .bind(ids)
+                .fetch_all(db)
+                .await
         }
     };
     let items = counts(
@@ -254,7 +257,9 @@ pub(crate) async fn list_vaults(
     )
     .await?;
     let count_of = |list: &[(String, i64)], id: &str| {
-        list.iter().find(|(vault, _)| vault == id).map_or(0, |(_, n)| *n)
+        list.iter()
+            .find(|(vault, _)| vault == id)
+            .map_or(0, |(_, n)| *n)
     };
     let mut summaries: Vec<(bool, Value)> = rows
         .into_iter()
@@ -268,7 +273,11 @@ pub(crate) async fn list_vaults(
                 role.map_or(Value::Null, Value::String)
             };
             json["itemCount"] = json!(count_of(&items, &vault.id));
-            json["memberCount"] = json!(if personal { 1 } else { count_of(&members, &vault.id) });
+            json["memberCount"] = json!(if personal {
+                1
+            } else {
+                count_of(&members, &vault.id)
+            });
             (personal, json)
         })
         .collect();
@@ -317,6 +326,7 @@ pub(crate) async fn create_shared_vault(
 }
 
 /// `updateVault`: the fields given.
+#[allow(clippy::option_option)] // `description`: left out, null, or a text
 pub(crate) async fn update_vault(
     db: &PgPool,
     vault_id: &str,
@@ -384,7 +394,10 @@ pub(crate) async fn list_vault_members(db: &PgPool, vault_id: &str) -> PassResul
     .bind(vault_id)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|row| dated(row, &["createdAt"])).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| dated(row, &["createdAt"]))
+        .collect())
 }
 
 /// `addVaultMember`: a teammate of this workspace, or their new role if
@@ -431,7 +444,11 @@ pub(crate) async fn add_vault_member(
     Ok(true)
 }
 
-async fn require_membership(db: &PgPool, vault_id: &str, user_id: &str) -> PassResult<(String, String)> {
+async fn require_membership(
+    db: &PgPool,
+    vault_id: &str,
+    user_id: &str,
+) -> PassResult<(String, String)> {
     let row: Option<(String, String)> = sqlx::query_as(
         "select id, role from weldpass_vault_members where vault_id = $1 and user_id = $2 limit 1",
     )
@@ -481,7 +498,11 @@ pub(crate) async fn set_vault_member_role(
 }
 
 /// `removeVaultMember`.
-pub(crate) async fn remove_vault_member(db: &PgPool, vault_id: &str, user_id: &str) -> PassResult<()> {
+pub(crate) async fn remove_vault_member(
+    db: &PgPool,
+    vault_id: &str,
+    user_id: &str,
+) -> PassResult<()> {
     let (membership, role) = require_membership(db, vault_id, user_id).await?;
     if role == "manager" {
         assert_not_last_manager(db, vault_id, user_id).await?;

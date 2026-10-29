@@ -190,8 +190,18 @@ pub(crate) fn read_item(issues: &mut Issues, body: &Value) -> Option<ItemDocumen
             let fields = issues
                 .nested(object, "fields", Presence::Required, |issues, fields| {
                     LoginFields {
-                        username: defaulted(issues, fields, "username", Text::length(None, Some(255))),
-                        password: defaulted(issues, fields, "password", Text::length(None, Some(4096))),
+                        username: defaulted(
+                            issues,
+                            fields,
+                            "username",
+                            Text::length(None, Some(255)),
+                        ),
+                        password: defaulted(
+                            issues,
+                            fields,
+                            "password",
+                            Text::length(None, Some(4096)),
+                        ),
                         totp: defaulted(issues, fields, "totp", Text::trimmed(None, Some(2048))),
                         notes: defaulted(issues, fields, "notes", Text::length(None, Some(20_000))),
                     }
@@ -215,7 +225,12 @@ pub(crate) fn read_item(issues: &mut Issues, body: &Value) -> Option<ItemDocumen
         _ => issues
             .nested(object, "fields", Presence::Required, |issues, fields| {
                 CardFields {
-                    cardholder: defaulted(issues, fields, "cardholder", Text::trimmed(None, Some(255))),
+                    cardholder: defaulted(
+                        issues,
+                        fields,
+                        "cardholder",
+                        Text::trimmed(None, Some(255)),
+                    ),
                     number: defaulted(issues, fields, "number", Text::trimmed(None, Some(40))),
                     expiry: defaulted(issues, fields, "expiry", Text::trimmed(None, Some(10))),
                     cvc: defaulted(issues, fields, "cvc", Text::trimmed(None, Some(10))),

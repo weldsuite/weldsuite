@@ -539,7 +539,10 @@
       "workspace": "apps/workers/pass-api",
       "tests": [
         "src/routes/weldpass/index.test.ts",
-        "src/routes/weldpass/passwords.test.ts"
+        "src/routes/weldpass/passwords.test.ts",
+        "src/routes/weldpass/projects.test.ts",
+        "src/routes/weldpass/sync.test.ts",
+        "src/routes/weldpass/vaults.test.ts"
       ],
       "paths": [
         "apps/workers/pass-api/src/",

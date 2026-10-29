@@ -44,7 +44,10 @@ fn query(raw: Option<&str>, name: &str) -> Option<String> {
 }
 
 /// `vaultFor(c)`: the `:vaultId` resolved for this caller.
-async fn vault_for(caller: &Caller, params: &HashMap<String, String>) -> PassResult<(VaultAccess, bool)> {
+async fn vault_for(
+    caller: &Caller,
+    params: &HashMap<String, String>,
+) -> PassResult<(VaultAccess, bool)> {
     let can_manage_all = caller.can(PASSWORDS_MANAGE);
     let access = require_vault_access(
         &caller.db,
@@ -91,7 +94,8 @@ pub(crate) async fn list_vaults(caller: Caller, State(state): State<PassState>) 
             .await?;
             let can_manage_all = caller.can(PASSWORDS_MANAGE);
             Ok(ok(Value::Array(
-                vaults::list_vaults(&caller.db, caller.org(), &caller.user_id, can_manage_all).await?,
+                vaults::list_vaults(&caller.db, caller.org(), &caller.user_id, can_manage_all)
+                    .await?,
             )))
         }
         .await,
@@ -108,8 +112,18 @@ pub(crate) async fn create_vault(
         async {
             let (name, description) = validate(&headers, &body, |issues, fields| {
                 (
-                    issues.text_with(fields, "name", Presence::Required, Text::trimmed(Some(1), Some(100))),
-                    issues.text_with(fields, "description", Presence::Nullish, Text::trimmed(None, Some(2000))),
+                    issues.text_with(
+                        fields,
+                        "name",
+                        Presence::Required,
+                        Text::trimmed(Some(1), Some(100)),
+                    ),
+                    issues.text_with(
+                        fields,
+                        "description",
+                        Presence::Nullish,
+                        Text::trimmed(None, Some(2000)),
+                    ),
                 )
             })?;
             let vault = vaults::create_shared_vault(
@@ -156,8 +170,18 @@ pub(crate) async fn update_vault(
         async {
             let (name, description) = validate(&headers, &body, |issues, fields| {
                 (
-                    issues.text_with(fields, "name", Presence::Optional, Text::trimmed(Some(1), Some(100))),
-                    issues.text_with(fields, "description", Presence::Nullish, Text::trimmed(None, Some(2000))),
+                    issues.text_with(
+                        fields,
+                        "name",
+                        Presence::Optional,
+                        Text::trimmed(Some(1), Some(100)),
+                    ),
+                    issues.text_with(
+                        fields,
+                        "description",
+                        Presence::Nullish,
+                        Text::trimmed(None, Some(2000)),
+                    ),
                 )
             })?;
             let (access, can_manage_all) = vault_for(&caller, &params).await?;
@@ -177,7 +201,8 @@ pub(crate) async fn update_vault(
             record_vault_event(
                 &caller.db,
                 &caller.audit,
-                VaultEvent::new(&access.vault.id, &caller.user_id, "vault.updated").label(&updated.name),
+                VaultEvent::new(&access.vault.id, &caller.user_id, "vault.updated")
+                    .label(&updated.name),
             )
             .await;
             let mut json = updated.json;
@@ -210,9 +235,7 @@ pub(crate) async fn delete_vault(caller: Caller, Path(params): Params) -> Respon
 // ── Members ────────────────────────────────────────────────────────────────
 
 pub(crate) async fn teammates(caller: Caller) -> Response {
-    answer(
-        async { Ok(ok(Value::Array(vaults::list_teammates(&caller.db).await?))) }.await,
-    )
+    answer(async { Ok(ok(Value::Array(vaults::list_teammates(&caller.db).await?))) }.await)
 }
 
 pub(crate) async fn list_members(caller: Caller, Path(params): Params) -> Response {
@@ -248,16 +271,25 @@ pub(crate) async fn add_member(
             assert_vault_admin(&access, can_manage_all)?;
             let user = user.into_option().unwrap_or_default();
             let role = role.into_option().unwrap_or_default();
-            let added =
-                vaults::add_vault_member(&caller.db, &access.vault.id, &user, &role, &caller.user_id)
-                    .await?;
+            let added = vaults::add_vault_member(
+                &caller.db,
+                &access.vault.id,
+                &user,
+                &role,
+                &caller.user_id,
+            )
+            .await?;
             record_vault_event(
                 &caller.db,
                 &caller.audit,
                 VaultEvent::new(
                     &access.vault.id,
                     &caller.user_id,
-                    if added { "member.added" } else { "member.role_changed" },
+                    if added {
+                        "member.added"
+                    } else {
+                        "member.role_changed"
+                    },
                 )
                 .label(&user)
                 .metadata(json!({ "role": role })),
@@ -382,7 +414,8 @@ pub(crate) async fn list_items(caller: Caller, RawQuery(raw): RawQuery) -> Respo
                 return Err(ApiError::not_found("vault", Some(vault)).into());
             }
             // `weldpassItemTypeSchema.safeParse(type)`: anything else is no filter.
-            let kind = query(raw.as_deref(), "type").filter(|kind| ITEM_TYPES.contains(&kind.as_str()));
+            let kind =
+                query(raw.as_deref(), "type").filter(|kind| ITEM_TYPES.contains(&kind.as_str()));
             let ids = match vault {
                 Some(vault) => vec![vault],
                 None => readable,
@@ -442,7 +475,8 @@ pub(crate) async fn create_item(
             let document = validate_item(&headers, &body)?;
             let (access, _) = vault_for(&caller, &params).await?;
             assert_vault_role(&access, "editor")?;
-            let kek = open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
+            let kek =
+                open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
             let item = items::create_items(
                 &caller.db,
                 &kek,
@@ -480,7 +514,13 @@ pub(crate) async fn import_items(
         async {
             let (content, format) = validate(&headers, &body, |issues, fields| {
                 (
-                    issues.text(fields, "content", Presence::Required, None, Some(5 * 1024 * 1024)),
+                    issues.text(
+                        fields,
+                        "content",
+                        Presence::Required,
+                        None,
+                        Some(5 * 1024 * 1024),
+                    ),
                     issues.choice(fields, "format", Presence::Optional, &IMPORT_FORMATS),
                 )
             })?;
@@ -489,13 +529,20 @@ pub(crate) async fn import_items(
             let format = format.into_option().unwrap_or_else(|| "auto".to_owned());
             let parsed = parse_import(&content.into_option().unwrap_or_default(), &format)
                 .map_err(|error| PassError::BadRequest(error.0.to_owned()))?;
-            let skipped: Vec<Value> = parsed.skipped.iter().map(crate::import::ImportNote::to_json).collect();
+            let skipped: Vec<Value> = parsed
+                .skipped
+                .iter()
+                .map(crate::import::ImportNote::to_json)
+                .collect();
             if parsed.documents.is_empty() {
-                return Err(ApiError::bad_request("Nothing to import was found in that file.")
-                    .with_details(json!({ "skipped": skipped }))
-                    .into());
+                return Err(
+                    ApiError::bad_request("Nothing to import was found in that file.")
+                        .with_details(json!({ "skipped": skipped }))
+                        .into(),
+                );
             }
-            let kek = open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
+            let kek =
+                open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
             let created_items = items::create_items(
                 &caller.db,
                 &kek,
@@ -504,16 +551,22 @@ pub(crate) async fn import_items(
                 &caller.user_id,
             )
             .await?;
-            let warnings: Vec<Value> = parsed.warnings.iter().map(crate::import::ImportNote::to_json).collect();
+            let warnings: Vec<Value> = parsed
+                .warnings
+                .iter()
+                .map(crate::import::ImportNote::to_json)
+                .collect();
             record_vault_event(
                 &caller.db,
                 &caller.audit,
-                VaultEvent::new(&access.vault.id, &caller.user_id, "items.imported").metadata(json!({
-                    "format": parsed.format,
-                    "created": created_items.len(),
-                    "skipped": skipped.len(),
-                    "warnings": warnings.len(),
-                })),
+                VaultEvent::new(&access.vault.id, &caller.user_id, "items.imported").metadata(
+                    json!({
+                        "format": parsed.format,
+                        "created": created_items.len(),
+                        "skipped": skipped.len(),
+                        "warnings": warnings.len(),
+                    }),
+                ),
             )
             .await;
             Ok(ok(json!({
@@ -537,15 +590,17 @@ pub(crate) async fn reveal_item(
         async {
             let (access, _) = vault_for(&caller, &params).await?;
             assert_vault_role(&access, "viewer")?;
-            let kek = open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
+            let kek =
+                open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
             let (item, document) =
-                items::reveal_item(&caller.db, &kek, &access.vault.id, param(&params, "itemId")).await?;
+                items::reveal_item(&caller.db, &kek, &access.vault.id, param(&params, "itemId"))
+                    .await?;
             // Tells a person reading a password from the extension filling
             // a form. Client-supplied, so informational only.
-            let client = caller
-                .client
-                .as_deref()
-                .map_or_else(|| "web".to_owned(), |client| crate::js::utf16_slice(client, 0, 40));
+            let client = caller.client.as_deref().map_or_else(
+                || "web".to_owned(),
+                |client| crate::js::utf16_slice(client, 0, 40),
+            );
             record_vault_event(
                 &caller.db,
                 &caller.audit,
@@ -555,7 +610,10 @@ pub(crate) async fn reveal_item(
                     .metadata(json!({ "client": client })),
             )
             .await;
-            Ok(ok(merge(item.json, json!({ "fields": document.fields_json() }))))
+            Ok(ok(merge(
+                item.json,
+                json!({ "fields": document.fields_json() }),
+            )))
         }
         .await,
     )
@@ -571,9 +629,11 @@ pub(crate) async fn item_totp(
         async {
             let (access, _) = vault_for(&caller, &params).await?;
             assert_vault_role(&access, "viewer")?;
-            let kek = open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
+            let kek =
+                open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
             let (item, code) =
-                items::item_totp_code(&caller.db, &kek, &access.vault.id, param(&params, "itemId")).await?;
+                items::item_totp_code(&caller.db, &kek, &access.vault.id, param(&params, "itemId"))
+                    .await?;
             record_vault_event(
                 &caller.db,
                 &caller.audit,
@@ -604,7 +664,8 @@ pub(crate) async fn update_item(
             let document = validate_item(&headers, &body)?;
             let (access, _) = vault_for(&caller, &params).await?;
             assert_vault_role(&access, "editor")?;
-            let kek = open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
+            let kek =
+                open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
             let result = items::update_item(
                 &caller.db,
                 &kek,
@@ -663,7 +724,8 @@ pub(crate) async fn item_versions(caller: Caller, Path(params): Params) -> Respo
         async {
             let (access, _) = vault_for(&caller, &params).await?;
             assert_vault_role(&access, "viewer")?;
-            let item = items::require_item(&caller.db, &access.vault.id, param(&params, "itemId")).await?;
+            let item =
+                items::require_item(&caller.db, &access.vault.id, param(&params, "itemId")).await?;
             Ok(ok(Value::Array(
                 items::list_item_versions(&caller.db, &item.id).await?,
             )))
@@ -688,7 +750,8 @@ pub(crate) async fn restore_item(
             .unwrap_or_default();
             let (access, _) = vault_for(&caller, &params).await?;
             assert_vault_role(&access, "editor")?;
-            let kek = open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
+            let kek =
+                open_password_vault(&caller.db, &caller.keyring(&state), &access.vault.id).await?;
             let result = items::restore_item_version(
                 &caller.db,
                 &kek,
@@ -724,7 +787,13 @@ pub(crate) async fn move_item(
     answer(
         async {
             let target_id = validate(&headers, &body, |issues, fields| {
-                issues.text(fields, "targetVaultId", Presence::Required, Some(1), Some(30))
+                issues.text(
+                    fields,
+                    "targetVaultId",
+                    Presence::Required,
+                    Some(1),
+                    Some(30),
+                )
             })?
             .into_option()
             .unwrap_or_default();
@@ -775,4 +844,3 @@ pub(crate) async fn move_item(
         .await,
     )
 }
-

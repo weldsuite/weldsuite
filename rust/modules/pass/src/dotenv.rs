@@ -39,7 +39,9 @@ pub(crate) struct ParsedDotenv {
 pub(crate) fn parse_dotenv(input: &str) -> ParsedDotenv {
     let mut parsed = ParsedDotenv::default();
     // `input.split(/\r?\n/)`.
-    let lines = input.split('\n').map(|line| line.strip_suffix('\r').unwrap_or(line));
+    let lines = input
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line));
     for (index, raw) in lines.enumerate() {
         let line = js::trim(raw);
         if line.is_empty() || line.starts_with('#') {

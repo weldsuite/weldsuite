@@ -55,18 +55,19 @@ pub(crate) fn parse_csv(text: &str) -> Vec<CsvRecord> {
     let mut line = 1;
     let mut record_line = 1;
 
-    let end_record = |cells: &mut Vec<String>, cell: &mut String, records: &mut Vec<CsvRecord>, at: usize| {
-        cells.push(std::mem::take(cell));
-        // A blank line is not a record.
-        if cells.len() > 1 || !cells[0].is_empty() {
-            records.push(CsvRecord {
-                line: at,
-                cells: std::mem::take(cells),
-            });
-        } else {
-            cells.clear();
-        }
-    };
+    let end_record =
+        |cells: &mut Vec<String>, cell: &mut String, records: &mut Vec<CsvRecord>, at: usize| {
+            cells.push(std::mem::take(cell));
+            // A blank line is not a record.
+            if cells.len() > 1 || !cells[0].is_empty() {
+                records.push(CsvRecord {
+                    line: at,
+                    cells: std::mem::take(cells),
+                });
+            } else {
+                cells.clear();
+            }
+        };
 
     let mut i = 0;
     while i < chars.len() {
@@ -115,16 +116,37 @@ const COLUMNS: [(Column, &[&str]); 11] = [
     (Column::Title, &["name", "title", "account", "item name"]),
     (
         Column::Url,
-        &["url", "login_uri", "website", "web site", "uri", "login url"],
+        &[
+            "url",
+            "login_uri",
+            "website",
+            "web site",
+            "uri",
+            "login url",
+        ],
     ),
     (
         Column::Username,
-        &["username", "login_username", "login", "user", "email", "login name"],
+        &[
+            "username",
+            "login_username",
+            "login",
+            "user",
+            "email",
+            "login name",
+        ],
     ),
     (Column::Password, &["password", "login_password"]),
     (
         Column::Totp,
-        &["totp", "otpauth", "login_totp", "otp", "two factor", "authenticator"],
+        &[
+            "totp",
+            "otpauth",
+            "login_totp",
+            "otp",
+            "two factor",
+            "authenticator",
+        ],
     ),
     (Column::Notes, &["notes", "note", "extra", "comments"]),
     (Column::Type, &["type"]),
@@ -167,6 +189,7 @@ fn detect_format(headers: &[String]) -> &'static str {
 }
 
 /// `parseImport(text, format)`.
+#[allow(clippy::too_many_lines)] // parseImport's row loop, kept in one piece to read against it
 pub(crate) fn parse_import(text: &str, format: &str) -> Result<ParsedImport, ImportError> {
     let records = parse_csv(text);
     let Some(header) = records.first() else {
@@ -182,10 +205,14 @@ pub(crate) fn parse_import(text: &str, format: &str) -> Result<ParsedImport, Imp
             .iter()
             .find(|(c, _)| *c == column)
             .map_or(&[][..], |(_, names)| *names);
-        headers.iter().position(|header| names.contains(&header.as_str()))
+        headers
+            .iter()
+            .position(|header| names.contains(&header.as_str()))
     };
-    let indexes: Vec<(Column, Option<usize>)> =
-        COLUMNS.iter().map(|(column, _)| (*column, index(*column))).collect();
+    let indexes: Vec<(Column, Option<usize>)> = COLUMNS
+        .iter()
+        .map(|(column, _)| (*column, index(*column)))
+        .collect();
     let column_index = |column: Column| {
         indexes
             .iter()

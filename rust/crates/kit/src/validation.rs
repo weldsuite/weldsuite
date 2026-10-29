@@ -1161,7 +1161,10 @@ mod tests {
         let body = json!({ "config": {} });
         let object = issues.object(&body).expect("object");
         issues.nested(object, "config", Presence::Required, |issues, _| {
-            issues.invalid_discriminator("provider", &["cloudflare_workers", "cloudflare_pages", "vercel"]);
+            issues.invalid_discriminator(
+                "provider",
+                &["cloudflare_workers", "cloudflare_pages", "vercel"],
+            );
         });
         assert_eq!(
             issues.take(),

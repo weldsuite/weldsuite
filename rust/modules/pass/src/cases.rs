@@ -21,11 +21,15 @@ fn text(value: &Value) -> &str {
 fn slugs_hosts_and_strength() {
     let cases = fixture();
     for case in cases["slugify"].as_array().expect("slugify") {
-        assert_eq!(slugify(text(&case["input"])), text(&case["output"]), "{case}");
+        assert_eq!(
+            slugify(text(&case["input"])),
+            text(&case["output"]),
+            "{case}"
+        );
     }
     for case in cases["hostOf"].as_array().expect("hostOf") {
         assert_eq!(
-            host_of(Some(text(&case["input"]))).map(Value::String).unwrap_or(Value::Null),
+            host_of(Some(text(&case["input"]))).map_or(Value::Null, Value::String),
             case["output"],
             "{case}"
         );
@@ -43,14 +47,23 @@ fn dotenv_matches_typescript() {
     let cases = fixture();
     for case in cases["dotenv"].as_array().expect("dotenv") {
         let parsed = parse_dotenv(text(&case["input"]));
-        let skipped: Vec<Value> = parsed.skipped.iter().map(|s| s.to_json()).collect();
+        let skipped: Vec<Value> = parsed
+            .skipped
+            .iter()
+            .map(crate::dotenv::Skipped::to_json)
+            .collect();
         assert_eq!(
             json!({ "values": parsed.values.to_json(), "skipped": skipped }),
             case["output"],
             "{case}"
         );
         // Key order too (`Object.keys`), which serde_json's map loses.
-        let keys: Vec<&str> = case["keys"].as_array().expect("keys").iter().map(text).collect();
+        let keys: Vec<&str> = case["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .map(text)
+            .collect();
         assert_eq!(parsed.values.keys().collect::<Vec<_>>(), keys, "{case}");
     }
     for case in cases["renderDotenv"].as_array().expect("render") {
@@ -68,7 +81,6 @@ fn dotenv_matches_typescript() {
         );
     }
 }
-
 
 #[test]
 fn csv_and_imports_match_typescript() {
@@ -91,7 +103,9 @@ fn csv_and_imports_match_typescript() {
                     .map(|d| serde_json::from_str(&d.to_json_string()).expect("JSON"))
                     .collect();
                 let notes = |list: &[crate::import::ImportNote]| -> Vec<Value> {
-                    list.iter().map(crate::import::ImportNote::to_json).collect()
+                    list.iter()
+                        .map(crate::import::ImportNote::to_json)
+                        .collect()
                 };
                 assert_eq!(
                     json!({
@@ -117,14 +131,15 @@ fn bodies_validate_like_zod() {
         let body = &case["body"];
         let mut issues = Issues::default();
         let data = match text(&case["schema"]) {
-            "item" => read_item(&mut issues, body).map(|d| {
-                serde_json::from_str::<Value>(&d.to_json_string()).expect("JSON")
-            }),
+            "item" => read_item(&mut issues, body)
+                .map(|d| serde_json::from_str::<Value>(&d.to_json_string()).expect("JSON")),
             _ => continue,
         };
         let result = match issues.finish() {
             Ok(()) => json!({ "success": true, "data": data }),
-            Err(invalid) => json!({ "success": false, "error": { "issues": invalid.issues(), "name": "ZodError" } }),
+            Err(invalid) => {
+                json!({ "success": false, "error": { "issues": invalid.issues(), "name": "ZodError" } })
+            }
         };
         assert_eq!(result, case["result"], "{case}");
     }

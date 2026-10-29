@@ -174,6 +174,11 @@ pub(crate) struct Upserted {
 
 /// `upsertSecret`: create, replace, or (same value, same note) leave alone.
 /// `note`: `None` keeps the stored note, `Some(None)` clears it.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    clippy::option_option
+)] // the worker's input object, field by field; `note` is undefined, null or a note
 pub(crate) async fn upsert_secret(
     db: &PgPool,
     kek: &Key,
@@ -388,7 +393,10 @@ pub(crate) async fn list_versions(db: &PgPool, secret_id: &str) -> PassResult<Ve
     .bind(secret_id)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|row| dated(row, &["createdAt"])).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| dated(row, &["createdAt"]))
+        .collect())
 }
 
 /// `restoreVersion`: the old ciphertext reused as it is (it is bound to the
@@ -409,8 +417,8 @@ pub(crate) async fn restore_version(
     .bind(version)
     .fetch_optional(db)
     .await?;
-    let (ciphertext, dek_wrapped, checksum) = target
-        .ok_or_else(|| PassError::not_found("secret", &format!("{secret_id}@v{version}")))?;
+    let (ciphertext, dek_wrapped, checksum) =
+        target.ok_or_else(|| PassError::not_found("secret", &format!("{secret_id}@v{version}")))?;
     let next = secret.version + 1;
     append_version(
         db,
@@ -504,4 +512,83 @@ pub(crate) fn keys_of<'a>(keys: &'a [(String, Vec<String>)], environment_id: &st
     keys.iter()
         .find(|(id, _)| id == environment_id)
         .map_or(&[], |(_, keys)| keys.as_slice())
+}
+
+/// What [`backfill_checksums`] rewrote.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Backfilled {
+    pub secrets: u64,
+    pub versions: u64,
+    pub failed: u64,
+}
+
+/// `backfillChecksums`: every pre-HMAC checksum of one project (current rows,
+/// soft-deleted included, and history rows) rewritten as a keyed one.
+/// Idempotent; a row that will not open is counted, not fatal. Not wired to
+/// a route, as in TypeScript: an operator task with the project's KEK.
+pub async fn backfill_checksums(
+    db: &PgPool,
+    kek: &Key,
+    project_id: &str,
+) -> Result<Backfilled, sqlx::Error> {
+    let mut result = Backfilled::default();
+    let rows: Vec<(String, String, String, String, String, String)> = sqlx::query_as(
+        "select id, environment_id, key, ciphertext, dek_wrapped, checksum from weldpass_secrets \
+         where project_id = $1",
+    )
+    .bind(project_id)
+    .fetch_all(db)
+    .await?;
+    for (id, environment, key, ciphertext, dek_wrapped, checksum) in &rows {
+        if !is_legacy_checksum(checksum) {
+            continue;
+        }
+        let location = SecretLocation::new(project_id, environment, key);
+        match open_secret(kek, &location, ciphertext, dek_wrapped)
+            .and_then(|value| checksum_for(kek, &location, &value))
+        {
+            Ok(keyed) => {
+                sqlx::query("update weldpass_secrets set checksum = $2 where id = $1")
+                    .bind(id)
+                    .bind(&keyed)
+                    .execute(db)
+                    .await?;
+                result.secrets += 1;
+            }
+            Err(_) => result.failed += 1,
+        }
+    }
+
+    // A version row sits at its secret's location (a restore reuses the
+    // ciphertext as it is), so the same location opens and re-keys it.
+    let versions: Vec<(String, String, String, String)> = sqlx::query_as(
+        "select id, secret_id, ciphertext, dek_wrapped from weldpass_secret_versions \
+         where project_id = $1 and checksum not like 'h1:%'",
+    )
+    .bind(project_id)
+    .fetch_all(db)
+    .await?;
+    for (id, secret_id, ciphertext, dek_wrapped) in &versions {
+        let location = rows
+            .iter()
+            .find(|row| row.0 == *secret_id)
+            .map(|row| SecretLocation::new(project_id, &row.1, &row.2));
+        let keyed = location.and_then(|location| {
+            open_secret(kek, &location, ciphertext, dek_wrapped)
+                .and_then(|value| checksum_for(kek, &location, &value))
+                .ok()
+        });
+        match keyed {
+            Some(keyed) => {
+                sqlx::query("update weldpass_secret_versions set checksum = $2 where id = $1")
+                    .bind(id)
+                    .bind(&keyed)
+                    .execute(db)
+                    .await?;
+                result.versions += 1;
+            }
+            None => result.failed += 1,
+        }
+    }
+    Ok(result)
 }

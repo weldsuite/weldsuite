@@ -75,8 +75,8 @@ pub(crate) fn parse_int(text: &str, radix: u32) -> Option<f64> {
 pub(crate) fn clamped_limit(text: Option<&str>, fallback: i64, min: i64, max: i64) -> i64 {
     let fallback_text = fallback.to_string();
     match parse_int(text.unwrap_or(&fallback_text), 10) {
-        // Finite and clamped, so the cast cannot truncate.
-        #[allow(clippy::cast_possible_truncation)]
+        // Finite and clamped to small bounds, so neither cast loses anything.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
         Some(value) if value.is_finite() => (value.clamp(min as f64, max as f64)) as i64,
         _ => fallback,
     }

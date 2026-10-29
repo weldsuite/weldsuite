@@ -268,7 +268,11 @@ mod tests {
                     period: 30,
                     algorithm: *algorithm,
                 };
-                assert_eq!(totp_code(&config, at(time)).code, code, "{algorithm:?} at {time}");
+                assert_eq!(
+                    totp_code(&config, at(time)).code,
+                    code,
+                    "{algorithm:?} at {time}"
+                );
             }
         }
     }
@@ -281,10 +285,15 @@ mod tests {
         for case in fixture["cases"].as_array().expect("cases") {
             let input = case["input"].as_str().expect("input");
             match (parse_totp(input), case["error"].as_str()) {
-                (Err(TotpError(message)), Some(expected)) => assert_eq!(message, expected, "{input}"),
+                (Err(TotpError(message)), Some(expected)) => {
+                    assert_eq!(message, expected, "{input}");
+                }
                 (Ok(config), None) => {
                     assert_eq!(hex::encode(&config.secret), case["secretHex"], "{input}");
-                    assert_eq!(u64::from(config.digits), case["digits"].as_u64().unwrap_or(0));
+                    assert_eq!(
+                        u64::from(config.digits),
+                        case["digits"].as_u64().unwrap_or(0)
+                    );
                     assert_eq!(config.period, case["period"].as_u64().unwrap_or(0));
                     assert_eq!(config.algorithm.name(), case["algorithm"]);
                     for code in case["codes"].as_array().expect("codes") {

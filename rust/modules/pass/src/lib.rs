@@ -27,7 +27,6 @@ mod credentials;
 mod dotenv;
 pub mod envelope;
 mod health;
-mod transport;
 mod import;
 mod js;
 mod jsjson;
@@ -41,6 +40,7 @@ mod schemas;
 mod secrets;
 mod sync;
 pub mod totp;
+mod transport;
 
 use std::sync::Arc;
 
@@ -51,7 +51,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use http::request::Parts;
 use http::{HeaderMap, StatusCode};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use time::OffsetDateTime;
 use weldsuite_auth::AuthContext;
 use weldsuite_catalogs::permission_keys::{
@@ -63,7 +63,11 @@ use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
 
-pub use envelope::{EnvelopeError, RootKeyring, rewrap_vault_key};
+pub use envelope::{
+    EnvelopeError, Key, RootKeyring, SecretLocation, create_vault_key, rewrap_vault_key,
+    seal_secret, unwrap_vault_key,
+};
+pub use secrets::{Backfilled, backfill_checksums};
 pub use transport::{
     HttpTransport, OutboundRequest, OutboundResponse, PassHttp, ReqwestTransport, TransportError,
 };
@@ -112,15 +116,21 @@ where
     use routes_passwords as pw;
     use routes_projects as rp;
 
-    let need = |keys: &[&'static str]| gate.require(keys.iter().copied());
     const SECRETS: &str = "/projects/{projectId}/environments/{environmentId}/secrets";
     const VAULT: &str = "/vaults/{vaultId}";
     const ITEM: &str = "/vaults/{vaultId}/items/{itemId}";
+    let need = |keys: &[&'static str]| gate.require(keys.iter().copied());
 
     Router::new()
-        .route("/providers", get(rp::providers).route_layer(need(&[SECRETS_READ])))
+        .route(
+            "/providers",
+            get(rp::providers).route_layer(need(&[SECRETS_READ])),
+        )
         // Projects
-        .route("/projects", get(rp::list_projects).route_layer(need(&[SECRETS_READ])))
+        .route(
+            "/projects",
+            get(rp::list_projects).route_layer(need(&[SECRETS_READ])),
+        )
         .route(
             "/projects",
             post(rp::create_project).route_layer(need(&[SECRETS_CREATE, SECRETS_MANAGE])),
@@ -153,7 +163,10 @@ where
                 .route_layer(need(&[SECRETS_MANAGE])),
         )
         // Secrets
-        .route(SECRETS, get(rp::list_secrets).route_layer(need(&[SECRETS_READ])))
+        .route(
+            SECRETS,
+            get(rp::list_secrets).route_layer(need(&[SECRETS_READ])),
+        )
         .route(
             SECRETS,
             post(rp::upsert_secret).route_layer(need(&[SECRETS_CREATE, SECRETS_MANAGE])),
@@ -235,7 +248,10 @@ where
             get(rp::list_audit).route_layer(need(&[SECRETS_MANAGE])),
         )
         // Password manager: vaults
-        .route("/vaults", get(pw::list_vaults).route_layer(need(&[PASSWORDS_USE])))
+        .route(
+            "/vaults",
+            get(pw::list_vaults).route_layer(need(&[PASSWORDS_USE])),
+        )
         .route(
             "/vaults",
             post(pw::create_vault).route_layer(need(&[PASSWORDS_CREATE, PASSWORDS_MANAGE])),
@@ -247,7 +263,10 @@ where
                 .delete(pw::delete_vault)
                 .route_layer(need(&[PASSWORDS_USE])),
         )
-        .route("/teammates", get(pw::teammates).route_layer(need(&[PASSWORDS_USE])))
+        .route(
+            "/teammates",
+            get(pw::teammates).route_layer(need(&[PASSWORDS_USE])),
+        )
         .route(
             const_format(VAULT, "/members"),
             get(pw::list_members)
@@ -265,7 +284,10 @@ where
             get(pw::activity).route_layer(need(&[PASSWORDS_USE])),
         )
         // Password manager: items
-        .route("/items", get(pw::list_items).route_layer(need(&[PASSWORDS_USE])))
+        .route(
+            "/items",
+            get(pw::list_items).route_layer(need(&[PASSWORDS_USE])),
+        )
         .route(
             "/items/match",
             get(pw::match_items).route_layer(need(&[PASSWORDS_USE])),
@@ -471,11 +493,10 @@ impl From<sqlx::Error> for PassError {
     /// The database's own message when it has one, as Drizzle's error
     /// carries it (a push records it as the failed run's error).
     fn from(error: sqlx::Error) -> Self {
-        Self::Internal(
-            error
-                .as_database_error()
-                .map_or_else(|| error.to_string(), |database| database.message().to_owned()),
-        )
+        Self::Internal(error.as_database_error().map_or_else(
+            || error.to_string(),
+            |database| database.message().to_owned(),
+        ))
     }
 }
 
@@ -509,7 +530,9 @@ pub(crate) fn validate<T>(
 ) -> PassResult<T> {
     let value = json_value(headers, body)?;
     let mut issues = Issues::default();
-    let read = issues.object(&value).map(|fields| read(&mut issues, fields));
+    let read = issues
+        .object(&value)
+        .map(|fields| read(&mut issues, fields));
     issues
         .finish()
         .map_err(|invalid| PassError::Response(Box::new(invalid.into_response())))?;
@@ -571,7 +594,9 @@ pub(crate) fn merge(mut base: Value, extra: Value) -> Value {
 }
 
 /// A path parameter the route declares, `''` when missing.
-pub(crate) fn param<'a>(params: &'a std::collections::HashMap<String, String>, name: &str) -> &'a str {
+pub(crate) fn param<'a>(
+    params: &'a std::collections::HashMap<String, String>,
+    name: &str,
+) -> &'a str {
     params.get(name).map_or("", String::as_str)
 }
-

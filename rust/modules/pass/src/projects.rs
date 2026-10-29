@@ -67,7 +67,10 @@ impl Environment {
 }
 
 /// `listProjects`: by name.
-pub(crate) async fn list_projects(db: &PgPool, workspace: Option<&str>) -> PassResult<Vec<Project>> {
+pub(crate) async fn list_projects(
+    db: &PgPool,
+    workspace: Option<&str>,
+) -> PassResult<Vec<Project>> {
     let rows: Vec<Value> = sqlx::query_scalar(concat!(
         "select ",
         project_json!(),
@@ -187,11 +190,15 @@ pub(crate) async fn create_project(
     .await?;
     Ok((
         Project::from_row(project),
-        environments.into_iter().map(Environment::from_row).collect(),
+        environments
+            .into_iter()
+            .map(Environment::from_row)
+            .collect(),
     ))
 }
 
 /// `updateProject`: the fields given (`description: null` clears it).
+#[allow(clippy::option_option)] // `description`: left out, null, or a text
 pub(crate) async fn update_project(
     db: &PgPool,
     workspace: Option<&str>,
@@ -259,7 +266,10 @@ pub(crate) async fn open_vault(
 }
 
 /// `listEnvironments`: by sort order, then name.
-pub(crate) async fn list_environments(db: &PgPool, project_id: &str) -> PassResult<Vec<Environment>> {
+pub(crate) async fn list_environments(
+    db: &PgPool,
+    project_id: &str,
+) -> PassResult<Vec<Environment>> {
     let rows: Vec<Value> = sqlx::query_scalar(concat!(
         "select ",
         environment_json!(),

@@ -50,8 +50,10 @@ pub enum TransportError {
 
 /// Sends a request.
 pub trait HttpTransport: Send + Sync {
-    fn send(&self, request: OutboundRequest)
-    -> BoxFuture<'_, Result<OutboundResponse, TransportError>>;
+    fn send(
+        &self,
+        request: OutboundRequest,
+    ) -> BoxFuture<'_, Result<OutboundResponse, TransportError>>;
 }
 
 /// The transport a request uses in place of the app's, as a request

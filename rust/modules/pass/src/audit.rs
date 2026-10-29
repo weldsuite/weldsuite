@@ -151,7 +151,9 @@ impl<'a> VaultEvent<'a> {
 
 /// `recordVaultEvent`: the label cut to 255 characters.
 pub(crate) async fn record_vault_event(db: &PgPool, context: &AuditContext, entry: VaultEvent<'_>) {
-    let label = entry.target_label.map(|label| js::utf16_slice(label, 0, 255));
+    let label = entry
+        .target_label
+        .map(|label| js::utf16_slice(label, 0, 255));
     let result = sqlx::query(
         "insert into weldpass_vault_events \
          (id, vault_id, item_id, actor_id, action, target_label, metadata, ip, user_agent) \

@@ -8,9 +8,9 @@ use weldsuite_kit::generate_id;
 
 use crate::credentials::read_credential_token;
 use crate::envelope::Key;
-use crate::transport::HttpTransport;
 use crate::providers;
 use crate::secrets::read_environment_values;
+use crate::transport::HttpTransport;
 use crate::{PassError, PassResult, dated, now};
 
 macro_rules! target_json {
@@ -96,7 +96,11 @@ pub(crate) async fn list_targets(
 }
 
 /// `requireSyncTarget`.
-pub(crate) async fn require_target(db: &PgPool, project_id: &str, target_id: &str) -> PassResult<Target> {
+pub(crate) async fn require_target(
+    db: &PgPool,
+    project_id: &str,
+    target_id: &str,
+) -> PassResult<Target> {
     let row: Option<Value> = sqlx::query_scalar(concat!(
         "select ",
         target_json!(),
@@ -186,7 +190,11 @@ pub(crate) async fn update_target(
 }
 
 /// `deleteSyncTarget`: soft.
-pub(crate) async fn delete_target(db: &PgPool, project_id: &str, target_id: &str) -> PassResult<()> {
+pub(crate) async fn delete_target(
+    db: &PgPool,
+    project_id: &str,
+    target_id: &str,
+) -> PassResult<()> {
     require_target(db, project_id, target_id).await?;
     let now = now();
     sqlx::query(
@@ -272,7 +280,11 @@ pub(crate) async fn push_to_target(
 
     match attempt {
         Ok(result) => {
-            let status = if result.failed > 0 { "partial" } else { "success" };
+            let status = if result.failed > 0 {
+                "partial"
+            } else {
+                "success"
+            };
             let error = (result.failed > 0).then(|| {
                 format!(
                     "{} of {} values were rejected",
@@ -280,7 +292,11 @@ pub(crate) async fn push_to_target(
                     result.pushed + result.failed
                 )
             });
-            let details: Vec<Value> = result.details.iter().map(providers::PushDetail::to_json).collect();
+            let details: Vec<Value> = result
+                .details
+                .iter()
+                .map(providers::PushDetail::to_json)
+                .collect();
             let run = finish_run(
                 db,
                 &run_id,
@@ -302,15 +318,8 @@ pub(crate) async fn push_to_target(
         }
         Err(error) => {
             let message = failure_message(error);
-            let run = finish_run(
-                db,
-                &run_id,
-                "failed",
-                (0, 0, 0),
-                Some(&message),
-                &json!([]),
-            )
-            .await?;
+            let run =
+                finish_run(db, &run_id, "failed", (0, 0, 0), Some(&message), &json!([])).await?;
             let target = mark_target(db, &target.id, "failed", None, Some(&message)).await?;
             Ok(PushOutcome { run, target })
         }

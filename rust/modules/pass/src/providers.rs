@@ -19,9 +19,9 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::transport::{HttpTransport, OutboundRequest, OutboundResponse, TransportError};
 use crate::js::JsRecord;
 use crate::jsjson::Js;
+use crate::transport::{HttpTransport, OutboundRequest, OutboundResponse, TransportError};
 
 const CLOUDFLARE_API: &str = "https://api.cloudflare.com/client/v4";
 const VERCEL_API: &str = "https://api.vercel.com";
@@ -314,7 +314,10 @@ fn team_id(config: &Value) -> Option<String> {
 pub(crate) fn encode_uri_component(value: &str) -> String {
     percent_encode(value, |b| {
         b.is_ascii_alphanumeric()
-            || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+            || matches!(
+                b,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
     })
 }
 
@@ -520,7 +523,12 @@ fn retry_delay(response: Option<&OutboundResponse>, retries_remaining: u32) -> D
 
 impl Cloudflare<'_> {
     /// One SDK request with its retries; the parsed body on a 2xx.
-    async fn request(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Js, SdkError> {
+    async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Js, SdkError> {
         let url = url::Url::parse(&format!("{CLOUDFLARE_API}{path}"))
             .map_err(|error| SdkError::Other(error.to_string()))?
             .to_string();
@@ -530,7 +538,10 @@ impl Cloudflare<'_> {
             let mut headers = vec![
                 ("accept".to_owned(), "application/json".to_owned()),
                 ("authorization".to_owned(), format!("Bearer {}", self.token)),
-                ("x-stainless-retry-count".to_owned(), retry_count.to_string()),
+                (
+                    "x-stainless-retry-count".to_owned(),
+                    retry_count.to_string(),
+                ),
                 ("x-stainless-timeout".to_owned(), "20".to_owned()),
             ];
             if body.is_some() {
@@ -594,7 +605,11 @@ impl Cloudflare<'_> {
     }
 
     /// `listWorkerSecretNames`.
-    async fn worker_secret_names(&self, account_id: &str, script: &str) -> Result<Vec<String>, String> {
+    async fn worker_secret_names(
+        &self,
+        account_id: &str,
+        script: &str,
+    ) -> Result<Vec<String>, String> {
         let what = format!("Could not list secrets on Worker \"{script}\"");
         let path = sdk_path(
             &["/accounts/", "/workers/scripts/", "/secrets"],
@@ -660,8 +675,11 @@ impl Cloudflare<'_> {
         environment: &str,
     ) -> Result<Vec<String>, String> {
         let what = format!("Could not read Pages project \"{project}\"");
-        let path = sdk_path(&["/accounts/", "/pages/projects/", ""], &[account_id, project])
-            .map_err(|message| deploy_error(SdkError::Other(message), &what))?;
+        let path = sdk_path(
+            &["/accounts/", "/pages/projects/", ""],
+            &[account_id, project],
+        )
+        .map_err(|message| deploy_error(SdkError::Other(message), &what))?;
         let body = self
             .request("GET", &path, None)
             .await
@@ -699,8 +717,11 @@ impl Cloudflare<'_> {
             return Ok((Vec::new(), Vec::new()));
         }
         let what = format!("Could not write env vars to Pages project \"{project}\"");
-        let path = sdk_path(&["/accounts/", "/pages/projects/", ""], &[account_id, project])
-            .map_err(|message| deploy_error(SdkError::Other(message), &what))?;
+        let path = sdk_path(
+            &["/accounts/", "/pages/projects/", ""],
+            &[account_id, project],
+        )
+        .map_err(|message| deploy_error(SdkError::Other(message), &what))?;
         let mut configs = serde_json::Map::new();
         configs.insert(environment.to_owned(), json!({ "env_vars": env_vars }));
         let body = json!({ "deployment_configs": configs });
@@ -754,7 +775,12 @@ fn error_message(text: &str) -> String {
 impl Vercel<'_> {
     /// `vercelFetch`: the parsed body (`{}` when empty), or the
     /// `ProviderError` for a failed call.
-    async fn fetch(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Js, ProviderError> {
+    async fn fetch(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<Js, ProviderError> {
         let mut url = url::Url::parse(&format!("{VERCEL_API}{path}"))
             .map_err(|error| ProviderError(format!("Could not reach the Vercel API: {error}")))?;
         if let Some(team) = &self.team_id {
@@ -796,12 +822,17 @@ impl Vercel<'_> {
         if text.is_empty() {
             return Ok(Js::Object(Vec::new()));
         }
-        Js::parse(&text).ok_or_else(|| {
-            ProviderError("Vercel answered with a body that is not JSON".to_owned())
-        })
+        Js::parse(&text)
+            .ok_or_else(|| ProviderError("Vercel answered with a body that is not JSON".to_owned()))
     }
 
-    async fn push(&self, config: &Value, secrets: &JsRecord, prune: bool) -> Result<PushResult, ProviderError> {
+    #[allow(clippy::too_many_lines)] // push, prune and their per-key details, as vercel.ts has them
+    async fn push(
+        &self,
+        config: &Value,
+        secrets: &JsRecord,
+        prune: bool,
+    ) -> Result<PushResult, ProviderError> {
         let mut targets: Vec<Value> = config["targets"].as_array().cloned().unwrap_or_default();
         if targets.is_empty() {
             targets = vec![Value::from("production")];
@@ -869,7 +900,9 @@ impl Vercel<'_> {
                 _ => Vec::new(),
             };
             for row in rows {
-                let key = row.get("key").map_or_else(|| "undefined".to_owned(), Js::to_js_string);
+                let key = row
+                    .get("key")
+                    .map_or_else(|| "undefined".to_owned(), Js::to_js_string);
                 if secrets.has(&key) {
                     continue;
                 }
@@ -884,8 +917,13 @@ impl Vercel<'_> {
                 if !targets.iter().all(covers) {
                     continue;
                 }
-                let id = row.get("id").map_or_else(|| "undefined".to_owned(), Js::to_js_string);
-                let path = format!("/v9/projects/{project_path}/env/{}", encode_uri_component(&id));
+                let id = row
+                    .get("id")
+                    .map_or_else(|| "undefined".to_owned(), Js::to_js_string);
+                let path = format!(
+                    "/v9/projects/{project_path}/env/{}",
+                    encode_uri_component(&id)
+                );
                 match self.fetch("DELETE", &path, None).await {
                     Ok(_) => {
                         details.push(PushDetail::new(&key, "removed"));
@@ -943,7 +981,10 @@ mod tests {
     #[test]
     fn paths_encode_like_the_sdk() {
         assert_eq!(
-            sdk_path(&["/accounts/", "/workers/scripts/", "/secrets"], &["acc", "my worker"]),
+            sdk_path(
+                &["/accounts/", "/workers/scripts/", "/secrets"],
+                &["acc", "my worker"]
+            ),
             Ok("/accounts/acc/workers/scripts/my%20worker/secrets".to_owned())
         );
         assert_eq!(
@@ -961,12 +1002,26 @@ mod tests {
 
     #[test]
     fn api_errors_read_like_the_sdk() {
-        let status = |status, body: &str| deploy_error(SdkError::Status { status, body: body.to_owned() }, "W");
+        let status = |status, body: &str| {
+            deploy_error(
+                SdkError::Status {
+                    status,
+                    body: body.to_owned(),
+                },
+                "W",
+            )
+        };
         assert_eq!(
-            status(403, r#"{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}"#),
+            status(
+                403,
+                r#"{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}"#
+            ),
             "W: Authentication error"
         );
-        assert_eq!(status(404, r#"{"success":false,"errors":[]}"#), r#"W: 404 {"success":false,"errors":[]}"#);
+        assert_eq!(
+            status(404, r#"{"success":false,"errors":[]}"#),
+            r#"W: 404 {"success":false,"errors":[]}"#
+        );
         assert_eq!(status(500, "oops"), "W: 500 oops");
         assert_eq!(status(502, ""), "W: 502 status code (no body)");
         assert_eq!(status(400, r#"{"message":"bad"}"#), "W: 400 bad");
@@ -974,8 +1029,12 @@ mod tests {
 
     #[test]
     fn query_params_set_like_url_search_params() {
-        let mut url = url::Url::parse("https://api.vercel.com/v10/projects/p/env?upsert=true").expect("url");
+        let mut url =
+            url::Url::parse("https://api.vercel.com/v10/projects/p/env?upsert=true").expect("url");
         set_query_param(&mut url, "teamId", "team a&b");
-        assert_eq!(url.as_str(), "https://api.vercel.com/v10/projects/p/env?upsert=true&teamId=team+a%26b");
+        assert_eq!(
+            url.as_str(),
+            "https://api.vercel.com/v10/projects/p/env?upsert=true&teamId=team+a%26b"
+        );
     }
 }

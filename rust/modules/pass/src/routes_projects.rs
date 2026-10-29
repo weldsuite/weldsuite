@@ -45,7 +45,11 @@ fn form_urlencoded_pairs(raw: &str) -> impl Iterator<Item = (String, String)> + 
 }
 
 /// `vaultFor(c)`: the project and its KEK.
-async fn vault_for(caller: &Caller, state: &PassState, params: &HashMap<String, String>) -> PassResult<(Project, Key)> {
+async fn vault_for(
+    caller: &Caller,
+    state: &PassState,
+    params: &HashMap<String, String>,
+) -> PassResult<(Project, Key)> {
     projects::open_vault(
         &caller.db,
         caller.org(),
@@ -63,7 +67,8 @@ async fn environment_for(
 ) -> PassResult<(Project, Key, Environment)> {
     let (project, kek) = vault_for(caller, state, params).await?;
     let environment =
-        projects::require_environment(&caller.db, &project.id, param(params, "environmentId")).await?;
+        projects::require_environment(&caller.db, &project.id, param(params, "environmentId"))
+            .await?;
     Ok((project, kek, environment))
 }
 
@@ -107,7 +112,6 @@ pub(crate) async fn list_projects(caller: Caller) -> Response {
     )
 }
 
-
 pub(crate) async fn create_project(
     caller: Caller,
     State(state): State<PassState>,
@@ -148,7 +152,8 @@ pub(crate) async fn create_project(
             record_audit(
                 &caller.db,
                 &caller.audit,
-                AuditEntry::new(&project.id, &caller.user_id, "project.created").target(&project.slug),
+                AuditEntry::new(&project.id, &caller.user_id, "project.created")
+                    .target(&project.slug),
             )
             .await;
             let environments: Vec<Value> = environments.into_iter().map(|e| e.json).collect();
@@ -161,12 +166,12 @@ pub(crate) async fn create_project(
     )
 }
 
-
 pub(crate) async fn get_project(caller: Caller, Path(params): Params) -> Response {
     answer(
         async {
             let project =
-                projects::require_project(&caller.db, caller.org(), param(&params, "projectId")).await?;
+                projects::require_project(&caller.db, caller.org(), param(&params, "projectId"))
+                    .await?;
             Ok(ok(project_with_environments(&caller, &project).await?))
         }
         .await,
@@ -204,7 +209,8 @@ pub(crate) async fn update_project(
             record_audit(
                 &caller.db,
                 &caller.audit,
-                AuditEntry::new(project_id, &caller.user_id, "project.updated").target(&project.slug),
+                AuditEntry::new(project_id, &caller.user_id, "project.updated")
+                    .target(&project.slug),
             )
             .await;
             Ok(ok(project.json))
@@ -212,7 +218,6 @@ pub(crate) async fn update_project(
         .await,
     )
 }
-
 
 pub(crate) async fn delete_project(caller: Caller, Path(params): Params) -> Response {
     answer(
@@ -223,7 +228,8 @@ pub(crate) async fn delete_project(caller: Caller, Path(params): Params) -> Resp
             record_audit(
                 &caller.db,
                 &caller.audit,
-                AuditEntry::new(project_id, &caller.user_id, "project.deleted").target(&project.slug),
+                AuditEntry::new(project_id, &caller.user_id, "project.deleted")
+                    .target(&project.slug),
             )
             .await;
             Ok(NoContent.into_response())
@@ -232,14 +238,14 @@ pub(crate) async fn delete_project(caller: Caller, Path(params): Params) -> Resp
     )
 }
 
-
 // ── Environments ───────────────────────────────────────────────────────────
 
 pub(crate) async fn list_environments(caller: Caller, Path(params): Params) -> Response {
     answer(
         async {
             let project =
-                projects::require_project(&caller.db, caller.org(), param(&params, "projectId")).await?;
+                projects::require_project(&caller.db, caller.org(), param(&params, "projectId"))
+                    .await?;
             let environments = projects::list_environments(&caller.db, &project.id).await?;
             Ok(ok(Value::Array(
                 environments.into_iter().map(|e| e.json).collect(),
@@ -248,7 +254,6 @@ pub(crate) async fn list_environments(caller: Caller, Path(params): Params) -> R
         .await,
     )
 }
-
 
 pub(crate) async fn create_environment(
     caller: Caller,
@@ -266,7 +271,8 @@ pub(crate) async fn create_environment(
                 )
             })?;
             let project =
-                projects::require_project(&caller.db, caller.org(), param(&params, "projectId")).await?;
+                projects::require_project(&caller.db, caller.org(), param(&params, "projectId"))
+                    .await?;
             let name = name.into_option().unwrap_or_default();
             let slug_input = slug.into_option();
             let slug = slugify(slug_input.as_deref().unwrap_or(&name));
@@ -299,7 +305,6 @@ pub(crate) async fn create_environment(
     )
 }
 
-
 pub(crate) async fn update_environment(
     caller: Caller,
     Path(params): Params,
@@ -316,7 +321,8 @@ pub(crate) async fn update_environment(
                 )
             })?;
             let project =
-                projects::require_project(&caller.db, caller.org(), param(&params, "projectId")).await?;
+                projects::require_project(&caller.db, caller.org(), param(&params, "projectId"))
+                    .await?;
             let environment = projects::update_environment(
                 &caller.db,
                 &project.id,
@@ -340,12 +346,12 @@ pub(crate) async fn update_environment(
     )
 }
 
-
 pub(crate) async fn delete_environment(caller: Caller, Path(params): Params) -> Response {
     answer(
         async {
             let project =
-                projects::require_project(&caller.db, caller.org(), param(&params, "projectId")).await?;
+                projects::require_project(&caller.db, caller.org(), param(&params, "projectId"))
+                    .await?;
             let environment_id = param(&params, "environmentId");
             projects::delete_environment(&caller.db, &project.id, environment_id).await?;
             record_audit(
@@ -360,7 +366,6 @@ pub(crate) async fn delete_environment(caller: Caller, Path(params): Params) -> 
         .await,
     )
 }
-
 
 // ── Secrets ────────────────────────────────────────────────────────────────
 
@@ -384,7 +389,12 @@ async fn run_auto_sync(
     )
     .await
     {
-        Ok(outcomes) => Value::Array(outcomes.iter().map(crate::sync::PushOutcome::summary).collect()),
+        Ok(outcomes) => Value::Array(
+            outcomes
+                .iter()
+                .map(crate::sync::PushOutcome::summary)
+                .collect(),
+        ),
         Err(error) => {
             tracing::error!(?error, "[weldpass] auto-sync failed");
             json!([])
@@ -401,12 +411,13 @@ pub(crate) async fn list_secrets(
         async {
             let (_, _, environment) = environment_for(&caller, &state, &params).await?;
             let secrets = secrets::list_secrets(&caller.db, &environment.id).await?;
-            Ok(ok(Value::Array(secrets.into_iter().map(|s| s.json).collect())))
+            Ok(ok(Value::Array(
+                secrets.into_iter().map(|s| s.json).collect(),
+            )))
         }
         .await,
     )
 }
-
 
 pub(crate) async fn upsert_secret(
     caller: Caller,
@@ -469,7 +480,6 @@ pub(crate) async fn upsert_secret(
     )
 }
 
-
 pub(crate) async fn patch_secret(
     caller: Caller,
     State(state): State<PassState>,
@@ -490,11 +500,16 @@ pub(crate) async fn patch_secret(
                 return Err(ApiError::bad_request("Provide a value, a note, or both.").into());
             }
             let existing =
-                secrets::require_secret(&caller.db, &environment.id, param(&params, "secretId")).await?;
+                secrets::require_secret(&caller.db, &environment.id, param(&params, "secretId"))
+                    .await?;
             let value_changed = !value.is_absent();
             let value = match value.into_option() {
                 Some(value) => value,
-                None => secrets::reveal_secret(&caller.db, &kek, &environment.id, &existing.id).await?.1,
+                None => {
+                    secrets::reveal_secret(&caller.db, &kek, &environment.id, &existing.id)
+                        .await?
+                        .1
+                }
             };
             let note = match &note {
                 Field::Absent => None,
@@ -527,7 +542,9 @@ pub(crate) async fn patch_secret(
             } else {
                 json!([])
             };
-            Ok(ok(json!({ "secret": result.secret.json, "autoSync": auto_sync })))
+            Ok(ok(
+                json!({ "secret": result.secret.json, "autoSync": auto_sync }),
+            ))
         }
         .await,
     )
@@ -541,8 +558,13 @@ pub(crate) async fn reveal_secret(
     answer(
         async {
             let (project, kek, environment) = environment_for(&caller, &state, &params).await?;
-            let (secret, value) =
-                secrets::reveal_secret(&caller.db, &kek, &environment.id, param(&params, "secretId")).await?;
+            let (secret, value) = secrets::reveal_secret(
+                &caller.db,
+                &kek,
+                &environment.id,
+                param(&params, "secretId"),
+            )
+            .await?;
             record_audit(
                 &caller.db,
                 &caller.audit,
@@ -558,7 +580,6 @@ pub(crate) async fn reveal_secret(
     )
 }
 
-
 pub(crate) async fn list_versions(
     caller: Caller,
     State(state): State<PassState>,
@@ -568,13 +589,15 @@ pub(crate) async fn list_versions(
         async {
             let (_, _, environment) = environment_for(&caller, &state, &params).await?;
             let secret =
-                secrets::require_secret(&caller.db, &environment.id, param(&params, "secretId")).await?;
-            Ok(ok(Value::Array(secrets::list_versions(&caller.db, &secret.id).await?)))
+                secrets::require_secret(&caller.db, &environment.id, param(&params, "secretId"))
+                    .await?;
+            Ok(ok(Value::Array(
+                secrets::list_versions(&caller.db, &secret.id).await?,
+            )))
         }
         .await,
     )
 }
-
 
 pub(crate) async fn restore_secret(
     caller: Caller,
@@ -609,7 +632,8 @@ pub(crate) async fn restore_secret(
                     .metadata(json!({ "restoredFrom": version })),
             )
             .await;
-            let auto_sync = run_auto_sync(&caller, &state, &project.id, &environment.id, &kek).await;
+            let auto_sync =
+                run_auto_sync(&caller, &state, &project.id, &environment.id, &kek).await;
             Ok(ok(json!({ "secret": secret.json, "autoSync": auto_sync })))
         }
         .await,
@@ -649,7 +673,6 @@ pub(crate) async fn delete_secret(
     )
 }
 
-
 pub(crate) async fn import_secrets(
     caller: Caller,
     State(state): State<PassState>,
@@ -661,13 +684,23 @@ pub(crate) async fn import_secrets(
         async {
             let (content, replace) = validate(&headers, &body, |issues, fields| {
                 (
-                    issues.text(fields, "content", Presence::Required, None, Some(1024 * 1024)),
+                    issues.text(
+                        fields,
+                        "content",
+                        Presence::Required,
+                        None,
+                        Some(1024 * 1024),
+                    ),
                     issues.boolean(fields, "replace", Presence::Optional),
                 )
             })?;
             let (project, kek, environment) = environment_for(&caller, &state, &params).await?;
             let parsed = parse_dotenv(&content.into_option().unwrap_or_default());
-            let skipped: Vec<Value> = parsed.skipped.iter().map(crate::dotenv::Skipped::to_json).collect();
+            let skipped: Vec<Value> = parsed
+                .skipped
+                .iter()
+                .map(crate::dotenv::Skipped::to_json)
+                .collect();
             if parsed.values.is_empty() {
                 return Err(ApiError::bad_request("No variables found in that file.")
                     .with_details(json!({ "skipped": skipped }))
@@ -686,8 +719,13 @@ pub(crate) async fn import_secrets(
             if replace.into_option() == Some(true) {
                 for existing in secrets::list_secrets(&caller.db, &environment.id).await? {
                     if !parsed.values.has(&existing.key) {
-                        secrets::delete_secret(&caller.db, &environment.id, &existing.id, &caller.user_id)
-                            .await?;
+                        secrets::delete_secret(
+                            &caller.db,
+                            &environment.id,
+                            &existing.id,
+                            &caller.user_id,
+                        )
+                        .await?;
                         removed.push(existing.key);
                     }
                 }
@@ -706,7 +744,8 @@ pub(crate) async fn import_secrets(
                     })),
             )
             .await;
-            let auto_sync = run_auto_sync(&caller, &state, &project.id, &environment.id, &kek).await;
+            let auto_sync =
+                run_auto_sync(&caller, &state, &project.id, &environment.id, &kek).await;
             Ok(ok(json!({
                 "created": created_keys,
                 "updated": updated,
@@ -720,7 +759,6 @@ pub(crate) async fn import_secrets(
     )
 }
 
-
 pub(crate) async fn export_secrets(
     caller: Caller,
     State(state): State<PassState>,
@@ -730,7 +768,8 @@ pub(crate) async fn export_secrets(
     answer(
         async {
             let (project, kek, environment) = environment_for(&caller, &state, &params).await?;
-            let values = secrets::read_environment_values(&caller.db, &kek, &environment.id).await?;
+            let values =
+                secrets::read_environment_values(&caller.db, &kek, &environment.id).await?;
             let format = query(raw.as_deref(), "format");
             record_audit(
                 &caller.db,
@@ -770,15 +809,22 @@ pub(crate) async fn export_secrets(
 /// dropped) or absent.
 fn read_metadata(issues: &mut Issues, fields: &Map<String, Value>) -> Option<Value> {
     issues
-        .nested(fields, "metadata", Presence::Optional, |issues, metadata| {
-            let mut out = Map::new();
-            for key in ["accountId", "teamId"] {
-                if let Field::Set(text) = issues.text(metadata, key, Presence::Optional, None, Some(100)) {
-                    out.insert(key.to_owned(), Value::String(text));
+        .nested(
+            fields,
+            "metadata",
+            Presence::Optional,
+            |issues, metadata| {
+                let mut out = Map::new();
+                for key in ["accountId", "teamId"] {
+                    if let Field::Set(text) =
+                        issues.text(metadata, key, Presence::Optional, None, Some(100))
+                    {
+                        out.insert(key.to_owned(), Value::String(text));
+                    }
                 }
-            }
-            Value::Object(out)
-        })
+                Value::Object(out)
+            },
+        )
         .into_option()
 }
 
@@ -893,7 +939,9 @@ pub(crate) fn read_config(
 ) -> Field<Value> {
     issues.nested(fields, key, presence, |issues, config| {
         let provider = match config.get("provider") {
-            Some(Value::String(provider)) if PROVIDERS.contains(&provider.as_str()) => provider.clone(),
+            Some(Value::String(provider)) if PROVIDERS.contains(&provider.as_str()) => {
+                provider.clone()
+            }
             _ => {
                 issues.invalid_discriminator("provider", &PROVIDERS);
                 return Value::Null;
@@ -914,9 +962,12 @@ pub(crate) fn read_config(
             "cloudflare_pages" => {
                 text(issues, "accountId", Presence::Required);
                 text(issues, "projectName", Presence::Required);
-                if let Field::Set(environment) =
-                    issues.choice(config, "environment", Presence::Required, &["production", "preview"])
-                {
+                if let Field::Set(environment) = issues.choice(
+                    config,
+                    "environment",
+                    Presence::Required,
+                    &["production", "preview"],
+                ) {
                     out.insert("environment".to_owned(), Value::String(environment));
                 }
             }
@@ -929,7 +980,9 @@ pub(crate) fn read_config(
                     Presence::Required,
                     Some(1),
                     Some(3),
-                    |issues, item| issues.item_choice(item, &["production", "preview", "development"]),
+                    |issues, item| {
+                        issues.item_choice(item, &["production", "preview", "development"])
+                    },
                 ) {
                     out.insert("targets".to_owned(), json!(targets));
                 }
@@ -1018,7 +1071,10 @@ pub(crate) async fn list_targets(
             let environment = query(raw.as_deref(), "environmentId").filter(|id| !id.is_empty());
             let targets = select_targets(&caller.db, &project.id, environment.as_deref()).await?;
             Ok(ok(Value::Array(
-                targets.iter().map(crate::sync::Target::with_notice).collect(),
+                targets
+                    .iter()
+                    .map(crate::sync::Target::with_notice)
+                    .collect(),
             )))
         }
         .await,
@@ -1044,8 +1100,20 @@ pub(crate) async fn create_target(
             let (environment_id, credential_id, name, config, auto_sync, prune) =
                 validate(&headers, &body, |issues, fields| {
                     (
-                        issues.text(fields, "environmentId", Presence::Required, Some(1), Some(30)),
-                        issues.text(fields, "credentialId", Presence::Required, Some(1), Some(30)),
+                        issues.text(
+                            fields,
+                            "environmentId",
+                            Presence::Required,
+                            Some(1),
+                            Some(30),
+                        ),
+                        issues.text(
+                            fields,
+                            "credentialId",
+                            Presence::Required,
+                            Some(1),
+                            Some(30),
+                        ),
                         issues.text(fields, "name", Presence::Required, Some(1), Some(100)),
                         read_config(issues, fields, "config", Presence::Required),
                         issues.boolean(fields, "autoSync", Presence::Optional),
@@ -1118,14 +1186,21 @@ pub(crate) async fn update_target(
                 validate(&headers, &body, |issues, fields| {
                     (
                         issues.text(fields, "name", Presence::Optional, Some(1), Some(100)),
-                        issues.text(fields, "credentialId", Presence::Optional, Some(1), Some(30)),
+                        issues.text(
+                            fields,
+                            "credentialId",
+                            Presence::Optional,
+                            Some(1),
+                            Some(30),
+                        ),
                         read_config(issues, fields, "config", Presence::Optional),
                         issues.boolean(fields, "autoSync", Presence::Optional),
                         issues.boolean(fields, "prune", Presence::Optional),
                     )
                 })?;
             let (project, _) = vault_for(&caller, &state, &params).await?;
-            let existing = require_target(&caller.db, &project.id, param(&params, "targetId")).await?;
+            let existing =
+                require_target(&caller.db, &project.id, param(&params, "targetId")).await?;
             let config = config.into_option();
             let config_provider = config
                 .as_ref()
@@ -1134,12 +1209,17 @@ pub(crate) async fn update_target(
             if let Some(credential_id) = credential_id.as_set().filter(|id| !id.is_empty()) {
                 let credential =
                     credentials::require_credential(&caller.db, &project.id, credential_id).await?;
-                let provider = config_provider.clone().unwrap_or_else(|| existing.provider.clone());
+                let provider = config_provider
+                    .clone()
+                    .unwrap_or_else(|| existing.provider.clone());
                 if credential.provider != provider {
                     return Err(mismatch(&credential.provider, &provider));
                 }
             }
-            if config_provider.as_ref().is_some_and(|provider| *provider != existing.provider) {
+            if config_provider
+                .as_ref()
+                .is_some_and(|provider| *provider != existing.provider)
+            {
                 return Err(ApiError::bad_request(
                     "A target cannot change provider — create a new target instead.",
                 )
@@ -1205,8 +1285,10 @@ pub(crate) async fn preview_target(
     answer(
         async {
             let (project, _) = vault_for(&caller, &state, &params).await?;
-            let target = require_target(&caller.db, &project.id, param(&params, "targetId")).await?;
-            let keys = list_secret_keys(&caller.db, std::slice::from_ref(&target.environment_id)).await?;
+            let target =
+                require_target(&caller.db, &project.id, param(&params, "targetId")).await?;
+            let keys =
+                list_secret_keys(&caller.db, std::slice::from_ref(&target.environment_id)).await?;
             Ok(ok(json!({
                 "targetId": target.id,
                 "environmentId": target.environment_id,
@@ -1257,7 +1339,9 @@ pub(crate) async fn push_target(
                 })),
             )
             .await;
-            Ok(ok(json!({ "run": outcome.run, "target": outcome.target.with_notice() })))
+            Ok(ok(
+                json!({ "run": outcome.run, "target": outcome.target.with_notice() }),
+            ))
         }
         .await,
     )
@@ -1320,7 +1404,10 @@ pub(crate) async fn list_audit(
 /// One page of a trail fetched with one row extra: `hasMore` without a
 /// count, the last row's time as the cursor, the page size as the count.
 pub(crate) fn page(rows: Vec<Value>, limit: i64) -> Response {
-    let mut rows: Vec<Value> = rows.into_iter().map(|row| dated(row, &["createdAt"])).collect();
+    let mut rows: Vec<Value> = rows
+        .into_iter()
+        .map(|row| dated(row, &["createdAt"]))
+        .collect();
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let has_more = rows.len() > limit;
     rows.truncate(limit);

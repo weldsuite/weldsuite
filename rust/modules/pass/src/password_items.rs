@@ -151,7 +151,10 @@ pub(crate) async fn list_items(
     .bind(LIST_LIMIT)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|row| Item::from_row(row).json).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| Item::from_row(row).json)
+        .collect())
 }
 
 /// `matchLogins`: the same host, a parent of at least two labels, or a
@@ -192,7 +195,10 @@ pub(crate) async fn match_logins(
     .bind(&pattern)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|row| Item::from_row(row).json).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| Item::from_row(row).json)
+        .collect())
 }
 
 /// `requireItem`.
@@ -225,7 +231,8 @@ async fn require_sealed_item(
     .bind(vault_id)
     .fetch_optional(db)
     .await?;
-    let (row, ciphertext, dek_wrapped) = row.ok_or_else(|| PassError::not_found("item", item_id))?;
+    let (row, ciphertext, dek_wrapped) =
+        row.ok_or_else(|| PassError::not_found("item", item_id))?;
     Ok((Item::from_row(row), ciphertext, dek_wrapped))
 }
 
@@ -274,6 +281,7 @@ pub(crate) async fn create_items(
     actor_id: &str,
 ) -> PassResult<Vec<Item>> {
     let now = now();
+    #[allow(clippy::items_after_statements)] // a row of this function only
     struct Row {
         id: String,
         kind: &'static str,
@@ -516,7 +524,10 @@ pub(crate) async fn list_item_versions(db: &PgPool, item_id: &str) -> PassResult
     .bind(item_id)
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|row| dated(row, &["createdAt"])).collect())
+    Ok(rows
+        .into_iter()
+        .map(|row| dated(row, &["createdAt"]))
+        .collect())
 }
 
 /// `restoreItemVersion`: the old document opened and saved again.
@@ -536,8 +547,8 @@ pub(crate) async fn restore_item_version(
     .bind(version)
     .fetch_optional(db)
     .await?;
-    let (ciphertext, dek_wrapped) = target
-        .ok_or_else(|| PassError::not_found("item", &format!("{item_id}@v{version}")))?;
+    let (ciphertext, dek_wrapped) =
+        target.ok_or_else(|| PassError::not_found("item", &format!("{item_id}@v{version}")))?;
     let document = open_document(
         kek,
         &ItemLocation::new(vault_id, item_id),

@@ -161,7 +161,7 @@ impl Entropy for OsEntropy {
 /// byte, as it does in TypeScript.
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, EnvelopeError> {
     let units: Vec<u16> = hex.encode_utf16().collect();
-    if units.len() % 2 != 0 {
+    if !units.len().is_multiple_of(2) {
         return Err(EnvelopeError::new("Invalid hex length"));
     }
     units
@@ -206,8 +206,7 @@ fn cipher_for(key: &Key) -> Result<Aes256Gcm, EnvelopeError> {
             key.0.len()
         )));
     }
-    Aes256Gcm::new_from_slice(&key.0)
-        .map_err(|_| EnvelopeError::new("Expected a 32-byte AES key"))
+    Aes256Gcm::new_from_slice(&key.0).map_err(|_| EnvelopeError::new("Expected a 32-byte AES key"))
 }
 
 /// `seal`: a fresh 12-byte IV, AES-256-GCM with `aad`, packed.
@@ -705,7 +704,11 @@ pub(crate) mod tests {
         let quirky = format!("az{}", "a".repeat(62));
         let bytes = ring(Some(&quirky), None).require("v1").expect("root key");
         assert_eq!(bytes.0[0], 10);
-        assert!(ring(Some(&format!("zz{}", "a".repeat(62))), None).require("v1").is_err());
+        assert!(
+            ring(Some(&format!("zz{}", "a".repeat(62))), None)
+                .require("v1")
+                .is_err()
+        );
     }
 
     // ── Cross-backend vectors ──────────────────────────────────────────────
@@ -766,15 +769,20 @@ pub(crate) mod tests {
                 text(case, "checksum")
             );
             assert_eq!(
-                i64::from(crate::js::utf16_len(&opened) as i32),
+                i64::try_from(crate::js::utf16_len(&opened)).unwrap_or(-1),
                 case["valueLength"].as_i64().unwrap_or(-1)
             );
             assert_eq!(hint_for(&opened).as_deref(), case["valueHint"].as_str());
             let mut wrong = location.clone();
             wrong.key.push('X');
             assert!(
-                open_secret(&kek, &wrong, text(case, "ciphertext"), text(case, "dekWrapped"))
-                    .is_err()
+                open_secret(
+                    &kek,
+                    &wrong,
+                    text(case, "ciphertext"),
+                    text(case, "dekWrapped")
+                )
+                .is_err()
             );
         }
         for case in vectors["items"].as_array().expect("items") {
@@ -791,15 +799,19 @@ pub(crate) mod tests {
             assert_eq!(opened, text(case, "plaintext"));
             let wrong = ItemLocation::new(text(at, "vaultId"), "wpi_other");
             assert!(
-                open_item(&kek, &wrong, text(case, "ciphertext"), text(case, "dekWrapped"))
-                    .is_err()
+                open_item(
+                    &kek,
+                    &wrong,
+                    text(case, "ciphertext"),
+                    text(case, "dekWrapped")
+                )
+                .is_err()
             );
         }
         for case in vectors["sha256"].as_array().expect("sha256") {
             assert_eq!(sha256_hex(text(case, "input")), text(case, "hex"));
         }
     }
-
 
     /// What this code seals with fixed randomness; `envelope-rust.json` is
     /// this output, and pass-api's `envelope.vectors.test.ts` opens it with
@@ -836,7 +848,8 @@ pub(crate) mod tests {
             }));
         }
         let credential = credential_location("wpp_rust_1", "wpc_rust_1");
-        let token = seal_secret_with(&kek, &credential, "cf-api-token", &mut entropy).expect("seal");
+        let token =
+            seal_secret_with(&kek, &credential, "cf-api-token", &mut entropy).expect("seal");
         secrets.push(json!({
             "location": { "projectId": "wpp_rust_1", "environmentId": "wpc_rust_1", "key": "__provider_token__" },
             "plaintext": "cf-api-token",
@@ -885,7 +898,10 @@ pub(crate) mod tests {
     #[test]
     fn rust_vectors_are_stable() {
         let produced = rust_vectors();
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/envelope-rust.json");
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/envelope-rust.json"
+        );
         if std::env::var("WELDPASS_WRITE_FIXTURES").as_deref() == Ok("1") {
             let text = serde_json::to_string_pretty(&produced).expect("serialises") + "\n";
             std::fs::write(path, text).expect("fixture written");
@@ -902,8 +918,13 @@ pub(crate) mod tests {
                 text(at, "key"),
             );
             assert_eq!(
-                open_secret(&kek, &location, text(case, "ciphertext"), text(case, "dekWrapped"))
-                    .as_deref(),
+                open_secret(
+                    &kek,
+                    &location,
+                    text(case, "ciphertext"),
+                    text(case, "dekWrapped")
+                )
+                .as_deref(),
                 Ok(text(case, "plaintext"))
             );
         }

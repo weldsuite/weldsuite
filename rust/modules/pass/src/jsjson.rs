@@ -77,14 +77,17 @@ impl Js {
     /// `JSON.stringify(value)`.
     pub(crate) fn stringify(&self) -> String {
         match self {
-            Self::Null => "null".to_owned(),
             Self::Bool(flag) => flag.to_string(),
             Self::Number(number) if number.is_finite() => number_text(*number),
-            Self::Number(_) => "null".to_owned(),
+            Self::Null | Self::Number(_) => "null".to_owned(),
             Self::String(text) => serde_json::Value::String(text.clone()).to_string(),
             Self::Array(items) => format!(
                 "[{}]",
-                items.iter().map(Self::stringify).collect::<Vec<_>>().join(",")
+                items
+                    .iter()
+                    .map(Self::stringify)
+                    .collect::<Vec<_>>()
+                    .join(",")
             ),
             Self::Object(entries) => format!(
                 "{{{}}}",
@@ -139,7 +142,12 @@ pub(crate) fn number_text(number: f64) -> String {
         return "NaN".to_owned();
     }
     if number.is_infinite() {
-        return if number > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
+        return if number > 0.0 {
+            "Infinity"
+        } else {
+            "-Infinity"
+        }
+        .to_owned();
     }
     if number == 0.0 {
         return "0".to_owned();
@@ -261,8 +269,14 @@ mod tests {
     fn keeps_javascripts_order_and_printing() {
         let parsed = Js::parse(r#"{"b":1,"a":[1,2.5,null],"2":true,"1":"x","b":3}"#).expect("JSON");
         assert_eq!(parsed.keys(), ["1", "2", "b", "a"]);
-        assert_eq!(parsed.stringify(), r#"{"1":"x","2":true,"b":3,"a":[1,2.5,null]}"#);
-        assert_eq!(Js::Array(vec![Js::Null, Js::Number(1.0)]).to_js_string(), ",1");
+        assert_eq!(
+            parsed.stringify(),
+            r#"{"1":"x","2":true,"b":3,"a":[1,2.5,null]}"#
+        );
+        assert_eq!(
+            Js::Array(vec![Js::Null, Js::Number(1.0)]).to_js_string(),
+            ",1"
+        );
         assert_eq!(Js::Object(Vec::new()).to_js_string(), "[object Object]");
         assert!(!Js::String(String::new()).truthy());
     }

@@ -7,8 +7,8 @@ use sqlx::PgPool;
 use weldsuite_kit::generate_id;
 
 use crate::envelope::{Key, credential_location, open_secret, seal_secret};
-use crate::transport::HttpTransport;
 use crate::providers::{self, VerifyResult};
+use crate::transport::HttpTransport;
 use crate::{PassError, PassResult, dated, now};
 
 macro_rules! credential_json {
@@ -79,6 +79,7 @@ pub(crate) async fn require_credential(
 }
 
 /// `createCredential`.
+#[allow(clippy::too_many_arguments)] // the worker's input object, field by field
 pub(crate) async fn create_credential(
     db: &PgPool,
     kek: &Key,
@@ -219,7 +220,9 @@ pub(crate) async fn verify_credential(
     let (verified_at, error) = match &result {
         VerifyResult::Ok(_) => (Some(now()), None),
         VerifyResult::Failed(message) => (
-            credential.json["lastVerifiedAt"].as_str().map(str::to_owned),
+            credential.json["lastVerifiedAt"]
+                .as_str()
+                .map(str::to_owned),
             // `result.message ?? 'Verification failed'`: a failure always
             // carries a message.
             Some(message.clone()),
