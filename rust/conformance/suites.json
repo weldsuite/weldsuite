@@ -588,6 +588,21 @@
         "rust/crates/crm-domain/",
         "rust/crates/core-domain/src/custom_field_values.rs"
       ]
+    },
+    {
+      "name": "crm: lists",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/lists/integration.test.ts",
+        "src/routes/lists/realtime-publish.test.ts",
+        "src/routes/lists/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/lists/",
+        "packages/clients/core-api-client/src/schemas/lists.ts",
+        "rust/modules/crm/src/lists.rs"
+      ]
     }
   ]
 }

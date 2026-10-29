@@ -14,6 +14,7 @@ mod activities;
 mod customer_statuses;
 mod field_visibility;
 mod leads;
+mod lists;
 mod opportunities;
 mod person_companies;
 mod pipeline_stages;
@@ -154,6 +155,39 @@ where
         .route(
             "/leads/{id}/convert",
             post(leads::convert).route_layer(need(keys::LEADS_UPDATE)),
+        )
+        // Lists
+        .route(
+            "/lists",
+            get(lists::list).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/lists",
+            post(lists::create).route_layer(need(keys::COMPANIES_CREATE)),
+        )
+        .route(
+            "/lists/{id}",
+            get(lists::detail).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/lists/{id}",
+            patch(lists::update).route_layer(need(keys::COMPANIES_UPDATE)),
+        )
+        .route(
+            "/lists/{id}",
+            delete(lists::remove).route_layer(need(keys::COMPANIES_DELETE)),
+        )
+        .route(
+            "/lists/{id}/members",
+            get(lists::members).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/lists/{id}/members",
+            post(lists::add_members).route_layer(need(keys::COMPANIES_UPDATE)),
+        )
+        .route(
+            "/lists/{id}/members/{entity_id}",
+            delete(lists::remove_member).route_layer(need(keys::COMPANIES_UPDATE)),
         )
         // Opportunities
         .route(

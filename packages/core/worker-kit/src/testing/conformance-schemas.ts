@@ -167,6 +167,7 @@ import {
   leadSchema,
   recordIdSchema,
 } from '@weldsuite/core-api-client/schemas/leads';
+import { listEntitySchema, listMemberSchema, listMembersAddedSchema } from '@weldsuite/core-api-client/schemas/lists';
 import { opportunitySchema } from '@weldsuite/core-api-client/schemas/opportunities';
 import { personCompanySchema } from '@weldsuite/core-api-client/schemas/person-companies';
 import { pipelineStageSchema, reorderPipelineStagesResultSchema } from '@weldsuite/core-api-client/schemas/pipeline-stages';
@@ -454,6 +455,13 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/opportunities/:id', envelope: 'single', data: opportunitySchema },
   { method: 'POST', route: '/api/opportunities', envelope: 'single', data: recordIdSchema },
   { method: 'PATCH', route: '/api/opportunities/:id', envelope: 'single', data: recordIdSchema },
+  // crm: lists
+  { method: 'GET', route: '/api/lists', envelope: 'list', data: listEntitySchema },
+  { method: 'GET', route: '/api/lists/:id', envelope: 'single', data: listEntitySchema },
+  { method: 'POST', route: '/api/lists', envelope: 'single', data: listEntitySchema },
+  { method: 'PATCH', route: '/api/lists/:id', envelope: 'single', data: listEntitySchema },
+  { method: 'GET', route: '/api/lists/:id/members', envelope: 'array', data: listMemberSchema },
+  { method: 'POST', route: '/api/lists/:id/members', envelope: 'single', data: listMembersAddedSchema },
   // crm: end
 ];
 
