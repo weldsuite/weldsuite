@@ -1,0 +1,9 @@
+# Product names are not code; don't ask for backticks around them in docs.
+doc-valid-idents = [
+  "WeldSuite", "WeldPass", "WeldCRM", "WeldDesk", "WeldMail", "WeldFlow",
+  "WeldConnect", "WeldStash", "WeldHost", "WeldBooks", "WeldMeet", "WeldChat",
+  "WeldAgent", "WeldApps", "WeldSign", "WeldSheets", "WeldHR", "WeldReach",
+  "WeldObjects", "WeldCalendar", "WeldDrive", "WeldData",
+  "CloudNativePG", "WebCrypto", "PostgreSQL",
+  "RustSec", "..",
+]

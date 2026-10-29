@@ -77,6 +77,8 @@ Apps live under category folders: **`web/`** (browser), **`workers/`** (Cloudfla
 
 **`apps/hosted-apps/`**, First-party WeldApps (Vite + `@weldsuite/app-sdk`). These are **not** compiled into the platform SPA: CI deploys each `apps/hosted-apps/<code>/` with `weld app deploy` to the test/production registries. See [apps/hosted-apps/README.md](apps/hosted-apps/README.md).
 
+**`rust/`**, the Rust backend (Cargo workspace, ADR API-014): one `weldsuite` binary and image for the Kubernetes deployments (EU and self-hosted), installed with the Helm chart in `rust/deploy/helm/weldsuite`. The Cloudflare workers stay TypeScript; modules are ported one at a time and both answer the same API. Toolchain pinned in `rust/rust-toolchain.toml`; `pnpm rust:lint`, `pnpm rust:test`, `pnpm rust:deny` from the root; CI check `Rust` (aggregates `Rust · checks`, `Rust · image and chart`, `Rust · conformance`). Plan and rules: [rust/README.md](rust/README.md). **After changing entity events, permissions, feature flags, `api-modules` or `FIRST_PARTY_ORIGINS`, run `pnpm rust:catalogs` and commit `rust/` changes**; the Lint job fails when the export is stale. **A route listed in `rust/conformance/suites.json` is served by both backends: change its behaviour in TypeScript and Rust together**, and `pnpm rust:conformance` (the `Rust · conformance` CI job) checks they still answer alike, side effects included.
+
 > **Secrets tooling note:** worker secrets are keyed by bare worker name in `scripts/secrets/manifest.ts`; the sync scripts resolve them under **`apps/workers/<name>`**.
 
 ### Packages (`packages/`), grouped by role

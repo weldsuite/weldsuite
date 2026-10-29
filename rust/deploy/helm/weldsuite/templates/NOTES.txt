@@ -1,0 +1,8 @@
+WeldSuite API {{ .Values.image.tag | default .Chart.AppVersion }} is deploying as {{ include "weldsuite.fullname" . }}.
+
+Check it:
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "weldsuite.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "weldsuite.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://localhost:8080/health
+
+Pods report ready once the master database answers (/readyz).

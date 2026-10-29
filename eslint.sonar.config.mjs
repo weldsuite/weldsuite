@@ -113,6 +113,7 @@ const REVIEWED = [
       'apps/web/docs/scripts/capture-screenshots-all.mjs',
       'scripts/dev-api.mjs',
       'scripts/lint-sonar-new.mjs',
+      'scripts/rust-conformance.ts',
       'packages/sdk/cli/src/commands/dev.ts',
     ],
   },

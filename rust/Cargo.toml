@@ -1,0 +1,79 @@
+# The WeldSuite Rust backend (ADR API-014): one service, shipped as one image,
+# that the TypeScript workers are ported to module by module.
+#
+# Layout and phase plan: rust/README.md and the "Editions and self-hosting"
+# design doc in weldsuite/weldsuite-documentation.
+
+[workspace]
+resolver = "3"
+members = ["bins/*", "crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "AGPL-3.0-only"
+repository = "https://github.com/weldsuite/weldsuite"
+publish = false
+
+# Shared dependency versions go here; crates use `dep = { workspace = true }`.
+[workspace.dependencies]
+weldsuite-adapters-oss = { path = "crates/adapters-oss" }
+weldsuite-auth = { path = "crates/auth" }
+weldsuite-catalogs = { path = "crates/catalogs" }
+weldsuite-db = { path = "crates/db" }
+weldsuite-events = { path = "crates/events" }
+weldsuite-kit = { path = "crates/kit" }
+weldsuite-permissions = { path = "crates/permissions" }
+weldsuite-pipeline = { path = "crates/pipeline" }
+weldsuite-ports = { path = "crates/ports" }
+
+async-nats = { version = "0.51.0", default-features = false }
+aws-lc-rs = "1.19.0"
+axum = { version = "0.8.9", default-features = false }
+base64 = "0.22.1"
+bytes = "1.12.1"
+futures-util = { version = "0.3.31", default-features = false }
+getrandom = "0.4.3"
+hex = "0.4.3"
+http = "1.5.0"
+http-body-util = "0.1.5"
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
+jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
+redis = { version = "1.8.0", default-features = false }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }
+time = "0.3.55"
+tokio = "1.54.1"
+tokio-util = "0.7.19"
+tower = "0.5.3"
+tower-http = "0.7.1"
+tracing = "0.1.44"
+tracing-opentelemetry = { version = "0.34.0", default-features = false }
+tracing-subscriber = { version = "0.3.23", default-features = false }
+uuid = "1.29.0"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Pedantic lints that fight the codebase's style more than they help.
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+# Restriction lints we do want.
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

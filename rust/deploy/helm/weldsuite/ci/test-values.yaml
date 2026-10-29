@@ -1,0 +1,15 @@
+# Values `helm lint` and `helm template` run with in CI: every optional
+# resource on.
+secret:
+  values:
+    DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/weldsuite
+    CLERK_JWT_KEY: "not-a-real-key"
+ingress:
+  enabled: true
+autoscaling:
+  enabled: true
+networkPolicy:
+  enabled: true
+clerkJwks:
+  enabled: true
+  json: '{"keys":[]}'

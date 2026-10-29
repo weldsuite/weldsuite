@@ -1,0 +1,170 @@
+# Values for the weldsuite chart. The server is configured by environment
+# variables only; see rust/bins/weldsuite/src/config.rs for the full list.
+
+image:
+  repository: ghcr.io/weldsuite/weldsuite
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+replicaCount: 2
+
+nameOverride: ""
+fullnameOverride: ""
+
+config:
+  # Reported by /health.
+  environment: production
+  # json for the cluster log pipeline, text for local runs.
+  logFormat: json
+  # RUST_LOG filter.
+  logLevel: info
+  # Refuse per-app permission denials instead of only logging them.
+  permissionsAppEnforce: false
+  # Extra origins allowed as a session token's azp (comma separated).
+  clerkAuthorizedParties: ""
+  masterMaxConnections: 10
+  # One connection per workspace database and up to 2,000 pools: the pair
+  # that held 300 active workspaces through PgBouncer in spike S4
+  # (rust/docs/spikes.md). More connections per pool exhaust the pooler's
+  # server connections. The CloudNativePG Pooler needs max_client_conn >=
+  # pods x pools and a max_user_connections cap under Postgres's
+  # max_connections; leave max_prepared_statements at its default (S3).
+  tenantPoolMaxConnections: 1
+  tenantPoolsMax: 2000
+  workspaceCacheTtlSeconds: 300
+  # /readyz fails this long before the server stops accepting connections,
+  # so the Service stops sending traffic first. Keep it below
+  # terminationGracePeriodSeconds.
+  shutdownDelaySeconds: 5
+  # Where feature flag values come from: defaults (the catalog defaults, as
+  # the workers without Flagship) or master-db (the master database's
+  # overrides; needs the feature_flag_overrides table).
+  featureFlags: defaults
+  featureFlagsRefreshSeconds: 30
+  valkey:
+    cachePrefix: "cache:"
+    # The WebSocket gateway subscribes under the same prefix.
+    realtimePrefix: "realtime:"
+  nats:
+    entityEventsStream: ENTITY_EVENTS
+    entityEventsSubject: entity-events
+    # Create or update the entity-event stream at start.
+    ensureStreams: false
+  # Extra plain environment variables. Traces go to an OpenTelemetry
+  # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
+  #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
+  extraEnv: []
+
+# The secrets the server needs. Point existingSecret at a Secret you manage
+# (External Secrets, Sealed Secrets, sops, ...) holding these keys:
+#   DATABASE_URL_MASTER          master database connection string (required)
+#   DATABASE_ENCRYPTION_KEY      v1 key for workspaces.database_url (optional)
+#   DATABASE_ENCRYPTION_KEY_V2   v2 key for workspaces.database_url (optional)
+#   CLERK_JWT_KEY                PEM public key of the Clerk instance; or
+#   CLERK_SECRET_KEY             fetch the keys from Clerk's Backend API; or
+#   CLERK_JWKS_URL               fetch them from a JWKS URL (or use clerkJwks)
+#   VALKEY_URL                   redis://… cache + realtime publish (optional)
+#   NATS_URL                     nats://… entity events (optional)
+#   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
+#   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
+# Or leave existingSecret empty and set `values` to let the chart create the
+# Secret (fine for a test cluster, not for production: the values end up in
+# the Helm release).
+secret:
+  existingSecret: ""
+  values: {}
+
+# Verify session tokens against a JWKS document instead of CLERK_JWT_KEY: the
+# document is mounted from a ConfigMap and read at start.
+clerkJwks:
+  enabled: false
+  # Name of an existing ConfigMap with the document under `jwks.json`.
+  existingConfigMap: ""
+  # Or the document itself, and the chart creates the ConfigMap.
+  json: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: api.example.org
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+terminationGracePeriodSeconds: 30
+
+probes:
+  startup:
+    httpGet: { path: /livez, port: http }
+    periodSeconds: 2
+    failureThreshold: 30
+  liveness:
+    httpGet: { path: /livez, port: http }
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    httpGet: { path: /readyz, port: http }
+    periodSeconds: 5
+    failureThreshold: 2
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Spread pods over nodes and zones when the cluster has them.
+topologySpread:
+  enabled: true
+
+# Only allow ingress to the HTTP port from the listed peers. Egress stays
+# open (databases, Clerk).
+networkPolicy:
+  enabled: false
+  ingressFrom: []
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

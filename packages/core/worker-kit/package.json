@@ -32,6 +32,7 @@
     "./storage": "./src/storage.ts",
     "./testing": "./src/testing/harness.ts",
     "./testing/pglite": "./src/testing/pglite.ts",
+    "./testing/conformance": "./src/testing/conformance.ts",
     "./testing/d1": "./src/testing/d1.ts",
     "./testing/durable-sqlite": "./src/testing/durable-sqlite.ts",
     "./testing/r2": "./src/testing/r2.ts",
@@ -57,12 +58,14 @@
     "drizzle-orm": "^0.45.2"
   },
   "peerDependencies": {
-    "hono": "^4.0.0",
-    "@electric-sql/pglite": "^0.4.5"
+    "@electric-sql/pglite": "^0.4.5",
+    "hono": "^4.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@electric-sql/pglite": "^0.4.5",
+    "@electric-sql/pglite-socket": "0.1.5",
+    "@weldsuite/app-api-client": "workspace:*",
     "@types/node": "^20",
     "@weldsuite/typescript-config": "workspace:*",
     "hono": "4.13.13",

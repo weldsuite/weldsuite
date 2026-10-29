@@ -1,0 +1,641 @@
+[
+  {
+    "apps": null,
+    "binding": "APP_API",
+    "devPort": 8789,
+    "id": "core",
+    "prefixes": [
+      "/api/access-requests",
+      "/api/account",
+      "/api/api-keys",
+      "/api/app-catalog",
+      "/api/appstore",
+      "/api/audit-logs",
+      "/api/auth-desktop",
+      "/api/auth-sessions",
+      "/api/billing",
+      "/api/cli-auth",
+      "/api/credits",
+      "/api/custom-fields",
+      "/api/custom-objects",
+      "/api/dashboard",
+      "/api/drive",
+      "/api/feature-flags",
+      "/api/feature-requests",
+      "/api/files",
+      "/api/folders",
+      "/api/grid-views",
+      "/api/internal",
+      "/api/invitations",
+      "/api/me",
+      "/api/member-limits",
+      "/api/my-role",
+      "/api/notification-preferences",
+      "/api/notifications",
+      "/api/object-templates",
+      "/api/objects",
+      "/api/onboarding",
+      "/api/partner",
+      "/api/prepaid-seats",
+      "/api/push-tokens",
+      "/api/related",
+      "/api/roles",
+      "/api/search",
+      "/api/settings/profile",
+      "/api/sso",
+      "/api/storage",
+      "/api/support",
+      "/api/team-members",
+      "/api/user-apps",
+      "/api/user-preferences",
+      "/api/workspace-api-keys",
+      "/api/workspace-settings",
+      "/api/workspaces",
+      "/public/partner-territories",
+      "/public/user-apps"
+    ],
+    "rust": false,
+    "worker": "app-api"
+  },
+  {
+    "apps": [
+      "weldcrm",
+      "weldcommerce",
+      "welddesk",
+      "weldflow",
+      "weldmail",
+      "weldmeet",
+      "weldcalendar",
+      "weldcall",
+      "weldhr",
+      "welddata"
+    ],
+    "binding": "CRM_API",
+    "devPort": 8801,
+    "id": "crm",
+    "prefixes": [
+      "/api/activities",
+      "/api/companies",
+      "/api/company-logos",
+      "/api/crm-analytics",
+      "/api/customer-sequences",
+      "/api/customer-statuses",
+      "/api/leads",
+      "/api/lists",
+      "/api/opportunities",
+      "/api/people",
+      "/api/person-companies",
+      "/api/pipeline-field-visibility",
+      "/api/pipeline-stages",
+      "/api/pipelines",
+      "/api/sequences"
+    ],
+    "rust": false,
+    "worker": "crm-api"
+  },
+  {
+    "apps": [
+      "welddesk"
+    ],
+    "binding": "DESK_API",
+    "devPort": 8802,
+    "id": "desk",
+    "prefixes": [
+      "/api/article-folders",
+      "/api/articles",
+      "/api/canned-responses",
+      "/api/conversations",
+      "/api/desk/assignment",
+      "/api/desk/conversations",
+      "/api/desk/widget",
+      "/api/helpcenter-settings",
+      "/api/helpdesk-agents",
+      "/api/helpdesk-analytics",
+      "/api/helpdesk-announcements",
+      "/api/helpdesk-changelog",
+      "/api/helpdesk-contacts",
+      "/api/helpdesk-departments",
+      "/api/helpdesk-email",
+      "/api/helpdesk-faqs",
+      "/api/helpdesk-feedback",
+      "/api/helpdesk-integrations",
+      "/api/helpdesk-news",
+      "/api/helpdesk-reviews",
+      "/api/helpdesk-settings",
+      "/api/helpdesk-stats",
+      "/api/helpdesk-weldagent",
+      "/api/helpdesk-workflows",
+      "/api/integrations/helpdesk",
+      "/api/satisfaction-surveys",
+      "/api/slas",
+      "/api/ticket-messages",
+      "/api/ticket-notes",
+      "/api/ticket-types",
+      "/api/tickets",
+      "/public/helpcenter"
+    ],
+    "rust": false,
+    "worker": "desk-api"
+  },
+  {
+    "apps": [
+      "weldmail"
+    ],
+    "binding": "MAIL_API",
+    "devPort": 8803,
+    "id": "mail",
+    "prefixes": [
+      "/api/mail-accounts",
+      "/api/mail-ai",
+      "/api/mail-attachments",
+      "/api/mail-campaigns",
+      "/api/mail-domains",
+      "/api/mail-drafts",
+      "/api/mail-folders",
+      "/api/mail-labels",
+      "/api/mail-messages",
+      "/api/mail-rules",
+      "/api/mail-scheduled",
+      "/api/mail-sending",
+      "/api/mail-signatures",
+      "/api/mail-snooze",
+      "/api/mail-subscriptions",
+      "/api/mail-sync",
+      "/api/mail-templates",
+      "/api/mail-threads",
+      "/api/mail-weldmail",
+      "/api/mailboxes"
+    ],
+    "rust": false,
+    "worker": "mail-api"
+  },
+  {
+    "apps": [
+      "weldflow",
+      "weldcrm",
+      "weldmail",
+      "weldchat",
+      "weldcalendar"
+    ],
+    "binding": "FLOW_API",
+    "devPort": 8804,
+    "id": "flow",
+    "prefixes": [
+      "/api/digest-settings",
+      "/api/documents",
+      "/api/goals",
+      "/api/milestones",
+      "/api/my-tasks",
+      "/api/project-analytics",
+      "/api/project-documents",
+      "/api/project-files",
+      "/api/project-labels",
+      "/api/project-members",
+      "/api/project-messages",
+      "/api/project-pipeline-stages",
+      "/api/project-sheets",
+      "/api/projects",
+      "/api/sprints",
+      "/api/task-comments",
+      "/api/task-projects",
+      "/api/task-tags",
+      "/api/tasks",
+      "/api/time-entries",
+      "/api/whiteboards"
+    ],
+    "rust": false,
+    "worker": "flow-api"
+  },
+  {
+    "apps": [
+      "weldbooks"
+    ],
+    "binding": "BOOKS_API",
+    "devPort": 8805,
+    "id": "books",
+    "prefixes": [
+      "/api/accounting-contacts",
+      "/api/accounting-dashboard",
+      "/api/accounting-documents",
+      "/api/accounting-entities",
+      "/api/accounting-exports",
+      "/api/accounting-reports",
+      "/api/accounting-settings",
+      "/api/bank-accounts",
+      "/api/bank-transactions",
+      "/api/bills",
+      "/api/fiscal-periods",
+      "/api/fx-rates",
+      "/api/gl-accounts",
+      "/api/icp-declarations",
+      "/api/invoices",
+      "/api/invoice-templates",
+      "/api/journal-entries",
+      "/api/payments",
+      "/api/reconciliation-rules",
+      "/api/recurring-invoices",
+      "/api/tax-rates",
+      "/api/vat-returns",
+      "/api/accounting-dimensions",
+      "/api/bank-connections",
+      "/api/bank-deposits",
+      "/api/bank-reconciliations",
+      "/api/exemption-certificates",
+      "/api/fixed-assets",
+      "/api/form-1099",
+      "/api/payment-runs",
+      "/api/payroll",
+      "/api/sales-tax",
+      "/api/sales-tax-agencies",
+      "/api/sales-tax-jurisdictions",
+      "/api/sales-tax-rules",
+      "/api/sales-tax-zones",
+      "/api/tax-calendar",
+      "/api/tax-returns",
+      "/api/w9-requests",
+      "/public/w9",
+      "/api/br-tax",
+      "/api/fiscal-documents",
+      "/api/received-fiscal-documents",
+      "/public/fiscal-webhooks"
+    ],
+    "rust": false,
+    "worker": "books-api"
+  },
+  {
+    "apps": [
+      "weldcommerce",
+      "weldstash"
+    ],
+    "binding": "COMMERCE_API",
+    "devPort": 8806,
+    "id": "commerce",
+    "prefixes": [
+      "/api/carriers",
+      "/api/categories",
+      "/api/commerce-portal",
+      "/api/orders",
+      "/api/parcel-analytics",
+      "/api/parcel-notifications",
+      "/api/parcel-rates",
+      "/api/parcel-settings",
+      "/api/parcel-wallet",
+      "/api/parcels",
+      "/api/pickups",
+      "/api/printnode",
+      "/api/products",
+      "/api/return-reasons",
+      "/api/return-rules",
+      "/api/returns",
+      "/api/sendcloud",
+      "/api/shipments",
+      "/api/shipping-prices",
+      "/api/shipping-rules",
+      "/public/commerce-portal",
+      "/webhooks/woocommerce"
+    ],
+    "rust": false,
+    "worker": "commerce-api"
+  },
+  {
+    "apps": [
+      "weldstash",
+      "weldcommerce"
+    ],
+    "binding": "STASH_API",
+    "devPort": 8807,
+    "id": "stash",
+    "prefixes": [
+      "/api/boxes",
+      "/api/cycle-counts",
+      "/api/inventory",
+      "/api/inventory-movements",
+      "/api/pick-lists",
+      "/api/pickers",
+      "/api/purchase-orders",
+      "/api/putaway",
+      "/api/stock-adjustments",
+      "/api/warehouse-locations",
+      "/api/warehouse-zones",
+      "/api/warehouses",
+      "/api/wms-activity",
+      "/api/wms-suppliers"
+    ],
+    "rust": false,
+    "worker": "stash-api"
+  },
+  {
+    "apps": [
+      "weldhost"
+    ],
+    "binding": "HOST_API",
+    "devPort": 8808,
+    "id": "host",
+    "prefixes": [
+      "/api/dns-records",
+      "/api/dns-zones",
+      "/api/domain-transfers",
+      "/api/domains",
+      "/api/email-forwards",
+      "/public/webhooks/realtime-register"
+    ],
+    "rust": false,
+    "worker": "host-api"
+  },
+  {
+    "apps": [
+      "weldcalendar",
+      "weldmail",
+      "weldmeet"
+    ],
+    "binding": "CALENDAR_API",
+    "devPort": 8809,
+    "id": "calendar",
+    "prefixes": [
+      "/api/booking-pages",
+      "/api/bookings",
+      "/api/calendar-events",
+      "/api/calendars",
+      "/api/working-hours"
+    ],
+    "rust": false,
+    "worker": "calendar-api"
+  },
+  {
+    "apps": [
+      "weldmeet",
+      "weldcalendar"
+    ],
+    "binding": "MEET_API",
+    "devPort": 8810,
+    "id": "meet",
+    "prefixes": [
+      "/api/meeting-messages",
+      "/api/meeting-sessions",
+      "/api/meeting-waitlist",
+      "/api/meetings",
+      "/api/transcriptions",
+      "/api/webhooks/cloudflare-realtime",
+      "/public/meeting-recordings"
+    ],
+    "rust": false,
+    "worker": "meet-api"
+  },
+  {
+    "apps": [
+      "weldchat",
+      "weldflow",
+      "weldmail"
+    ],
+    "binding": "CHAT_API",
+    "devPort": 8811,
+    "id": "chat",
+    "prefixes": [
+      "/api/channel-members",
+      "/api/channels",
+      "/api/chat-activity",
+      "/api/chat-bookmarks",
+      "/api/chat-calls",
+      "/api/chat-clips",
+      "/api/chat-directories",
+      "/api/chat-dm",
+      "/api/chat-drafts",
+      "/api/chat-entity-channels",
+      "/api/chat-messages",
+      "/api/chat-search",
+      "/api/chat-sections",
+      "/api/chat-status",
+      "/public/chat-calls"
+    ],
+    "rust": false,
+    "worker": "chat-api"
+  },
+  {
+    "apps": [
+      "weldcall",
+      "weldcrm",
+      "welddesk"
+    ],
+    "binding": "CALL_API",
+    "devPort": 8812,
+    "id": "call",
+    "prefixes": [
+      "/api/call-intelligence",
+      "/api/calls",
+      "/api/desk/phone",
+      "/api/internal/telephony",
+      "/api/porting",
+      "/api/telephony",
+      "/public/webhooks/telnyx"
+    ],
+    "rust": false,
+    "worker": "call-api"
+  },
+  {
+    "apps": [
+      "weldconnect",
+      "weldcrm",
+      "welddesk",
+      "weldstash",
+      "weldflow",
+      "weldcalendar"
+    ],
+    "binding": "CONNECT_API",
+    "devPort": 8813,
+    "id": "connect",
+    "prefixes": [
+      "/api/connectors",
+      "/api/external-webhooks",
+      "/api/github-connections",
+      "/api/github-project-links",
+      "/api/github-repo-links",
+      "/api/integrations",
+      "/api/internal/workflow-actions",
+      "/api/weldconnect/github",
+      "/api/workflow-builder",
+      "/api/workflow-dashboard",
+      "/api/workflow-executions",
+      "/api/workflow-github",
+      "/api/workflow-integrations",
+      "/api/workflow-schedules",
+      "/api/workflow-templates",
+      "/api/workflow-triggers",
+      "/api/workflow-variables",
+      "/api/workflow-versions",
+      "/api/workflow-webhooks",
+      "/api/workflows"
+    ],
+    "rust": false,
+    "worker": "connect-api"
+  },
+  {
+    "apps": null,
+    "binding": "AGENT_API",
+    "devPort": 8814,
+    "id": "agent",
+    "prefixes": [
+      "/api/ai",
+      "/api/ai-models",
+      "/api/chat-agent",
+      "/api/weldagent"
+    ],
+    "rust": false,
+    "worker": "agent-api"
+  },
+  {
+    "apps": [
+      "welddata"
+    ],
+    "binding": "DATA_API",
+    "devPort": 8815,
+    "id": "data",
+    "prefixes": [
+      "/api/enrich-fields",
+      "/api/enrichments",
+      "/api/welddata"
+    ],
+    "rust": false,
+    "worker": "data-api"
+  },
+  {
+    "apps": [
+      "weldknow"
+    ],
+    "binding": "KNOW_API",
+    "devPort": 8816,
+    "id": "know",
+    "prefixes": [
+      "/api/knowledge"
+    ],
+    "rust": false,
+    "worker": "know-api"
+  },
+  {
+    "apps": [
+      "weldhr"
+    ],
+    "binding": "HR_API",
+    "devPort": 8817,
+    "id": "hr",
+    "prefixes": [
+      "/api/weldhr"
+    ],
+    "rust": false,
+    "worker": "hr-api"
+  },
+  {
+    "apps": [
+      "weldsocial"
+    ],
+    "binding": "SOCIAL_API",
+    "devPort": 8818,
+    "id": "social",
+    "prefixes": [
+      "/api/social-accounts",
+      "/api/social-analytics",
+      "/api/social-approvals",
+      "/api/social-campaigns",
+      "/api/social-media",
+      "/api/social-posts",
+      "/api/social-settings",
+      "/api/social-team-members",
+      "/public/social/postpeer"
+    ],
+    "rust": false,
+    "worker": "social-api"
+  },
+  {
+    "apps": [
+      "weldads"
+    ],
+    "binding": "ADS_API",
+    "devPort": 8819,
+    "id": "ads",
+    "prefixes": [
+      "/api/ad-accounts",
+      "/api/ad-campaigns",
+      "/api/ad-connections"
+    ],
+    "rust": false,
+    "worker": "ads-api"
+  },
+  {
+    "apps": [
+      "weldpass"
+    ],
+    "binding": "PASS_API",
+    "devPort": 8820,
+    "id": "pass",
+    "prefixes": [
+      "/api/weldpass"
+    ],
+    "rust": false,
+    "worker": "pass-api"
+  },
+  {
+    "apps": [
+      "weldreach"
+    ],
+    "binding": "REACH_API",
+    "devPort": 8821,
+    "id": "reach",
+    "prefixes": [
+      "/api/reach",
+      "/public/reach"
+    ],
+    "rust": false,
+    "worker": "reach-api"
+  },
+  {
+    "apps": [
+      "weldsheets"
+    ],
+    "binding": "SHEETS_API",
+    "devPort": 8822,
+    "id": "sheets",
+    "prefixes": [
+      "/api/sheets"
+    ],
+    "rust": false,
+    "worker": "sheets-api"
+  },
+  {
+    "apps": [
+      "weldsign"
+    ],
+    "binding": "SIGN_API",
+    "devPort": 8823,
+    "id": "sign",
+    "prefixes": [
+      "/api/sign"
+    ],
+    "rust": false,
+    "worker": "sign-api"
+  },
+  {
+    "apps": [
+      "welddocs"
+    ],
+    "binding": "DOCS_API",
+    "devPort": 8824,
+    "id": "docs",
+    "prefixes": [
+      "/api/docs"
+    ],
+    "rust": false,
+    "worker": "docs-api"
+  },
+  {
+    "apps": [
+      "weldpanel"
+    ],
+    "binding": "PANEL_API",
+    "devPort": 8825,
+    "id": "panel",
+    "prefixes": [
+      "/api/panel"
+    ],
+    "rust": false,
+    "worker": "panel-api"
+  }
+]
