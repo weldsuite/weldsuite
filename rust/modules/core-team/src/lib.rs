@@ -45,6 +45,7 @@ use weldsuite_ports::{DynCache, DynRealtimePublisher, FileStores, Identity};
 pub use access::{
     AccountCaller, Caller, TeamError, TeamResult, answer, now, validate, validate_query,
 };
+pub use groups::push_tokens::{ExpoGateway, ExpoTransport};
 
 /// What the handlers share, cloned from the app state.
 #[derive(Clone)]

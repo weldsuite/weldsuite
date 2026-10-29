@@ -405,6 +405,39 @@ impl Identity for BridgedClerk {
     }
 }
 
+/// Expo's push API through the bridge: the POST goes to the test's fetch
+/// stub, which answers for Expo.
+pub(crate) struct BridgedExpo {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_core_team::ExpoTransport for BridgedExpo {
+    fn post<'a>(
+        &'a self,
+        url: &'a str,
+        body: String,
+    ) -> BoxFuture<'a, Result<(u16, String), String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(url.as_bytes()).collect();
+            let response = self
+                .client
+                .post(format!("{}/fetch?url={encoded}", self.bridge))
+                .header("content-type", "application/json")
+                .body(body)
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err("the test's fetch stub threw".to_owned());
+            }
+            let status = response.status().as_u16();
+            let text = response.text().await.map_err(|error| error.to_string())?;
+            Ok((status, text))
+        })
+    }
+}
+
 /// The bridged providers by bridge URL, made once per test process.
 #[derive(Default)]
 pub(crate) struct OutboundBridges {
@@ -413,6 +446,14 @@ pub(crate) struct OutboundBridges {
 }
 
 impl OutboundBridges {
+    /// Expo's push API behind the test's bridge.
+    pub(crate) fn expo(&self, bridge: &str) -> weldsuite_core_team::ExpoGateway {
+        weldsuite_core_team::ExpoGateway(Arc::new(BridgedExpo {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
     /// The [`Identity`] provider behind the test's bridge.
     pub(crate) fn identity(&self, bridge: &str) -> Arc<dyn Identity> {
         let mut identities = self

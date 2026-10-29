@@ -252,6 +252,8 @@ pub(crate) async fn auth(
         extensions.insert(weldsuite_ports::IdentityProvider(
             pools.outbound.identity(bridge),
         ));
+        // Expo's push API too (`POST /api/push-tokens/test`).
+        extensions.insert(pools.outbound.expo(bridge));
     }
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
