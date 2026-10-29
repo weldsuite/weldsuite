@@ -14,7 +14,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
-use weldsuite_catalogs::entity_events::{TASK_COMMENT_CREATED, TASK_COMMENT_DELETED, TASK_COMMENT_UPDATED};
+use weldsuite_catalogs::entity_events::{
+    TASK_COMMENT_CREATED, TASK_COMMENT_DELETED, TASK_COMMENT_UPDATED,
+};
 use weldsuite_db::js_row;
 use weldsuite_kit::validation::{Number, Presence};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
@@ -22,7 +24,10 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use crate::notify;
 use crate::tasks::{TaskAccess, task_access};
-use crate::{Caller, FlowState, Query, Refusal, Reply, access_scope, now, outside, reply, validate, validate_value};
+use crate::{
+    Caller, FlowState, Query, Refusal, Reply, access_scope, now, outside, reply, validate,
+    validate_value,
+};
 
 const TASK_DENIED: &str = "You are not a member of this task's project";
 const TASK_WRITE_DENIED: &str = "You do not have write access to this task's project";
@@ -54,16 +59,25 @@ struct Filters {
     limit: Option<i64>,
 }
 
-fn read_filters(issues: &mut weldsuite_kit::validation::Issues, fields: &Map<String, Value>) -> Filters {
+fn read_filters(
+    issues: &mut weldsuite_kit::validation::Issues,
+    fields: &Map<String, Value>,
+) -> Filters {
     let number = |max: Option<f64>| Number {
         coerce: true,
         int: true,
         min: Some(1.0),
         max,
     };
-    let task_id = issues.text(fields, "taskId", Presence::Optional, None, None).into_option();
-    let author_id = issues.text(fields, "authorId", Presence::Optional, None, None).into_option();
-    let task_type = issues.text(fields, "taskType", Presence::Optional, None, None).into_option();
+    let task_id = issues
+        .text(fields, "taskId", Presence::Optional, None, None)
+        .into_option();
+    let author_id = issues
+        .text(fields, "authorId", Presence::Optional, None, None)
+        .into_option();
+    let task_type = issues
+        .text(fields, "taskType", Presence::Optional, None, None)
+        .into_option();
     let page = issues
         .whole_number(fields, "page", Presence::Optional, number(None))
         .into_option();
@@ -167,7 +181,10 @@ async fn list_comments(caller: &Caller, f: Filters) -> Reply {
 }
 
 /// The author's `authorName` and `authorAvatar` from `workspace_members`.
-async fn with_authors(db: &weldsuite_db::PgPool, rows: Vec<Value>) -> Result<Vec<Value>, sqlx::Error> {
+async fn with_authors(
+    db: &weldsuite_db::PgPool,
+    rows: Vec<Value>,
+) -> Result<Vec<Value>, sqlx::Error> {
     let mut author_ids: Vec<String> = Vec::new();
     for row in &rows {
         if let Some(author) = row["authorId"].as_str().filter(|a| !a.is_empty())
@@ -265,7 +282,9 @@ async fn create(
         let content = issues.text(fields, "content", Presence::Required, Some(1), None);
         NewComment {
             task_id: task_id.into_option().unwrap_or_default(),
-            task_type: task_type.into_option().unwrap_or_else(|| "project".to_owned()),
+            task_type: task_type
+                .into_option()
+                .unwrap_or_else(|| "project".to_owned()),
             content: content.into_option().unwrap_or_default(),
         }
     }) {
@@ -277,11 +296,16 @@ async fn create(
     }
     match task_access(&caller, &data.task_id, true).await {
         Ok(TaskAccess::Ok) => {}
-        Ok(TaskAccess::NotFound) => return ApiError::not_found("Task", Some(&data.task_id)).into_response(),
+        Ok(TaskAccess::NotFound) => {
+            return ApiError::not_found("Task", Some(&data.task_id)).into_response();
+        }
         Ok(TaskAccess::Denied) => return crate::forbidden(TASK_WRITE_DENIED),
         Err(error) => return outside(Err(error.into())),
     }
-    reply(create_comment(&state, &caller, data).await, "Failed to create task comment")
+    reply(
+        create_comment(&state, &caller, data).await,
+        "Failed to create task comment",
+    )
 }
 
 async fn create_comment(state: &FlowState, caller: &Caller, data: NewComment) -> Reply {
@@ -309,7 +333,7 @@ async fn create_comment(state: &FlowState, caller: &Caller, data: NewComment) ->
         state,
         caller,
         notify::Comment {
-            comment_id: id.clone(),
+            id: id.clone(),
             task_id: data.task_id.clone(),
             content: data.content.clone(),
         },
@@ -355,13 +379,20 @@ async fn update(
             if author != caller.user_id {
                 return Err(Refusal::forbidden("You can only edit your own comments"));
             }
-            sqlx::query("update task_comments set content = $2, updated_at = $3::timestamp where id = $1")
-                .bind(&id)
-                .bind(&content)
-                .bind(now())
-                .execute(&caller.db)
-                .await?;
-            caller.publish(&state, TASK_COMMENT_UPDATED, &id, &json!({ "id": id, "content": content }));
+            sqlx::query(
+                "update task_comments set content = $2, updated_at = $3::timestamp where id = $1",
+            )
+            .bind(&id)
+            .bind(&content)
+            .bind(now())
+            .execute(&caller.db)
+            .await?;
+            caller.publish(
+                &state,
+                TASK_COMMENT_UPDATED,
+                &id,
+                &json!({ "id": id, "content": content }),
+            );
             Ok(Data(json!({ "id": id, "content": content })).into_response())
         }
         .await,
@@ -384,7 +415,11 @@ async fn can_moderate(caller: &Caller, task_id: &str) -> Result<bool, sqlx::Erro
     }
 }
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let existing: Option<(String, String)> = sqlx::query_as(

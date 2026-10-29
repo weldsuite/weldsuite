@@ -45,9 +45,17 @@ fn task_target(task_id: &str, project_id: Option<&str>) -> (&'static str, String
 }
 
 /// `{ taskId, ...(projectId ? { projectId } : {}) }` plus the extra keys.
-fn push_data(task_id: &str, extra: &[(&str, &str)], project_id: Option<&str>) -> Vec<(String, String)> {
+fn push_data(
+    task_id: &str,
+    extra: &[(&str, &str)],
+    project_id: Option<&str>,
+) -> Vec<(String, String)> {
     let mut data = vec![("taskId".to_owned(), task_id.to_owned())];
-    data.extend(extra.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+    data.extend(
+        extra
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
+    );
     if let Some(project) = project_id.filter(|p| !p.is_empty()) {
         data.push(("projectId".to_owned(), project.to_owned()));
     }
@@ -99,7 +107,7 @@ async fn send_assignment(
     if assignee == context.actor_id {
         return Ok(());
     }
-    let assigner = match member_name(&context.db, &context.actor_id).await {
+    let by = match member_name(&context.db, &context.actor_id).await {
         Ok(name) => name.filter(|n| !n.is_empty()),
         Err(error) => {
             tracing::error!(%error, "[Notifications] Failed to resolve assigner name");
@@ -107,14 +115,13 @@ async fn send_assignment(
         }
     }
     .unwrap_or_else(|| "Someone".to_owned());
-    let (category, action_url) =
-        task_target(&assignment.task_id, assignment.project_id.as_deref());
+    let (category, action_url) = task_target(&assignment.task_id, assignment.project_id.as_deref());
     let params = NewNotification {
         workspace_id: context.org_id.clone(),
         clerk_org_id: None,
         user_id: assignee.to_owned(),
         title: "Task assigned to you".to_owned(),
-        body: format!("{assigner} assigned \"{}\" to you", assignment.task_title),
+        body: format!("{by} assigned \"{}\" to you", assignment.task_title),
         category: category.to_owned(),
         notification_type: "task_assigned".to_owned(),
         entity_type: "task".to_owned(),
@@ -184,7 +191,7 @@ fn comment_recipients(
 
 /// A new comment (`notifyTaskComment`).
 pub(crate) struct Comment {
-    pub(crate) comment_id: String,
+    pub(crate) id: String,
     pub(crate) task_id: String,
     pub(crate) content: String,
 }
@@ -199,7 +206,13 @@ pub(crate) fn comment(state: &FlowState, caller: &Caller, comment: Comment) {
     });
 }
 
-type CommentTask = (String, Option<String>, Option<String>, Option<Vec<String>>, Option<String>);
+type CommentTask = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<Vec<String>>,
+    Option<String>,
+);
 
 /// Mentioned ids that are active members and may read the task's project
 /// (`mentionableUserIds`).
@@ -299,7 +312,7 @@ async fn notify_comment(context: &Context, comment: &Comment) -> Result<(), sqlx
             actor_id: Some(context.actor_id.clone()),
             data: push_data(
                 &comment.task_id,
-                &[("commentId", comment.comment_id.as_str())],
+                &[("commentId", comment.id.as_str())],
                 project_id.as_deref(),
             ),
             ..NewNotification::default()
@@ -328,7 +341,13 @@ mod tests {
         let (mentioned, watchers) = comment_recipients(
             "me",
             vec!["a".into(), "me".into(), "a".into()],
-            vec!["a".into(), "b".into(), "me".into(), "b".into(), String::new()],
+            vec![
+                "a".into(),
+                "b".into(),
+                "me".into(),
+                "b".into(),
+                String::new(),
+            ],
         );
         assert_eq!(mentioned, vec!["a".to_owned()]);
         assert_eq!(watchers, vec!["b".to_owned()]);

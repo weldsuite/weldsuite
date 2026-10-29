@@ -11,6 +11,15 @@
 //! - `/timer`: the caller's running timer (one per user); stopping it
 //!   writes a time entry.
 
+// The handlers follow the TypeScript route bodies one to one (long functions,
+// `date`-style names from the original), and the list queries read tuples.
+#![allow(
+    clippy::too_many_lines,
+    clippy::type_complexity,
+    clippy::similar_names,
+    clippy::ref_option
+)]
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -29,7 +38,9 @@ use weldsuite_catalogs::entity_events::{
 use weldsuite_db::{PgPool, js_row};
 use weldsuite_events::iso_timestamp;
 use weldsuite_flow_domain::analytics::time_entry_analytics_payload;
-use weldsuite_flow_domain::js::{js_date, math_round, number_text, number_value, numeric, to_fixed};
+use weldsuite_flow_domain::js::{
+    js_date, math_round, number_text, number_value, numeric, to_fixed,
+};
 use weldsuite_kit::validation::{Field, Issues, Number, Presence, js_number, js_trim};
 use weldsuite_kit::{ApiError, Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
@@ -38,8 +49,7 @@ use crate::tasks::query_boolean;
 use crate::{Caller, FlowState, Query, Refusal, Reply, reply, validate, validate_value};
 
 /// Approved hours are final until a manager rejects the entry.
-const APPROVED_LOCKED: &str =
-    "Approved time entries are locked. A project manager has to reject the entry before it can change.";
+const APPROVED_LOCKED: &str = "Approved time entries are locked. A project manager has to reject the entry before it can change.";
 const TEAM_DENIED: &str = "You cannot view the team timesheet for this project";
 /// A calendar day only has 24 hours.
 const MAX_MINUTES_PER_DAY: f64 = 24.0 * 60.0;
@@ -53,21 +63,38 @@ where
     Router::new()
         .route("/", get(list).route_layer(need("time:read")))
         .route("/", post(create).route_layer(need("time:create")))
-        .route("/team-summary", get(team_summary).route_layer(need("time:read")))
+        .route(
+            "/team-summary",
+            get(team_summary).route_layer(need("time:read")),
+        )
         .route("/timer", get(timer).route_layer(need("time:read")))
-        .route("/timer", delete(discard_timer).route_layer(need("time:create")))
-        .route("/timer/start", post(start_timer).route_layer(need("time:create")))
-        .route("/timer/stop", post(stop_timer).route_layer(need("time:create")))
+        .route(
+            "/timer",
+            delete(discard_timer).route_layer(need("time:create")),
+        )
+        .route(
+            "/timer/start",
+            post(start_timer).route_layer(need("time:create")),
+        )
+        .route(
+            "/timer/stop",
+            post(stop_timer).route_layer(need("time:create")),
+        )
         .route("/{id}", get(detail).route_layer(need("time:read")))
         .route("/{id}", patch(update).route_layer(need("time:update")))
         .route("/{id}", delete(remove).route_layer(need("time:delete")))
-        .route("/{id}/approve", patch(approve).route_layer(need("time:update")))
-        .route("/{id}/reject", patch(reject).route_layer(need("time:update")))
+        .route(
+            "/{id}/approve",
+            patch(approve).route_layer(need("time:update")),
+        )
+        .route(
+            "/{id}/reject",
+            patch(reject).route_layer(need("time:update")),
+        )
         .with_state(state)
 }
 
 // ── Shared ──────────────────────────────────────────────────────────────────
-
 
 /// `new Date()` as an ISO timestamp and its milliseconds.
 fn now_stamp() -> (String, i64) {
@@ -111,7 +138,10 @@ fn compute_cost(rate: Option<&Value>, duration: Option<&Value>) -> Option<String
 }
 
 fn format_hours(minutes: f64) -> String {
-    format!("{}h", number_text(math_round((minutes / 60.0) * 100.0) / 100.0))
+    format!(
+        "{}h",
+        number_text(math_round((minutes / 60.0) * 100.0) / 100.0)
+    )
 }
 
 /// `dailyLimitViolation`: the user-facing message when the entry is not a
@@ -127,7 +157,11 @@ async fn daily_limit_violation(
     let minutes = match minutes {
         Value::String(text) => {
             let raw = js_trim(text);
-            if raw.is_empty() { f64::NAN } else { js_number(raw) }
+            if raw.is_empty() {
+                f64::NAN
+            } else {
+                js_number(raw)
+            }
         }
         other => js_number_of(other),
     };
@@ -185,7 +219,10 @@ async fn resolve_entry_target(
             return Err(Refusal::not_found("Task", task_id));
         };
         if let Some(task_project) = task_project.filter(|p| !p.is_empty()) {
-            if project.as_deref().is_some_and(|p| !p.is_empty() && p != task_project) {
+            if project
+                .as_deref()
+                .is_some_and(|p| !p.is_empty() && p != task_project)
+            {
                 return Err(Refusal::bad_request(
                     "The task does not belong to the given project",
                 ));
@@ -235,7 +272,11 @@ fn timestamp(text: &str) -> Result<String, Refusal> {
 
 /// `data.startTime ? new Date(data.startTime) : null`.
 fn optional_timestamp(fields: &Map<String, Value>, key: &str) -> Result<Option<String>, Refusal> {
-    match fields.get(key).and_then(Value::as_str).filter(|t| !t.is_empty()) {
+    match fields
+        .get(key)
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+    {
         Some(text) => timestamp(text).map(Some),
         None => Ok(None),
     }
@@ -245,7 +286,11 @@ fn optional_timestamp(fields: &Map<String, Value>, key: &str) -> Result<Option<S
 
 /// `createTimeEntrySchema` (`.partial()` with a nullable `taskId` for a
 /// PATCH): the parsed fields, defaults applied.
-fn read_entry(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_entry(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let required = if partial {
         Presence::Optional
     } else {
@@ -261,18 +306,19 @@ fn read_entry(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -
         }
         Field::Absent => {}
     };
-    let string = |issues: &mut Issues, key: &str, presence: Presence| match issues.text(
-        fields, key, presence, None, None,
-    ) {
+    let string = |issues: &mut Issues, key: &str, presence: Presence| match issues
+        .text(fields, key, presence, None, None)
+    {
         Field::Set(text) => Field::Set(Value::String(text)),
         Field::Null => Field::Null,
         Field::Absent => Field::Absent,
     };
-    let boolean = |issues: &mut Issues, key: &str| match issues.boolean(fields, key, Presence::Optional) {
-        Field::Set(flag) => Field::Set(Value::Bool(flag)),
-        Field::Null => Field::Null,
-        Field::Absent => Field::Absent,
-    };
+    let boolean =
+        |issues: &mut Issues, key: &str| match issues.boolean(fields, key, Presence::Optional) {
+            Field::Set(flag) => Field::Set(Value::Bool(flag)),
+            Field::Null => Field::Null,
+            Field::Absent => Field::Absent,
+        };
     put("projectId", string(issues, "projectId", Presence::Optional));
     let task_presence = if partial {
         Presence::Nullish
@@ -281,12 +327,21 @@ fn read_entry(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -
     };
     put("taskId", string(issues, "taskId", task_presence));
     put("date", string(issues, "date", required));
-    put("duration", issues.string_or_number(fields, "duration", required));
-    put("description", string(issues, "description", Presence::Optional));
+    put(
+        "duration",
+        issues.string_or_number(fields, "duration", required),
+    );
+    put(
+        "description",
+        string(issues, "description", Presence::Optional),
+    );
     put("activity", string(issues, "activity", Presence::Optional));
     let billable = boolean(issues, "billable");
     put("billable", billable);
-    put("rate", issues.string_or_number(fields, "rate", Presence::Optional));
+    put(
+        "rate",
+        issues.string_or_number(fields, "rate", Presence::Optional),
+    );
     put("startTime", string(issues, "startTime", Presence::Optional));
     put("endTime", string(issues, "endTime", Presence::Optional));
     put("location", string(issues, "location", Presence::Optional));
@@ -294,8 +349,10 @@ fn read_entry(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -
     put("isRemote", is_remote);
     if !partial {
         // `.default(true)` / `.default(false)`.
-        out.entry("billable".to_owned()).or_insert(Value::Bool(true));
-        out.entry("isRemote".to_owned()).or_insert(Value::Bool(false));
+        out.entry("billable".to_owned())
+            .or_insert(Value::Bool(true));
+        out.entry("isRemote".to_owned())
+            .or_insert(Value::Bool(false));
     }
     out
 }
@@ -304,7 +361,10 @@ fn read_entry(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -
 fn read_timer(issues: &mut Issues, fields: &Map<String, Value>, stop: bool) -> Map<String, Value> {
     let mut out = Map::new();
     for key in ["projectId", "taskId", "description", "activity"] {
-        if let Some(text) = issues.text(fields, key, Presence::Optional, None, None).into_option() {
+        if let Some(text) = issues
+            .text(fields, key, Presence::Optional, None, None)
+            .into_option()
+        {
             out.insert(key.to_owned(), Value::String(text));
         }
     }
@@ -351,7 +411,12 @@ struct Filters {
     team: bool,
 }
 
-fn query_int(issues: &mut Issues, fields: &Map<String, Value>, key: &str, max: Option<f64>) -> Option<i64> {
+fn query_int(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    key: &str,
+    max: Option<f64>,
+) -> Option<i64> {
     issues
         .whole_number(
             fields,
@@ -367,7 +432,12 @@ fn query_int(issues: &mut Issues, fields: &Map<String, Value>, key: &str, max: O
         .into_option()
 }
 
-fn query_str(issues: &mut Issues, fields: &Map<String, Value>, key: &str, presence: Presence) -> Option<String> {
+fn query_str(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    key: &str,
+    presence: Presence,
+) -> Option<String> {
     issues.text(fields, key, presence, None, None).into_option()
 }
 
@@ -455,34 +525,39 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
         Some(caller.user_id.clone())
     };
     let result = async {
-        let rows: Vec<(Value, Option<String>, Option<String>, Option<String>, Option<String>)> =
-            sqlx::query_as(concat!(
-                "select ",
-                time_entry_json!("t"),
-                ", wm.name, wm.email, wm.picture, tk.title from time_entries t",
-                " left join workspace_members wm on t.user_id = wm.user_id",
-                " left join tasks tk on t.task_id = tk.id",
-                " where t.deleted_at is null",
-                " and ($1::text is null or t.user_id = $1)",
-                " and ($2::text is null or t.project_id = $2)",
-                " and ($3::text is null or t.task_id = $3)",
-                " and ($4::text is null or t.status = $4)",
-                " and ($5::bool is null or t.billable = $5)",
-                " and ($6::text is null or t.date >= $6::date)",
-                " and ($7::text is null or t.date <= $7::date)",
-                " order by t.date desc, t.created_at desc limit $8 offset $9"
-            ))
-            .bind(&user)
-            .bind(present(&f.project_id))
-            .bind(present(&f.task_id))
-            .bind(present(&f.status))
-            .bind(f.billable)
-            .bind(present(&f.from_date))
-            .bind(present(&f.to_date))
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&caller.db)
-            .await?;
+        let rows: Vec<(
+            Value,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        )> = sqlx::query_as(concat!(
+            "select ",
+            time_entry_json!("t"),
+            ", wm.name, wm.email, wm.picture, tk.title from time_entries t",
+            " left join workspace_members wm on t.user_id = wm.user_id",
+            " left join tasks tk on t.task_id = tk.id",
+            " where t.deleted_at is null",
+            " and ($1::text is null or t.user_id = $1)",
+            " and ($2::text is null or t.project_id = $2)",
+            " and ($3::text is null or t.task_id = $3)",
+            " and ($4::text is null or t.status = $4)",
+            " and ($5::bool is null or t.billable = $5)",
+            " and ($6::text is null or t.date >= $6::date)",
+            " and ($7::text is null or t.date <= $7::date)",
+            " order by t.date desc, t.created_at desc limit $8 offset $9"
+        ))
+        .bind(&user)
+        .bind(present(&f.project_id))
+        .bind(present(&f.task_id))
+        .bind(present(&f.status))
+        .bind(f.billable)
+        .bind(present(&f.from_date))
+        .bind(present(&f.to_date))
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&caller.db)
+        .await?;
         let total: i32 = sqlx::query_scalar(concat!(
             "select count(*)::int from time_entries t where t.deleted_at is null",
             " and ($1::text is null or t.user_id = $1)",
@@ -507,7 +582,10 @@ async fn list_entries(caller: &Caller, f: Filters) -> Reply {
             .map(|(row, name, email, avatar, task_title)| {
                 let mut row = js_row(row);
                 let user_id = row["userId"].clone();
-                let task_id = row["taskId"].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
+                let task_id = row["taskId"]
+                    .as_str()
+                    .filter(|t| !t.is_empty())
+                    .map(str::to_owned);
                 let display = name
                     .or_else(|| email.clone())
                     .map_or_else(|| user_id.clone(), Value::String);
@@ -627,7 +705,13 @@ impl Roster {
     }
 }
 
-type MemberRow = (String, Option<String>, Option<String>, Option<String>, Option<String>);
+type MemberRow = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 type TotalRow = (String, Option<bool>, f64, i32);
 
 async fn team_summary(caller: Caller, RawQuery(raw): RawQuery) -> Response {
@@ -765,7 +849,11 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
         .filter_map(|user| roster.by_user.get(user))
         .collect();
     // A stable sort, as `Array.prototype.sort`.
-    members.sort_by(|a, b| b.total.partial_cmp(&a.total).unwrap_or(std::cmp::Ordering::Equal));
+    members.sort_by(|a, b| {
+        b.total
+            .partial_cmp(&a.total)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let (mut total, mut billable, mut non_billable, mut count) = (0.0, 0.0, 0.0, 0_i64);
     for member in &members {
         total += member.total;
@@ -779,14 +867,20 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
         .into_iter()
         .map(|entry| {
             let mut entry = js_row(entry);
-            let title = entry["taskTitle"].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
-            let task_id = entry["taskId"].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
+            let title = entry["taskTitle"]
+                .as_str()
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned);
+            let task_id = entry["taskId"]
+                .as_str()
+                .filter(|t| !t.is_empty())
+                .map(str::to_owned);
             let duration = numeric(&entry["duration"]);
             let user = entry["userId"].as_str().unwrap_or_default().to_owned();
-            let user_name = roster
-                .by_user
-                .get(&user)
-                .map_or_else(|| entry["userId"].clone(), |b| Value::String(b.name.clone()));
+            let user_name = roster.by_user.get(&user).map_or_else(
+                || entry["userId"].clone(),
+                |b| Value::String(b.name.clone()),
+            );
             if let Value::Object(fields) = &mut entry {
                 fields.remove("taskTitle");
                 fields.insert(
@@ -825,7 +919,13 @@ async fn summarise(caller: &Caller, project_id: &str, f: &Filters) -> Reply {
 /// An `active_timers` row as Drizzle reads it.
 macro_rules! timer_json {
     ($a:literal) => {
-        concat!("(to_jsonb(", $a, ") || jsonb_build_object('rate', ", $a, ".rate::text))")
+        concat!(
+            "(to_jsonb(",
+            $a,
+            ") || jsonb_build_object('rate', ",
+            $a,
+            ".rate::text))"
+        )
     };
 }
 
@@ -856,7 +956,9 @@ async fn timer(caller: Caller) -> Response {
 }
 
 async fn start_timer(caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| read_timer(issues, fields, false)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_timer(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid body"),
     };
@@ -908,7 +1010,9 @@ fn calendar_date(millis: i64, zone: Option<&str>) -> Result<String, Refusal> {
     let instant = jiff::Timestamp::from_millisecond(millis)
         .map_err(|error| Refusal::Internal(error.to_string()))?;
     let zone = match zone {
-        Some(name) => jiff::tz::TimeZone::get(name).map_err(|error| Refusal::Internal(error.to_string()))?,
+        Some(name) => {
+            jiff::tz::TimeZone::get(name).map_err(|error| Refusal::Internal(error.to_string()))?
+        }
         None => jiff::tz::TimeZone::UTC,
     };
     Ok(instant.to_zoned(zone).date().to_string())
@@ -925,7 +1029,8 @@ async fn resolve_timer_target(
     let (stored_project, stored_task) = stored;
     let project_override = text(overrides, "projectId");
     if let Some(task) = text(overrides, "taskId") {
-        let project = resolve_entry_target(caller, project_override.as_deref(), Some(&task)).await?;
+        let project =
+            resolve_entry_target(caller, project_override.as_deref(), Some(&task)).await?;
         return Ok((project, Some(task)));
     }
     if let Some(project) = project_override {
@@ -946,18 +1051,33 @@ async fn resolve_timer_target(
     Ok((project, task))
 }
 
-async fn stop_timer(State(state): State<FlowState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    let overrides = match validate(&headers, &body, |issues, fields| read_timer(issues, fields, true)) {
+async fn stop_timer(
+    State(state): State<FlowState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let overrides = match validate(&headers, &body, |issues, fields| {
+        read_timer(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid body"),
     };
     let Some(user) = caller.user().map(str::to_owned) else {
         return ApiError::unauthorized().into_response();
     };
-    reply(stop(&state, &caller, &user, &overrides).await, "Failed to stop timer")
+    reply(
+        stop(&state, &caller, &user, &overrides).await,
+        "Failed to stop timer",
+    )
 }
 
-async fn stop(state: &FlowState, caller: &Caller, user: &str, overrides: &Map<String, Value>) -> Reply {
+async fn stop(
+    state: &FlowState,
+    caller: &Caller,
+    user: &str,
+    overrides: &Map<String, Value>,
+) -> Reply {
     let db = &caller.db;
     let Some(current) = running_timer(db, user).await? else {
         return Err(Refusal::not_found("Running timer", user));
@@ -997,7 +1117,8 @@ async fn stop(state: &FlowState, caller: &Caller, user: &str, overrides: &Map<St
         rate.as_ref().map(|r| Value::String(r.clone())).as_ref(),
         Some(&Value::String(duration.clone())),
     );
-    let pick = |key: &str| text(overrides, key).or_else(|| running[key].as_str().map(str::to_owned));
+    let pick =
+        |key: &str| text(overrides, key).or_else(|| running[key].as_str().map(str::to_owned));
     let date = calendar_date(started_ms, text(overrides, "timeZone").as_deref())?;
     let inserted = sqlx::query(
         "insert into time_entries (id, project_id, task_id, user_id, date, start_time, end_time,
@@ -1030,7 +1151,7 @@ async fn stop(state: &FlowState, caller: &Caller, user: &str, overrides: &Map<St
              from jsonb_populate_record(null::active_timers, $1) x
              on conflict do nothing",
         )
-        .bind(&running_record(&running))
+        .bind(running_record(&running))
         .execute(db)
         .await;
         if let Err(restore) = restored {
@@ -1054,8 +1175,10 @@ async fn stop(state: &FlowState, caller: &Caller, user: &str, overrides: &Map<St
         }
     }
     caller.publish(state, PROJECT_TIME_ENTRY_CREATED, &id, &event);
-    Ok(Created(json!({ "id": id, "duration": duration, "startTime": started, "endTime": now }))
-        .into_response())
+    Ok(
+        Created(json!({ "id": id, "duration": duration, "startTime": started, "endTime": now }))
+            .into_response(),
+    )
 }
 
 /// A timer row (camelCase, as read) back in its column names.
@@ -1127,28 +1250,48 @@ async fn detail(caller: Caller, Path(id): Path<String>) -> Response {
 
 // ── POST / ──────────────────────────────────────────────────────────────────
 
-async fn create(State(state): State<FlowState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| read_entry(issues, fields, false)) {
+async fn create(
+    State(state): State<FlowState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_entry(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid body"),
     };
     let Some(user) = caller.user().map(str::to_owned) else {
         return ApiError::unauthorized().into_response();
     };
-    reply(create_entry(&state, &caller, &user, &data).await, "Failed to create time entry")
+    reply(
+        create_entry(&state, &caller, &user, &data).await,
+        "Failed to create time entry",
+    )
 }
 
-async fn create_entry(state: &FlowState, caller: &Caller, user: &str, data: &Map<String, Value>) -> Reply {
+async fn create_entry(
+    state: &FlowState,
+    caller: &Caller,
+    user: &str,
+    data: &Map<String, Value>,
+) -> Reply {
     let id = generate_id("time");
     let (now, _) = now_stamp();
     let date = text(data, "date").unwrap_or_default();
     let duration = data.get("duration").cloned().unwrap_or(Value::Null);
-    if let Some(violation) = daily_limit_violation(&caller.db, user, &date, &duration, None).await? {
+    if let Some(violation) = daily_limit_violation(&caller.db, user, &date, &duration, None).await?
+    {
         return Err(Refusal::bad_request(violation));
     }
     let task = text(data, "taskId");
-    let project = resolve_entry_target(caller, text(data, "projectId").as_deref(), task.as_deref()).await?;
-    let billable = data.get("billable").and_then(Value::as_bool).unwrap_or(true);
+    let project =
+        resolve_entry_target(caller, text(data, "projectId").as_deref(), task.as_deref()).await?;
+    let billable = data
+        .get("billable")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
     let start = optional_timestamp(data, "startTime")?;
     let end = optional_timestamp(data, "endTime")?;
     sqlx::query(
@@ -1201,11 +1344,16 @@ async fn update(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| read_entry(issues, fields, true)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_entry(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid body"),
     };
-    reply(update_entry(&state, &caller, &id, &data).await, "Failed to update time entry")
+    reply(
+        update_entry(&state, &caller, &id, &data).await,
+        "Failed to update time entry",
+    )
 }
 
 /// `resolvePatchProject`: the project a PATCH moves the entry to; `None`
@@ -1229,10 +1377,17 @@ async fn resolve_patch_project(
         None => existing["taskId"].as_str().map(str::to_owned),
         Some(value) => value.as_str().map(str::to_owned),
     };
-    Ok(Some(resolve_entry_target(caller, project.as_deref(), task.as_deref()).await?))
+    Ok(Some(
+        resolve_entry_target(caller, project.as_deref(), task.as_deref()).await?,
+    ))
 }
 
-async fn update_entry(state: &FlowState, caller: &Caller, id: &str, data: &Map<String, Value>) -> Reply {
+async fn update_entry(
+    state: &FlowState,
+    caller: &Caller,
+    id: &str,
+    data: &Map<String, Value>,
+) -> Reply {
     let db = &caller.db;
     let Some(existing) = own_entry(caller, id).await? else {
         return Err(Refusal::not_found("Time entry", id));
@@ -1284,7 +1439,15 @@ async fn update_entry(state: &FlowState, caller: &Caller, id: &str, data: &Map<S
         Some(_) => Some(optional_timestamp(data, "endTime")?),
     };
     let mut copied = Map::new();
-    for key in ["date", "description", "activity", "billable", "location", "isRemote", "taskId"] {
+    for key in [
+        "date",
+        "description",
+        "activity",
+        "billable",
+        "location",
+        "isRemote",
+        "taskId",
+    ] {
         if let Some(value) = data.get(key) {
             copied.insert(key.to_owned(), value.clone());
         }
@@ -1295,7 +1458,11 @@ async fn update_entry(state: &FlowState, caller: &Caller, id: &str, data: &Map<S
     if let Some(rate) = data.get("rate") {
         copied.insert(
             "rate".to_owned(),
-            if rate.is_null() { Value::Null } else { Value::String(js_string(rate)) },
+            if rate.is_null() {
+                Value::Null
+            } else {
+                Value::String(js_string(rate))
+            },
         );
     }
     sqlx::query(concat!(
@@ -1349,7 +1516,11 @@ async fn update_entry(state: &FlowState, caller: &Caller, id: &str, data: &Map<S
         Some(value) => value.as_str().map(str::to_owned),
         None => existing["taskId"].as_str().map(str::to_owned),
     };
-    let duration = js_number_of(data.get("duration").filter(|d| !d.is_null()).unwrap_or(&existing["duration"]));
+    let duration = js_number_of(
+        data.get("duration")
+            .filter(|d| !d.is_null())
+            .unwrap_or(&existing["duration"]),
+    );
     let billable = data
         .get("billable")
         .and_then(Value::as_bool)
@@ -1376,12 +1547,26 @@ async fn update_entry(state: &FlowState, caller: &Caller, id: &str, data: &Map<S
 
 // ── PATCH /:id/approve, /:id/reject ─────────────────────────────────────────
 
-async fn approve(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
-    reply(review(&state, &caller, &id, true).await, "Failed to approve time entry")
+async fn approve(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    reply(
+        review(&state, &caller, &id, true).await,
+        "Failed to approve time entry",
+    )
 }
 
-async fn reject(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
-    reply(review(&state, &caller, &id, false).await, "Failed to reject time entry")
+async fn reject(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
+    reply(
+        review(&state, &caller, &id, false).await,
+        "Failed to reject time entry",
+    )
 }
 
 /// `reviewTimeEntry`: whoever manages the entry's project (`projects:scope:all`
@@ -1430,7 +1615,10 @@ async fn review(state: &FlowState, caller: &Caller, id: &str, approved: bool) ->
     caller.publish(state, PROJECT_TIME_ENTRY_UPDATED, id, &payload);
     let mut reviewed = payload;
     if let Value::Object(fields) = &mut reviewed {
-        fields.insert("reviewedBy".to_owned(), Value::String(caller.user_id.clone()));
+        fields.insert(
+            "reviewedBy".to_owned(),
+            Value::String(caller.user_id.clone()),
+        );
     }
     caller.publish(
         state,
@@ -1459,7 +1647,11 @@ fn entry_payload(id: &str, entry: &Value) -> Value {
 
 // ── DELETE /:id ─────────────────────────────────────────────────────────────
 
-async fn remove(State(state): State<FlowState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     reply(
         async {
             let Some(existing) = own_entry(&caller, &id).await? else {

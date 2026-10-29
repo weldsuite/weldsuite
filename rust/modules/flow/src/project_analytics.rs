@@ -68,9 +68,18 @@ where
         // Membership-scoped, not gated on `projects:read`.
         .route("/summary", get(summary))
         .route("/projects/{project_id}/summary", get(project_summary))
-        .route("/reports", get(list_reports).route_layer(need("projects:read")))
-        .route("/reports", post(create_report).route_layer(need("projects:create")))
-        .route("/reports/{report_id}", get(report).route_layer(need("projects:read")))
+        .route(
+            "/reports",
+            get(list_reports).route_layer(need("projects:read")),
+        )
+        .route(
+            "/reports",
+            post(create_report).route_layer(need("projects:create")),
+        )
+        .route(
+            "/reports/{report_id}",
+            get(report).route_layer(need("projects:read")),
+        )
         .route(
             "/reports/{report_id}",
             axum::routing::put(update_report).route_layer(need("projects:update")),
@@ -83,8 +92,14 @@ where
             "/reports/{report_id}/duplicate",
             post(duplicate_report).route_layer(need("projects:create")),
         )
-        .route("/reports/{report_id}/charts", get(list_charts).route_layer(need("projects:read")))
-        .route("/reports/{report_id}/charts", post(create_chart).route_layer(need("projects:create")))
+        .route(
+            "/reports/{report_id}/charts",
+            get(list_charts).route_layer(need("projects:read")),
+        )
+        .route(
+            "/reports/{report_id}/charts",
+            post(create_chart).route_layer(need("projects:create")),
+        )
         .route(
             "/reports/{report_id}/charts/layouts",
             patch(update_layouts).route_layer(need("projects:update")),
@@ -107,7 +122,11 @@ where
 // ── KPI summaries ───────────────────────────────────────────────────────────
 
 /// `projectKpiSummaryQuerySchema` (without `projectId` for one project).
-fn read_summary_query(issues: &mut Issues, fields: &Map<String, Value>, with_project: bool) -> (String, Option<String>) {
+fn read_summary_query(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    with_project: bool,
+) -> (String, Option<String>) {
     let period = issues
         .choice(fields, "period", Presence::Optional, &["7d", "30d", "90d"])
         .into_option()
@@ -124,12 +143,13 @@ fn read_summary_query(issues: &mut Issues, fields: &Map<String, Value>, with_pro
 
 async fn summary(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let q = Query::parse(raw.as_deref());
-    let (period, project_id) = match validate_value(&Value::Object(q.values().clone()), |issues, f| {
-        read_summary_query(issues, f, true)
-    }) {
-        Ok(query) => query,
-        Err(refused) => return refused.respond("Invalid query"),
-    };
+    let (period, project_id) =
+        match validate_value(&Value::Object(q.values().clone()), |issues, f| {
+            read_summary_query(issues, f, true)
+        }) {
+            Ok(query) => query,
+            Err(refused) => return refused.respond("Invalid query"),
+        };
     if caller.user().is_none() {
         return ApiError::unauthorized().into_response();
     }
@@ -149,7 +169,11 @@ async fn summary(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     )
 }
 
-async fn project_summary(caller: Caller, Path(project_id): Path<String>, RawQuery(raw): RawQuery) -> Response {
+async fn project_summary(
+    caller: Caller,
+    Path(project_id): Path<String>,
+    RawQuery(raw): RawQuery,
+) -> Response {
     let q = Query::parse(raw.as_deref());
     let (period, _) = match validate_value(&Value::Object(q.values().clone()), |issues, f| {
         read_summary_query(issues, f, false)
@@ -165,8 +189,13 @@ async fn project_summary(caller: Caller, Path(project_id): Path<String>, RawQuer
             if !caller.can_access(&project_id).await? {
                 return Err(Refusal::forbidden(PROJECT_DENIED));
             }
-            let summary =
-                kpi_summary(&caller.db, &period, Some(vec![project_id.clone()]), Some(&project_id)).await?;
+            let summary = kpi_summary(
+                &caller.db,
+                &period,
+                Some(vec![project_id.clone()]),
+                Some(&project_id),
+            )
+            .await?;
             Ok(Data(summary).into_response())
         }
         .await,
@@ -218,7 +247,10 @@ async fn kpi_summary(
     };
     let mut scoped = project_ids;
     if let Some(project) = project_id.filter(|p| !p.is_empty()) {
-        if scoped.as_ref().is_some_and(|ids| !ids.iter().any(|id| id == project)) {
+        if scoped
+            .as_ref()
+            .is_some_and(|ids| !ids.iter().any(|id| id == project))
+        {
             return Ok(empty());
         }
         scoped = Some(vec![project.to_owned()]);
@@ -228,7 +260,11 @@ async fn kpi_summary(
     }
     let all = scoped.is_none();
     let ids = scoped.unwrap_or_default();
-    let (today_at, tomorrow_at, from_at) = (iso_timestamp(today), iso_timestamp(tomorrow), iso_timestamp(from));
+    let (today_at, tomorrow_at, from_at) = (
+        iso_timestamp(today),
+        iso_timestamp(tomorrow),
+        iso_timestamp(from),
+    );
 
     let projects: Vec<(Option<String>, Option<String>, Option<bool>)> = sqlx::query_as(
         "select status, health, is_active from projects
@@ -300,16 +336,25 @@ async fn kpi_summary(
     .await?;
 
     let closed = |status: &Option<String>| {
-        status.as_deref().filter(|s| !s.is_empty()).is_some_and(|s| {
-            matches!(normalize_project_status(s).as_str(), "Completed" | "Cancelled")
-        })
+        status
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .is_some_and(|s| {
+                matches!(
+                    normalize_project_status(s).as_str(),
+                    "Completed" | "Cancelled"
+                )
+            })
     };
     let active = projects
         .iter()
         .filter(|(status, _, is_active)| is_active.unwrap_or(false) && !closed(status))
         .count();
     let total = tasks.len();
-    let completed = tasks.iter().filter(|(status, _)| status.as_deref() == Some("done")).count();
+    let completed = tasks
+        .iter()
+        .filter(|(status, _)| status.as_deref() == Some("done"))
+        .count();
     #[allow(clippy::cast_precision_loss)]
     let rate = if total > 0 {
         math_round(completed as f64 / total as f64 * 1000.0) / 10.0
@@ -411,14 +456,21 @@ async fn chart_count(db: &PgPool, report_id: &str) -> Result<i64, sqlx::Error> {
     .await
 }
 
-async fn set_chart_count(db: &PgPool, report_id: &str, count: i64, at: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("update analytics_reports set chart_count = $2, updated_at = $3::timestamp where id = $1")
-        .bind(report_id)
-        .bind(i32::try_from(count).unwrap_or(i32::MAX))
-        .bind(at)
-        .execute(db)
-        .await
-        .map(|_| ())
+async fn set_chart_count(
+    db: &PgPool,
+    report_id: &str,
+    count: i64,
+    at: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "update analytics_reports set chart_count = $2, updated_at = $3::timestamp where id = $1",
+    )
+    .bind(report_id)
+    .bind(i32::try_from(count).unwrap_or(i32::MAX))
+    .bind(at)
+    .execute(db)
+    .await
+    .map(|_| ())
 }
 
 async fn list_reports(caller: Caller) -> Response {
@@ -452,7 +504,11 @@ async fn report(caller: Caller, Path(report_id): Path<String>) -> Response {
 }
 
 /// `createReportSchema` (`.partial()` for an update): the fields given.
-fn read_report(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn read_report(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let title_presence = if partial {
         Presence::Optional
     } else {
@@ -478,8 +534,15 @@ fn text_of<'a>(fields: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
     fields.get(key).and_then(Value::as_str)
 }
 
-async fn create_report(State(state): State<FlowState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| read_report(issues, fields, false)) {
+async fn create_report(
+    State(state): State<FlowState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_report(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid body"),
     };
@@ -513,7 +576,9 @@ async fn update_report(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let data = match validate(&headers, &body, |issues, fields| read_report(issues, fields, true)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_report(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refused) => return refused.respond("Invalid body"),
     };
@@ -537,7 +602,12 @@ async fn update_report(
             .await?;
             let mut event = data.clone();
             event.insert("id".to_owned(), Value::String(report_id.clone()));
-            caller.publish(&state, ANALYTICS_REPORT_UPDATED, &report_id, &Value::Object(event));
+            caller.publish(
+                &state,
+                ANALYTICS_REPORT_UPDATED,
+                &report_id,
+                &Value::Object(event),
+            );
             Ok(Data(json!({ "id": report_id })).into_response())
         }
         .await,
@@ -545,7 +615,11 @@ async fn update_report(
     )
 }
 
-async fn delete_report(State(state): State<FlowState>, caller: Caller, Path(report_id): Path<String>) -> Response {
+async fn delete_report(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(report_id): Path<String>,
+) -> Response {
     reply(
         async {
             modifiable_report(&caller, &report_id).await?;
@@ -557,7 +631,12 @@ async fn delete_report(State(state): State<FlowState>, caller: Caller, Path(repo
             .bind(now())
             .execute(&caller.db)
             .await?;
-            caller.publish(&state, ANALYTICS_REPORT_DELETED, &report_id, &json!({ "id": report_id }));
+            caller.publish(
+                &state,
+                ANALYTICS_REPORT_DELETED,
+                &report_id,
+                &json!({ "id": report_id }),
+            );
             Ok(axum::Json(json!({ "success": true })).into_response())
         }
         .await,
@@ -565,7 +644,11 @@ async fn delete_report(State(state): State<FlowState>, caller: Caller, Path(repo
     )
 }
 
-async fn duplicate_report(State(state): State<FlowState>, caller: Caller, Path(report_id): Path<String>) -> Response {
+async fn duplicate_report(
+    State(state): State<FlowState>,
+    caller: Caller,
+    Path(report_id): Path<String>,
+) -> Response {
     reply(
         async {
             let db = &caller.db;
@@ -662,7 +745,12 @@ fn read_layout(issues: &mut Issues, fields: &Map<String, Value>) -> Value {
 /// `createChartSchema.omit({ reportId })`, defaults applied.
 fn read_chart(issues: &mut Issues, f: &Map<String, Value>) -> Map<String, Value> {
     let mut out = Map::new();
-    let mut text = |issues: &mut Issues, key: &str, presence: Presence, min: Option<usize>, max: Option<usize>, default: Option<&str>| {
+    let mut text = |issues: &mut Issues,
+                    key: &str,
+                    presence: Presence,
+                    min: Option<usize>,
+                    max: Option<usize>,
+                    default: Option<&str>| {
         match issues.text(f, key, presence, min, max) {
             Field::Set(value) => {
                 out.insert(key.to_owned(), Value::String(value));
@@ -674,12 +762,26 @@ fn read_chart(issues: &mut Issues, f: &Map<String, Value>) -> Map<String, Value>
             }
         }
     };
-    text(issues, "title", Presence::Required, Some(1), Some(255), None);
+    text(
+        issues,
+        "title",
+        Presence::Required,
+        Some(1),
+        Some(255),
+        None,
+    );
     text(issues, "description", Presence::Optional, None, None, None);
     text(issues, "chartType", Presence::Required, Some(1), None, None);
     text(issues, "entity", Presence::Required, Some(1), None, None);
     text(issues, "metric", Presence::Required, Some(1), None, None);
-    text(issues, "color", Presence::Optional, None, None, Some("#3b82f6"));
+    text(
+        issues,
+        "color",
+        Presence::Optional,
+        None,
+        None,
+        Some("#3b82f6"),
+    );
     let mut flags = Map::new();
     for (key, default) in [
         ("smoothCurve", true),
@@ -704,12 +806,18 @@ fn read_chart(issues: &mut Issues, f: &Map<String, Value>) -> Map<String, Value>
     more(issues, "groupBy", "day");
     more(issues, "aggregation", "sum");
     more(issues, "sortOrder", "asc");
-    if issues.number(f, "limit", Presence::Optional, Number::default()).as_set().is_some()
+    if issues
+        .number(f, "limit", Presence::Optional, Number::default())
+        .as_set()
+        .is_some()
         && let Some(limit) = f.get("limit")
     {
         flags.insert("limit".to_owned(), limit.clone());
     }
-    if let Some(compare) = issues.text(f, "compareWith", Presence::Optional, None, None).into_option() {
+    if let Some(compare) = issues
+        .text(f, "compareWith", Presence::Optional, None, None)
+        .into_option()
+    {
         flags.insert("compareWith".to_owned(), Value::String(compare));
     }
     if let Field::Set(layout) = issues.nested(f, "layout", Presence::Optional, read_layout) {
@@ -721,7 +829,9 @@ fn read_chart(issues: &mut Issues, f: &Map<String, Value>) -> Map<String, Value>
 
 /// `data.x || fallback` for a string.
 fn or_text<'a>(data: &'a Map<String, Value>, key: &str, fallback: &'a str) -> &'a str {
-    text_of(data, key).filter(|v| !v.is_empty()).unwrap_or(fallback)
+    text_of(data, key)
+        .filter(|v| !v.is_empty())
+        .unwrap_or(fallback)
 }
 
 async fn create_chart(
@@ -793,15 +903,22 @@ async fn create_chart(
 /// `updateChartLayoutsSchema`.
 fn read_layouts(issues: &mut Issues, f: &Map<String, Value>) -> Vec<(String, Value)> {
     issues
-        .list(f, "layouts", Presence::Required, None, None, |issues, item| {
-            let fields = issues.object(item)?;
-            let chart = issues.text(fields, "chartId", Presence::Required, None, None);
-            let layout = issues.nested(fields, "layout", Presence::Required, read_layout);
-            match (chart, layout) {
-                (Field::Set(chart), Field::Set(layout)) => Some((chart, layout)),
-                _ => None,
-            }
-        })
+        .list(
+            f,
+            "layouts",
+            Presence::Required,
+            None,
+            None,
+            |issues, item| {
+                let fields = issues.object(item)?;
+                let chart = issues.text(fields, "chartId", Presence::Required, None, None);
+                let layout = issues.nested(fields, "layout", Presence::Required, read_layout);
+                match (chart, layout) {
+                    (Field::Set(chart), Field::Set(layout)) => Some((chart, layout)),
+                    _ => None,
+                }
+            },
+        )
         .into_option()
         .unwrap_or_default()
 }
@@ -959,7 +1076,10 @@ const CHART_ENTITIES: [&str; 8] = [
 ];
 
 /// `chartDataQuerySchema`: the chart id and its project, if any.
-fn read_chart_query(issues: &mut Issues, f: &Map<String, Value>) -> Option<(String, Option<String>)> {
+fn read_chart_query(
+    issues: &mut Issues,
+    f: &Map<String, Value>,
+) -> Option<(String, Option<String>)> {
     let chart = issues.text(f, "chartId", Presence::Required, Some(1), Some(64));
     issues.choice(f, "entity", Presence::Required, &CHART_ENTITIES);
     // `.regex(/^[a-z_]+$/).max(64)`: in that order.
@@ -998,10 +1118,17 @@ fn read_chart_query(issues: &mut Issues, f: &Map<String, Value>) -> Option<(Stri
 
 fn read_charts_data(issues: &mut Issues, f: &Map<String, Value>) -> Vec<(String, Option<String>)> {
     issues
-        .list(f, "charts", Presence::Required, None, Some(50), |issues, item| {
-            let fields = issues.object(item)?;
-            read_chart_query(issues, fields)
-        })
+        .list(
+            f,
+            "charts",
+            Presence::Required,
+            None,
+            Some(50),
+            |issues, item| {
+                let fields = issues.object(item)?;
+                read_chart_query(issues, fields)
+            },
+        )
         .into_option()
         .unwrap_or_default()
 }

@@ -536,7 +536,12 @@ fn assignee_ids_of(row: &Value) -> Vec<String> {
     let ids: Vec<String> = row
         .get("assigneeIds")
         .and_then(Value::as_array)
-        .map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
         .unwrap_or_default();
     if !ids.is_empty() {
         return ids;
@@ -558,7 +563,11 @@ fn newly_added_assignees(task: &Value, update: &Update) -> Vec<String> {
             .collect()
     };
     let old: Vec<String> = match task.get("assigneeIds") {
-        Some(Value::Array(ids)) => ids.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+        Some(Value::Array(ids)) => ids
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
         _ => text_of(task, "assigneeId")
             .filter(|id| !id.is_empty())
             .map(|id| vec![id.to_owned()])
@@ -821,7 +830,9 @@ async fn create_with(
         crate::notify::Assignment {
             assignee_ids: created.assignee_ids.clone(),
             task_id: id.clone(),
-            task_title: text_of(&created.row, "title").unwrap_or_default().to_owned(),
+            task_title: text_of(&created.row, "title")
+                .unwrap_or_default()
+                .to_owned(),
             project_id: project_id.clone(),
         },
     );
