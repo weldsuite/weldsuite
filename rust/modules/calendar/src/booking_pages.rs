@@ -219,12 +219,7 @@ fn ranges(
     let mut whole = true;
     let mut read = Vec::new();
     let value = fields.get(key);
-    let typed = match value {
-        None => true,
-        Some(Value::Array(_)) => true,
-        Some(Value::Null) => false,
-        Some(_) => false,
-    };
+    let typed = matches!(value, None | Some(Value::Array(_)));
     issues.list(fields, key, presence, None, Some(24), |issues, item| {
         let range = time_range(issues, item);
         match &range {
@@ -387,20 +382,17 @@ fn page_body(
                 if read.date_invalid {
                     deferred.override_dates.push(at);
                 }
-                match read.parsed {
-                    Some((value, slots)) => {
-                        if let Some(slots) = &slots
-                            && let Some((slot, overlap)) = range_problem(slots)
-                        {
-                            deferred.override_slots.push((at, slot, overlap));
-                        }
-                        parsed.push(value.clone());
-                        Some(value)
+                if let Some((value, slots)) = read.parsed {
+                    if let Some(slots) = &slots
+                        && let Some((slot, overlap)) = range_problem(slots)
+                    {
+                        deferred.override_slots.push((at, slot, overlap));
                     }
-                    None => {
-                        whole = false;
-                        None
-                    }
+                    parsed.push(value.clone());
+                    Some(value)
+                } else {
+                    whole = false;
+                    None
                 }
             },
         );
@@ -550,8 +542,11 @@ struct OverrideRead {
     date_invalid: bool,
     /// The parsed override and its slots, unless the item is aborted (not
     /// an object, a date that is not a string, slots that lost their type).
-    parsed: Option<(Value, Option<Vec<(String, String)>>)>,
+    parsed: Option<ParsedOverride>,
 }
+
+/// An override as stored, and its slots when they kept their types.
+type ParsedOverride = (Value, Option<Vec<(String, String)>>);
 
 /// `bookingDateOverrideSchema`.
 fn date_override(issues: &mut Issues, item: &Value) -> OverrideRead {
@@ -757,6 +752,7 @@ pub(crate) async fn update(
         .unwrap_or_else(|refused| refused.respond("Failed to update booking page"))
 }
 
+#[allow(clippy::too_many_lines)] // one bind per column
 async fn update_page(
     state: &CalendarState,
     caller: &Caller,

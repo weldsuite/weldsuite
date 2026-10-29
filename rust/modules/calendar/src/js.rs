@@ -30,7 +30,7 @@ pub(crate) fn parse_date(text: &str) -> Option<i64> {
         millis_of_day = parse_time(time)?;
         offset_minutes = parse_offset(offset)?;
     }
-    let days = days_from_civil(year, month, 1)? + i64::from(day) - 1;
+    let days = days_from_civil(year, month, 1) + i64::from(day) - 1;
     let value = days * DAY_MS + millis_of_day - offset_minutes * 60_000;
     (value.abs() <= MAX_TIME).then_some(value)
 }
@@ -148,7 +148,7 @@ fn parse_offset(text: &str) -> Option<i64> {
 }
 
 /// Days since 1970-01-01 of a proleptic Gregorian date.
-fn days_from_civil(year: i64, month: u32, day: u32) -> Option<i64> {
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
     let (y, m, d) = (
         year - i64::from(month <= 2),
         i64::from(month),
@@ -159,7 +159,7 @@ fn days_from_civil(year: i64, month: u32, day: u32) -> Option<i64> {
     let mp = (m + 9) % 12;
     let doy = (153 * mp + 2) / 5 + d - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    Some(era * 146_097 + doe - 719_468)
+    era * 146_097 + doe - 719_468
 }
 
 /// `new Date(millis).toISOString()`.

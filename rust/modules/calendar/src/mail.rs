@@ -20,8 +20,8 @@ use weldsuite_mail_domain::outbound::guard::{
     CheckOutboundInput, OutboundReservation, SubjectInput, check_outbound, commit_outbound,
     release_outbound,
 };
-use weldsuite_mail_domain::outbound::{MimeAttachment, OutboundBindings, OutboundKind};
 use weldsuite_mail_domain::outbound::transmit::{SendEmailParams, send_email};
+use weldsuite_mail_domain::outbound::{MimeAttachment, OutboundBindings, OutboundKind};
 use weldsuite_ports::DynCache;
 
 use crate::js::valid_zone;
@@ -272,7 +272,10 @@ fn encode_component(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for byte in value.bytes() {
         if byte.is_ascii_alphanumeric()
-            || matches!(byte, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')')
+            || matches!(
+                byte,
+                b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')'
+            )
         {
             out.push(char::from(byte));
         } else {
@@ -297,7 +300,10 @@ fn event_url_for(context: &MailContext) -> String {
     if context.clerk_org_id.is_empty() {
         format!("{base}/weldcalendar")
     } else {
-        format!("{base}/w/{}/weldcalendar", encode_component(&context.clerk_org_id))
+        format!(
+            "{base}/w/{}/weldcalendar",
+            encode_component(&context.clerk_org_id)
+        )
     }
 }
 

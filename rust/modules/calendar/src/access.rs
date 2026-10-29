@@ -111,7 +111,7 @@ pub(crate) async fn list_for_user(db: &PgPool, user_id: &str) -> Result<Vec<Valu
     .bind(user_id)
     .fetch_all(db)
     .await?;
-    let shared: Vec<Value> = if shared_ids.is_empty() {
+    let others: Vec<Value> = if shared_ids.is_empty() {
         Vec::new()
     } else {
         sqlx::query_scalar(
@@ -124,14 +124,14 @@ pub(crate) async fn list_for_user(db: &PgPool, user_id: &str) -> Result<Vec<Valu
         .await?
     };
 
-    let mut out = Vec::with_capacity(own.len() + shared.len());
+    let mut out = Vec::with_capacity(own.len() + others.len());
     for row in own {
         let mut row = js_row(row);
         row["isOwn"] = Value::Bool(true);
         row["permission"] = json!("manage");
         out.push(row);
     }
-    for row in shared {
+    for row in others {
         let mut row = js_row(row);
         let permission = permissions
             .get(text(&row, "id"))

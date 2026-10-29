@@ -125,7 +125,7 @@ pub(crate) async fn available_slots(
     let day_end = from_zoned_time(&format!("{}T00:00:00", next_date(date)?), &zone)?;
 
     let owner = text(page, "ownerId");
-    let owned = crate::access::owned_calendar_ids(db, owner).await?;
+    let owned_calendars = crate::access::owned_calendar_ids(db, owner).await?;
     let events: Vec<(Value, Option<Value>)> = sqlx::query_as(
         "select to_jsonb(start_time), to_jsonb(end_time) from calendar_events
          where deleted_at is null
@@ -135,7 +135,7 @@ pub(crate) async fn available_slots(
            and coalesce(end_time, start_time + interval '30 minutes') > $4::timestamp",
     )
     .bind(owner)
-    .bind(&owned)
+    .bind(&owned_calendars)
     .bind(iso(day_end))
     .bind(iso(day_start))
     .fetch_all(db)
@@ -164,7 +164,7 @@ pub(crate) async fn available_slots(
     let buffer_before = minutes("bufferBefore", 0.0);
     let buffer_after = minutes("bufferAfter", 0.0);
     let min_notice = minutes("minNotice", 60.0);
-    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     let beyond_horizon = number(&page["maxAdvance"])
         .is_some_and(|days| day_start > now + (days * DAY_MS as f64) as i64);
 

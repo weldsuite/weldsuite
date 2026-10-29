@@ -512,9 +512,8 @@ impl Issues {
     pub fn custom_at(&mut self, path: &[Value], message: &str) {
         let mut full = self.prefix.clone();
         full.extend(path.iter().cloned());
-        self.issues.push(
-            json!({ "code": "custom", "message": message, "path": Value::Array(full) }),
-        );
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": Value::Array(full) }));
     }
 
     /// `z.discriminatedUnion(key, [...])` given an object whose `key` is not

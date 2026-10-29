@@ -62,6 +62,7 @@ fn iso_or_null(value: &Value) -> Value {
 
 /// Why a start/end pair is not a valid range (`timeRangeError`): an event
 /// ends after it starts; an all-day one may end the same instant.
+#[allow(clippy::option_option)] // no end, an end, an end that is an Invalid Date
 fn time_range_error(
     start: Option<i64>,
     end: Option<Option<i64>>,
@@ -362,7 +363,7 @@ async fn create_event(
         .unwrap_or_default()
         .to_owned();
     let accessible = access::accessible_calendar_ids(&caller.db, &caller.user_id).await?;
-    if !accessible.iter().any(|c| *c == calendar_id) {
+    if !accessible.contains(&calendar_id) {
         return Err(Refusal::forbidden());
     }
     let start_text = text_field(&input.start_time).unwrap_or_default().to_owned();
@@ -566,7 +567,7 @@ async fn cancel_linked_meetings(state: &CalendarState, caller: &Caller, event_id
     match meetings::cancel_for_event(&caller.db, event_id).await {
         Ok(changes) => meetings::publish_changes(state, caller, &changes),
         Err(error) => {
-            tracing::error!(%error, "[calendar-api/calendar-events] meeting cancel failed")
+            tracing::error!(%error, "[calendar-api/calendar-events] meeting cancel failed");
         }
     }
 }
@@ -816,6 +817,7 @@ fn email_key(attendee: &Attendee) -> String {
 }
 
 /// Mail the people an edit affects (`notifyAttendeesOfUpdate`).
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 async fn notify_attendees_of_update(
     state: &CalendarState,
     caller: &Caller,
@@ -1202,14 +1204,13 @@ pub(crate) async fn unpin(
     caller: Caller,
     Path(id): Path<String>,
 ) -> Response {
-    let result =
-        async {
-            let existing = visible_event(&caller, &id).await?;
-            unpin_event(&caller.db, &existing).await?;
-            // Back under the auto-scheduler: point the nightly re-plan at it.
-            if let Some(master) = caller.master(&state) {
-                let db = caller.db.clone();
-                weldsuite_db::due_index::sync_due(
+    let result = async {
+        let existing = visible_event(&caller, &id).await?;
+        unpin_event(&caller.db, &existing).await?;
+        // Back under the auto-scheduler: point the nightly re-plan at it.
+        if let Some(master) = caller.master(&state) {
+            let db = caller.db.clone();
+            weldsuite_db::due_index::sync_due(
                     &master,
                     weldsuite_calendar_domain::REPLAN_KIND,
                     &caller.workspace_id,
@@ -1218,10 +1219,10 @@ pub(crate) async fn unpin(
                     },
                 )
                 .await;
-            }
-            Ok::<_, Refusal>(())
         }
-        .await;
+        Ok::<_, Refusal>(())
+    }
+    .await;
     match result {
         Ok(()) => Data(json!({ "id": id, "autoScheduled": true })).into_response(),
         Err(refused) => refused.respond("Failed to unpin calendar event"),
@@ -1272,7 +1273,9 @@ async fn unpin_event(db: &PgPool, event: &Value) -> Outcome<()> {
             .await
             .map_err(|error| match error {
                 weldsuite_calendar_domain::SyncError::Database(error) => Refusal::Database(error),
-                weldsuite_calendar_domain::SyncError::Invalid(message) => Refusal::Internal(message),
+                weldsuite_calendar_domain::SyncError::Invalid(message) => {
+                    Refusal::Internal(message)
+                }
             })?;
         }
         Some("activity") => {

@@ -92,6 +92,7 @@ impl std::fmt::Debug for CalendarState {
 /// calendar-api's routes, relative to `/api`, to merge behind the session,
 /// tenant database, licence and flag layers. Each route carries its
 /// `requirePermission` from `gate`.
+#[allow(clippy::too_many_lines)] // one route per line, as the worker mounts them
 pub fn router<S, Q>(state: CalendarState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,

@@ -43,8 +43,8 @@ mod zone_names;
 
 pub use catalog::{EmailError, RenderedEmail, render};
 pub use date::format_date;
-pub use when::{EndTime, format_time, format_when};
 pub use send::{SYSTEM_FROM_ADDRESS, SystemEmail, WithFromAddress, send_system_email};
+pub use when::{EndTime, format_time, format_when};
 
 /// The recipient's language (`EmailLocale`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

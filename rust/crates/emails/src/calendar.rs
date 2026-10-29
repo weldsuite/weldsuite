@@ -114,7 +114,13 @@ pub fn event(
     values.insert("title".to_owned(), Value::from(props.title.as_str()));
     values.insert(
         "when".to_owned(),
-        Value::from(format_when(props.start, props.end, props.all_day, locale, zone)?),
+        Value::from(format_when(
+            props.start,
+            props.end,
+            props.all_day,
+            locale,
+            zone,
+        )?),
     );
     if props.kind == CalendarEventKind::Reschedule
         && let Some(old_start) = props.old_start
@@ -122,7 +128,13 @@ pub fn event(
         flags.push("was");
         values.insert(
             "was".to_owned(),
-            Value::from(format_when(old_start, props.old_end, props.all_day, locale, zone)?),
+            Value::from(format_when(
+                old_start,
+                props.old_end,
+                props.all_day,
+                locale,
+                zone,
+            )?),
         );
     }
     if let Some(location) = trimmed(props.location.as_deref()) {

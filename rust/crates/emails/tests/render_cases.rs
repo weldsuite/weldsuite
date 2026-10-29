@@ -5,8 +5,8 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
+use weldsuite_emails::sign::{SignCompleted, SignRequest};
 use weldsuite_emails::{EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, sign};
 
 #[derive(Deserialize)]

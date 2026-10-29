@@ -109,7 +109,13 @@ fn escape_text(text: &str) -> String {
 fn param_value(text: &str) -> String {
     let cleaned: String = text
         .chars()
-        .map(|c| if matches!(c, '"' | '\r' | '\n') { ' ' } else { c })
+        .map(|c| {
+            if matches!(c, '"' | '\r' | '\n') {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect();
     format!("\"{cleaned}\"")
 }
@@ -284,7 +290,9 @@ mod tests {
         let ics = build_ics(&event, 1_700_000_000_000).expect("ics");
         assert!(ics.contains("SUMMARY:Planning\\, Q4\\; part 1\r\n"));
         assert!(ics.contains("DTSTART:20301009T210000Z\r\nDTEND:20301009T220000Z\r\n"));
-        assert!(ics.contains("DESCRIPTION:Line 1\\nLine 2\\n\\nJoin: https://meet.weldsuite.org/r/abc"));
+        assert!(
+            ics.contains("DESCRIPTION:Line 1\\nLine 2\\n\\nJoin: https://meet.weldsuite.org/r/abc")
+        );
         assert!(ics.contains("LOCATION:https://meet.weldsuite.org/r/abc\r\n"));
         assert!(ics.contains("ORGANIZER;CN=\"Host\":mailto:host@acme.test\r\n"));
         assert!(ics.ends_with("STATUS:CONFIRMED\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"));

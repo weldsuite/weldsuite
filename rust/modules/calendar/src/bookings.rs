@@ -120,6 +120,7 @@ fn non_empty(q: &Map<String, Value>, key: &str) -> Option<String> {
 
 // ── GET / ───────────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)] // the route's conditions, as TypeScript builds them
 pub(crate) async fn list(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let q = first_values(query.as_deref());
     let paging = Paging::of(q.get("limit").and_then(Value::as_str));

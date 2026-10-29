@@ -5,8 +5,8 @@
 use std::sync::LazyLock;
 
 use jiff::Timestamp;
-use jiff::tz::TimeZone;
 use jiff::Zoned;
+use jiff::tz::TimeZone;
 
 use crate::zone_names::ZONE_NAMES;
 use crate::{EmailError, EmailLocale, format_date};
@@ -105,7 +105,12 @@ fn long_date(millis: i64, locale: EmailLocale, zone: &str) -> Result<String, Ema
 }
 
 /// `formatTime(iso, locale, timeZone, withZone)`.
-pub fn format_time(millis: i64, locale: EmailLocale, zone: &str, with_zone: bool) -> Result<String, EmailError> {
+pub fn format_time(
+    millis: i64,
+    locale: EmailLocale,
+    zone: &str,
+    with_zone: bool,
+) -> Result<String, EmailError> {
     let at = at(millis, zone)?;
     let time = clock(&at, locale);
     Ok(if with_zone {
@@ -117,7 +122,12 @@ pub fn format_time(millis: i64, locale: EmailLocale, zone: &str, with_zone: bool
 
 /// `formatDateTime`: `Wednesday, July 1, 2026 at 11:00 PM GMT+2` /
 /// `woensdag 1 juli 2026 om 23:00 CEST`.
-fn format_date_time(millis: i64, locale: EmailLocale, zone: &str, with_zone: bool) -> Result<String, EmailError> {
+fn format_date_time(
+    millis: i64,
+    locale: EmailLocale,
+    zone: &str,
+    with_zone: bool,
+) -> Result<String, EmailError> {
     let date = long_date(millis, locale, zone)?;
     let time = format_time(millis, locale, zone, with_zone)?;
     let joiner = match locale {
@@ -167,7 +177,11 @@ pub fn format_when(
     let end = match end {
         EndTime::None => None,
         EndTime::At(end) => Some(end),
-        EndTime::Invalid => return Err(EmailError::Date("RangeError: Invalid time value".to_owned())),
+        EndTime::Invalid => {
+            return Err(EmailError::Date(
+                "RangeError: Invalid time value".to_owned(),
+            ));
+        }
     };
     if all_day {
         let days = match end {
@@ -215,11 +229,25 @@ mod tests {
         let start = ms("2026-07-01T21:00:00Z");
         let end = ms("2026-07-01T21:30:00Z");
         assert_eq!(
-            format_when(start, EndTime::None, false, EmailLocale::En, "Europe/Amsterdam").expect("when"),
+            format_when(
+                start,
+                EndTime::None,
+                false,
+                EmailLocale::En,
+                "Europe/Amsterdam"
+            )
+            .expect("when"),
             "Wednesday, July 1, 2026 at 11:00 PM GMT+2"
         );
         assert_eq!(
-            format_when(start, EndTime::None, false, EmailLocale::Nl, "Europe/Amsterdam").expect("when"),
+            format_when(
+                start,
+                EndTime::None,
+                false,
+                EmailLocale::Nl,
+                "Europe/Amsterdam"
+            )
+            .expect("when"),
             "woensdag 1 juli 2026 om 23:00 CEST"
         );
         assert_eq!(
@@ -227,15 +255,33 @@ mod tests {
             "Wednesday, July 1, 2026 at 9:00 PM – 9:30 PM UTC"
         );
         assert_eq!(
-            format_time(ms("2026-01-01T09:05:00Z"), EmailLocale::En, "America/New_York", true).expect("time"),
+            format_time(
+                ms("2026-01-01T09:05:00Z"),
+                EmailLocale::En,
+                "America/New_York",
+                true
+            )
+            .expect("time"),
             "4:05 AM EST"
         );
         assert_eq!(
-            format_time(ms("2026-01-01T09:05:00Z"), EmailLocale::Nl, "Asia/Kolkata", true).expect("time"),
+            format_time(
+                ms("2026-01-01T09:05:00Z"),
+                EmailLocale::Nl,
+                "Asia/Kolkata",
+                true
+            )
+            .expect("time"),
             "14:35 GMT+5:30"
         );
         assert_eq!(
-            format_time(ms("2026-01-01T09:05:00Z"), EmailLocale::En, "Europe/London", true).expect("time"),
+            format_time(
+                ms("2026-01-01T09:05:00Z"),
+                EmailLocale::En,
+                "Europe/London",
+                true
+            )
+            .expect("time"),
             "9:05 AM GMT"
         );
         assert_eq!(
