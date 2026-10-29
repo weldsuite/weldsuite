@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils"
 import { ColoredSquareIcon } from "@/components/layout/colored-square-icon"
 import { SidebarUserMenu, type UserInfo, type Workspace } from "@weldsuite/ui/components/sidebar-user-menu"
 import { usePresenceMaybe } from "@/contexts/presence-context"
+import { isFeatureAvailable, isModuleOffered } from "@/lib/edition"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1229,7 +1230,10 @@ export function AppSidebarLayout({
   const upgradeFlag = useFeatureFlag("upgrade-button")
   // A partner-managed workspace has nothing to upgrade to: its partner bills it.
   const { data: managedBilling } = useManagedBilling()
-  const showUpgradeButton = upgradeFlag && !managedBilling
+  // Edition flags (4.F3): without billing there is nothing to upgrade to, and
+  // the credit balance stays hidden too (open decision 14).
+  const billingAvailable = isFeatureAvailable("billing")
+  const showUpgradeButton = billingAvailable && upgradeFlag && !managedBilling
 
   // Track whether the sidebar content actually overflows (i.e. can scroll).
   // Only relevant when the scrollbar is visible (hideScrollbar=false, e.g.
@@ -1421,7 +1425,7 @@ export function AppSidebarLayout({
         </DndContext>
       </SidebarContent>
       <SidebarFooter suppressHydrationWarning>
-        <ResourceUsage collapsed={state === "collapsed"} hideUpgrade={showUpgradeButton} />
+        {billingAvailable && <ResourceUsage collapsed={state === "collapsed"} hideUpgrade={showUpgradeButton} />}
         <OnboardingChecklist collapsed={state === "collapsed"} />
         {showUpgradeButton && <UpgradeButton collapsed={state === "collapsed"} />}
         <PartnerPortalLink collapsed={state === "collapsed"} />
@@ -1444,7 +1448,7 @@ export function AppSidebarLayout({
             onSignOut={handleSignOut}
             onSettings={handleSettings}
             collapsed={state === "collapsed"}
-            presence={presence ? { myStatus: presence.myStatus, setMyStatus: presence.setMyStatus } : undefined}
+            presence={presence && isModuleOffered("chat") ? { myStatus: presence.myStatus, setMyStatus: presence.setMyStatus } : undefined}
           />
         )}
         {footer}

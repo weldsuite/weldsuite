@@ -24,7 +24,7 @@ import type { RoomClient } from '@weldsuite/realtime/client';
 import { useChatContext } from './chat-context';
 import { isSystemNotice } from '../lib/system-notice';
 import { buildCallHistory } from '../lib/call-history';
-import { chatCallsAvailable } from '../lib/calls-available';
+import { isFeatureAvailable } from '@/lib/edition';
 import { flashMessageWhenMounted } from '../lib/jump-to-message';
 import { firstUnreadMessageId, type UnreadMarker } from '../lib/unread-divider';
 import type { ChatMessage } from '@/hooks/queries/use-weldchat-queries';
@@ -105,7 +105,7 @@ export function MessageList({
       return c.get<{ data: ChatCall | null }>(`/chat-calls/active/${channelId}`);
     },
     refetchInterval: 10000,
-    enabled: !parentId && chatCallsAvailable(),
+    enabled: !parentId && isFeatureAvailable('chat-calls'),
   });
   const hasActiveCall = !!activeCallData?.data;
   // Always call both hooks to satisfy rules of hooks — only one will be enabled

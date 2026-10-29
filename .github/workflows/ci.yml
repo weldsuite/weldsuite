@@ -233,11 +233,19 @@ jobs:
   # build of the Rust server and are compared with the Hono app (bodies,
   # schemas, side effects). On a PR only the suites its changes touch; on
   # develop and main all of them. Also the route coverage of every worker the
-  # change touches, as a report.
-  rust-conformance:
-    name: Rust · conformance
+  # change touches, as a report (first shard).
+  # Every suite in one job outgrew 45 minutes once wave 3 added its modules;
+  # the suites are dealt over four runners. "Rust · conformance" stays the
+  # check that fails unless every shard succeeded. Keep --shard's n equal to
+  # the matrix length.
+  rust-conformance-shards:
+    name: Rust · conformance (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -253,21 +261,36 @@ jobs:
       - name: Conformance suites
         run: |
           set -euo pipefail
+          shard="${{ matrix.shard }}/4"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pnpm rust:conformance --changed "origin/${{ github.base_ref }}"
+            pnpm rust:conformance --changed "origin/${{ github.base_ref }}" --shard "$shard"
           else
-            pnpm rust:conformance
+            pnpm rust:conformance --shard "$shard"
           fi
       - name: Route coverage of the changed workers
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && matrix.shard == 1
         run: pnpm rust:conformance --coverage-changed "origin/${{ github.base_ref }}"
       - name: Upload the reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: conformance-report
+          name: conformance-report-${{ matrix.shard }}
           path: rust/target/conformance/**/*.md
           if-no-files-found: ignore
+
+  rust-conformance:
+    name: Rust · conformance
+    needs: [rust-conformance-shards]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every conformance shard
+        run: |
+          set -euo pipefail
+          result="${{ needs.rust-conformance-shards.result }}"
+          echo "shards: $result"
+          test "$result" = "success"
 
   rust-all:
     name: Rust

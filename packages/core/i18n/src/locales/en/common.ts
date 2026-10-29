@@ -464,6 +464,12 @@ export const common = {
       appUnavailableNamed: "{app} isn't available to you in this workspace",
       appUnavailableHint: 'Ask a workspace admin to install it or give you access.',
     },
+    edition: {
+      unavailableTitle: 'Not available in this edition',
+      unavailableDescription: "This part of WeldSuite isn't offered in this edition, so there is nothing to show here.",
+      backHome: 'Back to home',
+      desktopSignInUnavailable: "Signing in to the desktop app isn't available in this edition. Use WeldSuite in your browser instead.",
+    },
     time: {
       justNow: 'Just now',
       minutesAgo: '{count} minutes ago',

@@ -54,8 +54,8 @@ import { usePresence } from '@/contexts/presence-context';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useMemberProfile } from '@/hooks/queries/use-team-queries';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
-import { chatCallsAvailable } from '@/app/weldchat/lib/calls-available';
 import { OverviewTab } from '@/components/team-member-panel/tabs/overview-tab';
 import { CommonTab } from '@/components/team-member-panel/tabs/common-tab';
 import { ActivityTab } from '@/components/team-member-panel/tabs/activity-tab';
@@ -146,6 +146,8 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
   const callCtx = useWeldChatCallOptional();
   const dmQuery = useDmByUser(profile?.userId ?? '');
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
+  // Edition flags (4.F3): calls and chat are WeldChat's.
+  const chatOffered = isModuleOffered('chat');
 
   if (!profile) return null;
 
@@ -188,7 +190,7 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
             {t('sweep.entities.composeEmail')}
           </DropdownMenuItem>
         )}
-        {callCtx && chatCallsAvailable() && (
+        {callCtx && chatOffered && isFeatureAvailable('chat-calls') && (
           <>
             <DropdownMenuItem disabled={!dmChannelId} onClick={() => handleCall('voice')}>
               <Phone />
@@ -200,12 +202,14 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
             </DropdownMenuItem>
           </>
         )}
-        <DropdownMenuItem
-          onClick={() => navigate({ to: '/weldchat/dm/$userId', params: { userId: profile.userId } })}
-        >
-          <MessagesSquare />
-          {t('sweep.shared.openChat')}
-        </DropdownMenuItem>
+        {chatOffered && (
+          <DropdownMenuItem
+            onClick={() => navigate({ to: '/weldchat/dm/$userId', params: { userId: profile.userId } })}
+          >
+            <MessagesSquare />
+            {t('sweep.shared.openChat')}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

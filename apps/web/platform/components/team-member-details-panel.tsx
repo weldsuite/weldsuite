@@ -65,6 +65,7 @@ import {
 import { WorkingHoursEditor, DEFAULT_HOURS } from '@/components/working-hours/working-hours-editor';
 import { MemberAppPermissions } from '@/components/settings/member-app-permissions';
 import { useComposeSafe } from '@/contexts/compose-context';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { ActivitySection } from '@/components/customer-detail/sections/activity-section';
 import type { Customer } from '@/components/customer-detail/types';
 import type { TeamMember } from '@/components/settings/team-section';
@@ -72,7 +73,6 @@ import type { MemberAppAssignment } from '@/lib/api/types/rbac.types';
 import { StatusDot, type PresenceStatus } from '@weldsuite/ui/components/status-dot';
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
-import { chatCallsAvailable } from '@/app/weldchat/lib/calls-available';
 import { useMemberProfile } from '@/hooks/queries/use-team-queries';
 import { OverviewTab as MemberOverviewTab } from '@/components/team-member-panel/tabs/overview-tab';
 import { getRoleLabel } from '@/components/team-member-panel/role-label';
@@ -207,6 +207,31 @@ const getExpandedTabItems = (t: Translate): PageTab[] => [
   { id: 'working-hours', label: t('projects.memberDetails.tabs.workingHours'), icon: Clock },
 ];
 
+/** Edition flags (4.F3): the messages tab is a WeldChat DM. */
+function shouldHideMessages(hideMessages: boolean | undefined): boolean {
+  return Boolean(hideMessages) || !isModuleOffered('chat');
+}
+
+/**
+ * The panel's mail and chat actions, or undefined for one this deployment
+ * can't offer (edition flags, 4.F3): no compose panel without WeldMail, no DM
+ * without WeldChat.
+ */
+function useMemberContactActions(onClose: () => void) {
+  const composeContext = useComposeSafe();
+  const navigate = useNavigate();
+  const composeEmail = composeContext
+    ? (email: string) => composeContext.openCompose({ to: email })
+    : undefined;
+  const openChat = isModuleOffered('chat')
+    ? (userId: string) => {
+        navigate({ to: '/weldchat/dm/$userId', params: { userId } });
+        onClose();
+      }
+    : undefined;
+  return { composeEmail, openChat };
+}
+
 function EmbeddedDmChat({ targetUserId }: Readonly<{ targetUserId: string }>) {
   const t = useTranslations();
   const { data, isLoading } = useDmByUser(targetUserId);
@@ -311,12 +336,13 @@ export function TeamMemberDetailsPanel({
   closeIcon,
   skipAnimation,
   renderContentOnly,
-  hideMessages,
+  hideMessages: hideMessagesProp,
   defaultExpanded = false,
   onExpand,
   onCollapse,
 }: Readonly<TeamMemberDetailsPanelProps>) {
   const t = useTranslations();
+  const hideMessages = shouldHideMessages(hideMessagesProp);
   const width = '480px';
   const widthNum = 480;
   const { getClient } = useAppApiClient();
@@ -539,8 +565,7 @@ export function TeamMemberDetailsPanel({
 
   useEffect(() => () => clearNavTimer(), [clearNavTimer]);
 
-  const composeContext = useComposeSafe();
-  const navigate = useNavigate();
+  const { composeEmail, openChat } = useMemberContactActions(onClose);
 
   const isPending = member?.status === 'PENDING';
   const isOwner = member?.role === 'OWNER';
@@ -765,11 +790,8 @@ export function TeamMemberDetailsPanel({
           onRoleChange={handleRoleChange}
           onAppToggle={handleAppToggle}
           onMemberUpdated={onMemberUpdated}
-          onComposeEmail={(email) => composeContext?.openCompose({ to: email })}
-          onOpenChat={(userId) => {
-            navigate({ to: '/weldchat/dm/$userId', params: { userId } });
-            onClose();
-          }}
+          onComposeEmail={composeEmail}
+          onOpenChat={openChat}
           chatPanelOpen={chatPanelOpen}
           onToggleChatPanel={toggleChatPanel}
           chatPanelWidth={chatPanelWidth}
@@ -786,29 +808,25 @@ export function TeamMemberDetailsPanel({
             <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
               <MemberCallButtons userId={member.userId} />
 
-              <Button
-                variant="ghost"
-                size="icon"
-                className="p-1.5 hover:bg-muted rounded-md transition-colors"
-                title={t('projects.memberDetails.composeEmail')}
-                onClick={() => composeContext?.openCompose({ to: member.email })}
-              >
-                <Mail className="h-4 w-4 text-gray-500" />
-              </Button>
+              {composeEmail && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="p-1.5 hover:bg-muted rounded-md transition-colors"
+                  title={t('projects.memberDetails.composeEmail')}
+                  onClick={() => composeEmail(member.email)}
+                >
+                  <Mail className="h-4 w-4 text-gray-500" />
+                </Button>
+              )}
 
-              {member.userId && (
+              {member.userId && openChat && (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="p-1.5 hover:bg-muted rounded-md transition-colors"
                   title={t('projects.memberDetails.openChat')}
-                  onClick={() => {
-                    navigate({
-                      to: '/weldchat/dm/$userId',
-                      params: { userId: member.userId! },
-                    });
-                    onClose();
-                  }}
+                  onClick={() => openChat(member.userId!)}
                 >
                   <MessagesSquare className="h-4 w-4 text-gray-500" />
                 </Button>
@@ -1060,17 +1078,19 @@ function ExpandedMemberContent({
           <div className="flex items-center gap-0.5 md:gap-1">
             <MemberCallButtons userId={member.userId} />
 
-            <Button
-              variant="ghost"
-              size="icon"
-              className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              title={t('projects.memberDetails.composeEmail')}
-              onClick={() => onComposeEmail?.(member.email)}
-            >
-              <Mail className="h-4 w-4 text-gray-500" />
-            </Button>
+            {onComposeEmail && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="p-1.5 hover:bg-muted rounded-md transition-colors"
+                title={t('projects.memberDetails.composeEmail')}
+                onClick={() => onComposeEmail(member.email)}
+              >
+                <Mail className="h-4 w-4 text-gray-500" />
+              </Button>
+            )}
 
-            {member.userId && (
+            {member.userId && onOpenChat && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -1115,6 +1135,7 @@ function ExpandedMemberContent({
           innerClassName="px-4 pt-1"
         />
         <div className="absolute top-0 right-0 h-full flex items-center pr-2 md:pr-3">
+          {onOpenChat && (
           <Button
             variant="ghost"
             size="icon"
@@ -1129,6 +1150,7 @@ function ExpandedMemberContent({
               <PanelRightOpen className="h-4 w-4" />
             )}
           </Button>
+          )}
         </div>
       </div>
 
@@ -1197,7 +1219,7 @@ function ExpandedMemberContent({
         </div>
 
         {/* Right Sidebar — chat only, sits below the full-width tabs row */}
-        {chatPanelOpen && (
+        {chatPanelOpen && onOpenChat && (
           <div
             className="relative flex-shrink-0 bg-background flex flex-col border-l border-border overflow-hidden"
             style={{ width: chatPanelWidth }}
@@ -1649,7 +1671,8 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
   const { startCall } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
 
-  if (!userId || !chatCallsAvailable()) return null;
+  // Edition flags (4.F3): calls are WeldChat's, and need its call feature.
+  if (!userId || !isModuleOffered('chat') || !isFeatureAvailable('chat-calls')) return null;
 
   const handleCall = async (kind: 'voice' | 'video') => {
     if (!dmChannelId) {

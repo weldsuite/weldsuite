@@ -28,6 +28,7 @@ import React, {
 } from 'react';
 import { useAuth, useOrganization } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isModuleOffered } from '@/lib/edition';
 import { useTopic, useWorkspaceClientMaybe } from '@weldsuite/realtime/react';
 import { topicMatches } from '@weldsuite/realtime/topics';
 import {
@@ -117,6 +118,12 @@ export function PresenceProvider({ children }: Readonly<{ children: React.ReactN
   const workspaceId = organization?.id;
 
   const fetchStatuses = useCallback(async () => {
+    // Edition flags (4.F3): chosen statuses are WeldChat's; live presence
+    // still comes from the hub.
+    if (!isModuleOffered('chat')) {
+      setIsLoading(false);
+      return;
+    }
     try {
       const client = await getClient();
       const response = await client.get<{ data?: ChatStatusRow[] }>('/chat-status');

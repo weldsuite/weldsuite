@@ -14,7 +14,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 import { getRecordChatTypeInfo, openRecordPanel } from '../lib/record-chat-types';
-import { chatCallsAvailable } from '../lib/calls-available';
+import { isFeatureAvailable } from '@/lib/edition';
 import { RecordChatFollowButton } from './record-chat-follow-button';
 
 function VideoCameraIcon({ className, strokeWidth = 1.5 }: Readonly<{ className?: string; strokeWidth?: number }>) {
@@ -122,7 +122,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
     openObjectPanel({ type: 'channel', id: channel.id, initialTab: 'people' });
   };
 
-  const callsAvailable = chatCallsAvailable();
+  const callsAvailable = isFeatureAvailable('chat-calls');
   const { data: activeCallData } = useQuery({
     queryKey: weldchatKeys.activeCall(channel.id),
     queryFn: async () => {
