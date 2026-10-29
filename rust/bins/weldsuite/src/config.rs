@@ -178,6 +178,8 @@ pub(crate) struct Config {
     /// `STORAGE_SIGNING_KEY`: signs the files cookie and signed URLs that
     /// open private objects; the same value as app-api's.
     pub(crate) storage_signing_key: Option<String>,
+    /// `REALTIME_*`: the WebSocket gateway (`realtime.rs`).
+    pub(crate) realtime: weldsuite_realtime::GatewayConfig,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -403,6 +405,7 @@ impl fmt::Debug for Config {
             .field("shutdown_delay", &self.shutdown_delay)
             .field("spa_dir", &self.spa_dir)
             .field("infra", &self.infra)
+            .field("realtime", &self.realtime)
             .finish_non_exhaustive()
     }
 }
@@ -452,6 +455,7 @@ impl Config {
         let shutdown_delay = number(&mut problems, "SHUTDOWN_DELAY_SECONDS", 5);
         let flags_refresh = number(&mut problems, "FEATURE_FLAGS_REFRESH_SECONDS", 30);
         let infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
+        let realtime = weldsuite_realtime::GatewayConfig::from_lookup(&lookup, &mut problems);
 
         let host: IpAddr = match lookup("HOST") {
             None => IpAddr::V4(Ipv4Addr::UNSPECIFIED),
@@ -512,6 +516,7 @@ impl Config {
             sign_portal_url: lookup("SIGN_PORTAL_URL").filter(|s| !s.is_empty()),
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
+            realtime,
         })
     }
 }

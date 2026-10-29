@@ -72,6 +72,24 @@ config:
     cachePrefix: "cache:"
     # The WebSocket gateway subscribes under the same prefix.
     realtimePrefix: "realtime:"
+  # The realtime WebSocket gateway (/ws…): on whenever VALKEY_URL is set, on
+  # every pod; pods share hubs, rooms, presence and the replay log through
+  # Valkey, so no sticky sessions are needed. It needs a standalone Valkey
+  # (or a primary with replicas), not a Valkey cluster.
+  realtime:
+    # The URL /config.json gives the frontends. Empty: the origin that
+    # /config.json was requested on, with /ws (wss:// behind TLS), which is
+    # right when the SPA and the API share a host.
+    publicUrl: ""
+    # Sockets per pod; more are refused (503) and the client retries.
+    maxConnections: 20000
+    # Sockets per person per pod (tabs, devices).
+    maxConnectionsPerUser: 100
+    # Topics one workspace socket may hold.
+    maxSubscriptions: 2000
+    # Messages queued for one socket before a slow client is dropped (it
+    # reconnects and replays from its cursor).
+    sendQueue: 1024
   nats:
     entityEventsStream: ENTITY_EVENTS
     entityEventsSubject: entity-events
@@ -122,7 +140,9 @@ config:
 #   CLERK_SECRET_KEY             fetch the keys from Clerk's Backend API; or
 #   CLERK_JWKS_URL               fetch them from a JWKS URL (or use clerkJwks)
 #                                (none of the CLERK_* with config.auth.provider: oidc)
-#   VALKEY_URL                   redis://… cache + realtime publish (optional)
+#   VALKEY_URL                   redis://… cache, realtime publish and the WebSocket gateway (optional)
+#   REALTIME_INTERNAL_SECRET     what callers of /publish/* and /internal/presence send in
+#                                x-internal-secret (optional; unset refuses them all)
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
@@ -206,6 +226,11 @@ service:
 # The server's ingress. With the SPA on, one host is the platform and its
 # API on the same origin (app.<domain>); add api.<domain> for clients that
 # call the API by that name.
+# The realtime gateway's sockets (/ws…) go through the same Ingress and host
+# as the API: Traefik passes the WebSocket upgrade on without annotations,
+# and its default timeouts (3.6) keep a socket open as long as the client
+# pings every 25 s, as @weldsuite/realtime's clients do. Pods share their
+# state through Valkey, so no sticky sessions.
 ingress:
   enabled: false
   className: ""

@@ -57,6 +57,8 @@ pub(crate) struct AppState {
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
     /// platform's client id. `None` with Clerk.
     pub(crate) public_auth: Option<Arc<serde_json::Value>>,
+    /// Where `/config.json` sends the frontends for realtime.
+    pub(crate) realtime: crate::realtime::PublicRealtime,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -277,7 +279,9 @@ async fn health(State(state): State<AppState>) -> Response {
 /// apps of any other module. Global never asks: it runs every module in
 /// TypeScript. With an OIDC provider, `auth` tells the frontends where to
 /// sign in (issuer, the platform's PKCE client id, the organization claim).
-async fn config_json(State(state): State<AppState>) -> Response {
+/// `realtimeUrl` is the WebSocket gateway on the same origin
+/// (`crate::realtime`).
+async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderMap) -> Response {
     let modules: Vec<&str> = std::iter::once("core")
         .chain(
             weldsuite_catalogs::api_modules()
@@ -293,6 +297,9 @@ async fn config_json(State(state): State<AppState>) -> Response {
     });
     if let Some(auth) = &state.public_auth {
         body["auth"] = auth.as_ref().clone();
+    }
+    if let Some(url) = state.realtime.url(&headers) {
+        body["realtimeUrl"] = json!(url);
     }
     ([(header::CACHE_CONTROL, "no-cache")], Json(body)).into_response()
 }
@@ -412,6 +419,7 @@ mod tests {
             files_public_url: None,
             storage_signing_key: None,
             public_auth: None,
+            realtime: crate::realtime::PublicRealtime::default(),
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
             #[cfg(feature = "conformance")]
@@ -492,6 +500,10 @@ mod tests {
             .count();
         assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
         assert!(body.get("auth").is_none(), "Clerk setups add nothing");
+        assert!(
+            body.get("realtimeUrl").is_none(),
+            "no gateway without Valkey"
+        );
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.

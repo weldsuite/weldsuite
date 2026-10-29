@@ -3,7 +3,15 @@
 //! realtime-worker's `/publish/*` routes. A channel names the hub or room the
 //! worker would route to; the payload is the body it would POST, so the
 //! WebSocket gateway that reads these needs no translation.
+//!
+//! A workspace channel is named by the hub key the WebSocket gateway keys the
+//! workspace's connections by: the workspace's identity-provider organization
+//! id (`workspaces.clerk_org_id`), or `workspaces.id` when it has none, the
+//! same id entity events carry (`EventContext::from_ids`). The realtime-worker
+//! maps a `workspaces.id` onto that key itself (`workspaceHubKey`); here the
+//! caller passes the key.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use serde_json::{Value, json};
@@ -88,6 +96,10 @@ impl RealtimeMessage {
     }
 }
 
+/// Live presence of a workspace's members (`RealtimePublisher.getPresence`):
+/// user id → `online`, `away` or `busy`; anyone missing is offline.
+pub type LivePresence = BTreeMap<String, String>;
+
 /// Fire-and-forget fan-out to connected clients. A publish nobody listens to
 /// is not an error.
 pub trait RealtimePublisher: Send + Sync {
@@ -95,6 +107,21 @@ pub trait RealtimePublisher: Send + Sync {
         &self,
         message: &RealtimeMessage,
     ) -> impl Future<Output = Result<(), PortError>> + Send;
+
+    /// Live presence of the workspace whose hub key is `workspace` (see the
+    /// module docs), straight from the gateway's state: every member with a
+    /// connection open, or only `user_ids` when not empty. Fails when the
+    /// state cannot be read, so a caller can tell "nobody is connected" from
+    /// "unknown", as `getPresence` throws. Without a gateway behind the
+    /// publisher nobody is connected.
+    fn presence(
+        &self,
+        workspace: &str,
+        user_ids: &[String],
+    ) -> impl Future<Output = Result<LivePresence, PortError>> + Send {
+        let _ = (workspace, user_ids);
+        std::future::ready(Ok(LivePresence::new()))
+    }
 }
 
 /// Object-safe [`RealtimePublisher`], for `Arc<dyn DynRealtimePublisher>`.
@@ -103,6 +130,12 @@ pub trait DynRealtimePublisher: Send + Sync {
         &'a self,
         message: &'a RealtimeMessage,
     ) -> BoxFuture<'a, Result<(), PortError>>;
+
+    fn presence_boxed<'a>(
+        &'a self,
+        workspace: &'a str,
+        user_ids: &'a [String],
+    ) -> BoxFuture<'a, Result<LivePresence, PortError>>;
 }
 
 impl<R: RealtimePublisher> DynRealtimePublisher for R {
@@ -112,11 +145,27 @@ impl<R: RealtimePublisher> DynRealtimePublisher for R {
     ) -> BoxFuture<'a, Result<(), PortError>> {
         Box::pin(self.publish(message))
     }
+
+    fn presence_boxed<'a>(
+        &'a self,
+        workspace: &'a str,
+        user_ids: &'a [String],
+    ) -> BoxFuture<'a, Result<LivePresence, PortError>> {
+        Box::pin(self.presence(workspace, user_ids))
+    }
 }
 
 impl RealtimePublisher for dyn DynRealtimePublisher {
     async fn publish(&self, message: &RealtimeMessage) -> Result<(), PortError> {
         self.publish_boxed(message).await
+    }
+
+    async fn presence(
+        &self,
+        workspace: &str,
+        user_ids: &[String],
+    ) -> Result<LivePresence, PortError> {
+        self.presence_boxed(workspace, user_ids).await
     }
 }
 
@@ -126,6 +175,14 @@ impl<R: RealtimePublisher + ?Sized> RealtimePublisher for Arc<R> {
         message: &RealtimeMessage,
     ) -> impl Future<Output = Result<(), PortError>> + Send {
         (**self).publish(message)
+    }
+
+    fn presence(
+        &self,
+        workspace: &str,
+        user_ids: &[String],
+    ) -> impl Future<Output = Result<LivePresence, PortError>> + Send {
+        (**self).presence(workspace, user_ids)
     }
 }
 

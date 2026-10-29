@@ -17,6 +17,7 @@ mod conformance_outbound;
 mod cron;
 mod infra;
 mod migrate;
+mod realtime;
 mod routes;
 mod server;
 mod spa;
@@ -152,6 +153,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
         storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
         public_auth,
+        realtime: realtime::PublicRealtime::from_config(&config),
         #[cfg(feature = "conformance")]
         recorders,
         #[cfg(feature = "conformance")]
@@ -160,12 +162,15 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let (stopping, stop) = tokio::sync::watch::channel(false);
     let jobs = serve_jobs(&config, &state, stop);
+    let gateway = realtime::start(&config, &state).await?;
+    let app = realtime::mount(router(state), gateway.as_ref());
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    axum::serve(listener, spa::mount(router(state), spa))
+    axum::serve(listener, spa::mount(app, spa))
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
+            realtime::stop(gateway.as_ref()).await;
             let _ = stopping.send(true);
         })
         .await?;

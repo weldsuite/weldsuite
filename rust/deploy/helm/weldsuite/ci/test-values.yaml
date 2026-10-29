@@ -10,6 +10,8 @@ secret:
 config:
   sign:
     portalUrl: https://sign.example.org
+  realtime:
+    publicUrl: wss://app.example.org/ws
   files:
     endpoint: https://s3.example.com
     publicBucket: weldsuite-public

@@ -61,7 +61,7 @@ pub use mail::{
     DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
 };
 pub use realtime::{
-    DynRealtimePublisher, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
+    DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };
 
 /// A boxed, sendable future: what the `Dyn*` port traits return.

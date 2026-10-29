@@ -49,7 +49,10 @@ rust/
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
                         files over the S3 API, system mail over SMTP, identity on Zitadel, workspace databases on
-                        CloudNativePG shards
+                        CloudNativePG shards; `realtime.rs` is the realtime backplane's wire format on Valkey (stamped
+                        events, replay log, presence)
+  crates/realtime/      the realtime WebSocket gateway in `serve` (the realtime-worker's hubs and rooms, every pod,
+                        Valkey between them); mounted by bins/weldsuite/src/realtime.rs
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
@@ -77,6 +80,8 @@ pnpm rust:test         # tests
 pnpm rust:deny         # licences, advisories, duplicate crates, sources (needs cargo-deny)
 pnpm rust:conformance  # the worker tests of every ported route, against Rust (report in rust/target/conformance)
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
+pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
+  --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods
 ```
 
 Or `cargo …` inside `rust/`. The pinned toolchain installs itself through rustup
@@ -172,7 +177,10 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
-| `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache and realtime publish (optional; without it, upload tokens live in the server process, enough for one replica only) |
+| `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |
+| `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
+| `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
+| `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
@@ -193,6 +201,12 @@ every 15 minutes. The server reads environment variables only (`bins/weldsuite/s
 
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
+
+Not there yet in the realtime gateway: the whiteboard and document rooms
+(Flow is not ported), helpdesk-widget visitors on conversation rooms (their
+HS256 tokens come with WeldDesk), and the support side of support rooms
+(WeldSuite staff on the admin console stay on Global; `crates/realtime`'s
+docs have the design).
 
 Not there yet: the Zitadel `Identity` adapter wired into the server (it
 waits for the team routes that call the port), the CloudNativePG
