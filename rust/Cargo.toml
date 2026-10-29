@@ -20,6 +20,7 @@ publish = false
 [workspace.dependencies]
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
 weldsuite-auth = { path = "crates/auth" }
+weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
