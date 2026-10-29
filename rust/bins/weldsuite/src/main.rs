@@ -10,6 +10,8 @@ mod config;
 mod conformance;
 #[cfg(feature = "conformance")]
 mod conformance_files;
+#[cfg(feature = "conformance")]
+mod conformance_outbound;
 mod infra;
 mod routes;
 mod server;
@@ -133,6 +135,8 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         #[cfg(feature = "conformance")]
         recorders,
+        #[cfg(feature = "conformance")]
+        conformance_pools: Arc::default(),
     };
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;

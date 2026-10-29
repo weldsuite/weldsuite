@@ -41,6 +41,13 @@ import type { Database } from '../env';
 import { pgliteClientOf } from './pglite';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
+import {
+  type OutboundCall,
+  outboundBridgeUrl,
+  recordOutbound,
+  sortOutbound,
+  takeRustOutbound,
+} from './outbound-bridge';
 
 export interface ConformanceTarget {
   url: string;
@@ -101,6 +108,8 @@ export interface SideEffects {
   events: unknown[];
   /** POSTs to the realtime-worker, as `{ path, body }`. */
   realtime: Array<{ path: string; body: unknown }>;
+  /** Calls to third-party APIs (Clerk, Expo, …), sorted (./outbound-bridge.ts). */
+  outbound?: OutboundCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -434,6 +443,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     env: forwardedEnv,
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
+    // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
+    outbound: await outboundBridgeUrl(),
   };
 }
 
@@ -459,19 +470,31 @@ async function runBoth(
   // Start both recordings empty.
   await request.sideEffects.drain();
   await rustSideEffects(request.target);
+  takeRustOutbound();
+
+  // The Hono app's run, its `waitUntil` work included, with its outbound calls.
+  const typeScript = async (db: Database) => {
+    const { result, calls } = await recordOutbound(async () => {
+      const ts = await runTypeScript(db);
+      return { ts, effects: await request.sideEffects.drain() };
+    });
+    return { ts: result.ts, tsEffects: { ...result.effects, outbound: sortOutbound(calls) } };
+  };
+  // Rust's run; its outbound calls are what reached the bridge.
+  const rustRun = async () => {
+    const rust = await runRust();
+    const effects = await rustSideEffects(request.target);
+    return { rust, rustEffects: { ...effects, outbound: sortOutbound(takeRustOutbound()) } };
+  };
 
   if (!isWrite) {
-    const ts = await runTypeScript(request.ctx.tenantDb);
-    const tsEffects = await request.sideEffects.drain();
-    const rust = await runRust();
-    return { ts, tsEffects, rust, rustEffects: await rustSideEffects(request.target) };
+    const ts = await typeScript(request.ctx.tenantDb);
+    return { ...ts, ...(await rustRun()) };
   }
   const clone = await cloneDatabase(client);
   try {
-    const rust = await runRust();
-    const rustEffects = await rustSideEffects(request.target);
-    const ts = await runTypeScript(clone.db);
-    return { ts, rust, rustEffects, tsEffects: await request.sideEffects.drain() };
+    const rust = await rustRun();
+    return { ...rust, ...(await typeScript(clone.db)) };
   } finally {
     await clone.close();
   }
