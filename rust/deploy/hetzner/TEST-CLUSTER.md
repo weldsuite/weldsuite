@@ -112,15 +112,16 @@ Run everything from this checkout (Git Bash), on the `deploy/eu-test` branch.
 9. **Commit and push** the settings and the encrypted secrets to
    `deploy/eu-test`.
 
-10. **Flux** (runbook step 6, with this branch and path):
+10. **Flux** (runbook step 6, with this branch and path). The flux CLI must be
+    the version it installs (v2.9.6; a newer CLI refuses). The repository is
+    public and the organisation doesn't allow deploy keys, so Flux reads it
+    over anonymous HTTPS, with no key:
 
     ```bash
     flux install --version=v2.9.6
     kubectl -n flux-system create secret generic sops-age --from-file=age.agekey=$HOME/weldsuite-eu-test.agekey
-    flux create secret git flux-system --url=ssh://git@github.com/weldsuite/weldsuite
-    # add the public key it prints as a read-only deploy key of the repository
     flux create source git flux-system \
-      --url=ssh://git@github.com/weldsuite/weldsuite --branch=deploy/eu-test --secret-ref=flux-system
+      --url=https://github.com/weldsuite/weldsuite --branch=deploy/eu-test
     flux create kustomization flux-system \
       --source=GitRepository/flux-system --path=./rust/deploy/flux/clusters/test --prune=true
     flux get kustomizations --watch

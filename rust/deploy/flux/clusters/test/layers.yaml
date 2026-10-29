@@ -25,7 +25,9 @@ spec:
     substituteFrom:
       - kind: ConfigMap
         name: cluster-settings
-  # The chart follows the branch this cluster was bootstrapped from.
+  # The chart follows the branch this cluster was bootstrapped from, over
+  # anonymous HTTPS: the repository is public, and the organisation doesn't
+  # allow deploy keys.
   patches:
     - target:
         kind: GitRepository
@@ -35,6 +37,11 @@ spec:
           path: /spec/ref
           value:
             branch: deploy/eu-test
+        - op: replace
+          path: /spec/url
+          value: https://github.com/weldsuite/weldsuite
+        - op: remove
+          path: /spec/secretRef
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
