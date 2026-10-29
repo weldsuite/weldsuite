@@ -562,6 +562,24 @@
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/"
       ]
+    },
+    {
+      "name": "desk: tickets",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/tickets/routes.test.ts",
+        "src/routes/tickets/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/tickets/",
+        "apps/workers/desk-api/src/services/helpdesk/conversation-to-ticket.ts",
+        "apps/workers/desk-api/src/lib/notify.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/clients/app-api-client/src/schemas/tickets.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
     }
   ]
 }

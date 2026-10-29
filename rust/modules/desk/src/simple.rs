@@ -32,44 +32,6 @@ const SLAS: Gates = Gates {
     delete: perm::SLAS_DELETE,
 };
 
-/// The keyset condition at parameters `$a` (skip), `$b` (createdAt), `$c` (id).
-macro_rules! cursor {
-    ($a:literal, $b:literal, $c:literal) => {
-        concat!(
-            "($",
-            $a,
-            "::boolean or (t.created_at < $",
-            $b,
-            "::timestamp or (t.created_at = $",
-            $b,
-            "::timestamp and t.id < $",
-            $c,
-            "::text)))"
-        )
-    };
-}
-
-/// The list statement of a table with `$filters` filter slots: `$1` skips
-/// the live-only condition, each filter takes `(skip, value)`, the cursor
-/// `(skip, createdAt, id)`, then the limit.
-macro_rules! listing {
-    ($table:literal; $($cond:literal),*; $a:literal, $b:literal, $c:literal; $limit:literal) => {
-        (
-            concat!(
-                "select to_jsonb(t) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c),
-                " order by t.created_at desc, t.id desc limit ", $limit
-            ),
-            concat!(
-                "select count(*) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
-                $(" and ", $cond,)*
-                " and ", cursor!($a, $b, $c)
-            ),
-        )
-    };
-}
-
 const FAQ_LIST: (&str, &str) = listing!("helpdesk_faqs";
     "($2::boolean or t.category = $3::text)";
     4, 5, 6; "$7");

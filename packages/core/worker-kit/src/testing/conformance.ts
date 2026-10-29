@@ -379,8 +379,19 @@ const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 /** A signed object URL's credential (`?exp=<seconds>&sig=<HMAC>`). */
 const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
+/**
+ * A ticket number WeldDesk generates (`TKT-<Date.now() in base 36>`, and a
+ * random `-<4 characters>` on `POST /api/tickets`): new per run.
+ */
+const GENERATED_TICKET_NUMBER = /^TKT-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
 /** Seconds either side of now an `expiresAt` may be, to count as one minted by the request. */
 const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
+
+/** A `Date.now()` taken within two days of now. */
+function isRecentEpochMs(value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
+}
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -408,12 +419,16 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
   }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
+  // A realtime room message's `ts: Date.now()` (`RealtimePublisher#chatMessage`),
+  // stamped when each run publishes.
+  if (isWrite && key === 'ts' && isRecentEpochMs(value)) return '<epoch-ms>';
   return value;
 }
 
 /** A string in a write's answer, with what differs per run by construction replaced. */
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
+  if (GENERATED_TICKET_NUMBER.test(value)) return 'TKT-<generated>';
   // WeldSign's signed PDF: pdf-lib and lopdf write different bytes for the
   // same drawn content (object numbers, number formatting, compression), so
   // its SHA-256 differs by construction. It reaches a side effect only in

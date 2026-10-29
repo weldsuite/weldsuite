@@ -158,9 +158,9 @@ impl Table {
 
     /// Insert `values` (see [`Table::values`]); `trusted` names the
     /// properties the route set itself. The row as Drizzle returns it.
-    pub(crate) async fn insert(
+    pub(crate) async fn insert<'e>(
         &self,
-        db: &PgPool,
+        db: impl sqlx::PgExecutor<'e>,
         values: Map<String, Value>,
         trusted: &[&str],
     ) -> Result<Value, WriteError> {
@@ -174,9 +174,9 @@ impl Table {
 
     /// Update the row `id` with `values`; `live_only` adds `deleted_at is
     /// null`. The changed row, or `None` when none matched.
-    pub(crate) async fn patch(
+    pub(crate) async fn patch<'e>(
         &self,
-        db: &PgPool,
+        db: impl sqlx::PgExecutor<'e>,
         id: &str,
         values: Map<String, Value>,
         live_only: bool,

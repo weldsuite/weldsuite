@@ -256,15 +256,48 @@ impl Slots {
     }
 }
 
-async fn list(
-    crud: Handler,
-    State(_state): State<DeskState>,
-    caller: Caller,
-    RawQuery(query): RawQuery,
-) -> Response {
-    let query = query.as_deref();
+/// A cursor-paged list statement pair and its filters (see [`Crud`]).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Listing {
+    pub(crate) table: &'static Table,
+    pub(crate) filters: &'static [Filter],
+    pub(crate) list_sql: &'static str,
+    pub(crate) count_sql: &'static str,
+    pub(crate) slice_count: bool,
+}
+
+/// A fetched page: the rows (`limit + 1` of them at most), the limit as
+/// JavaScript holds it, and the count.
+pub(crate) struct Fetched {
+    pub(crate) rows: Vec<Value>,
+    pub(crate) limit: f64,
+    pub(crate) total: i64,
+}
+
+/// Why a list could not be read: the app's 500 (the cursor lookup runs
+/// before the route's `try`) or a statement inside it (the route's 500).
+pub(crate) enum ListError {
+    Cursor,
+    Database(sqlx::Error),
+}
+
+impl ListError {
+    pub(crate) fn respond(self, message: &str) -> Response {
+        match self {
+            Self::Cursor => ApiError::internal().into_response(),
+            Self::Database(error) => Refusal::Database(error).respond(message),
+        }
+    }
+}
+
+/// Read a list as the route files do (see the module docs).
+pub(crate) async fn fetch(
+    listing: Listing,
+    db: &weldsuite_db::PgPool,
+    query: Option<&str>,
+) -> Result<Fetched, ListError> {
     let limit = js_limit(query_param(query, "limit").as_deref(), 25.0, 100.0);
-    let values: Vec<Option<String>> = crud
+    let values: Vec<Option<String>> = listing
         .filters
         .iter()
         .map(|filter| {
@@ -280,48 +313,64 @@ async fn list(
         })
         .collect();
     let cursor = query_param(query, "cursor").filter(|c| !c.is_empty());
-    // The cursor lookup runs before the route's `try`: a failure there is
-    // the app's 500, not the route's message.
     let cursor_row = match &cursor {
-        Some(cursor) => match cursor_row(&caller.db, crud.table.name, cursor).await {
-            Ok(row) => row,
-            Err(error) => {
+        Some(cursor) => cursor_row(db, listing.table.name, cursor)
+            .await
+            .map_err(|error| {
                 tracing::error!(%error, "desk: cursor lookup failed");
-                return ApiError::internal().into_response();
-            }
-        },
+                ListError::Cursor
+            })?,
         None => None,
     };
     let mut active = vec![true];
     active.extend(values.iter().map(Option::is_some));
     active.push(cursor_row.is_some());
-    let (page, mut count) = Slots::page_and_count(&active, crud.slice_count && cursor.is_some());
-    if !crud.slice_count {
+    let (page, mut count) = Slots::page_and_count(&active, listing.slice_count && cursor.is_some());
+    if !listing.slice_count {
         let last = count.skip.len() - 1;
         count.skip[last] = true;
     }
     let rows = bind_slots(
-        sqlx::query_scalar(crud.list_sql),
+        sqlx::query_scalar(listing.list_sql),
         &page,
         &values,
         cursor_row.as_ref(),
     )
     .bind(sql_limit(limit))
-    .fetch_all(&caller.db);
+    .fetch_all(db);
     let total = bind_slots(
-        sqlx::query_scalar(crud.count_sql),
+        sqlx::query_scalar(listing.count_sql),
         &count,
         &values,
         cursor_row.as_ref(),
     )
-    .fetch_one(&caller.db);
+    .fetch_one(db);
     let (rows, total): (Result<Vec<Value>, _>, Result<i64, _>) = futures_join(rows, total).await;
-    match (rows, total) {
-        (Ok(rows), Ok(total)) => {
-            let rows = rows.into_iter().map(|row| crud.table.js(row)).collect();
-            page_list(rows, limit, total)
-        }
-        (Err(error), _) | (_, Err(error)) => Refusal::Database(error).respond(crud.messages.list),
+    let rows = rows.map_err(ListError::Database)?;
+    let total = total.map_err(ListError::Database)?;
+    Ok(Fetched {
+        rows: rows.into_iter().map(|row| listing.table.js(row)).collect(),
+        limit,
+        total,
+    })
+}
+
+async fn list(
+    crud: Handler,
+    State(_state): State<DeskState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let listing = Listing {
+        table: crud.table,
+        filters: crud.filters,
+        list_sql: crud.list_sql,
+        count_sql: crud.count_sql,
+        slice_count: crud.slice_count,
+    };
+    match fetch(listing, &caller.db, query.as_deref()).await {
+        Ok(fetched) => page_list(fetched.rows, fetched.limit, fetched.total),
+        Err(error) => error.respond(crud.messages.list),
     }
 }
 

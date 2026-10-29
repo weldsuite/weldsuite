@@ -168,6 +168,7 @@ import { slaSchema } from '@weldsuite/core-api-client/schemas/slas';
 import { ticketNoteSchema } from '@weldsuite/core-api-client/schemas/ticket-notes';
 import { ticketMessageSchema } from '@weldsuite/core-api-client/schemas/ticket-messages';
 import { satisfactionSurveySchema } from '@weldsuite/core-api-client/schemas/satisfaction-surveys';
+import { ticketCreatedSchema, ticketSchema, ticketTagsSchema } from '@weldsuite/app-api-client/schemas/tickets';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -454,6 +455,13 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/satisfaction-surveys/:id', envelope: 'single', data: satisfactionSurveySchema },
   { method: 'POST', route: '/api/satisfaction-surveys', envelope: 'single', data: deskIdRefSchema },
   { method: 'PATCH', route: '/api/satisfaction-surveys/:id', envelope: 'single', data: deskIdRefSchema },
+  // desk: tickets
+  { method: 'GET', route: '/api/tickets', envelope: 'list', data: ticketSchema },
+  { method: 'GET', route: '/api/tickets/:id', envelope: 'single', data: ticketSchema },
+  { method: 'POST', route: '/api/tickets', envelope: 'single', data: ticketCreatedSchema },
+  { method: 'PATCH', route: '/api/tickets/:id', envelope: 'single', data: deskIdRefSchema },
+  { method: 'PATCH', route: '/api/tickets/:id/tags', envelope: 'single', data: ticketTagsSchema },
+  { method: 'POST', route: '/api/tickets/:id/messages', envelope: 'single', data: ticketMessageSchema },
 ];
 
 /** null when valid, else why not. */

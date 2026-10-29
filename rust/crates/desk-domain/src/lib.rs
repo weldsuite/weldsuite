@@ -8,6 +8,8 @@
 //! - [`realtime`] (`desk-api/src/services/realtime/helpdesk-publisher.ts`
 //!   and the `RealtimePublisher` conversation calls): the helpdesk
 //!   conversation room payloads.
+//! - [`notify`] (`@weldsuite/notifications` `helpers/helpdesk.ts`): whether
+//!   and what to notify on an assignment or a customer reply.
 //! - [`workflow`]: the port to the helpdesk workflow engine
 //!   (`helpdesk-workflow-worker`, the `HELPDESK_WORKFLOW` service binding).
 //!   The monolith satisfies it in process once the engine is ported; until
@@ -17,6 +19,7 @@
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
 
+pub mod notify;
 pub mod realtime;
 pub mod webchat;
 pub mod workflow;
