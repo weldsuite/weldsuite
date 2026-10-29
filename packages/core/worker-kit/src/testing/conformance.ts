@@ -82,7 +82,7 @@ export const CONFORMANCE_HEADER = 'X-Weld-Conformance';
 export const ROUTE_HEADER = 'X-Weld-Route';
 
 /** Env bindings the Rust server honours per request in conformance mode. */
-const FORWARDED_ENV = ['PERMISSIONS_APP_ENFORCE', 'SIGN_SESSION_SECRET'] as const;
+const FORWARDED_ENV = ['PERMISSIONS_APP_ENFORCE', 'SIGN_SESSION_SECRET', 'R2_PUBLIC_URL'] as const;
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -250,6 +250,11 @@ async function cloneDatabase(client: PGliteClient): Promise<{ db: Database; clos
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * `Date.now()` inside a string (a storage key, a URL): 13 digits from 2001 to
+ * 2286, not part of a longer number. Differs between two runs of a write.
+ */
+const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
 
 /**
  * Sorted keys, and for writes the values that differ by construction between
@@ -269,6 +274,7 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
     if (key === 'cursor') return '<cursor>';
     if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
     if (GENERATED_ID.test(value)) return '<id>';
+    return value.replace(EPOCH_MS, '<epoch-ms>');
   }
   return value;
 }

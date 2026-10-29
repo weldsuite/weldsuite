@@ -39,6 +39,66 @@
       ]
     },
     {
+      "name": "core: settings-profile",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/settings-profile/settings-profile.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/settings-profile/",
+        "apps/workers/app-api/src/services/settings-profile.ts",
+        "apps/workers/app-api/src/services/settings-profile-schema.ts",
+        "packages/clients/app-api-client/src/schemas/settings-profile.ts",
+        "rust/modules/core-team/src/groups/settings_profile.rs"
+      ]
+    },
+    {
+      "name": "core: user-preferences",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/user-preferences/user-preferences.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/user-preferences/",
+        "packages/core/db/src/lib/calendar-sync.ts",
+        "packages/clients/app-api-client/src/schemas/user-preferences.ts",
+        "rust/modules/core-team/src/groups/user_preferences.rs"
+      ]
+    },
+    {
+      "name": "core: notification-preferences",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/notification-preferences/integration.test.ts",
+        "src/routes/notification-preferences/notification-preferences.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/notification-preferences/",
+        "apps/workers/app-api/src/services/notification-preferences.ts",
+        "packages/clients/app-api-client/src/schemas/notification-preferences.ts",
+        "rust/modules/core-team/src/groups/notification_preferences.rs"
+      ]
+    },
+    {
+      "name": "core: push-tokens",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/push-tokens/push-tokens.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/push-tokens/",
+        "apps/workers/app-api/src/services/push-tokens.ts",
+        "packages/core/notifications/src/channels/push.ts",
+        "packages/core/notifications/src/channels/call-push.ts",
+        "packages/clients/app-api-client/src/schemas/push-tokens.ts",
+        "rust/modules/core-team/src/groups/push_tokens.rs"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",
