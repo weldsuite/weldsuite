@@ -64,18 +64,29 @@ import {
   sharedWithMeSchema,
 } from '@weldsuite/core-api-client/schemas/drive';
 import { searchResultGroupSchema } from '@weldsuite/app-api-client/schemas/search';
+import {
+  confirmUploadResponseSchema,
+  filesAccessSchema,
+  generateUploadUrlResponseSchema,
+  privateFilesMigrationBatchSchema,
+  signedObjectUrlsSchema,
+} from '@weldsuite/core-api-client/schemas/storage';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
   safeParse(value: unknown): { success: true } | { success: false; error: { message: string } };
 }
 
-type Envelope = 'single' | 'list' | 'array';
+type Envelope = 'single' | 'list' | 'array' | 'body';
 
 interface RouteSchema {
   method: string;
   route: string;
-  /** `{ data: T }`, `{ data: T[], pagination }`, or `{ data: T[] }` (`success(c, rows)`). */
+  /**
+   * `{ data: T }`, `{ data: T[], pagination }`, `{ data: T[] }`
+   * (`success(c, rows)`), or the whole body for the few routes that answer
+   * without the envelope (`body`).
+   */
   envelope: Envelope;
   data: ResponseSchema;
 }
@@ -179,6 +190,12 @@ const ROUTES: RouteSchema[] = [
   { method: 'DELETE', route: '/api/drive/trash/empty', envelope: 'single', data: emptiedResultSchema },
   // core: search (`{ data: groups, query, permittedTypes, understanding }`)
   { method: 'POST', route: '/api/search', envelope: 'single', data: searchResultGroupSchema.array() },
+  // core: storage (the upload broker answers without the envelope)
+  { method: 'POST', route: '/api/storage/generate-upload-url', envelope: 'body', data: generateUploadUrlResponseSchema },
+  { method: 'POST', route: '/api/storage/confirm-upload', envelope: 'body', data: confirmUploadResponseSchema },
+  { method: 'POST', route: '/api/storage/access', envelope: 'single', data: filesAccessSchema },
+  { method: 'POST', route: '/api/storage/sign', envelope: 'single', data: signedObjectUrlsSchema },
+  { method: 'POST', route: '/api/storage/migrate-private', envelope: 'single', data: privateFilesMigrationBatchSchema },
 ];
 
 /** null when valid, else why not. */
@@ -195,6 +212,10 @@ function validateItems(entry: RouteSchema, data: unknown): string | null {
 }
 
 function validate(entry: RouteSchema, body: unknown): string | null {
+  if (entry.envelope === 'body') {
+    const result = entry.data.safeParse(body);
+    return result.success ? null : result.error.message;
+  }
   if (!body || typeof body !== 'object' || !('data' in body)) return 'no `data` in the response envelope';
   const data = (body as { data: unknown }).data;
   if (entry.envelope === 'array') return validateItems(entry, data);
