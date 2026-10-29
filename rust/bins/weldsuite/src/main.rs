@@ -148,9 +148,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
-    // The peer address: the signer portal's fallback for the signer's IP.
-    let app = router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
-    axum::serve(listener, app)
+    axum::serve(listener, router(state))
         .with_graceful_shutdown(async move {
             shutdown_signal(draining, config.shutdown_delay).await;
             let _ = stopping.send(true);

@@ -22,20 +22,20 @@
 //! may call: each request carries `SIGN_PORTAL_SECRET` in
 //! `X-Sign-Portal-Key` (403 without it, 503 when the backend has none).
 //! With the key, `X-Signer-Ip` is the signer's address for the evidence
-//! trail (else the address the backend sees), and `User-Agent` their
+//! trail (none without it: the caller is the portal, so the address the
+//! backend sees is the portal's, not the signer's), and `User-Agent` their
 //! browser. The signer session (from `/session` or `/verify`) travels as
 //! `Authorization: Bearer <session>`.
 
 mod codes;
 mod session;
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use aws_lc_rs::constant_time;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, FromRequestParts, OriginalUri, Path, Request, State};
+use axum::extract::{FromRequestParts, OriginalUri, Path, Request, State};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -210,6 +210,18 @@ fn looks_like_ip(value: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() || b == b'.' || b == b':')
 }
 
+/// The signer's IP the portal reported (`X-Signer-Ip`), trusted because the
+/// key was checked first (`require_portal_key`). `None` without one, or for
+/// anything that is no address, as TypeScript records `null` without an IP:
+/// never the connection's address, which is the portal's own.
+fn signer_ip(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(SIGNER_IP_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| looks_like_ip(value))
+        .map(str::to_owned)
+}
+
 /// `request.headers.get('user-agent')?.slice(0, 500)`: 500 UTF-16 units.
 fn user_agent(headers: &HeaderMap) -> Option<String> {
     let value = headers.get(USER_AGENT)?;
@@ -245,20 +257,6 @@ impl FromRequestParts<PortalState> for Portal {
         parts: &mut Parts,
         state: &PortalState,
     ) -> impl Future<Output = Result<Self, ApiError>> + Send {
-        // The key was checked (`require_portal_key`), so the portal's report
-        // of the signer's address is trusted.
-        let ip = parts
-            .headers
-            .get(SIGNER_IP_HEADER)
-            .and_then(|value| value.to_str().ok())
-            .filter(|value| looks_like_ip(value))
-            .map(str::to_owned)
-            .or_else(|| {
-                parts
-                    .extensions
-                    .get::<ConnectInfo<SocketAddr>>()
-                    .map(|info| info.0.ip().to_string())
-            });
         let session = parts
             .headers
             .get(AUTHORIZATION)
@@ -278,7 +276,7 @@ impl FromRequestParts<PortalState> for Portal {
             files: parts.extensions.get::<FileStores>().cloned(),
             overrides: parts.extensions.get::<PortalOverrides>().cloned(),
             meta: SignerMeta {
-                ip,
+                ip: signer_ip(&parts.headers),
                 user_agent: user_agent(&parts.headers),
             },
             session,
@@ -1180,6 +1178,33 @@ mod tests {
         assert!(!looks_like_ip("1"));
         assert!(!looks_like_ip("203.0.113.9, 10.0.0.1"));
         assert!(!looks_like_ip("evil<script>"));
+    }
+
+    /// No usable `X-Signer-Ip`: no IP at all, never the connection's address.
+    #[tokio::test]
+    async fn without_the_header_the_signer_has_no_ip() {
+        let ip = async |header: Option<&str>| {
+            let mut request = http::Request::builder().uri("/envelope");
+            if let Some(header) = header {
+                request = request.header(SIGNER_IP_HEADER, header);
+            }
+            let (mut parts, ()) = request.body(()).expect("request").into_parts();
+            // What a server with connect info adds: never read.
+            parts
+                .extensions
+                .insert(std::net::SocketAddr::from(([10, 0, 0, 7], 443)));
+            Portal::from_request_parts(&mut parts, &state(Some("k")))
+                .await
+                .map(|portal| portal.meta.ip)
+                .expect("portal")
+        };
+        assert_eq!(
+            ip(Some("198.51.100.7")).await.as_deref(),
+            Some("198.51.100.7")
+        );
+        assert_eq!(ip(None).await, None);
+        assert_eq!(ip(Some("")).await, None);
+        assert_eq!(ip(Some("not an address")).await, None);
     }
 
     #[test]

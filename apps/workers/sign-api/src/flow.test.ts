@@ -421,6 +421,18 @@ describe('signing flow', () => {
     expect(opened).toMatchObject({ ip: '198.51.100.7', userAgent: 'Other/2.0' });
   });
 
+  it('records no IP when the portal has none for the signer', async () => {
+    const { ann } = await draftWithTwoSigners();
+    const token = linksByRecipient().get('ann@example.com')!;
+    // On Kubernetes the portal then sends no X-Signer-Ip: the backend records none, not the portal's own address.
+    await portal({}, { ip: null, userAgent: 'NoIp/1.0' }).request('/session', json({ token }));
+    const [opened] = await db
+      .select()
+      .from(schema.signEvents)
+      .where(and(eq(schema.signEvents.recipientId, ann.id), eq(schema.signEvents.type, 'opened')));
+    expect(opened).toMatchObject({ ip: null, userAgent: 'NoIp/1.0' });
+  });
+
   it('lets the last signer finish again when finalizing could not start', async () => {
     const { envelope, bob } = await draftWithTwoSigners();
     await db.update(schema.signRecipients).set({ authMode: 'link' }).where(eq(schema.signRecipients.id, bob.id));
