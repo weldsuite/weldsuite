@@ -19,7 +19,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::json;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultMakeSpan, TraceLayer};
 use weldsuite_auth::SessionVerifier;
 use weldsuite_db::{TenantPermissionQueries, Workspaces};
 use weldsuite_kit::{ApiError, api_cors, request_id};
@@ -103,7 +103,12 @@ pub(crate) fn router(state: AppState) -> Router {
         .with_state(state)
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
-        .layer(TraceLayer::new_for_http())
+        // One INFO span per request, so the default `info` filter keeps it
+        // for the trace exporter.
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
+        )
         .layer(axum::middleware::from_fn(request_id))
 }
 

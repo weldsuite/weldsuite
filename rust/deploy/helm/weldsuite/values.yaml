@@ -46,7 +46,9 @@ config:
     entityEventsSubject: entity-events
     # Create or update the entity-event stream at start.
     ensureStreams: false
-  # Extra plain environment variables.
+  # Extra plain environment variables. Traces go to an OpenTelemetry
+  # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
+  #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
   extraEnv: []
 
 # The secrets the server needs. Point existingSecret at a Secret you manage

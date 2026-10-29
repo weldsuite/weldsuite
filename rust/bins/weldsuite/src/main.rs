@@ -11,16 +11,16 @@ mod conformance;
 mod infra;
 mod routes;
 mod server;
+mod telemetry;
 
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use tracing_subscriber::EnvFilter;
 use weldsuite_auth::{ClerkVerifier, SessionVerifier};
 use weldsuite_db::{Workspaces, master_pool};
 
-use crate::config::{ClerkKey, Config, LogFormat};
+use crate::config::{ClerkKey, Config};
 use crate::server::{AppState, router, shutdown_signal};
 
 const USAGE: &str = "\
@@ -61,15 +61,6 @@ fn main() -> ExitCode {
     }
 }
 
-fn init_logging(format: LogFormat) {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let builder = tracing_subscriber::fmt().with_env_filter(filter);
-    match format {
-        LogFormat::Json => builder.json().flatten_event(true).init(),
-        LogFormat::Text => builder.init(),
-    }
-}
-
 fn serve() -> ExitCode {
     let config = match Config::from_env() {
         Ok(config) => config,
@@ -78,7 +69,7 @@ fn serve() -> ExitCode {
             return ExitCode::from(78); // EX_CONFIG
         }
     };
-    init_logging(config.log_format);
+    let telemetry = telemetry::init(config.log_format);
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -90,13 +81,15 @@ fn serve() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(run(config)) {
+    let code = match runtime.block_on(run(config)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(%error, "server stopped");
             ExitCode::FAILURE
         }
-    }
+    };
+    telemetry.shutdown();
+    code
 }
 
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
