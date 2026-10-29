@@ -39,12 +39,13 @@ rust/
   crates/db/            master DB, workspace → tenant pool, database_url decryption, Postgres errors,
                         atomically, Drizzle-shaped rows, permission lookups
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
-  crates/ports/         ports (cache, event bus, realtime, flags, files) and their test doubles
+  crates/ports/         ports (cache, event bus, realtime, flags, files, identity) and their test doubles
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, flags in the master DB,
                         files over the S3 API
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
-                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know
+                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
+                        modules/sign; modules/core-team holds app-api's team and settings routes
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), the chart, a signed request
 ```
