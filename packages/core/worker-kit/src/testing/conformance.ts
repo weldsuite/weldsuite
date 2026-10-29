@@ -50,6 +50,7 @@ import { wireCompatiblePglite } from './pglite-wire';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
+import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
@@ -193,6 +194,14 @@ export function createSideEffectRecorder() {
   let lastMail: SentByTypeScript[] = [];
   const pending: Promise<unknown>[] = [];
   const copy = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
+  // Only the `/publish/*` POSTs are side effects; a presence read
+  // (`GET /internal/presence`) is a read.
+  const recordPublish = (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(requestUrl(input));
+    if (!url.pathname.startsWith('/publish/')) return;
+    const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
+    effects.realtime.push({ path: url.pathname, body });
+  };
   return {
     bindings: {
       ENTITY_EVENTS: {
@@ -205,12 +214,24 @@ export function createSideEffectRecorder() {
       },
       REALTIME: {
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = new URL(requestUrl(input));
-          const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
-          effects.realtime.push({ path: url.pathname, body });
+          recordPublish(input, init);
           return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
         },
       },
+    },
+    /**
+     * A test's own `REALTIME` binding (one that answers presence reads or keeps
+     * what was published), recorded the same way: its publishes are side
+     * effects too, and then go on to the test's stub.
+     */
+    wrapRealtime(binding: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }) {
+      return {
+        testOwned: true,
+        fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+          recordPublish(input, init);
+          return binding.fetch(input, init);
+        },
+      };
     },
     track(promise: Promise<unknown>) {
       pending.push(promise);
@@ -631,6 +652,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     kv: await kvUrls(env),
     // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
     outbound: await outboundBridgeUrl(),
+    // Presence reads go to the test's `REALTIME` binding (./realtime-bridge.ts).
+    realtime: (await realtimeUrl(env)) ?? null,
     // Customer mail through its `SEND_EMAIL` stub, guard calls to its ledgers.
     sendEmail: await sendEmailUrl(env),
     ledgers: await ledgerUrls(env),
