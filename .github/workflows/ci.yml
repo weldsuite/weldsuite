@@ -126,6 +126,13 @@ jobs:
       - name: Test
         working-directory: rust
         run: cargo test --workspace --locked
+      # The realtime gateway against the platform's own WebSocket clients
+      # (@weldsuite/realtime), two pods on one Valkey.
+      - name: Realtime protocol parity
+        run: |
+          cargo build -p weldsuite --locked --manifest-path rust/Cargo.toml
+          pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
+            --pg postgres://weldsuite:weldsuite@127.0.0.1:5432/scratch --valkey "$WELDSUITE_TEST_VALKEY_URL"
       - name: Licences, advisories and sources
         working-directory: rust
         run: cargo deny check
