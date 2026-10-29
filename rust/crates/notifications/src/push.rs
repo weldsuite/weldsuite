@@ -1,5 +1,5 @@
 //! Push: Expo for the mobile apps (`channels/push.ts`), and for an incoming
-//! call the native ring (`channels/call-push.ts`): Apple's VoIP push on
+//! call the native ring (`channels/call-push.ts`): Apple's `VoIP` push on
 //! `voip` tokens (`channels/apns.ts`), an Expo data message on `expo_call`
 //! tokens. Dead tokens are deactivated.
 
@@ -50,8 +50,16 @@ impl std::fmt::Debug for ApnsConfig {
 
 impl ApnsConfig {
     /// `apnsConfigFromEnv`: all three set, else `None`.
-    pub fn from_values(key_id: Option<&str>, team_id: Option<&str>, key: Option<&str>) -> Option<Self> {
-        let pick = |v: Option<&str>| v.map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned);
+    pub fn from_values(
+        key_id: Option<&str>,
+        team_id: Option<&str>,
+        key: Option<&str>,
+    ) -> Option<Self> {
+        let pick = |v: Option<&str>| {
+            v.map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+        };
         Some(Self {
             key_id: pick(key_id)?,
             team_id: pick(team_id)?,
@@ -151,7 +159,7 @@ async fn try_deliver_push(
         .collect();
 
     let mut invalid: Vec<String> = Vec::new();
-    let mut rang: HashSet<String> = HashSet::new();
+    let mut rung_devices: HashSet<String> = HashSet::new();
     if params.notification_type == "chat_incoming_call" {
         let mut data = push_data(params);
         let call_id = data
@@ -168,11 +176,11 @@ async fn try_deliver_push(
         let call_rows: Vec<&TokenRow> = tokens.iter().filter(|t| is_call_token(t)).collect();
         let ring = send_to_call_tokens(notifier, &call_rows, &data).await;
         invalid.extend(ring.invalid_tokens);
-        rang = ring.delivered;
+        rung_devices = ring.delivered;
     }
     let push_tokens: Vec<&TokenRow> = tokens
         .iter()
-        .filter(|t| !is_call_token(t) && !rang.contains(&t.device_id))
+        .filter(|t| !is_call_token(t) && !rung_devices.contains(&t.device_id))
         .collect();
 
     // By app code, in first-seen order.
@@ -186,7 +194,7 @@ async fn try_deliver_push(
             None => by_app.push((row.app_code.clone(), vec![token])),
         }
     }
-    if by_app.is_empty() && rang.is_empty() {
+    if by_app.is_empty() && rung_devices.is_empty() {
         tracing::warn!(
             user = %params.user_id,
             category = %params.category,
@@ -314,7 +322,10 @@ fn format_expo_error(status: u16, body: &str) -> String {
         if let Some(error) = parsed["error"].as_str().filter(|e| !e.is_empty()) {
             return format!("HTTP {status}: {error}");
         }
-        if let Some(message) = parsed["error"]["message"].as_str().filter(|e| !e.is_empty()) {
+        if let Some(message) = parsed["error"]["message"]
+            .as_str()
+            .filter(|e| !e.is_empty())
+        {
             return format!("HTTP {status}: {message}");
         }
         if let Some(message) = parsed["message"].as_str().filter(|e| !e.is_empty()) {
@@ -376,7 +387,7 @@ struct CallPush {
     invalid_tokens: Vec<String>,
 }
 
-/// `sendToCallTokens`: VoIP to `voip` tokens, Expo data to `expo_call` ones.
+/// `sendToCallTokens`: `VoIP` to `voip` tokens, Expo data to `expo_call` ones.
 async fn send_to_call_tokens(
     notifier: &Notifier,
     rows: &[&TokenRow],
@@ -387,7 +398,7 @@ async fn send_to_call_tokens(
         invalid_tokens: Vec::new(),
     };
     let expiration = (now_ms() + CALL_RING_TTL_MS) / 1000;
-    // VoIP.
+    // `VoIP`.
     for row in rows.iter().filter(|r| r.token_type == "voip") {
         let topic = (row.app_code == "weldchat").then_some("com.weldsuite.weldchat.voip");
         let (Some(config), Some(topic), Some(token), Some(http)) = (
@@ -401,7 +412,9 @@ async fn send_to_call_tokens(
         let payload = json!({ "aps": {}, "weldchat": data });
         match send_apns_voip(http, config, token, topic, &payload, expiration).await {
             ApnsResult::Ok => {
-                result.delivered.insert(call_token_device_id(&row.device_id));
+                result
+                    .delivered
+                    .insert(call_token_device_id(&row.device_id));
             }
             ApnsResult::InvalidToken => result.invalid_tokens.push(token.to_owned()),
             ApnsResult::Error(reason) => {
@@ -438,7 +451,9 @@ async fn send_to_call_tokens(
             if ticket["status"] == "ok"
                 && let Some(row) = app_rows.get(index)
             {
-                result.delivered.insert(call_token_device_id(&row.device_id));
+                result
+                    .delivered
+                    .insert(call_token_device_id(&row.device_id));
             }
         }
     }
@@ -456,7 +471,9 @@ static PROVIDER_TOKEN: Mutex<Option<(String, String, i64)>> = Mutex::new(None);
 
 fn apns_provider_token(config: &ApnsConfig) -> Result<String, String> {
     let now = now_ms();
-    let mut cached = PROVIDER_TOKEN.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut cached = PROVIDER_TOKEN
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
     if let Some((key_id, token, issued)) = cached.as_ref()
         && *key_id == config.key_id
         && now - issued < 50 * 60_000
@@ -582,7 +599,10 @@ pub async fn cancel_incoming_call_push(
             .collect();
         let refs: Vec<&TokenRow> = tokens.iter().collect();
         let mut data = Map::new();
-        data.insert("notificationType".to_owned(), Value::from("chat_call_cancel"));
+        data.insert(
+            "notificationType".to_owned(),
+            Value::from("chat_call_cancel"),
+        );
         data.insert("callId".to_owned(), Value::from(call_id));
         data.insert("reason".to_owned(), Value::from(reason.as_str()));
         let sent = send_to_call_tokens(notifier, &refs, &data).await;

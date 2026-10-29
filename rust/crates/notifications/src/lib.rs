@@ -1,7 +1,7 @@
 //! Notifications (`@weldsuite/notifications`): a `notifications` row, then
 //! delivery on every channel the recipient's preferences allow: in-app over
 //! the realtime port (`notification.<userId>`), push through Expo (and the
-//! native call ring for an incoming call: Apple's VoIP push, Expo data
+//! native call ring for an incoming call: Apple's `VoIP` push, Expo data
 //! messages). Each channel's failure is logged and never reaches the caller.
 //!
 //! Email follows the TypeScript gate: only for a recipient who is away
@@ -158,7 +158,11 @@ pub async fn resolve_email_presence(
     let Some(presence) = presence.filter(|_| chosen != "dnd") else {
         return email_presence_for(chosen, None);
     };
-    match presence.0.presence(workspace_id, &[user_id.to_owned()]).await {
+    match presence
+        .0
+        .presence(workspace_id, &[user_id.to_owned()])
+        .await
+    {
         Ok(users) => {
             let live = users
                 .iter()
@@ -276,8 +280,13 @@ pub async fn create_and_deliver(
     // Presence gate, email only, before the insert: `delivered_email` says
     // what happens.
     let email_presence = if channels.email {
-        resolve_email_presence(db, &params.user_id, notifier.presence.as_ref(), &params.workspace_id)
-            .await
+        resolve_email_presence(
+            db,
+            &params.user_id,
+            notifier.presence.as_ref(),
+            &params.workspace_id,
+        )
+        .await
     } else {
         EmailPresence::Suppress
     };
@@ -374,9 +383,18 @@ async fn deliver_in_app(notifier: &Notifier, params: &NewNotification, id: &str,
 /// `chatChannelId` (Android reads `channelId` as its notification channel).
 pub(crate) fn push_data(params: &NewNotification) -> Map<String, Value> {
     let mut data = Map::new();
-    data.insert("actionUrl".to_owned(), Value::from(params.action_url.as_str()));
-    data.insert("entityType".to_owned(), Value::from(params.entity_type.as_str()));
-    data.insert("entityId".to_owned(), Value::from(params.entity_id.as_str()));
+    data.insert(
+        "actionUrl".to_owned(),
+        Value::from(params.action_url.as_str()),
+    );
+    data.insert(
+        "entityType".to_owned(),
+        Value::from(params.entity_type.as_str()),
+    );
+    data.insert(
+        "entityId".to_owned(),
+        Value::from(params.entity_id.as_str()),
+    );
     data.insert(
         "notificationType".to_owned(),
         Value::from(params.notification_type.as_str()),
@@ -399,6 +417,7 @@ pub(crate) fn push_data(params: &NewNotification) -> Map<String, Value> {
 pub mod chat {
     use super::NewNotification;
 
+    #[allow(clippy::too_many_arguments)]
     fn weldchat(
         workspace_id: &str,
         user_id: &str,
@@ -581,9 +600,18 @@ mod tests {
     fn email_goes_to_the_away_and_never_to_dnd() {
         assert_eq!(email_presence_for("dnd", None), EmailPresence::Suppress);
         assert_eq!(email_presence_for("online", None), EmailPresence::Absent);
-        assert_eq!(email_presence_for("online", Some("away")), EmailPresence::Absent);
-        assert_eq!(email_presence_for("away", Some("online")), EmailPresence::Absent);
-        assert_eq!(email_presence_for("busy", Some("busy")), EmailPresence::Present);
+        assert_eq!(
+            email_presence_for("online", Some("away")),
+            EmailPresence::Absent
+        );
+        assert_eq!(
+            email_presence_for("away", Some("online")),
+            EmailPresence::Absent
+        );
+        assert_eq!(
+            email_presence_for("busy", Some("busy")),
+            EmailPresence::Present
+        );
         assert_eq!(chosen_status(Some("away_manual"), false), "away");
         assert_eq!(chosen_status(Some("dnd"), true), "online");
     }
@@ -591,7 +619,9 @@ mod tests {
     #[test]
     fn push_data_renames_channel_id_and_keeps_strings() {
         let mut params = chat::dm("org_1", "u2", "u1", "Ann", "ch_1", "");
-        params.data.push(("channelId".to_owned(), "ignored".to_owned()));
+        params
+            .data
+            .push(("channelId".to_owned(), "ignored".to_owned()));
         params.clerk_org_id = Some("org_1".to_owned());
         let data = push_data(&params);
         assert_eq!(data["chatChannelId"], "ch_1");
@@ -606,6 +636,10 @@ mod tests {
         let id = notification_id();
         assert!(id.starts_with("notif_"));
         assert!(id.len() >= 6 + 12);
-        assert!(id[6..].chars().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase()));
+        assert!(
+            id[6..]
+                .chars()
+                .all(|c| c.is_ascii_digit() || c.is_ascii_lowercase())
+        );
     }
 }
