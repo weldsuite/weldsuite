@@ -1,9 +1,13 @@
 /**
  * Browser API / realtime URLs.
  *
- * Vite inlines `VITE_*` at build time. A local `.env.local` can leak
- * `http://localhost:8789` into a Pages build, so hosted origins ignore
- * localhost values and derive the worker host from the SPA hostname.
+ * Runtime config first (`/config.json`, see `lib/runtime-config.ts`): a value
+ * the deployment states there is used as-is. Otherwise the build-time
+ * `VITE_*` value: Vite inlines those at build time, and a local `.env.local`
+ * can leak `http://localhost:8789` into a Pages build, so hosted origins
+ * ignore localhost values and derive the worker host from the SPA hostname.
+ * On the Rust backend (Kubernetes) the API and realtime default to the SPA's
+ * own origin.
  */
 
 import {
@@ -13,6 +17,7 @@ import {
   type ApiModuleId,
   type ApiOriginResolver,
 } from '@weldsuite/api-modules';
+import { isRuntimeEnv, isRustBackend, publicEnv } from '@/lib/runtime-config';
 
 const LOCAL_APP_API = 'http://localhost:8789';
 const LOCAL_REALTIME = 'ws://localhost:8790/ws';
@@ -27,6 +32,10 @@ function isLocalUrl(url: string | undefined): boolean {
 
 function spaHostname(): string | undefined {
   return typeof window === 'undefined' ? undefined : window.location.hostname;
+}
+
+function spaOrigin(): string | undefined {
+  return typeof window === 'undefined' ? undefined : window.location.origin;
 }
 
 function isTestSpaHost(host: string): boolean {
@@ -51,8 +60,17 @@ function trimSlash(url: string): string {
   return url.replace(/\/$/, '');
 }
 
+/** A value the runtime config states, trusted as-is. */
+function runtimeOverride(key: `VITE_${string}`): string | undefined {
+  return isRuntimeEnv(key) ? publicEnv(key) : undefined;
+}
+
 export function getAppApiUrl(): string {
-  const envUrl = import.meta.env.VITE_APP_API_URL as string | undefined;
+  const runtimeUrl = runtimeOverride('VITE_APP_API_URL');
+  if (runtimeUrl) return trimSlash(runtimeUrl);
+  const origin = spaOrigin();
+  if (isRustBackend() && origin) return trimSlash(origin);
+  const envUrl = publicEnv('VITE_APP_API_URL');
   const host = spaHostname();
   if (!host || isLocalHostname(host)) {
     return trimSlash(envUrl || LOCAL_APP_API);
@@ -63,7 +81,9 @@ export function getAppApiUrl(): string {
 
 /** The partner portal, a separate app (apps/web/partner). */
 export function getPartnerPortalUrl(): string {
-  const envUrl = import.meta.env.VITE_PARTNER_PORTAL_URL as string | undefined;
+  const runtimeUrl = runtimeOverride('VITE_PARTNER_PORTAL_URL');
+  if (runtimeUrl) return trimSlash(runtimeUrl);
+  const envUrl = publicEnv('VITE_PARTNER_PORTAL_URL');
   const host = spaHostname();
   if (!host || isLocalHostname(host)) {
     return trimSlash(envUrl || 'http://localhost:3203');
@@ -80,23 +100,24 @@ export function getPartnerPortalUrl(): string {
 // going to app-api, which forwards moved modules, so an empty list behaves
 // exactly like the single-worker setup. `VITE_<MODULE>_API_URL` overrides one
 // module's origin (ignored on hosted origins when it points at localhost).
+// The Rust backend serves every module from one origin, so it gets no list.
 
 let resolverCache: { key: string; resolver: ApiOriginResolver } | null = null;
 
 function moduleOverrides(host: string | undefined): Partial<Record<ApiModuleId, string>> {
-  const env = import.meta.env as Record<string, string | undefined>;
   const hosted = !!host && !isLocalHostname(host);
   const out: Partial<Record<ApiModuleId, string>> = {};
   for (const m of API_MODULES) {
-    const value = env[`VITE_${m.id.toUpperCase()}_API_URL`];
-    if (value && !(hosted && isLocalUrl(value))) out[m.id] = trimSlash(value);
+    const key = `VITE_${m.id.toUpperCase()}_API_URL` as const;
+    const value = publicEnv(key);
+    if (value && (isRuntimeEnv(key) || !(hosted && isLocalUrl(value)))) out[m.id] = trimSlash(value);
   }
   return out;
 }
 
 function apiOriginResolver(): ApiOriginResolver {
   const coreOrigin = getAppApiUrl();
-  const modules = (import.meta.env.VITE_API_MODULES as string | undefined) ?? '';
+  const modules = isRustBackend() ? '' : (publicEnv('VITE_API_MODULES') ?? '');
   const host = spaHostname();
   const overrides = moduleOverrides(host);
   const key = `${coreOrigin}|${modules}|${JSON.stringify(overrides)}`;
@@ -125,7 +146,11 @@ export function getApiOrigins(): string[] {
 }
 
 export function getRealtimeUrl(): string {
-  const envUrl = import.meta.env.VITE_REALTIME_URL as string | undefined;
+  const runtimeUrl = runtimeOverride('VITE_REALTIME_URL');
+  if (runtimeUrl) return runtimeUrl;
+  const origin = spaOrigin();
+  if (isRustBackend() && origin) return `${origin.replace(/^http/, 'ws')}/ws`;
+  const envUrl = publicEnv('VITE_REALTIME_URL');
   const host = spaHostname();
   if (!host || isLocalHostname(host)) {
     return envUrl || LOCAL_REALTIME;
