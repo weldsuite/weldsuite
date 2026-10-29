@@ -4232,6 +4232,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-video-rooms"
+version = "0.0.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "jsonwebtoken 11.1.0",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "whoami"
 version = "2.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

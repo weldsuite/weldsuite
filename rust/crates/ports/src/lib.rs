@@ -38,8 +38,8 @@ pub mod mail;
 pub mod outbound;
 pub mod presence;
 pub mod realtime;
-pub mod video_rooms;
 pub mod transport;
+pub mod video_rooms;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
