@@ -1,6 +1,24 @@
 # Zitadel: sign-in for the Kubernetes editions (ADR SEC-012), on its own
 # CloudNativePG cluster (zitadel/zitadel-db). TLS ends at Traefik.
 replicaCount: 2
+# The zitadel namespace enforces the "restricted" Pod Security Standard. The
+# chart-wide contexts below apply to every Zitadel pod (server, login, init,
+# setup and cleanup jobs); its defaults miss the escalation, capability and
+# seccomp settings.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  privileged: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
 zitadel:
   masterkeySecretName: zitadel-masterkey
   configmapConfig:

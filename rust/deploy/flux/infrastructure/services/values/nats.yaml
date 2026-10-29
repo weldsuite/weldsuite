@@ -20,9 +20,35 @@ container:
         secretKeyRef:
           name: nats-auth
           key: token
+  # The weldsuite namespace enforces the "restricted" Pod Security Standard,
+  # which the chart's defaults don't meet: non-root, no privilege escalation,
+  # no capabilities, the runtime's seccomp profile.
+  merge:
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+reloader:
+  merge:
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+# A debugging client; `kubectl run` one when it's needed.
+natsBox:
+  enabled: false
 podTemplate:
   topologySpreadConstraints:
     zone:
       maxSkew: 1
       topologyKey: topology.kubernetes.io/zone
       whenUnsatisfiable: DoNotSchedule
+  merge:
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault

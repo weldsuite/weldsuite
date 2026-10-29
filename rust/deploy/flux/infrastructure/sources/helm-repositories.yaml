@@ -62,17 +62,17 @@ spec:
   interval: 12h
   url: https://charts.zitadel.com
 ---
-# Restate publishes its chart as an OCI artifact only.
+# Restate publishes its chart as an OCI artifact only. A Helm repository of
+# type oci, not an OCIRepository: through an OCIRepository, helm-controller
+# gives the chart the version 1.7.13+<digest>, and Restate's chart writes that
+# into labels, which may not contain "+" (the install fails). The version is
+# pinned in the HelmRelease (services/releases.yaml).
 apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
+kind: HelmRepository
 metadata:
   name: restate
   namespace: flux-system
 spec:
+  type: oci
   interval: 12h
-  url: oci://ghcr.io/restatedev/restate-helm
-  ref:
-    tag: 1.7.13
-  layerSelector:
-    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    operation: copy
+  url: oci://ghcr.io/restatedev

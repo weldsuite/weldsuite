@@ -45,10 +45,14 @@ metadata:
   namespace: weldsuite
 spec:
   interval: 1h
-  chartRef:
-    kind: OCIRepository
-    name: restate
-    namespace: flux-system
+  chart:
+    spec:
+      chart: restate-helm
+      version: 1.7.13
+      sourceRef:
+        kind: HelmRepository
+        name: restate
+        namespace: flux-system
   valuesFrom:
     - kind: ConfigMap
       name: restate-values

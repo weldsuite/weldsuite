@@ -18,3 +18,10 @@ resources:
 storage:
   size: 20Gi
   storageClassName: openebs-hostpath
+# The weldsuite namespace enforces the "restricted" Pod Security Standard; the
+# chart's defaults meet it except for the seccomp profile.
+podSecurityContext:
+  fsGroup: 2000
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault

@@ -66,7 +66,7 @@ releases=(
   "plugin-barman-cloud cnpg-system https://cloudnative-pg.github.io/charts|plugin-barman-cloud 0.8.1 flux/infrastructure/controllers/values/plugin-barman-cloud.yaml flux/infrastructure/controllers/releases.yaml"
   "nats weldsuite https://nats-io.github.io/k8s/helm/charts|nats 2.15.0 flux/infrastructure/services/values/nats.yaml flux/infrastructure/services/releases.yaml"
   "valkey weldsuite https://valkey.io/valkey-helm|valkey 0.12.0 flux/infrastructure/services/values/valkey.yaml flux/infrastructure/services/releases.yaml"
-  "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/sources/helm-repositories.yaml"
+  "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/services/releases.yaml"
   "zitadel zitadel https://charts.zitadel.com|zitadel 10.4.0 flux/infrastructure/services/values/zitadel.yaml flux/infrastructure/services/releases.yaml"
 )
 work="$(mktemp -d)"
