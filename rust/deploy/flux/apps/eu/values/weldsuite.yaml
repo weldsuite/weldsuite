@@ -9,6 +9,21 @@ replicaCount: 2
 config:
   environment: production
   logFormat: json
+  # Sign-in through the in-cluster Zitadel (ADR SEC-012). The project and the
+  # platform's application are made once in Zitadel's console (Hetzner
+  # runbook, step 7); their ids go in the cluster settings.
+  auth:
+    provider: oidc
+    oidc:
+      issuer: https://auth.${DOMAIN}
+      audience: "${ZITADEL_PROJECT_ID}"
+      # The project's roles claim names every workspace organisation the
+      # person has a role in; the platform narrows it to the active one with
+      # the urn:zitadel:iam:org:roles:id:<org id> scope. (The default,
+      # urn:zitadel:iam:org:id, only works for people whose own organisation
+      # is the workspace, not for someone in several.)
+      orgClaim: urn:zitadel:iam:org:project:${ZITADEL_PROJECT_ID}:roles
+      webClientId: "${ZITADEL_WEB_CLIENT_ID}"
   # Flag values from the master database (feature_flag_overrides).
   featureFlags: master-db
   nats:
@@ -28,7 +43,7 @@ config:
       adminUrl: http://restate:9070
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
-# CLERK_JWKS_URL, VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys,
+# VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys,
 # SIGN_SESSION_SECRET: secrets/examples/weldsuite-env.yaml.
 secret:
   existingSecret: weldsuite-env

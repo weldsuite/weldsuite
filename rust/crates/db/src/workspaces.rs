@@ -1,7 +1,12 @@
 //! Workspace → tenant database (`worker-kit/src/db.ts`).
 //!
 //! A request names its workspace by either identifier, `workspaces.id` or the
-//! Clerk org id. One master-DB query reads the row, its licence, its partner
+//! Clerk org id. On Kubernetes installs, which sign in through OIDC (ADR
+//! SEC-012), `workspaces.clerk_org_id` holds the identity provider's
+//! organization id instead (Zitadel's), so the session's organization
+//! resolves the same way; a provider claim carrying `workspaces.id` itself
+//! (set by a Zitadel Action, say) resolves too. The column keeps its name
+//! until a migration renames it. One master-DB query reads the row, its licence, its partner
 //! and whether a database move blocks writes; the stored `database_url` is
 //! opened with the keyring. The result is cached in process for
 //! [`WorkspaceConfig::cache_ttl`] (the workers cache it in KV for the same
@@ -135,6 +140,8 @@ impl From<sqlx::Error> for WorkspaceError {
 pub struct Tenant {
     /// `workspaces.id`.
     pub workspace_id: String,
+    /// The identity provider's organization id: Clerk's in Global, Zitadel's
+    /// (or the customer's provider's) on Kubernetes.
     pub clerk_org_id: Option<String>,
     pub db: PgPool,
     pub suspended: bool,

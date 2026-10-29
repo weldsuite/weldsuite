@@ -35,15 +35,15 @@ rust/
   bins/weldsuite/       the one binary: `serve` (routes/, infra.rs, conformance.rs); consume, cron later
   crates/kit/           envelope, errors, ids, CORS, request id, pagination, cursors, zod-shaped validation
   crates/catalogs/      entity events, permission keys, flags, API modules (+ Rust flag), origins
-  crates/auth/          Clerk session tokens (fixed key or fetched JWKS), step-up second factor
+  crates/auth/          session tokens: Clerk's or an OIDC provider's (Zitadel; discovery, fetched JWKS), step-up second factor
   crates/permissions/   @weldsuite/permissions: matching, per-app checks, grants, resolution, route layer
   crates/db/            master DB, workspace → tenant pool, database_url decryption, Postgres errors,
                         atomically, Drizzle-shaped rows, permission lookups
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
-  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail), their test doubles, in-process jobs
+  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity), their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
-                        files over the S3 API, system mail over SMTP
+                        files over the S3 API, system mail over SMTP, identity on Zitadel
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
@@ -117,7 +117,11 @@ The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 | Variable | |
 |---|---|
 | `DATABASE_URL_MASTER` | master database (required) |
-| `CLERK_JWT_KEY`, `CLERK_JWKS_FILE`, `CLERK_JWKS_URL` or `CLERK_SECRET_KEY` | session token keys: a PEM, a JWKS file, a JWKS URL, or Clerk's Backend API (one is required) |
+| `AUTH_PROVIDER` | `clerk` (default) or `oidc` (ADR SEC-012) |
+| `CLERK_JWT_KEY`, `CLERK_JWKS_FILE`, `CLERK_JWKS_URL` or `CLERK_SECRET_KEY` | with `clerk`: session token keys: a PEM, a JWKS file, a JWKS URL, or Clerk's Backend API (one is required) |
+| `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
+| `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
+| `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url` |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
@@ -139,8 +143,9 @@ The server reads environment variables only (`bins/weldsuite/src/config.rs`):
 Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
-Not there yet: OIDC providers other than Clerk (ADR SEC-012, phase P5), the
-Neon API fallback for a workspace without a stored `database_url` (the
+Not there yet: the Zitadel `Identity` adapter wired into the server (it
+waits for the team routes that call the port), group-claim workspaces for a
+customer's own provider (P7), the Neon API fallback for a workspace without a stored `database_url` (the
 Kubernetes editions always store it), Clerk member linking on
 `/api/me/permissions`, and an admin screen for `feature_flag_overrides` (the table
 that `FEATURE_FLAGS=master-db` reads; set rows with SQL for now).

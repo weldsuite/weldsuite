@@ -50,6 +50,9 @@ pub(crate) struct AppState {
     pub(crate) sign_session_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// Sign-in settings for `/config.json`: the OIDC issuer and the
+    /// platform's client id. `None` with Clerk.
+    pub(crate) public_auth: Option<Arc<serde_json::Value>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -205,8 +208,9 @@ async fn health(State(state): State<AppState>) -> Response {
 /// frontends. `modules` is the core platform plus every module ported to Rust
 /// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`); a client hides the
 /// apps of any other module. Global never asks: it runs every module in
-/// TypeScript.
-async fn config_json() -> Response {
+/// TypeScript. With an OIDC provider, `auth` tells the frontends where to
+/// sign in (issuer, the platform's PKCE client id, the organization claim).
+async fn config_json(State(state): State<AppState>) -> Response {
     let modules: Vec<&str> = std::iter::once("core")
         .chain(
             weldsuite_catalogs::api_modules()
@@ -215,15 +219,15 @@ async fn config_json() -> Response {
                 .map(|module| module.id.as_str()),
         )
         .collect();
-    (
-        [(header::CACHE_CONTROL, "no-cache")],
-        Json(json!({
-            "backend": "rust",
-            "version": env!("CARGO_PKG_VERSION"),
-            "modules": modules,
-        })),
-    )
-        .into_response()
+    let mut body = json!({
+        "backend": "rust",
+        "version": env!("CARGO_PKG_VERSION"),
+        "modules": modules,
+    });
+    if let Some(auth) = &state.public_auth {
+        body["auth"] = auth.as_ref().clone();
+    }
+    ([(header::CACHE_CONTROL, "no-cache")], Json(body)).into_response()
 }
 
 async fn robots() -> &'static str {
@@ -338,6 +342,7 @@ mod tests {
             )),
             sign_session_secret: None,
             files_public_url: None,
+            public_auth: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
         }
@@ -415,6 +420,66 @@ mod tests {
             .filter(|m| m.rust)
             .count();
         assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
+        assert!(body.get("auth").is_none(), "Clerk setups add nothing");
+    }
+
+    /// The app state with an OIDC verifier over the auth crate's fixture keys.
+    fn oidc_state() -> (AppState, Value) {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../crates/auth/tests/fixtures/oidc-tokens.json"
+        ))
+        .expect("fixture");
+        let settings = weldsuite_auth::OidcSettings::new(
+            fixture["issuer"].as_str().expect("issuer"),
+            vec![fixture["project"].as_str().expect("project").to_owned()],
+        );
+        let verifier =
+            SessionVerifier::oidc_with_jwks(settings, &fixture["jwks"].to_string()).expect("jwks");
+        let mut state = state();
+        state.verifier = Arc::new(verifier);
+        state.public_auth = Some(Arc::new(json!({
+            "provider": "oidc",
+            "issuer": fixture["issuer"],
+            "clientId": "300000000000000300",
+        })));
+        (state, fixture)
+    }
+
+    #[cfg(not(feature = "conformance"))]
+    #[tokio::test]
+    async fn an_oidc_session_passes_auth_and_reaches_the_workspace_lookup() {
+        let (state, fixture) = oidc_state();
+        let with = |name: &str| {
+            Request::builder()
+                .uri("/api/me/permissions")
+                .header(
+                    "Authorization",
+                    format!(
+                        "Bearer {}",
+                        fixture["tokens"][name].as_str().expect("token")
+                    ),
+                )
+                .body(Body::empty())
+                .expect("request")
+        };
+        // Signed in: the next layer looks the organization up in the master
+        // database, which this test has none of (500, not 401).
+        let (status, _, body) = call(state.clone(), with("longLived")).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        let (status, _, body) = call(state, with("expired")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body.contains("Token verification failed"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn config_tells_oidc_frontends_where_to_sign_in() {
+        let (state, fixture) = oidc_state();
+        let (status, _, body) = call(state, get("/config.json")).await;
+        assert_eq!(status, StatusCode::OK);
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["auth"]["provider"], "oidc");
+        assert_eq!(body["auth"]["issuer"], fixture["issuer"]);
+        assert_eq!(body["auth"]["clientId"], "300000000000000300");
     }
 
     #[tokio::test]

@@ -3,7 +3,8 @@
 # (master + tenant built from the journaled migrations), Valkey and NATS, and
 # check the full request pipeline with a signed session token:
 # auth → workspace → tenant DB → licence → flags → permission → envelope,
-# and a job run through Restate.
+# a job run through Restate, then the same with OIDC sign-in against a
+# stand-in issuer.
 #
 #   docker build -t weldsuite:dev rust
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
@@ -134,6 +135,43 @@ else
   echo "FAIL the no-op job did not run through restate: $status $(head -c 300 "$work/body")" >&2
   failed=1
 fi
+
+# ── OIDC sign-in (ADR SEC-012) ──────────────────────────────────────────────
+# The same server switched to AUTH_PROVIDER=oidc against a stand-in issuer
+# (oidc-issuer.yaml): discovery → JWKS → a Zitadel-shaped token whose
+# organization claim is stored where the Clerk org id was.
+oidc_issuer="http://oidc-issuer"
+oidc_org="300000000000000001"
+mkdir -p "$work/oidc"
+node "$here/mint-token.mjs" "$work/oidc" user_smoke "$oidc_org" --oidc "$oidc_issuer" weldsuite-smoke
+kubectl create configmap oidc-issuer \
+  --from-file=openid-configuration="$work/oidc/openid-configuration" \
+  --from-file=keys="$work/oidc/jwks.json" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f "$here/oidc-issuer.yaml"
+kubectl rollout status deployment/oidc-issuer --timeout=120s
+psql -d master -c "update workspaces set clerk_org_id = '$oidc_org' where id = 'ws_smoke'" >/dev/null
+helm upgrade weldsuite "$chart" --reuse-values \
+  --set config.auth.provider=oidc \
+  --set config.auth.oidc.issuer="$oidc_issuer" \
+  --set-string config.auth.oidc.audience=weldsuite-smoke \
+  --set-string config.auth.oidc.webClientId=smoke-web \
+  --wait --timeout 180s
+kubectl rollout status deployment/weldsuite --timeout=120s
+kill "${forwards[1]}" 2>/dev/null || true
+kubectl port-forward service/weldsuite 18080:80 >/dev/null 2>&1 &
+forwards+=($!)
+for _ in $(seq 1 30); do
+  curl -fsS http://127.0.0.1:18080/livez >/dev/null 2>&1 && break
+  sleep 1
+done
+token="$(cat "$work/oidc/token")"
+check GET /api/me/permissions 401
+check GET /api/me/permissions 200 auth
+contains '"billing:read"'
+check GET /config.json 200
+contains '"provider":"oidc"'
+contains '"clientId":"smoke-web"'
 
 if [ "$failed" != "0" ]; then
   kubectl logs deployment/weldsuite --tail=80 >&2 || true
