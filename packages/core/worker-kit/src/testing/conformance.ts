@@ -359,6 +359,20 @@ export function conformanceMasterDb<T>(db: T): T {
   return (masterForTypeScript as T | undefined) ?? db;
 }
 
+/** The copy of the tenant database the TypeScript side of a write runs on, while it runs. */
+let tenantForTypeScript: Database | undefined;
+
+/**
+ * The tenant database a test's `getTenantDbForWorkspace` mock should hand out,
+ * for a route that opens the workspace's database itself instead of taking
+ * the context's: `getTenantDbForWorkspace: async () => conformanceTenantDb(tenant.db)`.
+ * Like {@link conformanceMasterDb}: the copy the TypeScript side of a write
+ * runs on while it runs, `db` itself at every other moment.
+ */
+export function conformanceTenantDb<T>(db: T): T {
+  return (tenantForTypeScript as T | undefined) ?? db;
+}
+
 // ── comparison ──────────────────────────────────────────────────────────────
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
@@ -675,11 +689,13 @@ async function runBoth(
     // TypeScript first, on the copies and on copy-on-write views of the
     // buckets and KV, so it starts from the state Rust then starts from.
     masterForTypeScript = masterClone?.db;
+    tenantForTypeScript = clone.db;
     let ts: Awaited<ReturnType<typeof typeScript>>;
     try {
       ts = await typeScript(clone.db, isolatedEnv(request.env));
     } finally {
       masterForTypeScript = undefined;
+      tenantForTypeScript = undefined;
     }
     return { ...ts, ...(await rustRun()) };
   } finally {

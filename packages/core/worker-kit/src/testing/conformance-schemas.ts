@@ -63,6 +63,17 @@ import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
 import { accountDeletionStatusSchema, deleteAccountResultSchema } from '@weldsuite/app-api-client/schemas/account';
 import { acceptedInvitationSchema, invitationDetailsSchema } from '@weldsuite/app-api-client/schemas/invitations';
 import {
+  onboardingAvailableAppSchema,
+  onboardingCompleteResultSchema,
+  onboardingDatabaseStatusSchema,
+  onboardingInvitationsResultSchema,
+  onboardingOkSchema,
+  onboardingPartnerRequestSchema,
+  onboardingStatusSchema,
+  onboardingUserInfoSchema,
+  onboardingWorkspaceCreatedSchema,
+} from '@weldsuite/app-api-client/schemas/onboarding';
+import {
   deleteWorkspaceResultSchema,
   workspaceDeletionStatusSchema,
   workspaceNameUpdatedSchema,
@@ -244,6 +255,20 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/invitations/:token', envelope: 'single', data: invitationDetailsSchema },
   { method: 'POST', route: '/api/invitations/accept', envelope: 'single', data: acceptedInvitationSchema },
   { method: 'GET', route: '/api/workspaces', envelope: 'single', data: workspaceSummarySchema.array() },
+  // core: onboarding
+  { method: 'POST', route: '/api/onboarding/create-workspace', envelope: 'single', data: onboardingWorkspaceCreatedSchema },
+  { method: 'POST', route: '/api/onboarding/partner-request', envelope: 'single', data: onboardingPartnerRequestSchema },
+  { method: 'GET', route: '/api/onboarding/status', envelope: 'single', data: onboardingStatusSchema },
+  { method: 'GET', route: '/api/onboarding/database-status', envelope: 'single', data: onboardingDatabaseStatusSchema },
+  { method: 'GET', route: '/api/onboarding/user-info', envelope: 'single', data: onboardingUserInfoSchema },
+  { method: 'GET', route: '/api/onboarding/available-apps', envelope: 'array', data: onboardingAvailableAppSchema },
+  { method: 'POST', route: '/api/onboarding/profile', envelope: 'single', data: onboardingOkSchema },
+  { method: 'POST', route: '/api/onboarding/workspace', envelope: 'single', data: onboardingWorkspaceCreatedSchema },
+  { method: 'POST', route: '/api/onboarding/role', envelope: 'single', data: onboardingOkSchema },
+  { method: 'POST', route: '/api/onboarding/invitations', envelope: 'single', data: onboardingInvitationsResultSchema },
+  { method: 'POST', route: '/api/onboarding/complete', envelope: 'single', data: onboardingCompleteResultSchema },
+  { method: 'POST', route: '/api/onboarding/retry', envelope: 'single', data: onboardingOkSchema },
+  { method: 'POST', route: '/api/onboarding/finalize', envelope: 'single', data: onboardingOkSchema },
   // core: team-members (manage), member-limits, my-role
   { method: 'POST', route: '/api/team-members/sync', envelope: 'single', data: teamMembersSyncResultSchema },
   { method: 'POST', route: '/api/team-members/invite', envelope: 'single', data: inviteMemberResultSchema },

@@ -88,6 +88,7 @@
     "./schemas/sso": "./src/schemas/sso.ts",
     "./schemas/outbound-mail": "./src/schemas/outbound-mail.ts",
     "./schemas/account": "./src/schemas/account.ts",
+    "./schemas/onboarding": "./src/schemas/onboarding.ts",
     "./schemas/feature-flags": "./src/schemas/feature-flags.ts",
     "./schemas/me": "./src/schemas/me.ts",
     "./schemas/push-tokens": "./src/schemas/push-tokens.ts",
