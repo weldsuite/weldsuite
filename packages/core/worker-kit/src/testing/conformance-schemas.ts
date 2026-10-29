@@ -382,6 +382,19 @@ import {
 import { listEntitySchema, listMemberSchema, listMembersAddedSchema } from '@weldsuite/core-api-client/schemas/lists';
 import { opportunitySchema } from '@weldsuite/core-api-client/schemas/opportunities';
 import { personCompanySchema } from '@weldsuite/core-api-client/schemas/person-companies';
+import {
+  personCompanyLinkSchema,
+  personDetailSchema,
+  personRowSchema,
+  personSummarySchema,
+} from '@weldsuite/core-api-client/schemas/people';
+import {
+  analyticsChartRowSchema,
+  analyticsChartsDataSchema,
+  analyticsIdResultSchema,
+  analyticsLayoutsUpdatedSchema,
+  analyticsReportRowSchema,
+} from '@weldsuite/core-api-client/schemas/project-analytics';
 import { pipelineStageSchema, reorderPipelineStagesResultSchema } from '@weldsuite/core-api-client/schemas/pipeline-stages';
 import { pipelineRowSchema } from '@weldsuite/core-api-client/schemas/pipelines-crm';
 // desk: the plain CRUD route files
@@ -994,6 +1007,36 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/companies/:id/people', envelope: 'array', data: companyPersonLinkSchema },
   { method: 'GET', route: '/api/companies/:id/detail', envelope: 'single', data: companyDetailSchema },
   { method: 'GET', route: '/api/companies/:id/navigation', envelope: 'single', data: recordNavigationSchema },
+  // crm: people
+  { method: 'GET', route: '/api/people', envelope: 'list', data: personRowSchema },
+  { method: 'GET', route: '/api/people/export', envelope: 'array', data: personRowSchema },
+  { method: 'POST', route: '/api/people/resolve-by-emails', envelope: 'array', data: personSummarySchema },
+  { method: 'POST', route: '/api/people/import', envelope: 'single', data: importResultSchema },
+  { method: 'GET', route: '/api/people/recent-correspondents', envelope: 'array', data: personSummarySchema },
+  { method: 'POST', route: '/api/people/bulk-update', envelope: 'single', data: bulkUpdateResultSchema },
+  { method: 'GET', route: '/api/people/:id', envelope: 'single', data: personRowSchema },
+  { method: 'POST', route: '/api/people', envelope: 'single', data: personRowSchema },
+  { method: 'PATCH', route: '/api/people/:id', envelope: 'single', data: personRowSchema },
+  { method: 'POST', route: '/api/people/:id/archive', envelope: 'single', data: personRowSchema },
+  { method: 'POST', route: '/api/people/:id/unarchive', envelope: 'single', data: personRowSchema },
+  { method: 'POST', route: '/api/people/:id/add-to-crm', envelope: 'single', data: personRowSchema },
+  { method: 'GET', route: '/api/people/:id/companies', envelope: 'array', data: personCompanyLinkSchema },
+  { method: 'GET', route: '/api/people/:id/detail', envelope: 'single', data: personDetailSchema },
+  { method: 'GET', route: '/api/people/:id/navigation', envelope: 'single', data: recordNavigationSchema },
+  // crm: analytics
+  { method: 'GET', route: '/api/crm-analytics', envelope: 'array', data: analyticsReportRowSchema },
+  { method: 'GET', route: '/api/crm-analytics/:reportId', envelope: 'single', data: analyticsReportRowSchema },
+  { method: 'POST', route: '/api/crm-analytics', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'PATCH', route: '/api/crm-analytics/:reportId', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'DELETE', route: '/api/crm-analytics/:reportId', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'POST', route: '/api/crm-analytics/:reportId/duplicate', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'GET', route: '/api/crm-analytics/:reportId/charts', envelope: 'array', data: analyticsChartRowSchema },
+  { method: 'POST', route: '/api/crm-analytics/:reportId/charts', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'PUT', route: '/api/crm-analytics/:reportId/charts/:chartId', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'PATCH', route: '/api/crm-analytics/:reportId/charts/layouts', envelope: 'single', data: analyticsLayoutsUpdatedSchema },
+  { method: 'DELETE', route: '/api/crm-analytics/:reportId/charts/:chartId', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'POST', route: '/api/crm-analytics/:reportId/charts/:chartId/duplicate', envelope: 'single', data: analyticsIdResultSchema },
+  { method: 'POST', route: '/api/crm-analytics/chart-data', envelope: 'single', data: analyticsChartsDataSchema },
   // crm: sequences
   { method: 'GET', route: '/api/sequences', envelope: 'list', data: sequenceRowSchema },
   { method: 'GET', route: '/api/sequences/:id', envelope: 'single', data: sequenceDetailSchema },

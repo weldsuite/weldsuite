@@ -127,6 +127,7 @@ describe('/api/companies · more routes', () => {
     expect((await app().request('/api/companies/bulk-update', json('POST', { companyIds: ['company_acme'], updates: {} }))).status).toBe(400);
     expect((await app().request('/api/companies/bulk-update', json('POST', { companyIds: [], updates: { status: 'x' } }))).status).toBe(400);
     expect((await app().request('/api/companies/bulk-update', json('POST', { companyIds: ['company_acme'], updates: { status: 'made-up' } }))).status).toBe(400);
+    expect((await app().request('/api/companies/bulk-update', json('POST', { companyIds: ['company_acme'], updates: { lifecycleStage: 'nope' } }))).status).toBe(400);
     expect((await app().request('/api/companies/bulk-update', json('POST', { companyIds: ['company_acme'], updates: { ownerId: 'user_nobody' } }))).status).toBe(400);
   });
 
