@@ -60,6 +60,7 @@ import { requireScope } from '../../../lib/scopes';
 import { error, success } from '../../../lib/response';
 import { mailPrincipal } from '../../../lib/mail';
 import { resolveClerkOrgId } from '../../../lib/social-context';
+import { workspaceMailFromContext } from '../../../lib/mail-store-context';
 
 /** The policies every public-API send runs under. */
 const API_SEND_POLICY: SendOptions = { enforceDailyLimit: true, requireVerifiedDomain: true };
@@ -133,12 +134,24 @@ function waitUntilOf(c: Context<HonoEnv>): ExecutionContext['waitUntil'] | undef
  * The send options for one public-API request: the API policies, plus how the
  * outbound guard labels it. Source `api` weighs more than compose in the risk
  * score; the key's master workspace id saves the guard a lookup.
+ *
+ * `store` is the sending account's mailbox store (design task D5,
+ * `@weldsuite/mail-domain/send`'s `SendOptions.store` doc comment): once set,
+ * `sendAndPersist`/`replyAndPersist`/`forwardAndPersist`/`sendDraftAndPersist`
+ * persist the sent copy, resolve idempotency and load the original message
+ * through it instead of a direct Postgres read/write, so sending works the
+ * same in every mailbox-store mode. `mailStoreMode` lets the outbound guard's
+ * `checkOutbound` ask the ledger's `MailIndex` for an authoritative first-
+ * contact answer once the workspace is `object-only`.
  */
-function sendOptionsFor(c: Context<HonoEnv>): SendOptions {
+async function sendOptionsFor(c: Context<HonoEnv>, accountId: string): Promise<SendOptions> {
+  const { store, mode } = await workspaceMailFromContext(c);
   return {
     ...API_SEND_POLICY,
     waitUntil: waitUntilOf(c),
     outbound: { source: 'api', workspaceId: c.get('apiSession').workspaceId },
+    store: store.mailbox(accountId),
+    mailStoreMode: mode,
   };
 }
 
@@ -340,7 +353,7 @@ app.post('/mail-accounts/:id/send', requireScope('mail_messages:send'), zValidat
       principal,
       accountId,
       { ...data, attachments, idempotencyKey: idem.key },
-      sendOptionsFor(c),
+      await sendOptionsFor(c, accountId),
     );
     await publishSent(c, result, 'email_sent', { to: data.to });
     return sentResponse(c, result, false);
@@ -373,7 +386,7 @@ app.post('/mail-messages/:id/reply', requireScope('mail_messages:send'), zValida
       principal,
       id,
       { ...data, attachments, idempotencyKey: idem.key },
-      sendOptionsFor(c),
+      await sendOptionsFor(c, accountId),
     );
     await publishSent(c, result, 'reply_sent', { conversationId: result.repliedTo });
     return sentResponse(c, result, false, { repliedTo: result.repliedTo });
@@ -406,7 +419,7 @@ app.post('/mail-messages/:id/forward', requireScope('mail_messages:send'), zVali
       principal,
       id,
       { ...data, attachments, idempotencyKey: idem.key },
-      sendOptionsFor(c),
+      await sendOptionsFor(c, accountId),
     );
     await publishSent(c, result, 'email_sent', { to: data.to, conversationId: result.forwardedFrom });
     return sentResponse(c, result, false, { forwardedFrom: result.forwardedFrom });
@@ -458,7 +471,7 @@ app.post('/mail-drafts/:id/send', requireScope('mail_messages:send'), zValidator
       principal,
       id,
       { attachments, idempotencyKey: idem.key },
-      sendOptionsFor(c),
+      await sendOptionsFor(c, draft.accountId),
     );
     await publishSent(c, result, 'email_sent', { to: (draft.to as string[] | null) ?? null });
     publishEntityEvent({

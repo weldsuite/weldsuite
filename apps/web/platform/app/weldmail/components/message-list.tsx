@@ -297,23 +297,27 @@ interface FilterTexts {
   getBlob: () => string;
 }
 
-// `doesntHaveOnServer`: the server already left those threads out (`excludeWords`),
-// so only a list without a server filter (drafts) checks "doesn't have" here.
-function wordFiltersMatch(f: MailFilter, getBlob: () => string, doesntHaveOnServer: boolean): boolean {
-  const checksDoesntHave = !doesntHaveOnServer && !!f.doesntHave?.trim();
-  if (!f.hasWords?.trim() && !checksDoesntHave) return true;
+// `textSearchOnServer`: the server already narrowed the list by free text
+// (`search`, which folds in "has the words") and "doesn't have"
+// (`excludeWords`) — see `serverFilter` below. A list without a server filter
+// (drafts) checks both here instead, against what the row already carries:
+// thread-list messages never carry a body (`ThreadListMessageRow`), so this
+// never reads `textBody`/`htmlBody`.
+function wordFiltersMatch(f: MailFilter, getBlob: () => string, textSearchOnServer: boolean): boolean {
+  if (textSearchOnServer) return true;
+  if (!f.hasWords?.trim() && !f.doesntHave?.trim()) return true;
   const blob = getBlob();
   if (f.hasWords?.trim() && !includesAllTokens(blob, f.hasWords)) return false;
-  if (checksDoesntHave && includesAnyToken(blob, f.doesntHave ?? '')) return false;
+  if (f.doesntHave?.trim() && includesAnyToken(blob, f.doesntHave)) return false;
   return true;
 }
 
 // From / To / Subject / word filters shared by the thread and message matchers.
-function textFiltersMatch(f: MailFilter, texts: FilterTexts, doesntHaveOnServer = false): boolean {
+function textFiltersMatch(f: MailFilter, texts: FilterTexts, textSearchOnServer = false): boolean {
   if (f.from?.trim() && !includesAllTokens(texts.fromText, f.from)) return false;
   if (f.to?.trim() && !includesAllTokens(texts.toText, f.to)) return false;
   if (f.subject?.trim() && !includesAllTokens(texts.subject, f.subject)) return false;
-  return wordFiltersMatch(f, texts.getBlob, doesntHaveOnServer);
+  return wordFiltersMatch(f, texts.getBlob, textSearchOnServer);
 }
 
 function threadSizeMatches(msgs: NonNullable<ThreadSummary['messages']>, f: MailFilter): boolean {
@@ -322,7 +326,7 @@ function threadSizeMatches(msgs: NonNullable<ThreadSummary['messages']>, f: Mail
   return sizeMatches(maxSize || null, f);
 }
 
-function threadMatchesFilter(thread: ThreadSummary, f: MailFilter, doesntHaveOnServer: boolean): boolean {
+function threadMatchesFilter(thread: ThreadSummary, f: MailFilter, textSearchOnServer: boolean): boolean {
   if (countActiveFilters(f) === 0) return true;
   if (f.hasAttachment && !thread.hasAttachments) return false;
 
@@ -332,9 +336,11 @@ function threadMatchesFilter(thread: ThreadSummary, f: MailFilter, doesntHaveOnS
     fromText,
     toText: f.to?.trim() ? msgs.map((m) => addressToText(m.to)).join(' ') : '',
     subject: thread.subject ?? '',
-    getBlob: () => [thread.subject, thread.preview, fromText, ...msgs.map((m) => `${m.preview ?? ''} ${m.textBody ?? ''} ${m.subject ?? ''}`)].join(' '),
+    // Thread-list messages carry no body — this only ever runs when
+    // `textSearchOnServer` is false (drafts), where `msgs` is always `[]`.
+    getBlob: () => [thread.subject, thread.preview, fromText, ...msgs.map((m) => `${m.preview ?? ''} ${m.subject ?? ''}`)].join(' '),
   };
-  if (!textFiltersMatch(f, texts, doesntHaveOnServer)) return false;
+  if (!textFiltersMatch(f, texts, textSearchOnServer)) return false;
   if (!threadSizeMatches(msgs, f)) return false;
 
   return !mailFilterHasDate(f) || dateWithinMatches(thread.latestDate ? new Date(thread.latestDate) : null, f);
@@ -485,12 +491,13 @@ export function MessageList({
   }, [threads]);
 
   // The search box and the Filter panel's text fields are sent to the server:
-  // they must find mail that is on another page or in another folder. The
-  // remaining filters (size, date) still narrow the result on the client.
-  // "Doesn't have" goes to the server too (`excludeWords`): applied to the
-  // loaded page only, it would leave the unloaded pages unfiltered.
+  // they must find mail that is on another page or in another folder, and
+  // thread-list rows no longer carry a message body to search client-side
+  // anyway. The remaining filters (size, date) still narrow the result on the
+  // client. "Doesn't have" goes to the server too (`excludeWords`): applied to
+  // the loaded page only, it would leave the unloaded pages unfiltered.
   const [searchQuery, setSearchQuery] = useState('');
-  const doesntHaveOnServer = !!onServerFilterChange;
+  const textSearchOnServer = !!onServerFilterChange;
   const serverFilter: MailThreadSearch = {
     search: [searchQuery, appliedFilter.hasWords].filter((s) => s?.trim()).join(' '),
     from: appliedFilter.from,
@@ -574,7 +581,7 @@ export function MessageList({
   const items = useMemo(() => {
     if (displayMode === 'threads') {
       return (threads || [])
-        .filter((thread) => threadMatchesFilter(thread, appliedFilter, doesntHaveOnServer))
+        .filter((thread) => threadMatchesFilter(thread, appliedFilter, textSearchOnServer))
         .map((thread) => {
           const item = threadToConversationItem(thread, folder, isUnified, rowText);
           const labelColors = Object.fromEntries(
@@ -593,7 +600,7 @@ export function MessageList({
           return { ...item, labelColors };
         });
     }
-  }, [displayMode, threads, messages, appliedFilter, doesntHaveOnServer, labelColorMap, isUnified, folder, rowText]);
+  }, [displayMode, threads, messages, appliedFilter, textSearchOnServer, labelColorMap, isUnified, folder, rowText]);
 
   // URL generation. Must keep `page` so opening a message does not reset the list.
   const getItemUrl = (item: ConversationItem) => {

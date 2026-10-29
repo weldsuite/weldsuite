@@ -11,6 +11,7 @@ import { mailAccountRegistry } from '@weldsuite/db/schema/master';
 import { mailDomains } from '@weldsuite/db/schema/mail-domains';
 import { mailAccounts } from '@weldsuite/db/schema/mail-accounts';
 import { mailLabels } from '@weldsuite/db/schema/mail-labels';
+import { mailboxDirectoryVersionKey } from '@weldsuite/db/lib/mailbox-directory-cache';
 
 const provision = vi.hoisted(() => ({ fn: vi.fn() }));
 
@@ -57,7 +58,23 @@ function fakeDb() {
   return { db, rows };
 }
 
-const env = { WELDMAIL_DOMAIN: 'weldmail.org' } as unknown as Env;
+/** Map-backed stand-in for the WORKSPACE_CACHE KV namespace (mirrors workflows/refill-pool.test.ts's fake). */
+function fakeKv() {
+  const store = new Map<string, string>();
+  return {
+    store,
+    get: async (key: string) => store.get(key) ?? null,
+    put: async (key: string, value: string) => {
+      store.set(key, value);
+    },
+  };
+}
+
+function envWithKv(kv: ReturnType<typeof fakeKv> = fakeKv()) {
+  return { WELDMAIL_DOMAIN: 'weldmail.org', WORKSPACE_CACHE: kv } as unknown as Env;
+}
+
+const env = envWithKv();
 
 function input(tenant: ReturnType<typeof fakeDb>, master: ReturnType<typeof fakeDb>): EnsureWorkspaceMailInput {
   return {
@@ -127,5 +144,34 @@ describe('ensureWorkspaceMail', () => {
     expect(result).toMatchObject({ accountCreated: false, accountId: 'mail_1', domainId: 'mdom_1' });
     expect(tenant.rows(mailDomains)[0]).toMatchObject({ dnsStatus: 'verified' });
     expect(tenant.rows(mailAccounts)).toHaveLength(1);
+  });
+
+  it('bumps the mailbox directory version when it creates the team@ account and its labels', async () => {
+    provision.fn.mockResolvedValue(true);
+    const kv = fakeKv();
+
+    await ensureWorkspaceMail(envWithKv(kv), input(fakeDb(), fakeDb()));
+
+    expect(kv.store.get(mailboxDirectoryVersionKey('ws_1'))).toEqual(expect.any(String));
+  });
+
+  it('does not bump the mailbox directory when the team@ account already exists', async () => {
+    provision.fn.mockResolvedValue(true);
+    const kv = fakeKv();
+    const tenant = fakeDb();
+    tenant.rows(mailDomains).push({ id: 'mdom_1', domainName: 'acme.weldmail.org', dnsStatus: 'pending' });
+    tenant.rows(mailAccounts).push({ id: 'mail_1', email: 'team@acme.weldmail.org' });
+
+    await ensureWorkspaceMail(envWithKv(kv), input(tenant, fakeDb()));
+
+    expect(kv.store.has(mailboxDirectoryVersionKey('ws_1'))).toBe(false);
+  });
+
+  it('never throws when WORKSPACE_CACHE is missing from the environment', async () => {
+    provision.fn.mockResolvedValue(true);
+
+    await expect(
+      ensureWorkspaceMail({ WELDMAIL_DOMAIN: 'weldmail.org' } as unknown as Env, input(fakeDb(), fakeDb())),
+    ).resolves.toMatchObject({ accountCreated: true });
   });
 });

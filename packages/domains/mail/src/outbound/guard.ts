@@ -12,8 +12,12 @@
  *   1. Sender ownership: the From address must not belong to another
  *      workspace (master `mail_account_registry`). Always enforced.
  *   2. Complaint suppressions: a recipient who reported this workspace's mail
- *      as spam is refused. Always enforced.
- *   3. First contact: recipients who never wrote in (tenant `mail_correspondents`).
+ *      as spam is refused. Always enforced. Always Postgres (`mail_suppressions`),
+ *      in every mail-store mode.
+ *   3. First contact: recipients who never wrote in. Answered by the
+ *      workspace's `MailIndex` object when it is seeded and the caller says
+ *      the mail-store mode is `object-only`; otherwise falls back to tenant
+ *      Postgres `mail_correspondents`, unchanged.
  *   4. Content screen and template fingerprint (new conversations only).
  *   5. The workspace's `OutboundLedger` Durable Object: limits, state, platform
  *      budget. Its mode (Flagship `weldmail-outbound-guard`: off / shadow /
@@ -24,7 +28,9 @@
  * more harm than a short gap in counting.
  *
  * Pure of Hono: callers pass env, the tenant DB and `waitUntil` themselves.
- * See docs/plans/weldmail-outbound-abuse.md.
+ * See docs/plans/weldmail-outbound-abuse.md and
+ * docs/plans/weldmail-mailbox-store-design.md (decision 1: the mail index is
+ * its own EU object, `MailIndex`, not tables on the ledger).
  */
 
 import { and, eq, like } from 'drizzle-orm';
@@ -45,6 +51,9 @@ import { fingerprintTemplate, personalTokensFor } from './fingerprint';
 import { findKnownCorrespondents, findSuppressed, recordOutboundCorrespondents } from './correspondents';
 import { ledgerKeyFor, type LedgerSubject, type ReserveDecision, type ReserveRequest } from './ledger-core';
 import type { OutboundLedger, OutboundPlatformBudget } from './ledger';
+import { mailIndexFor } from '../mail-index/client';
+import type { MailIndex } from '../mail-index/mail-index';
+import type { MailStoreMode } from '../store/types';
 
 /** Structural `[[ratelimits]]` binding. */
 export interface RateLimitBinding {
@@ -57,6 +66,12 @@ export interface OutboundGuardEnv {
   OUTBOUND_LEDGER?: DurableObjectNamespace<OutboundLedger>;
   /** `OutboundPlatformBudget` Durable Object, for tripping the breaker on Cloudflare's daily-limit error. */
   OUTBOUND_PLATFORM?: DurableObjectNamespace<OutboundPlatformBudget>;
+  /**
+   * The workspace's `MailIndex` object (mail-api; EU jurisdiction). Optional:
+   * workers that haven't bound it yet (it has no `wrangler.toml` entry anywhere
+   * so far — a later task adds it) keep working, unchanged, on Postgres.
+   */
+  MAIL_INDEX?: DurableObjectNamespace<MailIndex>;
   /** Per-sender backstop when the ledger is unreachable. */
   OUTBOUND_BACKSTOP?: RateLimitBinding;
   /** Master DB (sender ownership, workspace id) and its KV cache. */
@@ -97,6 +112,14 @@ export interface CheckOutboundInput {
   recipientNames?: string[];
   /** The mailbox's own `dailySendLimit`; lowers the sender's daily limit, never raises it. */
   senderDailyCap?: number | null;
+  /**
+   * The workspace's mail-store mode, when the caller already knows it (the
+   * router, once built, resolves this with `store/mode.ts`'s
+   * `resolveMailStoreMode`). Unset is treated as not `object-only`, so
+   * `MailIndex.firstContacts` is never trusted as authoritative and the guard
+   * keeps reading Postgres — today's behaviour.
+   */
+  mailStoreMode?: MailStoreMode;
 }
 
 export interface OutboundReservation {
@@ -322,7 +345,9 @@ export async function checkOutbound(
     throw new OutboundDeniedError({ code: 'SENDER_NOT_OWNED', reason: 'address_registered_elsewhere' });
   }
 
-  const firstContact = db ? await firstContactsOf(db, recipients) : [];
+  const firstContact = db
+    ? await firstContactsOf(env, db, subject, recipients, input.mailStoreMode ?? 'postgres')
+    : [];
   const base: Omit<OutboundReservation, 'mode'> = {
     ledger: subject ? { key: ledgerKeyFor(subject), subject } : null,
     reservationId: null,
@@ -355,21 +380,55 @@ export async function checkOutbound(
 
 /**
  * The recipients who never wrote to the workspace. Refuses a recipient who
- * complained about earlier mail. On a tenant without the tables yet (not
- * migrated) everyone counts as known.
+ * complained about earlier mail (always checked against Postgres
+ * `mail_suppressions`, in every mail-store mode). On a tenant without the
+ * tables yet (not migrated) everyone counts as known.
+ *
+ * Tries the workspace's `MailIndex` first; its answer is only trusted when it
+ * reports itself authoritative (seeded, and the caller says `object-only`).
+ * Otherwise — no `MAIL_INDEX` binding, no workspace subject, not seeded, a
+ * different mode, or the object throws — this falls back to tenant Postgres
+ * `mail_correspondents`, exactly as before `MailIndex` existed.
  */
-async function firstContactsOf(db: Database, recipients: string[]): Promise<string[]> {
+async function firstContactsOf(
+  env: OutboundGuardEnv,
+  db: Database,
+  subject: LedgerSubject | null,
+  recipients: string[],
+  mode: MailStoreMode,
+): Promise<string[]> {
   try {
     const suppressed = (await findSuppressed(db, recipients)).filter((s) => s.reason === 'complaint');
     if (suppressed.length > 0) {
       throw new OutboundDeniedError({ code: 'RECIPIENT_SUPPRESSED', recipients: suppressed.map((s) => s.email) });
     }
+    const indexed = await indexedFirstContacts(env, subject, recipients, mode);
+    if (indexed) return indexed;
     const known = await findKnownCorrespondents(db, recipients);
     return recipients.filter((r) => !known.has(r));
   } catch (err) {
     if (err instanceof OutboundDeniedError) throw err;
     console.warn('[outbound] correspondent lookup failed:', err instanceof Error ? err.message : err);
     return [];
+  }
+}
+
+/** `MailIndex.firstContacts`, or `null` when it isn't available or isn't authoritative — never throws. */
+async function indexedFirstContacts(
+  env: OutboundGuardEnv,
+  subject: LedgerSubject | null,
+  recipients: string[],
+  mode: MailStoreMode,
+): Promise<string[] | null> {
+  if (!subject || subject.kind !== 'workspace') return null;
+  const index = mailIndexFor(env, subject.workspaceId);
+  if (!index) return null;
+  try {
+    const result = await index.firstContacts(subject.workspaceId, recipients, mode);
+    return result.authoritative ? result.firstContact : null;
+  } catch (err) {
+    console.warn('[outbound] mail index lookup failed, falling back to postgres:', err instanceof Error ? err.message : err);
+    return null;
   }
 }
 
@@ -425,6 +484,7 @@ export async function commitOutbound(
   const work = Promise.all([
     commitToLedger(env, reservation, opts.sentRecipients ? sent : undefined),
     recordCorrespondents(db, sent),
+    recordOutboundInIndex(env, reservation, sent),
   ]);
   if (opts.waitUntil) opts.waitUntil(work);
   else await work;
@@ -445,6 +505,23 @@ async function recordCorrespondents(db: Database | null, sent: string[]): Promis
     await recordOutboundCorrespondents(db, sent);
   } catch (err) {
     console.warn('[outbound] correspondent record failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+/**
+ * Mirrors the send into the workspace's `MailIndex`, when one is bound —
+ * regardless of mail-store mode, so the index stays warm for whenever a
+ * workspace flips to `object-only`. Postgres (`recordCorrespondents` above)
+ * stays the system of record until the drop PR; this is purely additive.
+ */
+async function recordOutboundInIndex(env: OutboundGuardEnv, reservation: OutboundReservation, sent: string[]): Promise<void> {
+  if (sent.length === 0 || !reservation.ledger || reservation.ledger.subject.kind !== 'workspace') return;
+  const index = mailIndexFor(env, reservation.ledger.subject.workspaceId);
+  if (!index) return;
+  try {
+    await index.recordOutbound(reservation.ledger.subject.workspaceId, sent, Date.now());
+  } catch (err) {
+    console.warn('[outbound] mail index record failed:', err instanceof Error ? err.message : err);
   }
 }
 

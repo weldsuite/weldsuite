@@ -131,6 +131,11 @@ export async function forgetWorkspaceContext(
   ...refs: readonly (string | null | undefined)[]
 ): Promise<void> {
   const known = [...new Set(refs.filter((ref): ref is string => Boolean(ref)))];
+  // This isolate's in-memory copy (if any) is as stale as the KV entry; a
+  // database move relies on this clearing immediately, not waiting out its
+  // few-second TTL, so it is dropped unconditionally even if the KV purge
+  // below fails.
+  for (const ref of known) forgetContextMemory(ref);
   try {
     await Promise.all(
       known.flatMap((ref) => [
@@ -181,8 +186,12 @@ export async function selectWorkspaceForRef(masterDb: AnyMasterDatabase, ref: st
 /**
  * `timing` (optional) records the KV traffic as `kv`, the master lookup and URL
  * resolution as `master`, and whether the entry was a cache hit.
+ *
+ * Only ever runs through `getCachedWorkspaceUrl`'s isolate-level coalescing
+ * below, so a `ref` already in flight (or resolved within the last few
+ * seconds) never re-enters this function.
  */
-async function getCachedWorkspaceUrl(env: DbEnv, ref: string, timing?: RequestTiming): Promise<CachedWorkspace> {
+async function resolveCachedWorkspaceUrl(env: DbEnv, ref: string, timing?: RequestTiming): Promise<CachedWorkspace> {
   // Sealed entries live under `wsx:`; the old plaintext `ws:<ref>` key is never
   // read (a worker not yet redeployed still writes it, and it expires on its own).
   const cacheKey = workspaceCacheKey(ref);
@@ -221,6 +230,69 @@ async function getCachedWorkspaceUrl(env: DbEnv, ref: string, timing?: RequestTi
   }
 
   return entry;
+}
+
+/**
+ * Coalesces concurrent and back-to-back lookups of the same `ref` within this
+ * isolate, so the several requests one page load fires in parallel (or in
+ * quick succession) share a single KV read (and master query on a miss)
+ * instead of each paying for it. Not a replacement for the KV cache above —
+ * a fresh isolate, or one past this TTL, still goes through it.
+ *
+ * Each entry's `expiresAt` is set when the lookup STARTS, not when it
+ * resolves, so a slow master query can't extend how long its result is
+ * reused past the nominal TTL. A rejected lookup is never kept: the entry is
+ * dropped as soon as its promise rejects, so the next caller retries instead
+ * of replaying the same failure for the rest of the window.
+ */
+const CONTEXT_MEMORY_TTL_MS = 10_000;
+/** Upper bound on distinct refs remembered per isolate — a small, cheap map. */
+const CONTEXT_MEMORY_MAX_ENTRIES = 1_000;
+
+interface MemoryCacheEntry {
+  promise: Promise<CachedWorkspace>;
+  expiresAt: number;
+}
+
+const contextMemoryCache = new Map<string, MemoryCacheEntry>();
+
+/** Drop expired entries, then (rare) the oldest ones until back under the cap. */
+function pruneContextMemoryCache(now: number): void {
+  for (const [ref, entry] of contextMemoryCache) {
+    if (entry.expiresAt <= now) contextMemoryCache.delete(ref);
+  }
+  while (contextMemoryCache.size > CONTEXT_MEMORY_MAX_ENTRIES) {
+    const oldest = contextMemoryCache.keys().next().value;
+    if (oldest === undefined) break;
+    contextMemoryCache.delete(oldest);
+  }
+}
+
+/** Forget a ref's in-memory entry — `forgetWorkspaceContext` calls this alongside the KV purge. */
+function forgetContextMemory(ref: string): void {
+  contextMemoryCache.delete(ref);
+}
+
+/** Test-only: clear every isolate-memory entry so tests don't leak into each other. */
+export function __resetContextMemoryForTests(): void {
+  contextMemoryCache.clear();
+}
+
+async function getCachedWorkspaceUrl(env: DbEnv, ref: string, timing?: RequestTiming): Promise<CachedWorkspace> {
+  const now = Date.now();
+  const existing = contextMemoryCache.get(ref);
+  if (existing && existing.expiresAt > now) return existing.promise;
+
+  const promise = resolveCachedWorkspaceUrl(env, ref, timing);
+  const entry: MemoryCacheEntry = { promise, expiresAt: now + CONTEXT_MEMORY_TTL_MS };
+  contextMemoryCache.set(ref, entry);
+  pruneContextMemoryCache(now);
+  promise.catch(() => {
+    // Only this call's own entry — a database move or a fresh lookup may
+    // have already replaced it with a newer one for the same ref.
+    if (contextMemoryCache.get(ref) === entry) contextMemoryCache.delete(ref);
+  });
+  return promise;
 }
 
 /** The workspace's resolution read from the master DB (and Neon, for a row without a stored URL). */

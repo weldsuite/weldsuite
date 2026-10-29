@@ -35,6 +35,7 @@ import { getMasterDb, type MasterDatabase } from '../db';
 import type { Env } from '../index';
 import { describeFailure } from './database-move/failure';
 import { hasActiveMove } from './database-move/state';
+import { destroyWorkspaceMail } from './workspace-mail-destroy';
 
 /** Teardowns retried per run. */
 export const TEARDOWN_BATCH_LIMIT = 10;
@@ -63,6 +64,7 @@ export interface TeardownSweepResult {
 type Outcome = 'succeeded' | 'failed' | 'deferred';
 
 async function retryTeardown(
+  env: Env,
   db: MasterDatabase,
   provisioning: Pick<DatabaseProvisioningService, 'deleteWorkspaceDatabase'>,
   workspaceId: string,
@@ -73,6 +75,16 @@ async function retryTeardown(
       console.warn(`[TeardownSweep] Workspace ${workspaceId} has a database move in progress, deferring its teardown`);
       return 'deferred';
     }
+
+    // Same ordering as the Clerk webhook cascade (routes/webhooks/clerk.ts):
+    // mail held outside Postgres is destroyed from the tenant DB's mail_accounts
+    // (and the master registry) before the database that holds that table goes
+    // away. A failure here is caught below like any other teardown failure —
+    // logged, counted, and left for the next run — so it never blocks the rest
+    // of this batch, but it also means `deleteWorkspaceDatabase` below is
+    // skipped this round: the Neon teardown must never run ahead of the mail
+    // destroy (design §7, docs/plans/weldmail-mailbox-store-design.md).
+    await destroyWorkspaceMail(env, db, workspaceId);
 
     const result = await provisioning.deleteWorkspaceDatabase(db, workspaceId);
     if (result.success) {
@@ -133,7 +145,7 @@ export async function sweepUnfinishedTeardowns(
 
     result.due = due.length;
     for (const workspace of due) {
-      const outcome = await retryTeardown(db, provisioning, workspace.id, now);
+      const outcome = await retryTeardown(env, db, provisioning, workspace.id, now);
       result[outcome] += 1;
     }
   } catch (err) {

@@ -38,6 +38,16 @@ export const SENSITIVE_COLUMNS = {
   form_1099_filing_lines: ['recipientTinEncrypted'],
   /** HR employee sensitive blob (bank, national id, ...); hr-api reveals it behind `employees:sensitive`. */
   hr_employees: ['sensitiveEncrypted'],
+  /**
+   * OAuth/IMAP/SMTP credentials and provider secrets a mail account holds.
+   * mail-api's own routes (`publicAccountColumns`,
+   * apps/workers/mail-api/src/services/mail/accounts.ts) and the public/MCP
+   * view (`packages/domains/mail/src/accounts.ts`'s `PUBLIC_COLUMNS`) already
+   * exclude these by hand; listed here too so a generic, by-name column
+   * selector (a workflow's record actions) gets the same guarantee without a
+   * fourth hand-written list to keep in sync.
+   */
+  mail_accounts: ['accessToken', 'refreshToken', 'apiKey', 'passwordHash', 'providerConfig'],
   /** WeldReach mailbox SMTP/IMAP logins from Mailpool; only the send path and the reply sender decrypt them. */
   reach_mailboxes: ['smtpCredentials', 'imapCredentials'],
   /** The same logins sealed for the warmup network (master DB, WELDREACH_WARMUP_KEY). */

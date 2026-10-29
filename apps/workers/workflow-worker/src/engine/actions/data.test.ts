@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
 import {
   handleCreateRecord,
@@ -10,6 +10,24 @@ import {
 import { makeActionContext } from '../../test/ctx';
 import { createPgliteDb } from '../../test/pglite';
 import { schema, type Database } from '../../db';
+import type { WorkflowEnv } from '../types';
+import { __resetMailStoreModeCacheForTests } from '@weldsuite/mail-domain/store/mode';
+
+// `entity-tables.ts`'s MAIL-009 guard resolves `ctx.tenant.workspaceId` (the
+// Clerk org id) to `workspaces.id` via `getCanonicalWorkspaceId` (`../../db`),
+// which queries the master DB. Stubbed here as the identity function — these
+// tests only care about the mail-store-mode decision, not workspace
+// resolution, which `../../db.test.ts`-style coverage is not worth the
+// master-DB test fixture for. `importOriginal` keeps `schema`/`Database`/
+// `getTenantDbForWorkspace` real for everything else this file (and
+// `entity-tables.ts`, which resolves to the same module) imports.
+const { getCanonicalWorkspaceIdMock } = vi.hoisted(() => ({
+  getCanonicalWorkspaceIdMock: vi.fn(async (_env: unknown, ref: string) => ref),
+}));
+vi.mock('../../db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../db')>();
+  return { ...actual, getCanonicalWorkspaceId: getCanonicalWorkspaceIdMock };
+});
 
 // --- transform: pure, no db -------------------------------------------------
 
@@ -152,5 +170,453 @@ describe('record actions (pglite)', () => {
     await handleDeleteRecord({ entity: 'workflow', id: b.record.id, hardDelete: true }, ctx);
     const rows = await db.select().from(schema.workflows).where(eq(schema.workflows.id, b.record.id));
     expect(rows).toHaveLength(0);
+  });
+});
+
+// --- record CRUD on mail entities: MAIL-003 (pglite) ------------------------
+//
+// A workflow run acts for no member, so it can satisfy neither half of
+// MAIL-003 (sharing or per-user assignment). Generic record actions are
+// therefore scoped to shared mailboxes only — see `sharedMailboxCondition` /
+// `assertMailEntityCreatable` in `../entity-tables.ts`.
+
+describe('record actions and MAIL-003 (pglite)', () => {
+  let db: Database;
+  let sharedAccountId: string;
+  let secondSharedAccountId: string;
+  let privateAccountId: string;
+
+  beforeAll(async () => {
+    const handle = await createPgliteDb();
+    db = handle.db;
+
+    sharedAccountId = 'mail_shared_test';
+    await db.insert(schema.mailAccounts).values({
+      id: sharedAccountId,
+      name: 'Shared',
+      email: 'shared@test.dev',
+      isShared: true,
+    });
+
+    privateAccountId = 'mail_private_test';
+    await db.insert(schema.mailAccounts).values({
+      id: privateAccountId,
+      name: 'Private',
+      email: 'private@test.dev',
+      isShared: false,
+      assignedUserIds: ['user_someone'],
+    });
+
+    secondSharedAccountId = 'mail_shared_test_2';
+    await db.insert(schema.mailAccounts).values({
+      id: secondSharedAccountId,
+      name: 'Shared 2',
+      email: 'shared2@test.dev',
+      isShared: true,
+    });
+  }, 60_000);
+
+  describe('create_record', () => {
+    it('refuses a mail_message targeting a private account', async () => {
+      await expect(
+        handleCreateRecord(
+          {
+            entity: 'mail_message',
+            data: {
+              accountId: privateAccountId,
+              threadId: 'thread_x',
+              messageId: '<x@test.dev>',
+              from: { email: 'a@test.dev' },
+              to: [{ email: 'b@test.dev' }],
+              subject: 'hi',
+              sentDate: new Date(),
+              labels: [],
+            },
+          },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mailbox/i);
+    });
+
+    it('creates a mail_message targeting a shared account', async () => {
+      const res = (await handleCreateRecord(
+        {
+          entity: 'mail_message',
+          data: {
+            accountId: sharedAccountId,
+            threadId: 'thread_y',
+            messageId: '<y@test.dev>',
+            from: { email: 'a@test.dev' },
+            to: [{ email: 'b@test.dev' }],
+            subject: 'hi',
+            sentDate: new Date(),
+            labels: [],
+          },
+        },
+        makeActionContext({ db }),
+      )) as { created: boolean; record: { id: string } };
+      expect(res.created).toBe(true);
+    });
+
+    it('refuses to create a mail_account explicitly marked private', async () => {
+      await expect(
+        handleCreateRecord(
+          { entity: 'mail_account', data: { name: 'New', email: 'new@test.dev', isShared: false } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mail account/i);
+    });
+
+    it('creates a mail_account as shared even when isShared is left unset', async () => {
+      const res = (await handleCreateRecord(
+        { entity: 'mail_account', data: { name: 'New', email: 'new2@test.dev' } },
+        makeActionContext({ db }),
+      )) as { record: { id: string; isShared: boolean } };
+      expect(res.record.isShared).toBe(true);
+    });
+
+    it('refuses to create a mail_account that sets a credential column', async () => {
+      await expect(
+        handleCreateRecord(
+          { entity: 'mail_account', data: { name: 'New', email: 'creds@test.dev', accessToken: 'secret' } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/accessToken/);
+    });
+
+    it('never returns credential columns on create, even when the row has one set directly', async () => {
+      // Bypasses the generic-write refusal to prove the *read* side (getEntityColumns)
+      // also guards mail_account, independent of the write guard above.
+      const id = 'mail_direct_cred_test';
+      await db.insert(schema.mailAccounts).values({
+        id,
+        name: 'Direct',
+        email: 'direct@test.dev',
+        isShared: true,
+        accessToken: 'leaked-token',
+      });
+      const res = (await handleUpdateRecord(
+        { entity: 'mail_account', id, data: { name: 'Direct renamed' } },
+        makeActionContext({ db }),
+      )) as { record: Record<string, unknown> };
+      expect('accessToken' in res.record).toBe(false);
+      expect(res.record.name).toBe('Direct renamed');
+    });
+  });
+
+  describe('update_record / delete_record', () => {
+    async function seedMessage(accountId: string): Promise<string> {
+      const id = `mmsg_${Math.random().toString(36).slice(2)}`;
+      await db.insert(schema.mailMessages).values({
+        id,
+        accountId,
+        threadId: `thread_${id}`,
+        messageId: `<${id}@test.dev>`,
+        from: { email: 'a@test.dev' },
+        to: [{ email: 'b@test.dev' }],
+        subject: 'hi',
+        sentDate: new Date(),
+        labels: [],
+      });
+      return id;
+    }
+
+    it('cannot update a private mailbox\'s message', async () => {
+      const id = await seedMessage(privateAccountId);
+      await expect(
+        handleUpdateRecord({ entity: 'mail_message', id, data: { subject: 'changed' } }, makeActionContext({ db })),
+      ).rejects.toThrow(/not found/i);
+      const [row] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(row?.subject).toBe('hi');
+    });
+
+    it('updates a shared mailbox\'s message', async () => {
+      const id = await seedMessage(sharedAccountId);
+      const res = (await handleUpdateRecord(
+        { entity: 'mail_message', id, data: { subject: 'changed' } },
+        makeActionContext({ db }),
+      )) as { updated: boolean };
+      expect(res.updated).toBe(true);
+    });
+
+    // Regression: the WHERE-clause scope only proves the *existing* row started
+    // in a shared mailbox; it says nothing about the incoming `data`. Without
+    // validating `data` too, this update would move a shared message into
+    // someone's private mailbox.
+    it('refuses to move a shared mailbox\'s message into a private account', async () => {
+      const id = await seedMessage(sharedAccountId);
+      await expect(
+        handleUpdateRecord(
+          { entity: 'mail_message', id, data: { accountId: privateAccountId } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mailbox/i);
+      const [row] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(row?.accountId).toBe(sharedAccountId);
+    });
+
+    it('allows moving a shared mailbox\'s message to another shared account', async () => {
+      const id = await seedMessage(sharedAccountId);
+      const res = (await handleUpdateRecord(
+        { entity: 'mail_message', id, data: { accountId: secondSharedAccountId } },
+        makeActionContext({ db }),
+      )) as { updated: boolean; record: { accountId: string } };
+      expect(res.updated).toBe(true);
+      expect(res.record.accountId).toBe(secondSharedAccountId);
+    });
+
+    it('refuses to update a mail_account with a credential column, even the caller\'s own', async () => {
+      await expect(
+        handleUpdateRecord(
+          { entity: 'mail_account', id: sharedAccountId, data: { passwordHash: 'new-hash' } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/passwordHash/);
+      const [row] = await db.select().from(schema.mailAccounts).where(eq(schema.mailAccounts.id, sharedAccountId));
+      expect(row?.passwordHash).toBeNull();
+    });
+
+    // Regression: same gap as the mail_message case above, for mail_account's
+    // own `isShared` flag — an update could otherwise make a shared mailbox
+    // private.
+    it('refuses to make a shared mail_account private', async () => {
+      await expect(
+        handleUpdateRecord(
+          { entity: 'mail_account', id: sharedAccountId, data: { isShared: false } },
+          makeActionContext({ db }),
+        ),
+      ).rejects.toThrow(/shared mail account/i);
+      const [row] = await db.select().from(schema.mailAccounts).where(eq(schema.mailAccounts.id, sharedAccountId));
+      expect(row?.isShared).toBe(true);
+    });
+
+    it('allows updating a shared mail_account without touching isShared', async () => {
+      const res = (await handleUpdateRecord(
+        { entity: 'mail_account', id: sharedAccountId, data: { name: 'Shared renamed' } },
+        makeActionContext({ db }),
+      )) as { updated: boolean; record: { name: string; isShared: boolean } };
+      expect(res.updated).toBe(true);
+      expect(res.record.isShared).toBe(true);
+    });
+
+    it('cannot delete a private mailbox\'s message', async () => {
+      const id = await seedMessage(privateAccountId);
+      await handleDeleteRecord({ entity: 'mail_message', id, hardDelete: true }, makeActionContext({ db }));
+      const rows = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(rows).toHaveLength(1); // untouched, not hard-deleted
+    });
+
+    it('deletes a shared mailbox\'s message', async () => {
+      const id = await seedMessage(sharedAccountId);
+      await handleDeleteRecord({ entity: 'mail_message', id, hardDelete: true }, makeActionContext({ db }));
+      const rows = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(rows).toHaveLength(0);
+    });
+  });
+
+  describe('query_data', () => {
+    it('excludes a private mailbox\'s messages from a generic mail_message query', async () => {
+      await db.insert(schema.mailMessages).values([
+        {
+          id: 'mmsg_q_shared',
+          accountId: sharedAccountId,
+          threadId: 'thread_q_shared',
+          messageId: '<q_shared@test.dev>',
+          from: { email: 'a@test.dev' },
+          to: [{ email: 'b@test.dev' }],
+          subject: 'query-shared',
+          sentDate: new Date(),
+          labels: [],
+        },
+        {
+          id: 'mmsg_q_private',
+          accountId: privateAccountId,
+          threadId: 'thread_q_private',
+          messageId: '<q_private@test.dev>',
+          from: { email: 'a@test.dev' },
+          to: [{ email: 'b@test.dev' }],
+          subject: 'query-private',
+          sentDate: new Date(),
+          labels: [],
+        },
+      ]);
+
+      const res = (await handleQueryData({ entity: 'mail_message' }, makeActionContext({ db }))) as {
+        records: Array<{ id: string }>;
+      };
+      const ids = res.records.map((r) => r.id);
+      expect(ids).toContain('mmsg_q_shared');
+      expect(ids).not.toContain('mmsg_q_private');
+    });
+
+    it('excludes a private account from a generic mail_account query', async () => {
+      const res = (await handleQueryData({ entity: 'mail_account' }, makeActionContext({ db }))) as {
+        records: Array<{ id: string }>;
+      };
+      const ids = res.records.map((r) => r.id);
+      expect(ids).toContain(sharedAccountId);
+      expect(ids).not.toContain(privateAccountId);
+    });
+
+    it('never returns a mail_account\'s credential columns', async () => {
+      const res = (await handleQueryData({ entity: 'mail_account' }, makeActionContext({ db }))) as {
+        records: Array<Record<string, unknown>>;
+      };
+      expect(res.records.length).toBeGreaterThan(0);
+      for (const record of res.records) {
+        for (const key of ['accessToken', 'refreshToken', 'apiKey', 'passwordHash', 'providerConfig']) {
+          expect(key in record, key).toBe(false);
+        }
+      }
+    });
+  });
+});
+
+// --- record CRUD on mail_message: MAIL-009 (pglite) -------------------------
+//
+// Once a workspace's mail reads from the mailbox object (`weldmail-mailbox-store`
+// flag = `object` / `object-only`), the Postgres `mail_messages` row the engine's
+// table points at is no longer the truth. `assertMailMessageStoreIsPostgres`
+// (`../entity-tables.ts`) refuses the generic actions outright for that entity;
+// `postgres` and `shadow` (and a worker with no `FLAGSHIP` binding at all) are
+// unaffected.
+
+describe('record actions and MAIL-009 (mail store mode guard, pglite)', () => {
+  let db: Database;
+  let sharedAccountId: string;
+
+  beforeAll(async () => {
+    const handle = await createPgliteDb();
+    db = handle.db;
+
+    sharedAccountId = 'mail_mode_shared_test';
+    await db.insert(schema.mailAccounts).values({
+      id: sharedAccountId,
+      name: 'Shared',
+      email: 'shared-mode@test.dev',
+      isShared: true,
+    });
+  }, 60_000);
+
+  beforeEach(() => {
+    __resetMailStoreModeCacheForTests();
+    getCanonicalWorkspaceIdMock.mockClear();
+    getCanonicalWorkspaceIdMock.mockImplementation(async (_env: unknown, ref: string) => ref);
+  });
+
+  function envWithMode(mode: string): WorkflowEnv {
+    return { FLAGSHIP: { getStringValue: async () => mode } } as WorkflowEnv;
+  }
+
+  async function seedMessage(): Promise<string> {
+    const id = `mmsg_mode_${Math.random().toString(36).slice(2)}`;
+    await db.insert(schema.mailMessages).values({
+      id,
+      accountId: sharedAccountId,
+      threadId: `thread_${id}`,
+      messageId: `<${id}@test.dev>`,
+      from: { email: 'a@test.dev' },
+      to: [{ email: 'b@test.dev' }],
+      subject: 'hi',
+      sentDate: new Date(),
+      labels: [],
+    });
+    return id;
+  }
+
+  function messagePayload(id: string) {
+    return {
+      accountId: sharedAccountId,
+      threadId: `thread_${id}`,
+      messageId: `<${id}@test.dev>`,
+      from: { email: 'a@test.dev' },
+      to: [{ email: 'b@test.dev' }],
+      subject: 'hi',
+      sentDate: new Date(),
+      labels: [],
+    };
+  }
+
+  describe.each(['postgres', 'shadow'])('%s mode', (mode) => {
+    it('leaves create/update/delete/query on mail_message unchanged', async () => {
+      const ctx = makeActionContext({ db, env: envWithMode(mode) });
+      const createId = `mmsg_mode_create_${mode}`;
+      const created = (await handleCreateRecord(
+        { entity: 'mail_message', data: messagePayload(createId) },
+        ctx,
+      )) as { created: boolean; record: { id: string } };
+      expect(created.created).toBe(true);
+
+      const updated = (await handleUpdateRecord(
+        { entity: 'mail_message', id: created.record.id, data: { subject: 'changed' } },
+        ctx,
+      )) as { updated: boolean };
+      expect(updated.updated).toBe(true);
+
+      const queried = (await handleQueryData({ entity: 'mail_message' }, ctx)) as {
+        records: Array<{ id: string }>;
+      };
+      expect(queried.records.map((r) => r.id)).toContain(created.record.id);
+
+      await expect(
+        handleDeleteRecord({ entity: 'mail_message', id: created.record.id, hardDelete: true }, ctx),
+      ).resolves.toMatchObject({ deleted: true });
+    });
+  });
+
+  describe.each(['object', 'object-only'])('%s mode', (mode) => {
+    it('refuses create_record on mail_message with a clear error', async () => {
+      const ctx = makeActionContext({ db, env: envWithMode(mode) });
+      await expect(
+        handleCreateRecord({ entity: 'mail_message', data: messagePayload('mmsg_mode_refused_create') }, ctx),
+      ).rejects.toThrow(/mail actions instead/i);
+    });
+
+    it('refuses update_record on mail_message with a clear error, without touching the row', async () => {
+      const id = await seedMessage();
+      const ctx = makeActionContext({ db, env: envWithMode(mode) });
+      await expect(
+        handleUpdateRecord({ entity: 'mail_message', id, data: { subject: 'changed' } }, ctx),
+      ).rejects.toThrow(/mail actions instead/i);
+      const [row] = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(row?.subject).toBe('hi');
+    });
+
+    it('refuses delete_record on mail_message with a clear error, without touching the row', async () => {
+      const id = await seedMessage();
+      const ctx = makeActionContext({ db, env: envWithMode(mode) });
+      await expect(
+        handleDeleteRecord({ entity: 'mail_message', id, hardDelete: true }, ctx),
+      ).rejects.toThrow(/mail actions instead/i);
+      const rows = await db.select().from(schema.mailMessages).where(eq(schema.mailMessages.id, id));
+      expect(rows).toHaveLength(1);
+    });
+
+    it('refuses query_data on mail_message with a clear error', async () => {
+      const ctx = makeActionContext({ db, env: envWithMode(mode) });
+      await expect(handleQueryData({ entity: 'mail_message' }, ctx)).rejects.toThrow(/mail actions instead/i);
+    });
+
+    it('is a no-op for other mail entities (mail_account)', async () => {
+      const ctx = makeActionContext({ db, env: envWithMode(mode) });
+      await expect(handleQueryData({ entity: 'mail_account' }, ctx)).resolves.toBeDefined();
+    });
+  });
+
+  it('falls back to postgres behaviour when there is no FLAGSHIP binding', async () => {
+    const ctx = makeActionContext({ db, env: {} as WorkflowEnv });
+    const id = `mmsg_mode_no_flagship`;
+    await expect(
+      handleCreateRecord({ entity: 'mail_message', data: messagePayload(id) }, ctx),
+    ).resolves.toMatchObject({ created: true });
+  });
+
+  it('fails open to postgres behaviour when the workspace id cannot be resolved', async () => {
+    getCanonicalWorkspaceIdMock.mockRejectedValueOnce(new Error('workspace lookup unavailable'));
+    const ctx = makeActionContext({ db, env: envWithMode('object') });
+    const id = `mmsg_mode_resolve_fails`;
+    await expect(
+      handleCreateRecord({ entity: 'mail_message', data: messagePayload(id) }, ctx),
+    ).resolves.toMatchObject({ created: true });
   });
 });

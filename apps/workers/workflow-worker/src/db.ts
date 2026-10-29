@@ -101,3 +101,19 @@ export async function getTenantDbForWorkspace(env: TenantDbEnv, ref: string): Pr
   const workspace = await getCachedWorkspaceUrl(env, ref);
   return createNeonTenantDb(workspace.databaseUrl);
 }
+
+/**
+ * The canonical `workspaces.id` for a ref that may be either identifier of the
+ * workspace (today, `ActionContext.tenant.workspaceId` is the Clerk org id —
+ * see `docs/plans/workspace-id-standardization.md`). Reuses the exact same
+ * KV-cached lookup `getTenantDbForWorkspace` already runs to open the tenant
+ * DB, so a call right after resolving the tenant DB for the same ref costs one
+ * KV read, not a master-DB round trip. Used by the mail-store-mode guard
+ * (`engine/entity-tables.ts`), which needs `workspaces.id` to evaluate the
+ * `weldmail-mailbox-store` Flagship flag (`@weldsuite/mail-domain/store/mode`
+ * keys its context on the canonical id, never the Clerk org id).
+ */
+export async function getCanonicalWorkspaceId(env: TenantDbEnv, ref: string): Promise<string> {
+  const workspace = await getCachedWorkspaceUrl(env, ref);
+  return workspace.id;
+}

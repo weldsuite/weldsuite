@@ -63,11 +63,25 @@ interface RequirePermissionOptions {
    * through with a warning, so the rollout can't lock anyone out.
    */
   isAppEnforced?: (c: any) => boolean;
+  /**
+   * How to turn `queries` into the user's `ResolvedPermissions`. Defaults to
+   * a bare `resolveEffectivePermissions(queries, userId)` call. A caller can
+   * override this to cache the resolved result (e.g. worker-kit, in KV)
+   * without this package knowing anything about where or how it is cached —
+   * this stays the only seam, so @weldsuite/permissions never imports
+   * worker-kit or a KV type.
+   */
+  resolve?: (c: any, queries: PermissionDbQuery, userId: string) => Promise<ResolvedPermissions>;
 }
 
 let _createQueries: ((c: any) => PermissionDbQuery) | null = null;
 let _getApp: (c: any) => string | null | undefined = (c) => c.get(APP_CONTEXT_KEY);
 let _isAppEnforced: (c: any) => boolean = (c) => c.env?.PERMISSIONS_APP_ENFORCE === 'true';
+let _resolve: (c: any, queries: PermissionDbQuery, userId: string) => Promise<ResolvedPermissions> = (
+  _c,
+  queries,
+  userId,
+) => resolveEffectivePermissions(queries, userId);
 
 /**
  * One-time setup: tell the middleware how to create DB queries from context.
@@ -85,6 +99,7 @@ export function initPermissionMiddleware(opts: RequirePermissionOptions) {
   _createQueries = opts.createQueries;
   if (opts.getApp) _getApp = opts.getApp;
   if (opts.isAppEnforced) _isAppEnforced = opts.isAppEnforced;
+  if (opts.resolve) _resolve = opts.resolve;
 }
 
 // Each distinct warning is logged once per isolate: every request made from a
@@ -166,7 +181,7 @@ export const requirePermission = (...required: string[]): RouteSlot => {
     let resolved = c.get(CONTEXT_KEY) as ResolvedPermissions | undefined;
     if (!resolved) {
       const queries = _createQueries(c);
-      resolved = await resolveEffectivePermissions(queries, userId);
+      resolved = await _resolve(c, queries, userId);
       c.set(CONTEXT_KEY, resolved);
     }
 
@@ -218,7 +233,7 @@ export async function ensurePermissionsResolved(c: any): Promise<ResolvedPermiss
     );
   }
   const queries = _createQueries(c);
-  const resolved = await resolveEffectivePermissions(queries, userId);
+  const resolved = await _resolve(c, queries, userId);
   c.set(CONTEXT_KEY, resolved);
   return resolved;
 }

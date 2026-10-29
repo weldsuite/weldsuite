@@ -17,6 +17,7 @@ import {
   addLabels,
   applyLabelToThread,
   createMailLabel,
+  deleteMailLabel,
   MailLabelError,
   updateMailLabel,
 } from './labels';
@@ -304,5 +305,35 @@ describe('label rename (TASK-902)', () => {
 
     const label = await createMailLabel(db, { accountId, name: 'Receipts' });
     await expect(updateMailLabel(db, label.id, { name: 'Inbox' })).rejects.toBeInstanceOf(MailLabelError);
+  });
+});
+
+describe('label delete (route-level deleteMailLabel)', () => {
+  it('strips the label from every message regardless of its stored casing', async () => {
+    const accountId = await seedAccount();
+    const label = await createMailLabel(db, { accountId, name: 'Invoices' });
+    // Same casing as the registered label, a different casing, and an
+    // unrelated label that must survive untouched.
+    const exact = await seedMessage(accountId, ['INBOX', 'Invoices']);
+    const differentCasing = await seedMessage(accountId, ['INBOX', 'invoices']);
+    const other = await seedMessage(accountId, ['INBOX', 'Clients']);
+
+    const deleted = await deleteMailLabel(db, label.id);
+
+    expect(deleted?.id).toBe(label.id);
+    expect((await rowOf(exact)).labels).toEqual(['INBOX']);
+    expect((await rowOf(differentCasing)).labels).toEqual(['INBOX']);
+    expect((await rowOf(other)).labels).toEqual(['INBOX', 'Clients']);
+  });
+
+  it('leaves another account carrying the same label name alone', async () => {
+    const accountId = await seedAccount();
+    const otherAccountId = await seedAccount();
+    const label = await createMailLabel(db, { accountId, name: 'Shared name' });
+    const foreign = await seedMessage(otherAccountId, ['Shared name']);
+
+    await deleteMailLabel(db, label.id);
+
+    expect((await rowOf(foreign)).labels).toEqual(['Shared name']);
   });
 });

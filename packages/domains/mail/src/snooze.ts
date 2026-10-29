@@ -73,8 +73,9 @@ export async function snoozeMessage(
   accountId: string,
   messageId: string,
   until: Date,
+  now: Date = new Date(),
 ) {
-  if (until <= new Date()) {
+  if (until <= now) {
     throw new MailSnoozeError('SNOOZE_IN_PAST', 'Snooze time must be in the future');
   }
   const message = await findMessage(db, accountId, messageId);
@@ -87,8 +88,8 @@ export async function snoozeMessage(
       labels: addLabels(removeLabels(labels, 'INBOX'), 'SNOOZED'),
       isRead: true,
       snoozedUntil: until,
-      snoozedAt: new Date(),
-      updatedAt: new Date(),
+      snoozedAt: now,
+      updatedAt: now,
     })
     .where(eq(mailMessages.id, messageId));
 
@@ -99,6 +100,7 @@ export async function unsnoozeMessage(
   db: Database,
   accountId: string,
   messageId: string,
+  now: Date = new Date(),
 ) {
   const message = await findMessage(db, accountId, messageId);
   if (!message) throw new MailSnoozeError('MESSAGE_NOT_FOUND', 'Message not found');
@@ -115,9 +117,9 @@ export async function unsnoozeMessage(
       isRead: false,
       snoozedUntil: null,
       unsnoozeTriggerRunId: null,
-      unsnoozedAt: new Date(),
+      unsnoozedAt: now,
       unsnoozedEarly: true,
-      updatedAt: new Date(),
+      updatedAt: now,
     })
     .where(eq(mailMessages.id, messageId));
 
@@ -129,8 +131,9 @@ export async function resnoozeMessage(
   accountId: string,
   messageId: string,
   until: Date,
+  now: Date = new Date(),
 ) {
-  if (until <= new Date()) {
+  if (until <= now) {
     throw new MailSnoozeError('SNOOZE_IN_PAST', 'Snooze time must be in the future');
   }
   const message = await findMessage(db, accountId, messageId);
@@ -140,8 +143,8 @@ export async function resnoozeMessage(
     .update(mailMessages)
     .set({
       snoozedUntil: until,
-      resnoozedAt: new Date(),
-      updatedAt: new Date(),
+      resnoozedAt: now,
+      updatedAt: now,
     })
     .where(eq(mailMessages.id, messageId));
 
@@ -149,18 +152,15 @@ export async function resnoozeMessage(
 }
 
 /**
- * Wake every snoozed message whose time has come: SNOOZED goes, INBOX comes
- * back, and the mail is unread again so it stands out as it would have on
- * arrival. One statement, driven by the `snoozed_until` index. `scope`
- * narrows it to some accounts (an extra condition on `mail_messages`).
- *
- * Mail that was trashed or marked spam while snoozed has no SNOOZED label any
- * more (a move clears it), so it is never brought back.
+ * The UPDATE `wakeDueSnoozedMessages` runs, built but not executed. Split out
+ * so a caller that already has its own `db.batch([...])` in flight (the
+ * thread list: `listThreadsByLabel` folds the wake in with its count and page
+ * queries, one round trip instead of three) can include this statement
+ * instead of paying for it separately. `wakeDueSnoozedMessages` is this plus
+ * the await and the result bookkeeping, for the cron sweep and direct
+ * callers that want the woken count.
  */
-export async function wakeDueSnoozedMessages(
-  db: Database,
-  options: { now?: Date; scope?: SQL } = {},
-): Promise<{ woken: number; accountIds: string[] }> {
+export function buildWakeDueSnoozedUpdate(db: Database, options: { now?: Date; scope?: SQL } = {}) {
   const now = options.now ?? new Date();
   const conditions: SQL[] = [
     isNull(mailMessages.deletedAt)!,
@@ -169,7 +169,7 @@ export async function wakeDueSnoozedMessages(
   ];
   if (options.scope) conditions.push(options.scope);
 
-  const rows = await db
+  return db
     .update(mailMessages)
     .set({
       labels: sql`((${mailMessages.labels} - 'SNOOZED') - 'INBOX') || '["INBOX"]'::jsonb`,
@@ -181,16 +181,46 @@ export async function wakeDueSnoozedMessages(
       updatedAt: now,
     })
     .where(and(...conditions))
-    .returning({ accountId: mailMessages.accountId });
-  return { woken: rows.length, accountIds: [...new Set(rows.map((r) => r.accountId))] };
+    .returning({ accountId: mailMessages.accountId, id: mailMessages.id });
 }
 
 /**
- * When the next snoozed message of this workspace comes due (`null`: nothing
- * snoozed). Same conditions as `wakeDueSnoozedMessages`, so the snooze sweep
- * can store this in the D1 due index and leave the tenant alone until then.
+ * Wake every snoozed message whose time has come: SNOOZED goes, INBOX comes
+ * back, and the mail is unread again so it stands out as it would have on
+ * arrival. One statement, driven by the `snoozed_until` index. `scope`
+ * narrows it to some accounts (an extra condition on `mail_messages`).
+ *
+ * Mail that was trashed or marked spam while snoozed has no SNOOZED label any
+ * more (a move clears it), so it is never brought back.
+ *
+ * `ids` lists every message the UPDATE actually woke (via `RETURNING`), so a
+ * caller that applied this as a `snooze.wake` op can report it in
+ * `OpResult.applied`, the same shape the mailbox object's `applySnoozeWake`
+ * returns for the identical op.
  */
-export async function nextSnoozeDueAt(db: Database): Promise<Date | null> {
+export async function wakeDueSnoozedMessages(
+  db: Database,
+  options: { now?: Date; scope?: SQL } = {},
+): Promise<{ woken: number; accountIds: string[]; ids: string[] }> {
+  const rows = await buildWakeDueSnoozedUpdate(db, options);
+  return { woken: rows.length, accountIds: [...new Set(rows.map((r) => r.accountId))], ids: rows.map((r) => r.id) };
+}
+
+/**
+ * When the next snoozed message comes due (`null`: nothing snoozed). Same
+ * conditions as `wakeDueSnoozedMessages`. `options.scope` narrows it to some
+ * accounts, same as that function — omitted, it stays workspace-wide, which
+ * is what the snooze sweep (one tenant DB per workspace) wants; a per-mailbox
+ * caller (`PostgresMailboxStore`'s `snooze.wake` op) passes its own account's
+ * scope so the value it reports is this mailbox's, not the whole workspace's.
+ */
+export async function nextSnoozeDueAt(db: Database, options: { scope?: SQL } = {}): Promise<Date | null> {
+  const conditions: SQL[] = [
+    isNull(mailMessages.deletedAt)!,
+    sql`${mailMessages.snoozedUntil} IS NOT NULL`,
+    sql`${mailMessages.labels} @> '["SNOOZED"]'::jsonb`,
+  ];
+  if (options.scope) conditions.push(options.scope);
   const [row] = await db
     .select({
       // mapWith: decode like the column (timestamp without time zone = UTC),
@@ -198,24 +228,24 @@ export async function nextSnoozeDueAt(db: Database): Promise<Date | null> {
       next: sql<Date | null>`min(${mailMessages.snoozedUntil})`.mapWith(mailMessages.snoozedUntil),
     })
     .from(mailMessages)
-    .where(
-      and(
-        isNull(mailMessages.deletedAt),
-        sql`${mailMessages.snoozedUntil} IS NOT NULL`,
-        sql`${mailMessages.labels} @> '["SNOOZED"]'::jsonb`,
-      ),
-    );
+    .where(and(...conditions));
   return row?.next ?? null;
 }
 
 /**
- * Return every message tagged `SNOOZED`, optionally restricted to a
- * single account. Projects the snooze-relevant `customFields` up to
- * the top level so callers don't have to dig into the JSONB blob.
+ * Return every message tagged `SNOOZED`, restricted to a single account or to
+ * an explicit list. Projects the snooze-relevant `customFields` up to the top
+ * level so callers don't have to dig into the JSONB blob.
+ *
+ * `accountIds` is the store's accessible-account scoping (design task B4,
+ * fixing "existing access bugs" item 9 / design §1: this used to default to
+ * *every* mailbox in the workspace with no access filter at all). Passing
+ * neither `accountId` nor `accountIds` keeps the old "every account" default
+ * for any caller that hasn't been updated yet.
  */
 export async function listSnoozedMessages(
   db: Database,
-  filters: { accountId?: string },
+  filters: { accountId?: string; accountIds?: string[] },
 ) {
   let accountIds: string[];
   if (filters.accountId) {
@@ -225,6 +255,8 @@ export async function listSnoozedMessages(
       .where(and(eq(mailAccounts.id, filters.accountId), isNull(mailAccounts.deletedAt)))
       .limit(1);
     accountIds = account ? [account.id] : [];
+  } else if (filters.accountIds) {
+    accountIds = filters.accountIds;
   } else {
     const rows = await db
       .select({ id: mailAccounts.id })

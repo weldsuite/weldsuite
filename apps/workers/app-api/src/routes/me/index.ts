@@ -12,14 +12,11 @@
 
 import { Hono } from 'hono';
 import { and, eq, isNull } from 'drizzle-orm';
-import {
-  createDrizzlePermissionQueries,
-  isAppPermissionEnforced,
-  resolveEffectivePermissions,
-} from '@weldsuite/permissions/server';
+import { createDrizzlePermissionQueries, isAppPermissionEnforced } from '@weldsuite/permissions/server';
 import type { Env, Variables } from '../../types';
 import { error, success } from '@weldsuite/worker-kit/response';
 import { schema } from '@weldsuite/worker-kit/db';
+import { resolveEffectivePermissionsCached } from '@weldsuite/worker-kit/permission-cache';
 import { ensureMemberLinked } from '../../services/member-link';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -27,8 +24,11 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 /**
  * GET /permissions — resolve the caller's effective permissions.
  *
- * Uses the shared @weldsuite/permissions resolver so behaviour stays in lock
- * step with the requirePermission() middleware that gates every mutation.
+ * Uses the shared @weldsuite/permissions resolver, through the same KV cache
+ * (@weldsuite/worker-kit/permission-cache) `requirePermission()` uses, so
+ * behaviour stays in lock step with the middleware that gates every mutation
+ * — and this endpoint, on the platform's open path on every page load, no
+ * longer costs a tenant query on a cache hit either.
  */
 app.get('/permissions', async (c) => {
   const orgId = c.get('orgId');
@@ -42,9 +42,9 @@ app.get('/permissions', async (c) => {
     const db = c.get('tenantDb');
     // A teammate whose invited row never got their Clerk user id would
     // otherwise resolve to no permissions at all.
-    await ensureMemberLinked(c.env, db, orgId, userId);
+    await ensureMemberLinked(c.env, db, orgId, userId, c.get('workspaceId'));
     const queries = createDrizzlePermissionQueries(db, schema, { eq, and, isNull });
-    const resolved = await resolveEffectivePermissions(queries, userId);
+    const resolved = await resolveEffectivePermissionsCached(c.env, c.get('workspaceId'), userId, queries, c.get('timing'));
 
     return success(c, {
       permissions: resolved.permissions,

@@ -16,6 +16,7 @@
 import { and, eq, getTableColumns, inArray, isNotNull, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { isAdminOrOwner, userAccessCondition } from '@weldsuite/mail-domain/access';
+import type { WorkspaceMail } from '@weldsuite/mail-domain/store';
 import { asText } from '@weldsuite/text';
 import { fileDescription, listDocumentSnapshotKeys } from '@weldsuite/core-domain/files';
 import {
@@ -252,14 +253,45 @@ function normalizeProjectWhiteboards(rows: (typeof schema.projectWhiteboards.$in
   }));
 }
 
-function normalizeMailAttachments(rows: (typeof schema.mailAttachments.$inferSelect)[]): UnifiedFile[] {
+/**
+ * A mail attachment's `downloadUrl` is a bare object-storage URL with no
+ * session, signature or expiry — mail-api's own routes never return it for
+ * exactly that reason (`toPublicAttachment`), serving bytes only from
+ * `GET /api/mail-attachments/:id/download`, which re-checks the mailbox
+ * before streaming. This view must not hand out the bypass URL just because
+ * it reached the row through a join; point at the authenticated route
+ * instead, like `storedUrl` does for Drive's own private files. `undefined`
+ * `apiOrigin` (no request context, e.g. a future batch job) means no URL
+ * rather than the raw one.
+ */
+/**
+ * Trailing `/`s stripped, without a `/+$/`-style regex: unanchored at the
+ * start, that pattern's backtracking is O(n²) on an adversarial input (a long
+ * run of `/` immediately followed by a non-`/` character) — a linear scan
+ * from the end is simpler and can't have that problem.
+ */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end -= 1;
+  return value.slice(0, end);
+}
+
+function mailAttachmentDownloadUrl(id: string, apiOrigin: string | undefined): string | null {
+  if (!apiOrigin) return null;
+  return `${stripTrailingSlashes(apiOrigin)}/api/mail-attachments/${encodeURIComponent(id)}/download`;
+}
+
+function normalizeMailAttachments(
+  rows: (typeof schema.mailAttachments.$inferSelect)[],
+  apiOrigin: string | undefined,
+): UnifiedFile[] {
   return rows.map((r) => ({
     id: r.id,
     name: r.fileName || 'Attachment',
     fileType: guessFileType(r.contentType, r.fileName),
     mimeType: r.contentType,
     fileSize: r.size,
-    url: r.downloadUrl,
+    url: mailAttachmentDownloadUrl(r.id, apiOrigin),
     thumbnailUrl: null,
     source: 'mail',
     sourceLabel: 'Mail',
@@ -350,6 +382,73 @@ async function accessibleMailAttachments(db: Database, userId: string): Promise<
   )!;
 }
 
+/**
+ * Object modes have no "every row, unbounded" read — only a capped
+ * `recentAttachments` (design §5's own suggested per-mailbox cap). `/all`
+ * merges every drive source in memory and paginates client-side, so this
+ * caps how many of the most recent mail attachments feed that merge in
+ * object modes; `postgres` mode is unaffected (still the full, unbounded
+ * join below).
+ */
+const DRIVE_MAIL_ATTACHMENTS_LIMIT = 2000;
+
+/**
+ * `/api/drive/all`'s mail attachments, through the mailbox store in
+ * `shadow`/`object`/`object-only` mode (docs/plans/weldmail-mailbox-store-
+ * design.md §5: "Drive: `recentAttachments(accountIds, {limit: 2000 per
+ * mailbox})` + Σ `totalCount`, merged by `createdAt`"), keeping today's join
+ * query verbatim in `postgres` mode (and when no `mail` was resolved at all —
+ * every existing caller of `aggregateAllFiles`, which predates the store).
+ * Same access scoping either way: `MailAccess.accessibleAccountIds()` in
+ * object modes is the mailbox-access rule this file's own
+ * `accessibleMailAttachments` enforces in postgres mode, just read from the
+ * KV directory instead of a live query.
+ */
+async function loadMailAttachmentsForAll(
+  db: Database,
+  params: { userId: string; apiOrigin?: string; mail?: WorkspaceMail },
+): Promise<UnifiedFile[]> {
+  if (!params.mail || params.mail.mode === 'postgres') {
+    const where = await accessibleMailAttachments(db, params.userId);
+    const rows = await db
+      .select(getTableColumns(mailAttachments))
+      .from(mailAttachments)
+      .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.messageId))
+      .innerJoin(mailAccounts, eq(mailAccounts.id, mailMessages.accountId))
+      .where(where);
+    return normalizeMailAttachments(rows, params.apiOrigin);
+  }
+
+  const accountIds = await params.mail.access.accessibleAccountIds();
+  if (accountIds.length === 0) return [];
+  const { data } = await params.mail.store.recentAttachments(accountIds, { limit: DRIVE_MAIL_ATTACHMENTS_LIMIT });
+  return normalizeMailAttachments(data, params.apiOrigin);
+}
+
+/**
+ * `/api/drive/stats`'s mail counter, same routing as
+ * {@link loadMailAttachmentsForAll}. `recentAttachments`'s `totalCount` is the
+ * real count regardless of `limit` in both store backends (`store/types.ts`'s
+ * own contract), so this asks for the smallest page that still gives one.
+ */
+async function countMailAttachments(db: Database, userId: string, mail?: WorkspaceMail): Promise<number> {
+  if (!mail || mail.mode === 'postgres') {
+    const where = await accessibleMailAttachments(db, userId);
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(mailAttachments)
+      .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.messageId))
+      .innerJoin(mailAccounts, eq(mailAccounts.id, mailMessages.accountId))
+      .where(where);
+    return Number(row?.count ?? 0);
+  }
+
+  const accountIds = await mail.access.accessibleAccountIds();
+  if (accountIds.length === 0) return 0;
+  const { totalCount } = await mail.store.recentAttachments(accountIds, { limit: 1 });
+  return totalCount;
+}
+
 // ============================================================================
 // Drive file access
 // ============================================================================
@@ -365,12 +464,17 @@ async function driveAccessFor(db: Database, userId: string, loaded?: DriveAccess
 
 export async function aggregateAllFiles(
   db: Database,
-  params: { userId: string; source?: string; r2PublicUrl?: string; apiOrigin?: string; driveAccess?: DriveAccessIndex },
+  params: {
+    userId: string;
+    source?: string;
+    r2PublicUrl?: string;
+    apiOrigin?: string;
+    driveAccess?: DriveAccessIndex;
+    /** Resolved once by the route (`routes/drive/index.ts`); omitted ⇒ the postgres-mode mail query, unchanged. */
+    mail?: WorkspaceMail;
+  },
 ): Promise<UnifiedFile[]> {
   const shouldQuery = (s: string) => !params.source || params.source === s;
-  const mailAttachmentsWhere = shouldQuery('mail')
-    ? await accessibleMailAttachments(db, params.userId)
-    : null;
   const driveAccess = shouldQuery('drive') ? await driveAccessFor(db, params.userId, params.driveAccess) : null;
 
   const [
@@ -378,7 +482,7 @@ export async function aggregateAllFiles(
     projectFilesRes,
     projectDocsRes,
     whiteboardsRes,
-    mailAttachmentsRes,
+    mailFiles,
     voipCallsRes,
     meetingsRes,
     socialMediaRes,
@@ -395,14 +499,9 @@ export async function aggregateAllFiles(
     shouldQuery('whiteboards')
       ? db.select().from(projectWhiteboards).where(isNull(projectWhiteboards.deletedAt))
       : Promise.resolve([] as (typeof schema.projectWhiteboards.$inferSelect)[]),
-    mailAttachmentsWhere
-      ? db
-          .select(getTableColumns(mailAttachments))
-          .from(mailAttachments)
-          .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.messageId))
-          .innerJoin(mailAccounts, eq(mailAccounts.id, mailMessages.accountId))
-          .where(mailAttachmentsWhere)
-      : Promise.resolve([] as (typeof schema.mailAttachments.$inferSelect)[]),
+    shouldQuery('mail')
+      ? loadMailAttachmentsForAll(db, { userId: params.userId, apiOrigin: params.apiOrigin, mail: params.mail })
+      : Promise.resolve([] as UnifiedFile[]),
     shouldQuery('voip')
       ? db.select().from(voipCalls).where(eq(voipCalls.isRecorded, true))
       : Promise.resolve([] as (typeof schema.voipCalls.$inferSelect)[]),
@@ -423,7 +522,7 @@ export async function aggregateAllFiles(
     ...normalizeProjectFiles(projectFilesRes),
     ...normalizeProjectDocuments(projectDocsRes),
     ...normalizeProjectWhiteboards(whiteboardsRes),
-    ...normalizeMailAttachments(mailAttachmentsRes),
+    ...mailFiles,
     ...normalizeVoipRecordings(voipCallsRes),
     ...normalizeMeetingRecordings(meetingsRes),
     ...normalizeSocialMedia(socialMediaRes),
@@ -528,9 +627,11 @@ export async function aggregateStats(
   db: Database,
   userId: string,
   loadedDriveAccess?: DriveAccessIndex,
+  /** Resolved once by the route (`routes/drive/index.ts`); omitted ⇒ the postgres-mode mail count, unchanged. */
+  mail?: WorkspaceMail,
 ): Promise<DriveStats> {
-  const [mailAttachmentsWhere, driveAccess] = await Promise.all([
-    accessibleMailAttachments(db, userId),
+  const [mailAttachmentsCount, driveAccess] = await Promise.all([
+    countMailAttachments(db, userId, mail),
     driveAccessFor(db, userId, loadedDriveAccess),
   ]);
   const [
@@ -538,7 +639,6 @@ export async function aggregateStats(
     projectFilesCount,
     projectDocsCount,
     whiteboardsCount,
-    mailAttachmentsCount,
     voipCount,
     meetingsCount,
     socialCount,
@@ -558,12 +658,6 @@ export async function aggregateStats(
     db.select({ count: sql<number>`count(*)::int` }).from(projectFiles).where(and(isNull(projectFiles.deletedAt), eq(projectFiles.isFolder, false))),
     db.select({ count: sql<number>`count(*)::int` }).from(projectDocuments).where(isNull(projectDocuments.deletedAt)),
     db.select({ count: sql<number>`count(*)::int` }).from(projectWhiteboards).where(isNull(projectWhiteboards.deletedAt)),
-    db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(mailAttachments)
-      .innerJoin(mailMessages, eq(mailMessages.id, mailAttachments.messageId))
-      .innerJoin(mailAccounts, eq(mailAccounts.id, mailMessages.accountId))
-      .where(mailAttachmentsWhere),
     db.select({ count: sql<number>`count(*)::int` }).from(voipCalls).where(eq(voipCalls.isRecorded, true)),
     db.select({ count: sql<number>`count(*)::int` }).from(meetingBotSessions).where(isNotNull(meetingBotSessions.recordingStorageUrl)),
     db.select({ count: sql<number>`count(*)::int` }).from(socialMedia).where(ne(socialMedia.status, 'deleted')),
@@ -575,14 +669,13 @@ export async function aggregateStats(
   const projects = Number(projectFilesCount[0]?.count || 0);
   const documents = Number(projectDocsCount[0]?.count || 0);
   const whiteboards = Number(whiteboardsCount[0]?.count || 0);
-  const mail = Number(mailAttachmentsCount[0]?.count || 0);
   const voip = Number(voipCount[0]?.count || 0);
   const meetings = Number(meetingsCount[0]?.count || 0);
   const social = Number(socialCount[0]?.count || 0);
   return {
-    totalFiles: drive + projects + documents + whiteboards + mail + voip + meetings + social,
+    totalFiles: drive + projects + documents + whiteboards + mailAttachmentsCount + voip + meetings + social,
     recentCount: visibleDrive.filter((f) => f.createdAt.getTime() > weekAgo).length,
-    bySource: { drive, projects, documents, whiteboards, mail, voip, meetings, social },
+    bySource: { drive, projects, documents, whiteboards, mail: mailAttachmentsCount, voip, meetings, social },
   };
 }
 
