@@ -107,6 +107,18 @@ templates).
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see
    (a `vi.mock` of `getMasterDb`) needs the value in its context too.
+6. Workers KV is shared the same way. A KV-shaped binding in the test's
+   `env` (`get`/`put`/`delete`; the names in `KV_BINDINGS`, today
+   `WORKSPACE_CACHE`) is served over HTTP by
+   `packages/core/worker-kit/src/testing/kv-bridge.ts`: `GET /value?key=…`
+   (the value as text, 404 when missing), `PUT /value?key=…&ttl=<seconds>`
+   (`expirationTtl`; left out for no expiry), `DELETE /value?key=…`. Its URL
+   travels in the context's `kv` (`{ WORKSPACE_CACHE: url }`), and
+   conformance builds insert a `weldsuite_ports::RequestCache` over it
+   (`bins/weldsuite/src/conformance_kv.rs`). A module that reads the cache
+   takes the request's `RequestCache` first and its state's cache
+   otherwise, as it does with `FileStores`. Another namespace needs its name
+   in `KV_BINDINGS` and in `KvBridges::request_cache`.
 
 ## Checks before a commit
 

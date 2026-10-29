@@ -10,6 +10,8 @@ mod config;
 mod conformance;
 #[cfg(feature = "conformance")]
 mod conformance_files;
+#[cfg(feature = "conformance")]
+mod conformance_kv;
 mod infra;
 mod routes;
 mod server;

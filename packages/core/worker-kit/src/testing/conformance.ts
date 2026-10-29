@@ -15,7 +15,8 @@
  * 1. The test's pglite database is served over the Postgres wire protocol
  *    (`@electric-sql/pglite-socket`), so Rust queries the same seeded state.
  *    Its R2 bucket bindings (`PRIVATE_STORAGE`, `STORAGE`) are served over
- *    HTTP (./bucket-bridge.ts), so Rust reads and writes the same objects.
+ *    HTTP (./bucket-bridge.ts), so Rust reads and writes the same objects,
+ *    and so is its KV namespace (`WORKSPACE_CACHE`, ./kv-bridge.ts).
  * 2. The request goes to Rust with the test's context (user, org, workspace,
  *    pre-resolved permissions, database URL) in `X-Weld-Conformance`. Only a
  *    server built with the `conformance` Cargo feature reads it.
@@ -41,6 +42,7 @@ import type { Database } from '../env';
 import { pgliteClientOf } from './pglite';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
+import { kvUrls } from './kv-bridge';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 
 export interface ConformanceTarget {
@@ -476,6 +478,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     env: forwardedEnv,
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
+    // And its KV namespace, so Rust shares its keys.
+    kv: await kvUrls(env),
   };
 }
 

@@ -134,25 +134,32 @@ async function handle(bucket: BucketLike, req: IncomingMessage, res: ServerRespo
 
 const bridges = new WeakMap<object, Promise<string>>();
 
+/** Serve `handler` on 127.0.0.1 (a free port), for the life of the process. */
+export function serveOnLoopback(
+  handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
+): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const server: Server = createServer((req, res) => {
+      handler(req, res).catch((error: unknown) => {
+        res.writeHead(500).end(String(error));
+      });
+    });
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      process.once('beforeExit', () => server.close());
+      resolve(`http://127.0.0.1:${port}`);
+    });
+  });
+}
+
 /** The bridge's URL for this bucket, starting its server once. */
 export function bucketUrlFor(bucket: BucketLike): Promise<string> {
   let url = bridges.get(bucket);
   if (!url) {
-    url = new Promise<string>((resolve, reject) => {
-      const server: Server = createServer((req, res) => {
-        handle(bucket, req, res).catch((error: unknown) => {
-          res.writeHead(500).end(String(error));
-        });
-      });
-      server.unref();
-      server.on('error', reject);
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address();
-        const port = typeof address === 'object' && address ? address.port : 0;
-        process.once('beforeExit', () => server.close());
-        resolve(`http://127.0.0.1:${port}`);
-      });
-    });
+    url = serveOnLoopback((req, res) => handle(bucket, req, res));
     bridges.set(bucket, url);
   }
   return url;

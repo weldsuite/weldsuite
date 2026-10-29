@@ -14,7 +14,8 @@
 //!   "permissions": { ... },            // pre-resolved, like `context.permissions`
 //!   "flags": { "upgrade-button": true }, // what the test's `context.flags` answers
 //!   "env": { "PERMISSIONS_APP_ENFORCE": "true" },
-//!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." } } // the test's buckets, over HTTP
+//!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." }, // the test's buckets, over HTTP
+//!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." } }   // the test's KV, over HTTP
 //! ```
 //!
 //! Side effects are recorded instead of published (`Recorders`), and
@@ -192,6 +193,9 @@ struct TestContext {
     /// The test's R2 bindings served over HTTP (`{ PRIVATE_STORAGE: url }`).
     #[serde(default)]
     files: HashMap<String, String>,
+    /// The test's KV namespace served over HTTP (`{ WORKSPACE_CACHE: url }`).
+    #[serde(default)]
+    kv: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -214,6 +218,8 @@ pub(crate) struct Pools {
     databases: Mutex<HashMap<String, PgPool>>,
     /// The test buckets' HTTP stores, by URL.
     buckets: crate::conformance_files::BucketBridges,
+    /// The test KV namespaces' HTTP caches, by URL.
+    kv: crate::conformance_kv::KvBridges,
 }
 
 impl Pools {
@@ -286,6 +292,10 @@ pub(crate) async fn auth(
     // The test's buckets; without them a module keeps the app state's stores.
     if let Some(stores) = pools.buckets.file_stores(&context.files) {
         extensions.insert(stores);
+    }
+    // And its KV namespace; without it a module keeps the app state's cache.
+    if let Some(cache) = pools.kv.request_cache(&context.kv) {
+        extensions.insert(cache);
     }
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);

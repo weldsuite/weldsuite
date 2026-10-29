@@ -122,6 +122,19 @@ impl<C: Cache + ?Sized> Cache for Arc<C> {
     }
 }
 
+/// The cache a request uses in place of the app's: conformance builds insert
+/// it as a request extension pointing at the test's own KV namespace, so the
+/// Rust and TypeScript runs share its keys (as [`crate::FileStores`] shares
+/// buckets). Modules that read the cache prefer it.
+#[derive(Clone)]
+pub struct RequestCache(pub Arc<dyn DynCache>);
+
+impl std::fmt::Debug for RequestCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RequestCache")
+    }
+}
+
 /// In-process [`Cache`]: the test double, and enough for a single replica
 /// that has no Valkey. Expired entries are dropped when read.
 #[derive(Debug, Default)]

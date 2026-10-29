@@ -31,7 +31,7 @@ pub mod jobs;
 pub mod mail;
 pub mod realtime;
 
-pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
+pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
     DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions, StoredObject,
