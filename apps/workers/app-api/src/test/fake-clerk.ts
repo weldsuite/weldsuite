@@ -70,13 +70,20 @@ export function clerkCalls(stub: Mock): string[] {
   return [...new Set(calls)];
 }
 
-async function sdkRequest(method: string, path: string): Promise<unknown> {
+async function sdkRequest(method: string, path: string, body?: unknown): Promise<unknown> {
   const res = await fetch(`${CLERK_API}${path}`, {
     method,
     headers: { Authorization: 'Bearer sk_test', 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!res.ok) throw new Error(`Clerk ${method} ${path} answered ${res.status}`);
   return res.json().catch(() => ({}));
+}
+
+interface ClerkUserJson {
+  id?: string;
+  email_addresses?: Array<{ id?: string; email_address?: string }>;
+  primary_email_address_id?: string | null;
 }
 
 /** The parts of `createClerkClient()` the routes use, as the SDK calls them. */
@@ -84,9 +91,26 @@ export function clerkShim() {
   return {
     organizations: {
       deleteOrganization: (id: string) => sdkRequest('DELETE', `/organizations/${id}`),
+      getOrganization: async ({ organizationId }: { organizationId: string }) =>
+        (await sdkRequest('GET', `/organizations/${organizationId}`)) as { name?: string | null },
     },
     users: {
       deleteUser: (id: string) => sdkRequest('DELETE', `/users/${id}`),
+      // The SDK hands back camelCase objects.
+      getUser: async (id: string) => {
+        const user = (await sdkRequest('GET', `/users/${id}`)) as ClerkUserJson;
+        return {
+          id: user.id,
+          emailAddresses: (user.email_addresses ?? []).map((e) => ({ id: e.id, emailAddress: e.email_address })),
+          primaryEmailAddressId: user.primary_email_address_id ?? null,
+        };
+      },
+    },
+    signInTokens: {
+      createSignInToken: async ({ userId, expiresInSeconds }: { userId: string; expiresInSeconds?: number }) =>
+        (await sdkRequest('POST', '/sign_in_tokens', { user_id: userId, expires_in_seconds: expiresInSeconds })) as {
+          token: string;
+        },
     },
   };
 }

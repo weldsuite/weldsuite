@@ -26,8 +26,16 @@ vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => ({
 
 import { userAppsRoutes } from './index';
 
-const { userApps, userAppVersions, userAppInstalls, userAppTokens, userAppOauthClients, appDeveloperAccounts, adminUsers } =
-  masterSchema;
+const {
+  userApps,
+  userAppVersions,
+  userAppInstalls,
+  userAppTokens,
+  userAppOauthClients,
+  userAppDevSessions,
+  appDeveloperAccounts,
+  adminUsers,
+} = masterSchema;
 const { workspaceInstalledApps } = tenantSchema;
 
 const OWNER = 'ws_owner';
@@ -49,6 +57,50 @@ let privateStorage: FakeBucket;
 /** The real `fetch`: the conformance harness talks to the Rust server with it. */
 const realFetch = globalThis.fetch.bind(globalThis);
 let webhookCalls: Array<{ url: string; body: unknown }> = [];
+
+/** Where the app gateway forwards to (`EXTERNAL_API_URL`), answered by `externalApi`. */
+const EXTERNAL_API = 'https://ext-api.example.test';
+/** A cached gateway token external-api no longer accepts. */
+const STALE_TOKEN = `wsat_${'0'.repeat(40)}`;
+
+interface UpstreamCall {
+  method: string;
+  url: string;
+  authorization: string | null;
+  headers: Record<string, string>;
+  body: string;
+}
+let upstreamCalls: UpstreamCall[] = [];
+
+/** external-api, as the gateway sees it: by method and path, never by call order. */
+async function externalApi(request: Request): Promise<Response> {
+  const headers: Record<string, string> = {};
+  request.headers.forEach((value, name) => {
+    headers[name] = value;
+  });
+  const call: UpstreamCall = {
+    method: request.method,
+    url: request.url,
+    authorization: request.headers.get('authorization'),
+    headers,
+    body: await request.text(),
+  };
+  upstreamCalls.push(call);
+  const json = (status: number, body: unknown, extra: Record<string, string> = {}) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...extra } });
+  if (call.authorization === `Bearer ${STALE_TOKEN}`) {
+    return json(401, { error: { code: 'UNAUTHORIZED', message: 'Invalid token' } });
+  }
+  const path = new URL(call.url).pathname;
+  if (request.method === 'GET' && path === '/v1/contacts') {
+    return json(200, { data: [{ id: 'con_1' }] }, { 'x-ratelimit-remaining': '99', 'x-upstream-secret': 'internal' });
+  }
+  if (request.method === 'POST' && path === '/v1/contacts') {
+    return json(201, { data: JSON.parse(call.body) as unknown });
+  }
+  if (request.method === 'DELETE' && path === '/v1/contacts/con_1') return new Response(null, { status: 204 });
+  return json(404, { error: { code: 'NOT_FOUND', message: `${path} not found` } });
+}
 
 interface Caller {
   workspaceId?: string;
@@ -84,6 +136,7 @@ beforeAll(async () => {
 
 async function seed(): Promise<void> {
   await master.delete(userAppTokens);
+  await master.delete(userAppDevSessions);
   await master.delete(userAppInstalls);
   await master.delete(userAppOauthClients);
   await master.delete(userAppVersions);
@@ -170,6 +223,7 @@ beforeEach(async () => {
   storage = new FakeBucket();
   privateStorage = new FakeBucket();
   webhookCalls = [];
+  upstreamCalls = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -178,6 +232,7 @@ beforeEach(async () => {
         webhookCalls.push({ url, body: typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null });
         return new Response(null, { status: 204 });
       }
+      if (url.startsWith(EXTERNAL_API)) return externalApi(new Request(input, init));
       return realFetch(input, init);
     }),
   );
@@ -605,6 +660,130 @@ describe('POST /api/user-apps/code/:code/session-token', () => {
     const res = await api()('/api/user-apps/code/pubapp/session-token', { method: 'POST' });
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: { code: 'NOT_FOUND', message: "App install with ID 'pubapp' not found" } });
+  });
+});
+
+// ── the app gateway ─────────────────────────────────────────────────────────
+
+describe('ALL /api/user-apps/code/:code/gateway/*', () => {
+  // The gateway caches its token per workspace and app, in the process too:
+  // each test installs the app for a workspace of its own.
+  async function installed(workspaceId: string) {
+    await installFor('uapp_pub', workspaceId, { grantedScopes: ['crm:read', 'crm:write'] });
+    await tenant
+      .insert(workspaceInstalledApps)
+      .values({ id: 'wsapp_pub', appCode: 'pubapp', appType: 'user', userAppId: 'uapp_pub', grantedScopes: ['crm:read'] });
+    return (path: string, init?: RequestInit) =>
+      api({ workspaceId, env: { EXTERNAL_API_URL: `${EXTERNAL_API}/` } })(`/api/user-apps/code/pubapp/gateway${path}`, init);
+  }
+
+  it('forwards a read with a session token, the allowed headers and the query', async () => {
+    const gateway = await installed('ws_gw_read');
+    const res = await gateway('/v1/contacts?limit=5&q=a%20b', {
+      headers: { accept: 'application/json', cookie: 'session=secret', 'x-request-id': 'req_1', authorization: 'Bearer member' },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ data: [{ id: 'con_1' }] });
+    expect(res.headers.get('x-ratelimit-remaining')).toBe('99');
+    expect(res.headers.get('x-upstream-secret')).toBeNull();
+
+    const call = upstreamCalls.at(-1)!;
+    expect(call).toMatchObject({ method: 'GET', url: `${EXTERNAL_API}/v1/contacts?limit=5&q=a%20b` });
+    expect(call.authorization).toMatch(/^Bearer wsat_[0-9a-f]{40}$/);
+    expect(call.headers).toMatchObject({ accept: 'application/json', 'x-request-id': 'req_1' });
+    expect(call.headers).not.toHaveProperty('cookie');
+    const tokens = await master.select().from(userAppTokens).where(eq(userAppTokens.workspaceId, 'ws_gw_read'));
+    expect(tokens.length).toBeGreaterThan(0);
+    expect(tokens[0]).toMatchObject({ tokenType: 'session', scopes: ['crm:read', 'crm:write'] });
+  });
+
+  it('forwards a write with its body, and an empty answer as is', async () => {
+    const gateway = await installed('ws_gw_write');
+    const res = await gateway('/v1/contacts', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ name: 'Ann' }),
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ data: { name: 'Ann' } });
+    expect(upstreamCalls.at(-1)).toMatchObject({ method: 'POST', body: '{"name":"Ann"}' });
+
+    const removed = await gateway('/v1/contacts/con_1', { method: 'DELETE' });
+    expect(removed.status).toBe(204);
+  });
+
+  it('passes external-api refusals through', async () => {
+    const gateway = await installed('ws_gw_refused');
+    const res = await gateway('/v1/nothing-here');
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: { code: 'NOT_FOUND', message: '/v1/nothing-here not found' } });
+  });
+
+  it('drops a cached token external-api refuses and retries once with a fresh one', async () => {
+    const gateway = await installed('ws_gw_stale');
+    kv.store.set(
+      'uagw:v1:ws_gw_stale:pubapp',
+      JSON.stringify({ token: STALE_TOKEN, expiresAt: Date.now() + 30 * 60 * 1000 }),
+    );
+    const res = await gateway('/v1/contacts');
+    expect(res.status).toBe(200);
+    const auths = upstreamCalls.map((c) => c.authorization);
+    expect(auths).toContain(`Bearer ${STALE_TOKEN}`);
+    expect(auths.at(-1)).toMatch(/^Bearer wsat_[0-9a-f]{40}$/);
+    expect(auths.at(-1)).not.toBe(`Bearer ${STALE_TOKEN}`);
+  });
+
+  it('answers 404 when the workspace has not installed the app', async () => {
+    const res = await api({ workspaceId: 'ws_gw_none', env: { EXTERNAL_API_URL: EXTERNAL_API } })(
+      '/api/user-apps/code/pubapp/gateway/v1/contacts',
+    );
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: { code: 'NOT_FOUND', message: "App install with ID 'pubapp' not found" } });
+    expect(upstreamCalls).toEqual([]);
+  });
+
+  it('refuses paths outside /v1/ before anything else', async () => {
+    const gateway = await installed('ws_gw_paths');
+    for (const path of ['/v2/contacts', '/v1/a%2Fb', '/v1/a//b', '/v1/%2e%2e/admin', '/v1']) {
+      const res = await gateway(path);
+      expect(res.status, path).toBe(400);
+      expect(await res.json()).toEqual({
+        error: { code: 'BAD_REQUEST', message: 'App gateway paths must be external API paths under /v1/' },
+      });
+    }
+    expect(upstreamCalls).toEqual([]);
+  });
+
+  it('needs weldapps:read', async () => {
+    const res = await api({ perms: permissions('crm:read') })('/api/user-apps/code/pubapp/gateway/v1/contacts');
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('DELETE /api/user-apps/code/:code/dev-session', () => {
+  const future = () => new Date(Date.now() + 5 * 60 * 1000);
+
+  it("removes the caller's own preview session and nobody else's", async () => {
+    await master.insert(userAppDevSessions).values([
+      { id: 'uads_dev', appId: 'uapp_mine', workspaceId: OWNER, userId: 'user_dev', url: 'http://localhost:5173/', expiresAt: future() },
+      { id: 'uads_other', appId: 'uapp_mine', workspaceId: OWNER, userId: 'user_other_dev', url: 'http://localhost:5174/', expiresAt: future() },
+    ]);
+    const res = await api()('/api/user-apps/code/mineapp/dev-session', { method: 'DELETE' });
+    expect(res.status).toBe(204);
+    const rows = await master.select().from(userAppDevSessions);
+    expect(rows.map((r: { id: string }) => r.id)).toEqual(['uads_other']);
+    // Nothing left to clear is fine too.
+    expect((await api()('/api/user-apps/code/mineapp/dev-session', { method: 'DELETE' })).status).toBe(204);
+  });
+
+  it('answers 404 for an app the workspace does not own, and needs weldapps:develop', async () => {
+    const foreign = await api()('/api/user-apps/code/pubapp/dev-session', { method: 'DELETE' });
+    expect(foreign.status).toBe(404);
+    expect(await foreign.json()).toEqual({ error: { code: 'NOT_FOUND', message: "App with ID 'pubapp' not found" } });
+    const res = await api({ perms: permissions('weldapps:read') })('/api/user-apps/code/mineapp/dev-session', {
+      method: 'DELETE',
+    });
+    expect(res.status).toBe(403);
   });
 });
 

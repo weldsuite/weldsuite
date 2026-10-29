@@ -67,6 +67,17 @@ function isLoopback(url: string): boolean {
   }
 }
 
+/** Headers of one HTTP leg, never passed between the stub and Rust. */
+const HOP_BY_HOP = new Set([
+  'host',
+  'connection',
+  'keep-alive',
+  'content-length',
+  'transfer-encoding',
+  'accept-encoding',
+  'upgrade',
+]);
+
 const rustCalls: OutboundCall[] = [];
 
 async function readBody(req: IncomingMessage): Promise<Uint8Array> {
@@ -87,11 +98,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const text = bytes.byteLength > 0 ? new TextDecoder().decode(bytes) : null;
   rustCalls.push({ method, url: target, body: bodyOf(text) });
 
+  // The call's own headers (a forwarded request carries the app's), minus
+  // the hop-by-hop ones of this leg.
   const headers = new Headers();
-  const contentType = req.headers['content-type'];
-  if (typeof contentType === 'string') headers.set('content-type', contentType);
-  const authorization = req.headers.authorization;
-  if (typeof authorization === 'string') headers.set('authorization', authorization);
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (typeof value === 'string' && !HOP_BY_HOP.has(name)) headers.set(name, value);
+  }
 
   let response: Response;
   try {
@@ -103,9 +115,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return;
   }
   const answer = new Uint8Array(await response.arrayBuffer());
-  const type = response.headers.get('content-type');
-  res.writeHead(response.status, type ? { 'content-type': type } : {}).end(answer);
+  const answerHeaders: Record<string, string> = {};
+  response.headers.forEach((value, name) => {
+    if (!HOP_BY_HOP.has(name) && name !== 'content-encoding') answerHeaders[name] = value;
+  });
+  res.writeHead(response.status, answerHeaders).end(answer);
 }
+
 
 let bridge: Promise<string> | undefined;
 
