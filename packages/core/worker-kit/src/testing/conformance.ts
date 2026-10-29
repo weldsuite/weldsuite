@@ -155,8 +155,13 @@ export const FORWARDED_ENV = [
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
   'DATABASE_URL_MASTER',
-  // WeldDesk: the Discord bot (agent replies, ticket threads closed).
+  // WeldDesk: the Discord bot (agent replies, ticket threads closed), and the
+  // Discord and Slack OAuth apps (connect, token exchange and refresh).
   'DISCORD_BOT_TOKEN',
+  'DISCORD_CLIENT_ID',
+  'DISCORD_CLIENT_SECRET',
+  'SLACK_CLIENT_ID',
+  'SLACK_CLIENT_SECRET',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -510,6 +515,11 @@ const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
 const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
+/**
+ * The generated id in a WeldDesk agent file's object name
+ * (`<Date.now()>_att_<id>_<file name>`), in its URL and its event's entityId.
+ */
+const DESK_ATTACHMENT_ID = /_att_[0-9a-z]{12,}_/g;
 /** The `<Date.now()>_<random UUID hex>` segment of a new upload's object key. */
 const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 /** A signed object URL's credential (`?exp=<seconds>&sig=<HMAC>`). */
@@ -628,6 +638,7 @@ function normalizeRandomParts(value: string): string {
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
     // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
     .replace(CHAT_FILE_SEGMENT, '/files/<random>/')
+    .replace(DESK_ATTACHMENT_ID, '_att_<id>_')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(RANDOM_HEX, '<hex>')
     .replace(EPOCH_MS, '<epoch-ms>');

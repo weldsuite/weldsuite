@@ -51,6 +51,12 @@ const ROUTES: VolatileRoute[] = [
   { method: 'POST', route: '/api/cli-auth/approve', fields: [{ path: 'data.keyPrefix' }] },
   // `Date.now() + 120s`, a number.
   { method: 'POST', route: '/api/auth-desktop/ticket', fields: [{ path: 'data.expiresAt' }] },
+  // WeldDesk OAuth starts: a fresh state nonce (`crypto.randomUUID()`) per run.
+  ...['discord', 'slack'].map((provider) => ({
+    method: 'POST',
+    route: `/api/helpdesk-integrations/${provider}/connect`,
+    fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
+  })),
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

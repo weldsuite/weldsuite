@@ -440,6 +440,11 @@ import {
   weldpassVaultMemberSchema,
   weldpassVaultSchema,
 } from '@weldsuite/app-api-client/schemas/weldpass-passwords';
+import { DESK_KB_ROUTES } from './conformance-schemas-desk-kb';
+import { DESK_TEAM_ROUTES } from './conformance-schemas-desk-team';
+import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
+import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
+
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
   safeParse(value: unknown): { success: true } | { success: false; error: { message: string } };
@@ -447,7 +452,7 @@ interface ResponseSchema {
 
 type Envelope = 'single' | 'list' | 'array' | 'body';
 
-interface RouteSchema {
+export interface RouteSchema {
   method: string;
   route: string;
   /**
@@ -1126,6 +1131,10 @@ const ROUTES: RouteSchema[] = [
   { method: 'PATCH', route: '/api/tickets/:id/tags', envelope: 'single', data: ticketTagsSchema },
   { method: 'POST', route: '/api/tickets/:id/messages', envelope: 'single', data: ticketMessageSchema },
   ...FLOW_ROUTES,
+  ...DESK_KB_ROUTES,
+  ...DESK_TEAM_ROUTES,
+  ...DESK_SETTINGS_ROUTES,
+  ...DESK_CHANNEL_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

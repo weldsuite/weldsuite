@@ -55,6 +55,66 @@ export const manageConversationSchema = z.discriminatedUnion('action', [
   }),
 ]);
 
+// ── responses ────────────────────────────────────────────────────────────────
+
+/** A `desk_conversations` row, as /api/desk/conversations answers it. */
+export const deskConversationSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    conversationNumber: z.number().int(),
+    title: z.string().nullable(),
+    state: z.enum(DESK_CONVERSATION_STATES),
+    channel: z.enum(DESK_CHANNELS),
+    visitorId: z.string().nullable(),
+    name: z.string().nullable(),
+    email: z.string().nullable(),
+    contactId: z.string().nullable(),
+    assigneeId: z.string().nullable(),
+    waitingSince: z.string().nullable(),
+    lastMessageAt: z.string().nullable(),
+    lastMessagePreview: z.string().nullable(),
+    rating: z.number().int().nullable(),
+    ratingComment: z.string().nullable(),
+    ratedAt: z.string().nullable(),
+  })
+  .passthrough();
+
+/** A `desk_messages` row: a chat message, an internal note or an event. */
+export const deskMessageSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    conversationId: z.string(),
+    kind: z.enum(DESK_MESSAGE_KINDS),
+    body: z.string().nullable(),
+    authorType: z.enum(['visitor', 'agent', 'bot', 'system']),
+    authorId: z.string().nullable(),
+    attachments: z.array(deskMessageAttachmentSchema.passthrough()).nullable(),
+    metadata: z.record(z.unknown()).nullable(),
+  })
+  .passthrough();
+
+/** GET /api/desk/conversations/:id: the conversation, with its timeline under `?include=messages`. */
+export const deskConversationDetailSchema = deskConversationSchema.extend({
+  messages: z.array(deskMessageSchema).optional(),
+});
+
+/** POST /api/desk/conversations/:id/attachments: the stored file, ready to send in a reply. */
+export const deskUploadedAttachmentSchema = z.object({
+  name: z.string(),
+  url: z.string(),
+  contentType: z.string(),
+  filesize: z.number().int().nonnegative(),
+});
+
+/** POST /api/desk/conversations/:id/{reply,manage}: the conversation after the change, and the new timeline entry. */
+export const deskConversationChangeSchema = z.object({
+  conversation: deskConversationSchema,
+  message: deskMessageSchema,
+});
+
 export type ListConversationsQuery = z.infer<typeof listConversationsQuerySchema>;
 export type ReplyToConversationInput = z.infer<typeof replyToConversationSchema>;
 export type DeskMessageAttachmentInput = z.infer<typeof deskMessageAttachmentSchema>;
