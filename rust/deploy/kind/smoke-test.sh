@@ -5,7 +5,8 @@
 # token: auth → workspace → tenant DB → licence → flags → permission →
 # envelope, a job run through Restate, the platform SPA from the image on the
 # same origin, the sign portal's container calling the server, then the same
-# with OIDC sign-in against a stand-in issuer.
+# with OIDC sign-in against a stand-in issuer, and (with a reachable Zitadel,
+# SMOKE_ZITADEL_*) sign-up and the first workspace's provisioning.
 #
 #   docker build -f rust/Dockerfile -t weldsuite:dev .
 #   docker build -f rust/Dockerfile --target sign-portal -t weldsuite-sign-portal:dev .
@@ -240,6 +241,96 @@ contains '"billing:read"'
 check GET /config.json 200
 contains '"provider":"oidc"'
 contains '"clientId":"smoke-web"'
+
+# ── Sign-up and the first workspace (P4 4a) ─────────────────────────────────
+# Only with a Zitadel the cluster can reach (SMOKE_ZITADEL_URL as the pods
+# see it, SMOKE_ZITADEL_LOCAL_URL as this script does, SMOKE_ZITADEL_HOST its
+# instance's host, SMOKE_ZITADEL_TOKEN an IAM_OWNER service user's token,
+# SMOKE_ZITADEL_PROJECT_ID the WeldSuite project with roles admin and
+# member); CI has none and skips it. A person Zitadel knows, signed in
+# without a workspace, creates one: the organization in Zitadel, the
+# workspace row, then the workspace.provision job (on Restate) puts its
+# database on the tenant shard (this Postgres) and makes them its owner; the
+# identity sync then runs once.
+if [ -n "${SMOKE_ZITADEL_URL:-}" ]; then
+  zitadel_local="${SMOKE_ZITADEL_LOCAL_URL:-$SMOKE_ZITADEL_URL}"
+  zitadel() {
+    curl -fsS -H "Authorization: Bearer $SMOKE_ZITADEL_TOKEN" -H 'Content-Type: application/json' "$@"
+  }
+  signup_email="kind-signup-$@example.test"
+  signup_user="$(zitadel -X POST "$zitadel_local/v2/users/human" --data \
+    "{\"username\":\"$signup_email\",\"profile\":{\"givenName\":\"Kind\",\"familyName\":\"Signup\"},\"email\":{\"email\":\"$signup_email\",\"isVerified\":true}}" |
+    sed -n 's/.*"userId":"\([0-9]*\)".*/\1/p')"
+  # A token for them without an organization, from a fresh stand-in key.
+  mkdir -p "$work/signup"
+  node "$here/mint-token.mjs" "$work/signup" "$signup_user" - --oidc "$oidc_issuer" weldsuite-smoke
+  kubectl create configmap oidc-issuer \
+    --from-file=openid-configuration="$work/signup/openid-configuration" \
+    --from-file=keys="$work/signup/jwks.json" \
+    --dry-run=client -o yaml | kubectl apply -f -
+  kubectl rollout restart deployment/oidc-issuer
+  kubectl rollout status deployment/oidc-issuer --timeout=120s
+  helm upgrade weldsuite "$chart" --reuse-values \
+    --set config.identity.zitadel.apiUrl="$SMOKE_ZITADEL_URL" \
+    --set config.identity.zitadel.host="${SMOKE_ZITADEL_HOST:-}" \
+    --set-string config.identity.zitadel.projectId="$SMOKE_ZITADEL_PROJECT_ID" \
+    --set-string secret.values.ZITADEL_SERVICE_TOKEN="$SMOKE_ZITADEL_TOKEN" \
+    --set-string secret.values.DATABASE_ENCRYPTION_KEY_V2=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+    --set-string secret.values.TENANT_SHARDS='[{"name":"kind","adminUrl":"postgres://weldsuite:weldsuite@postgres:5432/master","poolerHost":"postgres","urlOptions":""}]' \
+    --set cron.jobs.identity-sync.enabled=true \
+    --wait --timeout 180s
+  # The keys the server fetched at start are the old ones.
+  kubectl rollout restart deployment/weldsuite
+  kubectl rollout status deployment/weldsuite --timeout=120s
+  kubectl port-forward service/weldsuite 18081:80 >/dev/null 2>&1 &
+  forwards+=($!)
+  for _ in $(seq 1 30); do
+    curl -fsS http://127.0.0.1:18081/livez >/dev/null 2>&1 && break
+    sleep 1
+  done
+  base=http://127.0.0.1:18081
+  token="$(cat "$work/signup/token")"
+  check GET /api/onboarding/status 200 auth
+  contains '"hasOrganization":false'
+  check POST /api/onboarding/workspace 200 auth '{"name":"Kind Signup","country":"NL"}'
+  contains '"success":true'
+  signup_ws="$(sed -n 's/.*"workspaceId":"\([^"]*\)".*/\1/p' "$work/body")"
+  signup_org="$(sed -n 's/.*"organizationId":"\([^"]*\)".*/\1/p' "$work/body")"
+  provisioned=""
+  for _ in $(seq 1 60); do
+    provisioned="$(psql -d master -Atc "select provisioning_status from workspaces where id = '$signup_ws'")"
+    if [ "$provisioned" = "ready" ] || [ "$provisioned" = "failed" ]; then break; fi
+    sleep 2
+  done
+  if [ "$provisioned" = "ready" ]; then
+    echo "ok   signup: workspace $signup_ws provisioned (organization $signup_org)"
+  else
+    echo "FAIL signup: workspace $signup_ws is $provisioned: $(psql -d master -Atc "select provisioning_error from workspaces where id = '$signup_ws'")" >&2
+    failed=1
+  fi
+  signup_db="$(psql -d master -Atc "select neon_database_name from workspaces where id = '$signup_ws'")"
+  owner="$(psql -d "$signup_db" -Atc "select role from workspace_members where user_id = '$signup_user'" 2>/dev/null || true)"
+  if [ "$owner" = "OWNER" ]; then
+    echo "ok   signup: $signup_db has its owner"
+  else
+    echo "FAIL signup: no owner in $signup_db ($owner)" >&2
+    failed=1
+  fi
+  kubectl create job --from=cronjob/weldsuite-identity-sync identity-sync-smoke >/dev/null
+  if kubectl wait --for=condition=complete job/identity-sync-smoke --timeout=120s >/dev/null; then
+    echo "ok   identity sync: $(kubectl logs job/identity-sync-smoke | grep '"job"' | head -c 300)"
+  else
+    echo "FAIL the identity sync did not finish: $(kubectl logs job/identity-sync-smoke --tail=20)" >&2
+    failed=1
+  fi
+  if [ -n "$signup_org" ]; then
+    zitadel -X DELETE -H "x-zitadel-orgid: $signup_org" "$zitadel_local/management/v1/orgs/me" >/dev/null || true
+  fi
+  zitadel -X DELETE "$zitadel_local/v2/users/$signup_user" >/dev/null || true
+  base=http://127.0.0.1:18080
+else
+  echo "skip sign-up: SMOKE_ZITADEL_URL is not set"
+fi
 
 if [ "$failed" != "0" ]; then
   kubectl logs deployment/weldsuite --tail=80 >&2 || true
