@@ -2,14 +2,23 @@
  * Runtime configuration: what this deployment offers, read once before the
  * app boots (P4 work package 4.F2, ADR SEC-012).
  *
- * The SPA is one build for every edition. Global (Cloudflare Pages) bakes its
- * settings in as `VITE_*` at build time and serves no `/config.json`; the
- * Kubernetes editions (EU, self-hosted) serve the same bundle and describe the
- * deployment at `GET /config.json` instead, which the Rust backend answers
- * (`config_json` in `rust/bins/weldsuite/src/server.rs`). Every reader goes
- * through this module: runtime config first, the build-time `VITE_*` value as
- * the fallback, so a Global build with no `/config.json` behaves exactly as
- * before.
+ * Global (Cloudflare Pages) bakes its settings in as `VITE_*` at build time
+ * and never asks for `/config.json`. The Kubernetes editions (EU, self-hosted)
+ * describe the deployment at `GET /config.json`, which the Rust backend
+ * answers (`config_json` in `rust/bins/weldsuite/src/server.rs`). Every
+ * reader goes through this module: runtime config first, the build-time
+ * `VITE_*` value as the fallback.
+ *
+ * ## The build-time switch: `VITE_RUNTIME_CONFIG`
+ *
+ * Unset or `off` (Global; the Pages deploys `weldsuite-test` and `weldsuite`
+ * must not set it): no request, the build-time values only, and no extra
+ * round trip before the app loads. `on` (the Kubernetes builds):
+ * `/config.json` is fetched before the app is imported, with the fallbacks
+ * below. The switch also picks the boot file (`src/boot/mode.ts`). The
+ * Kubernetes build of the SPA doesn't exist yet: whatever image or chart ends
+ * up serving it next to the Rust backend must build it with
+ * `VITE_RUNTIME_CONFIG=on`.
  *
  * ## The `/config.json` contract
  *
@@ -58,12 +67,14 @@
  * `VITE_CLERK_PUBLISHABLE_KEY`. How the OIDC fields pick the active
  * workspace: `lib/auth/oidc/claims.ts`.
  *
- * Loading never blocks Global: a missing file, an HTML answer (Pages' SPA
- * fallback serves `index.html` for unknown paths), invalid JSON or a slow
- * answer all fall back to the build-time values.
+ * With the switch on, a bad answer never stops the app: a missing file, an
+ * HTML answer (an SPA fallback serving `index.html` for unknown paths),
+ * invalid JSON, a document that breaks the contract or a slow answer (3 s)
+ * all fall back to the build-time values.
  */
 
 import { z } from 'zod';
+import { isRuntimeConfigOn } from '@/src/boot/mode';
 
 const authSchema = z.discriminatedUnion('provider', [
   z.object({
@@ -150,9 +161,18 @@ export async function fetchRuntimeConfig(
   }
 }
 
-/** Load `/config.json` and keep it for every later reader. Called once, before the first render. */
+/** Whether this build reads `/config.json` (`VITE_RUNTIME_CONFIG=on`). */
+export function isRuntimeConfigEnabled(): boolean {
+  return isRuntimeConfigOn(import.meta.env.VITE_RUNTIME_CONFIG as string | undefined);
+}
+
+/**
+ * Load `/config.json` and keep it for every later reader. Called once, before
+ * the first render, by the Kubernetes boot. With the switch off it requests
+ * nothing and resolves to null: the build-time values apply.
+ */
 export async function loadRuntimeConfig(fetchImpl?: typeof fetch): Promise<RuntimeConfig | null> {
-  const config = await fetchRuntimeConfig(fetchImpl);
+  const config = isRuntimeConfigEnabled() ? await fetchRuntimeConfig(fetchImpl) : null;
   setRuntimeConfig(config);
   return config;
 }

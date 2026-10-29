@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchRuntimeConfig,
   getRuntimeConfig,
+  isRuntimeConfigEnabled,
   isRuntimeEnv,
   isRustBackend,
   loadRuntimeConfig,
@@ -69,17 +70,31 @@ describe('fetchRuntimeConfig', () => {
   });
 });
 
-describe('loadRuntimeConfig', () => {
+describe('loadRuntimeConfig with VITE_RUNTIME_CONFIG=on (Kubernetes builds)', () => {
   it('keeps the document for later readers', async () => {
+    vi.stubEnv('VITE_RUNTIME_CONFIG', 'on');
+    expect(isRuntimeConfigEnabled()).toBe(true);
     await loadRuntimeConfig(async () => response(JSON.stringify(rustConfig)));
     expect(getRuntimeConfig()?.modules).toEqual(['core', 'know']);
     expect(isRustBackend()).toBe(true);
   });
 
-  it('leaves Global on its build-time settings when there is none', async () => {
+  it('falls back to the build-time settings when there is none', async () => {
+    vi.stubEnv('VITE_RUNTIME_CONFIG', 'on');
     await loadRuntimeConfig(async () => response('', { status: 404 }));
     expect(getRuntimeConfig()).toBeNull();
     expect(isRustBackend()).toBe(false);
+  });
+});
+
+describe('loadRuntimeConfig with the switch unset or off (Global)', () => {
+  it.each([undefined, '', 'off', 'true'])('requests nothing for %s', async (value) => {
+    if (value !== undefined) vi.stubEnv('VITE_RUNTIME_CONFIG', value);
+    const fetchImpl = vi.fn(async () => response(JSON.stringify(rustConfig)));
+    await expect(loadRuntimeConfig(fetchImpl)).resolves.toBeNull();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(isRuntimeConfigEnabled()).toBe(false);
+    expect(getRuntimeConfig()).toBeNull();
   });
 });
 

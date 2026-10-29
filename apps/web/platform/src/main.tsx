@@ -1,9 +1,6 @@
-import { getLocale } from '@weldsuite/i18n';
-import { loadLocale } from '@weldsuite/i18n/locales';
 import { log, flush, sendToLogtail } from '@/lib/logger';
 import { isStaleChunkError, reloadForStaleChunk } from '@/lib/chunk-reload';
-import { loadRuntimeConfig, type RuntimeConfig } from '@/lib/runtime-config';
-import { setAuthImplementation } from '@/lib/auth';
+import { startApp } from '@boot';
 
 // Intercept all console.error calls and forward to BetterStack.
 // This captures errors from the 222+ files that call console.error directly.
@@ -59,35 +56,7 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-/**
- * Pick the identity provider from the runtime config (SEC-012). Clerk is the
- * default; the OIDC client is a separate chunk only the Kubernetes editions
- * download.
- */
-async function selectIdentityProvider(config: RuntimeConfig | null): Promise<void> {
-  const auth = config?.auth;
-  if (auth?.provider !== 'oidc') return;
-  const { clientId } = auth;
-  if (!clientId) {
-    log.error('/config.json names an OIDC provider without a clientId (OIDC_WEB_CLIENT_ID); nobody can sign in');
-    return;
-  }
-  const { createOidcAuth } = await import('@/lib/auth/oidc');
-  setAuthImplementation(createOidcAuth({ ...auth, clientId }));
-}
-
-// Before the first render:
-// - the runtime config (`/config.json`, lib/runtime-config.ts). The app reads
-//   API origins and keys at module load, so `./app` is imported only once it
-//   has settled. Global serves none and falls back to its `VITE_*` values.
-// - the stored locale's bundle. Non-English bundles are lazy chunks and many
-//   screens read translations synchronously (`getTranslations()`), which never
-//   re-renders when a bundle lands later: a Dutch user would keep seeing the
-//   English fallback on those screens until something else re-rendered them.
-//   A failed load falls back to English.
-void Promise.all([
-  loadRuntimeConfig().then(selectIdentityProvider),
-  loadLocale(getLocale()).catch(() => undefined),
-])
-  .then(() => import('./app'))
-  .then(({ renderApp }) => renderApp());
+// Boot: `@boot` is src/boot/global.tsx or src/boot/runtime.tsx, picked at build
+// time by VITE_RUNTIME_CONFIG (src/boot/mode.ts, vite.config.ts). Global renders
+// straight away; the Kubernetes builds read /config.json first.
+void startApp();

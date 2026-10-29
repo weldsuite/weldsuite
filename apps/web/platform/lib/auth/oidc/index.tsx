@@ -37,8 +37,9 @@
  *    and `OIDC_WEB_CLIENT_ID=<the app's client id>`, and serve the platform on
  *    the same origin so `/config.json` comes from it. Without the backend, put
  *    the same `auth` block in `apps/web/platform/public/config.json` (not
- *    committed) and run `pnpm --filter platform dev`: the shell signs in, API
- *    calls are refused.
+ *    committed) and run `VITE_RUNTIME_CONFIG=on pnpm --filter platform dev`:
+ *    the shell signs in, API calls are refused. The switch is required: a
+ *    build without it never reads `/config.json` (`src/boot/mode.ts`).
  */
 
 import { useSyncExternalStore, type ReactNode } from 'react';
