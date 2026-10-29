@@ -102,3 +102,36 @@ spec:
   selector: { app: s3 }
   ports:
     - port: 9000
+---
+# Restate, the durable-execution server behind the Jobs port.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restate
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: restate }
+  template:
+    metadata:
+      labels: { app: restate }
+    spec:
+      containers:
+        - name: restate
+          image: docker.io/restatedev/restate:1.7.14
+          ports:
+            - { name: ingress, containerPort: 8080 }
+            - { name: admin, containerPort: 9070 }
+          readinessProbe:
+            httpGet: { path: /health, port: admin }
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: restate
+spec:
+  selector: { app: restate }
+  ports:
+    - { name: ingress, port: 8080 }
+    - { name: admin, port: 9070 }

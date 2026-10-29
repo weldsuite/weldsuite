@@ -18,7 +18,8 @@ use weldsuite_adapters_oss::{
 use weldsuite_db::PgPool;
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_ports::{
-    DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynRealtimePublisher,
+    DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynJobs,
+    DynRealtimePublisher, InProcessJobs, JobRegistry, NoopJob,
 };
 
 use crate::config::{FlagSourceKind, InfraConfig};
@@ -39,6 +40,12 @@ pub(crate) struct Infra {
     /// The legacy public bucket (`STORAGE`), read only, for objects stored
     /// before the private one existed (`get_stored`).
     pub(crate) public_files: Option<Arc<dyn DynFileStore>>,
+    /// Starts durable jobs (the workers' Workflows): Restate, or in process.
+    #[allow(dead_code, reason = "sign's finalize job (P3) is the first caller")]
+    pub(crate) jobs: Arc<dyn DynJobs>,
+    /// The jobs this process runs; modules register theirs once their state
+    /// exists. `weldsuite.noop` is always there, for the smoke test.
+    pub(crate) job_registry: JobRegistry,
 }
 
 impl std::fmt::Debug for Infra {
@@ -49,6 +56,7 @@ impl std::fmt::Debug for Infra {
             .field("cache", &self.cache.is_some())
             .field("files", &self.files.is_some())
             .field("public_files", &self.public_files.is_some())
+            .field("job_registry", &self.job_registry)
             .finish_non_exhaustive()
     }
 }
@@ -58,7 +66,10 @@ impl Infra {
     /// defaults. For tests.
     #[cfg(test)]
     pub(crate) fn disconnected(tracker: TaskTracker) -> Self {
+        let job_registry = job_registry();
         Self {
+            jobs: Arc::new(InProcessJobs::new(job_registry.clone(), tracker.clone())),
+            job_registry,
             events: EntityEventPublisher::new(None, tracker),
             realtime: None,
             cache: None,
@@ -139,6 +150,37 @@ fn file_stores(config: &InfraConfig) -> Result<FileStores, Error> {
     Ok((Some(private), public))
 }
 
+/// The registry every process starts with.
+pub(crate) fn job_registry() -> JobRegistry {
+    let registry = JobRegistry::new();
+    registry.register(NoopJob);
+    registry
+}
+
+/// Restate when configured, else jobs run as tasks in this process.
+fn jobs(
+    config: &InfraConfig,
+    registry: &JobRegistry,
+    tracker: &TaskTracker,
+) -> Result<Arc<dyn DynJobs>, Error> {
+    let Some(ingress) = &config.jobs.restate_ingress_url else {
+        tracing::warn!(
+            "RESTATE_INGRESS_URL is not set: jobs run in this process and a restart loses them"
+        );
+        return Ok(Arc::new(InProcessJobs::new(
+            registry.clone(),
+            tracker.clone(),
+        )));
+    };
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    Ok(Arc::new(weldsuite_adapters_oss::RestateJobs::new(
+        ingress, client,
+    )))
+}
+
 /// Connect what `config` names. Fails when a configured service can't be
 /// reached at start, so a misconfigured pod crash-loops visibly instead of
 /// dropping events.
@@ -158,7 +200,11 @@ pub(crate) async fn connect(
     };
     let (cache, realtime) = valkey.map_or((None, None), |v| (Some(v.cache), Some(v.realtime)));
     let (files, public_files) = file_stores(config)?;
+    let job_registry = job_registry();
+    let jobs = jobs(config, &job_registry, &tracker)?;
     Ok(Infra {
+        jobs,
+        job_registry,
         events: EntityEventPublisher::new(bus, tracker)
             .with_subject_prefix(&config.nats_subject_prefix),
         realtime,

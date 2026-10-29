@@ -135,11 +135,20 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         recorders,
     };
 
+    let (stopping, stop) = tokio::sync::watch::channel(false);
+    let jobs = serve_jobs(&config, &state, stop);
+
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
     tracing::info!(listen = %config.listen, version = env!("CARGO_PKG_VERSION"), "serving");
     axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown_signal(draining, config.shutdown_delay))
+        .with_graceful_shutdown(async move {
+            shutdown_signal(draining, config.shutdown_delay).await;
+            let _ = stopping.send(true);
+        })
         .await?;
+    if let Some(jobs) = jobs {
+        let _ = jobs.await;
+    }
     // Let fire-and-forget publishes finish before the process exits.
     tracker.close();
     if tokio::time::timeout(std::time::Duration::from_secs(10), tracker.wait())
@@ -150,6 +159,47 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     }
     tracing::info!("stopped");
     Ok(())
+}
+
+/// With Restate configured: serve the jobs service on `JOBS_PORT` until
+/// `stop` turns true, and register it with the admin API in the background.
+fn serve_jobs(
+    config: &Config,
+    state: &AppState,
+    mut stop: tokio::sync::watch::Receiver<bool>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let jobs = &config.infra.jobs;
+    jobs.restate_ingress_url.as_ref()?;
+    let registry = state.infra.job_registry.clone();
+    let address = std::net::SocketAddr::new(config.listen.ip(), jobs.port);
+    if let (Some(admin), Some(uri)) = (
+        jobs.restate_admin_url.clone(),
+        jobs.restate_deployment_uri.clone(),
+    ) {
+        tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            let wait = std::time::Duration::from_secs(300);
+            if let Err(error) =
+                weldsuite_adapters_oss::register_deployment(&client, &admin, &uri, wait).await
+            {
+                tracing::error!(%error, "jobs: not registered with restate; jobs will not run");
+            }
+        });
+    }
+    Some(tokio::spawn(async move {
+        let listener = match tokio::net::TcpListener::bind(address).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                tracing::error!(%error, %address, "jobs: cannot listen for restate");
+                return;
+            }
+        };
+        tracing::info!(%address, jobs = ?registry.names(), "jobs: serving the restate endpoint");
+        weldsuite_adapters_oss::serve_endpoint(registry, listener, async move {
+            let _ = stop.wait_for(|stopping| *stopping).await;
+        })
+        .await;
+    }))
 }
 
 #[cfg(test)]

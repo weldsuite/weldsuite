@@ -53,6 +53,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.config.jobs.restate.ingressUrl }}
+            - name: jobs
+              containerPort: {{ .Values.config.jobs.port }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: PORT
               value: "8080"
@@ -106,6 +111,20 @@ spec:
             {{- end }}
             - name: S3_FORCE_PATH_STYLE
               value: {{ .forcePathStyle | toString | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.config.jobs }}
+            {{- if .restate.ingressUrl }}
+            - name: RESTATE_INGRESS_URL
+              value: {{ .restate.ingressUrl | quote }}
+            - name: JOBS_PORT
+              value: {{ .port | quote }}
+            {{- if .restate.adminUrl }}
+            - name: RESTATE_ADMIN_URL
+              value: {{ .restate.adminUrl | quote }}
+            - name: RESTATE_DEPLOYMENT_URI
+              value: {{ printf "http://%s-jobs.%s.svc:%v" (include "weldsuite.fullname" $) $.Release.Namespace .port | quote }}
+            {{- end }}
             {{- end }}
             {{- end }}
             {{- if .Values.clerkJwks.enabled }}

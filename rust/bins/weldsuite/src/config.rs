@@ -89,6 +89,48 @@ pub(crate) struct InfraConfig {
     /// `S3_ENDPOINT` and friends: object storage for the private (and the
     /// legacy public) bucket.
     pub(crate) files: Option<FilesConfig>,
+    pub(crate) jobs: JobsConfig,
+}
+
+/// Durable jobs: on Restate when `RESTATE_INGRESS_URL` is set, else in the
+/// server process (`InProcessJobs`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct JobsConfig {
+    /// `RESTATE_INGRESS_URL`: where jobs are started, `http://restate:8080`.
+    pub(crate) restate_ingress_url: Option<String>,
+    /// `RESTATE_ADMIN_URL`: where the endpoint is registered at start,
+    /// `http://restate:9070`. Unset: registered by hand.
+    pub(crate) restate_admin_url: Option<String>,
+    /// `RESTATE_DEPLOYMENT_URI`: how Restate reaches the jobs endpoint, the
+    /// jobs Service, `http://weldsuite-jobs:9080`.
+    pub(crate) restate_deployment_uri: Option<String>,
+    /// `JOBS_PORT`: the port the Restate service endpoint listens on (9080).
+    pub(crate) port: u16,
+}
+
+impl JobsConfig {
+    fn from_lookup(lookup: &impl Fn(&str) -> Option<String>, problems: &mut Vec<String>) -> Self {
+        let port = match lookup("JOBS_PORT") {
+            None => 9080,
+            Some(port) => port.parse().unwrap_or_else(|_| {
+                problems.push("JOBS_PORT must be a port number".to_owned());
+                9080
+            }),
+        };
+        let config = Self {
+            restate_ingress_url: lookup("RESTATE_INGRESS_URL").filter(|s| !s.is_empty()),
+            restate_admin_url: lookup("RESTATE_ADMIN_URL").filter(|s| !s.is_empty()),
+            restate_deployment_uri: lookup("RESTATE_DEPLOYMENT_URI").filter(|s| !s.is_empty()),
+            port,
+        };
+        if config.restate_admin_url.is_some() != config.restate_deployment_uri.is_some() {
+            problems.push("RESTATE_ADMIN_URL and RESTATE_DEPLOYMENT_URI go together".to_owned());
+        }
+        if config.restate_admin_url.is_some() && config.restate_ingress_url.is_none() {
+            problems.push("RESTATE_ADMIN_URL needs RESTATE_INGRESS_URL".to_owned());
+        }
+        config
+    }
 }
 
 /// The S3 buckets behind the file stores (the workers' R2 `PRIVATE_STORAGE`
@@ -160,6 +202,7 @@ impl fmt::Debug for InfraConfig {
             .field("nats_stream", &self.nats_stream)
             .field("flags", &self.flags)
             .field("files", &self.files)
+            .field("jobs", &self.jobs)
             .finish_non_exhaustive()
     }
 }
@@ -204,6 +247,7 @@ impl InfraConfig {
             flags_refresh: Duration::from_secs(refresh_seconds),
             test_fixtures_token: lookup("TEST_FIXTURES_TOKEN"),
             files: FilesConfig::from_lookup(lookup, problems),
+            jobs: JobsConfig::from_lookup(lookup, problems),
         }
     }
 }
@@ -450,5 +494,36 @@ mod tests {
         ])
         .expect("valid");
         assert!(matches!(config.clerk_key, ClerkKey::Jwks(_)));
+    }
+
+    #[test]
+    fn jobs_run_in_process_unless_restate_is_set() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+        ];
+        let jobs = config(&base).expect("valid").infra.jobs;
+        assert_eq!(jobs.restate_ingress_url, None);
+        assert_eq!(jobs.port, 9080);
+
+        let mut vars = base.to_vec();
+        vars.extend([
+            ("RESTATE_INGRESS_URL", "http://restate:8080"),
+            ("RESTATE_ADMIN_URL", "http://restate:9070"),
+            ("RESTATE_DEPLOYMENT_URI", "http://weldsuite-jobs:9080"),
+            ("JOBS_PORT", "9180"),
+        ]);
+        let jobs = config(&vars).expect("valid").infra.jobs;
+        assert_eq!(
+            jobs.restate_admin_url.as_deref(),
+            Some("http://restate:9070")
+        );
+        assert_eq!(jobs.port, 9180);
+
+        let mut vars = base.to_vec();
+        vars.push(("RESTATE_ADMIN_URL", "http://restate:9070"));
+        let error = config(&vars).expect_err("invalid");
+        assert!(error.0.iter().any(|p| p.contains("RESTATE_DEPLOYMENT_URI")));
+        assert!(error.0.iter().any(|p| p.contains("RESTATE_INGRESS_URL")));
     }
 }

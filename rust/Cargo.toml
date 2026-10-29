@@ -49,6 +49,7 @@ lopdf = { version = "0.46.0", default-features = false }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }
 redis = { version = "1.8.0", default-features = false }
 regex = { version = "1.13.1", default-features = false, features = ["std", "perf"] }
+restate-sdk = { version = "0.13.0", default-features = false, features = ["http_server", "aws_lc_rs"] }
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] }
 rusty-s3 = { version = "0.11.0", default-features = false, features = ["aws-lc-rs", "full"] }
 serde = { version = "1.0.229", features = ["derive"] }
