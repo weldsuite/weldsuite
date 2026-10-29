@@ -55,6 +55,41 @@ describe('outbound bridge', () => {
     expect(answer.status).toBe(502);
   });
 
+  it("passes the call's own headers through, both ways, without the hop-by-hop ones", async () => {
+    const stub = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      return new Response(JSON.stringify({ accept: headers.get('accept'), host: headers.get('host') }), {
+        status: 200,
+        headers: { 'content-type': 'application/json', 'x-ratelimit-remaining': '9' },
+      });
+    });
+    vi.stubGlobal('fetch', stub);
+
+    const bridge = await outboundBridgeUrl();
+    const target = encodeURIComponent('https://api.example.test/v1/contacts');
+    const answer = await new Promise<{ text: string; remaining: unknown }>((resolve, reject) => {
+      const req = request(`${bridge}/fetch?url=${target}`, { headers: { accept: 'application/json' } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () =>
+          resolve({ text: Buffer.concat(chunks).toString(), remaining: res.headers['x-ratelimit-remaining'] }),
+        );
+      });
+      req.on('error', reject);
+      req.end();
+    });
+    expect(JSON.parse(answer.text)).toEqual({ accept: 'application/json', host: null });
+    expect(answer.remaining).toBe('9');
+  });
+
+  it('records the body of a call made with a Request', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
+    const { calls } = await recordOutbound(async () => {
+      await fetch(new Request('https://api.example.test/v1/contacts', { method: 'POST', body: '{"name":"Ann"}' }));
+    });
+    expect(calls).toEqual([{ method: 'POST', url: 'https://api.example.test/v1/contacts', body: { name: 'Ann' } }]);
+  });
+
   it("records the route's own calls and leaves loopback out", async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })));
     const { calls } = await recordOutbound(async () => {

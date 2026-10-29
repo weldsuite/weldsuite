@@ -56,12 +56,10 @@ export class FakeBucket {
   }
 
   async put(key: string, value: unknown, options?: { httpMetadata?: { contentType?: string } }): Promise<void> {
-    const body =
-      value instanceof Uint8Array
-        ? value
-        : typeof value === 'string'
-          ? new TextEncoder().encode(value)
-          : new Uint8Array(await new Response(value as BodyInit).arrayBuffer());
+    let body: Uint8Array;
+    if (value instanceof Uint8Array) body = value;
+    else if (typeof value === 'string') body = new TextEncoder().encode(value);
+    else body = new Uint8Array(await new Response(value as BodyInit).arrayBuffer());
     this.objects.set(key, { body, contentType: options?.httpMetadata?.contentType });
   }
 
