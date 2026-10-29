@@ -5,6 +5,7 @@ import { z } from 'zod';
 //
 //   GET /api/member-limits  → memberLimitsSchema (general:read)
 //   GET /api/my-role        → myRoleSchema (every member)
+//   GET /api/prepaid-seats  → prepaidSeatsSchema (general:read)
 // ============================================================================
 
 /** The workspace's member limit and the seats in use. `limit` null is unlimited. */
@@ -28,3 +29,19 @@ export const myRoleSchema = z.object({
 });
 
 export type MyRole = z.infer<typeof myRoleSchema>;
+
+/**
+ * The seats the workspace has paid for and how many are in use: the plan's
+ * included users plus purchased seats (a partner licence's cap for a
+ * partner-managed workspace; without a cap `prepaidSeats` equals
+ * `usedSeats` and `canAddMore` is true).
+ */
+export const prepaidSeatsSchema = z.object({
+  prepaidSeats: z.number().int(),
+  /** Members plus pending invitations that will take a seat. */
+  usedSeats: z.number().int(),
+  availableSeats: z.number().int().nonnegative(),
+  canAddMore: z.boolean(),
+});
+
+export type PrepaidSeats = z.infer<typeof prepaidSeatsSchema>;

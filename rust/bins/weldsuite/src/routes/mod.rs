@@ -67,6 +67,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = core_team(router, state);
+    let router = core_platform(router, state);
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),
@@ -173,6 +174,10 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             weldsuite_core_team::member_limits(team.clone(), gate),
         )
         .nest(
+            "/prepaid-seats",
+            weldsuite_core_team::prepaid_seats(team.clone(), gate),
+        )
+        .nest(
             "/workspace-settings",
             weldsuite_core_team::workspace_settings(team.clone(), gate),
         )
@@ -197,6 +202,71 @@ fn core_team(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             weldsuite_core_team::app_catalog(team.clone(), gate),
         )
         .nest("/workspaces", weldsuite_core_team::workspaces(team, gate))
+}
+
+/// The smaller core platform route groups (`weldsuite-core-platform`), each
+/// at its app-api prefix: notifications, audit logs, API keys, the dashboard,
+/// credits, support, feature requests, SSO, auth sessions and the app store
+/// (P4, sub-phases 4b/4d).
+///
+/// Served in conformance builds only while the port is checked; mounted
+/// unconditionally once every group's suite passes with every route covered.
+fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !cfg!(feature = "conformance") {
+        return router;
+    }
+    let platform = weldsuite_core_platform::CorePlatformState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        cache: state.infra.cache.clone(),
+        master: state.workspaces.master().clone(),
+        // No identity provider on Kubernetes until the Zitadel adapter (P5,
+        // ADR SEC-012); conformance builds take the test's per request.
+        identity: None,
+    };
+    let gate = &state.permissions;
+    router
+        .nest(
+            "/notifications",
+            weldsuite_core_platform::notifications(platform.clone(), gate),
+        )
+        .nest(
+            "/audit-logs",
+            weldsuite_core_platform::audit_logs(platform.clone(), gate),
+        )
+        .nest(
+            "/api-keys",
+            weldsuite_core_platform::api_keys(platform.clone(), gate),
+        )
+        .nest(
+            "/workspace-api-keys",
+            weldsuite_core_platform::workspace_api_keys(platform.clone(), gate),
+        )
+        .nest(
+            "/dashboard",
+            weldsuite_core_platform::dashboard(platform.clone(), gate),
+        )
+        .nest(
+            "/credits",
+            weldsuite_core_platform::credits(platform.clone(), gate),
+        )
+        .nest(
+            "/support",
+            weldsuite_core_platform::support(platform.clone(), gate),
+        )
+        .nest(
+            "/feature-requests",
+            weldsuite_core_platform::feature_requests(platform.clone(), gate),
+        )
+        .nest("/sso", weldsuite_core_platform::sso(platform.clone(), gate))
+        .nest(
+            "/auth-sessions",
+            weldsuite_core_platform::auth_sessions(platform.clone(), gate),
+        )
+        .nest(
+            "/appstore",
+            weldsuite_core_platform::appstore(platform, gate),
+        )
 }
 
 /// The routes that need a session but no workspace (app-api mounts them

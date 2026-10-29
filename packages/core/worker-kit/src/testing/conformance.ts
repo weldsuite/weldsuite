@@ -83,6 +83,14 @@ export const CONFORMANCE_HEADER = 'X-Weld-Conformance';
 /** Response header naming the route that answered (both runtimes set it in this mode). */
 export const ROUTE_HEADER = 'X-Weld-Route';
 
+/**
+ * Request header a test sets on a GET that writes (a record created on first
+ * access), so it is compared as a write: Rust on the database, TypeScript on a
+ * copy. Run as a read, TypeScript would create the record and Rust then find
+ * it. Neither backend reads it.
+ */
+export const CONFORMANCE_WRITE_HEADER = 'X-Weld-Conformance-Write';
+
 /** Env bindings the Rust server honours per request in conformance mode. */
 export const FORWARDED_ENV = [
   'PERMISSIONS_APP_ENFORCE',
@@ -345,6 +353,13 @@ const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
  * 2286, not part of a longer number. Differs between two runs of a write.
  */
 const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
+/** An API key's display prefix (`wsk_` and the random key's first 8 hex characters). */
+const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
+/**
+ * A random token in hex (16 random bytes, e.g. an SSO domain's TXT record
+ * value), on its own or inside a string. New on every run of a write.
+ */
+const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
 
 /**
  * Sorted keys, and for writes the values that differ by construction between
@@ -359,6 +374,10 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
         .sort()
         .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
     );
+  }
+  // A realtime room payload's `ts: Date.now()`.
+  if (isWrite && key === 'ts' && typeof value === 'number' && Number.isInteger(value) && value >= 1e12 && value < 1e13) {
+    return '<epoch-ms>';
   }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   return value;
@@ -375,9 +394,10 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (key === 'finalSha256' && SHA256_HEX.test(value)) return '<sha256>';
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
+  if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (GENERATED_ID.test(value)) return '<id>';
-  return value.replace(EPOCH_MS, '<epoch-ms>');
+  return value.replace(RANDOM_HEX, '<hex>').replace(EPOCH_MS, '<epoch-ms>');
 }
 
 /** The first place two normalised JSON values differ, as a path and both values; null when equal. */
@@ -669,7 +689,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();
-  const isWrite = !SAFE_METHODS.has(method);
+  const isWrite = !SAFE_METHODS.has(method) || new Headers(init?.headers).has(CONFORMANCE_WRITE_HEADER);
 
   const client = pgliteClientOf(ctx.tenantDb);
   if (!client) {
