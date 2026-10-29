@@ -39,6 +39,72 @@
       ]
     },
     {
+      "name": "core: custom objects",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/custom-objects/custom-objects.test.ts",
+        "src/routes/custom-object-records/custom-object-records.test.ts",
+        "src/routes/custom-object-links/custom-object-links.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/custom-objects/",
+        "apps/workers/app-api/src/routes/custom-object-records/",
+        "apps/workers/app-api/src/routes/custom-object-links/",
+        "apps/workers/app-api/src/middleware/custom-object.ts",
+        "apps/workers/app-api/src/services/custom-object-links.ts",
+        "apps/workers/app-api/src/services/custom-object-targets.ts",
+        "apps/workers/app-api/src/test/custom-object-fixtures.ts",
+        "packages/domains/core/src/custom-objects.ts",
+        "packages/domains/core/src/custom-field-query.ts",
+        "packages/core/db/src/lib/custom-objects.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/clients/app-api-client/src/schemas/custom-objects.ts",
+        "packages/clients/app-api-client/src/schemas/custom-fields.ts",
+        "rust/modules/core-objects/"
+      ]
+    },
+    {
+      "name": "core: custom fields",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/custom-fields/index.test.ts",
+        "src/routes/custom-fields/custom-fields.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/custom-fields/",
+        "packages/clients/app-api-client/src/schemas/custom-fields.ts",
+        "rust/modules/core-objects/"
+      ]
+    },
+    {
+      "name": "core: object templates",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/object-templates/object-templates.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/object-templates/",
+        "packages/clients/app-api-client/src/schemas/object-templates.ts",
+        "rust/modules/core-objects/"
+      ]
+    },
+    {
+      "name": "core: grid views",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/grid-views/grid-views.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/grid-views/",
+        "packages/clients/app-api-client/src/schemas/grid-views.ts",
+        "rust/modules/core-objects/"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",

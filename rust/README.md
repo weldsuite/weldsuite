@@ -44,7 +44,9 @@ rust/
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, flags in the master DB,
                         files over the S3 API
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
-                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know
+                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
+                        modules/sign; core app-api areas too: modules/core-objects (WeldObjects,
+                        custom fields, object templates, grid views; conformance builds only for now)
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), the chart, a signed request
 ```

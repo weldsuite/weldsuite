@@ -28,6 +28,42 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
             "/access-requests/{id}",
             patch(access_requests::resolve).route_layer(state.permissions.require(["team:update"])),
         );
+    // Core: WeldObjects, custom fields, object templates and grid views
+    // (P4, sub-phase 4e). Served in conformance builds while the port is
+    // checked; mounted unconditionally once complete.
+    let router = if cfg!(feature = "conformance") {
+        let objects = weldsuite_core_objects::CoreObjectsState {
+            events: state.infra.events.clone(),
+        };
+        let gate = &state.permissions;
+        router
+            .nest(
+                "/custom-objects",
+                weldsuite_core_objects::custom_objects_router(objects.clone(), gate),
+            )
+            .nest(
+                "/objects",
+                weldsuite_core_objects::objects_router(objects.clone(), gate),
+            )
+            .nest(
+                "/related",
+                weldsuite_core_objects::related_router(objects.clone(), gate),
+            )
+            .nest(
+                "/custom-fields",
+                weldsuite_core_objects::custom_fields_router(objects.clone(), gate),
+            )
+            .nest(
+                "/object-templates",
+                weldsuite_core_objects::object_templates_router(objects.clone(), gate),
+            )
+            .nest(
+                "/grid-views",
+                weldsuite_core_objects::grid_views_router(objects, gate),
+            )
+    } else {
+        router
+    };
     let router = if mounts("know") {
         let know = weldsuite_know::KnowState {
             events: state.infra.events.clone(),

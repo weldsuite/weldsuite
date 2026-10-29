@@ -43,6 +43,15 @@ templates).
   `query_values(raw_query)`; `z.coerce.number()` is `Number { coerce: true }`.
   Add a missing rule to the validator with a test against Zod's real output
   (run Zod from `packages/clients/app-api-client` and paste its issues).
+  `.min().max().regex(re, msg)` is `Issues::pattern` (Zod checks in that
+  order). A `.refine()` is `Issues::custom`, called after every other field:
+  `zValidator` uses `safeParseAsync`, which settles refinements after the
+  body's synchronous checks, so their issues come last.
+- JavaScript key order: `serde_json` sorts object keys, but `JSON.stringify`
+  comparisons (`computeChanges`), `asText` of an object and "the first
+  invalid field" all follow the body's order, and a `jsonb` column comes back
+  in `jsonb`'s (shorter keys first). `modules/core-objects/src/js.rs` keeps
+  either order and prints values and numbers as JavaScript does.
 - Errors: mirror the route's own mapping (`respondToSignError`,
   `accessError`, …) in one enum with a `respond()`; unknown errors are a 500
   through `ApiError::internal()` (with the route's message where TS passes
