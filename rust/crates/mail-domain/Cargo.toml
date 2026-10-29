@@ -1,0 +1,17 @@
+[package]
+name = "weldsuite-mail-domain"
+description = "@weldsuite/mail-domain: mailbox access, the mailbox store and the outbound guard, shared by the modules that read or send mail"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-db = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+
+[lints]
+workspace = true

@@ -33,6 +33,7 @@ weldsuite-flow = { path = "modules/flow" }
 weldsuite-flow-domain = { path = "crates/flow-domain" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
+weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
