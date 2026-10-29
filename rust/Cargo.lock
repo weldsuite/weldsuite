@@ -3606,10 +3606,12 @@ name = "weldsuite-adapters-oss"
 version = "0.0.0"
 dependencies = [
  "async-nats",
+ "aws-lc-rs",
  "axum",
  "base64 0.22.1",
  "bytes",
  "futures-util",
+ "hex",
  "jiff",
  "lettre",
  "redis",
@@ -3622,7 +3624,10 @@ dependencies = [
  "tokio",
  "tracing",
  "weldsuite-catalogs",
+ "weldsuite-db",
  "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-migrations",
  "weldsuite-ports",
 ]
 

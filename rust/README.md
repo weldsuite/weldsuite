@@ -42,10 +42,12 @@ rust/
   crates/migrations/    the journaled Drizzle migrations, embedded at build time, and the runner behind
                         `weldsuite migrate` (the TypeScript runners' twin; see "Migrations" below)
   crates/pipeline/      the gates after auth: licence, read-only, app access, feature flags
-  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity), their test doubles, in-process jobs
+  crates/ports/         ports (cache, event bus, realtime, flags, files, jobs, system mail, identity, database provisioning),
+                        their test doubles, in-process jobs
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, Restate jobs, flags in the master DB,
-                        files over the S3 API, system mail over SMTP, identity on Zitadel
+                        files over the S3 API, system mail over SMTP, identity on Zitadel, workspace databases on
+                        CloudNativePG shards
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
@@ -173,7 +175,9 @@ Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
 Not there yet: the Zitadel `Identity` adapter wired into the server (it
-waits for the team routes that call the port), group-claim workspaces for a
+waits for the team routes that call the port), the CloudNativePG
+`DatabaseProvisioner` wired in (it waits for the provisioning job of P4 4a;
+its shards will come from `TENANT_SHARDS`, see `crates/adapters-oss/src/cnpg.rs`), group-claim workspaces for a
 customer's own provider (P7), the Neon API fallback for a workspace without a stored `database_url` (the
 Kubernetes editions always store it), Clerk member linking on
 `/api/me/permissions`, and an admin screen for `feature_flag_overrides` (the table

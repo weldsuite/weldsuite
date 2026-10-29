@@ -13,18 +13,20 @@
 //! | [`SystemMail`] | the `SEND_EMAIL` binding behind `@weldsuite/emails` (`workerTransport`) | [`RecordingSystemMail`] |
 //! | [`FlagSource`] | the Cloudflare Flagship binding (`@weldsuite/feature-flags/server`) | [`StaticFlags`] |
 //! | [`Identity`] | Clerk's Backend API (`api.clerk.com/v1`, `@clerk/backend`), ADR SEC-012 | [`MemoryIdentity`] |
+//! | [`DatabaseProvisioner`] | Neon provisioning (`@weldsuite/neon-provisioning`, workspace worker) | [`MemoryProvisioner`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
 //! (`impl Future + Send`). Those are not object safe, so each also has a
 //! `Dyn*` twin with boxed futures, implemented for every port, for state that
 //! picks its adapter at runtime: `Arc<dyn DynCache>` and friends implement the
-//! port trait again. [`Identity`] is object safe from the start (see its
-//! module).
+//! port trait again. [`Identity`] and [`DatabaseProvisioner`] are object safe
+//! from the start (see their modules).
 
 use std::fmt;
 use std::pin::Pin;
 
 pub mod cache;
+pub mod database;
 pub mod events;
 pub mod files;
 pub mod flags;
@@ -35,6 +37,10 @@ pub mod mail;
 pub mod realtime;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
+pub use database::{
+    DatabaseProvisioner, DatabaseUrl, MemoryProvisioner, Placement, ProvisionCall, ProvisionError,
+    ProvisionRequest, ProvisionedDatabase, Teardown,
+};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
 pub use files::{
     DynFileStore, FileStore, FileStores, MemoryFileStore, ObjectInfo, PutOptions, StoredObject,
