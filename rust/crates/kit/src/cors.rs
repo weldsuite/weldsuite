@@ -19,22 +19,9 @@ use std::time::Duration;
 use http::{HeaderName, HeaderValue, Method};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
-/// Keep in sync with `FIRST_PARTY_ORIGINS` in `cors.ts` until the catalog
-/// export (P1 work package 1.6) generates both from one list.
-pub const FIRST_PARTY_ORIGINS: [&str; 12] = [
-    "https://app.weldsuite.org",
-    "https://app-test.weldsuite.org",
-    "https://app-preview.weldsuite.org",
-    "https://developer.weldsuite.org",
-    "https://developer-test.weldsuite.org",
-    "https://partner.weldsuite.org",
-    "https://partner-test.weldsuite.org",
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:5173",
-    "http://localhost:3202",
-    "http://localhost:3203",
-];
+/// The first-party origins, from `FIRST_PARTY_ORIGINS` in `cors.ts` through
+/// the catalog export.
+pub use weldsuite_catalogs::FIRST_PARTY_ORIGINS;
 
 /// Preflight results are cached for a day: with one API host per module a
 /// page talks to several origins, and each pays its own preflights.

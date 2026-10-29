@@ -1,0 +1,38 @@
+{
+  "hello-world": {
+    "default": false,
+    "type": "boolean"
+  },
+  "upgrade-button": {
+    "default": false,
+    "type": "boolean"
+  },
+  "weldflow-move-task": {
+    "default": false,
+    "type": "boolean"
+  },
+  "weldhr-payroll": {
+    "default": false,
+    "type": "boolean"
+  },
+  "weldhr-payroll-digipoort": {
+    "default": false,
+    "type": "boolean"
+  },
+  "weldmail-outbound-guard": {
+    "default": "shadow",
+    "type": "string"
+  },
+  "weldmeet-noise-suppression": {
+    "default": true,
+    "type": "boolean"
+  },
+  "weldreach-sending": {
+    "default": true,
+    "type": "boolean"
+  },
+  "weldreach-warmup": {
+    "default": true,
+    "type": "boolean"
+  }
+}

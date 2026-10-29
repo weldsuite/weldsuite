@@ -1,0 +1,5 @@
+[env]
+# aws-lc-sys (the crypto behind jsonwebtoken, and later rustls) needs NASM to
+# build on Windows. Use its prebuilt NASM objects instead, so a Windows
+# machine needs no extra tools. Ignored on Linux and macOS.
+AWS_LC_SYS_PREBUILT_NASM = "1"
