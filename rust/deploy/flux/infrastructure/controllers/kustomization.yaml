@@ -22,3 +22,6 @@ configMapGenerator:
   - name: plugin-barman-cloud-values
     namespace: cnpg-system
     files: [values.yaml=values/plugin-barman-cloud.yaml]
+  - name: metrics-server-values
+    namespace: kube-system
+    files: [values.yaml=values/metrics-server.yaml]

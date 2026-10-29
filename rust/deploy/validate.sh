@@ -46,6 +46,7 @@ for dir in \
   flux/infrastructure/configs/drill \
   flux/infrastructure/configs/test \
   flux/infrastructure/services \
+  flux/infrastructure/monitoring \
   flux/apps/eu \
   flux/secrets/eu \
   flux/secrets/drill \
@@ -64,6 +65,8 @@ releases=(
   "traefik traefik https://traefik.github.io/charts|traefik 41.7.1 flux/infrastructure/controllers/values/traefik.yaml flux/infrastructure/controllers/releases.yaml"
   "cloudnative-pg cnpg-system https://cloudnative-pg.github.io/charts|cloudnative-pg 0.29.1 flux/infrastructure/controllers/values/cloudnative-pg.yaml flux/infrastructure/controllers/releases.yaml"
   "plugin-barman-cloud cnpg-system https://cloudnative-pg.github.io/charts|plugin-barman-cloud 0.8.1 flux/infrastructure/controllers/values/plugin-barman-cloud.yaml flux/infrastructure/controllers/releases.yaml"
+  "metrics-server kube-system https://kubernetes-sigs.github.io/metrics-server|metrics-server 3.14.0 flux/infrastructure/controllers/values/metrics-server.yaml flux/infrastructure/controllers/releases.yaml"
+  "kube-prometheus-stack monitoring https://prometheus-community.github.io/helm-charts|kube-prometheus-stack 92.3.1 flux/infrastructure/monitoring/values/kube-prometheus-stack.yaml flux/infrastructure/monitoring/releases.yaml"
   "nats weldsuite https://nats-io.github.io/k8s/helm/charts|nats 2.15.0 flux/infrastructure/services/values/nats.yaml flux/infrastructure/services/releases.yaml"
   "valkey weldsuite https://valkey.io/valkey-helm|valkey 0.12.0 flux/infrastructure/services/values/valkey.yaml flux/infrastructure/services/releases.yaml"
   "restate weldsuite oci://ghcr.io/restatedev/restate-helm 1.7.13 flux/infrastructure/services/values/restate.yaml flux/infrastructure/services/releases.yaml"

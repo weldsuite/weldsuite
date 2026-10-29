@@ -6,7 +6,8 @@
 #   - one replica of everything else (the patches below, on top of each
 #     release's values).
 # In order: chart sources, operators and the ingress, the encrypted secrets,
-# Postgres and the issuer, the services, and the weldsuite server.
+# Postgres and the issuer, the services, the weldsuite server, and Prometheus
+# for Lens's charts (test only, so far).
 # `flux create kustomization ... --path=./rust/deploy/flux/clusters/test`
 # applies this directory (runbook step 6).
 apiVersion: kustomize.toolkit.fluxcd.io/v1
@@ -240,3 +241,23 @@ spec:
               streamReplicas: 1
               podDisruptionBudget:
                 enabled: false
+---
+# CPU, memory and disk history for Lens (infrastructure/monitoring). Lens:
+# the cluster's Metrics settings, "Prometheus Operator",
+# monitoring/kube-prometheus-stack-prometheus:9090.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: controllers
+  interval: 1h
+  path: ./rust/deploy/flux/infrastructure/monitoring
+  prune: true
+  wait: true
+  timeout: 15m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

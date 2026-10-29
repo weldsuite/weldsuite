@@ -1,0 +1,26 @@
+# The release's values are in values/kube-prometheus-stack.yaml (a ConfigMap
+# generated next to it), so rust/deploy/validate.sh renders the chart with
+# exactly these values.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  interval: 1h
+  timeout: 10m
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: 92.3.1
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: flux-system
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  valuesFrom:
+    - kind: ConfigMap
+      name: kube-prometheus-stack-values

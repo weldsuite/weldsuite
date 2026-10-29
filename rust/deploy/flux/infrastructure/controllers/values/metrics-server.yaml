@@ -1,0 +1,5 @@
+# The chart's defaults. metrics-server verifies the kubelets against the
+# cluster CA: their serving certificates come from it (KubeletConfig
+# serverTLSBootstrap in rust/deploy/hetzner/talos/common.yaml.tftpl, approved
+# by kubelet-serving-cert-approver.yaml), so no --kubelet-insecure-tls.
+args: []

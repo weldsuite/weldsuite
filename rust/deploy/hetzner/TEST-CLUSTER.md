@@ -34,6 +34,7 @@ topology) and use the `eu` Flux cluster.
 | Images | the EU registry, later | `ghcr.io/weldsuite/*:sha-<commit>`, pushed by the "Rust images" workflow on every push to `deploy/**` |
 | Backups | a second EU provider | Hetzner Object Storage in another location (nbg1) |
 | OpenTofu state | S3 backend, encrypted | local `terraform.tfstate` in this checkout |
+| Metrics | metrics-server (the autoscaler's) | metrics-server, plus a small Prometheus for Lens (`infrastructure/monitoring`) |
 
 **The state is local:** it holds the Talos secrets and is the only easy way to
 tear the cluster down. Don't delete this checkout while the cluster exists (if
@@ -135,6 +136,23 @@ Run everything from this checkout (Git Bash), on the `deploy/eu-test` branch.
     `https://api.test.weldsuite.eu/health` and `/config.json`,
     `https://app.test.weldsuite.eu`, and
     `kubectl -n weldsuite logs deploy/weldsuite`.
+
+## Metrics in Lens
+
+The cluster's **Settings → Metrics**: Prometheus **Prometheus Operator**,
+service address `monitoring/kube-prometheus-stack-prometheus:9090`. The usage
+columns come from metrics-server (`kubectl top nodes` shows the same).
+
+Both verify the kubelets' certificates, which the cluster CA signs
+(`serverTLSBootstrap` in `talos/common.yaml.tftpl`, approved by
+`kubelet-serving-cert-approver` in the controllers layer). A node created
+before that setting needs it once, without a reboot:
+
+```bash
+printf 'apiVersion: v1alpha1\nkind: KubeletConfig\nconfig:\n  serverTLSBootstrap: true\n' > kubelet.yaml
+talosctl -n <private ip> patch machineconfig --patch @kubelet.yaml
+kubectl get csr   # kubelet-serving, Approved,Issued
+```
 
 ## Keeping it current
 
