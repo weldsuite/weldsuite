@@ -200,6 +200,22 @@ where
         .with_state(state)
 }
 
+/// desk-api's routes mounted ahead of the Clerk guard, at their full paths:
+/// the Discord and Slack OAuth callbacks (`/api/integrations/helpdesk/*`,
+/// the KV state nonce is their credential) and the public help center feed
+/// (`/public/helpcenter/*`, the tenant resolved from `?domain=`). `workspaces`
+/// opens a workspace's tenant database; a request's `Tenant` extension
+/// (conformance) wins.
+pub fn public_router<S>(
+    state: DeskState,
+    workspaces: Option<Arc<weldsuite_db::Workspaces>>,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    channels::public_router(state, workspaces)
+}
+
 /// Who is asking, in which workspace, with what permissions.
 #[allow(dead_code)] // filled in route group by route group
 pub(crate) struct Caller {

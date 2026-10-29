@@ -6,17 +6,17 @@
 
 use std::sync::Arc;
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use axum::{Extension, Json, Router};
-use axum::body::Bytes;
 use http::{HeaderMap, StatusCode};
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_db::{PgPool, Tenant};
-use weldsuite_kit::validation::{Issues, Presence};
-use weldsuite_kit::{Created, Data, generate_id};
+use weldsuite_kit::validation::Presence;
+use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use super::tables::HELPDESK_WIDGET_SETTINGS as WIDGETS;
@@ -40,19 +40,34 @@ where
             "/automation",
             put(automation).route_layer(need("settings:update")),
         )
-        .route("/tickets", put(tickets).route_layer(need("settings:update")))
+        .route(
+            "/tickets",
+            put(tickets).route_layer(need("settings:update")),
+        )
         .route(
             "/satisfaction",
             put(satisfaction).route_layer(need("settings:update")),
         )
-        .route("/widget", get(primary_widget).route_layer(need("settings:read")))
-        .route("/widget", put(save_primary).route_layer(need("settings:update")))
+        .route(
+            "/widget",
+            get(primary_widget).route_layer(need("settings:read")),
+        )
+        .route(
+            "/widget",
+            put(save_primary).route_layer(need("settings:update")),
+        )
         .route(
             "/widget/enabled",
             patch(toggle_enabled).route_layer(need("settings:update")),
         )
-        .route("/widgets", get(list_widgets).route_layer(need("settings:read")))
-        .route("/widgets", post(create_widget).route_layer(need("settings:create")))
+        .route(
+            "/widgets",
+            get(list_widgets).route_layer(need("settings:read")),
+        )
+        .route(
+            "/widgets",
+            post(create_widget).route_layer(need("settings:create")),
+        )
         .route(
             "/widgets/{widget_id}",
             get(widget_detail).route_layer(need("settings:read")),
@@ -194,46 +209,57 @@ async fn save_section(
 ) -> Result<(), sqlx::Error> {
     let existing = settings_row(&caller.db).await?;
     let now = now();
-    let mut values = Map::new();
-    let id = match &existing {
-        Some(row) => {
-            values.insert(section.to_owned(), value(row.get(section)));
-            row["id"].as_str().unwrap_or_default().to_owned()
-        }
-        None => {
-            values.insert(section.to_owned(), value(None));
-            generate_id("hds")
-        }
+    let (id, section_value) = match &existing {
+        Some(row) => (
+            row["id"].as_str().unwrap_or_default().to_owned(),
+            value(row.get(section)),
+        ),
+        None => (generate_id("hds"), value(None)),
     };
-    let column = HELPDESK_SETTINGS
-        .column(section)
-        .map_or(section, |column| column.name)
-        .to_owned();
-    let section_value = values.remove(section).unwrap_or(Value::Null);
-    if existing.is_some() {
-        sqlx::query(&format!(
-            "update helpdesk_settings set \"{column}\" = $2::jsonb, updated_at = $3::timestamp where id = $1"
-        ))
+    let (update, insert) = statements(section);
+    let sql = if existing.is_some() { update } else { insert };
+    sqlx::query(sql)
         .bind(&id)
         .bind(&section_value)
         .bind(&now)
         .execute(&caller.db)
         .await?;
-    } else {
-        sqlx::query(&format!(
-            "insert into helpdesk_settings (id, \"{column}\", created_at, updated_at)
-             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)"
-        ))
-        .bind(&id)
-        .bind(&section_value)
-        .bind(&now)
-        .execute(&caller.db)
-        .await?;
-    }
     let mut data = Map::new();
     data.insert(section.to_owned(), event_value);
-    caller.publish(state, ev::HELPDESK_SETTINGS_UPDATED, &id, &Value::Object(data));
+    caller.publish(
+        state,
+        ev::HELPDESK_SETTINGS_UPDATED,
+        &id,
+        &Value::Object(data),
+    );
     Ok(())
+}
+
+/// The update and the insert of one section: `$1` id, `$2` the section,
+/// `$3` now.
+fn statements(section: &str) -> (&'static str, &'static str) {
+    match section {
+        "notifications" => (
+            "update helpdesk_settings set notifications = $2::jsonb, updated_at = $3::timestamp where id = $1",
+            "insert into helpdesk_settings (id, notifications, created_at, updated_at)
+             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
+        ),
+        "automation" => (
+            "update helpdesk_settings set automation = $2::jsonb, updated_at = $3::timestamp where id = $1",
+            "insert into helpdesk_settings (id, automation, created_at, updated_at)
+             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
+        ),
+        "tickets" => (
+            "update helpdesk_settings set tickets = $2::jsonb, updated_at = $3::timestamp where id = $1",
+            "insert into helpdesk_settings (id, tickets, created_at, updated_at)
+             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
+        ),
+        _ => (
+            "update helpdesk_settings set satisfaction = $2::jsonb, updated_at = $3::timestamp where id = $1",
+            "insert into helpdesk_settings (id, satisfaction, created_at, updated_at)
+             values ($1, $2::jsonb, $3::timestamp, $3::timestamp)",
+        ),
+    }
 }
 
 /// `{ ...existing, ...data }`: the stored section with the body's keys laid
@@ -262,13 +288,23 @@ async fn notifications(
     let message = "Failed to update notification settings";
     let data = match validate(&headers, &body, |issues, fields| {
         let mut data = Map::new();
-        for key in ["emailNotifications", "pushNotifications", "smsNotifications"] {
-            if let Some(flag) = issues.boolean(fields, key, Presence::Required).into_option() {
+        for key in [
+            "emailNotifications",
+            "pushNotifications",
+            "smsNotifications",
+        ] {
+            if let Some(flag) = issues
+                .boolean(fields, key, Presence::Required)
+                .into_option()
+            {
                 data.insert(key.to_owned(), Value::Bool(flag));
             }
         }
         for key in NOTIFY_FLAGS {
-            if let Some(flag) = issues.boolean(fields, key, Presence::Optional).into_option() {
+            if let Some(flag) = issues
+                .boolean(fields, key, Presence::Optional)
+                .into_option()
+            {
                 data.insert(key.to_owned(), Value::Bool(flag));
             }
         }
@@ -278,8 +314,15 @@ async fn notifications(
         Err(refusal) => return refusal.respond(message),
     };
     let mut notifs = Map::new();
-    for key in ["emailNotifications", "pushNotifications", "smsNotifications"] {
-        notifs.insert(key.to_owned(), data.get(key).cloned().unwrap_or(Value::Null));
+    for key in [
+        "emailNotifications",
+        "pushNotifications",
+        "smsNotifications",
+    ] {
+        notifs.insert(
+            key.to_owned(),
+            data.get(key).cloned().unwrap_or(Value::Null),
+        );
     }
     for key in NOTIFY_FLAGS {
         // `data.notifyOnNewTicket ?? true`
@@ -289,7 +332,15 @@ async fn notifications(
         );
     }
     let notifs = Value::Object(notifs);
-    match save_section(&state, &caller, "notifications", |_| notifs.clone(), notifs.clone()).await {
+    match save_section(
+        &state,
+        &caller,
+        "notifications",
+        |_| notifs.clone(),
+        notifs.clone(),
+    )
+    .await
+    {
         Ok(()) => ok(),
         Err(error) => Refusal::Database(error).respond(message),
     }
@@ -304,7 +355,10 @@ async fn automation(
     let message = "Failed to update automation settings";
     let data = match validate(&headers, &body, |issues, fields| {
         let mut data = Map::new();
-        if let Some(flag) = issues.boolean(fields, "enabled", Presence::Required).into_option() {
+        if let Some(flag) = issues
+            .boolean(fields, "enabled", Presence::Required)
+            .into_option()
+        {
             data.insert("enabled".to_owned(), Value::Bool(flag));
         }
         if let Some(action) = issues
@@ -341,10 +395,16 @@ async fn automation(
     };
     let event = Value::Object(data.clone());
     // Merge: the WeldDesk inbox keeps its auto-assignment in this blob too.
-    match save_section(&state, &caller, "automation", |existing| match existing {
-        Some(_) => merged(existing, &data),
-        None => Value::Object(data.clone()),
-    }, event)
+    match save_section(
+        &state,
+        &caller,
+        "automation",
+        |existing| match existing {
+            Some(_) => merged(existing, &data),
+            None => Value::Object(data.clone()),
+        },
+        event,
+    )
     .await
     {
         Ok(()) => ok(),
@@ -372,10 +432,16 @@ async fn merged_section(
         Err(refusal) => return refusal.respond(message),
     };
     let event = Value::Object(data.clone());
-    match save_section(&state, &caller, section, |existing| match existing {
-        Some(_) => merged(existing, &data),
-        None => Value::Object(data.clone()),
-    }, event)
+    match save_section(
+        &state,
+        &caller,
+        section,
+        |existing| match existing {
+            Some(_) => merged(existing, &data),
+            None => Value::Object(data.clone()),
+        },
+        event,
+    )
     .await
     {
         Ok(()) => ok(),
@@ -451,7 +517,13 @@ async fn register(
 }
 
 /// A master `widget_registry` update by widget id; errors are swallowed.
-async fn update_registry(caller: &Caller, state: &DeskState, sql: &str, widget_id: &str, value: &Value) {
+async fn update_registry(
+    caller: &Caller,
+    state: &DeskState,
+    sql: &'static str,
+    widget_id: &str,
+    value: &Value,
+) {
     let Some(master) = master(caller, state) else {
         return;
     };
@@ -512,7 +584,15 @@ async fn primary_widget(
                 Ok(row) => row,
                 Err(error) => return write_failed(&error, message),
             };
-            register(&caller, &state, &tenant.workspace_id, &widget_id, "Default Widget", &now).await;
+            register(
+                &caller,
+                &state,
+                &tenant.workspace_id,
+                &widget_id,
+                "Default Widget",
+                &now,
+            )
+            .await;
             Data(created).into_response()
         }
         Some(mut row) if row["widgetId"].as_str().is_none_or(str::is_empty) => {
@@ -534,7 +614,15 @@ async fn primary_widget(
                 .as_str()
                 .unwrap_or("Default Widget")
                 .to_owned();
-            register(&caller, &state, &tenant.workspace_id, &widget_id, &name, &now).await;
+            register(
+                &caller,
+                &state,
+                &tenant.workspace_id,
+                &widget_id,
+                &name,
+                &now,
+            )
+            .await;
             // `{ ...widgetSettings, widgetId }`: the row as read, with the
             // new widget id laid over it.
             row["widgetId"] = json!(widget_id);
@@ -577,7 +665,10 @@ async fn save_primary(
         let mut values = Map::new();
         WIDGETS.set(&mut values, "updatedAt", json!(now));
         values.extend(WIDGETS.values(&data));
-        if let Err(error) = WIDGETS.patch(&caller.db, &id, values, false, &["updatedAt"]).await {
+        if let Err(error) = WIDGETS
+            .patch(&caller.db, &id, values, false, &["updatedAt"])
+            .await
+        {
             return write_failed(&error, message);
         }
         caller.publish(
@@ -616,7 +707,15 @@ async fn save_primary(
     {
         return write_failed(&error, message);
     }
-    register(&caller, &state, &tenant.workspace_id, &widget_id, &name, &now).await;
+    register(
+        &caller,
+        &state,
+        &tenant.workspace_id,
+        &widget_id,
+        &name,
+        &now,
+    )
+    .await;
     caller.publish(
         &state,
         ev::HELPDESK_SETTINGS_UPDATED,
@@ -633,7 +732,9 @@ async fn toggle_enabled(State(state): State<DeskState>, caller: Caller, body: By
     // undefined.
     let enabled = match lenient_json(&body) {
         None => Some(Value::Bool(false)),
-        Some(Value::Null) => return Refusal::Database(sqlx::Error::RowNotFound).respond(message),
+        Some(Value::Null) => {
+            return ApiError::internal().with_message(message).into_response();
+        }
         Some(Value::Object(fields)) => fields.get("enabled").cloned(),
         Some(_) => None,
     };
@@ -660,10 +761,18 @@ async fn toggle_enabled(State(state): State<DeskState>, caller: Caller, body: By
             WIDGETS.set(&mut values, "pageChat", enabled.clone());
         }
         WIDGETS.set(&mut values, "updatedAt", json!(now));
-        if let Err(error) = WIDGETS.patch(&caller.db, &id, values, false, &["updatedAt"]).await {
+        if let Err(error) = WIDGETS
+            .patch(&caller.db, &id, values, false, &["updatedAt"])
+            .await
+        {
             return write_failed(&error, message);
         }
-        caller.publish(&state, ev::HELPDESK_SETTINGS_UPDATED, &id, &event_data(&id, None));
+        caller.publish(
+            &state,
+            ev::HELPDESK_SETTINGS_UPDATED,
+            &id,
+            &event_data(&id, None),
+        );
         return Data(json!({ "id": id, "widgetId": existing["widgetId"], "isNew": false }))
             .into_response();
     }
@@ -704,8 +813,10 @@ async fn list_widgets(caller: Caller) -> Response {
     .fetch_all(&caller.db)
     .await;
     match rows {
-        Ok(rows) => Data(Value::Array(rows.into_iter().map(|row| WIDGETS.js(row)).collect()))
-            .into_response(),
+        Ok(rows) => Data(Value::Array(
+            rows.into_iter().map(|row| WIDGETS.js(row)).collect(),
+        ))
+        .into_response(),
         Err(error) => Refusal::Database(error).respond("Failed to list widgets"),
     }
 }
@@ -750,7 +861,15 @@ async fn create_widget(
     {
         return write_failed(&error, message);
     }
-    register(&caller, &state, &tenant.workspace_id, &widget_id, &name, &now).await;
+    register(
+        &caller,
+        &state,
+        &tenant.workspace_id,
+        &widget_id,
+        &name,
+        &now,
+    )
+    .await;
     let created = json!({ "id": id, "widgetId": widget_id, "widgetName": name });
     caller.publish(&state, ev::HELPDESK_WIDGET_CREATED, &id, &created);
     Created(created).into_response()
@@ -798,14 +917,17 @@ async fn update_widget(
     let mut values = Map::new();
     WIDGETS.set(&mut values, "updatedAt", json!(now()));
     values.extend(WIDGETS.values(&data));
-    if let Err(error) = WIDGETS.patch(&caller.db, &id, values, false, &["updatedAt"]).await {
+    if let Err(error) = WIDGETS
+        .patch(&caller.db, &id, values, false, &["updatedAt"])
+        .await
+    {
         return write_failed(&error, message);
     }
     if let Some(name) = data.get("widgetName") {
         update_registry(
             &caller,
             &state,
-            "update widget_registry set widget_name = $2 #>> '{}', updated_at = $3::timestamp where widget_id = $1",
+            "update widget_registry set widget_name = $2::jsonb #>> '{}', updated_at = $3::timestamp where widget_id = $1",
             &widget_id,
             name,
         )
@@ -875,6 +997,3 @@ async fn delete_widget(
     );
     Data(json!({ "success": true })).into_response()
 }
-
-#[allow(dead_code)]
-fn _issues_type_check(_: &mut Issues) {}

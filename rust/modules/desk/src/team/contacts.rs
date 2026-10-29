@@ -113,12 +113,11 @@ async fn cursor_row(
     db: &weldsuite_db::PgPool,
     id: &str,
 ) -> Result<Option<(String, String)>, sqlx::Error> {
-    let row: Option<(Option<String>, String)> = sqlx::query_as(
-        "select to_jsonb(updated_at)#>>'{}', id from people where id = $1 limit 1",
-    )
-    .bind(id)
-    .fetch_optional(db)
-    .await?;
+    let row: Option<(Option<String>, String)> =
+        sqlx::query_as("select to_jsonb(updated_at)#>>'{}', id from people where id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
     Ok(row.and_then(|(stamp, id)| {
         stamp
             .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
@@ -270,9 +269,7 @@ async fn create(
         let tags = issues.list(fields, "tags", opt, None, None, |issues, item| {
             issues.item_text(item, Text::default())
         });
-        let metadata = issues.nested(fields, "metadata", opt, |_, map| {
-            Value::Object(map.clone())
-        });
+        let metadata = issues.nested(fields, "metadata", opt, |_, map| Value::Object(map.clone()));
         let status = issues.text(fields, "status", opt, None, None);
         NewContact {
             name: name.into_option().unwrap_or_default(),

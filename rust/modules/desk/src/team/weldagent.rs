@@ -123,9 +123,14 @@ async fn save_config(headers: HeaderMap, body: Bytes) -> Response {
         issues.boolean(fields, "allowHumanEscalation", opt);
         issues.text(fields, "greetingMessage", opt, None, None);
         issues.text(fields, "agentDefinitionId", opt, None, None);
-        issues.list(fields, "enabledBuiltinTools", opt, None, None, |issues, item| {
-            issues.item_text(item, Text::default())
-        });
+        issues.list(
+            fields,
+            "enabledBuiltinTools",
+            opt,
+            None,
+            None,
+            |issues, item| issues.item_text(item, Text::default()),
+        );
         issues.number(fields, "maxIterations", opt, Number::default());
         issues.number(fields, "maxTotalTokens", opt, Number::default());
         issues.choice(
@@ -205,7 +210,10 @@ async fn create(
     set("status", json!("active"));
     set("channel", json!("chat"));
     set("customerEmail", json!(email));
-    set("customerName", json!(name.unwrap_or_else(|| "Visitor".to_owned())));
+    set(
+        "customerName",
+        json!(name.unwrap_or_else(|| "Visitor".to_owned())),
+    );
     set("assigneeId", json!("ai-agent"));
     set("assigneeName", json!("WeldAgent"));
     set("messageCount", json!(0));
@@ -277,7 +285,7 @@ fn escalated(row: &Value) -> bool {
 async fn page(
     caller: &Caller,
     query: Option<&str>,
-    sql: (&str, &str),
+    sql: (&'static str, &'static str),
     drop_escalated: bool,
     message: &str,
 ) -> Response {
@@ -298,7 +306,8 @@ async fn page(
     // Drizzle: `limit` when a number >= 0; `offset` when truthy.
     let limit = (size >= 0.0).then(|| js_number_text(size));
     let offset_value = (page - 1.0) * size;
-    let offset = (offset_value != 0.0 && !offset_value.is_nan()).then(|| js_number_text(offset_value));
+    let offset =
+        (offset_value != 0.0 && !offset_value.is_nan()).then(|| js_number_text(offset_value));
     let total: i32 = match sqlx::query_scalar(sql.0)
         .bind(search.as_deref())
         .fetch_one(&caller.db)

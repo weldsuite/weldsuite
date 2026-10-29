@@ -99,11 +99,10 @@ async fn stats(caller: Caller) -> Response {
 async fn for_chaining(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let exclude = query_param(query.as_deref(), "exclude");
     // No ORDER BY, as TypeScript has none.
-    let rows: Result<Vec<(String, String, String)>, _> = sqlx::query_as(
-        "select id, name, status from helpdesk_workflows where deleted_at is null",
-    )
-    .fetch_all(&caller.db)
-    .await;
+    let rows: Result<Vec<(String, String, String)>, _> =
+        sqlx::query_as("select id, name, status from helpdesk_workflows where deleted_at is null")
+            .fetch_all(&caller.db)
+            .await;
     match rows {
         Ok(rows) => Data(Value::Array(
             rows.into_iter()
@@ -485,7 +484,9 @@ async fn resume(
     }
     // Forward to the engine's `/respond` (the real resume path).
     let mut forwarded = false;
-    let conversation = execution["conversationId"].as_str().filter(|c| !c.is_empty());
+    let conversation = execution["conversationId"]
+        .as_str()
+        .filter(|c| !c.is_empty());
     if let Some(conversation) = conversation
         && !caller.clerk_org_id.is_empty()
     {

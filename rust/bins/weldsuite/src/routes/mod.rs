@@ -318,6 +318,24 @@ fn desk(router: Router<AppState>, state: &AppState) -> Router<AppState> {
     ))
 }
 
+/// WeldDesk's routes ahead of the session (desk-api mounts them above
+/// `apiAuth()`): the Discord and Slack OAuth callbacks
+/// (`/api/integrations/helpdesk/*`) and the public help center
+/// (`/public/helpcenter/*`). Served with the desk module. Conformance builds
+/// open the test's tenant database for every workspace.
+fn desk_public(state: &AppState) -> Router<AppState> {
+    if !mounts("desk") {
+        return Router::new();
+    }
+    let router = weldsuite_desk::public_router(desk_state(state), Some(Arc::clone(&state.workspaces)));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
 /// WeldDesk's handle on the app. The helpdesk workflow engine is not ported:
 /// its port answers as the worker does without `HELPDESK_WORKFLOW`.
 fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
@@ -448,7 +466,7 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// WeldApps bundle host (`/public/user-apps/*`). Empty where core is not
 /// mounted.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
-    let router = public_core(state);
+    let router = public_core(state).merge(desk_public(state));
     if mounts("mail") {
         router.nest(
             "/internal/outbound",

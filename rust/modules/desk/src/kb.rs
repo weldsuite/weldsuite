@@ -483,7 +483,7 @@ const CANNED_SEARCH: &str = "select to_jsonb(t) from helpdesk_canned_responses t
 
 /// `zValidator('query', searchQuerySchema)`: `q` trimmed (max 200, default
 /// `''`), `limit` coerced (1..50, default 10).
-fn search_query(query: Option<&str>) -> Result<(String, f64), Response> {
+fn search_query(query: Option<&str>) -> Result<(String, f64), Box<Response>> {
     let values = query_values(query);
     let mut issues = Issues::default();
     let q = issues
@@ -509,14 +509,16 @@ fn search_query(query: Option<&str>) -> Result<(String, f64), Response> {
         )
         .into_option()
         .unwrap_or(10.0);
-    issues.finish().map_err(IntoResponse::into_response)?;
+    issues
+        .finish()
+        .map_err(|invalid| Box::new(invalid.into_response()))?;
     Ok((q, limit))
 }
 
 async fn search_canned(caller: Caller, RawQuery(query): RawQuery) -> Response {
     let (q, limit) = match search_query(query.as_deref()) {
         Ok(read) => read,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     #[allow(clippy::cast_possible_truncation)]
     let limit = limit.round() as i64;
@@ -794,7 +796,7 @@ async fn list_changelog(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let page_size = if raw_page_size.is_nan() {
         limit
     } else {
-        raw_page_size.max(1.0).min(100.0)
+        raw_page_size.clamp(1.0, 100.0)
     };
 
     let filter = |name: &str| query_param(query, name).filter(|v| !v.is_empty() && v != "all");
@@ -805,25 +807,13 @@ async fn list_changelog(caller: Caller, RawQuery(raw): RawQuery) -> Response {
         .map(|v| format!("%{v}%"));
 
     let cursor_row = match cursor.as_deref().filter(|c| use_cursor && !c.is_empty()) {
-        Some(cursor) => {
-            let row: Result<Option<(Option<String>, String)>, sqlx::Error> = sqlx::query_as(
-                "select to_jsonb(release_date)#>>'{}', id from helpdesk_changelog where id = $1 limit 1",
-            )
-            .bind(cursor)
-            .fetch_optional(&caller.db)
-            .await;
-            match row {
-                Ok(row) => row.and_then(|(stamp, id)| {
-                    stamp
-                        .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
-                        .map(|stamp| (stamp, id))
-                }),
-                Err(error) => {
-                    tracing::error!(%error, "desk: changelog cursor lookup failed");
-                    return ApiError::internal().into_response();
-                }
+        Some(cursor) => match changelog_cursor(&caller.db, cursor).await {
+            Ok(row) => row,
+            Err(error) => {
+                tracing::error!(%error, "desk: changelog cursor lookup failed");
+                return ApiError::internal().into_response();
             }
-        }
+        },
         None => None,
     };
 
@@ -871,6 +861,29 @@ async fn list_changelog(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     if use_cursor {
         return page_list(rows, limit, total);
     }
+    offset_page(&rows, total, offset, page, page_size)
+}
+
+/// The cursor row's release date (as JavaScript read it) and id.
+async fn changelog_cursor(
+    db: &weldsuite_db::PgPool,
+    id: &str,
+) -> Result<Option<(String, String)>, sqlx::Error> {
+    let row: Option<(Option<String>, String)> = sqlx::query_as(
+        "select to_jsonb(release_date)#>>'{}', id from helpdesk_changelog where id = $1 limit 1",
+    )
+    .bind(id)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.and_then(|(stamp, id)| {
+        stamp
+            .and_then(|stamp| weldsuite_db::js_timestamp(&stamp))
+            .map(|stamp| (stamp, id))
+    }))
+}
+
+/// `list(c, rows, offsetMeta(rows, totalCount, offset, page, pageSize))`.
+fn offset_page(rows: &[Value], total: i64, offset: f64, page: f64, page_size: f64) -> Response {
     #[allow(clippy::cast_precision_loss)]
     let has_more = offset + (rows.len() as f64) < total as f64;
     let cursor = if has_more {

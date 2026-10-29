@@ -99,7 +99,12 @@ fn read_optional(
                 .into_option()
                 .map(Value::String),
             Opt::Num => issues
-                .number(body, key, Presence::Optional, weldsuite_kit::validation::Number::default())
+                .number(
+                    body,
+                    key,
+                    Presence::Optional,
+                    weldsuite_kit::validation::Number::default(),
+                )
                 .into_option()
                 .and(body.get(*key).cloned()),
             Opt::Choice(options) => issues
@@ -116,5 +121,7 @@ fn read_optional(
 /// The value of a row column read as `to_jsonb(column)#>>'{}'`, as
 /// Drizzle's `Date` serialises it.
 fn js_stamp(text: Option<String>) -> Value {
-    text.map_or(Value::Null, |text| Value::String(crate::table::js_date(&text)))
+    text.map_or(Value::Null, |text| {
+        Value::String(crate::table::js_date(&text))
+    })
 }
