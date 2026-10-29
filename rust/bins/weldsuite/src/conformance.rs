@@ -299,6 +299,8 @@ impl Pools {
             extensions.insert(self.outbound.expo(bridge));
             // WeldApps' gateway forwards and lifecycle webhooks.
             extensions.insert(self.outbound.apps_http(bridge));
+            // WeldPass's pushes to Cloudflare and Vercel.
+            extensions.insert(self.outbound.pass_http(bridge));
         }
     }
 

@@ -505,6 +505,26 @@ impl Issues {
             .push(json!({ "code": "custom", "message": message, "path": path }));
     }
 
+    /// `z.discriminatedUnion(key, [...])` given an object whose `key` is not
+    /// one of `options` (missing included): Zod's only issue for it, at the
+    /// discriminator's path. Read the union with [`Issues::nested`] (or
+    /// [`Issues::object`] for a body that is the union) and call this when
+    /// the discriminator does not pick an option.
+    pub fn invalid_discriminator(&mut self, key: &str, options: &[&str]) {
+        let expected = options
+            .iter()
+            .map(|o| format!("'{o}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let path = self.path(key);
+        self.issues.push(json!({
+            "code": "invalid_union_discriminator",
+            "options": options,
+            "path": path,
+            "message": format!("Invalid discriminator value. Expected {expected}"),
+        }));
+    }
+
     /// A failed `.max(maximum, message)` on the number at `key`: read the
     /// number without its `max`, then call this when it is above `maximum`.
     pub fn number_too_big(&mut self, key: &str, maximum: f64, message: &str) {
@@ -1130,6 +1150,22 @@ mod tests {
                 {"code":"too_small","minimum":1,"type":"array","inclusive":true,"exact":false,"message":"Select at least one field","path":["fields"]},
                 {"code":"custom","message":"Reserved","path":["slug"]}
             ])
+        );
+    }
+
+    /// `z.object({ config: z.discriminatedUnion('provider', [...]) })` given
+    /// `{ config: {} }` (WeldPass's sync-target config; Zod 3's issue).
+    #[test]
+    fn discriminated_unions_match_zod() {
+        let mut issues = Issues::default();
+        let body = json!({ "config": {} });
+        let object = issues.object(&body).expect("object");
+        issues.nested(object, "config", Presence::Required, |issues, _| {
+            issues.invalid_discriminator("provider", &["cloudflare_workers", "cloudflare_pages", "vercel"]);
+        });
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"invalid_union_discriminator","options":["cloudflare_workers","cloudflare_pages","vercel"],"path":["config","provider"],"message":"Invalid discriminator value. Expected 'cloudflare_workers' | 'cloudflare_pages' | 'vercel'"}])
         );
     }
 

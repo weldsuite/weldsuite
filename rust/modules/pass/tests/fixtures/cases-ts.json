@@ -286,7 +286,11 @@
           "SECOND": "two"
         },
         "skipped": []
-      }
+      },
+      "keys": [
+        "FIRST",
+        "SECOND"
+      ]
     },
     {
       "input": "export API_KEY=abc123\r\nexport   SPACED = value with spaces  \r\n",
@@ -296,7 +300,11 @@
           "SPACED": "value with spaces"
         },
         "skipped": []
-      }
+      },
+      "keys": [
+        "API_KEY",
+        "SPACED"
+      ]
     },
     {
       "input": "# comment\n\n   \nNO_EQUALS\n=empty-key\n1BAD=x\nhas-dash=x\nGOOD=yes",
@@ -322,7 +330,10 @@
             "reason": "\"has-dash\" is not a valid variable name"
           }
         ]
-      }
+      },
+      "keys": [
+        "GOOD"
+      ]
     },
     {
       "input": "QUOTED=\"line\\none\\ttab \\\"q\\\" back\\\\slash \\r\"\nSINGLE='raw \\n value'\nMIXED=\"unterminated\nINLINE=pass#word # comment\nTABBED=value\t# note\nEMPTY=\nEMPTY_QUOTES=\"\"\nHASH_ONLY=#notacomment",
@@ -338,7 +349,17 @@
           "HASH_ONLY": "#notacomment"
         },
         "skipped": []
-      }
+      },
+      "keys": [
+        "QUOTED",
+        "SINGLE",
+        "MIXED",
+        "INLINE",
+        "TABBED",
+        "EMPTY",
+        "EMPTY_QUOTES",
+        "HASH_ONLY"
+      ]
     },
     {
       "input": "DUP=first\nOTHER=x\nDUP=second",
@@ -348,7 +369,11 @@
           "OTHER": "x"
         },
         "skipped": []
-      }
+      },
+      "keys": [
+        "DUP",
+        "OTHER"
+      ]
     },
     {
       "input": "__proto__=x\nconstructor=y\ntoString=z",
@@ -358,7 +383,11 @@
           "toString": "z"
         },
         "skipped": []
-      }
+      },
+      "keys": [
+        "constructor",
+        "toString"
+      ]
     },
     {
       "input": "KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK=too-long\nvery-long-invalid-key-name-that-goes-on-very-long-invalid-key-name-that-goes-on-=x",
@@ -374,7 +403,8 @@
             "reason": "\"very-long-invalid-key-name-that-goes-on-\" is not a valid variable name"
           }
         ]
-      }
+      },
+      "keys": []
     },
     {
       "input": "UNICODE=pässwörd 😀\nKEY_ÄÖ=x",
@@ -388,7 +418,10 @@
             "reason": "\"KEY_ÄÖ\" is not a valid variable name"
           }
         ]
-      }
+      },
+      "keys": [
+        "UNICODE"
+      ]
     },
     {
       "input": "export =x\nexport\nexportX=1",
@@ -406,7 +439,10 @@
             "reason": "No \"=\" found"
           }
         ]
-      }
+      },
+      "keys": [
+        "exportX"
+      ]
     },
     {
       "input": "SQ='a'\nDQ=\"b\"\nLONE='\nLONE2=\"",
@@ -418,7 +454,13 @@
           "LONE2": "\""
         },
         "skipped": []
-      }
+      },
+      "keys": [
+        "SQ",
+        "DQ",
+        "LONE",
+        "LONE2"
+      ]
     }
   ],
   "renderDotenv": [

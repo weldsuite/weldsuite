@@ -269,7 +269,10 @@ const dotenvInputs = [
   'export =x\nexport\nexportX=1',
   "SQ='a'\nDQ=\"b\"\nLONE='\nLONE2=\"",
 ];
-const dotenvCases = dotenvInputs.map((input) => ({ input, output: dotenv.parseDotenv(input) }));
+const dotenvCases = dotenvInputs.map((input) => {
+  const output = dotenv.parseDotenv(input);
+  return { input, output, keys: Object.keys(output.values) };
+});
 const renderCases = [
   { B: 'plain', A: 'with space', C: '' },
   { URL: 'https://example.com/path?x=1', PATH: './a/b:c@d-e_f.g' },

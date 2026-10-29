@@ -50,6 +50,7 @@ hex = "0.4.3"
 hkdf = "0.13.0"
 hmac = "0.13.0"
 http = "1.5.0"
+icu_collator = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
 http-body-util = "0.1.5"
 minijinja = { version = "3.0.4", default-features = false, features = ["builtins", "multi_template", "std_collections"] }
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
