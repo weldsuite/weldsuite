@@ -3,6 +3,8 @@
 //!
 //! - `sign-lifecycle` (every 15 minutes): WeldSign's automatic reminders
 //!   and expiry (`apps/workers/sign-api/src/cron/lifecycle-sweep.ts`).
+//! - `flow-file-purge` (daily, 03:30 UTC): WeldFlow's purge of files deleted
+//!   more than 30 days ago (`apps/workers/flow-api/src/cron/purge-deleted-files.ts`).
 //!
 //! A job takes the same environment as `serve`. It prints what it did as one
 //! JSON line and exits 0 even when a workspace failed (the due index retries
@@ -38,11 +40,11 @@ impl TenantResolver for WorkspaceTenants {
     }
 }
 
-const JOBS: &str = "jobs: sign-lifecycle";
+const JOBS: &str = "jobs: sign-lifecycle, flow-file-purge";
 
 /// `weldsuite cron <job>`.
 pub(crate) fn main(job: Option<&str>) -> ExitCode {
-    let Some(job @ "sign-lifecycle") = job else {
+    let Some(job @ ("sign-lifecycle" | "flow-file-purge")) = job else {
         eprintln!("usage: weldsuite cron <job>\n{JOBS}");
         return ExitCode::from(2);
     };
@@ -64,7 +66,14 @@ pub(crate) fn main(job: Option<&str>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let code = match runtime.block_on(sign_lifecycle(config)) {
+    let run = async {
+        if job == "flow-file-purge" {
+            flow_file_purge(config).await
+        } else {
+            sign_lifecycle(config).await
+        }
+    };
+    let code = match runtime.block_on(run) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             tracing::error!(%error, job, "cron job failed to start");
@@ -114,5 +123,53 @@ async fn sign_lifecycle(config: Config) -> Result<(), Box<dyn std::error::Error>
     {
         tracing::warn!("stopped with publishes still in flight");
     }
+    Ok(())
+}
+
+/// `flow-file-purge`: the due workspaces' soft-deleted `WeldFlow` files.
+async fn flow_file_purge(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    let master =
+        weldsuite_db::master_pool(&config.master_database_url, config.master_max_connections)?;
+    let workspaces = Arc::new(Workspaces::new(
+        master.clone(),
+        config.keyring.clone(),
+        config.workspaces.clone(),
+    ));
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra = crate::infra::connect(&config.infra, &master, tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, _) = crate::conformance::infra(tracker.clone());
+    // Purged objects may sit in either bucket: delete from both.
+    let stores: Vec<_> = [infra.public_files.clone(), infra.files.clone()]
+        .into_iter()
+        .flatten()
+        .collect();
+    let tenants: weldsuite_flow::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    let now = time::OffsetDateTime::now_utc();
+    let tick = weldsuite_flow::purge::run_file_purge(&master, &tenants, &stores, now).await;
+    println!(
+        "{}",
+        serde_json::json!({
+            "job": "flow-file-purge",
+            "result": {
+                "due": tick.sweep.due,
+                "processed": tick.sweep.processed,
+                "failed": tick.sweep.failed,
+                "rows": tick.purged.rows,
+                "objects": tick.purged.objects,
+            },
+        })
+    );
+    tracker.close();
     Ok(())
 }

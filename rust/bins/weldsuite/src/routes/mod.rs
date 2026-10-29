@@ -126,7 +126,9 @@ fn flow(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
     weldsuite_flow::FlowState {
         events: state.infra.events.clone(),
-        files: file_stores(state),
+        // Conformance builds use only the buckets a test shares (`StorageBuckets`),
+        // as a worker without `STORAGE` / `PRIVATE_STORAGE` runs without them.
+        files: file_stores(state).filter(|_| !cfg!(feature = "conformance")),
         // Conformance builds have no master database of their own: a test
         // that shares one hands it in per request (`MasterDb`), as the
         // workers write their due index only when bound.
