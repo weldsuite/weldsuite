@@ -14,7 +14,7 @@ use std::fmt;
 
 use axum::Json;
 use axum::response::{IntoResponse, Response};
-use http::StatusCode;
+use http::{HeaderValue, StatusCode};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -33,6 +33,13 @@ pub struct List<T> {
     pub pagination: Pagination,
 }
 
+impl<T> List<T> {
+    /// `list(c, data, pagination)`.
+    pub fn new(data: Vec<T>, pagination: Pagination) -> Self {
+        Self { data, pagination }
+    }
+}
+
 /// `cursorPagination()` in TypeScript. `cursor` is serialised as `null`, never
 /// left out, when there is no next page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -41,6 +48,17 @@ pub struct Pagination {
     pub total_count: u64,
     pub has_more: bool,
     pub cursor: Option<String>,
+}
+
+impl Pagination {
+    /// `cursorPagination(totalCount, hasMore, cursor)`.
+    pub fn new(total_count: u64, has_more: bool, cursor: Option<String>) -> Self {
+        Self {
+            total_count,
+            has_more,
+            cursor,
+        }
+    }
 }
 
 /// 204 with an empty body.
@@ -80,18 +98,24 @@ impl IntoResponse for NoContent {
 /// error envelope.
 pub type ApiResult<T> = Result<T, ApiError>;
 
+/// How long clients are told to wait during a workspace database move
+/// (`WORKSPACE_MOVING_RETRY_AFTER_SECONDS`): a move drains in 60 to 90 seconds
+/// at the soonest.
+pub const WORKSPACE_MOVING_RETRY_AFTER_SECONDS: u32 = 30;
+
 /// An error response: `{ "error": { code, message, details? } }`.
 ///
 /// The constructors mirror `error.*` in `response.ts`, with the same codes,
 /// statuses and default messages. `details` is left out of the JSON when it is
 /// `None`, as `JSON.stringify` drops `undefined`; `Some(Value::Null)` prints
-/// `null`.
+/// `null`. A `Retry-After` header goes with it when one is set.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ApiError {
     status: StatusCode,
     code: Cow<'static, str>,
     message: String,
     details: Option<Value>,
+    retry_after: Option<u32>,
 }
 
 /// Body of `error.insufficientCredits`. Missing fields are left out.
@@ -118,6 +142,7 @@ impl ApiError {
             code: code.into(),
             message: message.into(),
             details: None,
+            retry_after: None,
         }
     }
 
@@ -144,6 +169,18 @@ impl ApiError {
 
     pub fn details(&self) -> Option<&Value> {
         self.details.as_ref()
+    }
+
+    /// The `Retry-After` header, in seconds, when the response carries one.
+    pub fn retry_after(&self) -> Option<u32> {
+        self.retry_after
+    }
+
+    /// Send `Retry-After: <seconds>` with the error.
+    #[must_use]
+    pub fn with_retry_after(mut self, seconds: u32) -> Self {
+        self.retry_after = Some(seconds);
+        self
     }
 
     /// 400 `BAD_REQUEST`.
@@ -227,6 +264,21 @@ impl ApiError {
         )
     }
 
+    /// 503 `WORKSPACE_MOVING` with `Retry-After: 30`
+    /// (`workspaceMovingResponse` in `workspace-moving.ts`): the workspace's
+    /// tenant database is being moved, so the client retries instead of
+    /// failing. The licence gate answers it during a move, and so does a
+    /// request the tenant database refused because it moved
+    /// (`weldsuite_db::classify_moved_database_error`).
+    pub fn workspace_moving() -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "WORKSPACE_MOVING",
+            "This workspace is being moved to a new database. Try again in a minute.",
+        )
+        .with_retry_after(WORKSPACE_MOVING_RETRY_AFTER_SECONDS)
+    }
+
     /// 400 `ORG_REQUIRED`: the route needs a workspace context.
     pub fn org_required() -> Self {
         Self::new(
@@ -281,7 +333,13 @@ impl IntoResponse for ApiError {
                 details: self.details.as_ref(),
             },
         };
-        (self.status, Json(body)).into_response()
+        let mut response = (self.status, Json(body)).into_response();
+        if let Some(seconds) = self.retry_after {
+            response
+                .headers_mut()
+                .insert(http::header::RETRY_AFTER, HeaderValue::from(seconds));
+        }
+        response
     }
 }
 
@@ -438,6 +496,49 @@ mod tests {
             assert_eq!(error.code(), code);
             assert_eq!(error.message(), message);
         }
+    }
+
+    // workspace-moving.test.ts: workspaceMovingBody / workspaceMovingResponse.
+    #[tokio::test]
+    async fn workspace_moving_is_a_503_with_the_body_and_retry_after_30() {
+        assert_eq!(WORKSPACE_MOVING_RETRY_AFTER_SECONDS, 30);
+        let response = ApiError::workspace_moving().into_response();
+        assert_eq!(
+            response
+                .headers()
+                .get(http::header::RETRY_AFTER)
+                .and_then(|v| v.to_str().ok()),
+            Some("30")
+        );
+        let (status, content_type, body) = render(response).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(content_type.as_deref(), Some("application/json"));
+        let body: Value = serde_json::from_str(&body).unwrap_or_default();
+        assert_eq!(
+            body,
+            json!({"error": {
+                "code": "WORKSPACE_MOVING",
+                "message": "This workspace is being moved to a new database. Try again in a minute.",
+            }})
+        );
+    }
+
+    #[tokio::test]
+    async fn other_errors_send_no_retry_after() {
+        let response = ApiError::unavailable("Down").into_response();
+        assert!(response.headers().get(http::header::RETRY_AFTER).is_none());
+    }
+
+    #[test]
+    fn cursor_pagination_builds_the_meta() {
+        let page = List::new(
+            vec![1_u8],
+            Pagination::new(3, true, Some("cus_1".to_owned())),
+        );
+        assert_eq!(
+            serde_json::to_value(&page).unwrap_or_default(),
+            json!({"data": [1], "pagination": {"totalCount": 3, "hasMore": true, "cursor": "cus_1"}})
+        );
     }
 
     #[test]
