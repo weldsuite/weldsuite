@@ -186,6 +186,16 @@ import {
   flowTaskTagSchema,
   flowWhiteboardSchema,
   flowWorkloadOverviewSchema,
+  flowMyTaskSchema,
+  flowSuccessSchema,
+  flowTaskAttachmentSchema,
+  flowTaskDependenciesSchema,
+  flowTaskDetailSchema,
+  flowTaskMovedSchema,
+  flowTaskPositionSchema,
+  flowTaskSchema,
+  flowTaskStatusSchema,
+  flowTaskUpdatedSchema,
 } from '@weldsuite/app-api-client/schemas/flow-responses';
 import {
   confirmUploadResponseSchema,
@@ -335,6 +345,21 @@ const FLOW_ROUTES: RouteSchema[] = [
   { method: 'PATCH', route: '/api/task-projects/:id', envelope: 'single', data: flowIdResultSchema },
   { method: 'GET', route: '/api/digest-settings', envelope: 'single', data: flowDigestSettingsSchema },
   { method: 'PUT', route: '/api/digest-settings', envelope: 'single', data: flowDigestSettingsSchema },
+  // tasks, my tasks
+  { method: 'GET', route: '/api/tasks', envelope: 'list', data: flowTaskSchema },
+  { method: 'POST', route: '/api/tasks', envelope: 'single', data: flowTaskSchema },
+  { method: 'POST', route: '/api/tasks/projects/:projectId', envelope: 'single', data: flowTaskSchema },
+  { method: 'PATCH', route: '/api/tasks/reorder', envelope: 'single', data: flowSuccessSchema },
+  { method: 'GET', route: '/api/tasks/:id', envelope: 'single', data: flowTaskDetailSchema },
+  { method: 'PATCH', route: '/api/tasks/:id', envelope: 'single', data: flowTaskUpdatedSchema },
+  { method: 'GET', route: '/api/tasks/:id/subtasks', envelope: 'array', data: flowTaskSchema },
+  { method: 'POST', route: '/api/tasks/:id/attachments', envelope: 'single', data: flowTaskAttachmentSchema },
+  { method: 'PATCH', route: '/api/tasks/:id/toggle', envelope: 'single', data: flowTaskStatusSchema },
+  { method: 'PATCH', route: '/api/tasks/:id/status', envelope: 'single', data: flowTaskStatusSchema },
+  { method: 'PATCH', route: '/api/tasks/:id/position', envelope: 'single', data: flowTaskPositionSchema },
+  { method: 'PUT', route: '/api/tasks/:id/dependencies', envelope: 'single', data: flowTaskDependenciesSchema },
+  { method: 'POST', route: '/api/tasks/:id/move', envelope: 'single', data: flowTaskMovedSchema },
+  { method: 'GET', route: '/api/my-tasks', envelope: 'list', data: flowMyTaskSchema },
 ];
 
 const ROUTES: RouteSchema[] = [

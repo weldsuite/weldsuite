@@ -14,6 +14,7 @@
 #[macro_use]
 mod rows;
 
+pub mod calendar;
 mod custom_values;
 mod digest_settings;
 mod documents;
@@ -25,12 +26,17 @@ mod labels;
 mod members;
 mod messages;
 mod milestones;
+mod my_tasks;
 mod personal;
 mod project_files;
 mod projects;
 pub mod purge;
 mod sprints;
 mod stages;
+mod task_changes;
+mod task_enrich;
+mod task_writes;
+mod tasks;
 mod whiteboards;
 
 pub use import_tasks::{IMPORT_TASKS_JOB, ImportParams, ImportTasksJob, TenantDatabases};
@@ -71,6 +77,8 @@ pub struct FlowState {
     pub jobs: Option<Arc<dyn DynJobs>>,
     /// The public bucket's own URL (`R2_PUBLIC_URL`), for new documents' links.
     pub public_files_url: Option<Arc<str>>,
+    /// Tasks on the calendar (`@weldsuite/db/lib/calendar-sync`).
+    pub calendar: Arc<dyn calendar::TaskCalendar>,
 }
 
 impl std::fmt::Debug for FlowState {
@@ -105,6 +113,7 @@ where
         ),
         ("/goals", goals::router(state.clone(), gate)),
         ("/milestones", milestones::router(state.clone(), gate)),
+        ("/my-tasks", my_tasks::router(state.clone(), gate)),
         ("/project-files", project_files::router(state.clone(), gate)),
         ("/project-labels", labels::router(state.clone(), gate)),
         (
@@ -123,6 +132,7 @@ where
         ),
         ("/projects", projects::router(state.clone(), gate)),
         ("/sprints", sprints::router(state.clone(), gate)),
+        ("/tasks", tasks::router(state.clone(), gate)),
         (
             "/task-projects",
             personal::router(state.clone(), personal::Kind::Projects, gate),
@@ -151,6 +161,8 @@ pub(crate) struct Caller {
     env: Option<RequestEnv>,
     buckets: Option<StorageBuckets>,
     master: Option<PgPool>,
+    /// The request's flag evaluator (`c.get('flags')`), when there is one.
+    flags: Option<weldsuite_pipeline::Flags>,
     /// This request's events, sent in order.
     outbox: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<EntityEvent>>>,
 }
@@ -159,6 +171,14 @@ impl Caller {
     /// `hasContextPermission(c, key)`.
     pub(crate) fn can(&self, key: &str) -> bool {
         self.permissions.has_any(&[key])
+    }
+
+    /// `flags && await flags.isOn(flag)`: off without an evaluator.
+    pub(crate) async fn flag_on(&self, flag: weldsuite_catalogs::flags::BoolFlag) -> bool {
+        match &self.flags {
+            Some(flags) => flags.is_on(flag).await,
+            None => false,
+        }
     }
 
     /// `hasContextPermission(c, 'projects:scope:all')`.
@@ -337,6 +357,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                         .extensions
                         .get::<weldsuite_db::MasterDb>()
                         .map(|master| master.0.clone()),
+                    flags: parts.extensions.get::<weldsuite_pipeline::Flags>().cloned(),
                     outbox: std::sync::Mutex::default(),
                 })
             } else {
@@ -415,6 +436,11 @@ pub(crate) fn reply(result: Reply, fallback: &str) -> Response {
 /// handler answers a 500.
 pub(crate) fn outside(result: Reply) -> Response {
     result.unwrap_or_else(|refusal| refusal.respond("Internal server error"))
+}
+
+/// `Date.now()`.
+pub(crate) fn now_ms() -> i64 {
+    i64::try_from(OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000).unwrap_or(0)
 }
 
 /// `new Date()` as Drizzle writes it: UTC with milliseconds, bound as text

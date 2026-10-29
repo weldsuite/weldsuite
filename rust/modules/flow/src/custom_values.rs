@@ -490,6 +490,49 @@ pub(crate) fn assert_valid(
     Ok(())
 }
 
+/// `syncValuesForEntity(db, entityType, entityId, customFields)`: the
+/// best-effort mirror of a `customFields` blob into the table. `None`
+/// (the write left the blob alone) does nothing; `null` or `{}` clears
+/// every value; an object replaces the set. A refused value is logged.
+pub(crate) async fn sync_values_for_entity(
+    db: &PgPool,
+    entity_type: &str,
+    entity_id: &str,
+    custom_fields: Option<&Js>,
+) {
+    let Some(custom_fields) = custom_fields else {
+        return;
+    };
+    let values: Vec<(String, Js)> = match custom_fields {
+        Js::Object(entries) => entries.clone(),
+        _ => Vec::new(),
+    };
+    let result = async {
+        let definitions = definitions(db, entity_type).await?;
+        set_values(
+            db,
+            entity_type,
+            entity_id,
+            &values,
+            &definitions,
+            false,
+            false,
+        )
+        .await
+    }
+    .await;
+    if let Err(error) = result {
+        let message = match error {
+            ValuesError::Invalid(message) => message,
+            ValuesError::Database(error) => error.to_string(),
+        };
+        tracing::warn!(
+            message,
+            "[custom-field-values] dual-write mirror failed for {entity_type}:{entity_id}"
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

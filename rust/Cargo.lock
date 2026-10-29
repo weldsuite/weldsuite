@@ -4027,6 +4027,7 @@ dependencies = [
  "weldsuite-flow-domain",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-pipeline",
  "weldsuite-ports",
 ]
 
@@ -4034,9 +4035,11 @@ dependencies = [
 name = "weldsuite-flow-domain"
 version = "0.0.0"
 dependencies = [
+ "jiff",
  "serde_json",
  "sqlx",
  "time",
+ "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
 ]

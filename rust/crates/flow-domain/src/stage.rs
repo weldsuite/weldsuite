@@ -159,3 +159,50 @@ pub async fn stage_placement(db: &PgPool, project_id: &str) -> Result<StagePlace
         fallback,
     })
 }
+
+/// What `applyStatusChange` decided for an update.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StatusChange {
+    /// The status to write (`update.status`), when it changes.
+    pub status: Option<String>,
+    /// The stage to write (`update.stageId`), when a status-only change moves it.
+    pub stage_id: Option<String>,
+    /// The task moves to done: stamp `completedDate`.
+    pub completes: bool,
+    /// The status the task ends up with.
+    pub resolved: Option<String>,
+}
+
+/// `applyStatusChange(db, existing, data, update)`: a stage change sets
+/// the status, a status-only change moves the stage, and a move to done
+/// stamps the completion. `status` is the update's status so far (the
+/// body's), `stage_sent` whether the body carried `stageId` at all.
+pub async fn apply_status_change(
+    db: &PgPool,
+    existing_project: Option<&str>,
+    existing_stage: Option<&str>,
+    existing_status: Option<&str>,
+    stage_sent: Option<Option<&str>>,
+    status: Option<String>,
+) -> Result<StatusChange, sqlx::Error> {
+    let mut status = status;
+    let mut stage_id = None;
+    if let Some(stage_status) = status_from_stage(db, stage_sent.flatten()).await? {
+        status = Some(stage_status);
+    }
+    if stage_sent.is_none()
+        && let Some(next) = &status
+    {
+        stage_id = stage_for_status(db, existing_project, existing_stage, next).await?;
+    }
+    let resolved = status
+        .clone()
+        .or_else(|| existing_status.map(str::to_owned));
+    let completes = resolved.as_deref() == Some("done") && existing_status != Some("done");
+    Ok(StatusChange {
+        status,
+        stage_id,
+        completes,
+        resolved,
+    })
+}

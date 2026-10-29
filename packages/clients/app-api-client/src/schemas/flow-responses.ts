@@ -459,3 +459,134 @@ export const flowDigestSettingsSchema = z.object({
   createdAt: nullableString,
   updatedAt: nullableString,
 });
+
+// ── tasks ───────────────────────────────────────────────────────────────────
+
+/** A workspace member on a task (`assignee`, `assignees`). */
+const flowTaskAssigneeSchema = z.object({
+  id: z.string(),
+  name: nullableString,
+  email: nullableString,
+  avatar: nullableString,
+});
+
+/** A task's linked CRM company or person. */
+const flowLinkedRecordSchema = z.object({ id: z.string(), name: nullableString, avatar: nullableString });
+
+/** A task row (`TaskRow`) with what the lists add to it. */
+export const flowTaskSchema = z
+  .object({
+    id: z.string(),
+    number: z.number().int().nullable().optional(),
+    title: z.string(),
+    description: optionalNullableString,
+    projectId: optionalNullableString,
+    sprintId: optionalNullableString,
+    milestoneId: optionalNullableString,
+    parentTaskId: optionalNullableString,
+    stageId: optionalNullableString,
+    customerId: optionalNullableString,
+    contactId: optionalNullableString,
+    personId: optionalNullableString,
+    status: z.string(),
+    priority: z.string(),
+    type: optionalNullableString,
+    tags: z.array(z.string()).nullable().optional(),
+    labels: z.array(z.string()).nullable().optional(),
+    assigneeId: optionalNullableString,
+    assigneeIds: z.array(z.string()).nullable().optional(),
+    reporterId: optionalNullableString,
+    startDate: optionalNullableString,
+    dueDate: optionalNullableString,
+    completedDate: optionalNullableString,
+    estimatedHours: numericText.optional(),
+    actualHours: numericText.optional(),
+    duration: z.number().nullable().optional(),
+    storyPoints: z.number().nullable().optional(),
+    dependsOn: z.array(z.string()).nullable().optional(),
+    blocks: z.array(z.string()).nullable().optional(),
+    position: z.number().optional(),
+    boardPosition: z.number().nullable().optional(),
+    repeat: z
+      .object({ frequency: z.string(), interval: z.number().optional(), unit: z.string().optional() })
+      .passthrough()
+      .nullable()
+      .optional(),
+    customFields: z.record(z.unknown()).nullable().optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    assignee: flowTaskAssigneeSchema.nullable().optional(),
+    assignees: z.array(flowTaskAssigneeSchema).optional(),
+    scheduledStart: optionalNullableString,
+    scheduledEnd: optionalNullableString,
+    autoScheduled: z.boolean().nullable().optional(),
+    linkedCompany: flowLinkedRecordSchema.nullable().optional(),
+    linkedPerson: flowLinkedRecordSchema.nullable().optional(),
+    subtaskCount: z.number().int().optional(),
+    completedSubtaskCount: z.number().int().optional(),
+    attachmentsCount: z.number().int().optional(),
+    children: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+
+/** A task attachment (`TaskAttachmentRow`). */
+export const flowTaskAttachmentSchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  fileKey: z.string(),
+  fileSize: z.number().int(),
+  mimeType: z.string(),
+  url: z.string(),
+});
+
+/** `GET /api/tasks/:id`: the task with its counts and attachments. */
+export const flowTaskDetailSchema = flowTaskSchema.extend({
+  subtaskCount: z.number().int(),
+  completedSubtaskCount: z.number().int(),
+  attachments: z.array(flowTaskAttachmentSchema),
+});
+
+/** A My Tasks row: the task with its project's summary. */
+export const flowMyTaskSchema = flowTaskSchema.extend({
+  project: z
+    .object({ id: z.string(), name: z.string(), color: nullableString, icon: nullableString, status: nullableString })
+    .nullable(),
+});
+
+/** `PATCH /api/tasks/:id`: the id and the fields the body set. */
+export const flowTaskUpdatedSchema = z
+  .object({ id: z.string(), nextTaskId: z.string().optional() })
+  .passthrough();
+
+/** `PATCH /api/tasks/:id/status` and `/toggle`. */
+export const flowTaskStatusSchema = z.object({
+  id: z.string(),
+  status: z.string(),
+  stageId: nullableString,
+  nextTaskId: z.string().optional(),
+});
+
+/** `PATCH /api/tasks/:id/position`. */
+export const flowTaskPositionSchema = z.object({
+  id: z.string(),
+  position: z.number().optional(),
+  status: z.string().optional(),
+  nextTaskId: z.string().optional(),
+});
+
+/** `PUT /api/tasks/:id/dependencies`. */
+export const flowTaskDependenciesSchema = z.object({
+  id: z.string(),
+  dependsOn: z.array(z.string()),
+  blocks: z.array(z.string()),
+});
+
+/** `POST /api/tasks/:id/move`. */
+export const flowTaskMovedSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  movedSubtaskCount: z.number().int(),
+});
+
+/** `{ success: true }`. */
+export const flowSuccessSchema = z.object({ success: z.literal(true) });

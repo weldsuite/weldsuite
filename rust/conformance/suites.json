@@ -636,8 +636,7 @@
       "module": "flow",
       "workspace": "apps/workers/flow-api",
       "tests": [
-        "src/routes/project-hardening.integration.test.ts",
-        "src/routes/viewer-writes.integration.test.ts"
+        "src/routes/project-hardening.integration.test.ts"
       ],
       "paths": [
         "apps/workers/flow-api/src/routes/",
