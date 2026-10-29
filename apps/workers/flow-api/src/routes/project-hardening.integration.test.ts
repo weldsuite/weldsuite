@@ -615,6 +615,11 @@ describe('project documents (TASK-766, TASK-864, TASK-854)', () => {
     expect(rows.some((r) => JSON.stringify(r.content).includes('second'))).toBe(true);
     const doc = await json<{ data: { content: unknown } }>(await send('GET', `/documents/${fileId}`));
     expect(JSON.stringify(doc.data.content)).toContain('first');
+
+    // A viewer reads a version; an outsider does not.
+    const version = await as(VIEWER)('GET', `/documents/${fileId}/versions/${versionId}`);
+    expect(version.status).toBe(200);
+    expect((await as(OUTSIDER)('GET', `/documents/${fileId}/versions/${versionId}`)).status).toBe(403);
   });
 
   it('a drive document (no project) is not gated by project membership', async () => {
@@ -810,5 +815,23 @@ describe('whiteboards of a deleted project are hidden from scope:all lists', () 
       .onConflictDoNothing();
     const list = await json<{ data: Array<{ id: string }> }>(await asScopeAll()('GET', '/whiteboards'));
     expect(list.data.some((b) => b.id === 'pwb_dead')).toBe(false);
+  });
+});
+
+describe('project member reads', () => {
+  it('lists the users who could join, reads a member by row id and the stats placeholder', async () => {
+    const send = as(OWNER);
+    const available = await send('GET', `/project-members/available?projectId=${P1}`);
+    expect(available.status).toBe(200);
+    const ids = (await json<{ data: Array<{ id?: string; userId?: string }> }>(available)).data.map(
+      (user) => user.userId ?? user.id,
+    );
+    expect(ids).toContain(OUTSIDER);
+    expect(ids).not.toContain(MEMBER);
+
+    const row = await send('GET', `/project-members/pm_${P1}_${MEMBER}`);
+    expect(row.status).toBe(200);
+    expect((await as(OUTSIDER)('GET', `/project-members/pm_${P1}_${MEMBER}`)).status).toBe(403);
+    expect((await send('GET', `/project-members/by-user/${P1}/${MEMBER}/stats`)).status).toBe(200);
   });
 });

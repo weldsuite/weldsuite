@@ -370,7 +370,16 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
         master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
         jobs: Some(Arc::clone(&state.infra.jobs)),
         public_files_url: state.files_public_url.clone(),
-        calendar: Arc::new(weldsuite_flow::calendar::PinnedOnly),
+        calendar: Arc::new(weldsuite_flow::calendar::CalendarSync),
+        realtime: state.infra.realtime.clone(),
+        // Expo push. Conformance builds take the test's bridge per request.
+        http: (!cfg!(feature = "conformance"))
+            .then(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(15))
+                    .ok()
+            })
+            .flatten()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
     }
 }
 

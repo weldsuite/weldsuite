@@ -27,16 +27,20 @@ mod members;
 mod messages;
 mod milestones;
 mod my_tasks;
+mod notify;
 mod personal;
+mod project_analytics;
 mod project_files;
 mod projects;
 pub mod purge;
 mod sprints;
 mod stages;
 mod task_changes;
+mod task_comments;
 mod task_enrich;
 mod task_writes;
 mod tasks;
+mod time_entries;
 mod whiteboards;
 
 pub use import_tasks::{IMPORT_TASKS_JOB, ImportParams, ImportTasksJob, TenantDatabases};
@@ -61,7 +65,9 @@ use weldsuite_flow_domain::access::{ProjectAccess, member_project_ids, resolve_p
 use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
-use weldsuite_ports::{DynJobs, FileStores, StorageBuckets};
+use weldsuite_ports::{
+    DynJobs, DynRealtimePublisher, FileStores, OutboundHttp, PresenceReader, StorageBuckets,
+};
 
 /// What the flow handlers share.
 #[derive(Clone)]
@@ -79,6 +85,11 @@ pub struct FlowState {
     pub public_files_url: Option<Arc<str>>,
     /// Tasks on the calendar (`@weldsuite/db/lib/calendar-sync`).
     pub calendar: Arc<dyn calendar::TaskCalendar>,
+    /// In-app notifications (`REALTIME`), when configured.
+    pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
+    /// Outbound HTTP for push notifications (Expo), when configured. A
+    /// request's own (conformance) wins.
+    pub http: Option<OutboundHttp>,
 }
 
 impl std::fmt::Debug for FlowState {
@@ -87,6 +98,8 @@ impl std::fmt::Debug for FlowState {
             .field("files", &self.files.is_some())
             .field("master", &self.master.is_some())
             .field("jobs", &self.jobs.is_some())
+            .field("realtime", &self.realtime.is_some())
+            .field("http", &self.http.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -115,6 +128,10 @@ where
         ("/milestones", milestones::router(state.clone(), gate)),
         ("/my-tasks", my_tasks::router(state.clone(), gate)),
         ("/project-files", project_files::router(state.clone(), gate)),
+        (
+            "/project-analytics",
+            project_analytics::router(state.clone(), gate),
+        ),
         ("/project-labels", labels::router(state.clone(), gate)),
         (
             "/project-documents",
@@ -132,6 +149,7 @@ where
         ),
         ("/projects", projects::router(state.clone(), gate)),
         ("/sprints", sprints::router(state.clone(), gate)),
+        ("/task-comments", task_comments::router(state.clone(), gate)),
         ("/tasks", tasks::router(state.clone(), gate)),
         (
             "/task-projects",
@@ -141,6 +159,7 @@ where
             "/task-tags",
             personal::router(state.clone(), personal::Kind::Tags, gate),
         ),
+        ("/time-entries", time_entries::router(state.clone(), gate)),
         ("/whiteboards", whiteboards::router(state.clone(), gate)),
     ]
 }
@@ -163,6 +182,10 @@ pub(crate) struct Caller {
     master: Option<PgPool>,
     /// The request's flag evaluator (`c.get('flags')`), when there is one.
     flags: Option<weldsuite_pipeline::Flags>,
+    /// The request's outbound HTTP (conformance: the test's `fetch`).
+    http: Option<OutboundHttp>,
+    /// The request's live presence reader (conformance: the test's `REALTIME`).
+    presence: Option<PresenceReader>,
     /// This request's events, sent in order.
     outbox: std::sync::Mutex<Option<tokio::sync::mpsc::UnboundedSender<EntityEvent>>>,
 }
@@ -305,6 +328,19 @@ impl Caller {
         self.master.clone().or_else(|| state.master.clone())
     }
 
+    /// Where notifications go out (`NotificationEnv`): the realtime hub,
+    /// presence and push. Notification email is not sent (see
+    /// `weldsuite_notifications`).
+    pub(crate) fn notifier(&self, state: &FlowState) -> weldsuite_notifications::Notifier {
+        weldsuite_notifications::Notifier {
+            realtime: state.realtime.clone(),
+            presence: self.presence.clone(),
+            mail: None,
+            http: self.http.clone().or_else(|| state.http.clone()),
+            apns: None,
+        }
+    }
+
     /// A value of `c.env` (conformance), if the test set it.
     #[allow(dead_code)]
     pub(crate) fn env(&self, name: &str) -> Option<String> {
@@ -358,6 +394,8 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                         .get::<weldsuite_db::MasterDb>()
                         .map(|master| master.0.clone()),
                     flags: parts.extensions.get::<weldsuite_pipeline::Flags>().cloned(),
+                    http: parts.extensions.get::<OutboundHttp>().cloned(),
+                    presence: parts.extensions.get::<PresenceReader>().cloned(),
                     outbox: std::sync::Mutex::default(),
                 })
             } else {

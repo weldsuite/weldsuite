@@ -525,3 +525,49 @@ describe('non-members stay locked out', () => {
     );
   });
 });
+
+describe('project viewer · every project resource is readable', () => {
+  it('reads the lists and the records of each resource', async () => {
+    const parent = await createTask(asScopeAll(), 'Parent task');
+    const child = await idOf(await asScopeAll()('POST', '/tasks', { title: 'Child task', projectId: PROJECT, parentTaskId: parent }));
+    const comment = await idOf(await asScopeAll()('POST', '/task-comments', { taskId: parent, content: 'Looks good' }));
+    const send = as(VIEWER);
+    const ok = async (path: string) => {
+      const res = await send('GET', path);
+      expect(res.status, path).toBe(200);
+      return res;
+    };
+
+    const subtasks = await ok(`/tasks/${parent}/subtasks`);
+    expect(((await subtasks.json()) as { data: Array<{ id: string }> }).data.map((task) => task.id)).toEqual([child]);
+    await ok('/projects/search?q=Project');
+    await ok(`/projects/${PROJECT}/gantt/tasks`);
+    await ok(`/projects/${PROJECT}/gantt/milestones`);
+    await ok(`/task-comments?taskId=${parent}`);
+    await ok(`/task-comments/${comment}`);
+    await ok(`/sprints?projectId=${PROJECT}`);
+    await ok(`/milestones/${fixtures.milestoneId}`);
+    await ok(`/goals?projectId=${PROJECT}`);
+    await ok(`/goals/${fixtures.goalId}`);
+    await ok(`/whiteboards/${fixtures.whiteboardId}`);
+    await ok(`/project-files?projectId=${PROJECT}`);
+    await ok(`/project-files/${fixtures.folderId}`);
+    await ok(`/project-messages?projectId=${PROJECT}`);
+    await ok(`/project-messages/${fixtures.messageId}`);
+    await ok(`/project-pipeline-stages?projectId=${PROJECT}`);
+    await ok(`/project-pipeline-stages/${fixtures.stageId}`);
+    expect((await send('GET', `/projects/${PROJECT}/tasks/import-jobs/job_missing`)).status).toBe(404);
+
+    // The viewer may not touch the comment; its author edits and deletes it.
+    expect((await send('PATCH', `/task-comments/${comment}`, { content: 'Mine now' })).status).toBe(403);
+    expect((await send('DELETE', `/task-comments/${comment}`)).status).toBe(403);
+    expect((await asScopeAll()('PATCH', `/task-comments/${comment}`, { content: 'Looks great' })).status).toBe(200);
+    expect((await asScopeAll()('DELETE', `/task-comments/${comment}`)).status).toBe(204);
+  });
+
+  it('only a project admin deletes a project', async () => {
+    const id = await idOf(await asScopeAll()('POST', '/projects', { name: 'Throwaway' }));
+    expect((await as(VIEWER)('DELETE', `/projects/${id}`)).status).toBe(403);
+    expect((await asScopeAll()('DELETE', `/projects/${id}`)).status).toBe(204);
+  });
+});
