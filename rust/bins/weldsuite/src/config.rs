@@ -83,6 +83,70 @@ pub(crate) struct InfraConfig {
     pub(crate) flags_refresh: Duration,
     /// `TEST_FIXTURES_TOKEN`: unlocks `X-Test-Flags` outside production.
     pub(crate) test_fixtures_token: Option<String>,
+    /// `S3_ENDPOINT` and friends: object storage for the private (and the
+    /// legacy public) bucket.
+    pub(crate) files: Option<FilesConfig>,
+}
+
+/// The S3 buckets behind the file stores (the workers' R2 `PRIVATE_STORAGE`
+/// and `STORAGE`). One endpoint and key pair for both.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "conformance", allow(dead_code))]
+pub(crate) struct FilesConfig {
+    /// `S3_BUCKET_PRIVATE` on `S3_ENDPOINT`.
+    pub(crate) private: weldsuite_adapters_oss::S3Options,
+    /// `S3_BUCKET_PUBLIC`: read for objects stored before the private bucket.
+    pub(crate) public_bucket: Option<String>,
+}
+
+impl FilesConfig {
+    /// `S3_ENDPOINT` unset is no object storage; set, the bucket and keys must
+    /// be too.
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        problems: &mut Vec<String>,
+    ) -> Option<Self> {
+        let endpoint = lookup("S3_ENDPOINT")?;
+        let mut required = |name: &str| {
+            let value = lookup(name);
+            if value.is_none() {
+                problems.push(format!("{name} is required with S3_ENDPOINT"));
+            }
+            value.unwrap_or_default()
+        };
+        let bucket = required("S3_BUCKET_PRIVATE");
+        let access_key_id = required("S3_ACCESS_KEY_ID");
+        let secret_access_key = required("S3_SECRET_ACCESS_KEY");
+        let path_style = match lookup("S3_FORCE_PATH_STYLE").as_deref() {
+            None | Some("false") => false,
+            Some("true") => true,
+            Some(_) => {
+                problems.push("S3_FORCE_PATH_STYLE must be true or false".to_owned());
+                false
+            }
+        };
+        Some(Self {
+            private: weldsuite_adapters_oss::S3Options {
+                endpoint,
+                region: lookup("S3_REGION").unwrap_or_else(|| "us-east-1".to_owned()),
+                bucket,
+                access_key_id,
+                secret_access_key,
+                path_style,
+            },
+            public_bucket: lookup("S3_BUCKET_PUBLIC"),
+        })
+    }
+
+    /// The legacy public bucket's settings, if there is one.
+    pub(crate) fn public(&self) -> Option<weldsuite_adapters_oss::S3Options> {
+        self.public_bucket
+            .as_ref()
+            .map(|bucket| weldsuite_adapters_oss::S3Options {
+                bucket: bucket.clone(),
+                ..self.private.clone()
+            })
+    }
 }
 
 impl fmt::Debug for InfraConfig {
@@ -92,6 +156,7 @@ impl fmt::Debug for InfraConfig {
             .field("nats", &self.nats_url.as_ref().map(|_| "<set>"))
             .field("nats_stream", &self.nats_stream)
             .field("flags", &self.flags)
+            .field("files", &self.files)
             .finish_non_exhaustive()
     }
 }
@@ -135,6 +200,7 @@ impl InfraConfig {
             flags,
             flags_refresh: Duration::from_secs(refresh_seconds),
             test_fixtures_token: lookup("TEST_FIXTURES_TOKEN"),
+            files: FilesConfig::from_lookup(lookup, problems),
         }
     }
 }
@@ -324,6 +390,51 @@ mod tests {
     #[test]
     fn lists_every_problem() {
         let error = config(&[("PORT", "eighty"), ("LOG_FORMAT", "xml")]).expect_err("invalid");
+        assert_eq!(error.0.len(), 4, "{error}");
+    }
+
+    #[test]
+    fn object_storage_is_optional_but_complete() {
+        let base = [
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("CLERK_JWT_KEY", "-----BEGIN PUBLIC KEY-----\\nabc"),
+        ];
+        assert!(config(&base).expect("valid").infra.files.is_none());
+
+        let mut vars = base.to_vec();
+        vars.extend([
+            ("S3_ENDPOINT", "http://s3:9000"),
+            ("S3_BUCKET_PRIVATE", "weldsuite-private"),
+            ("S3_BUCKET_PUBLIC", "weldsuite-public"),
+            ("S3_ACCESS_KEY_ID", "key"),
+            ("S3_SECRET_ACCESS_KEY", "very-secret"),
+            ("S3_FORCE_PATH_STYLE", "true"),
+        ]);
+        let config = config(&vars).expect("valid");
+        let files = config.infra.files.as_ref().expect("files");
+        assert!(files.private.path_style);
+        assert_eq!(files.private.region, "us-east-1");
+        assert_eq!(
+            files.public().map(|p| p.bucket).as_deref(),
+            Some("weldsuite-public")
+        );
+        assert!(!format!("{config:?}").contains("very-secret"));
+
+        let mut incomplete = base.to_vec();
+        incomplete.extend([
+            ("S3_ENDPOINT", "http://s3:9000"),
+            ("S3_FORCE_PATH_STYLE", "yes"),
+        ]);
+        let error = super::Config::from_lookup(
+            |name| {
+                incomplete
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| (*v).to_owned())
+            },
+            |_| Err(std::io::Error::other("missing")),
+        )
+        .expect_err("incomplete");
         assert_eq!(error.0.len(), 4, "{error}");
     }
 

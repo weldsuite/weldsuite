@@ -30,6 +30,7 @@ http = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
