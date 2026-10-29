@@ -73,6 +73,22 @@ impl Cache for ValkeyCache {
             .await
             .map_err(PortError::backend)
     }
+
+    async fn increment(&self, key: &str, by: i64, ttl: Option<Duration>) -> Result<i64, PortError> {
+        let key = self.key(key);
+        let mut pipe = redis::pipe();
+        pipe.atomic().cmd("INCRBY").arg(&key).arg(by);
+        if let Some(ttl) = ttl {
+            let millis = u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX).max(1);
+            pipe.cmd("PEXPIRE").arg(&key).arg(millis).ignore();
+        }
+        let mut connection = self.connection.clone();
+        let (value,): (i64,) = pipe
+            .query_async(&mut connection)
+            .await
+            .map_err(PortError::backend)?;
+        Ok(value)
+    }
 }
 
 /// [`RealtimePublisher`] on Valkey pub/sub: `PUBLISH <prefix><channel>
