@@ -153,6 +153,16 @@ export function forwardedEnv(env: Record<string, unknown>): Record<string, strin
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/**
+ * GETs that write: they get or create a row (a DM, a record chat) or settle
+ * state they find stale, so they run as writes do, TypeScript first on a
+ * copy of the database.
+ */
+const WRITING_READS: RegExp[] = [
+  // WeldChat: the 1:1 DM with someone, created on first use.
+  /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+];
+
 interface ConformanceContext {
   userId: string;
   orgId: string | null;
@@ -233,14 +243,28 @@ export function createSideEffectRecorder() {
     /**
      * A test's own `REALTIME` binding (one that answers presence reads or keeps
      * what was published), recorded the same way: its publishes are side
-     * effects too, and then go on to the test's stub.
+     * effects too. Reads (presence) go to the test's stub; the publishes the
+     * stub keeps are Rust's, handed over after each request (`deliver`), as
+     * the test reads Rust's response and mail.
      */
     wrapRealtime(binding: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }) {
       return {
         testOwned: true,
         fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+          if (!new URL(requestUrl(input)).pathname.startsWith('/publish/')) return binding.fetch(input, init);
           recordPublish(input, init);
-          return binding.fetch(input, init);
+          return Promise.resolve(
+            new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } }),
+          );
+        },
+        async deliver(published: Array<{ path: string; body: unknown }>) {
+          for (const { path: publishPath, body } of published) {
+            await binding.fetch(`https://internal${publishPath}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+          }
         },
       };
     },
@@ -418,6 +442,12 @@ export function conformanceMasterDb<T>(db: T): T {
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** A WeldSign signing link (`<portal>/r/<token>`): the token is 32 random bytes, new per run. */
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
+/** The random segment of a chat attachment's object key. */
+const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
+/** A generated id in a link: a path segment or a parameter value. */
+const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
+/** A slug ending in a generated id (`-ch_<base36>`). */
+const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
@@ -441,6 +471,12 @@ const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
  * domain is kept; the parsed messages are compared as side effects too.
  */
 const FRESH_MESSAGE_ID = /^<[0-9a-f]{32}@([^>]+)>$/;
+
+/** A `Date.now()` taken within two days of now. */
+function isRecentEpochMs(value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
+}
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -468,6 +504,9 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
   }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
+  // A realtime room message's `ts: Date.now()` (`RealtimePublisher#chatMessage`),
+  // stamped when each run publishes.
+  if (isWrite && key === 'ts' && isRecentEpochMs(value)) return '<epoch-ms>';
   return value;
 }
 
@@ -485,11 +524,21 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A notification's link to what the request just created
+  // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
+  if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
+  // A realtime publish to a room the request just created (`/publish/chat/ch_<id>`).
+  if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential, then any other `Date.now()` (the key's segment holds one).
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
+    // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
+    .replace(CHAT_FILE_SEGMENT, '/files/<random>/')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(EPOCH_MS, '<epoch-ms>');
 }
@@ -848,7 +897,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();
-  const isWrite = !SAFE_METHODS.has(method);
+  const isWrite = !SAFE_METHODS.has(method) || WRITING_READS.some((re) => re.test(input));
 
   const client = pgliteClientOf(ctx.tenantDb);
   if (!client) {
@@ -881,6 +930,11 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { ts, rust } = runs;
   // The test reads Rust's mail, as it reads Rust's response.
   request.sideEffects.adoptMail(runs.tsMail, runs.rustMail);
+  // And a REALTIME stub of its own keeps Rust's publishes.
+  const ownRealtime = request.env.REALTIME as
+    | { testOwned?: boolean; deliver?: (published: SideEffects['realtime']) => Promise<void> }
+    | undefined;
+  if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
   const route = ts.headers.get(ROUTE_HEADER);
   const difference = compareRuns(runs, isWrite, method, route);
   const { schema, schemaError } = checkSchema(method, route, rust);

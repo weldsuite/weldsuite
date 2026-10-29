@@ -23,6 +23,8 @@ weldsuite-auth = { path = "crates/auth" }
 weldsuite-calendar = { path = "modules/calendar" }
 weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-catalogs = { path = "crates/catalogs" }
+weldsuite-chat = { path = "modules/chat" }
+weldsuite-chat-domain = { path = "crates/chat-domain" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
@@ -43,6 +45,7 @@ weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
+weldsuite-video-rooms = { path = "crates/video-rooms" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 async-nats = { version = "0.51.0", default-features = false }

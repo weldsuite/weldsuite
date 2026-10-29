@@ -707,6 +707,100 @@
         "packages/core/emails/src/format.ts",
         "rust/crates/emails/"
       ]
+    },
+    {
+      "name": "chat: channels",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/channels/integration.test.ts",
+        "src/routes/channels/names.integration.test.ts",
+        "src/routes/channels/routes.integration.test.ts",
+        "src/routes/channel-members/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: bookmarks, drafts, sections, status",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-bookmarks/integration.test.ts",
+        "src/routes/chat-drafts/integration.test.ts",
+        "src/routes/chat-drafts/empty.integration.test.ts",
+        "src/routes/chat-status/integration.test.ts",
+        "src/routes/chat-sections/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: messages",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-messages/integration.test.ts",
+        "src/routes/chat-messages/routes.integration.test.ts",
+        "src/services/chat/post-message.realtime.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: dm and activity",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-dm/integration.test.ts",
+        "src/routes/chat-activity/integration.test.ts",
+        "src/routes/chat-clips/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: record chats",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-entity-channels/integration.test.ts",
+        "src/routes/chat-entity-channels/access.integration.test.ts",
+        "src/routes/chat-entity-channels/drive-files.integration.test.ts",
+        "src/routes/chat-entity-channels/detail.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
     }
   ]
 }

@@ -14,11 +14,13 @@
 //! | `MailTransport` | [`SmtpMailTransport`] (customer mail, its own relay identity, MAIL-010) | `SEND_EMAIL` for user-written mail |
 //! | `LedgerStore` | [`ValkeyLedgerStore`] (one Lua script per commit) | the `OutboundLedger` / `OutboundPlatformBudget` Durable Objects |
 //! | `Identity` | [`ZitadelIdentity`] | Clerk's Backend API |
+//! | `OutboundHttp` | [`ReqwestOutbound`] | a Worker's `fetch` to third parties |
 //!
 //! Adapters take their settings as arguments; the server reads them from the
 //! environment.
 
 mod flags;
+mod http;
 mod nats;
 mod restate;
 mod s3;
@@ -29,6 +31,7 @@ mod valkey_ledger;
 mod zitadel;
 
 pub use flags::{DEFAULT_FLAG_REFRESH, MasterDbFlagSource};
+pub use http::ReqwestOutbound;
 pub use nats::{
     DEFAULT_ENTITY_EVENTS_STREAM, JetStreamEventBus, NatsOptions, entity_events_stream_config,
 };

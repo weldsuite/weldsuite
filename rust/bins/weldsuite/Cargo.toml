@@ -18,6 +18,7 @@ weldsuite-adapters-oss = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-calendar = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-chat = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-files = { workspace = true }

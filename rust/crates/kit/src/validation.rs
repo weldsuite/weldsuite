@@ -120,6 +120,8 @@ pub enum Format {
     Email,
     /// `.datetime({ offset: true })`.
     DatetimeOffset,
+    /// `.datetime()`: UTC only (`Z`).
+    Datetime,
     /// `.regex(/^\d+$/)`.
     Digits,
     /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
@@ -584,6 +586,67 @@ impl Issues {
             .push(json!({ "code": "custom", "message": message, "path": Value::Array(full) }));
     }
 
+    /// An object-level `.refine(check, { message })` that failed: a `custom`
+    /// issue at the object's own path (`[]` for the body). Call it after the
+    /// fields are read, as Zod settles refinements last.
+    pub fn custom_root(&mut self, message: &str) {
+        let path = self.path_at(None);
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
+    /// `z.coerce.date()` with `presence` (`.optional()`: absent stays absent):
+    /// `new Date(value)` as `toISOString()`. Strings are read as ISO dates
+    /// (`2026-01-01`, `2026-01-01T10:00:00Z`, with an offset or fraction);
+    /// other date strings JavaScript accepts are refused here. `null` is the
+    /// epoch, a number milliseconds, a boolean 0 or 1 ms.
+    pub fn coerce_date(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+    ) -> Field<String> {
+        let value = body.get(key);
+        if value.is_none() && presence != Presence::Required {
+            return Field::Absent;
+        }
+        let millis: Option<f64> = match value {
+            None | Some(Value::Object(_) | Value::Array(_)) => None,
+            Some(Value::Null) => Some(0.0),
+            Some(Value::Bool(flag)) => Some(if *flag { 1.0 } else { 0.0 }),
+            Some(Value::Number(n)) => n.as_f64(),
+            Some(Value::String(text)) => js_date_millis(text),
+        };
+        let iso = millis.and_then(iso_from_millis);
+        if let Some(iso) = iso {
+            return Field::Set(iso);
+        }
+        let path = self.path(key);
+        self.issues
+            .push(json!({ "code": "invalid_date", "path": path, "message": "Invalid date" }));
+        Field::Absent
+    }
+
+    /// An array item as `z.string().startsWith(prefix)`, reported at the
+    /// item's own path; `None` when invalid.
+    pub fn item_starts_with(&mut self, item: &Value, prefix: &str) -> Option<String> {
+        let Value::String(text) = item else {
+            self.invalid_type_at(None, "string", Some(item));
+            return None;
+        };
+        if text.starts_with(prefix) {
+            return Some(text.clone());
+        }
+        let path = self.path_at(None);
+        self.issues.push(json!({
+            "code": "invalid_string",
+            "validation": { "startsWith": prefix },
+            "message": format!("Invalid input: must start with \"{prefix}\""),
+            "path": path,
+        }));
+        None
+    }
+
     /// `z.discriminatedUnion(key, [...])` given an object whose `key` is not
     /// one of `options` (missing included): Zod's only issue for it, at the
     /// discriminator's path. Read the union with [`Issues::nested`] (or
@@ -973,6 +1036,7 @@ impl Format {
             // two dots in a row), which Rust's regex has no syntax for.
             Self::Email => !text.starts_with('.') && !text.contains("..") && EMAIL.is_match(text),
             Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
+            Self::Datetime => DATETIME_UTC.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
             Self::Url => js_url_parses(text),
             Self::Datetime => DATETIME_UTC.is_match(text),
@@ -1064,6 +1128,117 @@ static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
     let time = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
     Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
 });
+
+/// Zod 3.25's `datetime()`: as [`DATETIME_OFFSET`], with `Z` only.
+static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
+    let date = r"((dd[2468][048]|dd[13579][26]|dd0[48]|[02468][048]00|[13579][26]00)-02-29|d{4}-((0[13578]|1[02])-(0[1-9]|[12]d|3[01])|(0[469]|11)-(0[1-9]|[12]d|30)|(02)-(0[1-9]|1d|2[0-8])))";
+    let time = r"([01]d|2[0-3]):[0-5]d(:[0-5]d(.d+)?)?";
+    Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
+});
+
+/// `new Date(text).toISOString()` for an ISO date string, `None` for one
+/// JavaScript would read as an invalid date (or that is not ISO).
+pub fn js_date_iso(text: &str) -> Option<String> {
+    js_date_millis(text).and_then(iso_from_millis)
+}
+
+/// Days from 1970-01-01 to a civil date (proleptic Gregorian).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let yoe = year - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The civil date of a day count from 1970-01-01.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    (
+        if month <= 2 {
+            yoe + era * 400 + 1
+        } else {
+            yoe + era * 400
+        },
+        month,
+        day,
+    )
+}
+
+/// `Date.parse(text)` for ISO strings: `YYYY-MM-DD` (UTC) and
+/// `YYYY-MM-DDTHH:MM[:SS[.fff]](Z|±HH:MM)`.
+fn js_date_millis(text: &str) -> Option<f64> {
+    static ISO: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2}))?$",
+        )
+        .expect("the ISO date pattern compiles")
+    });
+    let caps = ISO.captures(text)?;
+    let number = |i: usize| -> i64 {
+        caps.get(i)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0)
+    };
+    let (year, month, day) = (number(1), number(2), number(3));
+    let (hour, minute, second) = (number(4), number(5), number(6));
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 24
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    let millis: i64 = caps.get(7).map_or(0, |m| {
+        let digits: String = m.as_str().chars().chain("000".chars()).take(3).collect();
+        digits.parse().unwrap_or(0)
+    });
+    let offset_minutes = match caps.get(8).map(|m| m.as_str()) {
+        None | Some("Z") => 0,
+        Some(offset) => {
+            let sign = if offset.starts_with('-') { -1 } else { 1 };
+            let hours: i64 = offset[1..3].parse().ok()?;
+            let minutes: i64 = offset[4..6].parse().ok()?;
+            sign * (hours * 60 + minutes)
+        }
+    };
+    let days = days_from_civil(year, month, day);
+    let total =
+        ((days * 24 + hour) * 60 + minute - offset_minutes) * 60_000 + second * 1000 + millis;
+    #[allow(clippy::cast_precision_loss)]
+    Some(total as f64)
+}
+
+/// `new Date(ms).toISOString()`, or `None` for an invalid date.
+fn iso_from_millis(millis: f64) -> Option<String> {
+    if !millis.is_finite() || millis.abs() > 8.64e15 {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let millis = millis.trunc() as i64;
+    let days = millis.div_euclid(86_400_000);
+    let rest = millis.rem_euclid(86_400_000);
+    let (year, month, day) = civil_from_days(days);
+    let (hour, minute, second, ms) = (
+        rest / 3_600_000,
+        rest / 60_000 % 60,
+        rest / 1000 % 60,
+        rest % 1000,
+    );
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{ms:03}Z"
+    ))
+}
 
 /// `String.prototype.trim()`: JavaScript's whitespace, which is Unicode
 /// `White_Space` plus the BOM.
