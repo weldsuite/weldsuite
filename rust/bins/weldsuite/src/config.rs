@@ -150,6 +150,8 @@ pub(crate) struct Config {
     pub(crate) listen: SocketAddr,
     /// `ENVIRONMENT`, reported by `/health`.
     pub(crate) environment: String,
+    /// `EDITION` and `PUBLIC_ENV`, for `/config.json` (`edition.rs`).
+    pub(crate) edition: crate::edition::EditionConfig,
     pub(crate) master_database_url: String,
     pub(crate) master_max_connections: u32,
     pub(crate) keyring: Keyring,
@@ -479,6 +481,7 @@ impl fmt::Debug for Config {
         f.debug_struct("Config")
             .field("listen", &self.listen)
             .field("environment", &self.environment)
+            .field("edition", &self.edition)
             .field("master_max_connections", &self.master_max_connections)
             .field("keyring", &self.keyring)
             .field("auth", &self.auth)
@@ -563,6 +566,7 @@ impl Config {
         };
 
         let auth = AuthConfig::from_lookup(&lookup, &read_file, &mut problems);
+        let edition = crate::edition::EditionConfig::from_lookup(&lookup, &mut problems);
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {
             None | Some("json") => LogFormat::Json,
@@ -580,6 +584,7 @@ impl Config {
         Ok(Self {
             listen: SocketAddr::new(host, port),
             environment: lookup("ENVIRONMENT").unwrap_or_else(|| "development".to_owned()),
+            edition,
             master_database_url,
             master_max_connections: saturate(master_max_connections),
             keyring,

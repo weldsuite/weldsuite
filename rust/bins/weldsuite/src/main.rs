@@ -18,6 +18,7 @@ mod conformance_outbound;
 mod conformance_portal;
 mod consume;
 mod cron;
+mod edition;
 mod infra;
 mod migrate;
 mod realtime;
@@ -153,6 +154,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         service: "weldsuite",
         environment: config.environment.clone(),
+        edition: Arc::new(config.edition.clone()),
         workspaces: Arc::new(workspaces),
         verifier: Arc::new(verifier),
         permissions_app_enforce: config.permissions_app_enforce,

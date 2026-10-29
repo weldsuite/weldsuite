@@ -61,6 +61,17 @@ cron jobs and the migration Job read the same settings
   value: {{ .Values.config.logLevel | quote }}
 - name: PERMISSIONS_APP_ENFORCE
   value: {{ .Values.config.permissionsAppEnforce | toString | quote }}
+{{- with .Values.config.edition }}
+{{- if not (has . (list "eu" "self-hosted")) }}
+{{- fail "config.edition must be eu or self-hosted" }}
+{{- end }}
+- name: EDITION
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.config.publicEnv }}
+- name: PUBLIC_ENV
+  value: {{ toJson . | quote }}
+{{- end }}
 {{- with .Values.config.auth }}
 - name: AUTH_PROVIDER
   value: {{ .provider | quote }}

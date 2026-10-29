@@ -22,6 +22,22 @@ config:
   logLevel: info
   # Refuse per-app permission denials instead of only logging them.
   permissionsAppEnforce: false
+  # Which edition this install is, told to the platform by /config.json:
+  # self-hosted (a customer's own install) or eu (WeldSuite's EU edition).
+  # The platform offers only the modules this release ports to Rust and hides
+  # the features it lacks (rust/bins/weldsuite/src/edition.rs); neither is a
+  # setting.
+  edition: self-hosted
+  # Public settings the platform would otherwise bake in at build time, by
+  # their VITE_* name, served in /config.json's `env`. Anyone can read that
+  # document, so the server takes only the names it knows are public
+  # (PUBLIC_ENV_KEYS in edition.rs) and refuses to start on any other:
+  #   VITE_MAPBOX_ACCESS_TOKEN              Mapbox public token (pk.…): maps, address search
+  #   VITE_EXTERNAL_API_URL                 the public API's origin
+  #   VITE_USER_APP_BUNDLE_ORIGIN           WeldApps' dedicated bundle origin
+  #   VITE_USER_APP_ISOLATE_COMMUNITY_APPS  "true": one origin per community app
+  #   VITE_BOOKING_PORTAL_URL, VITE_MEETING_PORTAL_URL  public pages the platform links to
+  publicEnv: {}
   # Who signs people in (ADR SEC-012): clerk (the Global edition's provider;
   # its key goes in the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or
   # clerkJwks below) or oidc (Zitadel, or the customer's own provider).

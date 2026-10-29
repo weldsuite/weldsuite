@@ -10,6 +10,9 @@ secret:
     ZITADEL_SERVICE_TOKEN: not-a-real-token
     TENANT_SHARDS: '[{"name":"tenants-1","adminUrl":"postgres://tenant:x@tenants-1-rw:5432/tenants","poolerHost":"tenants-1-pooler"}]'
 config:
+  edition: eu
+  publicEnv:
+    VITE_MAPBOX_ACCESS_TOKEN: pk.example
   sign:
     portalUrl: https://sign.example.org
   identity:

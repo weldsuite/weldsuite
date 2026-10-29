@@ -9,6 +9,13 @@ replicaCount: 2
 config:
   environment: production
   logFormat: json
+  # The EU edition, told to the platform by /config.json, which also offers
+  # only the modules this release ports to Rust and hides what it lacks.
+  edition: eu
+  # Public settings for the platform (/config.json `env`); empty ones are
+  # left out. The chart lists the names the server accepts.
+  publicEnv:
+    VITE_MAPBOX_ACCESS_TOKEN: "${MAPBOX_PUBLIC_TOKEN}"
   # Sign-in through the in-cluster Zitadel (ADR SEC-012). The project and the
   # platform's application are made once in Zitadel's console (Hetzner
   # runbook, step 7); their ids go in the cluster settings.
