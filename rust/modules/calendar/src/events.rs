@@ -1229,7 +1229,7 @@ pub(crate) async fn unpin(
 }
 
 /// Hand an event back to the auto-scheduler (`unpinEvent`).
-async fn unpin_event(db: &PgPool, event: &Value) -> Result<(), sqlx::Error> {
+async fn unpin_event(db: &PgPool, event: &Value) -> Outcome<()> {
     sqlx::query(
         "update calendar_events set auto_scheduled = true, updated_at = $2::timestamp
          where id = $1 and deleted_at is null",
@@ -1262,11 +1262,18 @@ async fn unpin_event(db: &PgPool, event: &Value) -> Result<(), sqlx::Error> {
                 db,
                 &weldsuite_calendar_domain::EventUpdate {
                     calendar_event_id: text(event, "id").to_owned(),
-                    due_date: due.map(Some),
+                    #[allow(clippy::cast_precision_loss)]
+                    due_date: due
+                        .and_then(|iso| parse_date(&iso))
+                        .map(|ms| Some(ms as f64)),
                     ..Default::default()
                 },
             )
-            .await?;
+            .await
+            .map_err(|error| match error {
+                weldsuite_calendar_domain::SyncError::Database(error) => Refusal::Database(error),
+                weldsuite_calendar_domain::SyncError::Invalid(message) => Refusal::Internal(message),
+            })?;
         }
         Some("activity") => {
             sqlx::query(

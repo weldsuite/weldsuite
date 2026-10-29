@@ -57,7 +57,8 @@ pub(crate) fn weekday(t: f64) -> Option<usize> {
 /// `a.toDateString() === b.toDateString()` (two Invalid Dates are equal).
 pub(crate) fn same_day(a: f64, b: f64) -> bool {
     match (a.is_finite(), b.is_finite()) {
-        (true, true) => day_of(a) == day_of(b),
+        // Both are whole day numbers.
+        (true, true) => (day_of(a) - day_of(b)).abs() < 0.5,
         (false, false) => true,
         _ => false,
     }

@@ -402,14 +402,13 @@ fn windows_for_day(day: f64, ctx: &SearchContext<'_>) -> SyncResult<Vec<SlotWind
     let breaks = &hours["breaks"];
     let mut windows = match breaks {
         Value::Array(list) if !list.is_empty() => subtract_breaks(window, list, day)?,
-        Value::Array(_) | Value::Null | Value::Bool(_) | Value::Number(_) => vec![window],
-        Value::String(text) if text.is_empty() => vec![window],
-        Value::Object(_) => vec![window],
-        Value::String(_) => {
+        // `for (const brk of 'text')` walks characters that have no times.
+        Value::String(text) if !text.is_empty() => {
             return Err(SyncError::Invalid(
                 "TypeError: breaks are not a list of ranges".to_owned(),
             ));
         }
+        _ => vec![window],
     };
     if same_day(day, ctx.now) {
         let earliest = round_up_to_15(ctx.now);
@@ -606,6 +605,16 @@ pub async fn find_free_slot(db: &PgPool, params: &FindSlot<'_>) -> SyncResult<Op
     Ok(None)
 }
 
+/// An auto-scheduled event as the bump search reads it.
+type BumpRow = (
+    String,
+    Value,
+    Option<Value>,
+    Option<String>,
+    Option<String>,
+    String,
+);
+
 // ── Cascading bumps ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -630,14 +639,7 @@ async fn find_bumpable_event(
 ) -> SyncResult<Option<BumpCandidate>> {
     let duration_ms = duration_minutes * MINUTE_MS;
     let start = now_ms();
-    let rows: Vec<(
-        String,
-        Value,
-        Option<Value>,
-        Option<String>,
-        Option<String>,
-        String,
-    )> = sqlx::query_as(
+    let rows: Vec<BumpRow> = sqlx::query_as(
         "select id, to_jsonb(start_time), to_jsonb(end_time), priority, source_id, organizer_id
          from calendar_events
          where deleted_at is null and organizer_id = $1 and status = 'confirmed'
@@ -888,6 +890,7 @@ async fn insert_task_event(
 /// The new event's id, or `None` when nothing was placed: the user turned
 /// task auto-scheduling off and the task has no start date
 /// (`createCalendarEventForTask`).
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 pub async fn create_calendar_event_for_task(
     db: &PgPool,
     params: &TaskEvent,
@@ -1055,29 +1058,27 @@ fn initial_window(due: Option<f64>, now: f64) -> (f64, SearchDirection) {
 pub struct EventUpdate {
     pub calendar_event_id: String,
     pub title: Option<String>,
-    /// ISO timestamps.
-    pub due_date: Option<Option<String>>,
-    pub start_date: Option<Option<String>>,
+    /// Time values (milliseconds), as everywhere in this crate.
+    pub due_date: Option<Option<f64>>,
+    pub start_date: Option<Option<f64>>,
 }
 
 /// `updateCalendarEventForTask`: the title, and the times the task's dates
 /// imply.
-pub async fn update_calendar_event_for_task(
-    db: &PgPool,
-    params: &EventUpdate,
-) -> Result<(), sqlx::Error> {
-    let mut start: Option<Option<String>> = None;
-    let mut end: Option<Option<String>> = None;
-    match (&params.due_date, &params.start_date) {
+pub async fn update_calendar_event_for_task(db: &PgPool, params: &EventUpdate) -> SyncResult<()> {
+    let mut start: Option<Option<f64>> = None;
+    let mut end: Option<Option<f64>> = None;
+    match (params.due_date, params.start_date) {
         (Some(due), Some(Some(start_date))) => {
-            start = Some(Some(start_date.clone()));
-            end = Some(due.clone());
+            start = Some(Some(start_date));
+            end = Some(due);
         }
-        (Some(Some(due)), _) => start = Some(Some(due.clone())),
-        (Some(None), _) => {}
-        (None, Some(start_date)) => start = Some(start_date.clone()),
-        (None, None) => {}
+        (Some(Some(due)), _) => start = Some(Some(due)),
+        (Some(None), _) | (None, None) => {}
+        (None, Some(start_date)) => start = Some(start_date),
     }
+    let start_text = start.flatten().map(bind_time).transpose()?;
+    let end_text = end.flatten().map(bind_time).transpose()?;
     sqlx::query(
         "update calendar_events set
              updated_at = $2::timestamp,
@@ -1091,9 +1092,9 @@ pub async fn update_calendar_event_for_task(
     .bind(params.title.is_some())
     .bind(&params.title)
     .bind(start.is_some())
-    .bind(start.flatten())
+    .bind(start_text)
     .bind(end.is_some())
-    .bind(end.flatten())
+    .bind(end_text)
     .execute(db)
     .await?;
     Ok(())
@@ -1385,6 +1386,16 @@ pub async fn replan_stale_auto_scheduled_events(
     Ok(result)
 }
 
+/// A task event as `fetchTaskScheduledSlots` reads it.
+type SlotRow = (
+    String,
+    Option<String>,
+    Option<Value>,
+    Option<Value>,
+    Option<bool>,
+    String,
+);
+
 /// A task's scheduled slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScheduledSlot {
@@ -1405,14 +1416,7 @@ pub async fn fetch_task_scheduled_slots(
     if task_ids.is_empty() {
         return Ok(map);
     }
-    let rows: Vec<(
-        String,
-        Option<String>,
-        Option<Value>,
-        Option<Value>,
-        Option<bool>,
-        String,
-    )> = sqlx::query_as(
+    let rows: Vec<SlotRow> = sqlx::query_as(
         "select id, source_id, to_jsonb(start_time), to_jsonb(end_time), auto_scheduled, status
          from calendar_events
          where source_type = 'task' and source_id = any($1) and deleted_at is null",
