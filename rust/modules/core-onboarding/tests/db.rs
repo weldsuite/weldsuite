@@ -145,15 +145,21 @@ fn profile(id: &str, email: &str, first: &str) -> UserProfile {
     }
 }
 
-async fn free_plan(master: &PgPool) {
+/// The plan signup puts a workspace on (slug `free`): this test's own, or the
+/// one another test's run already left in a shared master database.
+async fn free_plan(master: &PgPool) -> String {
     sqlx::query(
         "insert into plans (id, name, slug, max_users, monthly_credits)
          values ('plan_onb_free', 'Free', 'free', 1, 100)
-         on conflict (id) do nothing",
+         on conflict do nothing",
     )
     .execute(master)
     .await
     .expect("plan");
+    sqlx::query_scalar("select id from plans where slug = 'free'")
+        .fetch_one(master)
+        .await
+        .expect("free plan")
 }
 
 async fn workspace_row(master: &PgPool, ws: &str) -> Value {
@@ -170,7 +176,7 @@ async fn signup_creates_the_organization_the_workspace_and_starts_provisioning()
         eprintln!("WELDSUITE_TEST_MASTER_URL / _TENANT_URL not set; skipping");
         return;
     };
-    free_plan(&master).await;
+    let plan = free_plan(&master).await;
     // The in-memory provider numbers its organizations from 1 on every run.
     sqlx::query("delete from workspaces where name like 'Acme %'")
         .execute(&master)
@@ -210,7 +216,7 @@ async fn signup_creates_the_organization_the_workspace_and_starts_provisioning()
     );
     let row = workspace_row(&master, &ws).await;
     assert_eq!(row["clerk_org_id"], json!(org));
-    assert_eq!(row["plan_id"], json!("plan_onb_free"));
+    assert_eq!(row["plan_id"], json!(plan));
     assert_eq!(row["provisioning_status"], json!("pending"));
     assert_eq!(
         row["slug"],
@@ -271,7 +277,7 @@ async fn provisioning_the_sync_and_the_sweeps() {
         eprintln!("WELDSUITE_TEST_MASTER_URL / _TENANT_URL not set; skipping");
         return;
     };
-    free_plan(&master).await;
+    let plan = free_plan(&master).await;
     let suffix = std::process::id();
     let ws = format!("ws_onbjob_{suffix}");
     let org = format!("org_onbjob_{suffix}");
@@ -289,11 +295,12 @@ async fn provisioning_the_sync_and_the_sweeps() {
         .await
         .expect("watermark");
     sqlx::query(
-        "insert into workspaces (id, clerk_org_id, name, slug, plan_id) values ($1, $2, 'Job Co', $3, 'plan_onb_free')",
+        "insert into workspaces (id, clerk_org_id, name, slug, plan_id) values ($1, $2, 'Job Co', $3, $4)",
     )
     .bind(&ws)
     .bind(&org)
     .bind(format!("job-co-{suffix}"))
+    .bind(&plan)
     .execute(&master)
     .await
     .expect("workspace");
