@@ -49,19 +49,46 @@ macro_rules! listing {
     };
 }
 
+/// [`listing!`] for a table whose row needs more than `to_jsonb(t)` (a
+/// `numeric` column read back as text): `$row` is the row expression.
+macro_rules! listing_as {
+    ($row:literal; $table:literal; $($cond:literal),*; $a:literal, $b:literal, $c:literal; $limit:literal) => {
+        (
+            concat!(
+                "select ", $row, " from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
+                $(" and ", $cond,)*
+                " and ", cursor!($a, $b, $c),
+                " order by t.created_at desc, t.id desc limit ", $limit
+            ),
+            concat!(
+                "select count(*) from \"", $table, "\" t where ($1::boolean or t.deleted_at is null)",
+                $(" and ", $cond,)*
+                " and ", cursor!($a, $b, $c)
+            ),
+        )
+    };
+}
+
 mod assignment;
+mod channels;
 mod conversations;
 mod crud;
 mod custom_fields;
+mod departments;
 mod discord;
 mod dispatch;
 mod js;
+mod kb;
+mod library;
 mod link;
 mod notify;
+mod settings;
 mod simple;
 mod table;
 #[rustfmt::skip]
 mod tables;
+mod team;
+mod ticket_types;
 mod tickets;
 
 use std::sync::Arc;
@@ -154,8 +181,22 @@ where
             "/satisfaction-surveys",
             crud::routes(&simple::SURVEYS, gate),
         )
+        .nest(
+            "/article-folders",
+            crud::routes(&library::ARTICLE_FOLDERS, gate),
+        )
+        .nest("/ticket-types", crud::routes(&library::TICKET_TYPES, gate))
+        .nest(
+            "/helpdesk-agents",
+            crud::routes(&library::HELPDESK_AGENTS, gate),
+        )
+        .nest("/helpdesk-departments", departments::routes(gate))
         .nest("/tickets", tickets::routes(gate))
         .nest("/conversations", conversations::routes(gate))
+        .merge(kb::routes(gate))
+        .merge(team::routes(gate))
+        .merge(settings::routes(gate))
+        .merge(channels::routes(gate))
         .with_state(state)
 }
 
