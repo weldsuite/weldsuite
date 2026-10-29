@@ -403,3 +403,21 @@ mod tests {
         );
     }
 }
+
+/// The buckets a request reads and writes: the private one, and the legacy
+/// public one read-only. Modules take them from the app state; conformance
+/// builds insert them as a request extension instead, pointing at the test's
+/// own buckets, and that wins.
+#[derive(Clone)]
+pub struct FileStores {
+    pub private: std::sync::Arc<dyn DynFileStore>,
+    pub public: Option<std::sync::Arc<dyn DynFileStore>>,
+}
+
+impl std::fmt::Debug for FileStores {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FileStores")
+            .field("public", &self.public.is_some())
+            .finish_non_exhaustive()
+    }
+}
