@@ -48,6 +48,7 @@ opentelemetry = { version = "0.33.1", default-features = false, features = ["tra
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace"] }
 lopdf = { version = "0.46.0", default-features = false }
+png = "0.18.1"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1-rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
 jsonwebtoken = { version = "11.1.0", default-features = false, features = ["use_pem", "aws_lc_rs"] }

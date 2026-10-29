@@ -10,6 +10,7 @@ mod config;
 mod conformance;
 #[cfg(feature = "conformance")]
 mod conformance_files;
+mod cron;
 mod infra;
 mod routes;
 mod server;
@@ -30,6 +31,7 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
+  cron <job> run one scheduled job and exit: sign-lifecycle
   version    print the version and exit
   help       print this message and exit";
 
@@ -48,6 +50,7 @@ fn main() -> ExitCode {
     let command = std::env::args().nth(1);
     match command.as_deref() {
         Some("serve") => serve(),
+        Some("cron") => cron::main(std::env::args().nth(2).as_deref()),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS
@@ -131,6 +134,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         permissions: AppState::permission_gate(config.permissions_app_enforce),
         flags,
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
+        sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
         #[cfg(feature = "conformance")]
         recorders,
     };

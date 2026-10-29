@@ -48,6 +48,8 @@ pub(crate) struct AppState {
     pub(crate) flags: Arc<FlagGate>,
     /// `SIGN_SESSION_SECRET`, for WeldSign.
     pub(crate) sign_session_secret: Option<Arc<str>>,
+    /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
+    pub(crate) sign_portal_url: Option<Arc<str>>,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
@@ -94,10 +96,15 @@ pub(crate) fn router(state: AppState) -> Router {
 
     let root = Router::new();
     #[cfg(feature = "conformance")]
-    let root = root.route(
-        "/__conformance/side-effects",
-        get(crate::conformance::side_effects),
-    );
+    let root = root
+        .route(
+            "/__conformance/side-effects",
+            get(crate::conformance::side_effects),
+        )
+        .route(
+            "/__conformance/cron/sign-lifecycle",
+            axum::routing::post(crate::conformance::sign_lifecycle_sweep),
+        );
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -132,9 +139,9 @@ fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
 
 /// Conformance builds take the test's context from a header instead.
 #[cfg(feature = "conformance")]
-fn authenticated(api: Router<AppState>, _state: &AppState) -> Router<AppState> {
+fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     api.layer(axum::middleware::from_fn_with_state(
-        Arc::new(crate::conformance::Pools::default()),
+        Arc::clone(&state.recorders.pools),
         crate::conformance::auth,
     ))
 }
@@ -335,6 +342,7 @@ mod tests {
                 None,
             )),
             sign_session_secret: None,
+            sign_portal_url: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
         }

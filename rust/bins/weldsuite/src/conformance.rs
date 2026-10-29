@@ -49,12 +49,15 @@ use weldsuite_ports::{
 use crate::infra::Infra;
 use crate::server::{AppEnforcedOverride, AppState};
 
-/// The doubles a conformance build publishes to.
+/// The doubles a conformance build publishes to, and the test databases.
 #[derive(Clone, Default)]
 pub(crate) struct Recorders {
     events: Arc<RecordingEventBus>,
     realtime: Arc<RecordingRealtime>,
     mail: Arc<RecordingSystemMail>,
+    /// One pool per test database, shared by every request and the cron
+    /// endpoints (pglite allows one connection).
+    pub(crate) pools: Arc<Pools>,
 }
 
 /// Infrastructure that records instead of publishing.
@@ -212,6 +215,9 @@ struct TestPermissions {
 #[derive(Default)]
 pub(crate) struct Pools {
     databases: Mutex<HashMap<String, PgPool>>,
+    /// A cache per test KV namespace (`seedScope`), for what a cron job
+    /// remembers between ticks: a new namespace starts empty, as in the test.
+    caches: Mutex<HashMap<String, Arc<MemoryCache>>>,
     /// The test buckets' HTTP stores, by URL.
     buckets: crate::conformance_files::BucketBridges,
 }
@@ -339,6 +345,98 @@ pub(crate) async fn auth(
         response.headers_mut().insert(ROUTE_HEADER, value);
     }
     response
+}
+
+// ── Cron jobs ───────────────────────────────────────────────────────────────
+
+/// `POST /__conformance/cron/sign-lifecycle`: one tick of the WeldSign
+/// lifecycle sweep against the test's databases, as `runLifecycleSweep(env,
+/// now)` runs it there (`packages/core/worker-kit/src/testing/conformance-cron.ts`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SweepRequest {
+    /// The tick's time (ISO).
+    now: String,
+    database_url: String,
+    master_database_url: String,
+    #[serde(default)]
+    env: HashMap<String, String>,
+    /// `workspaces.id` → Clerk org id: what the test's `getWorkspaceForOrg`
+    /// answers, read the other way.
+    #[serde(default)]
+    workspaces: HashMap<String, String>,
+    /// The test's KV namespace (its seed flag lives there).
+    seed_scope: String,
+}
+
+/// Every workspace opens the test's tenant database.
+struct TestTenants {
+    db: PgPool,
+    orgs: HashMap<String, String>,
+}
+
+impl weldsuite_sign::TenantResolver for TestTenants {
+    fn tenant<'a>(
+        &'a self,
+        reference: &'a str,
+    ) -> weldsuite_ports::BoxFuture<'a, Result<weldsuite_sign::TenantRef, String>> {
+        let tenant = weldsuite_sign::TenantRef {
+            db: self.db.clone(),
+            workspace_id: reference.to_owned(),
+            clerk_org_id: self.orgs.get(reference).cloned(),
+        };
+        Box::pin(std::future::ready(Ok(tenant)))
+    }
+}
+
+pub(crate) async fn sign_lifecycle_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.recorders.pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let cache = Arc::clone(
+        pools
+            .caches
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(request.seed_scope)
+            .or_default(),
+    );
+    let services = weldsuite_sign::Services {
+        events: state.infra.events.clone(),
+        files: None,
+        mail: Some(state.recorders.mail.clone()),
+        cache: Some(cache),
+        flags: Arc::clone(&state.infra.flags),
+        portal_url: request.env.get("SIGN_PORTAL_URL").cloned(),
+        environment: request.env.get("ENVIRONMENT").cloned(),
+    };
+    let tenants: Arc<dyn weldsuite_sign::TenantResolver> = Arc::new(TestTenants {
+        db,
+        orgs: request.workspaces,
+    });
+    let result = weldsuite_sign::run_lifecycle_sweep(&master, &tenants, &services, now).await;
+    axum::Json(json!({
+        "due": result.due,
+        "processed": result.processed,
+        "failed": result.failed,
+        "seeded": result.seeded,
+        "reminded": result.reminded,
+        "expired": result.expired,
+    }))
+    .into_response()
 }
 
 #[cfg(test)]

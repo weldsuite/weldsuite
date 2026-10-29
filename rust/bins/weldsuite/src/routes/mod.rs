@@ -9,6 +9,8 @@ mod access_requests;
 mod feature_flags;
 mod me;
 
+use std::sync::Arc;
+
 use axum::Router;
 use axum::routing::{get, patch, post};
 
@@ -40,21 +42,43 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     if mounts("sign") {
-        let sign = weldsuite_sign::SignState {
-            events: state.infra.events.clone(),
-            session_secret: state.sign_session_secret.clone(),
-            files: state
-                .infra
-                .files
-                .clone()
-                .map(|private| weldsuite_ports::FileStores {
-                    private,
-                    public: state.infra.public_files.clone(),
-                }),
-        };
+        let sign = sign_state(state);
+        // The finalize job runs where the jobs adapter calls it: in this
+        // process, or from Restate through this pod's jobs endpoint.
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_sign::FinalizeJob {
+                tenants: Arc::new(crate::cron::WorkspaceTenants(Arc::clone(&state.workspaces))),
+                master: state.workspaces.master().clone(),
+                services: sign.services(),
+            });
         return router.nest("/sign", weldsuite_sign::router(sign, &state.permissions));
     }
     router
+}
+
+/// WeldSign's handle on the app: databases, files, mail, cache, flags, jobs.
+pub(crate) fn sign_state(state: &AppState) -> weldsuite_sign::SignState {
+    weldsuite_sign::SignState {
+        events: state.infra.events.clone(),
+        session_secret: state.sign_session_secret.clone(),
+        files: state
+            .infra
+            .files
+            .clone()
+            .map(|private| weldsuite_ports::FileStores {
+                private,
+                public: state.infra.public_files.clone(),
+            }),
+        master: Some(state.workspaces.master().clone()),
+        mail: state.infra.mail.clone(),
+        cache: state.infra.cache.clone(),
+        flags: Arc::clone(&state.infra.flags),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+        portal_url: state.sign_portal_url.clone(),
+        environment: Some(Arc::from(state.environment.as_str())),
+    }
 }
 
 /// Whether to serve a module: it is marked ported (`ApiModule.rust`, WP

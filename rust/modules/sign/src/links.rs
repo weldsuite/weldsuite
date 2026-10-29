@@ -4,9 +4,6 @@
 //! workspace, envelope and recipient a link belongs to. The tenant rows stay
 //! the source of truth: a registry hit is always re-checked against them.
 
-// The sending, lifecycle and portal code that calls these comes next.
-#![allow(dead_code)]
-
 use aws_lc_rs::digest;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -73,6 +70,7 @@ pub(crate) async fn create_link(master: &PgPool, target: &LinkTarget<'_>) -> Sig
 }
 
 /// A live link (`ResolvedLink`).
+#[allow(dead_code, reason = "the signer portal (next stage) resolves links")]
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedLink {
     pub(crate) token_hash: String,
@@ -83,6 +81,7 @@ pub(crate) struct ResolvedLink {
 
 /// The live link for a token hash, or `None` when unknown, revoked or past
 /// its expiry (`resolveLinkByHash`).
+#[allow(dead_code, reason = "the signer portal (next stage) resolves links")]
 pub(crate) async fn resolve_link_by_hash(
     master: &PgPool,
     token_hash: &str,
@@ -111,6 +110,7 @@ pub(crate) async fn resolve_link_by_hash(
 }
 
 /// The live link for a token (`resolveLink`).
+#[allow(dead_code, reason = "the signer portal (next stage) resolves links")]
 pub(crate) async fn resolve_link(
     master: &PgPool,
     token: &str,

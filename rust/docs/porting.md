@@ -99,6 +99,26 @@ templates).
    routes read there). A test that mocks something the harness can't see
    (a `vi.mock` of `getMasterDb`) needs the value in its context too.
 
+## Jobs, crons and generated files
+
+- A Workflow is a `Job` (`weldsuite_ports::jobs`) named `<module>.<job>`,
+  registered in `bins/weldsuite/src/routes/mod.rs` where the module's state is
+  built; one run per key (the Workflow instance id), one `step` per `step.do`
+  with its retries. Conformance builds run jobs in the process, on the tracker
+  `/__conformance/side-effects` waits for.
+- A Cron Trigger is a `weldsuite cron <name>` subcommand
+  (`bins/weldsuite/src/cron.rs`) and an entry in the chart's `cron.jobs`. A
+  due-index sweep uses `weldsuite_db::due_index::run_sweep` (rows keyed by
+  `workspaces.id`, not the Clerk org id).
+- A cron test calls the job's function, not a route: wrap the call in
+  `conformanceSweep` (`worker-kit/src/testing/conformance-cron.ts`) and serve
+  the job at `/__conformance/cron/<name>` (`bins/weldsuite/src/conformance.rs`).
+  It compares the result, events, mail and due index.
+- Output that can't be byte for byte the same (the signed PDF: pdf-lib vs
+  `lopdf`): test what it contains against fixtures the TypeScript code wrote
+  (`modules/sign/tools/pdf-fixtures.mts`), and normalise only the values
+  derived from the bytes (the hash) in `normalizeForDiff`, with a comment.
+
 ## Checks before a commit
 
 `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`,
