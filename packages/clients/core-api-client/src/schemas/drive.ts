@@ -8,8 +8,9 @@
  */
 
 import { z } from 'zod';
-import type { UnifiedFile, PaginationMeta, DriveFile } from './files';
-import type { DriveFolder } from './folders';
+import { driveFileSchema, unifiedFileSchema, type UnifiedFile, type PaginationMeta, type DriveFile } from './files';
+import { driveFolderSchema, type DriveFolder } from './folders';
+import { driveShareRoleSchema } from './drive-shares';
 
 export const listAllFilesQuery = z.object({
   page: z.coerce.number().int().min(1).optional(),
@@ -49,3 +50,37 @@ export interface DriveTrash {
   files: DriveFile[];
   folders: DriveFolder[];
 }
+
+// ============================================================================
+// Response schemas (Zod), matching the interfaces above and in drive-shares
+// ============================================================================
+
+/** GET /api/drive/stats. */
+export const driveStatsSchema = z.object({
+  totalFiles: z.number(),
+  recentCount: z.number(),
+  bySource: z.record(z.number()),
+});
+
+/** GET /api/drive/trash. */
+export const driveTrashSchema = z.object({
+  files: z.array(driveFileSchema),
+  folders: z.array(driveFolderSchema),
+});
+
+const sharedFields = {
+  sharedRole: driveShareRoleSchema,
+  sharedBy: z.string(),
+  sharedAt: z.string(),
+};
+
+/** GET /api/drive/shared (`SharedWithMe`). */
+export const sharedWithMeSchema = z.object({
+  files: z.array(unifiedFileSchema.extend(sharedFields)),
+  folders: z.array(driveFolderSchema.extend(sharedFields)),
+});
+
+/** POST /api/drive/trash/restore/{file,folder}/:id. */
+export const restoredResultSchema = z.object({ restored: z.literal(true) });
+/** DELETE /api/drive/trash/empty. */
+export const emptiedResultSchema = z.object({ emptied: z.literal(true) });

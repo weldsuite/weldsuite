@@ -52,6 +52,97 @@
         "packages/clients/core-api-client/src/schemas/knowledge.ts",
         "rust/modules/know/"
       ]
+    },
+    {
+      "name": "core: files",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/files/index.test.ts",
+        "src/routes/files/sharing.test.ts",
+        "src/routes/files/actions.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/files/",
+        "apps/workers/app-api/src/lib/storage-upload.ts",
+        "packages/domains/core/src/files.ts",
+        "packages/domains/core/src/drive-access.ts",
+        "packages/domains/core/src/folders.ts",
+        "packages/clients/core-api-client/src/schemas/files.ts",
+        "packages/clients/core-api-client/src/schemas/folders.ts",
+        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
+        "packages/clients/core-api-client/src/schemas/drive.ts",
+        "apps/workers/app-api/src/lib/drive-access.ts",
+        "apps/workers/app-api/src/services/drive-aggregation.ts",
+        "apps/workers/app-api/src/services/folders.ts",
+        "rust/modules/core-files/",
+        "rust/crates/core-domain/"
+      ]
+    },
+    {
+      "name": "core: folders",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/folders/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/folders/",
+        "packages/domains/core/src/files.ts",
+        "packages/domains/core/src/drive-access.ts",
+        "packages/domains/core/src/folders.ts",
+        "packages/clients/core-api-client/src/schemas/files.ts",
+        "packages/clients/core-api-client/src/schemas/folders.ts",
+        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
+        "packages/clients/core-api-client/src/schemas/drive.ts",
+        "apps/workers/app-api/src/lib/drive-access.ts",
+        "apps/workers/app-api/src/services/drive-aggregation.ts",
+        "apps/workers/app-api/src/services/folders.ts",
+        "rust/modules/core-files/",
+        "rust/crates/core-domain/"
+      ]
+    },
+    {
+      "name": "core: drive",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/drive/index.test.ts",
+        "src/routes/drive/trash.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/drive/",
+        "packages/domains/core/src/files.ts",
+        "packages/domains/core/src/drive-access.ts",
+        "packages/domains/core/src/folders.ts",
+        "packages/clients/core-api-client/src/schemas/files.ts",
+        "packages/clients/core-api-client/src/schemas/folders.ts",
+        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
+        "packages/clients/core-api-client/src/schemas/drive.ts",
+        "apps/workers/app-api/src/lib/drive-access.ts",
+        "apps/workers/app-api/src/services/drive-aggregation.ts",
+        "apps/workers/app-api/src/services/folders.ts",
+        "rust/modules/core-files/",
+        "rust/crates/core-domain/"
+      ]
+    },
+    {
+      "name": "core: search",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/search/search.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/search/",
+        "apps/workers/app-api/src/services/search.ts",
+        "apps/workers/app-api/src/services/search/query-understanding.ts",
+        "apps/workers/app-api/src/services/member-apps.ts",
+        "packages/clients/app-api-client/src/schemas/search.ts",
+        "packages/domains/core/src/drive-access.ts",
+        "rust/modules/core-files/",
+        "rust/crates/core-domain/"
+      ]
     }
   ]
 }
