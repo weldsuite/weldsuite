@@ -9,12 +9,15 @@
 //!   TypeScript-only.
 //! - [`outbound`] (`./outbound`): the outbound guard; the Mail-outbound
 //!   workstream fills it in.
+//! - [`domains`]: the `MailDomains` port for custom domains on Kubernetes
+//!   (MAIL-010), in place of the Cloudflare Email Routing API.
 //!
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
 
 pub mod access;
 pub mod contacts;
+pub mod domains;
 pub mod html;
 pub mod outbound;
 pub mod recipients;
