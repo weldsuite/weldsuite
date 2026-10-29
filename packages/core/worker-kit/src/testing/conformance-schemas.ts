@@ -121,6 +121,20 @@ import {
   sharedWithMeSchema,
 } from '@weldsuite/core-api-client/schemas/drive';
 import { searchResultGroupSchema } from '@weldsuite/app-api-client/schemas/search';
+import {
+  notificationListItemSchema,
+  notificationRefSchema,
+  notificationRowSchema,
+  markedReadCountSchema,
+  unreadCountSchema,
+} from '@weldsuite/core-api-client/schemas/notifications';
+import { auditLogRefSchema, auditLogSchema } from '@weldsuite/core-api-client/schemas/audit-logs';
+import {
+  assignAllMembersResultSchema,
+  canManageAppsSchema,
+  myAppCodesSchema,
+  workspaceInstalledAppSchema,
+} from '@weldsuite/app-api-client/schemas/app-catalog';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -211,6 +225,30 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/team-members/:id/resend-invite', envelope: 'single', data: resendInviteResultSchema },
   { method: 'GET', route: '/api/member-limits', envelope: 'single', data: memberLimitsSchema },
   { method: 'GET', route: '/api/my-role', envelope: 'single', data: myRoleSchema },
+  // core: notifications
+  { method: 'GET', route: '/api/notifications', envelope: 'list', data: notificationListItemSchema },
+  { method: 'GET', route: '/api/notifications/unread-count', envelope: 'single', data: unreadCountSchema },
+  { method: 'POST', route: '/api/notifications/read-all', envelope: 'single', data: markedReadCountSchema },
+  { method: 'POST', route: '/api/notifications/:id/read', envelope: 'single', data: notificationRowSchema },
+  { method: 'GET', route: '/api/notifications/:id', envelope: 'single', data: notificationRowSchema },
+  { method: 'POST', route: '/api/notifications', envelope: 'single', data: notificationRefSchema },
+  { method: 'PATCH', route: '/api/notifications/:id', envelope: 'single', data: notificationRefSchema },
+  // core: audit-logs (the numbered pager adds `page`, `pageSize`, `totalPages` to the pagination)
+  { method: 'GET', route: '/api/audit-logs', envelope: 'list', data: auditLogSchema },
+  { method: 'GET', route: '/api/audit-logs/:entityType/:entityId', envelope: 'array', data: auditLogSchema },
+  { method: 'GET', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogSchema },
+  { method: 'POST', route: '/api/audit-logs', envelope: 'single', data: auditLogRefSchema },
+  { method: 'PATCH', route: '/api/audit-logs/:id', envelope: 'single', data: auditLogRefSchema },
+  // core: appstore
+  { method: 'GET', route: '/api/appstore/my-apps', envelope: 'single', data: myAppCodesSchema },
+  { method: 'GET', route: '/api/appstore/installed-apps', envelope: 'array', data: workspaceInstalledAppSchema },
+  { method: 'GET', route: '/api/appstore/can-manage-apps', envelope: 'single', data: canManageAppsSchema },
+  {
+    method: 'POST',
+    route: '/api/appstore/apps/:appCode/assign-all-members',
+    envelope: 'single',
+    data: assignAllMembersResultSchema,
+  },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },

@@ -323,6 +323,49 @@
       ]
     },
     {
+      "name": "core: notifications",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/notifications/integration.test.ts",
+        "src/routes/notifications/notifications.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/notifications/",
+        "packages/clients/core-api-client/src/schemas/notifications.ts",
+        "rust/modules/core-platform/src/groups/notifications/"
+      ]
+    },
+    {
+      "name": "core: audit-logs",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/audit-logs/index.test.ts",
+        "src/routes/audit-logs/audit-logs.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/audit-logs/",
+        "packages/clients/core-api-client/src/schemas/audit-logs.ts",
+        "rust/modules/core-platform/src/groups/audit_logs.rs",
+        "rust/modules/core-platform/src/groups/notifications/body.rs"
+      ]
+    },
+    {
+      "name": "core: appstore",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/appstore/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/appstore/",
+        "apps/workers/app-api/src/lib/legacy-app-codes.ts",
+        "packages/clients/app-api-client/src/schemas/app-catalog.ts",
+        "rust/modules/core-platform/src/groups/appstore.rs"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",
