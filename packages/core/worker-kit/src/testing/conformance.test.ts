@@ -21,6 +21,16 @@ describe('conformance comparison', () => {
     expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
   });
 
+  it('normalises a new API key and its display prefix on writes', () => {
+    const minted = (hex: string) => ({ data: { id: `ak_mh2k3j4lab12${hex}`, keyPrefix: `wsk_${hex}`, key: `wsk_${hex.repeat(8)}` } });
+    const ts = minted('0011aabb');
+    const rust = minted('ffee9988');
+    expect(firstDifference(normalizeForDiff(ts, true), normalizeForDiff(rust, true))).toBeNull();
+    expect(firstDifference(normalizeForDiff(ts, false), normalizeForDiff(rust, false))).not.toBeNull();
+    // Only a key prefix: a `keyPrefix` of another shape still compares.
+    expect(normalizeForDiff({ keyPrefix: 'sk_live' }, true)).toEqual({ keyPrefix: 'sk_live' });
+  });
+
   it('reports missing fields, extra fields and length differences', () => {
     expect(firstDifference({ a: 1 }, { a: 1, b: 2 })).toBe('$.b: undefined vs 2');
     expect(firstDifference({ a: [1] }, { a: [1, 2] })).toBe('$.a: 1 items vs 2');

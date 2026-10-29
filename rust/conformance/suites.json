@@ -323,6 +323,68 @@
       ]
     },
     {
+      "name": "core: api-keys",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/api-keys/api-keys.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/api-keys/",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/core/db/src/lib/workspace-ref.ts",
+        "packages/clients/app-api-client/src/schemas/api-keys.ts",
+        "rust/modules/core-platform/src/groups/api_keys.rs"
+      ]
+    },
+    {
+      "name": "core: workspace-api-keys",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/workspace-api-keys/workspace-api-keys.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/workspace-api-keys/",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/core/db/src/lib/workspace-ref.ts",
+        "packages/clients/app-api-client/src/schemas/api-keys.ts",
+        "rust/modules/core-platform/src/groups/api_keys.rs",
+        "rust/modules/core-platform/src/groups/workspace_api_keys.rs"
+      ]
+    },
+    {
+      "name": "core: feature-requests",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/feature-requests/feature-requests.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/feature-requests/",
+        "packages/clients/app-api-client/src/schemas/feature-requests.ts",
+        "rust/modules/core-platform/src/groups/feature_requests.rs"
+      ]
+    },
+    {
+      "name": "core: credits",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/credits/credits.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/credits/",
+        "apps/workers/app-api/src/services/credits.ts",
+        "apps/workers/app-api/src/middleware/partner-managed.ts",
+        "apps/workers/app-api/src/services/partner/managed.ts",
+        "packages/core/credits/src/index.ts",
+        "packages/core/worker-kit/src/billing-worker.ts",
+        "packages/clients/app-api-client/src/schemas/credits.ts",
+        "rust/modules/core-platform/src/groups/credits.rs"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",

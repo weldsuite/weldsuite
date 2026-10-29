@@ -35,6 +35,27 @@ import {
 } from '@weldsuite/app-api-client/schemas/app-catalog';
 import { appAccessViewOrNullSchema, appAccessViewSchema } from '@weldsuite/app-api-client/schemas/reach';
 import {
+  apiKeySchema,
+  createdApiKeySchema,
+  workspaceApiKeySchema,
+} from '@weldsuite/app-api-client/schemas/api-keys';
+import {
+  createdFeatureRequestSchema,
+  featureRequestSchema,
+  featureRequestStatsSchema,
+  featureRequestVoteSchema,
+} from '@weldsuite/app-api-client/schemas/feature-requests';
+import {
+  creditAvailabilitySchema,
+  creditBalanceSchema,
+  creditCheckoutSessionSchema,
+  creditPackageSchema,
+  creditRatesSchema,
+  creditTransactionSchema,
+  creditUsageSchema,
+  subscriptionCreditsSchema,
+} from '@weldsuite/app-api-client/schemas/credits';
+import {
   installableAppListSchema,
   permissionCatalogSchema,
   roleListSchema,
@@ -211,6 +232,30 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/team-members/:id/resend-invite', envelope: 'single', data: resendInviteResultSchema },
   { method: 'GET', route: '/api/member-limits', envelope: 'single', data: memberLimitsSchema },
   { method: 'GET', route: '/api/my-role', envelope: 'single', data: myRoleSchema },
+  // core: api-keys (`{ data: T[] }` lists)
+  { method: 'GET', route: '/api/api-keys', envelope: 'array', data: apiKeySchema },
+  { method: 'GET', route: '/api/api-keys/:id', envelope: 'single', data: apiKeySchema },
+  { method: 'POST', route: '/api/api-keys', envelope: 'single', data: createdApiKeySchema },
+  { method: 'PATCH', route: '/api/api-keys/:id', envelope: 'single', data: apiKeySchema },
+  // core: workspace-api-keys
+  { method: 'GET', route: '/api/workspace-api-keys', envelope: 'array', data: workspaceApiKeySchema },
+  { method: 'GET', route: '/api/workspace-api-keys/:id', envelope: 'single', data: workspaceApiKeySchema },
+  { method: 'POST', route: '/api/workspace-api-keys', envelope: 'single', data: createdApiKeySchema },
+  { method: 'PUT', route: '/api/workspace-api-keys/:id', envelope: 'single', data: workspaceApiKeySchema },
+  // core: feature-requests
+  { method: 'GET', route: '/api/feature-requests', envelope: 'array', data: featureRequestSchema },
+  { method: 'GET', route: '/api/feature-requests/stats', envelope: 'single', data: featureRequestStatsSchema },
+  { method: 'POST', route: '/api/feature-requests', envelope: 'single', data: createdFeatureRequestSchema },
+  { method: 'POST', route: '/api/feature-requests/:id/vote', envelope: 'single', data: featureRequestVoteSchema },
+  // core: credits (`{ success, data }`; transactions page by `page`/`pageSize`)
+  { method: 'GET', route: '/api/credits/balance', envelope: 'single', data: creditBalanceSchema },
+  { method: 'GET', route: '/api/credits/transactions', envelope: 'single', data: creditTransactionSchema.array() },
+  { method: 'POST', route: '/api/credits/check', envelope: 'single', data: creditAvailabilitySchema },
+  { method: 'GET', route: '/api/credits/packages', envelope: 'single', data: creditPackageSchema.array() },
+  { method: 'GET', route: '/api/credits/rates', envelope: 'single', data: creditRatesSchema },
+  { method: 'GET', route: '/api/credits/usage', envelope: 'single', data: creditUsageSchema },
+  { method: 'GET', route: '/api/credits/subscription', envelope: 'single', data: subscriptionCreditsSchema },
+  { method: 'POST', route: '/api/credits/checkout', envelope: 'single', data: creditCheckoutSessionSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },

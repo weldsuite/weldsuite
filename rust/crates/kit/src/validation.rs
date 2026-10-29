@@ -120,6 +120,8 @@ pub enum Format {
     Email,
     /// `.datetime({ offset: true })`.
     DatetimeOffset,
+    /// `.datetime()`: UTC only, `Z`.
+    Datetime,
     /// `.regex(/^\d+$/)`.
     Digits,
     /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
@@ -823,7 +825,7 @@ impl Format {
     fn issue(self) -> (&'static str, &'static str) {
         match self {
             Self::Email => ("email", "Invalid email"),
-            Self::DatetimeOffset => ("datetime", "Invalid datetime"),
+            Self::DatetimeOffset | Self::Datetime => ("datetime", "Invalid datetime"),
             Self::Digits => ("regex", "Invalid"),
             Self::Url => ("url", "Invalid url"),
         }
@@ -835,6 +837,7 @@ impl Format {
             // two dots in a row), which Rust's regex has no syntax for.
             Self::Email => !text.starts_with('.') && !text.contains("..") && EMAIL.is_match(text),
             Self::DatetimeOffset => DATETIME_OFFSET.is_match(text),
+            Self::Datetime => DATETIME_UTC.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
             Self::Url => js_url_parses(text),
         }
@@ -909,12 +912,23 @@ static EMAIL: LazyLock<Regex> = LazyLock::new(|| {
         .expect("the email pattern compiles")
 });
 
-/// Zod 3.25's `datetime({ offset: true })`: a date (leap years checked), a
-/// time with optional seconds and fraction, and `Z` or `±hh[:]mm`.
+/// Zod 3.25's date in `datetime()`, leap years checked.
+const DATETIME_DATE: &str = r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))";
+/// Zod 3.25's time in `datetime()`: optional seconds and fraction.
+const DATETIME_TIME: &str = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
+
+/// Zod 3.25's `datetime({ offset: true })`: a date, a time, and `Z` or
+/// `±hh[:]mm`.
 static DATETIME_OFFSET: LazyLock<Regex> = LazyLock::new(|| {
-    let date = r"((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))";
-    let time = r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?";
-    Regex::new(&format!(r"(?-u)^{date}T{time}([+-]\d{{2}}:?\d{{2}}|Z)$"))
+    Regex::new(&format!(
+        r"(?-u)^{DATETIME_DATE}T{DATETIME_TIME}([+-]\d{{2}}:?\d{{2}}|Z)$"
+    ))
+    .expect("the datetime pattern compiles")
+});
+
+/// Zod 3.25's `datetime()`: a date, a time, and `Z` (UTC only).
+static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(&format!(r"(?-u)^{DATETIME_DATE}T{DATETIME_TIME}Z$"))
         .expect("the datetime pattern compiles")
 });
 
@@ -1367,6 +1381,35 @@ mod tests {
         assert_eq!(
             issues.take(),
             json!([{"code":"invalid_string","validation":"datetime","message":"Invalid datetime","path":["at"]}])
+        );
+    }
+
+    #[test]
+    fn utc_datetimes_match_zod() {
+        // z.string().datetime(), checked against Zod 3.25.
+        for (at, ok) in [
+            ("2026-10-29T07:00:00Z", true),
+            ("2026-10-29T07:00Z", true),
+            ("2026-10-29T07:00:00.123456Z", true),
+            ("2024-02-29T00:00:00Z", true),
+            ("2026-10-29T07:00:00.123+02:00", false),
+            ("2026-10-29T07:00:00", false),
+            ("2026-10-29", false),
+            ("2026-02-29T00:00:00Z", false),
+            ("2026-10-29T07:00:00.Z", false),
+        ] {
+            assert_eq!(Format::Datetime.matches(at), ok, "{at}");
+        }
+        let body = json!({ "expiresAt": "soon" });
+        let mut issues = Issues::default();
+        let rules = Text {
+            format: Some(Format::Datetime),
+            ..Text::default()
+        };
+        issues.text_with(issues_object(&body), "expiresAt", Presence::Optional, rules);
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"invalid_string","validation":"datetime","message":"Invalid datetime","path":["expiresAt"]}])
         );
     }
 

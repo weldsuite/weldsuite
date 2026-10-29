@@ -3706,6 +3706,7 @@ dependencies = [
 name = "weldsuite-core-platform"
 version = "0.0.0"
 dependencies = [
+ "aws-lc-rs",
  "axum",
  "http",
  "serde_json",
@@ -3713,6 +3714,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "url",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",
