@@ -10,14 +10,15 @@
 //! | [`EventBus`] | the `ENTITY_EVENTS` hub queue | [`RecordingEventBus`] |
 //! | [`RealtimePublisher`] | `RealtimePublisher` over the `REALTIME` service binding (`@weldsuite/realtime/server`) | [`RecordingRealtime`] |
 //! | [`FileStore`] | the `PRIVATE_STORAGE` and `STORAGE` R2 buckets (`@weldsuite/worker-kit/storage`) | [`MemoryFileStore`] |
-//! | [`FileStore`] | the `PRIVATE_STORAGE` and `STORAGE` R2 buckets (`@weldsuite/worker-kit/storage`) | [`MemoryFileStore`] |
 //! | [`FlagSource`] | the Cloudflare Flagship binding (`@weldsuite/feature-flags/server`) | [`StaticFlags`] |
+//! | [`Identity`] | Clerk's Backend API (`api.clerk.com/v1`, `@clerk/backend`), ADR SEC-012 | [`MemoryIdentity`] |
 //!
 //! Every port is a trait with native `async fn`-style methods
 //! (`impl Future + Send`). Those are not object safe, so each also has a
 //! `Dyn*` twin with boxed futures, implemented for every port, for state that
 //! picks its adapter at runtime: `Arc<dyn DynCache>` and friends implement the
-//! port trait again.
+//! port trait again. [`Identity`] is object safe from the start (see its
+//! module).
 
 use std::fmt;
 use std::pin::Pin;
@@ -26,6 +27,7 @@ pub mod cache;
 pub mod events;
 pub mod files;
 pub mod flags;
+pub mod identity;
 pub mod realtime;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache};
@@ -35,6 +37,11 @@ pub use files::{
     get_stored, is_safe_key, unsafe_key,
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
+pub use identity::{
+    Identity, IdentityCall, IdentityError, IdentityProvider, IdentityResult, Invitation, ListPage,
+    Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, Organization,
+    OrganizationChanges, OrganizationRef, User, with_identity,
+};
 pub use realtime::{
     DynRealtimePublisher, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };
