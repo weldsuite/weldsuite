@@ -54,7 +54,7 @@ rust/
                         modules/core-team (team, roles, settings, preferences, app catalog);
                         core areas are mounted in conformance builds only until complete
   deploy/helm/weldsuite the Helm chart
-  deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
+  deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
   deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
   deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app
   deploy/validate.sh    checks the two above without a cloud account (CI: Rust · deploy config)
@@ -122,7 +122,11 @@ the same rows, the same one-transaction run, the same tenant selection and
 move skipping, `--dry-run`, `--only <id>`, `--check-journal` and
 `--apply-skipped`; a database either runner migrated is up to date for the
 other. Additions: `--concurrency <n>`, and a transaction-scoped advisory lock
-so two Rust runners on one database take turns.
+so two Rust runners on one database take turns. The Helm chart runs it as a
+`pre-install,pre-upgrade` hook Job with the server's image, Secret and
+environment (`migrations.*` values), so pods of a release only start on a
+schema that release was built for; the kind smoke test builds its databases
+that way.
 
 ```bash
 DATABASE_URL_MASTER=postgres://… DATABASE_ENCRYPTION_KEY_V2=… weldsuite migrate --dry-run

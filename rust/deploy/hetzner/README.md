@@ -53,7 +53,7 @@ differ.
 - An **age** key pair for SOPS: `age-keygen -o eu.agekey`. Keep the private
   key outside git (a password manager); the cluster gets a copy in step 6.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
-  `sops`, `age`, `hcloud-upload-image`, and `pnpm` for the migrations.
+  `sops`, `age` and `hcloud-upload-image`.
 - A read-only **deploy key** for this repository (Flux pulls; it never pushes).
 - Access to the `weldsuite` image (ghcr.io today, the EU registry later).
 
@@ -223,18 +223,24 @@ instance by host name, so an in-cluster URL needs that host.
 
 ## 8. The master database schema
 
-The `master` cluster starts with an empty `weldsuite_master` database. Apply
-the journaled master migrations, straight to the cluster (not through
-PgBouncer):
+The `master` cluster starts with an empty `weldsuite_master` database. The
+chart's migration Job builds it: Flux's first install runs
+`weldsuite migrate --master --tenants` as a pre-install hook, with the
+release's image and the `weldsuite-env` Secret, before any pod starts, and
+every upgrade runs it again first (`migrations` in
+`flux/apps/eu/values/weldsuite.yaml`). The migrations are built into the
+image, so there is nothing to apply by hand. Follow it with
 
 ```bash
-kubectl -n postgres port-forward service/master-rw 15432:5432 &
-MASTER_DATABASE_URL="postgres://weldsuite:<master owner password>@127.0.0.1:15432/weldsuite_master?sslmode=require" \
-  pnpm --filter @weldsuite/db db:migrate:master
+kubectl -n weldsuite get jobs -w                  # weldsuite-migrate, removed once it succeeded
+kubectl -n weldsuite logs -f job/weldsuite-migrate
 ```
 
-Run it again after every release that adds a master migration (the chart's
-migration Job is P5 work package 5.1).
+A failed Job stays, with its log, and fails the release; fix the cause and
+let Flux retry (`flux reconcile helmrelease weldsuite -n weldsuite`). To run
+it by hand against the live cluster, use a server pod, which has the same
+environment (the image has no shell):
+`kubectl -n weldsuite exec deploy/weldsuite -- /usr/local/bin/weldsuite migrate --dry-run`.
 
 ## Tenant databases
 

@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # Deploy the image and the Helm chart into a local kind cluster, with Postgres
-# (master + tenant built from the journaled migrations), Valkey and NATS, and
-# check the full request pipeline with a signed session token:
-# auth → workspace → tenant DB → licence → flags → permission → envelope,
-# a job run through Restate, then the same with OIDC sign-in against a
-# stand-in issuer.
+# (master + tenant built by the chart's migration Job, `weldsuite migrate`),
+# Valkey and NATS, and check the full request pipeline with a signed session
+# token: auth → workspace → tenant DB → licence → flags → permission →
+# envelope, a job run through Restate, then the same with OIDC sign-in against
+# a stand-in issuer.
 #
 #   docker build --build-context drizzle=packages/core/db/drizzle -t weldsuite:dev rust
 #   rust/deploy/kind/smoke-test.sh            (KEEP_CLUSTER=1 to leave it running)
 #
-# Needs docker, kind, kubectl, helm, node and the repo's pnpm install (for the
-# migrations script). CI runs the same script.
+# Needs docker, kind, kubectl, helm and node. CI runs the same script.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
-repo="$(cd "$here/../../.." && pwd)"
 chart="$here/../helm/weldsuite"
 cluster="${KIND_CLUSTER:-weldsuite-smoke}"
 image="${IMAGE:-weldsuite:dev}"
@@ -44,25 +42,37 @@ psql() {
   kubectl exec -i deployment/postgres -- psql -v ON_ERROR_STOP=1 -U weldsuite "$@"
 }
 psql -d master -c "create database tenant" >/dev/null
+# How many migrations a database's bookkeeping table records.
+recorded() {
+  psql -d "$1" -Atc "select count(*) from $2.__drizzle_migrations"
+}
 
-kubectl port-forward service/postgres 15432:5432 >/dev/null 2>&1 &
-forwards+=($!)
-sleep 3
-(cd "$repo" && pnpm exec tsx scripts/rust-test-db.ts \
-  --master postgres://weldsuite:weldsuite@127.0.0.1:15432/master \
-  --tenant postgres://weldsuite:weldsuite@127.0.0.1:15432/tenant)
-sed '/@@tenant@@/,$d' "$here/seed.sql" | psql -d master >/dev/null
-sed '1,/@@tenant@@/d' "$here/seed.sql" | psql -d tenant >/dev/null
-
-# ── the server ──────────────────────────────────────────────────────────────
+# ── the server and its migrations ───────────────────────────────────────────
+# The install's pre-install hook Job (`weldsuite migrate --master --tenants`)
+# builds the empty master database; there is no workspace yet.
 node "$here/mint-token.mjs" "$work" user_smoke org_smoke
 helm upgrade --install weldsuite "$chart" -f "$here/values.yaml" \
   --set-file "secret.values.CLERK_JWT_KEY=$work/public.pem" \
-  --wait --timeout 180s
+  --wait --timeout 300s
+master_migrations="$(recorded master drizzle)"
+echo "ok   install: the migration Job applied $master_migrations master migrations"
+[ "$master_migrations" -gt 0 ] || { echo "FAIL the master database was not migrated" >&2; exit 1; }
+
+# The smoke workspace, placed on the tenant database; an upgrade's
+# pre-upgrade hook Job then migrates that database too (and finds nothing
+# left to do on the master).
+sed '/@@tenant@@/,$d' "$here/seed.sql" | psql -d master >/dev/null
+helm upgrade weldsuite "$chart" --reuse-values --wait --timeout 300s
+tenant_migrations="$(recorded tenant public)"
+echo "ok   upgrade: the migration Job applied $tenant_migrations tenant migrations"
+[ "$tenant_migrations" -gt 0 ] || { echo "FAIL the tenant database was not migrated" >&2; exit 1; }
+[ "$(recorded master drizzle)" = "$master_migrations" ] || { echo "FAIL the master was migrated twice" >&2; exit 1; }
+sed '1,/@@tenant@@/d' "$here/seed.sql" | psql -d tenant >/dev/null
 kubectl rollout status deployment/weldsuite --timeout=120s
 
 kubectl port-forward service/weldsuite 18080:80 >/dev/null 2>&1 &
-forwards+=($!)
+api_forward=$!
+forwards+=("$api_forward")
 for _ in $(seq 1 30); do
   curl -fsS http://127.0.0.1:18080/livez >/dev/null 2>&1 && break
   sleep 1
@@ -158,7 +168,7 @@ helm upgrade weldsuite "$chart" --reuse-values \
   --set-string config.auth.oidc.webClientId=smoke-web \
   --wait --timeout 180s
 kubectl rollout status deployment/weldsuite --timeout=120s
-kill "${forwards[1]}" 2>/dev/null || true
+kill "$api_forward" 2>/dev/null || true
 kubectl port-forward service/weldsuite 18080:80 >/dev/null 2>&1 &
 forwards+=($!)
 for _ in $(seq 1 30); do

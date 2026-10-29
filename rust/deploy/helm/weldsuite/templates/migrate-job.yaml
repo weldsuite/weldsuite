@@ -1,0 +1,77 @@
+{{- if .Values.migrations.enabled }}
+{{- if and (not .Values.secret.existingSecret) (not .Values.secret.values) }}
+{{- fail "set secret.existingSecret (or secret.values for a test cluster): the migrations need DATABASE_URL_MASTER" }}
+{{- end }}
+# `weldsuite migrate` before every install and upgrade (a Helm hook): the
+# master database, then every tenant database, to the migrations built into
+# this release's image. The new pods roll out only once it has succeeded; a
+# failed Job fails the install or upgrade and stays for its logs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "weldsuite.fullname" . }}-migrate
+  labels:
+    {{- include "weldsuite.migrateLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: {{ .Values.migrations.hookDeletePolicy }}
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  {{- with .Values.migrations.ttlSecondsAfterFinished }}
+  ttlSecondsAfterFinished: {{ . }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "weldsuite.migrateLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # The release's ServiceAccount does not exist yet on a first install,
+      # and migrating needs no Kubernetes API: the namespace's default, with
+      # no token mounted.
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - migrate
+            {{- range .Values.migrations.args }}
+            - {{ . | quote }}
+            {{- end }}
+            - --concurrency
+            - {{ .Values.migrations.concurrency | quote }}
+          env:
+            {{- include "weldsuite.env" . | nindent 12 }}
+          envFrom:
+            - secretRef:
+                name: {{ include "weldsuite.migrateSecretName" . }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
