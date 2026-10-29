@@ -201,10 +201,10 @@ for _ in $(seq 1 30); do
 done
 base=http://127.0.0.1:18081
 check GET /healthz 200
-check GET /r/smoke-link-token 200
+check GET /r/smoke-unknown-link-token-0001 200
 contains '<html'
 header x-frame-options DENY
-check POST /api/session 404 "" '{"token":"smoke-link-token"}'
+check POST /api/session 404 "" '{"token":"smoke-unknown-link-token-0001"}'
 contains '"NOT_FOUND"'
 base=http://127.0.0.1:18080
 
