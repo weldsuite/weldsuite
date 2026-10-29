@@ -31,11 +31,13 @@ weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
+weldsuite-pass = { path = "modules/pass" }
 weldsuite-sign = { path = "modules/sign" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
 
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 async-nats = { version = "0.51.0", default-features = false }
 aws-lc-rs = "1.19.0"
 axum = { version = "0.8.9", default-features = false }
@@ -45,6 +47,8 @@ form_urlencoded = "1.2.2"
 futures-util = { version = "0.3.31", default-features = false }
 getrandom = "0.4.3"
 hex = "0.4.3"
+hkdf = "0.13.0"
+hmac = "0.13.0"
 http = "1.5.0"
 http-body-util = "0.1.5"
 minijinja = { version = "3.0.4", default-features = false, features = ["builtins", "multi_template", "std_collections"] }
@@ -63,6 +67,8 @@ reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] 
 rusty-s3 = { version = "0.11.0", default-features = false, features = ["aws-lc-rs", "full"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }
 time = "0.3.55"
 tokio = "1.54.1"
