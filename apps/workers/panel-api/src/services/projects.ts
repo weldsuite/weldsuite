@@ -7,7 +7,7 @@
  * simply not found.
  */
 
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import type { PanelProject } from '@weldsuite/db/schema';
@@ -177,7 +177,11 @@ export async function rotateProjectToken(
   return { project };
 }
 
-/** Soft delete: the row stays (for audit and the unique token), the collector stops accepting it. */
+/**
+ * Soft delete: the row stays (for audit and the unique token), the collector
+ * stops accepting it. Null when there is no live project; one already deleted
+ * is taken out of the registry again, in case that failed the first time.
+ */
 export async function deleteProject(
   db: Database,
   registry: ProjectRegistry,
@@ -189,7 +193,15 @@ export async function deleteProject(
     .set({ deletedAt: now, updatedAt: now })
     .where(and(eq(panelProjects.id, id), live))
     .returning();
-  if (!project) return null;
+  if (!project) {
+    const [deleted] = await db
+      .select()
+      .from(panelProjects)
+      .where(and(eq(panelProjects.id, id), isNotNull(panelProjects.deletedAt)))
+      .limit(1);
+    if (deleted) await removeProjectFromRegistry(registry, deleted);
+    return null;
+  }
 
   await removeProjectFromRegistry(registry, project);
   return project;

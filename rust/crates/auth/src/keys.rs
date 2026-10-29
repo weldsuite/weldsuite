@@ -6,7 +6,8 @@
 //!   `CLERK_SECRET_KEY`, or from any JWKS URL. Fetched on first use, reused
 //!   for an hour, and fetched again (at most every 30 seconds) when a token
 //!   names a key id the cached set doesn't have, which is how a key rotation
-//!   reaches us.
+//!   reaches us. After a failed fetch the next one waits 30 seconds too,
+//!   and the keys we have keep serving meanwhile.
 
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -22,7 +23,8 @@ pub const CLERK_JWKS_URL: &str = "https://api.clerk.com/v1/jwks";
 /// How long a fetched key set is reused.
 const KEYS_TTL: Duration = Duration::from_secs(3600);
 
-/// The least time between two fetches triggered by unknown key ids.
+/// The least time between two fetches triggered by unknown key ids, and
+/// after a failed one.
 const REFETCH_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Fetched keys and when they were fetched.
@@ -31,12 +33,27 @@ struct Fetched {
     at: Instant,
 }
 
+/// The keys we have, and when a fetch last failed.
+#[derive(Default)]
+struct State {
+    fetched: Option<Fetched>,
+    failed_at: Option<Instant>,
+}
+
+impl State {
+    fn keys(&self) -> Option<Arc<ClerkVerifier>> {
+        self.fetched
+            .as_ref()
+            .map(|fetched| Arc::clone(&fetched.verifier))
+    }
+}
+
 struct Remote {
     url: String,
     bearer: Option<String>,
     authorized_parties: Option<String>,
     client: reqwest::Client,
-    current: RwLock<Option<Fetched>>,
+    state: RwLock<State>,
     /// Serialises fetches, so a burst of requests fetches once.
     fetching: Mutex<()>,
 }
@@ -89,7 +106,7 @@ impl SessionVerifier {
                 bearer,
                 authorized_parties,
                 client,
-                current: RwLock::new(None),
+                state: RwLock::new(State::default()),
                 fetching: Mutex::new(()),
             })),
         })
@@ -138,54 +155,62 @@ impl SessionVerifier {
 impl Remote {
     /// The current key set; fetched when there is none, when it is older than
     /// [`KEYS_TTL`], or when `refresh` asks and the last fetch is older than
-    /// [`REFETCH_INTERVAL`].
+    /// [`REFETCH_INTERVAL`]. Never within [`REFETCH_INTERVAL`] of a failed
+    /// fetch: while the JWKS endpoint is down or slow, every request would
+    /// otherwise wait out a fetch of its own.
     async fn verifier(&self, refresh: bool) -> Result<Arc<ClerkVerifier>, TokenError> {
-        if let Some(verifier) = self.usable(refresh) {
-            return Ok(verifier);
+        if let Some(cached) = self.cached(refresh) {
+            return cached;
         }
         let _guard = self.fetching.lock().await;
         // Another request may have fetched while this one waited.
-        if let Some(verifier) = self.usable(refresh) {
-            return Ok(verifier);
+        if let Some(cached) = self.cached(refresh) {
+            return cached;
         }
-        match self.fetch().await {
+        let fetched = self.fetch().await;
+        let mut state = self
+            .state
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match fetched {
             Ok(verifier) => {
                 let verifier = Arc::new(verifier);
-                *self
-                    .current
-                    .write()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Fetched {
+                state.fetched = Some(Fetched {
                     verifier: Arc::clone(&verifier),
                     at: Instant::now(),
                 });
+                state.failed_at = None;
                 Ok(verifier)
             }
             Err(error) => {
                 tracing::error!(%error, url = %self.url, "session keys: fetching the JWKS failed");
+                state.failed_at = Some(Instant::now());
                 // Keep serving with the keys we have, if any.
-                self.current
-                    .read()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .as_ref()
-                    .map(|fetched| Arc::clone(&fetched.verifier))
-                    .ok_or(TokenError::UnknownKey)
+                state.keys().ok_or(TokenError::UnknownKey)
             }
         }
     }
 
-    fn usable(&self, refresh: bool) -> Option<Arc<ClerkVerifier>> {
-        let current = self
-            .current
+    /// The answer without fetching, or `None` when it is time to fetch.
+    fn cached(&self, refresh: bool) -> Option<Result<Arc<ClerkVerifier>, TokenError>> {
+        let state = self
+            .state
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let fetched = current.as_ref()?;
+        if state
+            .failed_at
+            .is_some_and(|at| at.elapsed() < REFETCH_INTERVAL)
+        {
+            return Some(state.keys().ok_or(TokenError::UnknownKey));
+        }
+        let fetched = state.fetched.as_ref()?;
         let age = fetched.at.elapsed();
         let fresh = if refresh {
             age < REFETCH_INTERVAL
         } else {
             age < KEYS_TTL
         };
-        fresh.then(|| Arc::clone(&fetched.verifier))
+        fresh.then(|| Ok(Arc::clone(&fetched.verifier)))
     }
 
     async fn fetch(&self) -> Result<ClerkVerifier, KeyError> {

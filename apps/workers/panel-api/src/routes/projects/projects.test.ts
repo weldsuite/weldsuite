@@ -35,6 +35,7 @@ vi.mock('@weldsuite/worker-kit/db', async (orig) => {
 });
 
 import projectsRoutes from './index';
+import { syncProjectRegistry } from '../../services/project-registry';
 
 const { panelProjects } = schema;
 const { panelProjectRegistry } = masterSchema;
@@ -671,6 +672,96 @@ describe('when the collector cannot be told', () => {
     expect(retried.status).toBe(200);
     expect(kvRecord(project.token)?.status).toBe('paused');
     expect(await registryRow(project.id)).toMatchObject({ status: 'paused' });
+    consoleError.mockRestore();
+  });
+});
+
+describe('registry sync under failures and races', () => {
+  const failingDelete = {
+    get: kv.get.bind(kv),
+    put: kv.put.bind(kv),
+    delete: async () => {
+      throw new Error('kv unavailable');
+    },
+  } as unknown as KVNamespace;
+
+  async function tenantRow(id: string) {
+    const [row] = await db.select().from(panelProjects).where(eq(panelProjects.id, id));
+    return row!;
+  }
+
+  it('drops the first token when a rotation that failed halfway is retried', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const project = await newProject();
+
+    const failed = await app(ADMIN, { kv: failingDelete }).request(`${BASE}/${project.id}/rotate-token`, json({}));
+    expect(failed.status).toBe(500);
+    expect(store.has(projectKvKey(project.token))).toBe(true);
+
+    const retried = await data<PanelProjectDto>(await app().request(`${BASE}/${project.id}/rotate-token`, json({})));
+    expect(projectKeys()).toEqual([projectKvKey(retried.token)]);
+    expect(await registryRow(project.id)).toMatchObject({ token: retried.token });
+    consoleError.mockRestore();
+  });
+
+  it('does not bring a rotated token back when an older version syncs late', async () => {
+    const project = await newProject();
+    const read = await tenantRow(project.id);
+    const rotated = await data<PanelProjectDto>(await app().request(`${BASE}/${project.id}/rotate-token`, json({})));
+
+    // A PATCH that read the project just before the rotation, synced after it.
+    const late = { ...read, name: 'Late', updatedAt: new Date(new Date(rotated.updatedAt).getTime() - 1) };
+    await syncProjectRegistry({ masterDb: master, kv, workspaceId: ALPHA.workspaceId }, late);
+
+    expect(projectKeys()).toEqual([projectKvKey(rotated.token)]);
+    expect(await registryRow(project.id)).toMatchObject({ token: rotated.token });
+  });
+
+  it('leaves KV as the registry says when a newer sync overtakes one in flight', async () => {
+    const project = await newProject();
+    const read = await tenantRow(project.id);
+    const rotated = await data<PanelProjectDto>(await app().request(`${BASE}/${project.id}/rotate-token`, json({})));
+    const current = await tenantRow(project.id);
+    // Back to before the rotation, so the older sync gets through the registry.
+    store.clear();
+    await master.delete(panelProjectRegistry);
+    store.set(projectKvKey(project.token), 'old-record');
+
+    // The rotation's sync runs to completion just before the older sync's KV write lands.
+    let overtake: (() => Promise<void>) | null = () =>
+      syncProjectRegistry({ masterDb: master, kv, workspaceId: ALPHA.workspaceId }, current, project.token);
+    const racing = {
+      get: kv.get.bind(kv),
+      delete: kv.delete.bind(kv),
+      put: async (key: string, value: string) => {
+        const run = overtake;
+        overtake = null;
+        if (run) await run();
+        store.set(key, value);
+      },
+    } as unknown as KVNamespace;
+    const older = { ...read, updatedAt: new Date(current.updatedAt.getTime() - 1) };
+    await syncProjectRegistry({ masterDb: master, kv: racing, workspaceId: ALPHA.workspaceId }, older);
+
+    expect(projectKeys()).toEqual([projectKvKey(rotated.token)]);
+    expect(kvRecord(rotated.token)).toMatchObject({ projectId: project.id });
+    expect(await registryRow(project.id)).toMatchObject({ token: rotated.token });
+  });
+
+  it('finishes a delete whose collector update failed when it is repeated', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const project = await newProject();
+    events = [];
+
+    const failed = await app(ADMIN, { kv: failingDelete }).request(`${BASE}/${project.id}`, { method: 'DELETE' });
+    expect(failed.status).toBe(500);
+    expect(store.has(projectKvKey(project.token))).toBe(true);
+
+    const repeated = await app().request(`${BASE}/${project.id}`, { method: 'DELETE' });
+    expect(repeated.status).toBe(404);
+    expect(store.has(projectKvKey(project.token))).toBe(false);
+    expect((await registryRow(project.id))?.deletedAt).toBeInstanceOf(Date);
+    expect(events).toEqual([]);
     consoleError.mockRestore();
   });
 });
