@@ -25,6 +25,7 @@ import { useWeldknowSidebarItems } from '@/app/weldknow/hooks/use-weldknow-sideb
 import { useWeldbooksSidebarItems } from '@/app/weldbooks/hooks/use-weldbooks-sidebar-items';
 import { useWeldhrSidebarItems } from '@/app/weldhr/hooks/use-weldhr-sidebar-items';
 import { useSettingsSidebarItems } from '@/app/settings/hooks/use-settings-sidebar-items';
+import { isRouteOffered } from '@/lib/edition-routes';
 import { resolveAppCode } from '@/lib/apps/app-registry';
 import { useBetaAppCodes } from '@/hooks/queries/use-settings-queries';
 import { EntitySwitcher } from '@/components/accounting/entity-switcher';
@@ -70,7 +71,10 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
   const { isOwner, can } = usePermissions();
   const [showCreateDialog, setShowCreateDialog] = React.useState(false);
 
-  const moduleKey = getModuleKey(pathname);
+  // Edition flags (4.F3): no sidebar (and none of its requests) for a module
+  // this deployment doesn't serve; the page says it isn't available.
+  const routeKey = getModuleKey(pathname);
+  const moduleKey = routeKey && isRouteOffered(`/${routeKey}`) ? routeKey : null;
   const { data: betaAppCodes } = useBetaAppCodes();
   const userAppCode = moduleKey?.startsWith('user-app:') ? moduleKey.slice('user-app:'.length) : null;
   const { data: installedUserApps } = useInstalledUserApps(!!userAppCode);
