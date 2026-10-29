@@ -558,7 +558,8 @@
       "workspace": "apps/workers/mail-api",
       "tests": [
         "src/routes/mail-sending/index.test.ts",
-        "src/routes/internal-outbound/index.test.ts"
+        "src/routes/internal-outbound/index.test.ts",
+        "src/routes/mail-accounts/send.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/routes/mail-sending/",

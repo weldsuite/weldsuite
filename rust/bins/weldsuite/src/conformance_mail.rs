@@ -249,3 +249,41 @@ impl MailBridges {
         }
     }
 }
+
+/// DNS over HTTPS through the outbound bridge: the test's `fetch` stub
+/// answers the lookups the worker sends to `cloudflare-dns.com`.
+struct BridgedDoh {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_mail_domain::recipients::DnsOverHttps for BridgedDoh {
+    fn get<'a>(&'a self, url: &'a str) -> BoxFuture<'a, Result<(u16, String), String>> {
+        Box::pin(async move {
+            let encoded: String = form_urlencoded::byte_serialize(url.as_bytes()).collect();
+            let response = self
+                .client
+                .get(format!("{}/fetch?url={encoded}", self.bridge))
+                .header("accept", "application/dns-json")
+                .send()
+                .await
+                .map_err(|error| error.to_string())?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err("the test's fetch stub threw".to_owned());
+            }
+            let status = response.status().as_u16();
+            let text = response.text().await.map_err(|error| error.to_string())?;
+            Ok((status, text))
+        })
+    }
+}
+
+impl MailBridges {
+    /// WeldMail's MX lookups through the test's outbound bridge.
+    pub(crate) fn doh(&self, bridge: &str) -> weldsuite_mail::send::RequestDoh {
+        weldsuite_mail::send::RequestDoh(Arc::new(BridgedDoh {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+}

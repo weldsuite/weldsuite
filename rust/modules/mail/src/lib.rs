@@ -7,10 +7,13 @@
 //! not a session) by [`internal_outbound_router`]. The README lists which
 //! groups are ported; the shared mail logic is `weldsuite-mail-domain`.
 
+#![allow(clippy::result_large_err)] // the handlers return the response a check ends with
+
 mod caller;
 pub mod consumers;
 pub mod cron;
 mod routes;
+pub mod send;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,6 +22,7 @@ use axum::Router;
 use weldsuite_db::PgPool;
 use weldsuite_events::EntityEventPublisher;
 use weldsuite_mail_domain::outbound::OutboundBindings;
+use weldsuite_mail_domain::recipients::DnsOverHttps;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{DynCache, DynJobs, DynSystemMail, FileStores};
 
@@ -42,6 +46,8 @@ pub struct MailState {
     pub jobs: Option<Arc<dyn DynJobs>>,
     /// System mail (`@weldsuite/emails`): the staff alerts.
     pub system_mail: Option<Arc<dyn DynSystemMail>>,
+    /// DNS-over-HTTPS for the recipients' MX lookup.
+    pub doh: Option<Arc<dyn DnsOverHttps>>,
     /// The worker's env values the routes read (`OUTBOUND_ADMIN_SECRET`,
     /// `ABUSE_NOTIFY_EMAIL`, …), from the process.
     pub env: Arc<HashMap<String, String>>,
@@ -83,7 +89,10 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
-    Router::new().merge(routes::mail_sending::routes(state, gate))
+    Router::new()
+        .merge(routes::mail_sending::routes(state.clone(), gate))
+        .merge(routes::mail_accounts::routes(state.clone(), gate))
+        .merge(routes::mail_messages::routes(state, gate))
 }
 
 /// `/internal/outbound`: the outbound guard's staff API for the admin

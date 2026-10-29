@@ -15,8 +15,9 @@ workstreams fill this crate in; add your group's line here when it lands.
 |---|---|---|---|
 | `/api/mail-sending` | `routes::mail_sending` | outbound | ported |
 | `/internal/outbound` | `routes::internal_outbound` | outbound | ported |
-| `/api/mail-accounts/:id/send` | `routes::mail_accounts` (send only) | outbound | in progress |
-| `/api/mail-messages/:id/reply`, `/:id/forward` | `routes::mail_messages` (sends only) | outbound | in progress |
+| `/api/mail-accounts/:id/send` | `routes::mail_accounts` (send only) | outbound | ported |
+| `/api/mail-messages/:id/reply` | `routes::mail_messages` (sends only) | outbound | ported |
+| `/api/mail-messages/:id/forward` | `routes::mail_messages` | outbound | in progress |
 | `/api/mail-scheduled` | `routes::mail_scheduled` | outbound | in progress |
 | `mail-sending-events`, `mail-outbound-review` consumers | `consumers` | outbound | handlers ported |
 | outbound-alerts cron | `cron::outbound_alerts` | outbound | in progress |

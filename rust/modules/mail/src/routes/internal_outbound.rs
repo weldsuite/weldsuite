@@ -13,8 +13,6 @@
 //!   every domain answers `false`, as the worker does without Cloudflare
 //!   credentials (ADR MAIL-010).
 
-#![allow(clippy::result_large_err)] // the helpers return the response a check ends with
-
 use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Query, State};

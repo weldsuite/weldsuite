@@ -128,6 +128,7 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
         files: file_stores(state),
         jobs: Some(Arc::clone(&state.infra.jobs)),
         system_mail: state.infra.mail.clone(),
+        doh: Some(weldsuite_mail::send::reqwest_doh()),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
     }
 }

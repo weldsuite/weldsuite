@@ -13,14 +13,12 @@ use weldsuite_db::{MasterDb, PgPool, Tenant};
 use weldsuite_events::{EventContext, publish_entity_event};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_mail_domain::outbound::{OutboundBindings, OutboundGuard, RequestOutbound};
-use weldsuite_permissions::Permissions;
 use weldsuite_ports::{DynCache, FileStores, RequestCache};
 
 use crate::MailState;
 
 /// The request's view of the worker: its env and bindings, the app's where
 /// the request brings none. Also usable outside `/api` ([`Bindings`]).
-#[allow(dead_code)] // `files` is for the send routes (next)
 #[derive(Clone, Default)]
 pub(crate) struct Bindings {
     pub(crate) env: Option<RequestEnv>,
@@ -74,7 +72,6 @@ impl Bindings {
             .unwrap_or_else(|| state.outbound.clone())
     }
 
-    #[allow(dead_code)] // the send routes (next)
     pub(crate) fn files(&self, state: &MailState) -> Option<FileStores> {
         self.files.clone().or_else(|| state.files.clone())
     }
@@ -94,15 +91,14 @@ impl Bindings {
 }
 
 /// A caller of an `/api` route.
-#[allow(dead_code)] // the send routes (next) read the rest
 pub(crate) struct Caller {
     pub(crate) db: PgPool,
     pub(crate) user_id: String,
     /// `c.get('orgId')`.
     pub(crate) org_id: Option<String>,
     /// `c.get('workspaceId')`: `workspaces.id`.
+    #[allow(dead_code)] // the forward route (next)
     pub(crate) workspace_id: String,
-    pub(crate) permissions: Option<Permissions>,
     pub(crate) events: EventContext,
     pub(crate) bindings: Bindings,
 }
@@ -117,7 +113,6 @@ impl Caller {
     }
 
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
-    #[allow(dead_code)] // the send routes (next)
     pub(crate) fn publish(
         &self,
         state: &MailState,
@@ -146,7 +141,6 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 user_id: auth.user_id.clone(),
                 org_id: auth.org_id.clone(),
                 workspace_id: tenant.workspace_id.clone(),
-                permissions: parts.extensions.get::<Permissions>().cloned(),
                 events: EventContext::for_request(auth, tenant),
                 bindings: Bindings::from_parts(parts),
             })

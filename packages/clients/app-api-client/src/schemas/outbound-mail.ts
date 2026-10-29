@@ -433,6 +433,23 @@ export const outboundReviewResultSchema = z.object({ queued: z.boolean() });
 export const outboundSubscribeResultSchema = z.object({ results: z.record(z.boolean()) });
 
 // ---------------------------------------------------------------------------
+// Send paths — what compose, reply, forward and send-now answer
+// ---------------------------------------------------------------------------
+
+const sentMailBaseSchema = z.object({
+  messageId: z.string(),
+  smtpMessageId: z.string(),
+  pendingVerification: z.boolean(),
+});
+
+/** `POST /api/mail-accounts/:id/send` (`SendMailResponse`). */
+export const sendMailResponseSchema = sentMailBaseSchema.extend({ message: z.string() });
+/** `POST /api/mail-messages/:id/reply` (`ReplyMailResponse`). */
+export const replyMailResponseSchema = sentMailBaseSchema.extend({ repliedTo: z.string() });
+/** `POST /api/mail-messages/:id/forward` (`ForwardMailResponse`). */
+export const forwardMailResponseSchema = sentMailBaseSchema.extend({ forwardedFrom: z.string() });
+
+// ---------------------------------------------------------------------------
 // Admin console — policy and case updates
 // ---------------------------------------------------------------------------
 
