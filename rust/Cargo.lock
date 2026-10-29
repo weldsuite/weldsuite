@@ -4109,6 +4109,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-notifications"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "jsonwebtoken 11.1.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-pass"
 version = "0.0.0"
 dependencies = [

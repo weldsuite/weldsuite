@@ -35,6 +35,8 @@ pub mod in_process_jobs;
 pub mod jobs;
 pub mod ledger_store;
 pub mod mail;
+pub mod outbound;
+pub mod presence;
 pub mod realtime;
 pub mod transport;
 
@@ -59,6 +61,8 @@ pub use ledger_store::{LedgerChanges, LedgerSnapshot, LedgerStore, MemoryLedgerS
 pub use mail::{
     DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
 };
+pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp};
+pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
     DynRealtimePublisher, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };
