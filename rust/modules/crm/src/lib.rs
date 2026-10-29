@@ -46,7 +46,7 @@ use weldsuite_events::{EventContext, iso_timestamp};
 use weldsuite_kit::validation::{Issues, json_body};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_permissions::{PermissionGate, PermissionQueries, Permissions};
-use weldsuite_ports::{DynCache, FileStores, RequestCache};
+use weldsuite_ports::FileStores;
 
 pub use weldsuite_crm_domain::CrmServices;
 
@@ -377,13 +377,8 @@ pub(crate) struct Caller {
     pub(crate) user_id: String,
     pub(crate) permissions: Permissions,
     pub(crate) events: EventContext,
-    /// `c.get('clerkOrgId')`.
-    pub(crate) clerk_org_id: Option<String>,
-    /// `c.get('workspaceId')`: `workspaces.id`.
-    pub(crate) workspace_id: String,
     pub(crate) env: Option<RequestEnv>,
     pub(crate) files: Option<FileStores>,
-    pub(crate) cache: Option<Arc<dyn DynCache>>,
     /// This request's events, sent in publish order.
     outbox: std::sync::OnceLock<OrderedEvents>,
 }
@@ -459,25 +454,6 @@ impl Caller {
             .map(str::to_owned)
             .or_else(|| state.services.env.get(name).cloned())
     }
-
-    /// The services with the request's buckets and KV in place of the app's.
-    pub(crate) fn services(&self, state: &CrmState) -> CrmServices {
-        let mut services = state.services.clone();
-        if let Some(files) = &self.files {
-            services.files = Some(files.clone());
-        }
-        if let Some(cache) = &self.cache {
-            services.cache = Some(Arc::clone(cache));
-        }
-        if let Some(env) = &self.env {
-            let mut merged = (*services.env).clone();
-            for (key, value) in env.0.iter() {
-                merged.insert(key.clone(), value.clone());
-            }
-            services.env = Arc::new(merged);
-        }
-        services
-    }
 }
 
 /// Behind the session, tenant database and permission layers; without them
@@ -499,15 +475,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     user_id: auth.user_id.clone(),
                     permissions: permissions.clone(),
                     events: EventContext::for_request(auth, tenant),
-                    clerk_org_id: tenant.clerk_org_id.clone(),
-                    workspace_id: tenant.workspace_id.clone(),
                     env: parts.extensions.get::<RequestEnv>().cloned(),
                     files: parts.extensions.get::<FileStores>().cloned(),
                     outbox: std::sync::OnceLock::new(),
-                    cache: parts
-                        .extensions
-                        .get::<RequestCache>()
-                        .map(|cache| Arc::clone(&cache.0)),
                 })
             } else {
                 tracing::error!("crm: a route without the session, tenant or permission layer");
@@ -668,18 +638,4 @@ pub(crate) fn cut(mut rows: Vec<Value>, limit: i64) -> (Vec<Value>, bool, Option
         None
     };
     (rows, has_more, cursor)
-}
-
-/// `(set, value)` for an `update … set col = case when set then value …`:
-/// a key the parsed body left out keeps the column.
-pub(crate) fn change<'a>(input: &'a Map<String, Value>, key: &str) -> (bool, Option<&'a Value>) {
-    match input.get(key) {
-        None => (false, None),
-        Some(value) => (true, Some(value)),
-    }
-}
-
-/// A string field of the parsed body (`data.key`), when set.
-pub(crate) fn text<'a>(input: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
-    input.get(key).and_then(Value::as_str)
 }

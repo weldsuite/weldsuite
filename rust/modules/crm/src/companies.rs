@@ -516,17 +516,17 @@ pub(crate) async fn bulk_update(
     };
     let result = async {
         let scope = caller.scope(COMPANIES_SCOPE_ALL);
-        let (updated, failed, changed) =
+        let (count, failed, rows) =
             service::bulk_update_companies(&caller.db, &ids, &updates, scope.as_deref())
                 .await
                 .map_err(refused)?;
-        for (id, before, after) in changed {
+        for (id, before, after) in rows {
             let mut data = Map::new();
             data.insert("id".into(), json!(id));
-            let mut changes = Map::new();
+            let mut diff = Map::new();
             for (key, value) in &after {
                 data.insert(key.clone(), value.clone());
-                changes.insert(
+                diff.insert(
                     key.clone(),
                     json!({ "old": before.get(key).cloned().unwrap_or(Value::Null), "new": value }),
                 );
@@ -536,10 +536,10 @@ pub(crate) async fn bulk_update(
                 COMPANY_UPDATED,
                 &id,
                 Value::Object(data),
-                Some(changes),
+                Some(diff),
             );
         }
-        Ok(Data(json!({ "updated": updated, "failed": failed })).into_response())
+        Ok(Data(json!({ "updated": count, "failed": failed })).into_response())
     }
     .await;
     answer(result, LOG, "Failed to bulk-update companies")

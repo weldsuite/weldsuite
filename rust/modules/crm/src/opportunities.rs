@@ -377,13 +377,13 @@ async fn run_update(
     if let Some(Value::String(stage_id)) = data.get("stageId")
         && existing.get("stageId").and_then(Value::as_str) != Some(stage_id.as_str())
     {
-        let Some(stage) = load_stage(&caller.db, stage_id).await? else {
+        let Some(flags) = load_stage(&caller.db, stage_id).await? else {
             return Ok(ApiError::bad_request("Unknown pipeline stage").into_response());
         };
         if !data.contains_key("stage") {
-            update.insert("stage".into(), json!(stage.id));
+            update.insert("stage".into(), json!(flags.id));
         }
-        target = Some(stage);
+        target = Some(flags);
     }
     sync_status_with_stage(&caller.db, &existing, data, &mut update, target.as_ref()).await?;
     if let Some(Value::String(customer_id)) = data.get("customerId")

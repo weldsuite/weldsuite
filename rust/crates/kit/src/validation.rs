@@ -524,36 +524,32 @@ impl Issues {
             Some(Value::Null) if nullable => return Field::Null,
             _ => {}
         }
-        match value {
-            Some(Value::String(_) | Value::Number(_)) => {
-                Field::Set(value.cloned().unwrap_or(Value::Null))
-            }
-            _ => {
-                let path = self.path(key);
-                let received = parsed_type(value);
-                let option = |expected: &str| {
-                    json!({ "issues": [{
-                        "code": "invalid_type",
-                        "expected": expected,
-                        "received": received,
-                        "path": path,
-                        "message": if received == "undefined" {
-                            "Required".to_owned()
-                        } else {
-                            format!("Expected {expected}, received {received}")
-                        },
-                    }], "name": "ZodError" })
-                };
-                let union_errors = json!([option("string"), option("number")]);
-                self.issues.push(json!({
-                    "code": "invalid_union",
-                    "unionErrors": union_errors,
-                    "path": path,
-                    "message": "Invalid input",
-                }));
-                Field::Absent
-            }
+        if let Some(Value::String(_) | Value::Number(_)) = value {
+            return Field::Set(value.cloned().unwrap_or(Value::Null));
         }
+        let path = self.path(key);
+        let received = parsed_type(value);
+        let option = |expected: &str| {
+            json!({ "issues": [{
+                "code": "invalid_type",
+                "expected": expected,
+                "received": received,
+                "path": path,
+                "message": if received == "undefined" {
+                    "Required".to_owned()
+                } else {
+                    format!("Expected {expected}, received {received}")
+                },
+            }], "name": "ZodError" })
+        };
+        let union_errors = json!([option("string"), option("number")]);
+        self.issues.push(json!({
+            "code": "invalid_union",
+            "unionErrors": union_errors,
+            "path": path,
+            "message": "Invalid input",
+        }));
+        Field::Absent
     }
 
     /// A failed `.refine(check, { message })` on `key`. Zod runs a refinement

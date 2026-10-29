@@ -206,7 +206,7 @@ pub(crate) fn email_or_empty(
     }
 }
 
-/// `/^https?:\/\//i.test(raw) ? raw : \`https://${raw}\``.
+/// `normalizeWebsiteValue(raw)`: `https://` in front unless it has a scheme.
 fn normalize_url(raw: &str) -> String {
     let lower = raw.get(..8).unwrap_or(raw).to_ascii_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") {

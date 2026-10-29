@@ -54,6 +54,24 @@ fn millis(at: &str) -> i128 {
         .map_or(0, |t| t.unix_timestamp_nanos() / 1_000_000)
 }
 
+type TeamRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// What one interaction group adds up to.
+struct Stats {
+    recent: i64,
+    past: i64,
+    by_user: Vec<(String, i64, i128)>,
+}
+
 type InteractionRow = (
     Option<String>,
     Option<String>,
@@ -82,7 +100,7 @@ pub async fn company_attributes(
     let since_iso = iso_timestamp(now - time::Duration::days(90));
 
     // Team: people at the company now, primary first, then by name.
-    let team: Vec<(String, String, String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+    let team: Vec<TeamRow> =
         sqlx::query_as(
             "select pc.company_id, p.id, p.display_name, p.email, p.direct_phone, p.mobile_phone, p.title, pc.role
              from person_companies pc inner join people p on p.id = pc.person_id
@@ -133,11 +151,6 @@ pub async fn company_attributes(
     .bind(&since_iso)
     .fetch_all(db)
     .await?;
-    struct Stats {
-        recent: i64,
-        past: i64,
-        by_user: Vec<(String, i64, i128)>,
-    }
     let mut stats: Vec<(String, Stats)> = Vec::new();
     for (
         company,

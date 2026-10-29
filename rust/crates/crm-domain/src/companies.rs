@@ -383,9 +383,10 @@ pub async fn list_companies(
         .bind(offset)
         .fetch_all(db)
         .await?;
-    let total_count = match cursor.as_ref().and_then(|c| c.total_count) {
-        Some(total) => total,
-        None => {
+    let total_count = if let Some(total) = cursor.as_ref().and_then(|c| c.total_count) {
+        total
+    } else {
+        {
             let query = sqlx::query_scalar::<_, i64>(concat!(
                 "select count(*) from companies t where ",
                 company_where!()
@@ -714,13 +715,13 @@ pub async fn update_company(
         }
         return Ok(None);
     }
-    let Some(updated) = get_company(db, id, None).await? else {
+    let Some(fresh) = get_company(db, id, None).await? else {
         return Ok(None);
     };
-    ensure_wrapping_party(db, &updated).await?;
+    ensure_wrapping_party(db, &fresh).await?;
     cfv::sync_values_for_entity(db, "company", id, input.get("customFields")).await;
-    let changes = compute_changes(&existing, &updated);
-    Ok(Some((updated, changes)))
+    let changes = compute_changes(&existing, &fresh);
+    Ok(Some((fresh, changes)))
 }
 
 /// Soft-delete a live company in the owner scope; `false` when not found.
@@ -816,7 +817,6 @@ pub async fn bulk_update_companies(
     if ids.is_empty() {
         return Ok((0, Vec::new(), Vec::new()));
     }
-    const FIELDS: [&str; 4] = ["ownerId", "accountManagerId", "status", "lifecycleStage"];
     if !FIELDS.iter().any(|f| set_fields.contains_key(*f)) {
         let failed = ids
             .iter()
@@ -845,7 +845,7 @@ pub async fn bulk_update_companies(
             updates.insert(field.into(), value.clone());
         }
     }
-    let updated: Vec<String> = sqlx::query_scalar(update_sql!(
+    let written: Vec<String> = sqlx::query_scalar(update_sql!(
         companies,
         "where t.id = any($1) and t.deleted_at is null and ($3::text is null or t.owner_id = $3) returning t.id"
     ))
@@ -856,10 +856,10 @@ pub async fn bulk_update_companies(
     .await?;
     let failed = ids
         .iter()
-        .filter(|id| !updated.contains(id))
+        .filter(|id| !written.contains(id))
         .map(|id| json!({ "id": id, "reason": "Not found or already deleted" }))
         .collect();
-    let changed = updated
+    let changed = written
         .iter()
         .map(|id| {
             let prev = before
@@ -874,8 +874,11 @@ pub async fn bulk_update_companies(
             (id.clone(), prev, set_fields.clone())
         })
         .collect();
-    Ok((updated.len(), failed, changed))
+    Ok((written.len(), failed, changed))
 }
+
+/// The fields a bulk update may set.
+const FIELDS: [&str; 4] = ["ownerId", "accountManagerId", "status", "lifecycleStage"];
 
 /// `loadCustomerStatusLookup`, re-exported for the importer's callers.
 pub async fn status_lookup(db: &PgPool) -> DomainResult<StatusLookup> {

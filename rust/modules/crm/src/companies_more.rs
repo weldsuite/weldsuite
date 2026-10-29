@@ -317,6 +317,7 @@ async fn import_one(
     Ok(None)
 }
 
+#[allow(clippy::too_many_lines)] // the importer's loop, as TypeScript has it
 async fn run_import(state: &CrmState, caller: &Caller, records: &[Map<String, Value>]) -> Answer {
     let db = &caller.db;
     let (mut by_code, mut by_email) = (HashMap::new(), HashMap::new());
@@ -489,6 +490,7 @@ pub(crate) async fn aggregate(
     )
 }
 
+#[allow(clippy::too_many_lines)] // the aggregate's reads, as TypeScript has them
 async fn run_aggregate(caller: &Caller, id: &str, limits: [i64; 4]) -> Answer {
     let scope = caller.scope(COMPANIES_SCOPE_ALL);
     let db = &caller.db;

@@ -421,6 +421,7 @@ pub(crate) async fn convert(
     )
 }
 
+#[allow(clippy::too_many_lines)] // conversion, as TypeScript has it
 async fn run_convert(
     state: &CrmState,
     caller: &Caller,

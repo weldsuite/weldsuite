@@ -363,6 +363,7 @@ pub fn opportunity_update_events(
     events
 }
 
+#[allow(clippy::too_many_lines)] // both directions of the sync, as TypeScript has them
 /// `syncStatusWithStage(db, existing, data, update, targetStage)`: keep
 /// `status`, `actualCloseDate` and `probability` in step with the stage,
 /// whichever side of the move started it. Changes `update` in place.

@@ -146,7 +146,7 @@ pub fn decode_list_cursor(cursor: Option<&str>) -> Option<ListCursor> {
     };
     let total = weldsuite_kit::validation::js_number(&cursor[at + 1..]);
     #[allow(clippy::cast_possible_truncation)]
-    let total_count = (total.fract() == 0.0 && total >= 0.0 && total <= 9_007_199_254_740_991.0)
+    let total_count = (total.fract() == 0.0 && (0.0..=9_007_199_254_740_991.0).contains(&total))
         .then_some(total as i64);
     Some(ListCursor {
         position: cursor[..at].to_owned(),

@@ -80,16 +80,6 @@ pub(crate) const fn int(min: Option<f64>, max: Option<f64>) -> Kind {
     })
 }
 
-/// `z.number()` with optional `.min()`/`.max()`.
-pub(crate) const fn num(min: Option<f64>, max: Option<f64>) -> Kind {
-    Kind::Num(Number {
-        coerce: false,
-        int: false,
-        min,
-        max,
-    })
-}
-
 /// `z.array(z.string())`.
 pub(crate) const STRINGS: Kind = Kind::StrArray {
     item: Text::length(None, None),
@@ -101,7 +91,6 @@ pub(crate) const STRINGS: Kind = Kind::StrArray {
 pub(crate) const REQ: Presence = Presence::Required;
 pub(crate) const OPT: Presence = Presence::Optional;
 pub(crate) const NULLISH: Presence = Presence::Nullish;
-pub(crate) const NULLABLE: Presence = Presence::Nullable;
 
 /// `.partial()`: every field optional, a `.nullable()` one nullish, and no
 /// defaults (`ZodOptional` answers `undefined` before the default runs).
