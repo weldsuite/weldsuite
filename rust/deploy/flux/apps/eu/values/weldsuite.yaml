@@ -20,6 +20,12 @@ config:
     region: ${FILES_S3_REGION}
     privateBucket: ${FILES_BUCKET_PRIVATE}
     forcePathStyle: false
+  # Durable jobs (sign's finalize, …) on the in-cluster Restate; each pod
+  # registers its jobs endpoint with the admin API at start.
+  jobs:
+    restate:
+      ingressUrl: http://restate:8080
+      adminUrl: http://restate:9070
 
 # DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
 # CLERK_JWKS_URL, VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys,
