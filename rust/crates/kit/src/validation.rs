@@ -854,6 +854,31 @@ impl Issues {
         self.too_big(&path, "string", &json!(max), message);
     }
 
+    /// `z.string().length(length)` failing on `key` (a string of
+    /// `actual` UTF-16 units): Zod's exact-length issue, too short or too
+    /// long.
+    pub fn string_length(&mut self, key: &str, length: usize, actual: usize) {
+        if actual == length {
+            return;
+        }
+        let path = self.path(key);
+        let message = format!("String must contain exactly {length} character(s)");
+        let (code, bound) = if actual < length {
+            ("too_small", "minimum")
+        } else {
+            ("too_big", "maximum")
+        };
+        self.issues.push(json!({
+            "code": code,
+            bound: length,
+            "type": "string",
+            "inclusive": true,
+            "exact": true,
+            "message": message,
+            "path": path,
+        }));
+    }
+
     #[cfg(test)]
     fn take(self) -> Value {
         Value::Array(self.issues)
@@ -1073,6 +1098,21 @@ pub fn query_values(query: Option<&str>) -> Map<String, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_lengths_like_zod() {
+        let mut issues = Issues::default();
+        issues.string_length("country", 2, 6);
+        issues.string_length("country", 2, 1);
+        issues.string_length("country", 2, 2);
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_big","maximum":2,"type":"string","inclusive":true,"exact":true,"message":"String must contain exactly 2 character(s)","path":["country"]},
+                {"code":"too_small","minimum":2,"type":"string","inclusive":true,"exact":true,"message":"String must contain exactly 2 character(s)","path":["country"]}
+            ])
+        );
+    }
 
     #[test]
     fn urls_parse_like_new_url() {

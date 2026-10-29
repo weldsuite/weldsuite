@@ -303,9 +303,9 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
         realtime: state.infra.realtime.clone(),
         cache: state.infra.cache.clone(),
         master: state.workspaces.master().clone(),
-        // No identity provider on Kubernetes until the Zitadel adapter (P5,
-        // ADR SEC-012); conformance builds take the test's per request.
-        identity: None,
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
     };
     let gate = &state.permissions;
     router
@@ -358,17 +358,81 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
 ///
 /// Conformance builds only, like [`core_team`].
 pub(crate) fn account(state: &AppState) -> Router<AppState> {
+    let router = onboarding(state);
     if !cfg!(feature = "conformance") {
-        return Router::new();
+        return router;
     }
     let team = core_team_state(state);
-    Router::new()
+    router
         .nest("/account", weldsuite_core_team::account(team.clone()))
         .nest("/invitations", weldsuite_core_team::invitations(team))
         .nest(
             "/auth-desktop",
             weldsuite_core_apps::auth_desktop(core_apps_state(state)),
         )
+}
+
+/// `/api/onboarding` (`weldsuite-core-onboarding`, P4 4a): signup and the
+/// first workspace. Served in conformance builds, and wherever workspaces
+/// can be provisioned (`TENANT_SHARDS` set), which is what signing up on
+/// the Kubernetes editions needs; the provisioning job is registered there.
+fn onboarding(state: &AppState) -> Router<AppState> {
+    let provisioner = state.infra.provisioner.clone();
+    if !cfg!(feature = "conformance") && provisioner.is_none() {
+        return Router::new();
+    }
+    let tenants = onboarding_tenants(state);
+    let workspace_service = if let (Some(identity), Some(provisioner)) =
+        (&state.infra.identity, &provisioner)
+    {
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_core_onboarding::ProvisionJob::new(
+                state.workspaces.master().clone(),
+                Arc::clone(provisioner),
+                Arc::clone(&tenants),
+                Some(Arc::clone(identity)),
+            ));
+        Some(Arc::new(weldsuite_core_onboarding::WorkspaceService::new(
+            state.workspaces.master().clone(),
+            Arc::clone(identity),
+            Arc::clone(&state.infra.jobs),
+            state.infra.cache.clone(),
+        )))
+    } else {
+        if provisioner.is_some() {
+            tracing::warn!(
+                "TENANT_SHARDS is set but ZITADEL_API_URL is not: signup cannot create workspaces"
+            );
+        }
+        None
+    };
+    let onboarding = weldsuite_core_onboarding::OnboardingState {
+        events: state.infra.events.clone(),
+        master: state.workspaces.master().clone(),
+        tenants,
+        identity: state.infra.identity.clone(),
+        mail: state.infra.mail.clone(),
+        workspace_service,
+    };
+    Router::new().nest("/onboarding", weldsuite_core_onboarding::router(onboarding))
+}
+
+/// A workspace's tenant database for onboarding's job and `/finalize`,
+/// which run outside the tenant layer.
+fn onboarding_tenants(state: &AppState) -> weldsuite_core_onboarding::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
 }
 
 /// WeldApps (`weldsuite-core-apps`): `/api/user-apps` and the CLI login's
@@ -422,9 +486,9 @@ fn core_apps_state(state: &AppState) -> weldsuite_core_apps::CoreAppsState {
         workspaces: std::sync::Arc::clone(&state.workspaces),
         cache: state.infra.cache.clone(),
         files: file_stores(state),
-        // No identity provider on Kubernetes until the Zitadel adapter (P5,
-        // ADR SEC-012); conformance builds take the test's per request.
-        identity: None,
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
         http: std::sync::Arc::clone(http),
         env: std::sync::Arc::clone(env),
         gateway_tokens: std::sync::Arc::clone(gateway_tokens),
@@ -446,9 +510,9 @@ fn core_team_state(state: &AppState) -> weldsuite_core_team::CoreTeamState {
             }),
         master: state.workspaces.master().clone(),
         workspaces: std::sync::Arc::clone(&state.workspaces),
-        // No identity provider on Kubernetes until the Zitadel adapter (P5,
-        // ADR SEC-012); conformance builds take the test's per request.
-        identity: None,
+        // Zitadel when configured; conformance builds take the test's per
+        // request.
+        identity: state.infra.identity.clone(),
     }
 }
 

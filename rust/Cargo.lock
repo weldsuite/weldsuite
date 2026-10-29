@@ -3652,6 +3652,7 @@ dependencies = [
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
+ "weldsuite-core-onboarding",
  "weldsuite-core-platform",
  "weldsuite-core-team",
  "weldsuite-db",
@@ -3806,6 +3807,26 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-core-onboarding"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "weldsuite-auth",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
 ]
 
 [[package]]

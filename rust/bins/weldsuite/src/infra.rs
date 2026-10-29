@@ -13,14 +13,15 @@
 use std::sync::Arc;
 
 use weldsuite_adapters_oss::{
-    JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore, SmtpMail, ValkeyCache,
-    ValkeyRealtime, connect_valkey, entity_events_stream_config,
+    CnpgOptions, CnpgProvisioner, JetStreamEventBus, MasterDbFlagSource, NatsOptions, S3FileStore,
+    SmtpMail, ValkeyCache, ValkeyRealtime, ZitadelIdentity, ZitadelOptions, connect_valkey,
+    entity_events_stream_config,
 };
-use weldsuite_db::PgPool;
+use weldsuite_db::{Keyring, PgPool};
 use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_ports::{
-    DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynJobs,
-    DynRealtimePublisher, DynSystemMail, InProcessJobs, JobRegistry, NoopJob,
+    DatabaseProvisioner, DefaultFlags, DynCache, DynEventBus, DynFileStore, DynFlagSource, DynJobs,
+    DynRealtimePublisher, DynSystemMail, Identity, InProcessJobs, JobRegistry, NoopJob,
 };
 
 use crate::config::{FlagSourceKind, InfraConfig};
@@ -47,6 +48,10 @@ pub(crate) struct Infra {
     pub(crate) job_registry: JobRegistry,
     /// System mail (the workers' `SEND_EMAIL`), from `SYSTEM_EMAIL_FROM` when set.
     pub(crate) mail: Option<Arc<dyn DynSystemMail>>,
+    /// The identity provider's management API (Zitadel), when configured.
+    pub(crate) identity: Option<Arc<dyn Identity>>,
+    /// Workspace databases on the CloudNativePG shards, when configured.
+    pub(crate) provisioner: Option<Arc<dyn DatabaseProvisioner>>,
 }
 
 impl std::fmt::Debug for Infra {
@@ -59,6 +64,8 @@ impl std::fmt::Debug for Infra {
             .field("public_files", &self.public_files.is_some())
             .field("job_registry", &self.job_registry)
             .field("mail", &self.mail.is_some())
+            .field("identity", &self.identity.is_some())
+            .field("provisioner", &self.provisioner.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -79,6 +86,8 @@ impl Infra {
             public_files: None,
             mail: None,
             flags: Arc::new(DefaultFlags),
+            identity: None,
+            provisioner: None,
         }
     }
 }
@@ -197,12 +206,53 @@ fn system_mail(config: &InfraConfig) -> Result<Option<Arc<dyn DynSystemMail>>, E
     )))
 }
 
+/// Zitadel's management API, when `ZITADEL_*` is set.
+fn identity(config: &InfraConfig) -> Result<Option<Arc<dyn Identity>>, Error> {
+    let Some(settings) = &config.identity else {
+        tracing::warn!(
+            "ZITADEL_API_URL is not set: no identity provider (onboarding and team changes fail)"
+        );
+        return Ok(None);
+    };
+    let identity = ZitadelIdentity::new(ZitadelOptions {
+        api_url: settings.api_url.clone(),
+        token: settings.token.clone(),
+        project_id: settings.project_id.clone(),
+        invite_url_template: settings.invite_url_template.clone(),
+        application_name: "WeldSuite".to_owned(),
+        host: settings.host.clone(),
+    })?;
+    Ok(Some(Arc::new(identity)))
+}
+
+/// The CloudNativePG provisioner, when `TENANT_SHARDS` is set.
+pub(crate) fn provisioner(
+    config: &InfraConfig,
+    master: &PgPool,
+    keyring: &Keyring,
+) -> Result<Option<Arc<dyn DatabaseProvisioner>>, Error> {
+    let Some(shards) = &config.tenant_shards else {
+        tracing::warn!("TENANT_SHARDS is not set: no workspace databases can be provisioned");
+        return Ok(None);
+    };
+    let mut options = CnpgOptions::new(shards.clone(), keyring.clone());
+    if let Some(region) = &config.tenant_region {
+        options.region.clone_from(region);
+    }
+    options.aad_writes = config.aad_writes;
+    Ok(Some(Arc::new(CnpgProvisioner::new(
+        master.clone(),
+        options,
+    )?)))
+}
+
 /// Connect what `config` names. Fails when a configured service can't be
 /// reached at start, so a misconfigured pod crash-loops visibly instead of
 /// dropping events.
 pub(crate) async fn connect(
     config: &InfraConfig,
     master: &PgPool,
+    keyring: &Keyring,
     tracker: TaskTracker,
 ) -> Result<Infra, Error> {
     let valkey = valkey(config).await?;
@@ -219,6 +269,8 @@ pub(crate) async fn connect(
     let job_registry = job_registry();
     let jobs = jobs(config, &job_registry, &tracker)?;
     let mail = system_mail(config)?;
+    let identity = identity(config)?;
+    let provisioner = provisioner(config, master, keyring)?;
     Ok(Infra {
         jobs,
         job_registry,
@@ -230,5 +282,7 @@ pub(crate) async fn connect(
         files,
         public_files,
         mail,
+        identity,
+        provisioner,
     })
 }

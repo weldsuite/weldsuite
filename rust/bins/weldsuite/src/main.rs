@@ -37,7 +37,8 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
-  cron <job> run one scheduled job and exit: sign-lifecycle
+  cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
+             workspace-deletion, workspace-teardown
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit
@@ -117,7 +118,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = infra::connect(&config.infra, workspaces.master(), tracker.clone()).await?;
+    let infra = infra::connect(
+        &config.infra,
+        workspaces.master(),
+        &config.keyring,
+        tracker.clone(),
+    )
+    .await?;
     #[cfg(feature = "conformance")]
     let (infra, recorders) = conformance::infra(tracker.clone());
     let flags = Arc::new(weldsuite_pipeline::FlagGate::new(

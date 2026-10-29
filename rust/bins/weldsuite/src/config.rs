@@ -223,6 +223,73 @@ pub(crate) struct InfraConfig {
     /// `notifications@mail.weldsuite.org` (a relay that only takes its own domain).
     pub(crate) system_email_from: Option<String>,
     pub(crate) jobs: JobsConfig,
+    /// `ZITADEL_API_URL` and friends: the identity provider's management
+    /// API (onboarding, team routes, the identity sync). Unset: no identity
+    /// provider, as the workers without a Clerk key.
+    pub(crate) identity: Option<IdentityConfig>,
+    /// `TENANT_SHARDS`: the CloudNativePG shards new workspace databases go
+    /// on. Unset: no provisioning, so no new workspaces.
+    pub(crate) tenant_shards: Option<Vec<weldsuite_adapters_oss::CnpgShard>>,
+    /// `TENANT_REGION`: the shards' region (default `default`).
+    pub(crate) tenant_region: Option<String>,
+    /// `FIELD_ENCRYPTION_AAD_WRITES=true`: seal new database URLs as v3.
+    pub(crate) aad_writes: bool,
+}
+
+/// The Zitadel management API (`crates/adapters-oss/src/zitadel.rs`).
+#[derive(Clone)]
+pub(crate) struct IdentityConfig {
+    /// `ZITADEL_API_URL`.
+    pub(crate) api_url: String,
+    /// `ZITADEL_SERVICE_TOKEN`: a service user's personal access token.
+    pub(crate) token: String,
+    /// `ZITADEL_PROJECT_ID`.
+    pub(crate) project_id: String,
+    /// `ZITADEL_INVITE_URL_TEMPLATE`.
+    pub(crate) invite_url_template: Option<String>,
+    /// `ZITADEL_HOST`: the `Host` header when `api_url` is in-cluster.
+    pub(crate) host: Option<String>,
+}
+
+impl fmt::Debug for IdentityConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IdentityConfig")
+            .field("api_url", &self.api_url)
+            .field("project_id", &self.project_id)
+            .field("host", &self.host)
+            .finish_non_exhaustive()
+    }
+}
+
+impl IdentityConfig {
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        problems: &mut Vec<String>,
+    ) -> Option<Self> {
+        let set = |name: &str| lookup(name).filter(|value| !value.trim().is_empty());
+        let (api_url, token, project_id) = (
+            set("ZITADEL_API_URL"),
+            set("ZITADEL_SERVICE_TOKEN"),
+            set("ZITADEL_PROJECT_ID"),
+        );
+        match (api_url, token, project_id) {
+            (Some(api_url), Some(token), Some(project_id)) => Some(Self {
+                api_url,
+                token,
+                project_id,
+                invite_url_template: set("ZITADEL_INVITE_URL_TEMPLATE"),
+                host: set("ZITADEL_HOST"),
+            }),
+            (None, None, None) => None,
+            _ => {
+                problems.push(
+                    "ZITADEL_API_URL, ZITADEL_SERVICE_TOKEN and ZITADEL_PROJECT_ID go together"
+                        .to_owned(),
+                );
+                None
+            }
+        }
+    }
 }
 
 /// Durable jobs: on Restate when `RESTATE_INGRESS_URL` is set, else in the
@@ -338,6 +405,9 @@ impl fmt::Debug for InfraConfig {
             .field("jobs", &self.jobs)
             .field("smtp", &self.smtp_url.as_ref().map(|_| "<set>"))
             .field("system_email_from", &self.system_email_from)
+            .field("identity", &self.identity)
+            .field("tenant_shards", &self.tenant_shards)
+            .field("aad_writes", &self.aad_writes)
             .finish_non_exhaustive()
     }
 }
@@ -385,6 +455,16 @@ impl InfraConfig {
             jobs: JobsConfig::from_lookup(lookup, problems),
             smtp_url: lookup("SMTP_URL").filter(|url| !url.trim().is_empty()),
             system_email_from: lookup("SYSTEM_EMAIL_FROM").filter(|from| !from.trim().is_empty()),
+            identity: IdentityConfig::from_lookup(lookup, problems),
+            tenant_shards: lookup("TENANT_SHARDS")
+                .filter(|shards| !shards.trim().is_empty())
+                .and_then(|shards| {
+                    weldsuite_adapters_oss::CnpgShard::parse_list(&shards)
+                        .map_err(|error| problems.push(format!("TENANT_SHARDS: {error}")))
+                        .ok()
+                }),
+            tenant_region: lookup("TENANT_REGION").filter(|region| !region.trim().is_empty()),
+            aad_writes: lookup("FIELD_ENCRYPTION_AAD_WRITES").as_deref() == Some("true"),
         }
     }
 }

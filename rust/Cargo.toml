@@ -24,6 +24,7 @@ weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
+weldsuite-core-onboarding = { path = "modules/core-onboarding" }
 weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
@@ -74,6 +75,7 @@ tower-http = "0.7.1"
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
+unicode-normalization = "0.1.26"
 url = "2.5.8"
 uuid = "1.29.0"
 

@@ -82,6 +82,10 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         files: Some(Arc::new(MemoryFileStore::default())),
         public_files: Some(Arc::new(MemoryFileStore::default())),
         mail: Some(recorders.mail.clone()),
+        // The test's Clerk stub per request; no provisioning (the onboarding
+        // routes answer as app-api without its workspace worker).
+        identity: None,
+        provisioner: None,
     };
     (infra, recorders)
 }

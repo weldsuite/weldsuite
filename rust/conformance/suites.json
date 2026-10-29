@@ -702,6 +702,22 @@
       ]
     },
     {
+      "name": "core: onboarding",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/onboarding/onboarding.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/onboarding/",
+        "apps/workers/app-api/src/test/fake-clerk.ts",
+        "apps/workers/app-api/src/services/partner/",
+        "packages/clients/app-api-client/src/schemas/onboarding.ts",
+        "rust/modules/core-onboarding/",
+        "rust/crates/ports/src/identity.rs"
+      ]
+    },
+    {
       "name": "sign",
       "module": "sign",
       "workspace": "apps/workers/sign-api",
