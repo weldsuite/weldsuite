@@ -20,8 +20,8 @@ use reqwest::{Client, Method};
 use serde_json::{Map, Value, json};
 use weldsuite_ports::{
     BoxFuture, Identity, IdentityError, IdentityResult, Invitation, ListPage, Listing, MemberUser,
-    Membership, NewInvitation, NewMembership, Organization, OrganizationChanges, OrganizationRef,
-    User, UserProfile,
+    Membership, NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
+    OrganizationRef, User, UserChanges, UserProfile,
 };
 
 const CLERK_API: &str = "https://api.clerk.com/v1";
@@ -132,6 +132,8 @@ fn organization_from(value: &Value) -> Organization {
         name: text(&value["name"]),
         slug: optional_text(&value["slug"]),
         max_memberships: value["max_allowed_memberships"].as_i64(),
+        public_metadata: value["public_metadata"].clone(),
+        private_metadata: value["private_metadata"].clone(),
     }
 }
 
@@ -329,6 +331,9 @@ impl Identity for BridgedClerk {
                 "email_address": invitation.email_address,
                 "role": invitation.role,
             });
+            if let Some(inviter) = &invitation.inviter_user_id {
+                body["inviter_user_id"] = json!(inviter);
+            }
             if let Some(redirect) = &invitation.redirect_url {
                 body["redirect_url"] = json!(redirect);
             }
@@ -421,7 +426,98 @@ impl Identity for BridgedClerk {
                     })
                     .unwrap_or_default(),
                 primary_email_address_id: optional_text(&body["primary_email_address_id"]),
+                first_name: optional_text(&body["first_name"]),
+                last_name: optional_text(&body["last_name"]),
+                image_url: optional_text(&body["image_url"]),
             })
+        })
+    }
+
+    fn update_user<'a>(
+        &'a self,
+        user_id: &'a str,
+        changes: &'a UserChanges,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let mut body = Map::new();
+            if let Some(first) = &changes.first_name {
+                body.insert("first_name".to_owned(), json!(first));
+            }
+            if let Some(last) = &changes.last_name {
+                body.insert("last_name".to_owned(), json!(last));
+            }
+            self.call(
+                Method::PATCH,
+                &format!("/users/{user_id}"),
+                Some(Value::Object(body)),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn update_user_metadata<'a>(
+        &'a self,
+        user_id: &'a str,
+        public_metadata: &'a Value,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            self.call(
+                Method::PATCH,
+                &format!("/users/{user_id}/metadata"),
+                Some(json!({ "public_metadata": public_metadata })),
+            )
+            .await
+            .map(|_| ())
+        })
+    }
+
+    fn create_organization<'a>(
+        &'a self,
+        organization: &'a NewOrganization,
+    ) -> BoxFuture<'a, IdentityResult<Organization>> {
+        Box::pin(async move {
+            let mut body = json!({ "name": organization.name });
+            if let Some(creator) = &organization.created_by {
+                body["created_by"] = json!(creator);
+            }
+            if let Some(metadata) = &organization.public_metadata {
+                body["public_metadata"] = metadata.clone();
+            }
+            if let Some(metadata) = &organization.private_metadata {
+                body["private_metadata"] = metadata.clone();
+            }
+            if let Some(slug) = &organization.slug {
+                body["slug"] = json!(slug);
+            }
+            let created = self
+                .call(Method::POST, "/organizations", Some(body))
+                .await?;
+            Ok(organization_from(&created))
+        })
+    }
+
+    fn update_organization_metadata<'a>(
+        &'a self,
+        org: &'a str,
+        public_metadata: Option<&'a Value>,
+        private_metadata: Option<&'a Value>,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        Box::pin(async move {
+            let mut body = Map::new();
+            if let Some(metadata) = public_metadata {
+                body.insert("public_metadata".to_owned(), metadata.clone());
+            }
+            if let Some(metadata) = private_metadata {
+                body.insert("private_metadata".to_owned(), metadata.clone());
+            }
+            self.call(
+                Method::PATCH,
+                &format!("/organizations/{org}/metadata"),
+                Some(Value::Object(body)),
+            )
+            .await
+            .map(|_| ())
         })
     }
 

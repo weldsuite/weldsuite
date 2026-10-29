@@ -48,9 +48,10 @@ pub use files::{
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
-    Identity, IdentityCall, IdentityError, IdentityProvider, IdentityResult, Invitation, ListPage,
-    Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, Organization,
-    OrganizationChanges, OrganizationRef, User, UserProfile, with_identity,
+    ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
+    IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
+    NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
+    OrganizationRef, User, UserChanges, UserProfile, merge_metadata, with_identity,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
