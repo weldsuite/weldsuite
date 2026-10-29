@@ -61,6 +61,8 @@
     "./schemas/chat-dm": "./src/schemas/chat-dm.ts",
     "./schemas/chat-entity-channels": "./src/schemas/chat-entity-channels.ts",
     "./schemas/team-members": "./src/schemas/team-members.ts",
+    "./schemas/team-members-manage": "./src/schemas/team-members-manage.ts",
+    "./schemas/member-limits": "./src/schemas/member-limits.ts",
     "./schemas/roles": "./src/schemas/roles.ts",
     "./schemas/access-requests": "./src/schemas/access-requests.ts",
     "./schemas/search": "./src/schemas/search.ts",

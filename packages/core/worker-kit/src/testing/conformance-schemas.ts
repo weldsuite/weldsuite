@@ -13,6 +13,13 @@
 import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
+import { memberLimitsSchema, myRoleSchema } from '@weldsuite/app-api-client/schemas/member-limits';
+import {
+  inviteMemberResultSchema,
+  resendInviteResultSchema,
+  teamMembersSyncResultSchema,
+  updateMemberResultSchema,
+} from '@weldsuite/app-api-client/schemas/team-members-manage';
 import {
   knowledgeFavoriteRefSchema,
   knowledgeFavoriteSchema,
@@ -50,6 +57,13 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/access-requests', envelope: 'single', data: accessRequestSchema },
   { method: 'PATCH', route: '/api/access-requests/:id', envelope: 'single', data: accessRequestSchema },
   { method: 'GET', route: '/api/access-requests/me/pending', envelope: 'list', data: accessRequestSchema },
+  // core: team-members (manage), member-limits, my-role
+  { method: 'POST', route: '/api/team-members/sync', envelope: 'single', data: teamMembersSyncResultSchema },
+  { method: 'POST', route: '/api/team-members/invite', envelope: 'single', data: inviteMemberResultSchema },
+  { method: 'PATCH', route: '/api/team-members/:id', envelope: 'single', data: updateMemberResultSchema },
+  { method: 'POST', route: '/api/team-members/:id/resend-invite', envelope: 'single', data: resendInviteResultSchema },
+  { method: 'GET', route: '/api/member-limits', envelope: 'single', data: memberLimitsSchema },
+  { method: 'GET', route: '/api/my-role', envelope: 'single', data: myRoleSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },
