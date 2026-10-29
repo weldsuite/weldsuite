@@ -157,6 +157,29 @@ import {
   privateFilesMigrationBatchSchema,
   signedObjectUrlsSchema,
 } from '@weldsuite/core-api-client/schemas/storage';
+// crm (crm-api)
+import {
+  bulkUpdateResultSchema,
+  companyDetailSchema,
+  companyPersonLinkSchema,
+  companyRowSchema,
+  importResultSchema,
+  recordNavigationSchema,
+} from '@weldsuite/app-api-client/schemas/companies';
+import { customerStatusSchema } from '@weldsuite/app-api-client/schemas/customer-statuses';
+import { pipelineFieldVisibilitySchema } from '@weldsuite/app-api-client/schemas/pipeline-field-visibility';
+import { activitySchema } from '@weldsuite/core-api-client/schemas/activities';
+import {
+  leadConversionResultSchema,
+  leadQualifiedSchema,
+  leadSchema,
+  recordIdSchema,
+} from '@weldsuite/core-api-client/schemas/leads';
+import { listEntitySchema, listMemberSchema, listMembersAddedSchema } from '@weldsuite/core-api-client/schemas/lists';
+import { opportunitySchema } from '@weldsuite/core-api-client/schemas/opportunities';
+import { personCompanySchema } from '@weldsuite/core-api-client/schemas/person-companies';
+import { pipelineStageSchema, reorderPipelineStagesResultSchema } from '@weldsuite/core-api-client/schemas/pipeline-stages';
+import { pipelineRowSchema } from '@weldsuite/core-api-client/schemas/pipelines-crm';
 
 import {
   weldpassAuditEventSchema,
@@ -437,6 +460,62 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/storage/access', envelope: 'single', data: filesAccessSchema },
   { method: 'POST', route: '/api/storage/sign', envelope: 'single', data: signedObjectUrlsSchema },
   { method: 'POST', route: '/api/storage/migrate-private', envelope: 'single', data: privateFilesMigrationBatchSchema },
+  // crm: pipelines, stages, field visibility, customer statuses, person ↔ company links
+  { method: 'GET', route: '/api/pipelines', envelope: 'list', data: pipelineRowSchema },
+  { method: 'GET', route: '/api/pipelines/:id', envelope: 'single', data: pipelineRowSchema },
+  { method: 'POST', route: '/api/pipelines', envelope: 'single', data: pipelineRowSchema },
+  { method: 'PATCH', route: '/api/pipelines/:id', envelope: 'single', data: pipelineRowSchema },
+  { method: 'GET', route: '/api/pipeline-stages', envelope: 'list', data: pipelineStageSchema },
+  { method: 'GET', route: '/api/pipeline-stages/:id', envelope: 'single', data: pipelineStageSchema },
+  { method: 'POST', route: '/api/pipeline-stages', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/pipeline-stages/:id', envelope: 'single', data: recordIdSchema },
+  { method: 'POST', route: '/api/pipeline-stages/reorder', envelope: 'single', data: reorderPipelineStagesResultSchema },
+  { method: 'GET', route: '/api/pipeline-field-visibility/:id/field-visibility', envelope: 'single', data: pipelineFieldVisibilitySchema },
+  { method: 'PATCH', route: '/api/pipeline-field-visibility/:id/field-visibility', envelope: 'single', data: pipelineFieldVisibilitySchema },
+  { method: 'GET', route: '/api/customer-statuses', envelope: 'array', data: customerStatusSchema },
+  { method: 'GET', route: '/api/customer-statuses/:id', envelope: 'single', data: customerStatusSchema },
+  { method: 'POST', route: '/api/customer-statuses', envelope: 'single', data: customerStatusSchema },
+  { method: 'PATCH', route: '/api/customer-statuses/:id', envelope: 'single', data: customerStatusSchema },
+  { method: 'PUT', route: '/api/customer-statuses/reorder', envelope: 'array', data: customerStatusSchema },
+  { method: 'POST', route: '/api/person-companies', envelope: 'single', data: personCompanySchema },
+  { method: 'PATCH', route: '/api/person-companies/:id', envelope: 'single', data: personCompanySchema },
+  // crm: activities, leads, opportunities
+  { method: 'GET', route: '/api/activities', envelope: 'list', data: activitySchema },
+  { method: 'GET', route: '/api/activities/:id', envelope: 'single', data: activitySchema },
+  { method: 'POST', route: '/api/activities', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/activities/:id', envelope: 'single', data: recordIdSchema },
+  { method: 'GET', route: '/api/leads', envelope: 'list', data: leadSchema },
+  { method: 'GET', route: '/api/leads/:id', envelope: 'single', data: leadSchema },
+  { method: 'POST', route: '/api/leads', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/leads/:id', envelope: 'single', data: recordIdSchema },
+  { method: 'POST', route: '/api/leads/:id/qualify', envelope: 'single', data: leadQualifiedSchema },
+  { method: 'POST', route: '/api/leads/:id/convert', envelope: 'single', data: leadConversionResultSchema },
+  { method: 'GET', route: '/api/opportunities', envelope: 'list', data: opportunitySchema },
+  { method: 'GET', route: '/api/opportunities/:id', envelope: 'single', data: opportunitySchema },
+  { method: 'POST', route: '/api/opportunities', envelope: 'single', data: recordIdSchema },
+  { method: 'PATCH', route: '/api/opportunities/:id', envelope: 'single', data: recordIdSchema },
+  // crm: lists
+  { method: 'GET', route: '/api/lists', envelope: 'list', data: listEntitySchema },
+  { method: 'GET', route: '/api/lists/:id', envelope: 'single', data: listEntitySchema },
+  { method: 'POST', route: '/api/lists', envelope: 'single', data: listEntitySchema },
+  { method: 'PATCH', route: '/api/lists/:id', envelope: 'single', data: listEntitySchema },
+  { method: 'GET', route: '/api/lists/:id/members', envelope: 'array', data: listMemberSchema },
+  { method: 'POST', route: '/api/lists/:id/members', envelope: 'single', data: listMembersAddedSchema },
+  // crm: companies
+  { method: 'GET', route: '/api/companies', envelope: 'list', data: companyRowSchema },
+  { method: 'GET', route: '/api/companies/export', envelope: 'array', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/import', envelope: 'single', data: importResultSchema },
+  { method: 'POST', route: '/api/companies/bulk-update', envelope: 'single', data: bulkUpdateResultSchema },
+  { method: 'GET', route: '/api/companies/:id', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies', envelope: 'single', data: companyRowSchema },
+  { method: 'PATCH', route: '/api/companies/:id', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/:id/archive', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/:id/unarchive', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/:id/refresh-logo', envelope: 'single', data: companyRowSchema },
+  { method: 'GET', route: '/api/companies/:id/people', envelope: 'array', data: companyPersonLinkSchema },
+  { method: 'GET', route: '/api/companies/:id/detail', envelope: 'single', data: companyDetailSchema },
+  { method: 'GET', route: '/api/companies/:id/navigation', envelope: 'single', data: recordNavigationSchema },
+  // crm: end
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

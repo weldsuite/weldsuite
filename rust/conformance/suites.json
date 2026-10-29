@@ -323,6 +323,25 @@
       ]
     },
     {
+      "name": "pass",
+      "module": "pass",
+      "workspace": "apps/workers/pass-api",
+      "tests": [
+        "src/routes/weldpass/index.test.ts",
+        "src/routes/weldpass/passwords.test.ts",
+        "src/routes/weldpass/projects.test.ts",
+        "src/routes/weldpass/sync.test.ts",
+        "src/routes/weldpass/vaults.test.ts"
+      ],
+      "paths": [
+        "apps/workers/pass-api/src/",
+        "packages/clients/app-api-client/src/schemas/weldpass.ts",
+        "packages/clients/app-api-client/src/schemas/weldpass-passwords.ts",
+        "packages/core/cloudflare-deploy/src/",
+        "rust/modules/pass/"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",
@@ -534,22 +553,96 @@
       ]
     },
     {
-      "name": "pass",
-      "module": "pass",
-      "workspace": "apps/workers/pass-api",
+      "name": "crm: pipelines",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
       "tests": [
-        "src/routes/weldpass/index.test.ts",
-        "src/routes/weldpass/passwords.test.ts",
-        "src/routes/weldpass/projects.test.ts",
-        "src/routes/weldpass/sync.test.ts",
-        "src/routes/weldpass/vaults.test.ts"
+        "src/routes/pipelines/integration.test.ts",
+        "src/routes/pipelines/routes.integration.test.ts",
+        "src/routes/pipeline-stages/integration.test.ts",
+        "src/routes/customer-statuses/integration.test.ts",
+        "src/routes/person-companies/integration.test.ts",
+        "src/routes/person-companies/routes.integration.test.ts"
       ],
       "paths": [
-        "apps/workers/pass-api/src/",
-        "packages/clients/app-api-client/src/schemas/weldpass.ts",
-        "packages/clients/app-api-client/src/schemas/weldpass-passwords.ts",
-        "packages/core/cloudflare-deploy/src/",
-        "rust/modules/pass/"
+        "apps/workers/crm-api/src/routes/pipelines/",
+        "apps/workers/crm-api/src/routes/pipeline-stages/",
+        "apps/workers/crm-api/src/routes/pipeline-field-visibility/",
+        "apps/workers/crm-api/src/routes/customer-statuses/",
+        "apps/workers/crm-api/src/routes/person-companies/",
+        "packages/clients/core-api-client/src/schemas/pipelines-crm.ts",
+        "packages/clients/core-api-client/src/schemas/pipeline-stages.ts",
+        "packages/clients/core-api-client/src/schemas/person-companies.ts",
+        "packages/clients/app-api-client/src/schemas/customer-statuses.ts",
+        "packages/clients/app-api-client/src/schemas/pipeline-field-visibility.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/"
+      ]
+    },
+    {
+      "name": "crm: activities, leads, opportunities",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/activities/integration.test.ts",
+        "src/routes/activities/routes.integration.test.ts",
+        "src/routes/leads/integration.test.ts",
+        "src/routes/leads/routes.integration.test.ts",
+        "src/routes/opportunities/integration.test.ts",
+        "src/routes/opportunities/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/activities/",
+        "apps/workers/crm-api/src/routes/leads/",
+        "apps/workers/crm-api/src/routes/opportunities/",
+        "packages/domains/crm/src/activities.ts",
+        "packages/domains/crm/src/leads.ts",
+        "packages/domains/crm/src/opportunities.ts",
+        "packages/domains/core/src/custom-field-values.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/clients/core-api-client/src/schemas/activities.ts",
+        "packages/clients/core-api-client/src/schemas/leads.ts",
+        "packages/clients/core-api-client/src/schemas/opportunities.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/",
+        "rust/crates/core-domain/src/custom_field_values.rs"
+      ]
+    },
+    {
+      "name": "crm: lists",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/lists/integration.test.ts",
+        "src/routes/lists/realtime-publish.test.ts",
+        "src/routes/lists/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/lists/",
+        "packages/clients/core-api-client/src/schemas/lists.ts",
+        "rust/modules/crm/src/lists.rs"
+      ]
+    },
+    {
+      "name": "crm: companies",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/companies/integration.test.ts",
+        "src/routes/companies/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/companies/",
+        "apps/workers/crm-api/src/lib/record-chat-forward.ts",
+        "packages/domains/crm/src/companies.ts",
+        "packages/domains/crm/src/company-attributes.ts",
+        "packages/domains/crm/src/member-validation.ts",
+        "packages/domains/crm/src/status-validation.ts",
+        "packages/domains/crm/src/list-query.ts",
+        "packages/domains/core/src/custom-field-query.ts",
+        "packages/clients/app-api-client/src/schemas/companies.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/"
       ]
     }
   ]

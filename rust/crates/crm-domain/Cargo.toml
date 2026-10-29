@@ -1,0 +1,30 @@
+[package]
+name = "weldsuite-crm-domain"
+description = "@weldsuite/crm-domain: the CRM services crm-api and the modules that write CRM records share"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-catalogs = { workspace = true }
+weldsuite-core-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-mail-domain = { workspace = true }
+weldsuite-ports = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["parsing"] }
+tokio = { workspace = true, features = ["sync", "rt"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true
