@@ -603,6 +603,28 @@
         "packages/clients/core-api-client/src/schemas/lists.ts",
         "rust/modules/crm/src/lists.rs"
       ]
+    },
+    {
+      "name": "crm: companies",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/companies/integration.test.ts",
+        "src/routes/companies/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/companies/",
+        "apps/workers/crm-api/src/lib/record-chat-forward.ts",
+        "packages/domains/crm/src/companies.ts",
+        "packages/domains/crm/src/company-attributes.ts",
+        "packages/domains/crm/src/member-validation.ts",
+        "packages/domains/crm/src/status-validation.ts",
+        "packages/domains/crm/src/list-query.ts",
+        "packages/domains/core/src/custom-field-query.ts",
+        "packages/clients/app-api-client/src/schemas/companies.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/"
+      ]
     }
   ]
 }

@@ -3837,6 +3837,7 @@ dependencies = [
  "sqlx",
  "time",
  "tracing",
+ "url",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-core-domain",

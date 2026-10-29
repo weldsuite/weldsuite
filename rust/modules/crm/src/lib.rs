@@ -11,14 +11,18 @@
 //! conformance suites (`rust/conformance/suites.json`).
 
 mod activities;
+mod companies;
+mod companies_more;
 mod customer_statuses;
 mod field_visibility;
+mod identity_schema;
 mod leads;
 mod lists;
 mod opportunities;
 mod person_companies;
 mod pipeline_stages;
 mod pipelines;
+mod record_chat;
 mod schema;
 
 use std::sync::Arc;
@@ -69,7 +73,12 @@ pub fn env_from_process() -> std::collections::HashMap<String, String> {
 #[derive(Clone)]
 pub struct CrmState {
     pub services: CrmServices,
+    /// chat-api's record chats in this process (`CHAT_API`); `None` until the
+    /// chat module is mounted ([`record_chat`]).
+    pub chat_api: Option<ServiceBinding>,
 }
+
+pub use record_chat::ServiceBinding;
 
 /// Every crm-api route, at its full path under `/api` (`/companies`,
 /// `/leads/{id}`, …), to merge into the `/api` router behind the session,
@@ -103,6 +112,88 @@ where
         .route(
             "/activities/{id}",
             delete(activities::remove).route_layer(need(keys::ACTIVITIES_DELETE)),
+        )
+        // Companies
+        .route(
+            "/companies",
+            get(companies::list).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/companies",
+            post(companies::create).route_layer(need(keys::COMPANIES_CREATE)),
+        )
+        .route(
+            "/companies/import",
+            post(companies_more::import).route_layer(need(keys::COMPANIES_CREATE)),
+        )
+        .route(
+            "/companies/export",
+            get(companies::export).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/companies/bulk-update",
+            post(companies::bulk_update).route_layer(need(keys::COMPANIES_UPDATE)),
+        )
+        .route(
+            "/companies/{id}",
+            get(companies::detail).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/companies/{id}",
+            patch(companies::update).route_layer(need(keys::COMPANIES_UPDATE)),
+        )
+        .route(
+            "/companies/{id}",
+            delete(companies::remove).route_layer(need(keys::COMPANIES_DELETE)),
+        )
+        .route(
+            "/companies/{id}/archive",
+            post(companies::archive).route_layer(need(keys::COMPANIES_UPDATE)),
+        )
+        .route(
+            "/companies/{id}/unarchive",
+            post(companies::unarchive).route_layer(need(keys::COMPANIES_UPDATE)),
+        )
+        .route(
+            "/companies/{id}/people",
+            get(companies::people).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/companies/{id}/detail",
+            get(companies_more::aggregate).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/companies/{id}/navigation",
+            get(companies_more::navigation).route_layer(need(keys::COMPANIES_READ)),
+        )
+        .route(
+            "/companies/{id}/refresh-logo",
+            post(companies_more::refresh_logo).route_layer(need(keys::COMPANIES_UPDATE)),
+        )
+        // Record chats, forwarded to chat-api (no permission of their own)
+        .route(
+            "/companies/{id}/chat/channel",
+            get(record_chat::company_channel),
+        )
+        .route(
+            "/companies/{id}/chat/messages",
+            post(record_chat::company_messages),
+        )
+        .route(
+            "/companies/{id}/chat/follow",
+            post(record_chat::company_follow).delete(record_chat::company_unfollow),
+        )
+        .route(
+            "/people/{id}/chat/channel",
+            get(record_chat::person_channel),
+        )
+        .route(
+            "/people/{id}/chat/messages",
+            post(record_chat::person_messages),
+        )
+        .route(
+            "/people/{id}/chat/follow",
+            post(record_chat::person_follow).delete(record_chat::person_unfollow),
         )
         // Customer statuses
         .route(
@@ -341,6 +432,23 @@ impl Caller {
     ) {
         self.outbox(state)
             .publish_with_changes(event, entity_id, data, changes);
+    }
+
+    /// `publishEntityEvent` of a type the catalog lacks (`company:unarchived`),
+    /// which TypeScript hands to the queue as it is.
+    pub(crate) fn publish_custom(
+        &self,
+        state: &CrmState,
+        entity_type: &'static str,
+        action: &'static str,
+        entity_id: &str,
+        data: Value,
+    ) {
+        self.outbox(state).send(weldsuite_events::EntityEvent::new(
+            weldsuite_events::EventType::uncatalogued(entity_type, action),
+            entity_id,
+            data,
+        ));
     }
 
     /// A value of `c.env`: the request's (conformance), else the app's.

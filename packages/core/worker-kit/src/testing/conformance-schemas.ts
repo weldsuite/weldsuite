@@ -158,6 +158,14 @@ import {
   signedObjectUrlsSchema,
 } from '@weldsuite/core-api-client/schemas/storage';
 // crm (crm-api)
+import {
+  bulkUpdateResultSchema,
+  companyDetailSchema,
+  companyPersonLinkSchema,
+  companyRowSchema,
+  importResultSchema,
+  recordNavigationSchema,
+} from '@weldsuite/app-api-client/schemas/companies';
 import { customerStatusSchema } from '@weldsuite/app-api-client/schemas/customer-statuses';
 import { pipelineFieldVisibilitySchema } from '@weldsuite/app-api-client/schemas/pipeline-field-visibility';
 import { activitySchema } from '@weldsuite/core-api-client/schemas/activities';
@@ -462,6 +470,20 @@ const ROUTES: RouteSchema[] = [
   { method: 'PATCH', route: '/api/lists/:id', envelope: 'single', data: listEntitySchema },
   { method: 'GET', route: '/api/lists/:id/members', envelope: 'array', data: listMemberSchema },
   { method: 'POST', route: '/api/lists/:id/members', envelope: 'single', data: listMembersAddedSchema },
+  // crm: companies
+  { method: 'GET', route: '/api/companies', envelope: 'list', data: companyRowSchema },
+  { method: 'GET', route: '/api/companies/export', envelope: 'array', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/import', envelope: 'single', data: importResultSchema },
+  { method: 'POST', route: '/api/companies/bulk-update', envelope: 'single', data: bulkUpdateResultSchema },
+  { method: 'GET', route: '/api/companies/:id', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies', envelope: 'single', data: companyRowSchema },
+  { method: 'PATCH', route: '/api/companies/:id', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/:id/archive', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/:id/unarchive', envelope: 'single', data: companyRowSchema },
+  { method: 'POST', route: '/api/companies/:id/refresh-logo', envelope: 'single', data: companyRowSchema },
+  { method: 'GET', route: '/api/companies/:id/people', envelope: 'array', data: companyPersonLinkSchema },
+  { method: 'GET', route: '/api/companies/:id/detail', envelope: 'single', data: companyDetailSchema },
+  { method: 'GET', route: '/api/companies/:id/navigation', envelope: 'single', data: recordNavigationSchema },
   // crm: end
 ];
 

@@ -116,7 +116,12 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         env: Arc::new(weldsuite_crm::env_from_process()),
     };
     router.merge(weldsuite_crm::router(
-        weldsuite_crm::CrmState { services },
+        weldsuite_crm::CrmState {
+            services,
+            // chat-api's record chats once the chat module is mounted: a
+            // binding that runs the request through this server's router.
+            chat_api: None,
+        },
         &state.permissions,
     ))
 }

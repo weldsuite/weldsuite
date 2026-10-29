@@ -496,6 +496,17 @@ impl Issues {
         field
     }
 
+    /// An issue a schema reports that the helpers here don't build (a
+    /// union of a string and a literal, `.positive()`, `.length(n)`), at
+    /// `key` under the current path. `issue` is the rest of Zod's object.
+    pub fn issue_at(&mut self, key: &str, issue: Value) {
+        let mut issue = issue;
+        if let Value::Object(fields) = &mut issue {
+            fields.insert("path".to_owned(), self.path(key));
+        }
+        self.issues.push(issue);
+    }
+
     /// `z.union([z.string(), z.number()])` with `presence`: the value as it
     /// came when it is a string or a number, else Zod's `invalid_union` with
     /// one `invalid_type` per option.

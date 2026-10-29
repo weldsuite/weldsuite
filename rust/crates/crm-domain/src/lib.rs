@@ -8,6 +8,8 @@
 //! TypeScript types.
 
 pub mod activities;
+pub mod companies;
+pub mod company_attributes;
 pub mod events;
 pub use weldsuite_core_domain::js;
 pub mod leads;
@@ -15,6 +17,7 @@ pub mod opportunities;
 pub mod tables;
 #[allow(clippy::too_many_lines)]
 mod tables_gen;
+pub mod validation;
 
 use std::collections::HashMap;
 use std::sync::Arc;

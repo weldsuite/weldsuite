@@ -19,7 +19,7 @@ weldsuite-ports = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
-time = { workspace = true }
+time = { workspace = true, features = ["parsing"] }
 tokio = { workspace = true, features = ["sync", "rt"] }
 tracing = { workspace = true }
 
