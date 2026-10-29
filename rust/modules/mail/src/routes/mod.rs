@@ -13,5 +13,6 @@ pub(crate) mod mail_rules;
 pub(crate) mod mail_sending;
 pub(crate) mod mail_signatures;
 pub(crate) mod mail_snooze;
+pub(crate) mod mail_sync;
 pub(crate) mod mail_templates;
 pub(crate) mod mail_threads;

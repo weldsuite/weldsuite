@@ -671,13 +671,14 @@
       ]
     },
     {
-      "name": "mail: templates, rules, campaigns",
+      "name": "mail: templates, rules, campaigns, sync",
       "module": "mail",
       "workspace": "apps/workers/mail-api",
       "tests": [
         "src/routes/mail-templates/routes.test.ts",
         "src/routes/mail-rules/routes.test.ts",
-        "src/routes/mail-campaigns/routes.test.ts"
+        "src/routes/mail-campaigns/routes.test.ts",
+        "src/routes/mail-sync/routes.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/",

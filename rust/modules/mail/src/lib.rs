@@ -106,6 +106,7 @@ where
         .merge(routes::mail_templates::routes(state.clone(), gate))
         .merge(routes::mail_rules::routes(state.clone(), gate))
         .merge(routes::mail_campaigns::routes(state.clone(), gate))
+        .merge(routes::mail_sync::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 
