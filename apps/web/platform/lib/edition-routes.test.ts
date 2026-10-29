@@ -33,6 +33,11 @@ describe('route availability', () => {
     }
   });
 
+  it('ignores a query string and hash', () => {
+    expect(routeRequirement('/weldcrm?new=1')).toEqual({ modules: ['crm'] });
+    expect(routeRequirement('/settings/billing#invoices')).toEqual({ feature: 'billing' });
+  });
+
   it('matches whole segments only', () => {
     expect(routeRequirement('/settings/ssox')).toBeNull();
     expect(routeRequirement('/agentsx')).toBeNull();

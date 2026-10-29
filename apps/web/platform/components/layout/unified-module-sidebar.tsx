@@ -193,8 +193,11 @@ export function UnifiedModuleSidebar({ user, currentWorkspace, workspaces = [], 
   const visibleMenuItems: MenuGroupProps[] = menuItems
     .map((group) => {
       if (group.customContent) return group;
+      // Edition flags (4.F3): a module's menu may link into one this deployment doesn't serve.
       const visibleItems = group.items.filter(
-        (item) => menuPermissionAllows(item.permission, (permission) => isOwner || can(permission))
+        (item) =>
+          menuPermissionAllows(item.permission, (permission) => isOwner || can(permission)) &&
+          isRouteOffered(item.href),
       );
       return { ...group, items: visibleItems };
     })

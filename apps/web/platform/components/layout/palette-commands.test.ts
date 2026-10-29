@@ -100,6 +100,14 @@ describe('edition flags', () => {
     expect(hrefs).toEqual(expect.arrayContaining(['/settings/sso', '/settings/billing', '/settings/integrations']));
   });
 
+  it('offers no company or person creation without the crm module', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'commerce'] });
+    const access = { canSee: () => true, installedCodes: new Set(['weldcommerce']) };
+    const ids = actionCommands(en, 'light', access).map((command) => command.id);
+    expect(ids).not.toContain('action:create-company');
+    expect(ids).not.toContain('action:create-person');
+  });
+
   it("drops a module's pages that link into one the deployment doesn't serve", () => {
     setRuntimeConfig({ backend: 'rust', modules: ['core', 'calendar'] });
     const commands = navigationCommandsForApps(

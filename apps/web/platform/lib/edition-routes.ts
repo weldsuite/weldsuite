@@ -47,12 +47,16 @@ function matchesPrefix(pathname: string, prefix: string): boolean {
   return pathname === prefix || pathname.startsWith(prefix + '/');
 }
 
-/** What the page at `pathname` (bare, without `/w/{workspace}`) needs, or null when it needs only core. */
+/**
+ * What the page at `pathname` (bare, without `/w/{workspace}`; a query or
+ * hash is ignored) needs, or null when it needs only core.
+ */
 export function routeRequirement(pathname: string): EditionRequirement | null {
+  const path = pathname.split(/[?#]/, 1)[0];
   for (const [prefix, requirement] of ROUTE_REQUIREMENTS) {
-    if (matchesPrefix(pathname, prefix)) return requirement;
+    if (matchesPrefix(path, prefix)) return requirement;
   }
-  const segments = pathname.split('/').filter(Boolean);
+  const segments = path.split('/').filter(Boolean);
   // `/settings/apps/{app}`: the app's own settings.
   const appCode = segments[0] === 'settings' && segments[1] === 'apps' ? segments[2] : segments[0];
   if (!appCode) return null;
@@ -79,6 +83,5 @@ export function isRouteOffered(pathname: string): boolean {
  */
 export function isHrefOffered(href: string): boolean {
   if (!href.startsWith('/') || href.startsWith('//')) return true;
-  const pathname = href.split(/[?#]/, 1)[0];
-  return isRouteOffered(stripWorkspacePrefix(pathname));
+  return isRouteOffered(stripWorkspacePrefix(href.split(/[?#]/, 1)[0]));
 }
