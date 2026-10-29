@@ -3,7 +3,9 @@
 //!
 //! Runs when `WELDSUITE_TEST_DATABASE_URL` points at a throwaway database (the
 //! same one the `weldsuite-db` tests use); otherwise it returns early. The
-//! table is created here, in the shape documented on `MasterDbFlagSource`.
+//! table is created here in the migration's shape; `the_migrated_table_reads`
+//! also reads the one master migration 0062 creates, when
+//! `WELDSUITE_TEST_MASTER_URL` points at a database built from the migrations.
 
 use std::time::Duration;
 
@@ -106,4 +108,28 @@ async fn overrides_resolve_per_workspace_and_refresh() {
         cold.string_value(WELDMAIL_OUTBOUND_GUARD, &ws1).await,
         "shadow"
     );
+}
+
+#[tokio::test]
+async fn the_migrated_table_reads() {
+    let Ok(url) = std::env::var("WELDSUITE_TEST_MASTER_URL") else {
+        eprintln!("WELDSUITE_TEST_MASTER_URL is not set; skipping");
+        return;
+    };
+    let master = PgPool::connect(&url).await.expect("master");
+    sqlx::raw_sql(
+        r"delete from feature_flag_overrides where id = 'ffo_schema';
+           insert into feature_flag_overrides (id, flag_key, workspace_id, value)
+               values ('ffo_schema', 'hello-world', 'ws_flag_schema', 'true');",
+    )
+    .execute(&master)
+    .await
+    .expect("seed");
+    let flags = MasterDbFlagSource::new(master, Duration::from_secs(30));
+    assert!(
+        flags
+            .is_on(HELLO_WORLD, &context("ws_flag_schema", None))
+            .await
+    );
+    assert!(!flags.is_on(HELLO_WORLD, &context("ws_other", None)).await);
 }

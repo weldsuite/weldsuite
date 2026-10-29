@@ -1299,6 +1299,7 @@ export {
   type NewAiGatewayCredit,
 } from './ai-gateway-costs';
 export { systemSettings, type SystemSetting, type NewSystemSetting, SETTING_CATEGORIES, type SettingCategory } from './system-settings';
+export { featureFlagOverrides, type FeatureFlagOverride, type NewFeatureFlagOverride } from './feature-flag-overrides';
 export { enterpriseInquiries, inquiryStatusEnum, type EnterpriseInquiry, type NewEnterpriseInquiry } from './enterprise-inquiries';
 export { featureRequests, featureTypeEnum, featureStatusEnum, type FeatureRequest, type NewFeatureRequest, type FeatureType, type FeatureStatus } from './feature-requests';
 // Per-workspace access to apps that are on request only (WeldReach first).

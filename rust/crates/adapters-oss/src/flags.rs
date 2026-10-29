@@ -1,17 +1,9 @@
 //! Feature flags from the master database, in place of Cloudflare Flagship
 //! (`packages/core/feature-flags/src/server.ts`). Reads the
-//! `feature_flag_overrides` table:
-//!
-//! ```sql
-//! create table feature_flag_overrides (
-//!     id varchar(30) primary key,
-//!     flag_key varchar(100) not null,
-//!     workspace_id varchar(255),          -- workspaces.id or Clerk org id; null = every workspace
-//!     value jsonb not null,
-//!     updated_at timestamptz not null default now(),
-//!     unique nulls not distinct (flag_key, workspace_id)
-//! );
-//! ```
+//! `feature_flag_overrides` table (Drizzle schema
+//! `packages/core/db/src/schema/feature-flag-overrides.ts`, master migration
+//! 0062): `flag_key`, `workspace_id` (`workspaces.id` or Clerk org id; null =
+//! every workspace) and `value` (jsonb), unique per flag and workspace.
 //!
 //! A workspace's row wins over the row for every workspace; with neither, the
 //! catalog default applies. The whole table is read at once and kept for the
