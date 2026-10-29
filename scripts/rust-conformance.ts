@@ -32,6 +32,8 @@ interface Suite {
   workspace: string;
   tests: string[];
   paths: string[];
+  /** Routes Rust deliberately doesn't serve (`METHOD /route` → why); coverage skips them. */
+  unserved?: Record<string, string>;
 }
 
 interface RequestLine {
@@ -222,13 +224,17 @@ function routeReports(requests: RequestLine[]): RouteReport[] {
   return sorted;
 }
 
-/** Inventory routes no request reached, once each. */
-function uncoveredRoutes(inventory: InventoryLine[], routes: RouteReport[]): Array<{ method: string; route: string }> {
+/** Inventory routes no request reached, once each, leaving out the suite's unserved routes. */
+function uncoveredRoutes(
+  inventory: InventoryLine[],
+  routes: RouteReport[],
+  unserved: Record<string, string> = {},
+): Array<{ method: string; route: string }> {
   const covered = new Set(routes.map((r) => `${r.method} ${r.route}`));
   const missing = new Map<string, { method: string; route: string }>();
   for (const r of inventory) {
     const key = `${r.method} ${r.route}`;
-    if (!covered.has(key)) missing.set(key, { method: r.method, route: r.route });
+    if (!covered.has(key) && !(key in unserved)) missing.set(key, { method: r.method, route: r.route });
   }
   return [...missing.values()];
 }
@@ -240,7 +246,7 @@ function buildReport(selected: Suite[], results: Map<string, boolean>): SuiteRep
       Boolean(file) && suite.tests.some((t) => file!.replaceAll('\\', '/').endsWith(`${suite.workspace}/${t}`));
     const routes = routeReports(lines.filter((l): l is RequestLine => l.kind === 'request' && inSuite(l.file)));
     const inventory = lines.filter((l): l is InventoryLine => l.kind === 'inventory' && inSuite(l.file));
-    const uncovered = uncoveredRoutes(inventory, routes);
+    const uncovered = uncoveredRoutes(inventory, routes, suite.unserved);
     // A ported module needs every route covered (playbook steps 2 and 6).
     const covered = !portedModules.has(suite.module) || uncovered.length === 0;
     const passed = (results.get(suite.name) ?? false) && covered && routes.every((r) => r.mismatches.length === 0);

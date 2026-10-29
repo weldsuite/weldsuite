@@ -1,5 +1,5 @@
 {
-  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5).",
+  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5). A ported module must reach every route of its suites; a route Rust deliberately does not serve goes in the suite's `unserved`, keyed by method and route, with the reason.",
   "suites": [
     {
       "name": "core: me",
@@ -200,18 +200,26 @@
       ]
     },
     {
-      "name": "core: team-members (directory)",
+      "name": "core: team-members",
       "module": "core",
       "workspace": "apps/workers/app-api",
       "tests": [
         "src/routes/team-members/directory.integration.test.ts",
-        "src/routes/team-members/member-profile.integration.test.ts"
+        "src/routes/team-members/member-profile.integration.test.ts",
+        "src/routes/team-members/manage.integration.test.ts"
       ],
       "paths": [
         "apps/workers/app-api/src/routes/team-members/",
         "apps/workers/app-api/src/services/team/",
         "packages/clients/app-api-client/src/schemas/team-members.ts",
-        "rust/modules/core-team/src/groups/team_members/"
+        "rust/modules/core-team/src/groups/team_members/",
+        "apps/workers/app-api/src/services/seat-limits.ts",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "apps/workers/app-api/src/services/invitation-redirect.ts",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/clients/app-api-client/src/schemas/team-members-manage.ts",
+        "rust/modules/core-team/src/groups/seats.rs"
       ]
     },
     {
@@ -304,26 +312,6 @@
         "packages/domains/core/src/workspaces.ts",
         "packages/clients/app-api-client/src/schemas/workspaces.ts",
         "rust/modules/core-team/"
-      ]
-    },
-    {
-      "name": "core: team-members (manage)",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/team-members/manage.integration.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/team-members/",
-        "apps/workers/app-api/src/services/seat-limits.ts",
-        "apps/workers/app-api/src/services/member-count.ts",
-        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
-        "apps/workers/app-api/src/services/invitation-redirect.ts",
-        "apps/workers/app-api/src/services/api-keys.ts",
-        "packages/clients/app-api-client/src/schemas/team-members.ts",
-        "packages/clients/app-api-client/src/schemas/team-members-manage.ts",
-        "rust/modules/core-team/src/groups/team_members/",
-        "rust/modules/core-team/src/groups/seats.rs"
       ]
     },
     {
@@ -526,13 +514,16 @@
       ]
     },
     {
-      "name": "core: files",
+      "name": "core: files, folders and drive",
       "module": "core",
       "workspace": "apps/workers/app-api",
       "tests": [
         "src/routes/files/index.test.ts",
         "src/routes/files/sharing.test.ts",
-        "src/routes/files/actions.test.ts"
+        "src/routes/files/actions.test.ts",
+        "src/routes/folders/index.test.ts",
+        "src/routes/drive/index.test.ts",
+        "src/routes/drive/trash.test.ts"
       ],
       "paths": [
         "apps/workers/app-api/src/routes/files/",
@@ -548,54 +539,9 @@
         "apps/workers/app-api/src/services/drive-aggregation.ts",
         "apps/workers/app-api/src/services/folders.ts",
         "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ]
-    },
-    {
-      "name": "core: folders",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/folders/index.test.ts"
-      ],
-      "paths": [
+        "rust/crates/core-domain/",
         "apps/workers/app-api/src/routes/folders/",
-        "packages/domains/core/src/files.ts",
-        "packages/domains/core/src/drive-access.ts",
-        "packages/domains/core/src/folders.ts",
-        "packages/clients/core-api-client/src/schemas/files.ts",
-        "packages/clients/core-api-client/src/schemas/folders.ts",
-        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
-        "packages/clients/core-api-client/src/schemas/drive.ts",
-        "apps/workers/app-api/src/lib/drive-access.ts",
-        "apps/workers/app-api/src/services/drive-aggregation.ts",
-        "apps/workers/app-api/src/services/folders.ts",
-        "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ]
-    },
-    {
-      "name": "core: drive",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/drive/index.test.ts",
-        "src/routes/drive/trash.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/drive/",
-        "packages/domains/core/src/files.ts",
-        "packages/domains/core/src/drive-access.ts",
-        "packages/domains/core/src/folders.ts",
-        "packages/clients/core-api-client/src/schemas/files.ts",
-        "packages/clients/core-api-client/src/schemas/folders.ts",
-        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
-        "packages/clients/core-api-client/src/schemas/drive.ts",
-        "apps/workers/app-api/src/lib/drive-access.ts",
-        "apps/workers/app-api/src/services/drive-aggregation.ts",
-        "apps/workers/app-api/src/services/folders.ts",
-        "rust/modules/core-files/",
-        "rust/crates/core-domain/"
+        "apps/workers/app-api/src/routes/drive/"
       ]
     },
     {
@@ -632,7 +578,10 @@
         "packages/domains/core/src/drive-access.ts",
         "rust/modules/core-files/",
         "rust/crates/core-domain/"
-      ]
+      ],
+      "unserved": {
+        "POST /api/search/reindex": "Needs an AI port for embeddings; not served on the Kubernetes editions, and /config.json lists search-reindex as unavailable."
+      }
     },
     {
       "name": "core: user-apps",
