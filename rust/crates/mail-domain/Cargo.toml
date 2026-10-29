@@ -9,9 +9,22 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+weldsuite-catalogs = { workspace = true }
 weldsuite-db = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+base64 = { workspace = true }
+lettre = { workspace = true }
+regex = { workspace = true, features = ["unicode"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
+time = { workspace = true, features = ["formatting", "parsing", "macros"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
 
 [lints]
 workspace = true

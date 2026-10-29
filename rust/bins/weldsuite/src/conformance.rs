@@ -16,7 +16,9 @@
 //!   "env": { "PERMISSIONS_APP_ENFORCE": "true" },
 //!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." }, // the test's buckets, over HTTP
 //!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." },     // the test's KV, over HTTP
-//!   "outbound": "http://127.0.0.1:..." }  // third-party calls, through the test's fetch stub
+//!   "outbound": "http://127.0.0.1:...",   // third-party calls, through the test's fetch stub
+//!   "sendEmail": "http://127.0.0.1:...",  // the test's SEND_EMAIL binding (customer mail)
+//!   "ledgers": { "OUTBOUND_LEDGER": "http://127.0.0.1:..." } } // its outbound-guard namespaces
 //! ```
 //!
 //! The routes that run before authentication (`/api/storage/upload/:token`,
@@ -207,6 +209,12 @@ struct TestContext {
     /// through the test's own fetch stub (`conformance_outbound`).
     #[serde(default)]
     outbound: Option<String>,
+    /// The test's `SEND_EMAIL` binding over HTTP (`conformance_mail`).
+    #[serde(default)]
+    send_email: Option<String>,
+    /// Its `OUTBOUND_LEDGER` / `OUTBOUND_PLATFORM` namespaces over HTTP.
+    #[serde(default)]
+    ledgers: HashMap<String, String>,
 }
 
 impl TestContext {
@@ -247,6 +255,8 @@ pub(crate) struct Pools {
     verifiers: Mutex<HashMap<String, Arc<SessionVerifier>>>,
     /// The bridged third-party providers, by bridge URL.
     outbound: crate::conformance_outbound::OutboundBridges,
+    /// The test's customer-mail transport and outbound ledgers.
+    mail: crate::conformance_mail::MailBridges,
 }
 
 impl Pools {
@@ -290,6 +300,12 @@ impl Pools {
         if let Some(verifier) = self.verifier(&context.env) {
             extensions.insert(verifier);
         }
+        // Customer mail and the outbound ledgers: the test's, or none, as
+        // the worker runs without the bindings the test leaves out.
+        extensions.insert(weldsuite_mail_domain::outbound::RequestOutbound(
+            self.mail
+                .bindings(context.send_email.as_deref(), &context.ledgers),
+        ));
         // The identity provider answers from the test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {
             extensions.insert(weldsuite_ports::IdentityProvider(

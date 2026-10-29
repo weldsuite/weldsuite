@@ -158,6 +158,32 @@ templates).
    which put sqlx's connection out of step; the harness serves pglite
    through `wireCompatiblePglite` (`packages/core/worker-kit/src/testing/pglite-wire.ts`),
    which drops it, so each Sync gets exactly one.
+10. Customer mail and the outbound guard (WeldMail, and every module that
+   sends user-written mail through `weldsuite_mail_domain::outbound`). A
+   test's `SEND_EMAIL` binding is served over HTTP by
+   `packages/core/worker-kit/src/testing/send-email-bridge.ts`
+   (`POST /send?from=…&to=…`, the raw message as the body; 204, or 422 with
+   the stub's `{ code, name, message }`), its `OUTBOUND_LEDGER` and
+   `OUTBOUND_PLATFORM` Durable Object namespaces by `ledger-bridge.ts`
+   (`POST /rpc { binding, name, method, args }`, answered by
+   `ns.get(ns.idFromName(name))[method](...args)`). Their URLs travel in the
+   context (`sendEmail`, `ledgers`), and conformance builds insert a
+   `weldsuite_mail_domain::outbound::RequestOutbound` with the bridged
+   `MailTransport`, `OutboundLedger` and `PlatformBudget`
+   (`bins/weldsuite/src/conformance_mail.rs`), or with none when the test has
+   none, as the worker then runs without them. A send path takes the
+   request's bindings first and its state's otherwise. Both runs' envelopes
+   are compared as `sendEmail` side effects, read back the way a mail client
+   reads them (`mime-record.ts`: envelope, From, To, Cc, Reply-To, subject,
+   the Message-ID's form `<hex32@domain>`, In-Reply-To, References, other
+   headers, and each part's type, file name and text or size), never as
+   bytes: mimetext and lettre fold headers, pick boundaries and encodings
+   differently by construction. Ledger calls are compared as `ledger` side
+   effects (`{ binding, name, method, args }`, a reservation id and a time
+   near now masked). Use `createSendEmailStub(refusals)` from
+   `@weldsuite/worker-kit/testing/send-email`: it answers by recipient, and
+   afterwards holds only Rust's envelopes, as the test's response is Rust's.
+   A ledger stub sees both runs' calls, so it must answer by name and method.
 
 ## Jobs, crons and generated files
 
