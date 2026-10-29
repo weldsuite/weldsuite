@@ -297,3 +297,79 @@ export const chatUploadSchema = z.object({
   url: z.string(),
   fileKey: z.string(),
 });
+
+/** One entry of the activity feed (`GET /api/chat-activity`). */
+export const chatActivityItemSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  title: z.string(),
+  body: z.string().nullable(),
+  channelId: z.string().nullable(),
+  channelName: z.string().nullable(),
+  messageId: z.string().nullable(),
+  actorId: z.string().nullable(),
+  actorName: z.null(),
+  actorAvatarUrl: z.null(),
+  actionUrl: z.string().nullable(),
+  readAt: nullableIso,
+  createdAt: iso,
+});
+
+/** `GET /api/chat-activity/unread-count`. */
+export const chatUnreadCountSchema = z.object({ count: z.number() });
+
+/** A DM member with names (`DmMember`). */
+export const chatDmMemberSchema = z
+  .object({
+    userId: z.string(),
+    name: z.string().nullable(),
+    email: z.string().nullable(),
+    picture: z.string().nullable(),
+    role: z.string().optional(),
+    lastReadAt: nullableIso.optional(),
+    lastReadMessageId: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+/** A DM (`DmChannel`): the channel with its members. */
+export const chatDmChannelSchema = chatChannelRowSchema.extend({
+  members: z.array(chatDmMemberSchema),
+  otherMembers: z.array(chatDmMemberSchema).optional(),
+  isMuted: z.boolean().optional(),
+  lastReadAt: nullableIso.optional(),
+  lastReadMessageId: z.string().nullable().optional(),
+});
+
+/** `PATCH /api/chat-dm/:id/archive`, `/unarchive`. */
+export const chatDmArchivedSchema = z.object({ id: z.string(), isArchived: z.boolean() });
+
+/** `PATCH /api/chat-dm/:id/pin`. */
+export const chatDmPinnedSchema = z.object({ id: z.string(), isPinned: z.boolean() });
+
+/** A channel in the directory (`GET /api/chat-directories/channels`). */
+export const chatDirectoryChannelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  memberCount: z.number(),
+  isJoined: z.boolean(),
+  type: z.enum(['public', 'private']),
+});
+
+/** `GET /api/chat-search`. */
+export const chatSearchResultSchema = z.object({
+  messages: z.array(
+    z
+      .object({
+        id: z.string(),
+        channelId: z.string(),
+        authorId: z.string(),
+        authorName: z.string(),
+        content: z.string(),
+        createdAt: iso,
+        channel: z.object({ name: z.string(), slug: z.string(), type: z.string() }).nullable(),
+      })
+      .passthrough(),
+  ),
+  total: z.number(),
+});

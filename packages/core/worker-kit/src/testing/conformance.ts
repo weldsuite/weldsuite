@@ -126,6 +126,16 @@ export function forwardedEnv(env: Record<string, unknown>): Record<string, strin
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/**
+ * GETs that write: they get or create a row (a DM, a record chat) or settle
+ * state they find stale, so they run as writes do, TypeScript first on a
+ * copy of the database.
+ */
+const WRITING_READS: RegExp[] = [
+  // WeldChat: the 1:1 DM with someone, created on first use.
+  /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+];
+
 interface ConformanceContext {
   userId: string;
   orgId: string | null;
@@ -387,8 +397,8 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
 /** The random segment of a chat attachment's object key. */
 const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
-/** A generated id in a link's `messageId` parameter. */
-const MESSAGE_ID_PARAM = /([?&]messageId=)[a-z][a-z0-9]*_[0-9a-z]{12,}/g;
+/** A generated id in a link: a path segment or a parameter value. */
+const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
 /** A slug ending in a generated id (`-ch_<base36>`). */
 const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /** A SHA-256 in hex. */
@@ -463,9 +473,9 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // A taken channel slug gets the new channel's id appended
   // (`resolveChannelSlug`): `sales-ch_<id>`.
   if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
-  // A notification's link to the message the request just created
-  // (`/weldchat/<channel>?messageId=msg_<id>`).
-  if (key === 'actionUrl') return value.replace(MESSAGE_ID_PARAM, '$1<id>');
+  // A notification's link to what the request just created
+  // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
+  if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential, then any other `Date.now()` (the key's segment holds one).
   return value
@@ -788,7 +798,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();
-  const isWrite = !SAFE_METHODS.has(method);
+  const isWrite = !SAFE_METHODS.has(method) || WRITING_READS.some((re) => re.test(input));
 
   const client = pgliteClientOf(ctx.tenantDb);
   if (!client) {

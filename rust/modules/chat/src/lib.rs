@@ -115,3 +115,29 @@ group_router!(
     /// `/api/chat-status`: chosen status and live presence.
     status
 );
+group_router!(
+    /// `/api/chat-activity`: the caller's WeldChat notifications.
+    activity
+);
+group_router!(
+    /// `/api/chat-dm`: direct messages.
+    dm
+);
+
+/// `/api/chat-directories`: the channel browser.
+pub fn directories<S, Q>(state: ChatState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    Q: PermissionQueries + 'static,
+{
+    groups::directories::directories_router(gate).with_state(state)
+}
+
+/// `/api/chat-search`: message search.
+pub fn search<S, Q>(state: ChatState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+    Q: PermissionQueries + 'static,
+{
+    groups::directories::search_router(gate).with_state(state)
+}

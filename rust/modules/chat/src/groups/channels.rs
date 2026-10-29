@@ -243,7 +243,7 @@ async fn list_inner(
 }
 
 /// A `Can` for the request's permissions; without them, one that answers no.
-fn context_or_none<'a>(can: &'a Option<Can<'a>>) -> Can<'a> {
+pub(crate) fn context_or_none<'a>(can: &'a Option<Can<'a>>) -> Can<'a> {
     match can {
         Some(Can::Context(permissions)) => Can::Context(permissions),
         _ => Can::Denied,

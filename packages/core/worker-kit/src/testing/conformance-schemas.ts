@@ -12,6 +12,7 @@
 
 import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
 import {
+  chatActivityItemSchema,
   chatAgentRemovedSchema,
   chatAgentsAddedSchema,
   chatBookmarkCreatedSchema,
@@ -23,6 +24,10 @@ import {
   chatChannelMemberRowSchema,
   chatChannelMemberSchema,
   chatChannelRowSchema,
+  chatDirectoryChannelSchema,
+  chatDmArchivedSchema,
+  chatDmChannelSchema,
+  chatDmPinnedSchema,
   chatDraftRowSchema,
   chatDraftWriteSchema,
   chatForwardedSchema,
@@ -36,9 +41,11 @@ import {
   chatPinResultSchema,
   chatReactionsSchema,
   chatReadReceiptsSchema,
+  chatSearchResultSchema,
   chatSectionRowSchema,
   chatStatusClearedSchema,
   chatStatusSetSchema,
+  chatUnreadCountSchema,
   chatUploadSchema,
 } from '@weldsuite/app-api-client/schemas/chat';
 import { desktopTicketSchema } from '@weldsuite/app-api-client/schemas/auth-desktop';
@@ -485,6 +492,17 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/chat-messages/:id/pin', envelope: 'single', data: chatPinResultSchema },
   { method: 'DELETE', route: '/api/chat-messages/:id/pin', envelope: 'single', data: chatPinResultSchema },
   { method: 'POST', route: '/api/chat-messages/upload', envelope: 'single', data: chatUploadSchema },
+  // chat (chat-api)
+  { method: 'GET', route: '/api/chat-activity', envelope: 'list', data: chatActivityItemSchema },
+  { method: 'GET', route: '/api/chat-activity/unread-count', envelope: 'single', data: chatUnreadCountSchema },
+  { method: 'GET', route: '/api/chat-dm', envelope: 'array', data: chatDmChannelSchema },
+  { method: 'POST', route: '/api/chat-dm', envelope: 'single', data: chatDmChannelSchema },
+  { method: 'GET', route: '/api/chat-dm/:targetUserId', envelope: 'single', data: chatDmChannelSchema },
+  { method: 'PATCH', route: '/api/chat-dm/:channelId/archive', envelope: 'single', data: chatDmArchivedSchema },
+  { method: 'PATCH', route: '/api/chat-dm/:channelId/unarchive', envelope: 'single', data: chatDmArchivedSchema },
+  { method: 'PATCH', route: '/api/chat-dm/:channelId/pin', envelope: 'single', data: chatDmPinnedSchema },
+  { method: 'GET', route: '/api/chat-directories/channels', envelope: 'array', data: chatDirectoryChannelSchema },
+  { method: 'GET', route: '/api/chat-search', envelope: 'single', data: chatSearchResultSchema },
 ];
 
 /** null when valid, else why not. */
