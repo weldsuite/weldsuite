@@ -1,0 +1,36 @@
+# A throwaway Postgres for the kind smoke test. Not for anything real: no
+# volume, a password in plain text. Real clusters run CloudNativePG.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - { name: POSTGRES_USER, value: weldsuite }
+            - { name: POSTGRES_PASSWORD, value: weldsuite }
+            - { name: POSTGRES_DB, value: weldsuite }
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "weldsuite"]
+            periodSeconds: 2
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
