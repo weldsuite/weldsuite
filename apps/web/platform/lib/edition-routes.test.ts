@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { isRouteOffered, routeRequirement } from './edition-routes';
+import { isHrefOffered, isRouteOffered, routeRequirement } from './edition-routes';
 import { setRuntimeConfig } from './runtime-config';
 
 const EU_CONFIG = {
@@ -62,6 +62,14 @@ describe('route availability', () => {
     ]) {
       expect(isRouteOffered(path), path).toBe(false);
     }
+  });
+
+  it('checks in-app links, with their query, hash and workspace prefix', () => {
+    setRuntimeConfig(EU_CONFIG);
+    expect(isHrefOffered('/weldknow/articles?space=1#top')).toBe(true);
+    expect(isHrefOffered('/w/acme/weldcrm/companies?stack=company:1')).toBe(false);
+    expect(isHrefOffered('/agents?conversation=c_1')).toBe(false);
+    expect(isHrefOffered('https://example.com/weldcrm')).toBe(true);
   });
 
   it('offers a page shared by two modules when either is served', () => {

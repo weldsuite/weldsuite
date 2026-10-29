@@ -1,6 +1,7 @@
 
 import { createContext, useContext, useState, ReactNode, useCallback, useMemo } from 'react';
 import { offerDraftHandoff, type DraftAutosaver } from '@/app/weldmail/lib/draft-autosave';
+import { isModuleOffered } from '@/lib/edition';
 
 interface ComposeData {
   to: string;
@@ -166,5 +167,8 @@ function RootComposeProvider({ children }: Readonly<{ children: ReactNode }>) {
 }
 
 export function useComposeSafe() {
-  return useContext(ComposeContext);
+  const context = useContext(ComposeContext);
+  // Edition flags (4.F3): without WeldMail there is no compose panel, so
+  // callers take their fallback (a mailto link) or hide the action.
+  return isModuleOffered('mail') ? context : null;
 }

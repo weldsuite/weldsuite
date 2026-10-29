@@ -17,6 +17,7 @@ import { useCallback } from 'react';
 import { toast } from 'sonner';
 import { useRouter } from '@/lib/router';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 
 /** True when `value` represents a 402 insufficient-credits error. */
 export function isInsufficientCreditsError(value: unknown): boolean {
@@ -45,10 +46,10 @@ export function useAiCreditsToast() {
       if (!isInsufficientCreditsError(err)) return false;
       toast.error(t.mail.ai.insufficientCreditsTitle, {
         description: t.mail.ai.insufficientCreditsDescription,
-        action: {
-          label: t.mail.ai.topUp,
-          onClick: () => router.push('/settings/billing'),
-        },
+        // Edition flags (4.F3): no top-up where credits can't be bought.
+        action: isFeatureAvailable('credit-top-up')
+          ? { label: t.mail.ai.topUp, onClick: () => router.push('/settings/billing') }
+          : undefined,
       });
       return true;
     },

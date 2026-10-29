@@ -22,6 +22,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isModuleOffered } from '@/lib/edition';
 import { weldmeetKeys } from '@/hooks/queries/use-weldmeet-queries';
 import { asText } from '@weldsuite/text';
 
@@ -268,6 +269,8 @@ export function useUpcomingCalendarEvents(params?: { days?: number; limit?: numb
   const { getClient } = useAppApiClient();
   return useQuery({
     queryKey: calendarKeys.upcoming(params),
+    // Edition flags (4.F3): the header's badge asks on every page.
+    enabled: isModuleOffered('calendar'),
     queryFn: async () => {
       const client = await getClient();
       const query = buildQueryString(params || {});

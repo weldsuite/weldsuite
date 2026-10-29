@@ -13,6 +13,7 @@
 
 import type { ApiModuleId } from '@weldsuite/api-modules';
 import { isFeatureAvailable, isModuleOffered, moduleForApp, type EditionFeature } from '@/lib/edition';
+import { stripWorkspacePrefix } from '@/lib/workspace-url';
 
 /** What a page needs: one of these modules, and this feature. */
 export interface EditionRequirement {
@@ -69,4 +70,15 @@ export function isRequirementMet(requirement: EditionRequirement | null): boolea
 /** Whether this deployment serves the page at `pathname` (always true on Global). */
 export function isRouteOffered(pathname: string): boolean {
   return isRequirementMet(routeRequirement(pathname));
+}
+
+/**
+ * Whether an in-app link (a notification's `actionUrl`, …) opens a page this
+ * deployment serves. Query, hash and a `/w/{workspace}` prefix are ignored;
+ * anything that isn't an in-app path is left alone.
+ */
+export function isHrefOffered(href: string): boolean {
+  if (!href.startsWith('/') || href.startsWith('//')) return true;
+  const pathname = href.split(/[?#]/, 1)[0];
+  return isRouteOffered(stripWorkspacePrefix(pathname));
 }
