@@ -352,7 +352,8 @@ async function main(): Promise<void> {
     await waitForServer(server);
     for (const suite of selected) {
       console.log(`\n== ${suite.name}: ${suite.tests.length} test file(s) against ${rustUrl}`);
-      const status = run('pnpm', ['exec', 'vitest', 'run', ...suite.tests], path.join(repo, suite.workspace), {
+      // One file at a time: Rust's side-effect recordings belong to one request.
+      const status = run('pnpm', ['exec', 'vitest', 'run', '--no-file-parallelism', ...suite.tests], path.join(repo, suite.workspace), {
         CONFORMANCE_TARGET: 'rust',
         CONFORMANCE_RUST_URL: rustUrl,
         CONFORMANCE_REPORT_DIR: reportDir,

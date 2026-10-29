@@ -8,6 +8,8 @@
 mod config;
 #[cfg(feature = "conformance")]
 mod conformance;
+mod infra;
+mod routes;
 mod server;
 
 use std::process::ExitCode;
@@ -111,6 +113,17 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let master = master_pool(&config.master_database_url, config.master_max_connections)?;
     let workspaces = Workspaces::new(master, config.keyring.clone(), config.workspaces.clone());
 
+    let tracker = weldsuite_events::TaskTracker::new();
+    #[cfg(not(feature = "conformance"))]
+    let infra = infra::connect(&config.infra, workspaces.master(), tracker.clone()).await?;
+    #[cfg(feature = "conformance")]
+    let (infra, recorders) = conformance::infra(tracker.clone());
+    let flags = Arc::new(weldsuite_pipeline::FlagGate::new(
+        Arc::clone(&infra.flags),
+        config.environment.clone(),
+        config.infra.test_fixtures_token.clone(),
+    ));
+
     let draining = Arc::new(AtomicBool::new(false));
     let state = AppState {
         service: "weldsuite",
@@ -119,6 +132,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         verifier: Arc::new(verifier),
         permissions_app_enforce: config.permissions_app_enforce,
         draining: Arc::clone(&draining),
+        infra,
+        permissions: AppState::permission_gate(config.permissions_app_enforce),
+        flags,
+        #[cfg(feature = "conformance")]
+        recorders,
     };
 
     let listener = tokio::net::TcpListener::bind(config.listen).await?;
@@ -126,6 +144,14 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, router(state))
         .with_graceful_shutdown(shutdown_signal(draining, config.shutdown_delay))
         .await?;
+    // Let fire-and-forget publishes finish before the process exits.
+    tracker.close();
+    if tokio::time::timeout(std::time::Duration::from_secs(10), tracker.wait())
+        .await
+        .is_err()
+    {
+        tracing::warn!("stopped with publishes still in flight");
+    }
     tracing::info!("stopped");
     Ok(())
 }

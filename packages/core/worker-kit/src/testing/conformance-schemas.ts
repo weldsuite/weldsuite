@@ -10,6 +10,8 @@
  * responses with.
  */
 
+import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
+import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
@@ -29,6 +31,10 @@ interface RouteSchema {
 
 const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/me/permissions', envelope: 'single', data: myPermissionsSchema },
+  { method: 'GET', route: '/api/feature-flags', envelope: 'single', data: featureFlagsResponseSchema },
+  { method: 'POST', route: '/api/access-requests', envelope: 'single', data: accessRequestSchema },
+  { method: 'PATCH', route: '/api/access-requests/:id', envelope: 'single', data: accessRequestSchema },
+  { method: 'GET', route: '/api/access-requests/me/pending', envelope: 'list', data: accessRequestSchema },
 ];
 
 /** null when valid, else why not. */

@@ -17,6 +17,7 @@ pub mod log_safe;
 pub mod pagination;
 pub mod request_id;
 pub mod response;
+pub mod validation;
 
 pub use cors::{
     api_cors, is_authorized_party, parse_extra_authorized_parties, resolve_cors_origin,

@@ -17,6 +17,7 @@ mod middleware;
 mod permissions;
 pub mod pg_errors;
 mod restrictions;
+mod rows;
 mod workspaces;
 
 pub use atomically::{TransactionFuture, atomically, atomically_with};
@@ -34,6 +35,7 @@ pub use pg_errors::{
 pub use restrictions::{
     ReadOnlyReason, RestrictionInput, WorkspaceRestrictions, compute_workspace_restrictions,
 };
+pub use rows::{camel_case, js_row, js_timestamp};
 pub use sqlx::PgPool;
 pub use workspaces::{
     Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError, Workspaces,

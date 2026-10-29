@@ -20,10 +20,13 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
-use weldsuite_auth::{AuthContext, SessionVerifier};
-use weldsuite_db::{Tenant, TenantPermissionQueries, Workspaces};
-use weldsuite_kit::{ApiError, Data, api_cors, request_id};
-use weldsuite_permissions::{app_context, resolve_effective_permissions};
+use weldsuite_auth::SessionVerifier;
+use weldsuite_db::{TenantPermissionQueries, Workspaces};
+use weldsuite_kit::{ApiError, api_cors, request_id};
+use weldsuite_permissions::{PermissionGate, app_context};
+use weldsuite_pipeline::FlagGate;
+
+use crate::infra::Infra;
 
 /// What the handlers share.
 #[derive(Clone)]
@@ -38,6 +41,34 @@ pub(crate) struct AppState {
     pub(crate) permissions_app_enforce: bool,
     /// Set on SIGTERM: `/readyz` fails so the pod leaves the Service first.
     pub(crate) draining: Arc<AtomicBool>,
+    /// Events, realtime, cache and flag source.
+    pub(crate) infra: Infra,
+    /// `requirePermission(...)` for the routes.
+    pub(crate) permissions: Arc<PermissionGate<TenantPermissionQueries>>,
+    pub(crate) flags: Arc<FlagGate>,
+    /// What conformance builds record instead of publishing.
+    #[cfg(feature = "conformance")]
+    pub(crate) recorders: crate::conformance::Recorders,
+}
+
+impl AppState {
+    /// The permission gate on the request's tenant database.
+    pub(crate) fn permission_gate(
+        app_enforced: bool,
+    ) -> Arc<PermissionGate<TenantPermissionQueries>> {
+        Arc::new(
+            PermissionGate::new(|extensions| {
+                extensions
+                    .get::<weldsuite_db::Tenant>()
+                    .map(|tenant| TenantPermissionQueries::new(tenant.db.clone()))
+                    .ok_or_else(|| {
+                        tracing::error!("permissions: no tenant database on the request");
+                        ApiError::internal()
+                    })
+            })
+            .app_enforced(app_enforced),
+        )
+    }
 }
 
 /// A per-request `PERMISSIONS_APP_ENFORCE`, set by conformance mode so a test
@@ -46,16 +77,24 @@ pub(crate) struct AppState {
 pub(crate) struct AppEnforcedOverride(pub(crate) bool);
 
 pub(crate) fn router(state: AppState) -> Router {
-    // Layers run outside in: session → tenant database → licence and
-    // read-only (`apiAuth()`'s order).
-    let api = Router::new()
-        .route("/me/permissions", get(me_permissions))
+    // Layers run outside in, in `apiAuth()`'s order: session → tenant
+    // database → licence and read-only → feature flags.
+    let api = crate::routes::api(&state)
         .fallback(not_found)
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.flags),
+            weldsuite_pipeline::feature_flags,
+        ))
         .layer(axum::middleware::from_fn(weldsuite_pipeline::licence_gate));
     let api = authenticated(api, &state);
 
-    Router::new()
-        .route("/livez", get(livez))
+    let root = Router::new();
+    #[cfg(feature = "conformance")]
+    let root = root.route(
+        "/__conformance/side-effects",
+        get(crate::conformance::side_effects),
+    );
+    root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
         .route("/robots.txt", get(robots))
@@ -164,32 +203,6 @@ async fn not_found(OriginalUri(uri): OriginalUri) -> ApiError {
     )
 }
 
-/// `GET /api/me/permissions`: the caller's effective permissions in this
-/// workspace, for clients that gate their UI. Every member may read their own.
-async fn me_permissions(
-    State(state): State<AppState>,
-    enforced: Option<axum::Extension<AppEnforcedOverride>>,
-    auth: AuthContext,
-    tenant: Tenant,
-) -> Result<Data<serde_json::Value>, ApiError> {
-    let app_enforced = enforced.map_or(state.permissions_app_enforce, |e| e.0.0);
-    let queries = TenantPermissionQueries::new(tenant.db.clone());
-    let resolved = resolve_effective_permissions(&queries, &auth.user_id)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "me: resolving permissions failed");
-            ApiError::internal().with_message("Failed to fetch permissions")
-        })?;
-    Ok(Data(json!({
-        "permissions": resolved.permissions,
-        "denies": resolved.denies,
-        "appEnforced": app_enforced,
-        "role": resolved.role,
-        "roleId": resolved.role_id,
-        "isOwner": resolved.is_owner,
-    })))
-}
-
 /// `Date#toISOString()`: UTC, milliseconds, `Z`.
 fn iso_timestamp() -> String {
     let now = time::OffsetDateTime::now_utc();
@@ -279,6 +292,15 @@ mod tests {
             verifier: Arc::new(verifier.into()),
             permissions_app_enforce: false,
             draining: Arc::new(AtomicBool::new(false)),
+            infra: crate::infra::Infra::disconnected(weldsuite_events::TaskTracker::new()),
+            permissions: AppState::permission_gate(false),
+            flags: Arc::new(weldsuite_pipeline::FlagGate::new(
+                Arc::new(weldsuite_ports::DefaultFlags),
+                "test",
+                None,
+            )),
+            #[cfg(feature = "conformance")]
+            recorders: crate::conformance::Recorders::default(),
         }
     }
 

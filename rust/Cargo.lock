@@ -2622,11 +2622,15 @@ dependencies = [
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
+ "weldsuite-adapters-oss",
  "weldsuite-auth",
+ "weldsuite-catalogs",
  "weldsuite-db",
+ "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-pipeline",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -2680,6 +2684,7 @@ dependencies = [
  "http",
  "serde_json",
  "sqlx",
+ "time",
  "tokio",
  "tracing",
  "weldsuite-auth",
@@ -2759,6 +2764,7 @@ dependencies = [
  "weldsuite-catalogs",
  "weldsuite-db",
  "weldsuite-kit",
+ "weldsuite-ports",
 ]
 
 [[package]]

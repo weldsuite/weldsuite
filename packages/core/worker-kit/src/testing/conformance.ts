@@ -23,6 +23,11 @@
  * 4. Status and JSON are compared (ids, timestamps and cursors normalised for
  *    writes), the body is validated against the route's Zod schema when one is
  *    registered (./conformance-schemas.ts), and the outcome is recorded.
+ * 5. Side effects are compared too: the Hono app gets recording
+ *    `ENTITY_EVENTS` and `REALTIME` bindings (unless the test brings its own),
+ *    Rust records through its port doubles, and both lists must match. The
+ *    runner runs one test file at a time, so Rust's recordings are this
+ *    request's.
  *
  * The test gets Rust's response, so its assertions check Rust too.
  */
@@ -80,6 +85,84 @@ interface ConformanceContext {
   factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
   permissions?: unknown;
+  /** The test's flag evaluator (`context.flags`), if any. */
+  flags?: unknown;
+}
+
+// ── side effects ────────────────────────────────────────────────────────────
+
+export interface SideEffects {
+  /** Messages sent to the `ENTITY_EVENTS` queue. */
+  events: unknown[];
+  /** POSTs to the realtime-worker, as `{ path, body }`. */
+  realtime: Array<{ path: string; body: unknown }>;
+}
+
+/**
+ * Recording `ENTITY_EVENTS` and `REALTIME` bindings for the Hono app, and a
+ * `drain()` that waits for the request's `waitUntil` work and returns what
+ * it sent.
+ */
+export function createSideEffectRecorder() {
+  const effects: SideEffects = { events: [], realtime: [] };
+  const pending: Promise<unknown>[] = [];
+  const copy = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
+  return {
+    bindings: {
+      ENTITY_EVENTS: {
+        send: async (message: unknown) => {
+          effects.events.push(copy(message));
+        },
+        sendBatch: async (messages: Array<{ body: unknown }>) => {
+          for (const message of messages) effects.events.push(copy(message.body));
+        },
+      },
+      REALTIME: {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+          const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
+          effects.realtime.push({ path: url.pathname, body });
+          return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
+        },
+      },
+    },
+    track(promise: Promise<unknown>) {
+      pending.push(promise);
+    },
+    async drain(): Promise<SideEffects> {
+      while (pending.length > 0) await Promise.allSettled(pending.splice(0));
+      return { events: effects.events.splice(0), realtime: effects.realtime.splice(0) };
+    },
+  };
+}
+
+export type SideEffectRecorder = ReturnType<typeof createSideEffectRecorder>;
+
+async function rustSideEffects(target: ConformanceTarget): Promise<SideEffects> {
+  const response = await fetch(`${target.url}/__conformance/side-effects`);
+  return (await response.json()) as SideEffects;
+}
+
+/** What the test's flag evaluator answers for every catalog flag, for Rust. */
+async function flagValues(flags: unknown): Promise<Record<string, unknown> | undefined> {
+  if (!flags || typeof flags !== 'object') return undefined;
+  const evaluator = flags as {
+    getValue?: (key: string) => Promise<unknown>;
+    isOn?: (key: string) => Promise<boolean>;
+  };
+  const { FLAGS } = await import('@weldsuite/feature-flags/flags');
+  const values: Record<string, unknown> = {};
+  for (const [key, definition] of Object.entries(FLAGS)) {
+    try {
+      if (typeof evaluator.getValue === 'function') values[key] = await evaluator.getValue(key);
+      else if (definition.type === 'boolean' && typeof evaluator.isOn === 'function') {
+        values[key] = await evaluator.isOn(key);
+      }
+    } catch {
+      // A stub that only knows some flags: the rest stay at their defaults.
+    }
+  }
+  return values;
 }
 
 export interface ConformanceRequest {
@@ -90,6 +173,8 @@ export interface ConformanceRequest {
   init: RequestInit | undefined;
   /** Run the request on the Hono app, against `tenantDb`. */
   runTypeScript: (tenantDb: Database, input: string, init?: RequestInit) => Promise<Response>;
+  /** The Hono app's recording bindings. */
+  sideEffects: SideEffectRecorder;
 }
 
 // ── the shared database ─────────────────────────────────────────────────────
@@ -121,7 +206,10 @@ function databaseUrlFor(client: PGliteClient): Promise<string> {
       const server = new PGLiteSocketServer({ db: client as never, port, host: '127.0.0.1', maxConnections: 8 });
       await server.start();
       process.once('beforeExit', () => void server.stop());
-      return `postgres://postgres:postgres@127.0.0.1:${port}/postgres?sslmode=disable`;
+      // A unique name per database: the Rust server keys its pools by URL, and a
+      // later test process may get the same port for a different database.
+      const name = `conformance-${process.pid}-${port}-${Date.now().toString(36)}`;
+      return `postgres://postgres:postgres@127.0.0.1:${port}/postgres?sslmode=disable&application_name=${name}`;
     })();
     servers.set(client, url);
   }
@@ -329,6 +417,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
     factorVerificationAge: ctx.factorVerificationAge ?? null,
     databaseUrl,
     permissions: ctx.permissions,
+    flags: await flagValues(ctx.flags),
     env: forwardedEnv,
   };
 
@@ -346,19 +435,29 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const runTypeScript = (db: Database) =>
     request.runTypeScript(db, input, { ...init, method, headers, body }).then(capture);
 
+  // Start both recordings empty.
+  await request.sideEffects.drain();
+  await rustSideEffects(target);
+
   let ts: Captured;
   let rust: Captured;
+  let tsEffects: SideEffects;
+  let rustEffects: SideEffects;
   if (isWrite) {
     const clone = await cloneDatabase(client);
     try {
       rust = await runRust();
+      rustEffects = await rustSideEffects(target);
       ts = await runTypeScript(clone.db);
+      tsEffects = await request.sideEffects.drain();
     } finally {
       await clone.close();
     }
   } else {
     ts = await runTypeScript(ctx.tenantDb);
+    tsEffects = await request.sideEffects.drain();
     rust = await runRust();
+    rustEffects = await rustSideEffects(target);
   }
 
   const route = ts.headers.get(ROUTE_HEADER);
@@ -369,6 +468,11 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
     difference = firstDifference(normalizeForDiff(ts.json, isWrite), normalizeForDiff(rust.json, isWrite));
   } else if (ts.text !== rust.text) {
     difference = 'response bodies differ';
+  }
+  if (difference === null) {
+    // New event ids and timestamps differ by construction, even on a read.
+    const effects = firstDifference(normalizeForDiff(tsEffects, true), normalizeForDiff(rustEffects, true));
+    if (effects) difference = `side effects: ${effects}`;
   }
 
   let schema: ConformanceRecord['schema'] = 'none';

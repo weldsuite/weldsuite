@@ -21,6 +21,7 @@ import {
   ROUTE_HEADER,
   conformanceRequest,
   conformanceTarget,
+  createSideEffectRecorder,
   recordInventory,
   recordOnlyRequest,
   recordOnlyTarget,
@@ -123,10 +124,15 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
 ) {
   ensurePermissionsInit();
   const ctx: TestContext = { ...defaultContext(), ...options.context };
-  const env = { ...defaultEnv(), ...options.env } as E;
-
   const target = conformanceTarget();
   const recorder = target ? null : recordOnlyTarget();
+  // Conformance mode records what the app sends to the queue and realtime.
+  const sideEffects = target ? createSideEffectRecorder() : null;
+  const env = {
+    ...defaultEnv(),
+    ...(sideEffects?.bindings ?? {}),
+    ...options.env,
+  } as E;
 
   const buildApp = (tenantDb: Database) => {
     const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {
@@ -175,6 +181,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
   const executionCtx = {
     waitUntil: (promise: Promise<unknown>) => {
       if (typeof promise?.catch === 'function') promise.catch(() => {});
+      if (sideEffects && promise) sideEffects.track(promise);
     },
     passThroughOnException: () => {},
     props: {},
@@ -196,6 +203,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
             init,
             runTypeScript: async (tenantDb, path, requestInit) =>
               buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
+            sideEffects: sideEffects!,
           }))
         : recorder
           ? inventory.then(() => recordOnlyRequest(recorder, init?.method ?? 'GET', input, () => runHere(input, init)))

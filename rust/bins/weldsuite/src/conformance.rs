@@ -12,11 +12,19 @@
 //!   "sessionId": "...", "factorVerificationAge": [0, 0],
 //!   "databaseUrl": "postgres://...",   // the test's pglite, over pglite-socket
 //!   "permissions": { ... },            // pre-resolved, like `context.permissions`
+//!   "flags": { "upgrade-button": true }, // what the test's `context.flags` answers
 //!   "env": { "PERMISSIONS_APP_ENFORCE": "true" } }
 //! ```
+//!
+//! Side effects are recorded instead of published (`Recorders`), and
+//! `GET /__conformance/side-effects` hands them over and clears them, in the
+//! shape the TypeScript bindings saw: queue messages, and realtime POSTs as
+//! `{ path, body }`. The suite runs one test file at a time, so the effects
+//! read after a request are that request's.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use axum::extract::{MatchedPath, Request, State};
 use axum::middleware::Next;
@@ -24,13 +32,72 @@ use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use serde::Deserialize;
+use serde_json::{Value, json};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use weldsuite_auth::AuthContext;
 use weldsuite_db::{PgPool, Tenant, WorkspaceRestrictions};
+use weldsuite_events::{EntityEventPublisher, TaskTracker};
 use weldsuite_kit::ApiError;
 use weldsuite_permissions::{AppContext, Permissions, ResolvedPermissions};
+use weldsuite_pipeline::Flags;
+use weldsuite_ports::{
+    DefaultFlags, FlagContext, MemoryCache, RecordingEventBus, RecordingRealtime, StaticFlags,
+};
 
-use crate::server::AppEnforcedOverride;
+use crate::infra::Infra;
+use crate::server::{AppEnforcedOverride, AppState};
+
+/// The doubles a conformance build publishes to.
+#[derive(Clone, Default)]
+pub(crate) struct Recorders {
+    events: Arc<RecordingEventBus>,
+    realtime: Arc<RecordingRealtime>,
+}
+
+/// Infrastructure that records instead of publishing.
+pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
+    let recorders = Recorders::default();
+    let infra = Infra {
+        events: EntityEventPublisher::new(Some(recorders.events.clone()), tracker),
+        realtime: Some(recorders.realtime.clone()),
+        cache: Some(Arc::new(MemoryCache::default())),
+        flags: Arc::new(DefaultFlags),
+    };
+    (infra, recorders)
+}
+
+/// `/publish/workspace`, `/publish/support/<id>`, …: the realtime-worker route
+/// the TypeScript publisher would have sent its POST to.
+fn realtime_path(channel: &str) -> String {
+    match channel.split_once(':') {
+        Some(("workspace", _)) => "/publish/workspace".to_owned(),
+        Some((room, id)) => format!("/publish/{room}/{id}"),
+        None => format!("/publish/{channel}"),
+    }
+}
+
+/// `GET /__conformance/side-effects`: everything recorded since the last call,
+/// after in-flight publishes finish.
+pub(crate) async fn side_effects(State(state): State<AppState>) -> axum::Json<Value> {
+    let tracker = state.infra.events.tracker();
+    for _ in 0..100 {
+        if tracker.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let events = state.recorders.events.payloads();
+    state.recorders.events.clear();
+    let realtime: Vec<Value> = state
+        .recorders
+        .realtime
+        .messages()
+        .into_iter()
+        .map(|message| json!({ "path": realtime_path(&message.channel), "body": message.payload }))
+        .collect();
+    state.recorders.realtime.clear();
+    axum::Json(json!({ "events": events, "realtime": realtime }))
+}
 
 pub(crate) const HEADER: &str = "x-weld-conformance";
 
@@ -64,6 +131,8 @@ struct TestContext {
     factor_verification_age: Option<[f64; 2]>,
     database_url: String,
     permissions: Option<TestPermissions>,
+    /// Flag values the test's `context.flags` answers; `None` = no evaluator.
+    flags: Option<HashMap<String, Value>>,
     #[serde(default)]
     env: HashMap<String, String>,
 }
@@ -147,6 +216,21 @@ pub(crate) async fn auth(
             app,
             app_enforced.unwrap_or(false),
             context.user_id.clone(),
+        ));
+    }
+    if let Some(values) = context.flags {
+        let source = values
+            .into_iter()
+            .fold(StaticFlags::new(), |flags, (key, value)| {
+                flags.with(&key, value)
+            });
+        extensions.insert(Flags::new(
+            Arc::new(source),
+            FlagContext {
+                workspace_id: context.workspace_id.clone(),
+                clerk_org_id: context.clerk_org_id.clone(),
+                user_id: context.user_id.clone(),
+            },
         ));
     }
     extensions.insert(Tenant {
