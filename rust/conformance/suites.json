@@ -39,6 +39,57 @@
       ]
     },
     {
+      "name": "core: team-members (manage)",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/team-members/manage.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/team-members/",
+        "apps/workers/app-api/src/services/seat-limits.ts",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "apps/workers/app-api/src/services/invitation-redirect.ts",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/clients/app-api-client/src/schemas/team-members.ts",
+        "packages/clients/app-api-client/src/schemas/team-members-manage.ts",
+        "rust/modules/core-team/src/groups/team_members/",
+        "rust/modules/core-team/src/groups/seats.rs"
+      ]
+    },
+    {
+      "name": "core: member-limits",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/member-limits/member-limits.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/member-limits/",
+        "apps/workers/app-api/src/services/seat-limits.ts",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "packages/clients/app-api-client/src/schemas/member-limits.ts",
+        "rust/modules/core-team/src/groups/member_limits.rs",
+        "rust/modules/core-team/src/groups/seats.rs"
+      ]
+    },
+    {
+      "name": "core: my-role",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/my-role/my-role.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/my-role/",
+        "packages/core/permissions/src/",
+        "packages/clients/app-api-client/src/schemas/member-limits.ts",
+        "rust/modules/core-team/src/groups/my_role.rs"
+      ]
+    },
+    {
       "name": "know",
       "module": "know",
       "workspace": "apps/workers/know-api",
