@@ -10,6 +10,8 @@ mod config;
 mod conformance;
 #[cfg(feature = "conformance")]
 mod conformance_files;
+#[cfg(feature = "conformance")]
+mod conformance_outbound;
 mod infra;
 mod routes;
 mod server;
@@ -130,6 +132,8 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         public_auth,
         #[cfg(feature = "conformance")]
         recorders,
+        #[cfg(feature = "conformance")]
+        conformance_pools: Arc::default(),
     };
 
     let (stopping, stop) = tokio::sync::watch::channel(false);

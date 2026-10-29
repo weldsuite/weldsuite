@@ -42,6 +42,13 @@ import { pgliteClientOf } from './pglite';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
+import {
+  type OutboundCall,
+  outboundBridgeUrl,
+  recordOutbound,
+  sortOutbound,
+  takeRustOutbound,
+} from './outbound-bridge';
 
 export interface ConformanceTarget {
   url: string;
@@ -104,6 +111,8 @@ export interface SideEffects {
   realtime: Array<{ path: string; body: unknown }>;
   /** System mail, compared as records (./conformance-mail.ts). */
   mail: MailRecord[];
+  /** Calls to third-party APIs (Clerk, Expo, …), sorted (./outbound-bridge.ts). */
+  outbound?: OutboundCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -283,6 +292,11 @@ async function cloneDatabase(client: PGliteClient): Promise<{ db: Database; clos
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/**
+ * `Date.now()` inside a string (a storage key, a URL): 13 digits from 2001 to
+ * 2286, not part of a longer number. Differs between two runs of a write.
+ */
+const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
 
 /**
  * Sorted keys, and for writes the values that differ by construction between
@@ -302,6 +316,7 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
     if (key === 'cursor') return '<cursor>';
     if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
     if (GENERATED_ID.test(value)) return '<id>';
+    return value.replace(EPOCH_MS, '<epoch-ms>');
   }
   return value;
 }
@@ -476,6 +491,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     env: forwardedEnv,
     // The test's buckets, served over HTTP so Rust shares their objects.
     files: await bucketUrls(env),
+    // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
+    outbound: await outboundBridgeUrl(),
   };
 }
 
@@ -504,29 +521,39 @@ async function runBoth(
   // Start both recordings empty.
   await request.sideEffects.drain();
   await rustSideEffects(request.target);
+  takeRustOutbound();
+
+  // The Hono app's run, its `waitUntil` work included, with its outbound calls.
+  const typeScript = async (db: Database) => {
+    const { result, calls } = await recordOutbound(async () => {
+      const ts = await runTypeScript(db);
+      return { ts, effects: await request.sideEffects.drain() };
+    });
+    return {
+      ts: result.ts,
+      tsEffects: { ...result.effects, outbound: sortOutbound(calls) },
+      tsMail: request.sideEffects.lastMail(),
+    };
+  };
+  // Rust's run; its outbound calls are what reached the bridge.
+  const rustRun = async () => {
+    const rust = await runRust();
+    const side = await rustSideEffects(request.target);
+    return {
+      rust,
+      rustEffects: { ...side.effects, outbound: sortOutbound(takeRustOutbound()) },
+      rustMail: side.mail,
+    };
+  };
 
   if (!isWrite) {
-    const ts = await runTypeScript(request.ctx.tenantDb);
-    const tsEffects = await request.sideEffects.drain();
-    const tsMail = request.sideEffects.lastMail();
-    const rust = await runRust();
-    const rustSide = await rustSideEffects(request.target);
-    return { ts, tsEffects, tsMail, rust, rustEffects: rustSide.effects, rustMail: rustSide.mail };
+    const ts = await typeScript(request.ctx.tenantDb);
+    return { ...ts, ...(await rustRun()) };
   }
   const clone = await cloneDatabase(client);
   try {
-    const rust = await runRust();
-    const rustSide = await rustSideEffects(request.target);
-    const ts = await runTypeScript(clone.db);
-    const tsEffects = await request.sideEffects.drain();
-    return {
-      ts,
-      rust,
-      rustEffects: rustSide.effects,
-      rustMail: rustSide.mail,
-      tsEffects,
-      tsMail: request.sideEffects.lastMail(),
-    };
+    const rust = await rustRun();
+    return { ...rust, ...(await typeScript(clone.db)) };
   } finally {
     await clone.close();
   }

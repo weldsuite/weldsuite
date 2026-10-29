@@ -32,6 +32,22 @@ import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-v
 import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
 import {
+  notificationPreferenceRefSchema,
+  notificationPreferenceSchema,
+} from '@weldsuite/app-api-client/schemas/notification-preferences';
+import {
+  pushTestResultSchema,
+  pushTokenRegisteredSchema,
+  pushTokenListSchema,
+  pushTokenUnregisteredSchema,
+} from '@weldsuite/app-api-client/schemas/push-tokens';
+import { selfAvatarSchema, selfProfileSchema } from '@weldsuite/app-api-client/schemas/settings-profile';
+import {
+  userFontSizeSchema,
+  userPreferencesSchema,
+  userThemeSchema,
+} from '@weldsuite/app-api-client/schemas/user-preferences';
+import {
   knowledgeFavoriteRefSchema,
   knowledgeFavoriteSchema,
   knowledgeMembershipSchema,
@@ -86,6 +102,27 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/access-requests', envelope: 'single', data: accessRequestSchema },
   { method: 'PATCH', route: '/api/access-requests/:id', envelope: 'single', data: accessRequestSchema },
   { method: 'GET', route: '/api/access-requests/me/pending', envelope: 'list', data: accessRequestSchema },
+  // core: settings-profile
+  { method: 'GET', route: '/api/settings/profile', envelope: 'single', data: selfProfileSchema },
+  { method: 'PUT', route: '/api/settings/profile', envelope: 'single', data: selfProfileSchema },
+  { method: 'PUT', route: '/api/settings/profile/avatar', envelope: 'single', data: selfAvatarSchema },
+  // core: user-preferences
+  { method: 'GET', route: '/api/user-preferences', envelope: 'single', data: userPreferencesSchema },
+  { method: 'PUT', route: '/api/user-preferences', envelope: 'single', data: userPreferencesSchema },
+  { method: 'PATCH', route: '/api/user-preferences/theme', envelope: 'single', data: userThemeSchema },
+  { method: 'PATCH', route: '/api/user-preferences/font-size', envelope: 'single', data: userFontSizeSchema },
+  // core: notification-preferences
+  { method: 'GET', route: '/api/notification-preferences', envelope: 'list', data: notificationPreferenceSchema },
+  { method: 'GET', route: '/api/notification-preferences/:id', envelope: 'single', data: notificationPreferenceSchema },
+  { method: 'PUT', route: '/api/notification-preferences', envelope: 'single', data: notificationPreferenceSchema },
+  { method: 'PUT', route: '/api/notification-preferences/module/:module', envelope: 'single', data: notificationPreferenceSchema },
+  { method: 'POST', route: '/api/notification-preferences', envelope: 'single', data: notificationPreferenceRefSchema },
+  { method: 'PATCH', route: '/api/notification-preferences/:id', envelope: 'single', data: notificationPreferenceRefSchema },
+  // core: push-tokens
+  { method: 'GET', route: '/api/push-tokens', envelope: 'single', data: pushTokenListSchema },
+  { method: 'POST', route: '/api/push-tokens', envelope: 'single', data: pushTokenRegisteredSchema },
+  { method: 'POST', route: '/api/push-tokens/test', envelope: 'single', data: pushTestResultSchema },
+  { method: 'DELETE', route: '/api/push-tokens', envelope: 'single', data: pushTokenUnregisteredSchema },
   // know (WeldKnow)
   { method: 'GET', route: '/api/knowledge/spaces', envelope: 'list', data: knowledgeSpaceSchema },
   { method: 'POST', route: '/api/knowledge/spaces', envelope: 'single', data: knowledgeSpaceRowSchema },

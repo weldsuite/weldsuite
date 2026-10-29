@@ -48,7 +48,8 @@ rust/
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/core-files (app-api files, folders, drive, search),
-                        modules/core-objects (WeldObjects, custom fields, object templates, grid views);
+                        modules/core-objects (WeldObjects, custom fields, object templates, grid views),
+                        modules/core-team (team, roles, settings, preferences, app catalog);
                         core areas are mounted in conformance builds only until complete
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job

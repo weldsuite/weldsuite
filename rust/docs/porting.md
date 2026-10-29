@@ -102,7 +102,14 @@ templates).
    binary). Every request runs on both backends: a read on the shared pglite,
    a write on Rust first and TypeScript on a copy. Status, body, schema and
    side effects (entity events, realtime) must match.
-5. The harness shares what a test sets up: the tenant pglite, `masterDb` from
+5. Third-party APIs (Clerk's Backend API today) are ports
+   (`weldsuite_ports::Identity`). In conformance mode Rust's calls go through
+   the harness's outbound bridge (`outbound-bridge.ts`,
+   `conformance_outbound.rs`) into the test's own `fetch` stub, and the calls
+   both backends made are compared as a side effect (method, URL, body). A
+   stub answers both runs, so it must answer by URL and method
+   (`mockImplementation`), never by call order (`mockResolvedValueOnce`).
+6. The harness shares what a test sets up: the tenant pglite, `masterDb` from
    the test context, R2-shaped buckets in `env` (served over HTTP), and the
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see

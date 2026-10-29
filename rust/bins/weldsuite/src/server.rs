@@ -56,6 +56,10 @@ pub(crate) struct AppState {
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
+    /// The test databases and bridges, shared by every conformance route
+    /// (one connection per pglite).
+    #[cfg(feature = "conformance")]
+    pub(crate) conformance_pools: Arc<crate::conformance::Pools>,
 }
 
 impl AppState {
@@ -96,6 +100,8 @@ pub(crate) fn router(state: AppState) -> Router {
         ))
         .layer(axum::middleware::from_fn(weldsuite_pipeline::licence_gate));
     let api = authenticated(api, &state);
+    // Session only, no workspace: app-api mounts these above its guard.
+    let api = api.merge(signed_in(crate::routes::account(&state), &state));
 
     let root = Router::new();
     #[cfg(feature = "conformance")]
@@ -135,13 +141,30 @@ fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     ))
 }
 
+/// The session alone, for the routes that need no workspace
+/// (`clerkMiddleware()` without `workspaceDbMiddleware()`).
+#[cfg(not(feature = "conformance"))]
+fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    api.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.verifier),
+        weldsuite_auth::clerk_auth,
+    ))
+}
+
 /// Conformance builds take the test's context from a header instead.
 #[cfg(feature = "conformance")]
-fn authenticated(api: Router<AppState>, _state: &AppState) -> Router<AppState> {
+fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     api.layer(axum::middleware::from_fn_with_state(
-        Arc::new(crate::conformance::Pools::default()),
+        Arc::clone(&state.conformance_pools),
         crate::conformance::auth,
     ))
+}
+
+/// Conformance builds take the test's context from a header, workspace or
+/// not.
+#[cfg(feature = "conformance")]
+fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    authenticated(api, state)
 }
 
 async fn livez() -> &'static str {
@@ -345,6 +368,8 @@ mod tests {
             public_auth: None,
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
+            #[cfg(feature = "conformance")]
+            conformance_pools: Arc::default(),
         }
     }
 
