@@ -14,6 +14,7 @@ pub mod consumers;
 pub mod cron;
 mod routes;
 pub mod send;
+mod util;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -92,6 +93,9 @@ where
     Router::new()
         .merge(routes::mail_sending::routes(state.clone(), gate))
         .merge(routes::mail_accounts::routes(state.clone(), gate))
+        .merge(routes::mail_folders::routes(state.clone(), gate))
+        .merge(routes::mail_labels::routes(state.clone(), gate))
+        .merge(routes::mail_signatures::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 

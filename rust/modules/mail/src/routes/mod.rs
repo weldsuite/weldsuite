@@ -3,5 +3,8 @@
 
 pub(crate) mod internal_outbound;
 pub(crate) mod mail_accounts;
+pub(crate) mod mail_folders;
+pub(crate) mod mail_labels;
 pub(crate) mod mail_messages;
 pub(crate) mod mail_sending;
+pub(crate) mod mail_signatures;

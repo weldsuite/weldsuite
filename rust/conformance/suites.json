@@ -617,6 +617,37 @@
       ]
     },
     {
+      "name": "mail: accounts",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-accounts/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
+      "name": "mail: labels, folders, signatures",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-labels/routes.test.ts",
+        "src/routes/mail-labels/access.test.ts",
+        "src/routes/mail-folders/routes.test.ts",
+        "src/routes/mail-signatures/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
       "name": "crm: sequences",
       "module": "crm",
       "workspace": "apps/workers/crm-api",

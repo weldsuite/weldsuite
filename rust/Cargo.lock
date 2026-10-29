@@ -4365,6 +4365,7 @@ name = "weldsuite-mail"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "form_urlencoded",
  "http",
  "reqwest",
  "serde",
@@ -4374,6 +4375,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "uuid",
  "weldsuite-auth",
  "weldsuite-catalogs",
  "weldsuite-db",

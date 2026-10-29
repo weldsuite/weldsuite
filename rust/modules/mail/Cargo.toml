@@ -19,6 +19,7 @@ weldsuite-mail-domain = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-ports = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }
+form_urlencoded = { workspace = true }
 http = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
@@ -27,6 +28,7 @@ sha2 = { workspace = true }
 sqlx = { workspace = true }
 time = { workspace = true }
 tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

@@ -13,6 +13,7 @@ use weldsuite_db::{MasterDb, PgPool, Tenant};
 use weldsuite_events::{EventContext, publish_entity_event};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_mail_domain::outbound::{OutboundBindings, OutboundGuard, RequestOutbound};
+use weldsuite_permissions::Permissions;
 use weldsuite_ports::{DynCache, FileStores, RequestCache};
 
 use crate::MailState;
@@ -97,10 +98,11 @@ pub(crate) struct Caller {
     /// `c.get('orgId')`.
     pub(crate) org_id: Option<String>,
     /// `c.get('workspaceId')`: `workspaces.id`.
-    #[allow(dead_code)] // the forward route (next)
     pub(crate) workspace_id: String,
     pub(crate) events: EventContext,
     pub(crate) bindings: Bindings,
+    /// The permissions `requirePermission` resolved for the request.
+    pub(crate) permissions: Option<Permissions>,
 }
 
 impl Caller {
@@ -110,6 +112,13 @@ impl Caller {
             .as_deref()
             .filter(|org| !org.is_empty())
             .ok_or_else(ApiError::org_required)
+    }
+
+    /// `hasContextPermission(c, key)`.
+    pub(crate) fn can(&self, key: &str) -> bool {
+        self.permissions
+            .as_ref()
+            .is_some_and(|permissions| permissions.has_any(&[key]))
     }
 
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
@@ -143,6 +152,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 workspace_id: tenant.workspace_id.clone(),
                 events: EventContext::for_request(auth, tenant),
                 bindings: Bindings::from_parts(parts),
+                permissions: parts.extensions.get::<Permissions>().cloned(),
             })
         } else {
             tracing::error!("mail: a route without the session or tenant layer");
