@@ -54,7 +54,7 @@ differ.
 - An **age** key pair for SOPS: `age-keygen -o eu.agekey`. Keep the private
   key outside git (a password manager); the cluster gets a copy in step 6.
 - Tools: `tofu` (OpenTofu ≥ 1.9), `talosctl` v1.14, `kubectl`, `flux` v2.9,
-  `sops`, `age`, `hcloud-upload-image`, and `pnpm` for the migrations.
+  `sops`, `age` and `hcloud-upload-image`.
 - A read-only **deploy key** for this repository (Flux pulls; it never pushes).
 - Access to the `weldsuite` and `weldsuite-sign-portal` images (ghcr.io
   today, the EU registry later). Both build from `rust/Dockerfile` at the repo
@@ -229,39 +229,56 @@ instance by host name, so an in-cluster URL needs that host.
 
 ## 8. The master database schema
 
-The `master` cluster starts with an empty `weldsuite_master` database. Apply
-the journaled master migrations, straight to the cluster (not through
-PgBouncer):
+The `master` cluster starts with an empty `weldsuite_master` database. The
+chart's migration Job builds it: Flux's first install runs
+`weldsuite migrate --master --tenants` as a pre-install hook, with the
+release's image and the `weldsuite-env` Secret, before any pod starts, and
+every upgrade runs it again first (`migrations` in
+`flux/apps/eu/values/weldsuite.yaml`). The migrations are built into the
+image, so there is nothing to apply by hand. Follow it with
 
 ```bash
-kubectl -n postgres port-forward service/master-rw 15432:5432 &
-MASTER_DATABASE_URL="postgres://weldsuite:<master owner password>@127.0.0.1:15432/weldsuite_master?sslmode=require" \
-  pnpm --filter @weldsuite/db db:migrate:master
+kubectl -n weldsuite get jobs -w                  # weldsuite-migrate, removed once it succeeded
+kubectl -n weldsuite logs -f job/weldsuite-migrate
 ```
 
-Run it again after every release that adds a master migration (the chart's
-migration Job is P5 work package 5.1).
+A failed Job stays, with its log, and fails the release; fix the cause and
+let Flux retry (`flux reconcile helmrelease weldsuite -n weldsuite`). To run
+it by hand against the live cluster, use a server pod, which has the same
+environment (the image has no shell):
+`kubectl -n weldsuite exec deploy/weldsuite -- /usr/local/bin/weldsuite migrate --dry-run`.
 
 ## Tenant databases
 
 Each workspace has its own database on a tenant shard (DATA-016); `tenants-1`
-is the first. Until the `DatabaseProvisioner` port exists (P4 4a), a
-workspace's database is made by hand:
+is the first. The `DatabaseProvisioner` port's CloudNativePG adapter
+(`rust/crates/adapters-oss/src/cnpg.rs`) makes them; the provisioning job
+that calls it on signup is P4 4a. What it does, so a database can be checked
+or made the same way by hand:
 
-```bash
-kubectl -n postgres port-forward service/tenants-1-rw 25432:5432 &
-psql "postgres://tenant:<tenant password>@127.0.0.1:25432/tenants?sslmode=require" \
-  -c 'CREATE DATABASE ws_<workspace id>'
-DATABASE_URL="postgres://tenant:<tenant password>@127.0.0.1:25432/ws_<workspace id>?sslmode=require" \
-  pnpm --filter @weldsuite/db exec drizzle-kit migrate --config=drizzle.config.ts
-```
+- It logs in to the shard's primary (`tenants-1-rw`) as `tenant`, which
+  needs `CREATEDB` and `CREATEROLE` (the `Cluster`'s `postInitSQL`; on a
+  cluster made before that, run `ALTER ROLE tenant CREATEDB CREATEROLE` once).
+- Role `role_<workspace id>` with a random password, database
+  `ws_<workspace id>` owned by it, `REVOKE ALL ON DATABASE … FROM PUBLIC`
+  (`vector` and `pg_trgm` come from `template1`).
+- The workspace's master row gets its placement (`neon_project_id` =
+  `cnpg:tenants-1`, `shared_project_id` = the shard's `neon_shared_projects`
+  row, which counts its databases, `neon_database_name`, `neon_role_name`)
+  and `database_url`:
+  `postgres://role_<id>:<password>@tenants-1-pooler.postgres.svc:5432/ws_<id>?sslmode=require`,
+  sealed with `DATABASE_ENCRYPTION_KEY_V2` (v3 with `FIELD_ENCRYPTION_AAD_WRITES`).
+  The server also reads a plain URL, as the kind smoke test does, but don't
+  store one in production.
+- Then the tenant migrations, as `weldsuite migrate` applies them. By hand,
+  for a database already placed and stored:
+  `kubectl -n weldsuite exec deploy/weldsuite -- /usr/local/bin/weldsuite migrate --tenants --only <workspace id>`.
 
-Its `workspaces.database_url` points at the pooler:
-`postgres://tenant:<password>@tenants-1-pooler.postgres.svc:5432/ws_<id>?sslmode=require`,
-encrypted with `DATABASE_ENCRYPTION_KEY` (the server also reads a plain URL,
-as the kind smoke test does, but don't store one in production). A new shard
-is another `Cluster` + `Pooler` + `ObjectStore` + `ScheduledBackup` copied
-from `tenants-1`.
+The provisioner's shards come from its configuration (`TENANT_SHARDS`, a
+JSON list: `name`, `adminUrl` to `<cluster>-rw` as `tenant`, `poolerHost`,
+optional `poolerPort`, `urlOptions`, `maxDatabases`). A new shard is another
+`Cluster` + `Pooler` + `ObjectStore` + `ScheduledBackup` copied from
+`tenants-1`, plus an entry there.
 
 ## Backups and restores
 
@@ -290,8 +307,9 @@ Be clear about this before anyone signs a contract:
   config (P4 4.F1/4.F2/4.F5) is needed before anyone can sign in through
   Zitadel. The Zitadel identity adapter exists; the team routes that call it
   (invitations, members) are not ported yet.
-- **Workspace lifecycle.** Signup, onboarding and database provisioning
-  (P4 4a) are not ported; tenant databases are made by hand (above).
+- **Workspace lifecycle.** Signup, onboarding and the provisioning job
+  (P4 4a) are not ported. The database provisioner they will call exists
+  (above), but nothing calls it yet.
 - **Frontends.** The server serves the platform SPA from its image at
   `app.<domain>` (built with `VITE_RUNTIME_CONFIG=on`: it reads
   `/config.json` and calls the API on its own origin). The sign portal runs

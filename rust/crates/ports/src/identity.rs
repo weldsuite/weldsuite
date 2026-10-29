@@ -30,10 +30,16 @@
 //! | [`Identity::create_organization`] | `POST /organizations` | onboarding (a new workspace) |
 //! | [`Identity::update_organization_metadata`] | `PATCH /organizations/{org}/metadata` | onboarding |
 //! | [`Identity::changes_since`] | (Clerk pushes webhooks instead) | the identity sync |
+//! | [`Identity::sessions`] | `GET /sessions?user_id=…&status=active&limit=100` | sign out other devices |
+//! | [`Identity::session`] | `GET /sessions/{id}` | sign out a device |
+//! | [`Identity::revoke_session`] | `POST /sessions/{id}/revoke` | sign out devices |
 //!
 //! The methods from [`Identity::user_profile`] on have default
 //! implementations that answer [`IdentityError::Unavailable`], so an adapter
-//! that doesn't offer them compiles unchanged.
+//! that doesn't offer them compiles unchanged. For the session methods that
+//! default is also the answer of a provider that leaves sessions to its own
+//! console (Zitadel's self-service today), as the workers answer when Clerk
+//! cannot be reached.
 //!
 //! Without a provider (`None` in the app state) every call is
 //! [`IdentityError::Unavailable`], which the routes answer as the workers do
@@ -306,6 +312,22 @@ pub struct User {
     pub id: String,
 }
 
+/// A user's sign-in session on one device.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Session {
+    pub id: String,
+    pub user_id: String,
+    pub status: String,
+}
+
+fn sessions_unsupported<'a, T: Send + 'a>() -> BoxFuture<'a, IdentityResult<T>> {
+    Box::pin(async {
+        Err(IdentityError::Unavailable(
+            "the identity provider does not manage sessions here".to_owned(),
+        ))
+    })
+}
+
 /// The identity provider's management API. See the module docs for the
 /// calls each method stands for.
 pub trait Identity: Send + Sync {
@@ -389,6 +411,25 @@ pub trait Identity: Send + Sync {
     ) -> BoxFuture<'a, IdentityResult<Vec<Membership>>>;
 
     fn delete_user<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<()>>;
+
+    /// The user's active sessions (at most 100). A provider without session
+    /// management answers [`IdentityError::Unavailable`], as here by default.
+    fn sessions<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<Vec<Session>>> {
+        let _ = user_id;
+        sessions_unsupported()
+    }
+
+    /// One session; a missing one is a 404 refusal.
+    fn session<'a>(&'a self, session_id: &'a str) -> BoxFuture<'a, IdentityResult<Session>> {
+        let _ = session_id;
+        sessions_unsupported()
+    }
+
+    /// Sign one session out.
+    fn revoke_session<'a>(&'a self, session_id: &'a str) -> BoxFuture<'a, IdentityResult<()>> {
+        let _ = session_id;
+        sessions_unsupported()
+    }
 
     /// A user's profile (`users.getUser`): the email addresses, for a label.
     /// Providers without the call answer [`IdentityError::Unavailable`].

@@ -6,6 +6,7 @@ pub(crate) mod invitations;
 pub(crate) mod member_limits;
 pub(crate) mod my_role;
 pub(crate) mod notification_preferences;
+pub(crate) mod prepaid_seats;
 pub(crate) mod push_tokens;
 pub(crate) mod roles;
 pub(crate) mod seats;

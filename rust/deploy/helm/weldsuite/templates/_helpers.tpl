@@ -46,8 +46,9 @@ app.kubernetes.io/component: api
 {{- end }}
 
 {{/*
-The environment of every container that runs the image: the server and the
-migration Job read the same settings (rust/bins/weldsuite/src/config.rs).
+The environment of every container that runs the binary: the server, the
+cron jobs and the migration Job read the same settings
+(rust/bins/weldsuite/src/config.rs).
 */}}
 {{- define "weldsuite.env" -}}
 - name: PORT

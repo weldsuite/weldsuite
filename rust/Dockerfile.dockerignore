@@ -35,8 +35,13 @@
 **/.env.*
 **/.dev.vars
 rust/**/tests
-# The Drizzle migrations (~290 MB of SQL and snapshots): no frontend reads them.
+# The Drizzle migrations (~290 MB, nearly all of it snapshots): only their SQL
+# and journals, which `weldsuite migrate` embeds (crates/migrations/build.rs).
 packages/core/db/drizzle
+!packages/core/db/drizzle/master-migrations/*.sql
+!packages/core/db/drizzle/master-migrations/meta/_journal.json
+!packages/core/db/drizzle/tenant-migrations/*.sql
+!packages/core/db/drizzle/tenant-migrations/meta/_journal.json
 apps/web/platform/docs
 apps/web/platform/e2e
 apps/web/platform/playwright-report

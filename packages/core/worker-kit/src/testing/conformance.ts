@@ -92,6 +92,14 @@ export const CONFORMANCE_HEADER = 'X-Weld-Conformance';
 export const ROUTE_HEADER = 'X-Weld-Route';
 
 /**
+ * Request header a test sets on a GET that writes (a record created on first
+ * access), so it is compared as a write: Rust on the database, TypeScript on a
+ * copy. Run as a read, TypeScript would create the record and Rust then find
+ * it. Neither backend reads it.
+ */
+export const CONFORMANCE_WRITE_HEADER = 'X-Weld-Conformance-Write';
+
+/**
  * Env bindings the Rust server honours per request in conformance mode.
  * `CLERK_JWT_KEY` (and `CLERK_AUTHORIZED_PARTIES`) let a test sign its own
  * session tokens for the routes that verify one themselves.
@@ -387,6 +395,13 @@ const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
  * 2286, not part of a longer number. Differs between two runs of a write.
  */
 const EPOCH_MS = /(?<!\d)1\d{12}(?!\d)/g;
+/** An API key's display prefix (`wsk_` and the random key's first 8 hex characters). */
+const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
+/**
+ * A random token in hex (16 random bytes, e.g. an SSO domain's TXT record
+ * value), on its own or inside a string. New on every run of a write.
+ */
+const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 /** The `<Date.now()>_<random UUID hex>` segment of a new upload's object key. */
@@ -420,6 +435,10 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
         .map((k) => [k, normalizeForDiff((value as Record<string, unknown>)[k], isWrite, k)]),
     );
   }
+  // A realtime room payload's `ts: Date.now()`.
+  if (isWrite && key === 'ts' && typeof value === 'number' && Number.isInteger(value) && value >= 1e12 && value < 1e13) {
+    return '<epoch-ms>';
+  }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
   return value;
@@ -436,14 +455,17 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (key === 'finalSha256' && SHA256_HEX.test(value)) return '<sha256>';
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
+  if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (GENERATED_ID.test(value)) return '<id>';
   // Storage: upload tokens, an upload key's random segment and a signed
-  // URL's credential, then any other `Date.now()` (the key's segment holds one).
+  // URL's credential; then 16-byte hex tokens (an SSO domain's TXT value) and
+  // any other `Date.now()` (the key's segment holds one).
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
+    .replace(RANDOM_HEX, '<hex>')
     .replace(EPOCH_MS, '<epoch-ms>');
 }
 
@@ -758,7 +780,7 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();
-  const isWrite = !SAFE_METHODS.has(method);
+  const isWrite = !SAFE_METHODS.has(method) || new Headers(init?.headers).has(CONFORMANCE_WRITE_HEADER);
 
   const client = pgliteClientOf(ctx.tenantDb);
   if (!client) {

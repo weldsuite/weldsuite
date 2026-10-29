@@ -37,9 +37,9 @@ usage: weldsuite <command>
 
 commands:
   serve      run the HTTP API (configured by environment variables)
+  cron <job> run one scheduled job and exit: sign-lifecycle
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
-  cron <job> run one scheduled job and exit: sign-lifecycle
   version    print the version and exit
   help       print this message and exit";
 
@@ -58,8 +58,8 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("serve") => serve(),
-        Some("migrate") => migrate::run(&args[1..]),
         Some("cron") => cron::main(args.get(1).map(String::as_str)),
+        Some("migrate") => migrate::run(&args[1..]),
         Some("version" | "--version" | "-V") => {
             println!("{}", version());
             ExitCode::SUCCESS

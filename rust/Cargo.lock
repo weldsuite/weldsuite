@@ -3652,6 +3652,7 @@ dependencies = [
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
+ "weldsuite-core-platform",
  "weldsuite-core-team",
  "weldsuite-db",
  "weldsuite-emails",
@@ -3805,6 +3806,29 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-core-platform"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "http",
+ "reqwest",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]

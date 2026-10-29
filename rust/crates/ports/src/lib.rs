@@ -51,7 +51,7 @@ pub use identity::{
     ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
     IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
     NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
-    OrganizationRef, User, UserChanges, UserProfile, merge_metadata, with_identity,
+    OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata, with_identity,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{

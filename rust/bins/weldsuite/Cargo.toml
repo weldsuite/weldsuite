@@ -20,6 +20,7 @@ weldsuite-catalogs = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-files = { workspace = true }
+weldsuite-core-platform = { workspace = true }
 weldsuite-core-team = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-emails = { workspace = true }

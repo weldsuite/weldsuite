@@ -290,15 +290,10 @@ impl Pools {
         if let Some(verifier) = self.verifier(&context.env) {
             extensions.insert(verifier);
         }
-        // The identity provider answers from the test's fetch stub.
+        // The identity provider and the other third parties answer from the
+        // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {
-            extensions.insert(weldsuite_ports::IdentityProvider(
-                self.outbound.identity(bridge),
-            ));
-            // Expo's push API too (`POST /api/push-tokens/test`).
-            extensions.insert(self.outbound.expo(bridge));
-            // WeldApps' gateway forwards and lifecycle webhooks.
-            extensions.insert(self.outbound.apps_http(bridge));
+            self.outbound.extend(extensions, bridge);
         }
     }
 

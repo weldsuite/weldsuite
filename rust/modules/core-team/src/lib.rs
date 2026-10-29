@@ -13,6 +13,7 @@
 //! | [`roles`] | `/api/roles` | `routes/roles` |
 //! | [`my_role`] | `/api/my-role` | `routes/my-role` |
 //! | [`member_limits`] | `/api/member-limits` | `routes/member-limits` |
+//! | [`prepaid_seats`] | `/api/prepaid-seats` | `routes/prepaid-seats` |
 //! | [`workspace_settings`] | `/api/workspace-settings` | `routes/workspace-settings` |
 //! | [`settings_profile`] | `/api/settings/profile` | `routes/settings-profile` |
 //! | [`user_preferences`] | `/api/user-preferences` | `routes/user-preferences` |
@@ -106,6 +107,10 @@ group_router!(
 group_router!(
     /// `/api/member-limits`: the seat limit, the seats in use.
     member_limits
+);
+group_router!(
+    /// `/api/prepaid-seats`: the prepaid seats, the seats in use.
+    prepaid_seats
 );
 group_router!(
     /// `/api/workspace-settings`: settings, rename, slug, deletion.

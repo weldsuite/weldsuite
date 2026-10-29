@@ -1,9 +1,9 @@
 //! Embeds the journaled Drizzle migrations
 //! (`packages/core/db/drizzle/{master,tenant}-migrations`) in the crate: one
 //! table per folder, in the order of its `meta/_journal.json`, each entry's
-//! SQL pulled in with `include_str!`. The image builds from `rust/`, so the
-//! Dockerfile passes the folder as a second build context and points
-//! `WELDSUITE_DRIZZLE_DIR` at it; elsewhere it is found next to `rust/`.
+//! SQL pulled in with `include_str!`. The image builds from the repository
+//! root: the Dockerfile copies the folder's SQL and journals and points
+//! `WELDSUITE_DRIZZLE_DIR` at them; elsewhere it is found next to `rust/`.
 
 use std::env;
 use std::fmt::Write as _;
@@ -31,8 +31,8 @@ fn main() {
         let text = fs::read_to_string(&journal_path).unwrap_or_else(|error| {
             panic!(
                 "cannot read {}: {error}. The Drizzle migrations are embedded in the \
-                 binary: build from the repository, or give docker build \
-                 --build-context drizzle=packages/core/db/drizzle (rust/Dockerfile)",
+                 binary: build from the repository (the image: docker build \
+                 -f rust/Dockerfile . from its root)",
                 journal_path.display()
             )
         });
