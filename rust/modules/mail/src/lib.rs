@@ -14,6 +14,7 @@ pub mod consumers;
 pub mod cron;
 mod routes;
 pub mod send;
+mod read_push;
 mod util;
 
 use std::collections::HashMap;
@@ -25,7 +26,7 @@ use weldsuite_events::EntityEventPublisher;
 use weldsuite_mail_domain::outbound::OutboundBindings;
 use weldsuite_mail_domain::recipients::DnsOverHttps;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::{DynCache, DynJobs, DynSystemMail, FileStores};
+use weldsuite_ports::{DynCache, DynJobs, DynSystemMail, FileStores, OutboundHttp};
 
 pub(crate) use caller::Caller;
 
@@ -47,6 +48,8 @@ pub struct MailState {
     pub jobs: Option<Arc<dyn DynJobs>>,
     /// System mail (`@weldsuite/emails`): the staff alerts.
     pub system_mail: Option<Arc<dyn DynSystemMail>>,
+    /// Third-party HTTP: Expo push for the mobile read sync.
+    pub http: Option<OutboundHttp>,
     /// DNS-over-HTTPS for the recipients' MX lookup.
     pub doh: Option<Arc<dyn DnsOverHttps>>,
     /// The worker's env values the routes read (`OUTBOUND_ADMIN_SECRET`,

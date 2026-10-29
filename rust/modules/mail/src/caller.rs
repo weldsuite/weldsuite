@@ -14,7 +14,7 @@ use weldsuite_events::{EventContext, publish_entity_event};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_mail_domain::outbound::{OutboundBindings, OutboundGuard, RequestOutbound};
 use weldsuite_permissions::Permissions;
-use weldsuite_ports::{DynCache, FileStores, RequestCache};
+use weldsuite_ports::{DynCache, FileStores, OutboundHttp, RequestCache};
 
 use crate::MailState;
 
@@ -27,6 +27,7 @@ pub(crate) struct Bindings {
     cache: Option<Arc<dyn DynCache>>,
     outbound: Option<OutboundBindings>,
     files: Option<FileStores>,
+    http: Option<OutboundHttp>,
 }
 
 impl Bindings {
@@ -43,6 +44,7 @@ impl Bindings {
                 .get::<RequestOutbound>()
                 .map(|o| o.0.clone()),
             files: parts.extensions.get::<FileStores>().cloned(),
+            http: parts.extensions.get::<OutboundHttp>().cloned(),
         }
     }
 
@@ -71,6 +73,15 @@ impl Bindings {
         self.outbound
             .clone()
             .unwrap_or_else(|| state.outbound.clone())
+    }
+
+    /// Third-party HTTP (Expo push): the request's bridge in conformance
+    /// builds, else the app's.
+    pub(crate) fn http(&self, state: &MailState) -> Option<OutboundHttp> {
+        if self.env.is_some() {
+            return self.http.clone();
+        }
+        self.http.clone().or_else(|| state.http.clone())
     }
 
     pub(crate) fn files(&self, state: &MailState) -> Option<FileStores> {

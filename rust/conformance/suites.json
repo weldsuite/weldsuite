@@ -603,8 +603,7 @@
       "workspace": "apps/workers/mail-api",
       "tests": [
         "src/routes/mail-sending/index.test.ts",
-        "src/routes/internal-outbound/index.test.ts",
-        "src/routes/mail-accounts/send.test.ts"
+        "src/routes/internal-outbound/index.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/routes/mail-sending/",
@@ -617,11 +616,15 @@
       ]
     },
     {
-      "name": "mail: accounts",
+      "name": "mail: accounts and messages",
       "module": "mail",
       "workspace": "apps/workers/mail-api",
       "tests": [
-        "src/routes/mail-accounts/routes.test.ts"
+        "src/routes/mail-accounts/send.test.ts",
+        "src/routes/mail-accounts/routes.test.ts",
+        "src/routes/mail-messages/routes.test.ts",
+        "src/routes/mail-messages/access.test.ts",
+        "src/routes/mail-messages/stats-access.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/",

@@ -173,6 +173,14 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
         files: file_stores(state),
         jobs: Some(Arc::clone(&state.infra.jobs)),
         system_mail: state.infra.mail.clone(),
+        // Expo push; conformance builds take the test's bridge per request.
+        http: (!cfg!(feature = "conformance"))
+            .then(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(15))
+                    .ok()
+            })
+            .flatten()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
         doh: Some(weldsuite_mail::send::reqwest_doh()),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
     }
