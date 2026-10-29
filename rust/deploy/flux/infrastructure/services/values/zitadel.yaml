@@ -75,3 +75,21 @@ ingress:
     - secretName: zitadel-tls
       hosts:
         - auth.${DOMAIN}
+# Zitadel v4's sign-in pages are their own app (zitadel-login) under
+# /ui/v2/login, where the console and every OIDC client send people to sign in.
+# The chart leaves its ingress off; without it those paths hit the core and
+# answer {"code":5,"message":"Not Found"}. Same host and certificate as above
+# (cert-manager issues it once, from the core ingress's annotation).
+login:
+  ingress:
+    enabled: true
+    className: traefik
+    hosts:
+      - host: auth.${DOMAIN}
+        paths:
+          - path: /ui/v2/login
+            pathType: Prefix
+    tls:
+      - secretName: zitadel-tls
+        hosts:
+          - auth.${DOMAIN}
