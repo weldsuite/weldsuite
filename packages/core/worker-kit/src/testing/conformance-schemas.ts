@@ -33,10 +33,13 @@ import {
   chatMembersAddedSchema,
   chatMessagePageSchema,
   chatMessageRowSchema,
+  chatPinResultSchema,
+  chatReactionsSchema,
   chatReadReceiptsSchema,
   chatSectionRowSchema,
   chatStatusClearedSchema,
   chatStatusSetSchema,
+  chatUploadSchema,
 } from '@weldsuite/app-api-client/schemas/chat';
 import { desktopTicketSchema } from '@weldsuite/app-api-client/schemas/auth-desktop';
 import { cliAuthApproveSchema, cliAuthDeviceSchema, cliAuthTokenSchema } from '@weldsuite/app-api-client/schemas/cli-auth';
@@ -471,6 +474,17 @@ const ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/chat-status', envelope: 'array', data: chatMemberStatusSchema },
   { method: 'PUT', route: '/api/chat-status', envelope: 'single', data: chatStatusSetSchema },
   { method: 'DELETE', route: '/api/chat-status', envelope: 'single', data: chatStatusClearedSchema },
+  // chat (chat-api)
+  { method: 'GET', route: '/api/chat-messages', envelope: 'list', data: chatMessageRowSchema },
+  { method: 'GET', route: '/api/chat-messages/pinned', envelope: 'array', data: chatMessageRowSchema },
+  { method: 'GET', route: '/api/chat-messages/:id', envelope: 'single', data: chatMessageRowSchema },
+  { method: 'POST', route: '/api/chat-messages', envelope: 'single', data: chatIdSchema },
+  { method: 'PATCH', route: '/api/chat-messages/:id', envelope: 'single', data: chatMessageRowSchema },
+  { method: 'POST', route: '/api/chat-messages/:id/reactions', envelope: 'single', data: chatReactionsSchema },
+  { method: 'DELETE', route: '/api/chat-messages/:id/reactions/:emoji', envelope: 'single', data: chatReactionsSchema },
+  { method: 'POST', route: '/api/chat-messages/:id/pin', envelope: 'single', data: chatPinResultSchema },
+  { method: 'DELETE', route: '/api/chat-messages/:id/pin', envelope: 'single', data: chatPinResultSchema },
+  { method: 'POST', route: '/api/chat-messages/upload', envelope: 'single', data: chatUploadSchema },
 ];
 
 /** null when valid, else why not. */

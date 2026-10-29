@@ -571,6 +571,24 @@
         "rust/crates/chat-domain/",
         "rust/crates/notifications/"
       ]
+    },
+    {
+      "name": "chat: messages",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-messages/integration.test.ts",
+        "src/routes/chat-messages/routes.integration.test.ts",
+        "src/services/chat/post-message.realtime.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
     }
   ]
 }

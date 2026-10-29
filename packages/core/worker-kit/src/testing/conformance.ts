@@ -385,6 +385,8 @@ export function conformanceMasterDb<T>(db: T): T {
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** A WeldSign signing link (`<portal>/r/<token>`): the token is 32 random bytes, new per run. */
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
+/** The random segment of a chat attachment's object key. */
+const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
 /** A generated id in a link's `messageId` parameter. */
 const MESSAGE_ID_PARAM = /([?&]messageId=)[a-z][a-z0-9]*_[0-9a-z]{12,}/g;
 /** A slug ending in a generated id (`-ch_<base36>`). */
@@ -469,6 +471,8 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
+    // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
+    .replace(CHAT_FILE_SEGMENT, '/files/<random>/')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(EPOCH_MS, '<epoch-ms>');
 }

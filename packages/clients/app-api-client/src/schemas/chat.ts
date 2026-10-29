@@ -270,3 +270,30 @@ export const chatStatusSetSchema = z.object({
 
 /** `DELETE /api/chat-status`. */
 export const chatStatusClearedSchema = z.object({ userId: z.string(), cleared: z.literal(true) });
+
+/** A reaction toggle (`POST /api/chat-messages/:id/reactions`). */
+export const chatReactionsSchema = z.object({
+  messageId: z.string(),
+  channelId: z.string(),
+  reactions: z.record(z.array(z.string())),
+});
+
+/** A pin or unpin (`PinResult`). */
+export const chatPinResultSchema = z.object({
+  messageId: z.string(),
+  channelId: z.string(),
+  isPinned: z.boolean(),
+  pinnedAt: nullableIso,
+  pinnedBy: z.string().nullable(),
+  pinExpiresAt: nullableIso,
+});
+
+/** An uploaded attachment (`POST /api/chat-messages/upload`). */
+export const chatUploadSchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  fileSize: z.number(),
+  mimeType: z.string(),
+  url: z.string(),
+  fileKey: z.string(),
+});

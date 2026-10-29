@@ -19,7 +19,9 @@ use weldsuite_kit::validation::{Issues, json_body, query_values};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_notifications::{ApnsConfig, Notifier};
 use weldsuite_permissions::Permissions;
-use weldsuite_ports::{DynCache, FileStores, OutboundHttp, PresenceReader, RequestCache};
+use weldsuite_ports::{
+    DynCache, DynFileStore, FileStores, OutboundHttp, PresenceReader, RequestCache, StorageBuckets,
+};
 
 use crate::ChatState;
 
@@ -29,6 +31,7 @@ struct Overrides {
     env: Option<RequestEnv>,
     cache: Option<RequestCache>,
     files: Option<FileStores>,
+    buckets: Option<StorageBuckets>,
     http: Option<OutboundHttp>,
     presence: Option<PresenceReader>,
 }
@@ -93,6 +96,15 @@ impl Caller {
         self.overrides.files.clone().or_else(|| state.files.clone())
     }
 
+    /// The `STORAGE` bucket (the public store): the test's in conformance
+    /// mode, else the app's.
+    pub fn public_store(&self, state: &ChatState) -> Option<Arc<dyn DynFileStore>> {
+        match &self.overrides.buckets {
+            Some(buckets) => buckets.public.clone(),
+            None => state.files.as_ref().and_then(|files| files.public.clone()),
+        }
+    }
+
     /// Live presence.
     pub fn presence(&self, state: &ChatState) -> Option<PresenceReader> {
         self.overrides
@@ -147,6 +159,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                     env: parts.extensions.get::<RequestEnv>().cloned(),
                     cache: parts.extensions.get::<RequestCache>().cloned(),
                     files: parts.extensions.get::<FileStores>().cloned(),
+                    buckets: parts.extensions.get::<StorageBuckets>().cloned(),
                     http: parts.extensions.get::<OutboundHttp>().cloned(),
                     presence: parts.extensions.get::<PresenceReader>().cloned(),
                 },

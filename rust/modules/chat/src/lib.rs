@@ -19,6 +19,7 @@ mod access;
 mod followers;
 mod forward;
 mod groups;
+mod pins;
 mod post;
 mod reads;
 mod util;
@@ -34,6 +35,7 @@ use weldsuite_ports::{
 };
 
 pub use access::{Caller, ChatError, ChatResult};
+pub use pins::{TenantDatabases, UNPIN_EXPIRED_MESSAGE_JOB, UnpinExpiredMessageJob};
 
 /// What the handlers share, cloned from the app state.
 #[derive(Clone)]
@@ -48,6 +50,9 @@ pub struct ChatState {
     pub files: Option<FileStores>,
     /// Delayed jobs (the pin auto-expiry).
     pub jobs: Option<Arc<dyn DynJobs>>,
+    /// Whether a pin with an expiry starts the auto-unpin job (the workers'
+    /// `UNPIN_EXPIRED_MESSAGE` binding; their tests run without it).
+    pub unpin_jobs: bool,
     /// Third-party HTTP (Expo push, APNs).
     pub http: Option<OutboundHttp>,
     /// Live presence from the realtime hub.
@@ -89,6 +94,10 @@ group_router!(
 group_router!(
     /// `/api/channels`: channels, their messages, members, agents, reads.
     channels
+);
+group_router!(
+    /// `/api/chat-messages`: messages, threads, reactions, pins, uploads.
+    messages
 );
 group_router!(
     /// `/api/chat-bookmarks`: the caller's saved messages.

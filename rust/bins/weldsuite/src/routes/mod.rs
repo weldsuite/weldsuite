@@ -400,6 +400,14 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         return router;
     }
     let chat = chat_state(state);
+    // The pin auto-expiry runs where the jobs adapter calls it.
+    state
+        .infra
+        .job_registry
+        .register(weldsuite_chat::UnpinExpiredMessageJob {
+            tenants: chat_tenants(state),
+            realtime: state.infra.realtime.clone(),
+        });
     let gate = &state.permissions;
     router
         .nest(
@@ -407,6 +415,7 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
             weldsuite_chat::channel_members(chat.clone(), gate),
         )
         .nest("/channels", weldsuite_chat::channels(chat.clone(), gate))
+        .nest("/chat-messages", weldsuite_chat::messages(chat.clone(), gate))
         .nest("/chat-bookmarks", weldsuite_chat::bookmarks(chat.clone(), gate))
         .nest("/chat-drafts", weldsuite_chat::drafts(chat.clone(), gate))
         .nest("/chat-sections", weldsuite_chat::sections(chat.clone(), gate))
@@ -443,10 +452,31 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
         } else {
             state.infra.cache.clone()
         },
-        files: file_stores(state),
+        // Conformance: the test's STORAGE bucket through the request only.
+        files: if cfg!(feature = "conformance") {
+            None
+        } else {
+            file_stores(state)
+        },
         jobs: Some(Arc::clone(&state.infra.jobs)),
+        unpin_jobs: !cfg!(feature = "conformance"),
         http: None,
         presence: None,
         env: Arc::clone(env),
     }
+}
+
+/// A workspace's tenant database for WeldChat's jobs.
+fn chat_tenants(state: &AppState) -> weldsuite_chat::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
 }
