@@ -32,7 +32,10 @@ pub mod identity;
 pub mod in_process_jobs;
 pub mod jobs;
 pub mod mail;
+pub mod outbound;
+pub mod presence;
 pub mod realtime;
+pub mod video_rooms;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use events::{BusMessage, DynEventBus, EventBus, RecordingEventBus};
@@ -54,6 +57,8 @@ pub use jobs::{
 pub use mail::{
     DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
 };
+pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp};
+pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
     DynRealtimePublisher, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
 };

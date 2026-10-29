@@ -48,6 +48,7 @@ import { wireCompatiblePglite } from './pglite-wire';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
+import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
@@ -171,6 +172,14 @@ export function createSideEffectRecorder() {
   let lastMail: SentByTypeScript[] = [];
   const pending: Promise<unknown>[] = [];
   const copy = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
+  // Only the `/publish/*` POSTs are side effects; a presence read
+  // (`GET /internal/presence`) is a read.
+  const recordPublish = (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(requestUrl(input));
+    if (!url.pathname.startsWith('/publish/')) return;
+    const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
+    effects.realtime.push({ path: url.pathname, body });
+  };
   return {
     bindings: {
       ENTITY_EVENTS: {
@@ -183,12 +192,24 @@ export function createSideEffectRecorder() {
       },
       REALTIME: {
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = new URL(requestUrl(input));
-          const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
-          effects.realtime.push({ path: url.pathname, body });
+          recordPublish(input, init);
           return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
         },
       },
+    },
+    /**
+     * A test's own `REALTIME` binding (one that answers presence reads or keeps
+     * what was published), recorded the same way: its publishes are side
+     * effects too, and then go on to the test's stub.
+     */
+    wrapRealtime(binding: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }) {
+      return {
+        testOwned: true,
+        fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+          recordPublish(input, init);
+          return binding.fetch(input, init);
+        },
+      };
     },
     track(promise: Promise<unknown>) {
       pending.push(promise);
@@ -364,6 +385,8 @@ export function conformanceMasterDb<T>(db: T): T {
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** A WeldSign signing link (`<portal>/r/<token>`): the token is 32 random bytes, new per run. */
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
+/** A slug ending in a generated id (`-ch_<base36>`). */
+const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
@@ -381,6 +404,12 @@ const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
 /** Seconds either side of now an `expiresAt` may be, to count as one minted by the request. */
 const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
+
+/** A `Date.now()` taken within two days of now. */
+function isRecentEpochMs(value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
+}
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -408,6 +437,9 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
   }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
+  // A realtime room message's `ts: Date.now()` (`RealtimePublisher#chatMessage`),
+  // stamped when each run publishes.
+  if (isWrite && key === 'ts' && isRecentEpochMs(value)) return '<epoch-ms>';
   return value;
 }
 
@@ -424,6 +456,9 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (GENERATED_ID.test(value)) return '<id>';
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential, then any other `Date.now()` (the key's segment holds one).
   return value
@@ -609,6 +644,8 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     kv: await kvUrls(env),
     // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
     outbound: await outboundBridgeUrl(),
+    // Presence reads go to the test's `REALTIME` binding (./realtime-bridge.ts).
+    realtime: (await realtimeUrl(env)) ?? null,
   };
 }
 

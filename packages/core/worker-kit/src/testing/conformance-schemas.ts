@@ -11,6 +11,25 @@
  */
 
 import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
+import {
+  chatAgentRemovedSchema,
+  chatAgentsAddedSchema,
+  chatChannelDetailSchema,
+  chatChannelJoinSchema,
+  chatChannelLeftSchema,
+  chatChannelListItemSchema,
+  chatChannelMemberRowSchema,
+  chatChannelMemberSchema,
+  chatChannelRowSchema,
+  chatForwardedSchema,
+  chatIdSchema,
+  chatMarkReadSchema,
+  chatMemberRemovedSchema,
+  chatMembersAddedSchema,
+  chatMessagePageSchema,
+  chatMessageRowSchema,
+  chatReadReceiptsSchema,
+} from '@weldsuite/app-api-client/schemas/chat';
 import { desktopTicketSchema } from '@weldsuite/app-api-client/schemas/auth-desktop';
 import { cliAuthApproveSchema, cliAuthDeviceSchema, cliAuthTokenSchema } from '@weldsuite/app-api-client/schemas/cli-auth';
 import {
@@ -406,6 +425,28 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/storage/access', envelope: 'single', data: filesAccessSchema },
   { method: 'POST', route: '/api/storage/sign', envelope: 'single', data: signedObjectUrlsSchema },
   { method: 'POST', route: '/api/storage/migrate-private', envelope: 'single', data: privateFilesMigrationBatchSchema },
+  // chat (chat-api)
+  { method: 'GET', route: '/api/channels', envelope: 'list', data: chatChannelListItemSchema },
+  { method: 'POST', route: '/api/channels', envelope: 'single', data: chatChannelRowSchema },
+  { method: 'GET', route: '/api/channels/:id', envelope: 'single', data: chatChannelDetailSchema },
+  { method: 'PATCH', route: '/api/channels/:id', envelope: 'single', data: chatChannelRowSchema },
+  { method: 'GET', route: '/api/channels/:channelId/messages', envelope: 'single', data: chatMessagePageSchema },
+  { method: 'POST', route: '/api/channels/:channelId/messages', envelope: 'single', data: chatMessageRowSchema },
+  { method: 'GET', route: '/api/channels/:channelId/members', envelope: 'array', data: chatChannelMemberSchema },
+  { method: 'POST', route: '/api/channels/:channelId/members', envelope: 'single', data: chatMembersAddedSchema },
+  { method: 'POST', route: '/api/channels/:channelId/agents', envelope: 'single', data: chatAgentsAddedSchema },
+  { method: 'DELETE', route: '/api/channels/:channelId/agents/:agentId', envelope: 'single', data: chatAgentRemovedSchema },
+  { method: 'POST', route: '/api/channels/:channelId/members/join', envelope: 'single', data: chatChannelJoinSchema },
+  { method: 'POST', route: '/api/channels/:channelId/members/leave', envelope: 'single', data: chatChannelLeftSchema },
+  { method: 'DELETE', route: '/api/channels/:channelId/members/:userId', envelope: 'single', data: chatMemberRemovedSchema },
+  { method: 'GET', route: '/api/channels/:channelId/read-receipts', envelope: 'single', data: chatReadReceiptsSchema },
+  { method: 'POST', route: '/api/channels/:channelId/messages/:messageId/forward', envelope: 'single', data: chatForwardedSchema },
+  { method: 'POST', route: '/api/channels/:channelId/read', envelope: 'single', data: chatMarkReadSchema },
+  { method: 'PATCH', route: '/api/channels/:channelId/me', envelope: 'single', data: chatChannelMemberRowSchema },
+  { method: 'GET', route: '/api/channel-members', envelope: 'list', data: chatChannelMemberRowSchema },
+  { method: 'GET', route: '/api/channel-members/:id', envelope: 'single', data: chatChannelMemberRowSchema },
+  { method: 'POST', route: '/api/channel-members', envelope: 'single', data: chatIdSchema },
+  { method: 'PATCH', route: '/api/channel-members/:id', envelope: 'single', data: chatIdSchema },
 ];
 
 /** null when valid, else why not. */

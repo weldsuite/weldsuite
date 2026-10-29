@@ -3649,6 +3649,7 @@ dependencies = [
  "weldsuite-adapters-oss",
  "weldsuite-auth",
  "weldsuite-catalogs",
+ "weldsuite-chat",
  "weldsuite-core-apps",
  "weldsuite-core-files",
  "weldsuite-core-objects",
@@ -3711,6 +3712,48 @@ version = "0.0.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "weldsuite-chat"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "form_urlencoded",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-chat-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-notifications",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-chat-domain"
+version = "0.0.0"
+dependencies = [
+ "regex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -3912,6 +3955,24 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+]
+
+[[package]]
+name = "weldsuite-notifications"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "jsonwebtoken 11.1.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
 ]
 
 [[package]]

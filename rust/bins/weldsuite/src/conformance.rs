@@ -207,6 +207,10 @@ struct TestContext {
     /// through the test's own fetch stub (`conformance_outbound`).
     #[serde(default)]
     outbound: Option<String>,
+    /// The harness's realtime bridge: presence reads from the test's own
+    /// `REALTIME` binding (`realtime-bridge.ts`).
+    #[serde(default)]
+    realtime: Option<String>,
 }
 
 impl TestContext {
@@ -287,6 +291,10 @@ impl Pools {
         if let Some(cache) = self.kv.request_cache(&context.kv) {
             extensions.insert(cache);
         }
+        // Live presence from the test's REALTIME binding.
+        if let Some(url) = context.realtime.as_deref() {
+            extensions.insert(self.outbound.presence(url));
+        }
         if let Some(verifier) = self.verifier(&context.env) {
             extensions.insert(verifier);
         }
@@ -299,6 +307,8 @@ impl Pools {
             extensions.insert(self.outbound.expo(bridge));
             // WeldApps' gateway forwards and lifecycle webhooks.
             extensions.insert(self.outbound.apps_http(bridge));
+            // Third-party HTTP of the ported modules (Expo push, APNs).
+            extensions.insert(self.outbound.outbound_http(bridge));
         }
     }
 

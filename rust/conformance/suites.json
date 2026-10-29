@@ -532,6 +532,25 @@
         "rust/modules/sign/",
         "rust/crates/emails/"
       ]
+    },
+    {
+      "name": "chat: channels",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/channels/integration.test.ts",
+        "src/routes/channels/names.integration.test.ts",
+        "src/routes/channels/routes.integration.test.ts",
+        "src/routes/channel-members/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
     }
   ]
 }

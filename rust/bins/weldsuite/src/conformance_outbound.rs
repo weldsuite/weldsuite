@@ -530,6 +530,91 @@ impl weldsuite_core_team::ExpoTransport for BridgedExpo {
     }
 }
 
+/// Generic third-party HTTP (`weldsuite_ports::OutboundHttp`) through the
+/// bridge: Expo push, APNs. Method, headers and body as sent.
+pub(crate) struct BridgedOutbound {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_ports::DynOutboundHttp for BridgedOutbound {
+    fn send(
+        &self,
+        request: weldsuite_ports::HttpRequest,
+    ) -> BoxFuture<'_, Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>> {
+        Box::pin(async move {
+            let encoded: String =
+                form_urlencoded::byte_serialize(request.url.as_bytes()).collect();
+            let method = Method::from_bytes(request.method.as_bytes())
+                .map_err(weldsuite_ports::PortError::backend)?;
+            let mut call = self
+                .client
+                .request(method, format!("{}/fetch?url={encoded}", self.bridge));
+            for (name, value) in &request.headers {
+                call = call.header(name.as_str(), value.as_str());
+            }
+            if let Some(body) = request.body {
+                call = call.body(body);
+            }
+            let response = call.send().await.map_err(weldsuite_ports::PortError::backend)?;
+            if response.headers().contains_key("x-outbound-error") {
+                return Err(weldsuite_ports::PortError::backend(
+                    "the test's fetch stub threw",
+                ));
+            }
+            let status = response.status().as_u16();
+            let body = response
+                .bytes()
+                .await
+                .map_err(weldsuite_ports::PortError::backend)?
+                .to_vec();
+            Ok(weldsuite_ports::HttpResponse { status, body })
+        })
+    }
+}
+
+/// Live presence from the test's `REALTIME` binding, through the harness's
+/// realtime bridge (`realtime-bridge.ts`).
+pub(crate) struct BridgedPresence {
+    bridge: String,
+    client: Client,
+}
+
+impl weldsuite_ports::DynPresence for BridgedPresence {
+    fn presence<'a>(
+        &'a self,
+        workspace_id: &'a str,
+        user_ids: &'a [String],
+    ) -> BoxFuture<'a, Result<Map<String, Value>, weldsuite_ports::PortError>> {
+        let mut query = form_urlencoded::Serializer::new(String::new());
+        query.append_pair("workspaceId", workspace_id);
+        for id in user_ids {
+            query.append_pair("userId", id);
+        }
+        let url = format!("{}/internal/presence?{}", self.bridge, query.finish());
+        Box::pin(async move {
+            let response = self
+                .client
+                .get(url)
+                .send()
+                .await
+                .map_err(weldsuite_ports::PortError::backend)?;
+            if !response.status().is_success() {
+                return Err(weldsuite_ports::PortError::backend(format!(
+                    "[realtime presence] {}",
+                    response.status().as_u16()
+                )));
+            }
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(weldsuite_ports::PortError::backend)?;
+            let body: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            Ok(body["users"].as_object().cloned().unwrap_or_default())
+        })
+    }
+}
+
 /// The bridged providers by bridge URL, made once per test process.
 #[derive(Default)]
 pub(crate) struct OutboundBridges {
@@ -541,6 +626,22 @@ impl OutboundBridges {
     /// WeldApps' outbound HTTP behind the test's bridge.
     pub(crate) fn apps_http(&self, bridge: &str) -> weldsuite_core_apps::AppsHttp {
         weldsuite_core_apps::AppsHttp(Arc::new(BridgedHttp {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// Generic third-party HTTP behind the test's bridge.
+    pub(crate) fn outbound_http(&self, bridge: &str) -> weldsuite_ports::OutboundHttp {
+        weldsuite_ports::OutboundHttp(Arc::new(BridgedOutbound {
+            bridge: bridge.trim_end_matches('/').to_owned(),
+            client: self.client.clone(),
+        }))
+    }
+
+    /// Live presence behind the test's realtime bridge.
+    pub(crate) fn presence(&self, bridge: &str) -> weldsuite_ports::PresenceReader {
+        weldsuite_ports::PresenceReader(Arc::new(BridgedPresence {
             bridge: bridge.trim_end_matches('/').to_owned(),
             client: self.client.clone(),
         }))

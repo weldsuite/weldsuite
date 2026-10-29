@@ -59,6 +59,7 @@
     "./schemas/sendcloud": "./src/schemas/sendcloud.ts",
     "./schemas/social-settings": "./src/schemas/social-settings.ts",
     "./schemas/chat-status": "./src/schemas/chat-status.ts",
+    "./schemas/chat": "./src/schemas/chat.ts",
     "./schemas/chat-dm": "./src/schemas/chat-dm.ts",
     "./schemas/chat-entity-channels": "./src/schemas/chat-entity-channels.ts",
     "./schemas/team-members": "./src/schemas/team-members.ts",

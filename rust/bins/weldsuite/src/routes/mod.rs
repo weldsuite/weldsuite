@@ -97,6 +97,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     } else {
         router
     };
+    let router = chat(router, state);
     core_files(router, state)
 }
 
@@ -390,4 +391,58 @@ fn mounts(module: &str) -> bool {
         || weldsuite_catalogs::api_modules()
             .iter()
             .any(|m| m.id == module && m.rust)
+}
+
+/// WeldChat (`weldsuite-chat`): chat-api's object routes, each at its own
+/// prefix, once the module is marked ported (always in conformance builds).
+fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("chat") {
+        return router;
+    }
+    let chat = chat_state(state);
+    let gate = &state.permissions;
+    router
+        .nest(
+            "/channel-members",
+            weldsuite_chat::channel_members(chat.clone(), gate),
+        )
+        .nest("/channels", weldsuite_chat::channels(chat, gate))
+}
+
+/// WeldChat's handle on the app: events, realtime, files, jobs, its env.
+fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
+    static ENV: std::sync::OnceLock<Arc<std::collections::HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    let env = ENV.get_or_init(|| {
+        let names = [
+            "R2_PUBLIC_URL",
+            "PUBLIC_APP_URL",
+            "CALL_RING_SECRET",
+            "APNS_KEY_ID",
+            "APNS_TEAM_ID",
+            "APNS_PRIVATE_KEY",
+        ];
+        Arc::new(
+            names
+                .iter()
+                .filter_map(|name| std::env::var(name).ok().map(|value| ((*name).to_owned(), value)))
+                .collect(),
+        )
+    });
+    weldsuite_chat::ChatState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        // Conformance: the test's KV through the request only, as a worker
+        // without the binding has no rate limit or call bookkeeping.
+        cache: if cfg!(feature = "conformance") {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        files: file_stores(state),
+        jobs: Some(Arc::clone(&state.infra.jobs)),
+        http: None,
+        presence: None,
+        env: Arc::clone(env),
+    }
 }

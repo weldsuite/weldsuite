@@ -17,6 +17,7 @@ conformance = ["dep:base64", "dep:form_urlencoded", "dep:serde"]
 weldsuite-adapters-oss = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-catalogs = { workspace = true }
+weldsuite-chat = { workspace = true }
 weldsuite-core-apps = { workspace = true }
 weldsuite-core-objects = { workspace = true }
 weldsuite-core-files = { workspace = true }

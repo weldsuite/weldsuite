@@ -21,6 +21,8 @@ publish = false
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-catalogs = { path = "crates/catalogs" }
+weldsuite-chat = { path = "modules/chat" }
+weldsuite-chat-domain = { path = "crates/chat-domain" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
@@ -32,6 +34,7 @@ weldsuite-events = { path = "crates/events" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
 weldsuite-sign = { path = "modules/sign" }
+weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
