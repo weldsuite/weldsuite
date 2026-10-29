@@ -122,6 +122,8 @@ impl Caller {
     pub fn notifier(&self, state: &ChatState) -> Notifier {
         Notifier {
             realtime: state.realtime.clone(),
+            presence: self.presence(state),
+            mail: None,
             http: self.overrides.http.clone().or_else(|| state.http.clone()),
             apns: ApnsConfig::from_values(
                 self.env(state, "APNS_KEY_ID"),

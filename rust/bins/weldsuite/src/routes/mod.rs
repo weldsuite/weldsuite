@@ -420,6 +420,10 @@ fn chat(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         .nest("/chat-dm", weldsuite_chat::dm(chat.clone(), gate))
         .nest("/chat-search", weldsuite_chat::search(chat.clone(), gate))
         .nest("/chat-messages", weldsuite_chat::messages(chat.clone(), gate))
+        .nest(
+            "/chat-entity-channels",
+            weldsuite_chat::record_chats(chat.clone(), gate),
+        )
         .nest("/chat-bookmarks", weldsuite_chat::bookmarks(chat.clone(), gate))
         .nest("/chat-drafts", weldsuite_chat::drafts(chat.clone(), gate))
         .nest("/chat-sections", weldsuite_chat::sections(chat.clone(), gate))

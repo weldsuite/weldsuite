@@ -373,3 +373,47 @@ export const chatSearchResultSchema = z.object({
   ),
   total: z.number(),
 });
+
+/** A record chat in the list (`RecordChatListItem`): the row plus the caller's state. */
+export const chatRecordChatSchema = chatChannelRowSchema.extend({
+  isFollowing: z.boolean(),
+  isMuted: z.boolean(),
+  lastReadAt: nullableIso,
+  lastReadMessageId: z.string().nullable(),
+  unreadMentionCount: z.number(),
+});
+
+/** `GET /api/chat-entity-channels/summary` (`RecordChatTypeSummary`). */
+export const chatRecordChatSummarySchema = z.object({
+  type: z.string(),
+  label: z.string(),
+  followed: z.number(),
+  unread: z.number(),
+  mentions: z.number(),
+});
+
+/** `PATCH /api/chat-entity-channels/:entityType/mute`. */
+export const chatRecordChatsMutedSchema = z.object({ updated: z.number() });
+
+/** `GET /api/chat-entity-channels/:entityType/:entityId/comments`. */
+export const chatRecordCommentsSchema = z.object({
+  channel: chatChannelRowSchema.nullable(),
+  messages: z.array(chatMessageRowSchema),
+});
+
+/** `POST /api/chat-entity-channels/:entityType/:entityId/messages`. */
+export const chatRecordMessageSentSchema = z.object({
+  channel: chatChannelRowSchema,
+  message: chatMessageRowSchema,
+  createdChannel: z.boolean(),
+});
+
+/** `POST /api/chat-entity-channels/:entityType/:entityId/follow`. */
+export const chatRecordFollowSchema = z.object({
+  channel: chatChannelRowSchema,
+  following: z.literal(true),
+  createdChannel: z.boolean(),
+});
+
+/** `GET /api/chat-entity-channels/:entityType/:entityId/detail`: provider-specific. */
+export const chatRecordDetailSchema = z.record(z.unknown()).nullable();

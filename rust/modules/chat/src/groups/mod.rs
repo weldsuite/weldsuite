@@ -8,5 +8,6 @@ pub(crate) mod directories;
 pub(crate) mod dm;
 pub(crate) mod drafts;
 pub(crate) mod messages;
+pub(crate) mod record_chats;
 pub(crate) mod sections;
 pub(crate) mod status;

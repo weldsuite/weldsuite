@@ -46,9 +46,13 @@ async fn directory_channels(caller: Caller, RawQuery(raw): RawQuery) -> Response
     };
     let result = async {
         let rows: Vec<(String, String, Option<String>, i32, String, bool)> = sqlx::query_as(
+            // `isJoined` as chat-api computes it: Drizzle writes the select's
+            // columns unqualified, so inside the subquery `id` is the member
+            // row's own id and the test never holds (it answers false). Kept
+            // as is for parity; reported as a TypeScript bug.
             "select c.id, c.name, c.description, c.member_count, c.type,
-                    exists (select 1 from chat_channel_members m
-                            where m.channel_id = c.id and m.user_id = $1)
+                    exists (select 1 from chat_channel_members
+                            where channel_id = id and user_id = $1)
              from chat_channels c
              where c.deleted_at is null and c.is_archived = false
                and (c.type = 'public' or exists (select 1 from chat_channel_members m

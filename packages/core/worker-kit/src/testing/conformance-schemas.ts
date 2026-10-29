@@ -41,6 +41,13 @@ import {
   chatPinResultSchema,
   chatReactionsSchema,
   chatReadReceiptsSchema,
+  chatRecordChatSchema,
+  chatRecordChatSummarySchema,
+  chatRecordChatsMutedSchema,
+  chatRecordCommentsSchema,
+  chatRecordDetailSchema,
+  chatRecordFollowSchema,
+  chatRecordMessageSentSchema,
   chatSearchResultSchema,
   chatSectionRowSchema,
   chatStatusClearedSchema,
@@ -503,6 +510,15 @@ const ROUTES: RouteSchema[] = [
   { method: 'PATCH', route: '/api/chat-dm/:channelId/pin', envelope: 'single', data: chatDmPinnedSchema },
   { method: 'GET', route: '/api/chat-directories/channels', envelope: 'array', data: chatDirectoryChannelSchema },
   { method: 'GET', route: '/api/chat-search', envelope: 'single', data: chatSearchResultSchema },
+  // chat (chat-api)
+  { method: 'GET', route: '/api/chat-entity-channels', envelope: 'list', data: chatRecordChatSchema },
+  { method: 'GET', route: '/api/chat-entity-channels/summary', envelope: 'array', data: chatRecordChatSummarySchema },
+  { method: 'PATCH', route: '/api/chat-entity-channels/:entityType/mute', envelope: 'single', data: chatRecordChatsMutedSchema },
+  { method: 'GET', route: '/api/chat-entity-channels/:entityType/:entityId/channel', envelope: 'single', data: chatChannelRowSchema.nullable() },
+  { method: 'GET', route: '/api/chat-entity-channels/:entityType/:entityId/comments', envelope: 'single', data: chatRecordCommentsSchema },
+  { method: 'POST', route: '/api/chat-entity-channels/:entityType/:entityId/messages', envelope: 'single', data: chatRecordMessageSentSchema },
+  { method: 'POST', route: '/api/chat-entity-channels/:entityType/:entityId/follow', envelope: 'single', data: chatRecordFollowSchema },
+  { method: 'GET', route: '/api/chat-entity-channels/:entityType/:entityId/detail', envelope: 'single', data: chatRecordDetailSchema },
 ];
 
 /** null when valid, else why not. */

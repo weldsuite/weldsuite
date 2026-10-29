@@ -10,7 +10,8 @@ import { and, eq } from 'drizzle-orm';
 
 vi.mock('@weldsuite/entity-events', async () => {
   const actual = await vi.importActual<typeof import('@weldsuite/entity-events')>('@weldsuite/entity-events');
-  return { ...actual, publishEntityEvent: vi.fn() };
+  // A spy that still publishes, so the events reach the queue binding too.
+  return { ...actual, publishEntityEvent: vi.fn(actual.publishEntityEvent) };
 });
 
 import { publishEntityEvent } from '@weldsuite/entity-events';

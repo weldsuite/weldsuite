@@ -141,3 +141,7 @@ where
 {
     groups::directories::search_router(gate).with_state(state)
 }
+group_router!(
+    /// `/api/chat-entity-channels`: record chats.
+    record_chats
+);

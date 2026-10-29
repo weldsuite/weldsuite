@@ -4,10 +4,15 @@
 //! native call ring for an incoming call: Apple's VoIP push, Expo data
 //! messages). Each channel's failure is logged and never reaches the caller.
 //!
-//! Email is not delivered here yet: the WeldChat helpers (the only callers so
-//! far) exclude it, as the TypeScript helpers do. A caller that keeps email
-//! on gets `delivered_email = false` and a warning until the presence gate
-//! and the deferred email job are ported.
+//! Email follows the TypeScript gate: only for a recipient who is away
+//! ([`resolve_email_presence`]: their chosen status, and their live
+//! presence through the [`PresenceReader`] port), recorded on the row as
+//! `delivered_email`. Sending it is not ported yet: the `notification` and
+//! `task.assigned` templates are not exported to `weldsuite_emails`
+//! (`pnpm rust:emails`), and the deferred-email job
+//! (`DeferredNotificationEmailWorkflow`) is app-api's. Until then
+//! [`create_and_deliver`] logs a warning where it would hand the mail over;
+//! the WeldChat helpers exclude email anyway, as in TypeScript.
 
 mod push;
 
@@ -17,15 +22,25 @@ use serde_json::{Map, Value, json};
 use sqlx::PgPool;
 use time::OffsetDateTime;
 use weldsuite_events::iso_timestamp;
-use weldsuite_ports::{DynRealtimePublisher, OutboundHttp, RealtimeMessage, RealtimePublisher};
+use weldsuite_ports::{
+    DynRealtimePublisher, DynSystemMail, OutboundHttp, PresenceReader, RealtimeMessage,
+    RealtimePublisher,
+};
 
 pub use push::{ApnsConfig, CallCancelReason, cancel_incoming_call_push};
 
-/// Where notifications go out: the realtime port, outbound HTTP (Expo,
-/// APNs) and the APNs key, each optional as the bindings are in a worker.
+/// Where notifications go out (`NotificationEnv`): the realtime port (in-app;
+/// `REALTIME`), live presence for the email gate, system mail
+/// (`SEND_EMAIL`), outbound HTTP (Expo, APNs) and the APNs key, each
+/// optional as the bindings are in a worker.
 #[derive(Clone, Default)]
 pub struct Notifier {
     pub realtime: Option<Arc<dyn DynRealtimePublisher>>,
+    /// Live presence (`RealtimePublisher#getPresence`); `None` reads as
+    /// nobody connected, as a worker without `REALTIME`.
+    pub presence: Option<PresenceReader>,
+    /// System mail; `None` skips the send, as `workerTransport(env)` does.
+    pub mail: Option<Arc<dyn DynSystemMail>>,
     pub http: Option<OutboundHttp>,
     pub apns: Option<ApnsConfig>,
 }
@@ -34,6 +49,8 @@ impl std::fmt::Debug for Notifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Notifier")
             .field("realtime", &self.realtime.is_some())
+            .field("presence", &self.presence.is_some())
+            .field("mail", &self.mail.is_some())
             .field("http", &self.http.is_some())
             .field("apns", &self.apns.is_some())
             .finish()
@@ -64,6 +81,96 @@ pub struct NewNotification {
     pub exclude_in_app: bool,
     /// Extra push data, string values, in order.
     pub data: Vec<(String, String)>,
+    /// The email's template and props (`email`), when not the generic
+    /// `notification` one built from title, body and link.
+    pub email: Option<EmailOverride>,
+}
+
+/// `NotificationEmailOverride`: a `@weldsuite/emails` template and its props.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmailOverride {
+    pub template: String,
+    pub props: Value,
+}
+
+/// `EmailPresence`: whether to email someone about a notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmailPresence {
+    /// Connected and not away: what they would be mailed about is on screen.
+    Present,
+    /// Away or not connected: email them.
+    Absent,
+    /// Do not disturb: never email.
+    Suppress,
+}
+
+/// `emailPresenceFor(chosen, live)`.
+pub fn email_presence_for(chosen: &str, live: Option<&str>) -> EmailPresence {
+    if chosen == "dnd" {
+        return EmailPresence::Suppress;
+    }
+    if live.is_none() || live == Some("away") || chosen == "away" {
+        return EmailPresence::Absent;
+    }
+    EmailPresence::Present
+}
+
+/// `chosenStatusFromStored(stored, expiresAt)`: the status the member chose,
+/// `online` once it expired.
+fn chosen_status(stored: Option<&str>, expired: bool) -> &'static str {
+    if expired {
+        return "online";
+    }
+    match stored {
+        Some("busy") => "busy",
+        Some("dnd") => "dnd",
+        Some("away_manual") => "away",
+        Some("invisible") => "offline",
+        _ => "online",
+    }
+}
+
+/// `resolveEmailPresence(db, userId, source)`: the member's chosen status
+/// (`chat_user_status`), then their live presence in `workspace_id`'s hub.
+/// A failed lookup reads as away.
+pub async fn resolve_email_presence(
+    db: &PgPool,
+    user_id: &str,
+    presence: Option<&PresenceReader>,
+    workspace_id: &str,
+) -> EmailPresence {
+    let row: Result<Option<(String, bool)>, sqlx::Error> = sqlx::query_as(
+        "select status, coalesce(status_expires_at <= now() at time zone 'utc', false)
+         from chat_user_status where user_id = $1 limit 1",
+    )
+    .bind(user_id)
+    .fetch_optional(db)
+    .await;
+    let (stored, expired) = match row {
+        Ok(Some((status, expired))) => (Some(status), expired),
+        Ok(None) => (None, false),
+        Err(error) => {
+            tracing::error!(%error, "[Notifications] Presence lookup failed, treating as absent");
+            return EmailPresence::Absent;
+        }
+    };
+    let chosen = chosen_status(stored.as_deref(), expired);
+    let Some(presence) = presence.filter(|_| chosen != "dnd") else {
+        return email_presence_for(chosen, None);
+    };
+    match presence.0.presence(workspace_id, &[user_id.to_owned()]).await {
+        Ok(users) => {
+            let live = users
+                .iter()
+                .find(|(id, _)| id == user_id)
+                .map(|(_, live)| live.as_str());
+            email_presence_for(chosen, live)
+        }
+        Err(error) => {
+            tracing::error!(%error, "[Notifications] Presence lookup failed, treating as absent");
+            EmailPresence::Absent
+        }
+    }
 }
 
 /// `ChannelPreferences`.
@@ -166,13 +273,15 @@ pub async fn create_and_deliver(
     if params.exclude_in_app {
         channels.in_app = false;
     }
-    if channels.email {
-        tracing::warn!(
-            category = %params.category,
-            "[Notifications] email delivery is not ported yet; the email channel is skipped"
-        );
-    }
-    let will_email = false;
+    // Presence gate, email only, before the insert: `delivered_email` says
+    // what happens.
+    let email_presence = if channels.email {
+        resolve_email_presence(db, &params.user_id, notifier.presence.as_ref(), &params.workspace_id)
+            .await
+    } else {
+        EmailPresence::Suppress
+    };
+    let will_email = channels.email && email_presence == EmailPresence::Absent;
     if !channels.in_app && !will_email && !channels.push {
         tracing::warn!(
             user = %params.user_id,
@@ -213,6 +322,15 @@ pub async fn create_and_deliver(
 
     if channels.in_app {
         deliver_in_app(notifier, params, &id, &now).await;
+    }
+    if will_email && notifier.mail.is_some() {
+        // `deliverEmail` (immediate, or deferred by EMAIL_DEFER_MINUTES):
+        // not ported yet, see the crate docs.
+        tracing::warn!(
+            user = %params.user_id,
+            category = %params.category,
+            "[Notifications] notification email is not sent: its templates are not ported yet"
+        );
     }
     if channels.push {
         push::deliver_push(db, notifier, params).await;
@@ -310,6 +428,7 @@ pub mod chat {
             exclude_push: false,
             exclude_in_app: false,
             data,
+            email: None,
         }
     }
 
@@ -451,5 +570,42 @@ pub mod chat {
             caller_user_id,
             data,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn email_goes_to_the_away_and_never_to_dnd() {
+        assert_eq!(email_presence_for("dnd", None), EmailPresence::Suppress);
+        assert_eq!(email_presence_for("online", None), EmailPresence::Absent);
+        assert_eq!(email_presence_for("online", Some("away")), EmailPresence::Absent);
+        assert_eq!(email_presence_for("away", Some("online")), EmailPresence::Absent);
+        assert_eq!(email_presence_for("busy", Some("busy")), EmailPresence::Present);
+        assert_eq!(chosen_status(Some("away_manual"), false), "away");
+        assert_eq!(chosen_status(Some("dnd"), true), "online");
+    }
+
+    #[test]
+    fn push_data_renames_channel_id_and_keeps_strings() {
+        let mut params = chat::dm("org_1", "u2", "u1", "Ann", "ch_1", "");
+        params.data.push(("channelId".to_owned(), "ignored".to_owned()));
+        params.clerk_org_id = Some("org_1".to_owned());
+        let data = push_data(&params);
+        assert_eq!(data["chatChannelId"], "ch_1");
+        assert!(!data.contains_key("channelId"));
+        assert_eq!(data["clerkOrgId"], "org_1");
+        assert_eq!(data["notificationType"], "chat_dm");
+        assert_eq!(params.body, "Sent you a direct message");
+    }
+
+    #[test]
+    fn ids_look_like_generated_ids() {
+        let id = notification_id();
+        assert!(id.starts_with("notif_"));
+        assert!(id.len() >= 6 + 12);
+        assert!(id[6..].chars().all(|c| c.is_ascii_digit() || c.is_ascii_lowercase()));
     }
 }

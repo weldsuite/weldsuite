@@ -295,7 +295,7 @@ impl Provider {
             }
             Self::Domain => {
                 let row: Option<String> = sqlx::query_scalar(
-                    "select full_domain from host_domains where id = $1 and deleted_at is null limit 1",
+                    "select full_domain from domains where id = $1 and deleted_at is null limit 1",
                 )
                 .bind(entity_id)
                 .fetch_optional(db)
@@ -417,7 +417,7 @@ impl Provider {
             }
             Self::Domain => {
                 let ids: Vec<String> = sqlx::query_scalar(
-                    "select id from host_domains where id = any($1) and deleted_at is null",
+                    "select id from domains where id = any($1) and deleted_at is null",
                 )
                 .bind(entity_ids)
                 .fetch_all(db)
@@ -491,7 +491,7 @@ impl Provider {
                         'fullDomain', full_domain, 'status', status, 'registrar', registrar,
                         'registeredAt', registered_at, 'expiresAt', expires_at,
                         'autoRenew', auto_renew, 'nameservers', nameservers)
-                     from host_domains where id = $1 and deleted_at is null limit 1",
+                     from domains where id = $1 and deleted_at is null limit 1",
                 )
                 .bind(entity_id)
                 .fetch_optional(db)
