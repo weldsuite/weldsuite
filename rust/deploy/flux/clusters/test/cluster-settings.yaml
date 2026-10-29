@@ -1,0 +1,31 @@
+# The test cluster's settings, substituted into the layers (${NAME}). Not
+# secret: secrets go in rust/deploy/flux/secrets/test, encrypted with SOPS.
+# Fill in the CHANGE_ME values before bootstrapping Flux (TEST-CLUSTER.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-settings
+  namespace: flux-system
+data:
+  # app., api., auth. and sign. under this name point at the ingress load
+  # balancer (DNS-only records, so Let's Encrypt reaches the cluster).
+  DOMAIN: eu-test.weldsuite.org
+  ACME_EMAIL: ops@weldsuite.org
+  # Postgres backups. Production keeps them at a second EU provider; a test
+  # cluster uses Hetzner Object Storage in another location than the files.
+  BACKUP_S3_ENDPOINT: https://nbg1.your-objectstorage.com
+  BACKUP_S3_BUCKET: weldsuite-eu-test-pg-backups
+  # Files (the workers' R2 buckets): Hetzner Object Storage.
+  FILES_S3_ENDPOINT: https://fsn1.your-objectstorage.com
+  FILES_S3_REGION: fsn1
+  FILES_BUCKET_PRIVATE: weldsuite-eu-test-files
+  # Zitadel (auth.${DOMAIN}): the WeldSuite project's id and the platform's
+  # web application's client id, made in Zitadel's console after its first
+  # start (runbook step 7). Until then the server runs but refuses sign-ins.
+  ZITADEL_PROJECT_ID: "000000000000000000"
+  ZITADEL_WEB_CLIENT_ID: "000000000000000000"
+  # Unused here: the chart follows the deploy branch (layers.yaml).
+  WELDSUITE_GIT_TAG: unused
+  # The images the "Rust images" workflow pushed for a commit of the deploy
+  # branch: sha-<first 12 characters of the commit>.
+  WELDSUITE_IMAGE_TAG: CHANGE_ME

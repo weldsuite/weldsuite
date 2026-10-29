@@ -32,7 +32,7 @@ tofu -chdir=hetzner init -backend=false -input=false >/dev/null
 tofu -chdir=hetzner validate
 
 echo "== Flux layers"
-kc flux/clusters/eu/*.yaml flux/clusters/drill/*.yaml
+kc flux/clusters/eu/*.yaml flux/clusters/drill/*.yaml flux/clusters/test/*.yaml
 for dir in \
   flux/infrastructure/sources \
   flux/infrastructure/controllers \
@@ -41,7 +41,8 @@ for dir in \
   flux/infrastructure/services \
   flux/apps/eu \
   flux/secrets/eu \
-  flux/secrets/drill; do
+  flux/secrets/drill \
+  flux/secrets/test; do
   echo "-- $dir"
   kubectl kustomize "$dir" | substitute | kc -
 done

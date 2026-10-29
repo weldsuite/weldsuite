@@ -13,3 +13,6 @@ creation_rules:
   - path_regex: secrets/drill/.*\.sops\.yaml$
     encrypted_regex: ^(data|stringData)$
     age: age1replace0with0the0drill0cluster0public0key00000000000000000000000
+  - path_regex: secrets/test/.*\.sops\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1replace0with0the0test0cluster0public0key000000000000000000000000
