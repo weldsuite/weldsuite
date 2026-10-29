@@ -61,6 +61,8 @@ const CAP_KEY: &str = "weldsuite.max_memberships";
 const NAME_KEY: &str = "weldsuite.name";
 const PUBLIC_METADATA_KEY: &str = "weldsuite.public_metadata";
 const PRIVATE_METADATA_KEY: &str = "weldsuite.private_metadata";
+/// Looks for an organization's project grant before concluding it has none.
+const GRANT_LOOKUPS: u32 = 8;
 /// Grants fetched per list call; a workspace's members fit many times over.
 const LIST_LIMIT: u32 = 1000;
 
@@ -232,18 +234,29 @@ impl ZitadelIdentity {
         {
             return Ok(grant.clone());
         }
-        let granted = self
-            .call(
-                Method::POST,
-                "/management/v1/granted_projects/_search",
-                Some(org),
-                Some(json!({})),
-            )
-            .await?;
-        let grant = results(&granted)
-            .iter()
-            .find(|project| str_field(project, "projectId") == Some(&self.options.project_id))
-            .and_then(|project| str_field(project, "grantId").map(str::to_owned));
+        // Zitadel's read side lags its writes: a grant made a moment ago
+        // (another process's onboarding) may not be listed yet.
+        let mut grant = None;
+        for attempt in 0..GRANT_LOOKUPS {
+            if attempt > 0 {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            let granted = self
+                .call(
+                    Method::POST,
+                    "/management/v1/granted_projects/_search",
+                    Some(org),
+                    Some(json!({})),
+                )
+                .await?;
+            grant = results(&granted)
+                .iter()
+                .find(|project| str_field(project, "projectId") == Some(&self.options.project_id))
+                .and_then(|project| str_field(project, "grantId").map(str::to_owned));
+            if grant.is_some() || self.project_owner().await.is_ok_and(|owner| owner == org) {
+                break;
+            }
+        }
         if grant.is_none() {
             // Not granted: fine when the organization owns the project.
             self.call(
