@@ -1001,7 +1001,7 @@ function ClerkLoginPage() {
       <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
         <div className="w-full max-w-[448px] mx-auto">
           <div className="mb-[32px]">
-            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
+            <h1 className="text-[26px] leading-tight font-semibold text-gray-900 mb-0.5">
               {t.auth.login.title}
             </h1>
             <p className="text-gray-600">

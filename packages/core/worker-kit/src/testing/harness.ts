@@ -27,7 +27,7 @@ import {
   recordOnlyTarget,
 } from './conformance';
 
-export { conformanceMasterDb } from './conformance';
+export { conformanceMasterDb, conformanceTenantDb } from './conformance';
 
 // One-time init: the `requirePermission` middleware throws if its DB
 // query factory was never registered. Tests pre-cache `userPermissions`
@@ -141,6 +141,14 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     ...(sideEffects?.bindings ?? {}),
     ...options.env,
   } as E;
+  // A test's own REALTIME binding is recorded too: its publishes are side
+  // effects both backends must agree on.
+  const ownRealtime = (options.env as Record<string, unknown> | undefined)?.REALTIME as
+    | { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }
+    | undefined;
+  if (sideEffects && ownRealtime && typeof ownRealtime.fetch === 'function') {
+    (env as unknown as Record<string, unknown>).REALTIME = sideEffects.wrapRealtime(ownRealtime);
+  }
 
   const buildApp = (tenantDb: Database) => {
     const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {

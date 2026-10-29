@@ -69,3 +69,87 @@ export interface SequenceEnrollmentRow {
   errorMessage?: string | null;
   customerSnapshot?: unknown;
 }
+
+// ── Responses (checked against both backends in conformance) ────────────────
+
+/** A sequence in `GET /api/sequences` (`SequenceRow`). */
+export const sequenceRowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  status: z.string(),
+  steps: z.unknown(),
+  tags: z.unknown(),
+  executionCount: z.number().nullish(),
+  successCount: z.number().nullish(),
+  lastExecutedAt: z.string().nullish(),
+  enrolledCount: z.number(),
+  activeEnrolledCount: z.number(),
+  pendingEnrolledCount: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/** `GET /api/sequences/:id`. */
+export const sequenceDetailSchema = sequenceRowSchema.extend({
+  triggers: z.unknown(),
+  settings: z.unknown(),
+  failureCount: z.number().nullish(),
+  completedEnrolledCount: z.number(),
+  failedEnrolledCount: z.number(),
+});
+
+/** An enrollment in `GET /api/sequences/:id/enrollments` (`SequenceEnrollmentRow`). */
+export const sequenceEnrollmentRowSchema = z.object({
+  id: z.string(),
+  sequenceId: z.string(),
+  customerId: z.string(),
+  status: z.string(),
+  executionId: z.string().nullish(),
+  currentStepIndex: z.number().nullish(),
+  totalSteps: z.number(),
+  enrolledBy: z.string().nullish(),
+  enrolledAt: z.string(),
+  completedAt: z.string().nullish(),
+  pausedAt: z.string().nullish(),
+  unenrolledAt: z.string().nullish(),
+  failedAt: z.string().nullish(),
+  errorMessage: z.string().nullish(),
+  customerSnapshot: z.unknown(),
+  customerEmail: z.string().nullable(),
+  customerFirstName: z.string().nullable(),
+  customerLastName: z.string().nullable(),
+  customerFullName: z.string().nullable(),
+  customerCompanyName: z.string().nullable(),
+});
+
+/** `POST /api/sequences/:id/enroll`. */
+export const sequenceEnrollResultSchema = z.object({
+  enrolled: z.number(),
+  enrollmentIds: z.array(z.string()),
+});
+
+/** `POST /api/sequences/:id/launch`, `/start`, `/resume`, `/pause` and the enrollment pause/resume. */
+export const sequenceActionResultSchema = z
+  .object({
+    activated: z.number(),
+    triggered: z.number(),
+    resumed: z.boolean(),
+    resumedEnrollments: z.number(),
+    paused: z.boolean(),
+    pausedEnrollments: z.number(),
+  })
+  .partial();
+
+/** A row of `GET /api/customer-sequences/:customerId`. */
+export const customerSequenceRowSchema = z.object({
+  enrollmentId: z.string(),
+  sequenceId: z.string(),
+  status: z.string(),
+  currentStepIndex: z.number().nullable(),
+  totalSteps: z.number().nullable(),
+  enrolledAt: z.string(),
+  completedAt: z.string().nullable(),
+  sequenceName: z.string(),
+  sequenceStatus: z.string(),
+});

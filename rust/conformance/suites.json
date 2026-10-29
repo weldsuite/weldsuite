@@ -1,5 +1,5 @@
 {
-  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5).",
+  "$comment": "Worker tests the Rust backend must pass (phase P2, scripts/rust-conformance.ts). One suite per ported module or core route group: the worker package that owns the tests, and the test files covering what Rust serves. A module is added when it is ported (playbook step 5). A ported module must reach every route of its suites; a route left out on purpose goes in the suite's `excludedRoutes`, with the reason.",
   "suites": [
     {
       "name": "core: me",
@@ -105,41 +105,6 @@
       ]
     },
     {
-      "name": "core: dashboard",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/dashboard/dashboard.integration.test.ts",
-        "src/routes/dashboard/installed-apps.test.ts",
-        "src/routes/dashboard/onboarding-checklist.test.ts",
-        "src/routes/dashboard/permission-gates.test.ts",
-        "src/routes/dashboard/sidebar-badges.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/dashboard/",
-        "apps/workers/app-api/src/services/member-apps.ts",
-        "apps/workers/app-api/src/services/member-link.ts",
-        "packages/domains/mail/src/access.ts",
-        "packages/domains/mail/src/labels.ts",
-        "packages/clients/app-api-client/src/schemas/dashboard.ts",
-        "rust/modules/core-platform/src/groups/dashboard.rs"
-      ]
-    },
-    {
-      "name": "core: support",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/support/support.integration.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/support/",
-        "packages/core/realtime/src/server/",
-        "packages/clients/app-api-client/src/schemas/support.ts",
-        "rust/modules/core-platform/src/groups/support.rs"
-      ]
-    },
-    {
       "name": "core: settings-profile",
       "module": "core",
       "workspace": "apps/workers/app-api",
@@ -200,18 +165,26 @@
       ]
     },
     {
-      "name": "core: team-members (directory)",
+      "name": "core: team-members",
       "module": "core",
       "workspace": "apps/workers/app-api",
       "tests": [
         "src/routes/team-members/directory.integration.test.ts",
-        "src/routes/team-members/member-profile.integration.test.ts"
+        "src/routes/team-members/member-profile.integration.test.ts",
+        "src/routes/team-members/manage.integration.test.ts"
       ],
       "paths": [
         "apps/workers/app-api/src/routes/team-members/",
         "apps/workers/app-api/src/services/team/",
         "packages/clients/app-api-client/src/schemas/team-members.ts",
-        "rust/modules/core-team/src/groups/team_members/"
+        "rust/modules/core-team/src/groups/team_members/",
+        "apps/workers/app-api/src/services/seat-limits.ts",
+        "apps/workers/app-api/src/services/member-count.ts",
+        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
+        "apps/workers/app-api/src/services/invitation-redirect.ts",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "packages/clients/app-api-client/src/schemas/team-members-manage.ts",
+        "rust/modules/core-team/src/groups/seats.rs"
       ]
     },
     {
@@ -307,26 +280,6 @@
       ]
     },
     {
-      "name": "core: team-members (manage)",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/team-members/manage.integration.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/team-members/",
-        "apps/workers/app-api/src/services/seat-limits.ts",
-        "apps/workers/app-api/src/services/member-count.ts",
-        "apps/workers/app-api/src/services/clerk-seat-cap.ts",
-        "apps/workers/app-api/src/services/invitation-redirect.ts",
-        "apps/workers/app-api/src/services/api-keys.ts",
-        "packages/clients/app-api-client/src/schemas/team-members.ts",
-        "packages/clients/app-api-client/src/schemas/team-members-manage.ts",
-        "rust/modules/core-team/src/groups/team_members/",
-        "rust/modules/core-team/src/groups/seats.rs"
-      ]
-    },
-    {
       "name": "core: member-limits",
       "module": "core",
       "workspace": "apps/workers/app-api",
@@ -341,6 +294,660 @@
         "packages/clients/app-api-client/src/schemas/member-limits.ts",
         "rust/modules/core-team/src/groups/member_limits.rs",
         "rust/modules/core-team/src/groups/seats.rs"
+      ]
+    },
+    {
+      "name": "core: my-role",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/my-role/my-role.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/my-role/",
+        "packages/core/permissions/src/",
+        "packages/clients/app-api-client/src/schemas/member-limits.ts",
+        "rust/modules/core-team/src/groups/my_role.rs"
+      ]
+    },
+    {
+      "name": "pass",
+      "module": "pass",
+      "workspace": "apps/workers/pass-api",
+      "tests": [
+        "src/routes/weldpass/index.test.ts",
+        "src/routes/weldpass/passwords.test.ts",
+        "src/routes/weldpass/projects.test.ts",
+        "src/routes/weldpass/sync.test.ts",
+        "src/routes/weldpass/vaults.test.ts"
+      ],
+      "paths": [
+        "apps/workers/pass-api/src/",
+        "packages/clients/app-api-client/src/schemas/weldpass.ts",
+        "packages/clients/app-api-client/src/schemas/weldpass-passwords.ts",
+        "packages/core/cloudflare-deploy/src/",
+        "rust/modules/pass/"
+      ]
+    },
+    {
+      "name": "know",
+      "module": "know",
+      "workspace": "apps/workers/know-api",
+      "tests": [
+        "src/routes/knowledge/teamspaces.test.ts",
+        "src/routes/knowledge/pages.test.ts"
+      ],
+      "paths": [
+        "apps/workers/know-api/src/",
+        "packages/domains/know/src/",
+        "packages/clients/core-api-client/src/schemas/knowledge.ts",
+        "rust/modules/know/"
+      ]
+    },
+    {
+      "name": "core: files, folders and drive",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/files/index.test.ts",
+        "src/routes/files/sharing.test.ts",
+        "src/routes/files/actions.test.ts",
+        "src/routes/folders/index.test.ts",
+        "src/routes/drive/index.test.ts",
+        "src/routes/drive/trash.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/files/",
+        "apps/workers/app-api/src/lib/storage-upload.ts",
+        "packages/domains/core/src/files.ts",
+        "packages/domains/core/src/drive-access.ts",
+        "packages/domains/core/src/folders.ts",
+        "packages/clients/core-api-client/src/schemas/files.ts",
+        "packages/clients/core-api-client/src/schemas/folders.ts",
+        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
+        "packages/clients/core-api-client/src/schemas/drive.ts",
+        "apps/workers/app-api/src/lib/drive-access.ts",
+        "apps/workers/app-api/src/services/drive-aggregation.ts",
+        "apps/workers/app-api/src/services/folders.ts",
+        "rust/modules/core-files/",
+        "rust/crates/core-domain/",
+        "apps/workers/app-api/src/routes/folders/",
+        "apps/workers/app-api/src/routes/drive/"
+      ]
+    },
+    {
+      "name": "core: storage",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/storage/storage.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/storage/",
+        "apps/workers/app-api/src/lib/storage-upload.ts",
+        "apps/workers/app-api/src/services/private-storage-migration.ts",
+        "packages/core/worker-kit/src/storage.ts",
+        "packages/clients/core-api-client/src/schemas/storage.ts",
+        "rust/modules/core-files/",
+        "rust/crates/ports/src/files.rs",
+        "rust/crates/ports/src/cache.rs"
+      ]
+    },
+    {
+      "name": "core: search",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/search/search.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/search/",
+        "apps/workers/app-api/src/services/search.ts",
+        "apps/workers/app-api/src/services/search/query-understanding.ts",
+        "apps/workers/app-api/src/services/member-apps.ts",
+        "packages/clients/app-api-client/src/schemas/search.ts",
+        "packages/domains/core/src/drive-access.ts",
+        "rust/modules/core-files/",
+        "rust/crates/core-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/search/reindex",
+          "reason": "Needs an AI port for embeddings; not served on the Kubernetes editions, and /config.json lists search-reindex as unavailable."
+        }
+      ]
+    },
+    {
+      "name": "core: user-apps",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/user-apps/user-apps.integration.test.ts",
+        "src/routes/user-apps/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/user-apps/",
+        "apps/workers/app-api/src/services/user-apps.ts",
+        "apps/workers/app-api/src/services/user-apps-bundle-access.ts",
+        "apps/workers/app-api/src/services/user-app-dev-sessions.ts",
+        "apps/workers/app-api/src/services/user-app-gateway.ts",
+        "apps/workers/app-api/src/test/user-apps-fixtures.ts",
+        "packages/clients/app-api-client/src/schemas/user-apps.ts",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/core-apps/"
+      ]
+    },
+    {
+      "name": "core: public-user-apps",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/public-user-apps/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/public-user-apps/",
+        "apps/workers/app-api/src/services/user-apps.ts",
+        "apps/workers/app-api/src/services/user-apps-bundle-access.ts",
+        "apps/workers/app-api/src/test/user-apps-fixtures.ts",
+        "rust/modules/core-apps/"
+      ]
+    },
+    {
+      "name": "core: cli-auth",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/cli-auth/cli-auth.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/cli-auth/",
+        "apps/workers/app-api/src/services/cli-auth.ts",
+        "apps/workers/app-api/src/services/api-keys.ts",
+        "apps/workers/app-api/src/test/fake-clerk.ts",
+        "packages/clients/app-api-client/src/schemas/cli-auth.ts",
+        "rust/modules/core-apps/",
+        "rust/crates/ports/src/identity.rs"
+      ]
+    },
+    {
+      "name": "core: auth-desktop",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/auth-desktop/auth-desktop.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/auth-desktop/",
+        "apps/workers/app-api/src/test/fake-clerk.ts",
+        "packages/clients/app-api-client/src/schemas/auth-desktop.ts",
+        "rust/modules/core-apps/",
+        "rust/crates/ports/src/identity.rs"
+      ]
+    },
+    {
+      "name": "sign",
+      "module": "sign",
+      "workspace": "apps/workers/sign-api",
+      "tests": [
+        "src/routes/envelopes/envelopes.test.ts",
+        "src/routes/envelopes/sources.test.ts",
+        "src/routes/templates/templates.test.ts",
+        "src/flow.test.ts",
+        "src/cron/lifecycle-sweep.test.ts"
+      ],
+      "paths": [
+        "apps/workers/sign-api/src/",
+        "packages/domains/sign/src/",
+        "packages/clients/app-api-client/src/schemas/weldsign.ts",
+        "packages/core/emails/src/templates/sign/",
+        "rust/modules/sign/",
+        "rust/crates/emails/"
+      ]
+    },
+    {
+      "name": "crm: pipelines",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/pipelines/integration.test.ts",
+        "src/routes/pipelines/routes.integration.test.ts",
+        "src/routes/pipeline-stages/integration.test.ts",
+        "src/routes/customer-statuses/integration.test.ts",
+        "src/routes/person-companies/integration.test.ts",
+        "src/routes/person-companies/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/pipelines/",
+        "apps/workers/crm-api/src/routes/pipeline-stages/",
+        "apps/workers/crm-api/src/routes/pipeline-field-visibility/",
+        "apps/workers/crm-api/src/routes/customer-statuses/",
+        "apps/workers/crm-api/src/routes/person-companies/",
+        "packages/clients/core-api-client/src/schemas/pipelines-crm.ts",
+        "packages/clients/core-api-client/src/schemas/pipeline-stages.ts",
+        "packages/clients/core-api-client/src/schemas/person-companies.ts",
+        "packages/clients/app-api-client/src/schemas/customer-statuses.ts",
+        "packages/clients/app-api-client/src/schemas/pipeline-field-visibility.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/"
+      ]
+    },
+    {
+      "name": "crm: activities, leads, opportunities",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/activities/integration.test.ts",
+        "src/routes/activities/routes.integration.test.ts",
+        "src/routes/leads/integration.test.ts",
+        "src/routes/leads/routes.integration.test.ts",
+        "src/routes/opportunities/integration.test.ts",
+        "src/routes/opportunities/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/activities/",
+        "apps/workers/crm-api/src/routes/leads/",
+        "apps/workers/crm-api/src/routes/opportunities/",
+        "packages/domains/crm/src/activities.ts",
+        "packages/domains/crm/src/leads.ts",
+        "packages/domains/crm/src/opportunities.ts",
+        "packages/domains/core/src/custom-field-values.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/clients/core-api-client/src/schemas/activities.ts",
+        "packages/clients/core-api-client/src/schemas/leads.ts",
+        "packages/clients/core-api-client/src/schemas/opportunities.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/",
+        "rust/crates/core-domain/src/custom_field_values.rs"
+      ]
+    },
+    {
+      "name": "crm: lists",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/lists/integration.test.ts",
+        "src/routes/lists/realtime-publish.test.ts",
+        "src/routes/lists/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/lists/",
+        "packages/clients/core-api-client/src/schemas/lists.ts",
+        "rust/modules/crm/src/lists.rs"
+      ]
+    },
+    {
+      "name": "crm: companies",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/companies/integration.test.ts",
+        "src/routes/companies/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/companies/",
+        "apps/workers/crm-api/src/lib/record-chat-forward.ts",
+        "packages/domains/crm/src/companies.ts",
+        "packages/domains/crm/src/company-attributes.ts",
+        "packages/domains/crm/src/member-validation.ts",
+        "packages/domains/crm/src/status-validation.ts",
+        "packages/domains/crm/src/list-query.ts",
+        "packages/domains/core/src/custom-field-query.ts",
+        "packages/clients/app-api-client/src/schemas/companies.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/"
+      ]
+    },
+    {
+      "name": "mail: outbound",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-sending/index.test.ts",
+        "src/routes/internal-outbound/index.test.ts",
+        "src/routes/mail-accounts/send.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/routes/mail-sending/",
+        "apps/workers/mail-api/src/routes/internal-outbound/",
+        "apps/workers/mail-api/src/lib/admin-auth.ts",
+        "packages/domains/mail/src/outbound/",
+        "packages/clients/app-api-client/src/schemas/outbound-mail.ts",
+        "rust/crates/mail-domain/src/outbound/",
+        "rust/modules/mail/"
+      ]
+    },
+    {
+      "name": "crm: sequences",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/sequences/integration.test.ts",
+        "src/routes/sequences/routes.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/sequences/",
+        "packages/clients/core-api-client/src/schemas/sequences.ts",
+        "packages/core/worker-kit/src/testing/workflow-bridge.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/",
+        "rust/bins/weldsuite/src/conformance_workflows.rs"
+      ]
+    },
+    {
+      "name": "calendar",
+      "module": "calendar",
+      "workspace": "apps/workers/calendar-api",
+      "tests": [
+        "src/routes/calendars/integration.test.ts",
+        "src/routes/calendar-events/integration.test.ts",
+        "src/routes/calendar-events/events-api.test.ts",
+        "src/routes/calendar-events/invitation-guard.test.ts",
+        "src/routes/booking-pages/integration.test.ts",
+        "src/routes/bookings/integration.test.ts",
+        "src/routes/working-hours/integration.test.ts",
+        "src/cron/calendar-replan.test.ts"
+      ],
+      "paths": [
+        "apps/workers/calendar-api/src/",
+        "packages/core/db/src/lib/calendar-sync.ts",
+        "packages/clients/core-api-client/src/schemas/bookings.ts",
+        "packages/clients/core-api-client/src/schemas/booking-pages.ts",
+        "rust/modules/calendar/",
+        "rust/crates/calendar-domain/",
+        "packages/core/emails/src/templates/calendar/",
+        "packages/core/emails/src/ics.ts",
+        "packages/core/emails/src/format.ts",
+        "rust/crates/emails/"
+      ]
+    },
+    {
+      "name": "chat: channels",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/channels/integration.test.ts",
+        "src/routes/channels/names.integration.test.ts",
+        "src/routes/channels/routes.integration.test.ts",
+        "src/routes/channel-members/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: bookmarks, drafts, sections, status",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-bookmarks/integration.test.ts",
+        "src/routes/chat-drafts/integration.test.ts",
+        "src/routes/chat-drafts/empty.integration.test.ts",
+        "src/routes/chat-status/integration.test.ts",
+        "src/routes/chat-sections/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: messages",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-messages/integration.test.ts",
+        "src/routes/chat-messages/routes.integration.test.ts",
+        "src/services/chat/post-message.realtime.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: dm and activity",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-dm/integration.test.ts",
+        "src/routes/chat-activity/integration.test.ts",
+        "src/routes/chat-clips/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "chat: record chats",
+      "module": "chat",
+      "workspace": "apps/workers/chat-api",
+      "tests": [
+        "src/routes/chat-entity-channels/integration.test.ts",
+        "src/routes/chat-entity-channels/access.integration.test.ts",
+        "src/routes/chat-entity-channels/drive-files.integration.test.ts",
+        "src/routes/chat-entity-channels/detail.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/chat-api/src/",
+        "packages/domains/chat/src/",
+        "packages/core/notifications/src/",
+        "rust/modules/chat/",
+        "rust/crates/chat-domain/",
+        "rust/crates/notifications/"
+      ]
+    },
+    {
+      "name": "desk: help center and ticket records",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/helpdesk-faqs/routes.test.ts",
+        "src/routes/helpdesk-news/routes.test.ts",
+        "src/routes/helpdesk-announcements/routes.test.ts",
+        "src/routes/helpdesk-feedback/routes.test.ts",
+        "src/routes/helpdesk-reviews/routes.test.ts",
+        "src/routes/slas/routes.test.ts",
+        "src/routes/ticket-notes/routes.test.ts",
+        "src/routes/ticket-messages/routes.test.ts",
+        "src/routes/satisfaction-surveys/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/helpdesk-faqs/",
+        "apps/workers/desk-api/src/routes/helpdesk-news/",
+        "apps/workers/desk-api/src/routes/helpdesk-announcements/",
+        "apps/workers/desk-api/src/routes/helpdesk-feedback/",
+        "apps/workers/desk-api/src/routes/helpdesk-reviews/",
+        "apps/workers/desk-api/src/routes/slas/",
+        "apps/workers/desk-api/src/routes/ticket-notes/",
+        "apps/workers/desk-api/src/routes/ticket-messages/",
+        "apps/workers/desk-api/src/routes/satisfaction-surveys/",
+        "apps/workers/desk-api/src/test/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/"
+      ]
+    },
+    {
+      "name": "desk: tickets",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/tickets/routes.test.ts",
+        "src/routes/tickets/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/tickets/",
+        "apps/workers/desk-api/src/services/helpdesk/conversation-to-ticket.ts",
+        "apps/workers/desk-api/src/lib/notify.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/clients/app-api-client/src/schemas/tickets.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: conversations",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/conversations/routes.test.ts",
+        "src/routes/conversations/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/conversations/",
+        "apps/workers/desk-api/src/services/helpdesk/",
+        "apps/workers/desk-api/src/services/realtime/",
+        "apps/workers/desk-api/src/lib/",
+        "packages/clients/core-api-client/src/schemas/conversations.ts",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "flow: projects",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/projects/integration.test.ts",
+        "src/routes/projects/stats.integration.test.ts",
+        "src/routes/projects/custom-fields.integration.test.ts",
+        "src/routes/projects/coverage.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/projects/",
+        "apps/workers/flow-api/src/routes/project-members/",
+        "packages/clients/app-api-client/src/schemas/projects.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: project resources",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/milestones/integration.test.ts",
+        "src/routes/milestones/stats.integration.test.ts",
+        "src/routes/sprints/integration.test.ts",
+        "src/routes/project-labels/duplicates.integration.test.ts",
+        "src/routes/project-pipeline-stages/integration.test.ts",
+        "src/routes/project-pipeline-stages/index.test.ts",
+        "src/routes/project-files/integration.test.ts",
+        "src/routes/goals/integration.test.ts",
+        "src/routes/documents/index.integration.test.ts",
+        "src/routes/coverage.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/milestones/",
+        "apps/workers/flow-api/src/routes/sprints/",
+        "apps/workers/flow-api/src/routes/project-labels/",
+        "apps/workers/flow-api/src/routes/project-pipeline-stages/",
+        "apps/workers/flow-api/src/routes/project-files/",
+        "apps/workers/flow-api/src/routes/project-messages/",
+        "apps/workers/flow-api/src/routes/project-documents/",
+        "apps/workers/flow-api/src/routes/project-sheets/",
+        "apps/workers/flow-api/src/routes/documents/",
+        "apps/workers/flow-api/src/routes/goals/",
+        "apps/workers/flow-api/src/routes/whiteboards/",
+        "apps/workers/flow-api/src/services/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: personal lists and digest settings",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/task-tags/integration.test.ts",
+        "src/routes/task-tags/hardening.integration.test.ts",
+        "src/routes/task-projects/integration.test.ts",
+        "src/routes/task-projects/coverage.integration.test.ts",
+        "src/routes/digest-settings/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/task-tags/",
+        "apps/workers/flow-api/src/routes/task-projects/",
+        "apps/workers/flow-api/src/routes/digest-settings/",
+        "packages/clients/app-api-client/src/schemas/digest-settings.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: cross-cutting",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-hardening.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "core: dashboard",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/dashboard/dashboard.integration.test.ts",
+        "src/routes/dashboard/installed-apps.test.ts",
+        "src/routes/dashboard/onboarding-checklist.test.ts",
+        "src/routes/dashboard/permission-gates.test.ts",
+        "src/routes/dashboard/sidebar-badges.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/dashboard/",
+        "apps/workers/app-api/src/services/member-apps.ts",
+        "apps/workers/app-api/src/services/member-link.ts",
+        "packages/domains/mail/src/access.ts",
+        "packages/domains/mail/src/labels.ts",
+        "packages/clients/app-api-client/src/schemas/dashboard.ts",
+        "rust/modules/core-platform/src/groups/dashboard.rs"
+      ]
+    },
+    {
+      "name": "core: support",
+      "module": "core",
+      "workspace": "apps/workers/app-api",
+      "tests": [
+        "src/routes/support/support.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/app-api/src/routes/support/",
+        "packages/core/realtime/src/server/",
+        "packages/clients/app-api-client/src/schemas/support.ts",
+        "rust/modules/core-platform/src/groups/support.rs"
       ]
     },
     {
@@ -389,20 +996,6 @@
         "packages/core/worker-kit/src/dns-lookup.ts",
         "rust/modules/core-platform/src/groups/sso.rs",
         "rust/bins/weldsuite/src/conformance_outbound.rs"
-      ]
-    },
-    {
-      "name": "core: my-role",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/my-role/my-role.integration.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/my-role/",
-        "packages/core/permissions/src/",
-        "packages/clients/app-api-client/src/schemas/member-limits.ts",
-        "rust/modules/core-team/src/groups/my_role.rs"
       ]
     },
     {
@@ -511,214 +1104,19 @@
       ]
     },
     {
-      "name": "know",
-      "module": "know",
-      "workspace": "apps/workers/know-api",
-      "tests": [
-        "src/routes/knowledge/teamspaces.test.ts",
-        "src/routes/knowledge/pages.test.ts"
-      ],
-      "paths": [
-        "apps/workers/know-api/src/",
-        "packages/domains/know/src/",
-        "packages/clients/core-api-client/src/schemas/knowledge.ts",
-        "rust/modules/know/"
-      ]
-    },
-    {
-      "name": "core: files",
+      "name": "core: onboarding",
       "module": "core",
       "workspace": "apps/workers/app-api",
       "tests": [
-        "src/routes/files/index.test.ts",
-        "src/routes/files/sharing.test.ts",
-        "src/routes/files/actions.test.ts"
+        "src/routes/onboarding/onboarding.integration.test.ts"
       ],
       "paths": [
-        "apps/workers/app-api/src/routes/files/",
-        "apps/workers/app-api/src/lib/storage-upload.ts",
-        "packages/domains/core/src/files.ts",
-        "packages/domains/core/src/drive-access.ts",
-        "packages/domains/core/src/folders.ts",
-        "packages/clients/core-api-client/src/schemas/files.ts",
-        "packages/clients/core-api-client/src/schemas/folders.ts",
-        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
-        "packages/clients/core-api-client/src/schemas/drive.ts",
-        "apps/workers/app-api/src/lib/drive-access.ts",
-        "apps/workers/app-api/src/services/drive-aggregation.ts",
-        "apps/workers/app-api/src/services/folders.ts",
-        "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ]
-    },
-    {
-      "name": "core: folders",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/folders/index.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/folders/",
-        "packages/domains/core/src/files.ts",
-        "packages/domains/core/src/drive-access.ts",
-        "packages/domains/core/src/folders.ts",
-        "packages/clients/core-api-client/src/schemas/files.ts",
-        "packages/clients/core-api-client/src/schemas/folders.ts",
-        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
-        "packages/clients/core-api-client/src/schemas/drive.ts",
-        "apps/workers/app-api/src/lib/drive-access.ts",
-        "apps/workers/app-api/src/services/drive-aggregation.ts",
-        "apps/workers/app-api/src/services/folders.ts",
-        "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ]
-    },
-    {
-      "name": "core: drive",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/drive/index.test.ts",
-        "src/routes/drive/trash.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/drive/",
-        "packages/domains/core/src/files.ts",
-        "packages/domains/core/src/drive-access.ts",
-        "packages/domains/core/src/folders.ts",
-        "packages/clients/core-api-client/src/schemas/files.ts",
-        "packages/clients/core-api-client/src/schemas/folders.ts",
-        "packages/clients/core-api-client/src/schemas/drive-shares.ts",
-        "packages/clients/core-api-client/src/schemas/drive.ts",
-        "apps/workers/app-api/src/lib/drive-access.ts",
-        "apps/workers/app-api/src/services/drive-aggregation.ts",
-        "apps/workers/app-api/src/services/folders.ts",
-        "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ]
-    },
-    {
-      "name": "core: storage",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/storage/storage.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/storage/",
-        "apps/workers/app-api/src/lib/storage-upload.ts",
-        "apps/workers/app-api/src/services/private-storage-migration.ts",
-        "packages/core/worker-kit/src/storage.ts",
-        "packages/clients/core-api-client/src/schemas/storage.ts",
-        "rust/modules/core-files/",
-        "rust/crates/ports/src/files.rs",
-        "rust/crates/ports/src/cache.rs"
-      ]
-    },
-    {
-      "name": "core: search",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/search/search.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/search/",
-        "apps/workers/app-api/src/services/search.ts",
-        "apps/workers/app-api/src/services/search/query-understanding.ts",
-        "apps/workers/app-api/src/services/member-apps.ts",
-        "packages/clients/app-api-client/src/schemas/search.ts",
-        "packages/domains/core/src/drive-access.ts",
-        "rust/modules/core-files/",
-        "rust/crates/core-domain/"
-      ]
-    },
-    {
-      "name": "core: user-apps",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/user-apps/user-apps.integration.test.ts",
-        "src/routes/user-apps/index.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/user-apps/",
-        "apps/workers/app-api/src/services/user-apps.ts",
-        "apps/workers/app-api/src/services/user-apps-bundle-access.ts",
-        "apps/workers/app-api/src/services/user-app-dev-sessions.ts",
-        "apps/workers/app-api/src/services/user-app-gateway.ts",
-        "apps/workers/app-api/src/test/user-apps-fixtures.ts",
-        "packages/clients/app-api-client/src/schemas/user-apps.ts",
-        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
-        "rust/modules/core-apps/"
-      ]
-    },
-    {
-      "name": "core: public-user-apps",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/public-user-apps/index.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/public-user-apps/",
-        "apps/workers/app-api/src/services/user-apps.ts",
-        "apps/workers/app-api/src/services/user-apps-bundle-access.ts",
-        "apps/workers/app-api/src/test/user-apps-fixtures.ts",
-        "rust/modules/core-apps/"
-      ]
-    },
-    {
-      "name": "core: cli-auth",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/cli-auth/cli-auth.integration.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/cli-auth/",
-        "apps/workers/app-api/src/services/cli-auth.ts",
-        "apps/workers/app-api/src/services/api-keys.ts",
+        "apps/workers/app-api/src/routes/onboarding/",
         "apps/workers/app-api/src/test/fake-clerk.ts",
-        "packages/clients/app-api-client/src/schemas/cli-auth.ts",
-        "rust/modules/core-apps/",
+        "apps/workers/app-api/src/services/partner/",
+        "packages/clients/app-api-client/src/schemas/onboarding.ts",
+        "rust/modules/core-onboarding/",
         "rust/crates/ports/src/identity.rs"
-      ]
-    },
-    {
-      "name": "core: auth-desktop",
-      "module": "core",
-      "workspace": "apps/workers/app-api",
-      "tests": [
-        "src/routes/auth-desktop/auth-desktop.integration.test.ts"
-      ],
-      "paths": [
-        "apps/workers/app-api/src/routes/auth-desktop/",
-        "apps/workers/app-api/src/test/fake-clerk.ts",
-        "packages/clients/app-api-client/src/schemas/auth-desktop.ts",
-        "rust/modules/core-apps/",
-        "rust/crates/ports/src/identity.rs"
-      ]
-    },
-    {
-      "name": "sign",
-      "module": "sign",
-      "workspace": "apps/workers/sign-api",
-      "tests": [
-        "src/routes/envelopes/envelopes.test.ts",
-        "src/routes/envelopes/sources.test.ts",
-        "src/routes/templates/templates.test.ts",
-        "src/flow.test.ts",
-        "src/cron/lifecycle-sweep.test.ts"
-      ],
-      "paths": [
-        "apps/workers/sign-api/src/",
-        "packages/domains/sign/src/",
-        "packages/clients/app-api-client/src/schemas/weldsign.ts",
-        "packages/core/emails/src/templates/sign/",
-        "rust/modules/sign/",
-        "rust/crates/emails/"
       ]
     }
   ]

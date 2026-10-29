@@ -76,6 +76,17 @@ impl EventType {
             })
     }
 
+    /// An event a TypeScript route publishes although the catalog lacks it
+    /// (crm-api's `company:unarchived`): `publishEntityEvent` hands any
+    /// type to the queue, so a port that must match it sends it as well.
+    /// Prefer [`EventType::catalog`]; use this only to mirror such a route.
+    pub fn uncatalogued(entity_type: &'static str, action: &'static str) -> Self {
+        Self {
+            entity_type: Cow::Borrowed(entity_type),
+            action: Cow::Borrowed(action),
+        }
+    }
+
     /// A custom object record event: `entity_key` is `co_<slug>` (resolved
     /// from the tenant's `custom_objects` table by the caller; this checks the
     /// shape only), `action` one of [`CUSTOM_OBJECT_ACTIONS`].

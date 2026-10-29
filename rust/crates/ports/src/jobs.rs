@@ -31,6 +31,23 @@
 //! (on Restate) returns the journaled result instead of running the step
 //! again. Code between steps runs again on a replay, so keep it free of side
 //! effects.
+//!
+//! Between steps a job can also wait, durably on Restate:
+//!
+//! - [`JobContext::sleep`] (`step.sleep(name, ms)`): minutes to days between
+//!   two steps, with no pod busy meanwhile.
+//! - [`JobContext::wait_for_signal`] (`step.waitForEvent(name, { type,
+//!   timeout })`): park until a route calls [`Jobs::signal`] with the job's
+//!   name and key and the same signal (`instance.sendEvent({ type })`), or
+//!   until the timeout passes. Unlike `waitForEvent` a timeout is not an
+//!   error: the wait answers `false`.
+//!
+//! A signal is a hint, not a message: it carries no payload, and the job
+//! reads what changed from the database after waking (a job that times out
+//! does the same). It wakes the wait parked on it; when none is, it is kept
+//! for [`PENDING_SIGNAL_TTL`] and the job's next wait for it returns at once,
+//! so a signal sent while the job is between its database read and its wait
+//! is not lost. Several signals while none is parked count as one.
 
 use std::collections::HashMap;
 use std::sync::{Arc, PoisonError, RwLock};
@@ -89,20 +106,60 @@ impl JobRequest {
     }
 }
 
+/// How long a signal that found no parked wait is kept for the job's next
+/// wait for it (see the module docs).
+pub const PENDING_SIGNAL_TTL: Duration = Duration::from_hours(1);
+
 /// Starts jobs. `start` returns once the job is accepted (stored, on a
 /// durable adapter); it never waits for the job to run.
 pub trait Jobs: Send + Sync {
     fn start(&self, request: JobRequest) -> impl Future<Output = Result<(), PortError>> + Send;
+
+    /// Send `signal` to the job started under `name` and `key`
+    /// (`instance.sendEvent({ type: signal })`). `true`: a wait parked on it
+    /// was woken (on Restate, a wait timing out at that very moment counts
+    /// too; it re-reads the database either way). `false`: none was (the job
+    /// is busy, sleeping, finished, or was never started); the signal is then
+    /// kept for [`PENDING_SIGNAL_TTL`] and wakes the job's next wait for it
+    /// at once.
+    ///
+    /// The default answers an error: the adapter has no signals.
+    fn signal<'a>(
+        &'a self,
+        name: &'a str,
+        key: &'a str,
+        signal: &'a str,
+    ) -> impl Future<Output = Result<bool, PortError>> + Send + 'a {
+        std::future::ready(Err(PortError::backend(format!(
+            "jobs: this adapter cannot send {signal:?} to {name} {key:?}"
+        ))))
+    }
 }
 
 /// Object-safe [`Jobs`], for `Arc<dyn DynJobs>`.
 pub trait DynJobs: Send + Sync {
     fn start_boxed(&self, request: JobRequest) -> BoxFuture<'_, Result<(), PortError>>;
+
+    fn signal_boxed<'a>(
+        &'a self,
+        name: &'a str,
+        key: &'a str,
+        signal: &'a str,
+    ) -> BoxFuture<'a, Result<bool, PortError>>;
 }
 
 impl<J: Jobs> DynJobs for J {
     fn start_boxed(&self, request: JobRequest) -> BoxFuture<'_, Result<(), PortError>> {
         Box::pin(self.start(request))
+    }
+
+    fn signal_boxed<'a>(
+        &'a self,
+        name: &'a str,
+        key: &'a str,
+        signal: &'a str,
+    ) -> BoxFuture<'a, Result<bool, PortError>> {
+        Box::pin(self.signal(name, key, signal))
     }
 }
 
@@ -110,11 +167,29 @@ impl Jobs for dyn DynJobs {
     fn start(&self, request: JobRequest) -> impl Future<Output = Result<(), PortError>> + Send {
         self.start_boxed(request)
     }
+
+    fn signal<'a>(
+        &'a self,
+        name: &'a str,
+        key: &'a str,
+        signal: &'a str,
+    ) -> impl Future<Output = Result<bool, PortError>> + Send + 'a {
+        self.signal_boxed(name, key, signal)
+    }
 }
 
 impl<J: Jobs + ?Sized> Jobs for Arc<J> {
     fn start(&self, request: JobRequest) -> impl Future<Output = Result<(), PortError>> + Send {
         (**self).start(request)
+    }
+
+    fn signal<'a>(
+        &'a self,
+        name: &'a str,
+        key: &'a str,
+        signal: &'a str,
+    ) -> impl Future<Output = Result<bool, PortError>> + Send + 'a {
+        (**self).signal(name, key, signal)
     }
 }
 
@@ -217,7 +292,12 @@ impl Default for StepRetry {
 /// A step's code: called once per attempt.
 pub type StepFn<'a> = dyn Fn() -> BoxFuture<'a, Result<Value, JobError>> + Send + Sync + 'a;
 
-/// What a running job gets from its adapter: durable steps.
+/// What a running job gets from its adapter: durable steps, sleeps and
+/// waits.
+///
+/// `name` on [`sleep`](Self::sleep) and [`wait_for_signal`](Self::wait_for_signal)
+/// names the wait for logs and traces, like a step name; it need not be
+/// unique.
 pub trait JobContext: Send + Sync {
     /// The key the job was started with.
     fn key(&self) -> &str;
@@ -230,6 +310,37 @@ pub trait JobContext: Send + Sync {
         retry: StepRetry,
         step: &'s StepFn<'s>,
     ) -> BoxFuture<'s, Result<Value, JobError>>;
+
+    /// Sleep `duration` (`step.sleep(name, ms)`). Durable on Restate: the
+    /// wake-up is journaled, survives restarts, and a replay after it does
+    /// not sleep again.
+    ///
+    /// The default fails the job: the adapter cannot sleep.
+    fn sleep(&self, name: &str, duration: Duration) -> BoxFuture<'_, Result<(), JobError>> {
+        let refused = JobError::Failed(format!(
+            "jobs: this adapter cannot sleep ({name:?}, {duration:?})"
+        ));
+        Box::pin(std::future::ready(Err(refused)))
+    }
+
+    /// Park until [`Jobs::signal`] sends `signal` to this job (`true`) or
+    /// `timeout` passes (`false`): `step.waitForEvent(name, { type: signal,
+    /// timeout })`. A signal kept from before the wait (see the module docs)
+    /// returns `true` at once. Durable on Restate, like [`sleep`](Self::sleep).
+    /// One wait per signal at a time.
+    ///
+    /// The default fails the job: the adapter has no signals.
+    fn wait_for_signal(
+        &self,
+        name: &str,
+        signal: &str,
+        timeout: Duration,
+    ) -> BoxFuture<'_, Result<bool, JobError>> {
+        let refused = JobError::Failed(format!(
+            "jobs: this adapter cannot wait for {signal:?} ({name:?}, {timeout:?})"
+        ));
+        Box::pin(std::future::ready(Err(refused)))
+    }
 }
 
 /// `await step.do(name, options, async () => …)`, typed: the step's result
@@ -346,5 +457,54 @@ impl Job for NoopJob {
             tracing::info!(key = ctx.key(), payload = %echoed, "jobs: noop job ran");
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Steps only: what an adapter written before sleeps and signals has.
+    struct StepsOnly;
+
+    impl JobContext for StepsOnly {
+        fn key(&self) -> &'static str {
+            "k"
+        }
+
+        fn run_step<'s>(
+            &'s self,
+            _name: &'s str,
+            _retry: StepRetry,
+            step: &'s StepFn<'s>,
+        ) -> BoxFuture<'s, Result<Value, JobError>> {
+            step()
+        }
+    }
+
+    struct StartsOnly;
+
+    impl Jobs for StartsOnly {
+        fn start(
+            &self,
+            _request: JobRequest,
+        ) -> impl Future<Output = Result<(), PortError>> + Send {
+            std::future::ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn adapters_without_sleeps_or_signals_refuse_them() {
+        let ctx = StepsOnly;
+        let slept = ctx.sleep("nap", Duration::from_secs(1)).await;
+        assert!(matches!(slept, Err(JobError::Failed(_))), "{slept:?}");
+        let waited = ctx
+            .wait_for_signal("wait", "go", Duration::from_secs(1))
+            .await;
+        assert!(matches!(waited, Err(JobError::Failed(_))), "{waited:?}");
+
+        let jobs: Arc<dyn DynJobs> = Arc::new(StartsOnly);
+        let signalled = jobs.signal("test.job", "k", "go").await;
+        assert!(signalled.is_err(), "{signalled:?}");
     }
 }

@@ -13,11 +13,17 @@ mod conformance_files;
 #[cfg(feature = "conformance")]
 mod conformance_kv;
 #[cfg(feature = "conformance")]
+mod conformance_mail;
+#[cfg(feature = "conformance")]
 mod conformance_outbound;
 #[cfg(feature = "conformance")]
 mod conformance_portal;
+#[cfg(feature = "conformance")]
+mod conformance_workflows;
 mod consume;
 mod cron;
+mod desk_http;
+mod edition;
 mod infra;
 mod migrate;
 mod realtime;
@@ -42,7 +48,9 @@ usage: weldsuite <command>
 commands:
   serve      run the HTTP API (configured by environment variables)
   consume    run the entity-event subscribers on NATS JetStream
-  cron <job> run one scheduled job and exit: sign-lifecycle
+  cron <job> run one scheduled job and exit: sign-lifecycle, identity-sync,
+             workspace-deletion, workspace-teardown, mail-outbound-ledgers,
+             calendar-replan, flow-file-purge
   migrate    apply the database migrations to the master and every tenant
              database (weldsuite migrate --help)
   version    print the version and exit
@@ -123,7 +131,13 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let tracker = weldsuite_events::TaskTracker::new();
     #[cfg(not(feature = "conformance"))]
-    let infra = infra::connect(&config.infra, workspaces.master(), tracker.clone()).await?;
+    let infra = infra::connect(
+        &config.infra,
+        workspaces.master(),
+        &config.keyring,
+        tracker.clone(),
+    )
+    .await?;
     #[cfg(feature = "conformance")]
     let (infra, recorders) = conformance::infra(tracker.clone());
     let flags = Arc::new(weldsuite_pipeline::FlagGate::new(
@@ -146,6 +160,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState {
         service: "weldsuite",
         environment: config.environment.clone(),
+        edition: Arc::new(config.edition.clone()),
         workspaces: Arc::new(workspaces),
         verifier: Arc::new(verifier),
         permissions_app_enforce: config.permissions_app_enforce,

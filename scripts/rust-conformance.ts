@@ -32,6 +32,13 @@ interface Suite {
   workspace: string;
   tests: string[];
   paths: string[];
+  /**
+   * Routes (`METHOD /api/path/:param`) the suite leaves out on purpose, each
+   * with the reason (e.g. WeldMail's domain provisioning, which differs by
+   * edition, ADR MAIL-010). They are not required to be reached, and are
+   * tested on the Rust side instead.
+   */
+  excludedRoutes?: Array<{ route: string; reason: string }>;
 }
 
 interface RequestLine {
@@ -181,6 +188,7 @@ interface SuiteReport {
   passed: boolean;
   routes: RouteReport[];
   uncovered: Array<{ method: string; route: string }>;
+  excluded: Array<{ route: string; reason: string }>;
 }
 
 /** Fold one recorded request into its route's report. */
@@ -240,11 +248,13 @@ function buildReport(selected: Suite[], results: Map<string, boolean>): SuiteRep
       Boolean(file) && suite.tests.some((t) => file!.replaceAll('\\', '/').endsWith(`${suite.workspace}/${t}`));
     const routes = routeReports(lines.filter((l): l is RequestLine => l.kind === 'request' && inSuite(l.file)));
     const inventory = lines.filter((l): l is InventoryLine => l.kind === 'inventory' && inSuite(l.file));
-    const uncovered = uncoveredRoutes(inventory, routes);
+    const excluded = suite.excludedRoutes ?? [];
+    const excludedKeys = new Set(excluded.map((e) => e.route));
+    const uncovered = uncoveredRoutes(inventory, routes).filter((r) => !excludedKeys.has(`${r.method} ${r.route}`));
     // A ported module needs every route covered (playbook steps 2 and 6).
     const covered = !portedModules.has(suite.module) || uncovered.length === 0;
     const passed = (results.get(suite.name) ?? false) && covered && routes.every((r) => r.mismatches.length === 0);
-    return { name: suite.name, module: suite.module, passed, routes, uncovered };
+    return { name: suite.name, module: suite.module, passed, routes, uncovered, excluded };
   });
 }
 
@@ -272,6 +282,10 @@ function suiteSection(report: SuiteReport): string[] {
       '',
     );
     out.push(...report.uncovered.map((r) => `- \`${r.method} ${r.route}\``), '');
+  }
+  if (report.excluded.length > 0) {
+    out.push('Routes left out of this suite on purpose:', '');
+    out.push(...report.excluded.map((e) => `- \`${e.route}\`: ${e.reason}`), '');
   }
   const differences = report.routes.flatMap((r) => r.mismatches.map((m) => `- \`${r.method} ${r.route}\`: ${m}`));
   if (differences.length > 0) out.push('Differences:', '', ...differences, '');

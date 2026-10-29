@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { workflowBridgeUrl, type WorkflowLike } from './workflow-bridge';
+import { workflowBridgeUrl, type WorkflowLike } from './workflow-start-bridge';
 
 /** A Workflow binding stub whose first `create` fails, like a Workflows API outage. */
 function flaky() {

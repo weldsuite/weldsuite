@@ -180,8 +180,10 @@ default) organisation:
 
 1. **Project** `WeldSuite`, with the roles `admin` and `member` (Clerk's
    `org:admin` and `org:member` without the prefix). Turn on "Assert roles on
-   authentication" and "Check authorization on authentication", so only
-   people with a grant in some workspace can sign in. Its **resource id** is
+   authentication"; leave "Check authorization on authentication" **off**: a
+   person signs up before they have a workspace, and with it on Zitadel
+   refuses their first sign-in. Workspace access is the server's check (a
+   token names only organisations that granted the person a role). Its **resource id** is
    the tokens' audience: `ZITADEL_PROJECT_ID` in
    `flux/clusters/eu/cluster-settings.yaml` (quoted; it is 18 digits).
 2. **Web application** `platform` in the project: type *User Agent*,
@@ -206,26 +208,62 @@ default) organisation:
    MFA in the login policy, or let step-up send the user back through
    `prompt=login`.
 5. **Service user** for the server's identity adapter (`ZitadelIdentity`:
-   invitations, memberships, organisations): a machine user `weldsuite-api`
-   with the instance manager role `IAM_OWNER` and a personal access token.
-   Keep the token for when the team routes are ported (`ZITADEL_SERVICE_TOKEN`
-   in `weldsuite-env`); nothing reads it yet.
-6. **A workspace is a Zitadel organisation.** Until provisioning is ported
-   (P4 4a), per workspace: create the organisation, grant it the `WeldSuite`
-   project with both roles, grant its people a role, and store its
-   organisation id in the workspace row, where Global keeps the Clerk org id:
+   organisations, users, invitations, memberships, and the event store the
+   identity sync reads): a machine user `weldsuite-api` with the instance
+   manager role `IAM_OWNER` and a personal access token, in the instance's
+   default organisation (which owns the project). The token is
+   `ZITADEL_SERVICE_TOKEN` in `weldsuite-env`; the app's values point the
+   server at `http://zitadel.zitadel.svc:8080` with `auth.<domain>` as the
+   host (`config.identity`).
+6. **Self-registration**: in the default organisation's login settings,
+   allow users to register. People sign up there (the platform's "Sign up"
+   opens Zitadel's registration, `prompt=create`), and each workspace they
+   create becomes an organisation of its own (next section).
 
-   ```sql
-   update workspaces set clerk_org_id = '<zitadel org id>' where id = 'ws_…';
-   ```
-
-   The server looks a session's organisation up in `workspaces.clerk_org_id`
-   (or `workspaces.id`), so no schema change is needed.
+A workspace is a Zitadel organisation: its id is what `workspaces.clerk_org_id`
+holds, where Global keeps the Clerk org id, and the server looks a session's
+organisation up there (or in `workspaces.id`).
 
 The server fetches Zitadel's discovery document and keys from
 `https://auth.<domain>` through the load balancer. If pods can't reach it
 that way, set `config.auth.oidc.jwksUrl` to a URL they can; Zitadel picks its
 instance by host name, so an in-cluster URL needs that host.
+
+## Sign-up and the first workspace
+
+With `TENANT_SHARDS` and `ZITADEL_*` in `weldsuite-env` (secrets example),
+the server serves `/api/onboarding` and runs the provisioning job; the
+`identity-sync` CronJob (every minute), `workspace-deletion` (daily) and
+`workspace-teardown` (hourly) run with the same environment. What happens,
+so each step can be checked:
+
+1. The person registers at Zitadel and signs in to `app.<domain>`. Their
+   token names no organisation, so the platform shows onboarding.
+2. `POST /api/onboarding/workspace` (or `/create-workspace` for another one)
+   creates the organisation (`POST /v2/organizations`; a name another
+   organisation has becomes `Name (slug)` in Zitadel, the workspace keeps its
+   own), grants it the project with `admin` and `member`, makes the person
+   its `admin`, and writes the `workspaces` row (Free plan,
+   `provisioning_status = 'pending'`) with the person's `users` and
+   `user_workspaces` rows. Check: `select id, clerk_org_id, provisioning_status from workspaces order by created_at desc limit 5;`
+3. The `workspace.provision` job (on Restate) creates the database on a
+   shard (role, database, sealed URL, tenant migrations), adds the person as
+   OWNER, installs the apps they picked, and marks the workspace `ready`;
+   then the digest schedule and the first credits. The platform polls
+   `/api/onboarding/database-status`. A failure shows `failed` with the
+   reason in `provisioning_error`; "Retry" (`POST /api/onboarding/retry`)
+   starts it again. Restate's UI (`kubectl -n weldsuite port-forward svc/restate 9070`)
+   shows the invocation and each step.
+4. The platform asks Zitadel for a token scoped to the new organisation
+   (`urn:zitadel:iam:org:roles:id:<org id>`), and the person is in.
+
+Changes made in Zitadel's console (renames, removed members, deleted users
+or organisations) reach the databases through the `identity-sync` CronJob
+within a minute; its watermark is the `identity_sync.watermark` row in the
+master's `system_settings`. To run it by hand:
+`kubectl -n weldsuite create job --from=cronjob/weldsuite-identity-sync sync-now`.
+Organisations made in the console are not workspaces: only onboarding makes
+those.
 
 ## 8. The master database schema
 
@@ -252,9 +290,9 @@ environment (the image has no shell):
 
 Each workspace has its own database on a tenant shard (DATA-016); `tenants-1`
 is the first. The `DatabaseProvisioner` port's CloudNativePG adapter
-(`rust/crates/adapters-oss/src/cnpg.rs`) makes them; the provisioning job
-that calls it on signup is P4 4a. What it does, so a database can be checked
-or made the same way by hand:
+(`rust/crates/adapters-oss/src/cnpg.rs`) makes them, called by the
+`workspace.provision` job on signup (above). What it does, so a database can
+be checked or made the same way by hand:
 
 - It logs in to the shard's primary (`tenants-1-rw`) as `tenant`, which
   needs `CREATEDB` and `CREATEROLE` (the `Cluster`'s `postInitSQL`; on a
@@ -303,13 +341,16 @@ Be clear about this before anyone signs a contract:
   not available on this cluster (P4, P6, P8). The EU `/config.json` offers
   only ported modules.
 - **Sign-in.** The server verifies Zitadel's tokens (`AUTH_PROVIDER=oidc`,
-  step 7), but the frontends still use Clerk: the auth facade with runtime
-  config (P4 4.F1/4.F2/4.F5) is needed before anyone can sign in through
-  Zitadel. The Zitadel identity adapter exists; the team routes that call it
-  (invitations, members) are not ported yet.
-- **Workspace lifecycle.** Signup, onboarding and the provisioning job
-  (P4 4a) are not ported. The database provisioner they will call exists
-  (above), but nothing calls it yet.
+  step 7) and the platform signs in through Zitadel with its auth facade
+  (OIDC with PKCE, from `/config.json`). The core team routes that call the
+  identity adapter (invitations, members) are still served in conformance
+  builds only.
+- **Workspace lifecycle.** Signup, onboarding, provisioning, the identity
+  sync and the deletion sweeps run (above). Not on this cluster: sample
+  data and the default helpdesk workflows (their modules aren't ported), the
+  WeldMail domain of a new workspace, Stripe, and a reseller's entry point
+  (partner onboarding runs on Global; only the provisioning job knows a
+  partner workspace).
 - **Frontends.** The server serves the platform SPA from its image at
   `app.<domain>` (built with `VITE_RUNTIME_CONFIG=on`: it reads
   `/config.json` and calls the API on its own origin). The sign portal runs

@@ -22,6 +22,22 @@ config:
   logLevel: info
   # Refuse per-app permission denials instead of only logging them.
   permissionsAppEnforce: false
+  # Which edition this install is, told to the platform by /config.json:
+  # self-hosted (a customer's own install) or eu (WeldSuite's EU edition).
+  # The platform offers only the modules this release ports to Rust and hides
+  # the features it lacks (rust/bins/weldsuite/src/edition.rs); neither is a
+  # setting.
+  edition: self-hosted
+  # Public settings the platform would otherwise bake in at build time, by
+  # their VITE_* name, served in /config.json's `env`. Anyone can read that
+  # document, so the server takes only the names it knows are public
+  # (PUBLIC_ENV_KEYS in edition.rs) and refuses to start on any other:
+  #   VITE_MAPBOX_ACCESS_TOKEN              Mapbox public token (pk.…): maps, address search
+  #   VITE_EXTERNAL_API_URL                 the public API's origin
+  #   VITE_USER_APP_BUNDLE_ORIGIN           WeldApps' dedicated bundle origin
+  #   VITE_USER_APP_ISOLATE_COMMUNITY_APPS  "true": one origin per community app
+  #   VITE_BOOKING_PORTAL_URL, VITE_MEETING_PORTAL_URL  public pages the platform links to
+  publicEnv: {}
   # Who signs people in (ADR SEC-012): clerk (the Global edition's provider;
   # its key goes in the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or
   # clerkJwks below) or oidc (Zitadel, or the customer's own provider).
@@ -126,6 +142,29 @@ config:
   # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
   sign:
     portalUrl: ""
+  # The identity provider's management API (Zitadel, ADR SEC-012):
+  # onboarding creates a workspace's organization through it, the team
+  # routes change members, and the identity-sync cron reads its changes.
+  # ZITADEL_SERVICE_TOKEN (a service user's personal access token, IAM_OWNER)
+  # goes in the Secret. Empty apiUrl: no identity provider.
+  identity:
+    zitadel:
+      apiUrl: ""             # http://zitadel.zitadel.svc:8080
+      # The instance's external domain, sent as Host when apiUrl is in-cluster.
+      host: ""
+      projectId: ""
+      # Where Zitadel's invite email links to ({{.UserID}}, {{.Code}}, {{.OrgID}}).
+      inviteUrlTemplate: ""
+  # New workspace databases (P4 4a): the provisioner places them on the
+  # CloudNativePG shards in TENANT_SHARDS (in the Secret, it holds the admin
+  # passwords). With it set the server serves /api/onboarding and runs the
+  # workspace.provision job.
+  tenants:
+    # neon_shared_projects.region of the shards (empty: "default").
+    region: ""
+  # Seal new workspaces.database_url values as v3 (bound to the workspace);
+  # every Rust reader opens v3, so a new cluster can have it on.
+  aadWrites: false
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -151,6 +190,10 @@ config:
 #   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
+#   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
+#   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
+#                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
+#                                unset: no new workspaces)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
@@ -408,6 +451,25 @@ cron:
       schedule: "*/15 * * * *"
       # Kill a run that hangs before the next one is due.
       activeDeadlineSeconds: 840
+    # The identity provider's changes (users, organizations, memberships)
+    # into the databases: what Clerk's webhooks do on Global. Needs
+    # config.identity.
+    identity-sync:
+      enabled: false
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
+    # Workspaces past their scheduled deletion lose their organization (the
+    # identity sync then tears the database down). Needs config.identity.
+    workspace-deletion:
+      enabled: false
+      schedule: "0 3 * * *"
+      activeDeadlineSeconds: 3000
+    # Deleted workspaces whose database teardown never finished, after 48
+    # hours. Needs TENANT_SHARDS.
+    workspace-teardown:
+      enabled: false
+      schedule: "17 * * * *"
+      activeDeadlineSeconds: 3000
   resources:
     requests:
       cpu: 50m

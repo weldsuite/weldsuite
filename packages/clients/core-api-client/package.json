@@ -28,6 +28,7 @@
     "./schemas/ticket-types": "./src/schemas/ticket-types.ts",
     "./schemas/conversations": "./src/schemas/conversations.ts",
     "./schemas/desk-assignment": "./src/schemas/desk-assignment.ts",
+    "./schemas/desk-common": "./src/schemas/desk-common.ts",
     "./schemas/desk-conversations": "./src/schemas/desk-conversations.ts",
     "./schemas/desk-widget": "./src/schemas/desk-widget.ts",
     "./schemas/desk-phone": "./src/schemas/desk-phone.ts",

@@ -33,6 +33,8 @@ use crate::infra::Infra;
 pub(crate) struct AppState {
     pub(crate) service: &'static str,
     pub(crate) environment: String,
+    /// The edition and public settings `/config.json` reports.
+    pub(crate) edition: Arc<crate::edition::EditionConfig>,
     pub(crate) workspaces: Arc<Workspaces>,
     /// Session tokens: the `/api` layer (not in conformance builds, which
     /// take the test's context) and the private-object read's bearer check.
@@ -125,6 +127,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/__conformance/cron/sign-lifecycle",
             axum::routing::post(crate::conformance::sign_lifecycle_sweep),
+        )
+        .route(
+            "/__conformance/cron/calendar-replan",
+            axum::routing::post(crate::conformance::calendar_replan_sweep),
         );
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
@@ -298,6 +304,9 @@ async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderM
         "version": env!("CARGO_PKG_VERSION"),
         "modules": modules,
     });
+    // Edition flags (4.F3): the edition, the features this backend lacks
+    // and the public settings (`crate::edition`).
+    state.edition.describe(&mut body);
     if let Some(auth) = &state.public_auth {
         body["auth"] = auth.as_ref().clone();
     }
@@ -402,6 +411,7 @@ mod tests {
         AppState {
             service: "weldsuite",
             environment: "test".to_owned(),
+            edition: Arc::default(),
             workspaces: Arc::new(Workspaces::new(
                 unreachable_master(),
                 Keyring::default(),
@@ -502,12 +512,51 @@ mod tests {
             .iter()
             .filter(|m| m.rust)
             .count();
-        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
+        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported));
+        for module in ["core", "know", "sign"] {
+            assert!(
+                body["modules"]
+                    .as_array()
+                    .is_some_and(|modules| modules.contains(&json!(module))),
+                "{module} is offered"
+            );
+        }
         assert!(body.get("auth").is_none(), "Clerk setups add nothing");
         assert!(
             body.get("realtimeUrl").is_none(),
             "no gateway without Valkey"
         );
+    }
+
+    /// Edition flags (4.F3): the edition, the features the platform hides,
+    /// and the public settings only when some are set.
+    #[tokio::test]
+    async fn config_reports_the_edition_and_what_it_lacks() {
+        let (_, _, body) = call(state(), get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["edition"], "self-hosted");
+        let lacks = body["unavailableFeatures"].as_array().expect("list");
+        for feature in [
+            "sso-connections",
+            "billing",
+            "credit-top-up",
+            "desktop-sign-in",
+        ] {
+            assert!(lacks.contains(&json!(feature)), "{feature}");
+        }
+        assert!(body.get("env").is_none());
+
+        let mut state = state();
+        state.edition = Arc::new(crate::edition::EditionConfig {
+            edition: crate::edition::Edition::Eu,
+            public_env: [("VITE_MAPBOX_ACCESS_TOKEN".to_owned(), "pk.eu".to_owned())]
+                .into_iter()
+                .collect(),
+        });
+        let (_, _, body) = call(state, get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["edition"], "eu");
+        assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
     }
 
     /// The app state with an OIDC verifier over the auth crate's fixture keys.
@@ -589,6 +638,23 @@ mod tests {
                 "{body}"
             );
         }
+    }
+
+    /// Core is marked ported, so a release build serves its routes too, not
+    /// only a conformance build: the CLI's device login is one of core's
+    /// public routes, which an unmounted core would leave to the session
+    /// guard.
+    #[tokio::test]
+    async fn core_routes_are_served() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/cli-auth/device")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+        let (status, _, body) = call(state(), request).await;
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert_ne!(status, StatusCode::NOT_FOUND, "{body}");
     }
 
     #[tokio::test]

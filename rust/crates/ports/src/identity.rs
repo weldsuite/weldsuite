@@ -24,13 +24,22 @@
 //! | [`Identity::users_by_email`] | `GET /users?email_address=…` | guest invite |
 //! | [`Identity::user_memberships`] | `GET /users/{user}/organization_memberships` | accept invitation |
 //! | [`Identity::delete_user`] | `DELETE /users/{user}` | delete account |
+//! | [`Identity::user_profile`] | `GET /users/{user}` | onboarding, labels |
+//! | [`Identity::update_user`] | `PATCH /users/{user}` | onboarding profile |
+//! | [`Identity::update_user_metadata`] | `PATCH /users/{user}/metadata` | onboarding role, profile |
+//! | [`Identity::create_organization`] | `POST /organizations` | onboarding (a new workspace) |
+//! | [`Identity::update_organization_metadata`] | `PATCH /organizations/{org}/metadata` | onboarding |
+//! | [`Identity::changes_since`] | (Clerk pushes webhooks instead) | the identity sync |
 //! | [`Identity::sessions`] | `GET /sessions?user_id=…&status=active&limit=100` | sign out other devices |
 //! | [`Identity::session`] | `GET /sessions/{id}` | sign out a device |
 //! | [`Identity::revoke_session`] | `POST /sessions/{id}/revoke` | sign out devices |
 //!
-//! The session methods have a default answer, [`IdentityError::Unavailable`]:
-//! a provider that leaves sessions to its own console (Zitadel's self-service
-//! today) answers as the workers do when Clerk cannot be reached.
+//! The methods from [`Identity::user_profile`] on have default
+//! implementations that answer [`IdentityError::Unavailable`], so an adapter
+//! that doesn't offer them compiles unchanged. For the session methods that
+//! default is also the answer of a provider that leaves sessions to its own
+//! console (Zitadel's self-service today), as the workers answer when Clerk
+//! cannot be reached.
 //!
 //! Without a provider (`None` in the app state) every call is
 //! [`IdentityError::Unavailable`], which the routes answer as the workers do
@@ -60,6 +69,9 @@ pub enum IdentityError {
         status: u16,
         code: Option<String>,
         message: Option<String>,
+        /// The answer's body as text, when it had one (what a route that
+        /// passes the provider's refusal on shows, `await res.text()`).
+        body: Option<String>,
     },
 }
 
@@ -84,6 +96,27 @@ impl IdentityError {
     pub fn is_not_found(&self) -> bool {
         self.status() == Some(404)
     }
+
+    /// A 4xx refusal about the organization's slug (taken, or not a slug the
+    /// provider accepts): `isClerkSlugError`. Onboarding retries with another
+    /// slug, then without one.
+    pub fn is_slug_error(&self) -> bool {
+        match self {
+            Self::Rejected {
+                status,
+                code,
+                message,
+                ..
+            } if (400..500).contains(status) => [code, message]
+                .iter()
+                .any(|text| text.as_deref().is_some_and(mentions_slug)),
+            _ => false,
+        }
+    }
+}
+
+fn mentions_slug(text: &str) -> bool {
+    text.to_ascii_lowercase().contains("slug")
 }
 
 impl fmt::Display for IdentityError {
@@ -144,6 +177,57 @@ pub struct Organization {
     pub slug: Option<String>,
     /// The membership cap (`max_allowed_memberships`); `None` or `0` is no cap.
     pub max_memberships: Option<i64>,
+    /// What the workspace's creator chose at onboarding (`selectedApps`,
+    /// `country`, …); `Null` when the provider has none.
+    pub public_metadata: Value,
+    /// Server-only metadata (partner onboarding's markers); `Null` when none.
+    pub private_metadata: Value,
+}
+
+/// What [`Identity::create_organization`] sends.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NewOrganization {
+    pub name: String,
+    /// `None` lets the provider pick one.
+    pub slug: Option<String>,
+    /// The user who becomes its first member, as an admin (`created_by`);
+    /// `None` for an organization nobody belongs to yet.
+    pub created_by: Option<String>,
+    /// Left out of the request when `None`.
+    pub public_metadata: Option<Value>,
+    /// Left out of the request when `None`.
+    pub private_metadata: Option<Value>,
+}
+
+/// What [`Identity::update_user`] changes. `None` leaves a field (and keeps
+/// it out of the request, as `JSON.stringify` drops `undefined`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UserChanges {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+}
+
+/// One change the provider reports for [`Identity::changes_since`]: which
+/// user, organization or membership to look at again. A change only says
+/// what moved, never to what: the reader asks the provider for the current
+/// state, so a change seen twice, late or out of order does no harm.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum IdentityChange {
+    /// A user was added, changed or (`removed`) deleted.
+    User { user_id: String, removed: bool },
+    /// An organization was added, changed or (`removed`) deleted.
+    Organization { org: String, removed: bool },
+    /// A user's membership of (or invitation to) an organization was added,
+    /// changed or removed.
+    Membership { org: String, user_id: String },
+}
+
+/// A change and when the provider recorded it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeEvent {
+    /// RFC 3339; the feed is in this order.
+    pub at: String,
+    pub change: IdentityChange,
 }
 
 /// What [`Identity::update_organization`] changes; `None` leaves a field.
@@ -213,6 +297,8 @@ pub struct NewInvitation {
     pub redirect_url: Option<String>,
     /// Left out of the request when `None`.
     pub public_metadata: Option<Value>,
+    /// Who invites (`inviter_user_id`); left out of the request when `None`.
+    pub inviter_user_id: Option<String>,
 }
 
 /// What [`Identity::add_membership`] sends.
@@ -367,15 +453,79 @@ pub trait Identity: Send + Sync {
         let _ = (user_id, expires_in_seconds);
         Box::pin(async { Err(IdentityError::Unavailable("no sign-in tokens".to_owned())) })
     }
+
+    /// Change a user's name (`users.updateUser`).
+    fn update_user<'a>(
+        &'a self,
+        user_id: &'a str,
+        changes: &'a UserChanges,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        let _ = (user_id, changes);
+        unavailable("no user updates")
+    }
+
+    /// Merge `public_metadata` into the user's (`users.updateUserMetadata`):
+    /// top-level keys are replaced, a `null` value removes its key.
+    fn update_user_metadata<'a>(
+        &'a self,
+        user_id: &'a str,
+        public_metadata: &'a Value,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        let _ = (user_id, public_metadata);
+        unavailable("no user metadata")
+    }
+
+    /// Create an organization (a new workspace, provider side), with its
+    /// creator as an admin member when `created_by` is set.
+    fn create_organization<'a>(
+        &'a self,
+        organization: &'a NewOrganization,
+    ) -> BoxFuture<'a, IdentityResult<Organization>> {
+        let _ = organization;
+        unavailable("no organization creation")
+    }
+
+    /// Merge metadata into the organization's, like
+    /// [`Identity::update_user_metadata`]; `None` leaves that kind alone.
+    fn update_organization_metadata<'a>(
+        &'a self,
+        org: &'a str,
+        public_metadata: Option<&'a Value>,
+        private_metadata: Option<&'a Value>,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        let _ = (org, public_metadata, private_metadata);
+        unavailable("no organization metadata")
+    }
+
+    /// The changes recorded at or after `since` (RFC 3339; `None`: from the
+    /// start), oldest first, at most `limit`. What a provider without
+    /// webhooks offers instead, for the identity sync to poll.
+    fn changes_since<'a>(
+        &'a self,
+        since: Option<&'a str>,
+        limit: u32,
+    ) -> BoxFuture<'a, IdentityResult<Vec<ChangeEvent>>> {
+        let _ = (since, limit);
+        unavailable("no change feed")
+    }
 }
 
-/// A user's email addresses, as [`Identity::user_profile`] reads them.
+fn unavailable<T: Send + 'static>(what: &str) -> BoxFuture<'static, IdentityResult<T>> {
+    let error = IdentityError::Unavailable(what.to_owned());
+    Box::pin(async move { Err(error) })
+}
+
+/// A user's email addresses and name, as [`Identity::user_profile`] reads
+/// them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct UserProfile {
     pub id: String,
     /// `(id, address)`, in the provider's order.
     pub email_addresses: Vec<(String, String)>,
     pub primary_email_address_id: Option<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub image_url: Option<String>,
 }
 
 impl UserProfile {
@@ -385,6 +535,13 @@ impl UserProfile {
             .iter()
             .find(|(id, _)| Some(id) == self.primary_email_address_id.as_ref())
             .or_else(|| self.email_addresses.first())
+            .map(|(_, address)| address.as_str())
+    }
+
+    /// The first address, primary or not (`email_addresses?.[0]`).
+    pub fn first_email(&self) -> Option<&str> {
+        self.email_addresses
+            .first()
             .map(|(_, address)| address.as_str())
     }
 }
@@ -436,6 +593,12 @@ pub enum IdentityCall {
     UsersByEmail(String, u32),
     UserMemberships(String, u32),
     DeleteUser(String),
+    UserProfile(String),
+    UpdateUser(String, UserChanges),
+    UpdateUserMetadata(String, Value),
+    CreateOrganization(NewOrganization),
+    UpdateOrganizationMetadata(String, Option<Value>, Option<Value>),
+    ChangesSince(Option<String>, u32),
 }
 
 #[derive(Debug, Default)]
@@ -447,6 +610,12 @@ struct MemoryState {
     invitations: BTreeMap<String, Vec<Invitation>>,
     /// Email → user ids.
     users: BTreeMap<String, Vec<String>>,
+    /// User id → profile.
+    profiles: BTreeMap<String, UserProfile>,
+    /// User id → public metadata.
+    user_metadata: BTreeMap<String, Value>,
+    /// The change feed, oldest first.
+    changes: Vec<ChangeEvent>,
     calls: Vec<IdentityCall>,
     next_id: u64,
     /// Refuse every call with this error, when set.
@@ -465,6 +634,7 @@ fn not_found() -> IdentityError {
         status: 404,
         code: Some("resource_not_found".to_owned()),
         message: None,
+        body: None,
     }
 }
 
@@ -515,6 +685,58 @@ impl MemoryIdentity {
         self
     }
 
+    /// A user with a profile (and their first address findable by email).
+    #[must_use]
+    pub fn with_profile(self, profile: UserProfile) -> Self {
+        {
+            let mut state = self.lock();
+            if let Some(email) = profile.first_email() {
+                state
+                    .users
+                    .entry(email.to_ascii_lowercase())
+                    .or_default()
+                    .push(profile.id.clone());
+            }
+            state.profiles.insert(profile.id.clone(), profile);
+        }
+        self
+    }
+
+    /// Record a change for [`Identity::changes_since`] (the feed of a
+    /// provider without webhooks), at `at` (RFC 3339).
+    pub fn record_change(&self, at: &str, change: IdentityChange) {
+        self.lock().changes.push(ChangeEvent {
+            at: at.to_owned(),
+            change,
+        });
+    }
+
+    /// Remove a user: their profile, email and memberships go.
+    pub fn remove_user(&self, user_id: &str) {
+        let mut state = self.lock();
+        state.profiles.remove(user_id);
+        for ids in state.users.values_mut() {
+            ids.retain(|id| id != user_id);
+        }
+        for list in state.memberships.values_mut() {
+            list.retain(|m| m.user.user_id != user_id);
+        }
+    }
+
+    /// The organization now, when it exists.
+    pub fn organization_now(&self, org: &str) -> Option<Organization> {
+        self.lock().organizations.get(org).cloned()
+    }
+
+    /// A user's public metadata now.
+    pub fn user_metadata_of(&self, user_id: &str) -> Value {
+        self.lock()
+            .user_metadata
+            .get(user_id)
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
     /// Every later call fails with `error`.
     pub fn fail_with(&self, error: IdentityError) {
         self.lock().failure = Some(error);
@@ -563,6 +785,22 @@ impl MemoryState {
         self.next_id += 1;
         format!("{prefix}_{}", self.next_id)
     }
+}
+
+/// Clerk's metadata merge: `patch`'s top-level keys replace `current`'s, a
+/// `null` removes its key.
+pub fn merge_metadata(current: &Value, patch: &Value) -> Value {
+    let mut merged = current.as_object().cloned().unwrap_or_default();
+    if let Some(patch) = patch.as_object() {
+        for (key, value) in patch {
+            if value.is_null() {
+                merged.remove(key);
+            } else {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    Value::Object(merged)
 }
 
 fn page_of<T: Clone>(items: &[T], page: ListPage) -> Listing<T> {
@@ -640,6 +878,7 @@ impl Identity for MemoryIdentity {
                         status: 400,
                         code: Some("already_a_member_in_organization".to_owned()),
                         message: None,
+                        body: None,
                     });
                 }
                 let id = s.next("orgmem");
@@ -846,6 +1085,148 @@ impl Identity for MemoryIdentity {
             Ok(())
         })
     }
+
+    fn user_profile<'a>(&'a self, user_id: &'a str) -> BoxFuture<'a, IdentityResult<UserProfile>> {
+        self.answer(IdentityCall::UserProfile(user_id.to_owned()), |s| {
+            s.profiles.get(user_id).cloned().ok_or_else(not_found)
+        })
+    }
+
+    fn update_user<'a>(
+        &'a self,
+        user_id: &'a str,
+        changes: &'a UserChanges,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        self.answer(
+            IdentityCall::UpdateUser(user_id.to_owned(), changes.clone()),
+            |s| {
+                let profile = s.profiles.get_mut(user_id).ok_or_else(not_found)?;
+                if let Some(first) = &changes.first_name {
+                    profile.first_name = Some(first.clone());
+                }
+                if let Some(last) = &changes.last_name {
+                    profile.last_name = Some(last.clone());
+                }
+                Ok(())
+            },
+        )
+    }
+
+    fn update_user_metadata<'a>(
+        &'a self,
+        user_id: &'a str,
+        public_metadata: &'a Value,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        self.answer(
+            IdentityCall::UpdateUserMetadata(user_id.to_owned(), public_metadata.clone()),
+            |s| {
+                let current = s.user_metadata.get(user_id).cloned().unwrap_or(Value::Null);
+                s.user_metadata.insert(
+                    user_id.to_owned(),
+                    merge_metadata(&current, public_metadata),
+                );
+                Ok(())
+            },
+        )
+    }
+
+    fn create_organization<'a>(
+        &'a self,
+        organization: &'a NewOrganization,
+    ) -> BoxFuture<'a, IdentityResult<Organization>> {
+        self.answer(
+            IdentityCall::CreateOrganization(organization.clone()),
+            |s| {
+                if let Some(slug) = &organization.slug
+                    && s.organizations
+                        .values()
+                        .any(|o| o.slug.as_deref() == Some(slug))
+                {
+                    return Err(IdentityError::Rejected {
+                        status: 422,
+                        code: Some("form_identifier_exists".to_owned()),
+                        message: Some("That slug is taken.".to_owned()),
+                        body: None,
+                    });
+                }
+                let id = s.next("org");
+                let created = Organization {
+                    id: id.clone(),
+                    name: organization.name.clone(),
+                    slug: Some(
+                        organization
+                            .slug
+                            .clone()
+                            .unwrap_or_else(|| format!("slug-{id}")),
+                    ),
+                    max_memberships: None,
+                    public_metadata: organization.public_metadata.clone().unwrap_or(Value::Null),
+                    private_metadata: organization.private_metadata.clone().unwrap_or(Value::Null),
+                };
+                s.organizations.insert(id.clone(), created.clone());
+                if let Some(creator) = &organization.created_by {
+                    let membership_id = s.next("orgmem");
+                    s.memberships.entry(id).or_default().push(Membership {
+                        id: membership_id,
+                        role: "org:admin".to_owned(),
+                        created_at: None,
+                        public_metadata: Value::Null,
+                        user: MemberUser {
+                            user_id: creator.clone(),
+                            ..MemberUser::default()
+                        },
+                        organization: None,
+                    });
+                }
+                Ok(created)
+            },
+        )
+    }
+
+    fn update_organization_metadata<'a>(
+        &'a self,
+        org: &'a str,
+        public_metadata: Option<&'a Value>,
+        private_metadata: Option<&'a Value>,
+    ) -> BoxFuture<'a, IdentityResult<()>> {
+        self.answer(
+            IdentityCall::UpdateOrganizationMetadata(
+                org.to_owned(),
+                public_metadata.cloned(),
+                private_metadata.cloned(),
+            ),
+            |s| {
+                let organization = s.organizations.get_mut(org).ok_or_else(not_found)?;
+                if let Some(patch) = public_metadata {
+                    organization.public_metadata =
+                        merge_metadata(&organization.public_metadata, patch);
+                }
+                if let Some(patch) = private_metadata {
+                    organization.private_metadata =
+                        merge_metadata(&organization.private_metadata, patch);
+                }
+                Ok(())
+            },
+        )
+    }
+
+    fn changes_since<'a>(
+        &'a self,
+        since: Option<&'a str>,
+        limit: u32,
+    ) -> BoxFuture<'a, IdentityResult<Vec<ChangeEvent>>> {
+        self.answer(
+            IdentityCall::ChangesSince(since.map(str::to_owned), limit),
+            |s| {
+                Ok(s.changes
+                    .iter()
+                    .filter(|event| since.is_none_or(|since| event.at.as_str() >= since))
+                    .take(limit as usize)
+                    .cloned()
+                    .collect())
+            },
+        )
+    }
 }
 
 #[cfg(test)]
@@ -911,6 +1292,7 @@ mod tests {
                 status: 503,
                 code: None,
                 message: None,
+                body: None,
             });
             Arc::new(memory)
         };

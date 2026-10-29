@@ -20,26 +20,43 @@ publish = false
 [workspace.dependencies]
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
 weldsuite-auth = { path = "crates/auth" }
+weldsuite-calendar = { path = "modules/calendar" }
+weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-catalogs = { path = "crates/catalogs" }
+weldsuite-chat = { path = "modules/chat" }
+weldsuite-chat-domain = { path = "crates/chat-domain" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
+weldsuite-core-onboarding = { path = "modules/core-onboarding" }
 weldsuite-core-files = { path = "modules/core-files" }
 weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
+weldsuite-crm = { path = "modules/crm" }
+weldsuite-crm-domain = { path = "crates/crm-domain" }
 weldsuite-db = { path = "crates/db" }
+weldsuite-desk = { path = "modules/desk" }
+weldsuite-desk-domain = { path = "crates/desk-domain" }
 weldsuite-emails = { path = "crates/emails" }
 weldsuite-events = { path = "crates/events" }
+weldsuite-flow = { path = "modules/flow" }
+weldsuite-flow-domain = { path = "crates/flow-domain" }
 weldsuite-kit = { path = "crates/kit" }
 weldsuite-know = { path = "modules/know" }
+weldsuite-mail = { path = "modules/mail" }
+weldsuite-mail-domain = { path = "crates/mail-domain" }
+weldsuite-pass = { path = "modules/pass" }
 weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-sign = { path = "modules/sign" }
+weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-subscribers = { path = "crates/subscribers" }
 weldsuite-permissions = { path = "crates/permissions" }
 weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
+weldsuite-video-rooms = { path = "crates/video-rooms" }
 weldsuite-realtime = { path = "crates/realtime" }
 
+aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 async-nats = { version = "0.51.0", default-features = false }
 aws-lc-rs = "1.19.0"
 axum = { version = "0.8.9", default-features = false }
@@ -49,7 +66,10 @@ form_urlencoded = "1.2.2"
 futures-util = { version = "0.3.31", default-features = false }
 getrandom = "0.4.3"
 hex = "0.4.3"
+hkdf = "0.13.0"
+hmac = "0.13.0"
 http = "1.5.0"
+icu_collator = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
 http-body-util = "0.1.5"
 minijinja = { version = "3.0.4", default-features = false, features = ["builtins", "multi_template", "std_collections"] }
 opentelemetry = { version = "0.33.1", default-features = false, features = ["trace"] }
@@ -67,6 +87,8 @@ reqwest = { version = "0.13.5", default-features = false, features = ["rustls"] 
 rusty-s3 = { version = "0.11.0", default-features = false, features = ["aws-lc-rs", "full"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "postgres", "tls-rustls-aws-lc-rs", "json", "derive"] }
 time = "0.3.55"
 tokio = "1.54.1"
@@ -77,6 +99,7 @@ tower-http = "0.7.1"
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "0.34.0", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false }
+unicode-normalization = "0.1.26"
 url = "2.5.8"
 uuid = "1.29.0"
 

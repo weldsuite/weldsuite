@@ -16,7 +16,10 @@
 //!   "env": { "PERMISSIONS_APP_ENFORCE": "true" },
 //!   "files": { "PRIVATE_STORAGE": "http://127.0.0.1:..." }, // the test's buckets, over HTTP
 //!   "kv": { "WORKSPACE_CACHE": "http://127.0.0.1:..." },     // the test's KV, over HTTP
-//!   "outbound": "http://127.0.0.1:..." }  // third-party calls, through the test's fetch stub
+//!   "outbound": "http://127.0.0.1:...",   // third-party calls, through the test's fetch stub
+//!   "sendEmail": "http://127.0.0.1:...",  // the test's SEND_EMAIL binding (customer mail)
+//!   "ledgers": { "OUTBOUND_LEDGER": "http://127.0.0.1:..." }, // its outbound-guard namespaces
+//!   "workflows": { "EXECUTE_SEQUENCE": "http://127.0.0.1:..." } } // its Workflow bindings
 //! ```
 //!
 //! The routes that run before authentication (`/api/storage/upload/:token`,
@@ -82,6 +85,10 @@ pub(crate) fn infra(tracker: TaskTracker) -> (Infra, Recorders) {
         files: Some(Arc::new(MemoryFileStore::default())),
         public_files: Some(Arc::new(MemoryFileStore::default())),
         mail: Some(recorders.mail.clone()),
+        // The test's Clerk stub per request; no provisioning (the onboarding
+        // routes answer as app-api without its workspace worker).
+        identity: None,
+        provisioner: None,
     };
     (infra, recorders)
 }
@@ -208,6 +215,19 @@ struct TestContext {
     /// through the test's own fetch stub (`conformance_outbound`).
     #[serde(default)]
     outbound: Option<String>,
+    /// The harness's realtime bridge: presence reads from the test's own
+    /// `REALTIME` binding (`realtime-bridge.ts`).
+    #[serde(default)]
+    realtime: Option<String>,
+    /// The test's `SEND_EMAIL` binding over HTTP (`conformance_mail`).
+    #[serde(default)]
+    send_email: Option<String>,
+    /// Its `OUTBOUND_LEDGER` / `OUTBOUND_PLATFORM` namespaces over HTTP.
+    #[serde(default)]
+    ledgers: HashMap<String, String>,
+    /// Its Workflow bindings over HTTP (`conformance_workflows`).
+    #[serde(default)]
+    workflows: HashMap<String, String>,
 }
 
 impl TestContext {
@@ -248,6 +268,10 @@ pub(crate) struct Pools {
     verifiers: Mutex<HashMap<String, Arc<SessionVerifier>>>,
     /// The bridged third-party providers, by bridge URL.
     outbound: crate::conformance_outbound::OutboundBridges,
+    /// The test's customer-mail transport and outbound ledgers.
+    mail: crate::conformance_mail::MailBridges,
+    /// The test's Workflow bindings.
+    workflows: crate::conformance_workflows::WorkflowBridges,
 }
 
 impl Pools {
@@ -288,13 +312,37 @@ impl Pools {
         if let Some(cache) = self.kv.request_cache(&context.kv) {
             extensions.insert(cache);
         }
+        // Live presence from the test's REALTIME binding.
+        if let Some(url) = context.realtime.as_deref() {
+            extensions.insert(self.outbound.presence(url));
+        }
         if let Some(verifier) = self.verifier(&context.env) {
             extensions.insert(verifier);
         }
+        // Customer mail and the outbound ledgers: the test's, or none, as
+        // the worker runs without the bindings the test leaves out.
+        extensions.insert(weldsuite_mail_domain::outbound::RequestOutbound(
+            self.mail
+                .bindings(context.send_email.as_deref(), &context.ledgers),
+        ));
+        // Sequence runs start on the test's `EXECUTE_SEQUENCE`, or nowhere.
+        extensions.insert(weldsuite_crm::RequestSequenceRuns(
+            self.workflows.sequence_runs(&context.workflows),
+        ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {
             self.outbound.extend(extensions, bridge);
+            // Third-party HTTP of the ported modules (Expo push, APNs).
+            extensions.insert(self.outbound.outbound_http(bridge));
+            // WeldMail's MX lookups (DNS over HTTPS).
+            extensions.insert(self.mail.doh(bridge));
+            // WeldCalendar's Google Calendar pushes.
+            extensions.insert(self.outbound.calendar_http(bridge));
+            // WeldPass's pushes to Cloudflare and Vercel.
+            extensions.insert(self.outbound.pass_http(bridge));
+            // WeldDesk's Discord and Slack calls.
+            extensions.insert(self.outbound.desk_http(bridge));
         }
     }
 
@@ -309,6 +357,11 @@ impl Pools {
         let options: PgConnectOptions = url
             .parse()
             .map_err(|_| ApiError::bad_request("conformance: databaseUrl is not a Postgres URL"))?;
+        // Unnamed statements, as Drizzle sends them: a statement sqlx keeps
+        // prepared moves to Postgres's generic plan after five runs, and an
+        // unordered query (no `order by`) can then return its rows in
+        // another order than the TypeScript run's custom plan.
+        let options = options.statement_cache_capacity(0);
         let pool = PgPoolOptions::new()
             .max_connections(1)
             .idle_timeout(None)
@@ -465,6 +518,9 @@ pub(crate) struct SweepRequest {
     workspaces: HashMap<String, String>,
     /// The test's KV namespace (its seed flag lives there).
     seed_scope: String,
+    /// The test set the seed flag itself: the scope starts with it.
+    #[serde(default)]
+    seeded: bool,
 }
 
 /// Every workspace opens the test's tenant database.
@@ -535,6 +591,52 @@ pub(crate) async fn sign_lifecycle_sweep(
         "expired": result.expired,
     }))
     .into_response()
+}
+
+/// `POST /__conformance/cron/calendar-replan`: one tick of the nightly
+/// calendar re-plan against the test's databases, as
+/// `runCalendarReplanSweep(env)` runs it there. Every workspace opens the
+/// test's tenant database.
+pub(crate) async fn calendar_replan_sweep(
+    State(state): State<AppState>,
+    axum::Json(request): axum::Json<SweepRequest>,
+) -> Response {
+    let pools = &state.conformance_pools;
+    let (db, master) = match (
+        pools.get(&request.database_url),
+        pools.get(&request.master_database_url),
+    ) {
+        (Ok(db), Ok(master)) => (db, master),
+        (Err(error), _) | (_, Err(error)) => return error.into_response(),
+    };
+    let Ok(now) =
+        time::OffsetDateTime::parse(&request.now, &time::format_description::well_known::Rfc3339)
+    else {
+        return ApiError::bad_request("conformance: now is not an ISO time").into_response();
+    };
+    let cache: Arc<dyn weldsuite_ports::DynCache> = pools
+        .caches
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .entry(request.seed_scope)
+        .or_default()
+        .clone();
+    if request.seeded
+        && let Err(error) = cache
+            .put_boxed(weldsuite_calendar::CALENDAR_REPLAN_SEED_KEY, "done", None)
+            .await
+    {
+        return ApiError::internal()
+            .with_message(format!("conformance: seed flag: {error}"))
+            .into_response();
+    }
+    let tenants: weldsuite_calendar::TenantDatabases = Arc::new(move |_workspace_id: String| {
+        let db = db.clone();
+        Box::pin(async move { Ok::<_, String>(db) })
+    });
+    let result =
+        weldsuite_calendar::run_replan_sweep(&master, &tenants, Some(cache.as_ref()), now).await;
+    axum::Json(json!(result)).into_response()
 }
 
 #[cfg(test)]

@@ -34,7 +34,9 @@
  *    `ENTITY_EVENTS` and `REALTIME` bindings (unless the test brings its own),
  *    Rust records through its port doubles, and both lists must match. The
  *    runner runs one test file at a time, so Rust's recordings are this
- *    request's.
+ *    request's. Customer mail (the test's `SEND_EMAIL`, ./send-email-bridge.ts)
+ *    and the outbound guard's ledgers (`OUTBOUND_LEDGER`, ./ledger-bridge.ts)
+ *    are shared with Rust over HTTP and compared per envelope and per call.
  *
  * The test gets Rust's response, so its assertions check Rust too.
  */
@@ -48,9 +50,25 @@ import { wireCompatiblePglite } from './pglite-wire';
 import { schemaFor } from './conformance-schemas';
 import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
+import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
 import { maskVolatile } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
+import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
+import {
+  type WorkflowCall,
+  recordTypeScriptWorkflowCalls,
+  takeRustWorkflowCalls,
+  workflowUrls,
+} from './workflow-bridge';
+import {
+  type LedgerCall,
+  ledgerUrls,
+  recordTypeScriptLedgerCalls,
+  sortLedgerCalls,
+  takeRustLedgerCalls,
+} from './ledger-bridge';
+import type { SendRecord } from './mime-record';
 import {
   type OutboundCall,
   outboundBridgeUrl,
@@ -61,7 +79,7 @@ import {
 
 // The signer portal's doubles for Rust (ConformanceRequest.context).
 export { kvBucketUrl } from './bucket-bridge';
-export { workflowBridgeUrl } from './workflow-bridge';
+export { workflowBridgeUrl } from './workflow-start-bridge';
 
 export interface ConformanceTarget {
   url: string;
@@ -127,6 +145,18 @@ export const FORWARDED_ENV = [
   'USER_APP_FRAME_ANCESTORS',
   'WELDSUITE_APP_PUBLISHER_WORKSPACE_IDS',
   'EXTERNAL_API_URL',
+  // WeldCalendar: the Google Calendar app credentials (a token refresh before a push).
+  'GOOGLE_CALENDAR_CLIENT_ID',
+  'GOOGLE_CALENDAR_CLIENT_SECRET',
+  // WeldPass: the root keys that wrap every vault's key.
+  'WELDPASS_ROOT_KEY',
+  'WELDPASS_ROOT_KEY_V2',
+  // WeldMail: the outbound guard's staff API secret, and whether the worker
+  // has a master database URL (the guard checks sender ownership only then).
+  'OUTBOUND_ADMIN_SECRET',
+  'DATABASE_URL_MASTER',
+  // WeldDesk: the Discord bot (agent replies, ticket threads closed).
+  'DISCORD_BOT_TOKEN',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -137,6 +167,16 @@ export function forwardedEnv(env: Record<string, unknown>): Record<string, strin
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * GETs that write: they get or create a row (a DM, a record chat) or settle
+ * state they find stale, so they run as writes do, TypeScript first on a
+ * copy of the database.
+ */
+const WRITING_READS: RegExp[] = [
+  // WeldChat: the 1:1 DM with someone, created on first use.
+  /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+];
 
 interface ConformanceContext {
   userId: string;
@@ -164,6 +204,12 @@ export interface SideEffects {
   mail: MailRecord[];
   /** Calls to third-party APIs (Clerk, Expo, …), sorted (./outbound-bridge.ts). */
   outbound?: OutboundCall[];
+  /** Customer mail handed to `SEND_EMAIL`, per envelope (./send-email-bridge.ts). */
+  sendEmail?: SendRecord[];
+  /** Calls to the outbound guard's ledgers (./ledger-bridge.ts). */
+  ledger?: LedgerCall[];
+  /** Calls to Workflow bindings (`EXECUTE_SEQUENCE`, ./workflow-bridge.ts). */
+  workflows?: WorkflowCall[];
 }
 
 /** The URL a `fetch` was called with, whatever form it came in. */
@@ -184,6 +230,14 @@ export function createSideEffectRecorder() {
   let lastMail: SentByTypeScript[] = [];
   const pending: Promise<unknown>[] = [];
   const copy = (value: unknown) => JSON.parse(JSON.stringify(value)) as unknown;
+  // Only the `/publish/*` POSTs are side effects; a presence read
+  // (`GET /internal/presence`) is a read.
+  const recordPublish = (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(requestUrl(input));
+    if (!url.pathname.startsWith('/publish/')) return;
+    const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
+    effects.realtime.push({ path: url.pathname, body });
+  };
   return {
     bindings: {
       ENTITY_EVENTS: {
@@ -196,12 +250,38 @@ export function createSideEffectRecorder() {
       },
       REALTIME: {
         fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-          const url = new URL(requestUrl(input));
-          const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as unknown) : null;
-          effects.realtime.push({ path: url.pathname, body });
+          recordPublish(input, init);
           return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
         },
       },
+    },
+    /**
+     * A test's own `REALTIME` binding (one that answers presence reads or keeps
+     * what was published), recorded the same way: its publishes are side
+     * effects too. Reads (presence) go to the test's stub; the publishes the
+     * stub keeps are Rust's, handed over after each request (`deliver`), as
+     * the test reads Rust's response and mail.
+     */
+    wrapRealtime(binding: { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }) {
+      return {
+        testOwned: true,
+        fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+          if (!new URL(requestUrl(input)).pathname.startsWith('/publish/')) return binding.fetch(input, init);
+          recordPublish(input, init);
+          return Promise.resolve(
+            new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } }),
+          );
+        },
+        async deliver(published: Array<{ path: string; body: unknown }>) {
+          for (const { path: publishPath, body } of published) {
+            await binding.fetch(`https://internal${publishPath}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            });
+          }
+        },
+      };
     },
     track(promise: Promise<unknown>) {
       pending.push(promise);
@@ -385,11 +465,31 @@ export function conformanceMasterDb<T>(db: T): T {
   return (masterForTypeScript as T | undefined) ?? db;
 }
 
+/** The copy of the tenant database the TypeScript side of a write runs on, while it runs. */
+let tenantForTypeScript: Database | undefined;
+
+/**
+ * The tenant database a test's `getTenantDbForWorkspace` mock should hand out,
+ * for a route that opens the workspace's database itself instead of taking
+ * the context's: `getTenantDbForWorkspace: async () => conformanceTenantDb(tenant.db)`.
+ * Like {@link conformanceMasterDb}: the copy the TypeScript side of a write
+ * runs on while it runs, `db` itself at every other moment.
+ */
+export function conformanceTenantDb<T>(db: T): T {
+  return (tenantForTypeScript as T | undefined) ?? db;
+}
+
 // ── comparison ──────────────────────────────────────────────────────────────
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** A WeldSign signing link (`<portal>/r/<token>`): the token is 32 random bytes, new per run. */
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
+/** The random segment of a chat attachment's object key. */
+const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
+/** A generated id in a link: a path segment or a parameter value. */
+const LINKED_ID = /([/=])[a-z][a-z0-9]*_[0-9a-z]{12,}(?=[/?&#]|$)/g;
+/** A slug ending in a generated id (`-ch_<base36>`). */
+const SLUG_WITH_ID = /-[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /** A SHA-256 in hex. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 /** A WeldSign signer session: base64url JSON payload, then its HMAC-SHA-256. */
@@ -414,8 +514,33 @@ const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
 const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 /** A signed object URL's credential (`?exp=<seconds>&sig=<HMAC>`). */
 const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
+/**
+ * A ticket number WeldDesk generates (`TKT-<Date.now() in base 36>`, and a
+ * random `-<4 characters>` on `POST /api/tickets`): new per run.
+ */
+const GENERATED_TICKET_NUMBER = /^TKT-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
+/**
+ * A custom WeldFlow pipeline stage's id (`slugifyStage`): a slug of its name,
+ * `_`, and 4 random base36 characters, new per run by construction. A stage
+ * created without a system status uses its id as one.
+ */
+const STAGE_SLUG_ID = /^[a-z0-9](?:[a-z0-9_]{0,23}[a-z0-9])?_[0-9a-z]{4}$/;
+const STAGE_SLUG_KEYS = new Set(['id', 'entityId', 'systemStatus']);
 /** Seconds either side of now an `expiresAt` may be, to count as one minted by the request. */
 const EXPIRY_WINDOW_SECONDS = 2 * 24 * 60 * 60;
+/**
+ * A fresh RFC 5322 Message-ID a send minted (`<32 random hex@sender domain>`,
+ * `buildRfc5322`'s `generateMessageId`): new per run by construction. The
+ * domain is kept; the parsed messages are compared as side effects too.
+ */
+const FRESH_MESSAGE_ID = /^<[0-9a-f]{32}@([^>]+)>$/;
+
+/** A `Date.now()` taken within two days of now. */
+function isRecentEpochMs(value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+  return Math.abs(value - Date.now()) <= EXPIRY_WINDOW_SECONDS * 1000;
+}
+
 
 /** A Unix-seconds expiry the request minted (signed URLs, the files cookie). */
 function isMintedExpiry(value: unknown): boolean {
@@ -447,12 +572,21 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
   }
   if (isWrite && typeof value === 'string') return normalizeWrittenString(value, key);
   if (isWrite && key === 'expiresAt' && isMintedExpiry(value)) return '<expires-at>';
+  // A realtime room message's `ts: Date.now()` (`RealtimePublisher#chatMessage`),
+  // stamped when each run publishes.
+  if (isWrite && key === 'ts' && isRecentEpochMs(value)) return '<epoch-ms>';
   return value;
 }
 
 /** A string in a write's answer, with what differs per run by construction replaced. */
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
+  if (GENERATED_TICKET_NUMBER.test(value)) return 'TKT-<generated>';
+  return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
+}
+
+/** Credentials and digests a write answers with, by their key; undefined when none applies. */
+function normalizeSignedValue(value: string, key: string | undefined): string | undefined {
   // WeldSign's signed PDF: pdf-lib and lopdf write different bytes for the
   // same drawn content (object numbers, number formatting, compression), so
   // its SHA-256 differs by construction. It reaches a side effect only in
@@ -464,14 +598,36 @@ function normalizeWrittenString(value: string, key: string | undefined): string 
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
+  return undefined;
+}
+
+/** Timestamps, generated ids and the links and slugs that carry one; undefined when none applies. */
+function normalizeGeneratedValue(value: string, key: string | undefined): string | undefined {
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
+  if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
+  // A taken channel slug gets the new channel's id appended
+  // (`resolveChannelSlug`): `sales-ch_<id>`.
+  if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
+  // A notification's link to what the request just created
+  // (`/weldchat/dm/ch_<id>`, `?messageId=msg_<id>`).
+  if (key === 'actionUrl') return value.replace(LINKED_ID, '$1<id>');
+  // A realtime publish to a room the request just created (`/publish/chat/ch_<id>`).
+  if (key === 'path' && value.startsWith('/publish/')) return value.replace(LINKED_ID, '$1<id>');
+  if (key !== undefined && STAGE_SLUG_KEYS.has(key) && STAGE_SLUG_ID.test(value)) return '<stage-id>';
+  return undefined;
+}
+
+/** Random segments anywhere in a string. */
+function normalizeRandomParts(value: string): string {
   // Storage: upload tokens, an upload key's random segment and a signed
   // URL's credential; then 16-byte hex tokens (an SSO domain's TXT value) and
   // any other `Date.now()` (the key's segment holds one).
   return value
     .replace(UPLOAD_TOKEN, '<upload-token>')
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
+    // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
+    .replace(CHAT_FILE_SEGMENT, '/files/<random>/')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(RANDOM_HEX, '<hex>')
     .replace(EPOCH_MS, '<epoch-ms>');
@@ -653,6 +809,13 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     kv: await kvUrls(env),
     // Third-party calls (Clerk, …) go through the test's own `fetch` stub.
     outbound: await outboundBridgeUrl(),
+    // Presence reads go to the test's `REALTIME` binding (./realtime-bridge.ts).
+    realtime: (await realtimeUrl(env)) ?? null,
+    // Customer mail through its `SEND_EMAIL` stub, guard calls to its ledgers.
+    sendEmail: await sendEmailUrl(env),
+    ledgers: await ledgerUrls(env),
+    // Its Workflow bindings (runs started and woken).
+    workflows: await workflowUrls(env),
   };
 }
 
@@ -683,16 +846,30 @@ async function runBoth(
   await request.sideEffects.drain();
   await rustSideEffects(request.target);
   takeRustOutbound();
+  takeRustSends();
+  takeRustLedgerCalls();
+  takeRustWorkflowCalls();
 
-  // The Hono app's run, its `waitUntil` work included, with its outbound calls.
+  // The Hono app's run, its `waitUntil` work included, with its outbound calls,
+  // its customer mail and its ledger calls.
   const typeScript = async (db: Database, env?: Record<string, unknown>) => {
+    const base = env ?? request.env;
+    const sends = recordTypeScriptSends(base);
+    const ledger = recordTypeScriptLedgerCalls(sends.env);
+    const workflows = recordTypeScriptWorkflowCalls(ledger.env);
     const { result, calls } = await recordOutbound(async () => {
-      const ts = await runTypeScript(db, env);
+      // The test's own env when there was nothing to wrap, as before.
+      const ts = await runTypeScript(db, workflows.env === base ? env : workflows.env);
       return { ts, effects: await request.sideEffects.drain() };
     });
     return {
       ts: result.ts,
-      tsEffects: { ...result.effects, outbound: sortOutbound(calls) },
+      tsEffects: {
+        ...result.effects,
+        outbound: sortOutbound(calls),
+        ...mailEffects(sends.finish(), ledger.finish()),
+        ...workflowEffects(workflows.finish()),
+      },
       tsMail: request.sideEffects.lastMail(),
     };
   };
@@ -702,7 +879,12 @@ async function runBoth(
     const side = await rustSideEffects(request.target);
     return {
       rust,
-      rustEffects: { ...side.effects, outbound: sortOutbound(takeRustOutbound()) },
+      rustEffects: {
+        ...side.effects,
+        outbound: sortOutbound(takeRustOutbound()),
+        ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
+        ...workflowEffects(takeRustWorkflowCalls()),
+      },
       rustMail: side.mail,
     };
   };
@@ -719,17 +901,38 @@ async function runBoth(
     // TypeScript first, on the copies and on copy-on-write views of the
     // buckets and KV, so it starts from the state Rust then starts from.
     masterForTypeScript = masterClone?.db;
+    tenantForTypeScript = clone.db;
     let ts: Awaited<ReturnType<typeof typeScript>>;
     try {
       ts = await typeScript(clone.db, isolatedEnv(request.env));
     } finally {
       masterForTypeScript = undefined;
+      tenantForTypeScript = undefined;
     }
     return { ...ts, ...(await rustRun()) };
   } finally {
     await clone.close();
     await masterClone?.close();
   }
+}
+
+/** Customer mail and ledger calls as side effects, present only when there were any. */
+function mailEffects(sends: SendRecord[], calls: LedgerCall[]): Pick<SideEffects, 'sendEmail' | 'ledger'> {
+  return {
+    ...(sends.length > 0 ? { sendEmail: sortSends(sends) } : {}),
+    ...(calls.length > 0 ? { ledger: sortLedgerCalls(calls) } : {}),
+  };
+}
+
+/**
+ * Workflow binding calls as a side effect, present only when there were any,
+ * sorted by their normalised form: concurrent starts land in any order, and
+ * an enrollment's id is new per run.
+ */
+function workflowEffects(calls: WorkflowCall[]): Pick<SideEffects, 'workflows'> {
+  if (calls.length === 0) return {};
+  const key = (call: WorkflowCall) => JSON.stringify(normalizeForDiff(call, true));
+  return { workflows: [...calls].sort((a, b) => key(a).localeCompare(key(b))) };
 }
 
 /** Where the two runs differ: status, headers, body, then side effects; null when they match. */
@@ -787,12 +990,29 @@ async function replayableBody(body: BodyInit | null | undefined, headers: Header
   return new Uint8Array(await serialised.arrayBuffer());
 }
 
+/**
+ * The conformance request in flight. Requests a test fires at once
+ * (`Promise.all`) run one after the other here: each one runs on both
+ * backends and reads its side effects from recorders the two share, so
+ * overlapping requests could not tell their events apart.
+ */
+let inFlight: Promise<unknown> = Promise.resolve();
+
 /** Run one test request against Rust and TypeScript, compare, and return Rust's response. */
-export async function conformanceRequest(request: ConformanceRequest): Promise<Response> {
+export function conformanceRequest(request: ConformanceRequest): Promise<Response> {
+  const run = inFlight.then(() => runConformanceRequest(request));
+  inFlight = run.catch(() => undefined);
+  return run;
+}
+
+async function runConformanceRequest(request: ConformanceRequest): Promise<Response> {
   const { target, ctx, env, init } = request;
   const input = pathOf(request.input);
   const method = (init?.method ?? 'GET').toUpperCase();
-  const isWrite = !SAFE_METHODS.has(method) || new Headers(init?.headers).has(CONFORMANCE_WRITE_HEADER);
+  const isWrite =
+    !SAFE_METHODS.has(method) ||
+    WRITING_READS.some((re) => re.test(input)) ||
+    new Headers(init?.headers).has(CONFORMANCE_WRITE_HEADER);
 
   const client = pgliteClientOf(ctx.tenantDb);
   if (!client) {
@@ -825,6 +1045,11 @@ export async function conformanceRequest(request: ConformanceRequest): Promise<R
   const { ts, rust } = runs;
   // The test reads Rust's mail, as it reads Rust's response.
   request.sideEffects.adoptMail(runs.tsMail, runs.rustMail);
+  // And a REALTIME stub of its own keeps Rust's publishes.
+  const ownRealtime = request.env.REALTIME as
+    | { testOwned?: boolean; deliver?: (published: SideEffects['realtime']) => Promise<void> }
+    | undefined;
+  if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
   const route = ts.headers.get(ROUTE_HEADER);
   const difference = compareRuns(runs, isWrite, method, route, request);
   const { schema, schemaError } = checkSchema(method, route, rust);

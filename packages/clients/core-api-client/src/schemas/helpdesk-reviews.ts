@@ -17,3 +17,30 @@ export const updateHelpdeskReviewSchema = createHelpdeskReviewSchema.partial();
 
 export type CreateHelpdeskReviewInput = z.infer<typeof createHelpdeskReviewSchema>;
 export type UpdateHelpdeskReviewInput = z.infer<typeof updateHelpdeskReviewSchema>;
+
+/** A `helpdesk_reviews` row, as /api/helpdesk-reviews returns it. */
+export const helpdeskReviewSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    type: z.string(),
+    status: z.string(),
+    rating: z.number(),
+    title: z.string(),
+    content: z.string(),
+    reviewerId: z.string(),
+    reviewerName: z.string(),
+    reviewerEmail: z.string(),
+    reviewerAvatar: z.string().nullable(),
+    conversationId: z.string().nullable(),
+    isVerified: z.boolean(),
+    isPinned: z.boolean(),
+    isFeatured: z.boolean(),
+    helpfulCount: z.number(),
+    helpfulVoters: z.unknown(),
+    response: z.unknown(),
+    metadata: z.unknown(),
+  })
+  .passthrough();

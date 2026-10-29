@@ -6,7 +6,8 @@
 //     <out-dir>/token.
 //
 //   node mint-token.mjs <out-dir> <user-id> <org-id> --oidc <issuer> <audience>
-//     A Zitadel-shaped access token from <issuer>: writes
+//     A Zitadel-shaped access token from <issuer> (org id `-`: none, as for
+//     someone without a workspace yet): writes
 //     <out-dir>/openid-configuration and <out-dir>/jwks.json (what the
 //     stand-in issuer serves, oidc-issuer.yaml) and <out-dir>/token.
 import { generateKeyPairSync, sign } from 'node:crypto';
@@ -34,7 +35,7 @@ const payload = oidc
       sid: 'V1_smoke',
       auth_time: now - 5,
       amr: ['pwd', 'mfa'],
-      'urn:zitadel:iam:org:id': orgId,
+      ...(orgId === '-' ? {} : { 'urn:zitadel:iam:org:id': orgId }),
       ...times,
     }
   : { sub: userId, sid: 'sess_smoke', o: { id: orgId, rol: 'member' }, fva: [0, 0], ...times };

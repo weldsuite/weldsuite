@@ -120,7 +120,7 @@ pub enum Format {
     Email,
     /// `.datetime({ offset: true })`.
     DatetimeOffset,
-    /// `.datetime()`: UTC only, `Z`.
+    /// `.datetime()`: UTC only (`Z`).
     Datetime,
     /// `.regex(/^\d+$/)`.
     Digits,
@@ -209,6 +209,18 @@ impl Issues {
                 issue["message"] = Value::String(message.to_owned());
             }
         }
+    }
+
+    /// A raw issue at `key` (its `path` filled in), for a check the readers
+    /// here have no rule for (a `z.union`, a `z.preprocess`).
+    pub fn push_issue(&mut self, key: &str, mut issue: Value) {
+        issue["path"] = self.path(key);
+        self.issues.push(issue);
+    }
+
+    /// The path `key` is reported at.
+    pub fn path_of(&self, key: &str) -> Value {
+        self.path(key)
     }
 
     /// `Err` (a 400 response) when anything was wrong.
@@ -496,6 +508,62 @@ impl Issues {
         field
     }
 
+    /// An issue a schema reports that the helpers here don't build (a
+    /// union of a string and a literal, `.positive()`, `.length(n)`), at
+    /// `key` under the current path. `issue` is the rest of Zod's object.
+    pub fn issue_at(&mut self, key: &str, issue: Value) {
+        let mut issue = issue;
+        if let Value::Object(fields) = &mut issue {
+            fields.insert("path".to_owned(), self.path(key));
+        }
+        self.issues.push(issue);
+    }
+
+    /// `z.union([z.string(), z.number()])` with `presence`: the value as it
+    /// came when it is a string or a number, else Zod's `invalid_union` with
+    /// one `invalid_type` per option.
+    pub fn string_or_number(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+    ) -> Field<Value> {
+        let value = body.get(key);
+        let nullable = matches!(presence, Presence::Nullable | Presence::Nullish);
+        let optional = matches!(presence, Presence::Optional | Presence::Nullish);
+        match value {
+            None if optional => return Field::Absent,
+            Some(Value::Null) if nullable => return Field::Null,
+            _ => {}
+        }
+        if let Some(Value::String(_) | Value::Number(_)) = value {
+            return Field::Set(value.cloned().unwrap_or(Value::Null));
+        }
+        let path = self.path(key);
+        let received = parsed_type(value);
+        let option = |expected: &str| {
+            json!({ "issues": [{
+                "code": "invalid_type",
+                "expected": expected,
+                "received": received,
+                "path": path,
+                "message": if received == "undefined" {
+                    "Required".to_owned()
+                } else {
+                    format!("Expected {expected}, received {received}")
+                },
+            }], "name": "ZodError" })
+        };
+        let union_errors = json!([option("string"), option("number")]);
+        self.issues.push(json!({
+            "code": "invalid_union",
+            "unionErrors": union_errors,
+            "path": path,
+            "message": "Invalid input",
+        }));
+        Field::Absent
+    }
+
     /// A failed `.refine(check, { message })` on `key`. Zod runs a refinement
     /// whenever the value got past its type check, even when one of its own
     /// checks failed. `zValidator` parses asynchronously, which settles a
@@ -505,6 +573,108 @@ impl Issues {
         let path = self.path(key);
         self.issues
             .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
+    /// `z.object({...}).refine(check, message)` failing: a `custom` issue
+    /// at the object's own path (`[]` for the body). Zod runs the refinement
+    /// only when no field failed its type check (a `.min()` failing does not
+    /// stop it).
+    pub fn custom_here(&mut self, message: &str) {
+        let path = self.path_at(None);
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
+    /// A failed refinement deeper in the body (`ctx.addIssue` of a
+    /// `.superRefine()` on a nested object or array): `path` from the
+    /// current depth, settled after the synchronous checks like
+    /// [`Issues::custom`].
+    pub fn custom_at(&mut self, path: &[Value], message: &str) {
+        let mut full = self.prefix.clone();
+        full.extend(path.iter().cloned());
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": Value::Array(full) }));
+    }
+
+    /// An object-level `.refine(check, { message })` that failed: a `custom`
+    /// issue at the object's own path (`[]` for the body). Call it after the
+    /// fields are read, as Zod settles refinements last.
+    pub fn custom_root(&mut self, message: &str) {
+        let path = self.path_at(None);
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
+    /// `z.coerce.date()` with `presence` (`.optional()`: absent stays absent):
+    /// `new Date(value)` as `toISOString()`. Strings are read as ISO dates
+    /// (`2026-01-01`, `2026-01-01T10:00:00Z`, with an offset or fraction);
+    /// other date strings JavaScript accepts are refused here. `null` is the
+    /// epoch, a number milliseconds, a boolean 0 or 1 ms.
+    pub fn coerce_date(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+    ) -> Field<String> {
+        let value = body.get(key);
+        if value.is_none() && presence != Presence::Required {
+            return Field::Absent;
+        }
+        let millis: Option<f64> = match value {
+            None | Some(Value::Object(_) | Value::Array(_)) => None,
+            Some(Value::Null) => Some(0.0),
+            Some(Value::Bool(flag)) => Some(if *flag { 1.0 } else { 0.0 }),
+            Some(Value::Number(n)) => n.as_f64(),
+            Some(Value::String(text)) => js_date_millis(text),
+        };
+        let iso = millis.and_then(iso_from_millis);
+        if let Some(iso) = iso {
+            return Field::Set(iso);
+        }
+        let path = self.path(key);
+        self.issues
+            .push(json!({ "code": "invalid_date", "path": path, "message": "Invalid date" }));
+        Field::Absent
+    }
+
+    /// An array item as `z.string().startsWith(prefix)`, reported at the
+    /// item's own path; `None` when invalid.
+    pub fn item_starts_with(&mut self, item: &Value, prefix: &str) -> Option<String> {
+        let Value::String(text) = item else {
+            self.invalid_type_at(None, "string", Some(item));
+            return None;
+        };
+        if text.starts_with(prefix) {
+            return Some(text.clone());
+        }
+        let path = self.path_at(None);
+        self.issues.push(json!({
+            "code": "invalid_string",
+            "validation": { "startsWith": prefix },
+            "message": format!("Invalid input: must start with \"{prefix}\""),
+            "path": path,
+        }));
+        None
+    }
+
+    /// `z.discriminatedUnion(key, [...])` given an object whose `key` is not
+    /// one of `options` (missing included): Zod's only issue for it, at the
+    /// discriminator's path. Read the union with [`Issues::nested`] (or
+    /// [`Issues::object`] for a body that is the union) and call this when
+    /// the discriminator does not pick an option.
+    pub fn invalid_discriminator(&mut self, key: &str, options: &[&str]) {
+        let expected = options
+            .iter()
+            .map(|o| format!("'{o}'"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        let path = self.path(key);
+        self.issues.push(json!({
+            "code": "invalid_union_discriminator",
+            "options": options,
+            "path": path,
+            "message": format!("Invalid discriminator value. Expected {expected}"),
+        }));
     }
 
     /// A failed `.max(maximum, message)` on the number at `key`: read the
@@ -829,6 +999,56 @@ impl Issues {
         }
     }
 
+    /// `z.union([z.enum(options), z.literal(literal)])` with `presence`: a
+    /// value that fails both is one `invalid_union` issue carrying each
+    /// option's issues (`unionErrors`).
+    pub fn enum_or_literal(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        options: &[&str],
+        literal: &str,
+    ) -> Field<String> {
+        let value = body.get(key);
+        match value {
+            None if matches!(presence, Presence::Optional | Presence::Nullish) => {
+                return Field::Absent;
+            }
+            Some(Value::Null) if matches!(presence, Presence::Nullable | Presence::Nullish) => {
+                return Field::Null;
+            }
+            Some(Value::String(text)) if options.contains(&text.as_str()) || text == literal => {
+                return Field::Set(text.clone());
+            }
+            _ => {}
+        }
+        let path = self.path(key);
+        let mut first = Self {
+            issues: Vec::new(),
+            prefix: self.prefix.clone(),
+        };
+        first.choice(body, key, Presence::Required, options);
+        let received = value.cloned().unwrap_or(Value::Null);
+        let literal_issue = json!({
+            "received": received,
+            "code": "invalid_literal",
+            "expected": literal,
+            "path": path,
+            "message": format!("Invalid literal value, expected {}", Value::String(literal.to_owned())),
+        });
+        self.issues.push(json!({
+            "code": "invalid_union",
+            "unionErrors": [
+                { "issues": first.issues, "name": "ZodError" },
+                { "issues": [literal_issue], "name": "ZodError" },
+            ],
+            "path": path,
+            "message": "Invalid input",
+        }));
+        Field::Absent
+    }
+
     /// `z.enum([...])`, required.
     pub fn one_of(
         &mut self,
@@ -852,6 +1072,31 @@ impl Issues {
     pub fn string_too_big(&mut self, key: &str, max: usize, message: &str) {
         let path = self.path(key);
         self.too_big(&path, "string", &json!(max), message);
+    }
+
+    /// `z.string().length(length)` failing on `key` (a string of
+    /// `actual` UTF-16 units): Zod's exact-length issue, too short or too
+    /// long.
+    pub fn string_length(&mut self, key: &str, length: usize, actual: usize) {
+        if actual == length {
+            return;
+        }
+        let path = self.path(key);
+        let message = format!("String must contain exactly {length} character(s)");
+        let (code, bound) = if actual < length {
+            ("too_small", "minimum")
+        } else {
+            ("too_big", "maximum")
+        };
+        self.issues.push(json!({
+            "code": code,
+            bound: length,
+            "type": "string",
+            "inclusive": true,
+            "exact": true,
+            "message": message,
+            "path": path,
+        }));
     }
 
     #[cfg(test)]
@@ -971,6 +1216,110 @@ static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
         .expect("the datetime pattern compiles")
 });
 
+/// `new Date(text).toISOString()` for an ISO date string, `None` for one
+/// JavaScript would read as an invalid date (or that is not ISO).
+pub fn js_date_iso(text: &str) -> Option<String> {
+    js_date_millis(text).and_then(iso_from_millis)
+}
+
+/// Days from 1970-01-01 to a civil date (proleptic Gregorian).
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let yoe = year - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The civil date of a day count from 1970-01-01.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    (
+        if month <= 2 {
+            yoe + era * 400 + 1
+        } else {
+            yoe + era * 400
+        },
+        month,
+        day,
+    )
+}
+
+/// `Date.parse(text)` for ISO strings: `YYYY-MM-DD` (UTC) and
+/// `YYYY-MM-DDTHH:MM[:SS[.fff]](Z|±HH:MM)`.
+fn js_date_millis(text: &str) -> Option<f64> {
+    static ISO: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2}))?$",
+        )
+        .expect("the ISO date pattern compiles")
+    });
+    let caps = ISO.captures(text)?;
+    let number = |i: usize| -> i64 {
+        caps.get(i)
+            .and_then(|m| m.as_str().parse().ok())
+            .unwrap_or(0)
+    };
+    let (year, month, day) = (number(1), number(2), number(3));
+    let (hour, minute, second) = (number(4), number(5), number(6));
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 24
+        || minute > 59
+        || second > 59
+    {
+        return None;
+    }
+    let millis: i64 = caps.get(7).map_or(0, |m| {
+        let digits: String = m.as_str().chars().chain("000".chars()).take(3).collect();
+        digits.parse().unwrap_or(0)
+    });
+    let offset_minutes = match caps.get(8).map(|m| m.as_str()) {
+        None | Some("Z") => 0,
+        Some(offset) => {
+            let sign = if offset.starts_with('-') { -1 } else { 1 };
+            let hours: i64 = offset[1..3].parse().ok()?;
+            let minutes: i64 = offset[4..6].parse().ok()?;
+            sign * (hours * 60 + minutes)
+        }
+    };
+    let days = days_from_civil(year, month, day);
+    let total =
+        ((days * 24 + hour) * 60 + minute - offset_minutes) * 60_000 + second * 1000 + millis;
+    #[allow(clippy::cast_precision_loss)]
+    Some(total as f64)
+}
+
+/// `new Date(ms).toISOString()`, or `None` for an invalid date.
+fn iso_from_millis(millis: f64) -> Option<String> {
+    if !millis.is_finite() || millis.abs() > 8.64e15 {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let millis = millis.trunc() as i64;
+    let days = millis.div_euclid(86_400_000);
+    let rest = millis.rem_euclid(86_400_000);
+    let (year, month, day) = civil_from_days(days);
+    let (hour, minute, second, ms) = (
+        rest / 3_600_000,
+        rest / 60_000 % 60,
+        rest / 1000 % 60,
+        rest % 1000,
+    );
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{ms:03}Z"
+    ))
+}
+
 /// `String.prototype.trim()`: JavaScript's whitespace, which is Unicode
 /// `White_Space` plus the BOM.
 pub fn js_trim(text: &str) -> &str {
@@ -1074,6 +1423,54 @@ pub fn query_values(query: Option<&str>) -> Map<String, Value> {
 mod tests {
     use super::*;
 
+    /// Zod 3's output for `z.object({ priority: z.union([z.enum([...]),
+    /// z.literal('normal')]).optional() })`.
+    #[test]
+    fn enum_or_literal_reads_like_a_zod_union() {
+        let options = ["low", "medium", "high", "urgent", "critical"];
+        let read = |value: Value| {
+            let body = json!({ "priority": value });
+            let mut issues = Issues::default();
+            let field = issues.enum_or_literal(
+                body.as_object().expect("object"),
+                "priority",
+                Presence::Optional,
+                &options,
+                "normal",
+            );
+            (field, issues.take())
+        };
+        assert_eq!(read(json!("normal")).0, Field::Set("normal".to_owned()));
+        assert_eq!(read(json!("high")).0, Field::Set("high".to_owned()));
+        assert_eq!(
+            read(json!("x")).1,
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"received":"x","code":"invalid_enum_value","options":["low","medium","high","urgent","critical"],"path":["priority"],"message":"Invalid enum value. Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received 'x'"}],"name":"ZodError"},{"issues":[{"received":"x","code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
+        );
+        assert_eq!(
+            read(json!(5)).1,
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"expected":"'low' | 'medium' | 'high' | 'urgent' | 'critical'","received":"number","code":"invalid_type","path":["priority"],"message":"Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received number"}],"name":"ZodError"},{"issues":[{"received":5,"code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
+        );
+        assert_eq!(
+            read(Value::Null).1,
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"expected":"'low' | 'medium' | 'high' | 'urgent' | 'critical'","received":"null","code":"invalid_type","path":["priority"],"message":"Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received null"}],"name":"ZodError"},{"issues":[{"received":null,"code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
+        );
+    }
+
+    #[test]
+    fn exact_lengths_like_zod() {
+        let mut issues = Issues::default();
+        issues.string_length("country", 2, 6);
+        issues.string_length("country", 2, 1);
+        issues.string_length("country", 2, 2);
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_big","maximum":2,"type":"string","inclusive":true,"exact":true,"message":"String must contain exactly 2 character(s)","path":["country"]},
+                {"code":"too_small","minimum":2,"type":"string","inclusive":true,"exact":true,"message":"String must contain exactly 2 character(s)","path":["country"]}
+            ])
+        );
+    }
+
     #[test]
     fn urls_parse_like_new_url() {
         for valid in [
@@ -1144,6 +1541,25 @@ mod tests {
                 {"code":"too_small","minimum":1,"type":"array","inclusive":true,"exact":false,"message":"Select at least one field","path":["fields"]},
                 {"code":"custom","message":"Reserved","path":["slug"]}
             ])
+        );
+    }
+
+    /// `z.object({ config: z.discriminatedUnion('provider', [...]) })` given
+    /// `{ config: {} }` (WeldPass's sync-target config; Zod 3's issue).
+    #[test]
+    fn discriminated_unions_match_zod() {
+        let mut issues = Issues::default();
+        let body = json!({ "config": {} });
+        let object = issues.object(&body).expect("object");
+        issues.nested(object, "config", Presence::Required, |issues, _| {
+            issues.invalid_discriminator(
+                "provider",
+                &["cloudflare_workers", "cloudflare_pages", "vercel"],
+            );
+        });
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"invalid_union_discriminator","options":["cloudflare_workers","cloudflare_pages","vercel"],"path":["config","provider"],"message":"Invalid discriminator value. Expected 'cloudflare_workers' | 'cloudflare_pages' | 'vercel'"}])
         );
     }
 

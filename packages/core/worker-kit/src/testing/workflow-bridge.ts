@@ -1,89 +1,182 @@
 /**
- * Conformance mode's Workflows: a test's Workflow binding stub (a
- * `FINALIZE_ENVELOPE` that fails on purpose, say) served over HTTP on
- * 127.0.0.1, so the Rust server's jobs adapter starts its jobs through a
- * stub of the same kind (`conformance_portal.rs`).
+ * Conformance mode's Workflow bindings: a test's `EXECUTE_SEQUENCE` (a fake
+ * with `create` and `get`, the instances `get` answers having `sendEvent`)
+ * served over HTTP, so the Rust server's routes start and wake runs on the
+ * same fake and get the same answers. The Rust side is
+ * `rust/bins/weldsuite/src/conformance_workflows.rs`.
  *
- *   POST /start   { name, key, payload }   204 started; 503 when it could not start
+ *   POST /rpc { binding, method, id, args }
+ *     create     → binding.create(args)               (args: { id, params })
+ *     get        → binding.get(id)                     (the instance is kept)
+ *     sendEvent  → (the kept instance).sendEvent(args) (args: { type, payload })
+ *     200 { result: null } | 500 { error }   the fake threw
  *
- * Rust's `Jobs::start` is one run per key, started again after a failure;
- * on a Workflow binding that is what the Workers do around `create`
- * (`startFinalizing` in @weldsuite/sign-domain/portal): create the instance
- * with the key as its id; when that throws, look the instance up, and
- * restart it when it errored or was terminated. No instance: not started.
- *
- * A stub records its calls and holds state, so the test gives Rust a stub
- * of its own and TypeScript another, and asserts on the one Rust used.
+ * Both runs' calls are compared as `workflows` side effects
+ * (`{ binding, method, id, args }`). The TypeScript run calls the fake's
+ * implementations without the test's mocks recording the call, so a test's
+ * assertions on the fake (`toHaveBeenCalledTimes`, `mock.calls`) see Rust's
+ * calls only, as its response is Rust's. A fake must therefore answer by
+ * method and id (`vi.fn(impl)`, `mockImplementation`), never by call order
+ * (`mockResolvedValueOnce`).
  */
 
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { serveOnLoopback } from './bucket-bridge';
 
-/** The Workflow binding methods the bridge calls. */
-export interface WorkflowLike {
-  create(options: { id: string; params: unknown }): Promise<unknown>;
-  get(id: string): Promise<{ status(): Promise<{ status: string }>; restart(): Promise<unknown> }>;
+/** The Workflow bindings the bridge serves. */
+export const WORKFLOW_BINDINGS = ['EXECUTE_SEQUENCE'] as const;
+
+interface WorkflowLike {
+  create(options?: unknown): Promise<unknown>;
+  get(id: string): Promise<unknown>;
 }
 
-async function readJson(req: IncomingMessage): Promise<{ key?: string; payload?: unknown }> {
+function isWorkflowLike(value: unknown): value is WorkflowLike {
+  if (!value || typeof value !== 'object') return false;
+  const binding = value as Record<string, unknown>;
+  return typeof binding.create === 'function' && typeof binding.get === 'function';
+}
+
+/** One call, as compared. */
+export interface WorkflowCall {
+  binding: string;
+  method: string;
+  id: string | null;
+  args: unknown;
+}
+
+function record(binding: string, method: string, id: unknown, args: unknown): WorkflowCall {
+  return {
+    binding,
+    method,
+    id: typeof id === 'string' ? id : null,
+    args: args === undefined ? null : (JSON.parse(JSON.stringify(args)) as unknown),
+  };
+}
+
+type Fn = (...args: unknown[]) => unknown;
+
+/**
+ * `fn.apply(thisArg, args)`, except that a vitest mock runs its
+ * implementation without recording the call.
+ */
+async function silently(fn: unknown, thisArg: unknown, args: unknown[]): Promise<unknown> {
+  if (typeof fn !== 'function') throw new TypeError('not a function');
+  const mock = fn as { mock?: unknown; getMockImplementation?: () => Fn | undefined };
+  if (mock.mock && typeof mock.getMockImplementation === 'function') {
+    const impl = mock.getMockImplementation();
+    return impl ? await impl.apply(thisArg, args) : undefined;
+  }
+  return await (fn as Fn).apply(thisArg, args);
+}
+
+const rustCalls: WorkflowCall[] = [];
+
+async function readJson(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) chunks.push(chunk as Buffer);
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as { key?: string; payload?: unknown };
+  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as unknown;
 }
 
-/** Start one run of `key`, as `startFinalizing` does on the binding. */
-async function start(workflow: WorkflowLike, key: string, params: unknown): Promise<void> {
-  try {
-    await workflow.create({ id: key, params });
-  } catch (err) {
-    const instance = await workflow.get(key).catch(() => null);
-    if (!instance) throw err;
-    const { status } = await instance.status();
-    if (status === 'errored' || status === 'terminated') await instance.restart();
-  }
-}
-
-async function handle(workflow: WorkflowLike, req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handle(
+  env: Record<string, unknown>,
+  instances: Map<string, unknown>,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-  if (url.pathname !== '/start' || req.method !== 'POST') {
+  if (url.pathname !== '/rpc' || req.method !== 'POST') {
     res.writeHead(404).end();
     return;
   }
-  const { key, payload } = await readJson(req);
-  if (!key) {
-    res.writeHead(400).end('key required');
+  const call = (await readJson(req)) as { binding: string; method: string; id?: string; args?: unknown };
+  const binding = env[call.binding];
+  if (!WORKFLOW_BINDINGS.includes(call.binding as (typeof WORKFLOW_BINDINGS)[number]) || !isWorkflowLike(binding)) {
+    res.writeHead(404).end();
     return;
   }
+  rustCalls.push(record(call.binding, call.method, call.id, call.args));
+  const key = `${call.binding}:${call.id ?? ''}`;
   try {
-    await start(workflow, key, payload);
+    if (call.method === 'create') {
+      await binding.create(call.args);
+    } else if (call.method === 'get') {
+      instances.set(key, await binding.get(call.id ?? ''));
+    } else if (call.method === 'sendEvent') {
+      const instance = instances.get(key) as { sendEvent?: unknown } | undefined;
+      if (!instance || typeof instance.sendEvent !== 'function') throw new Error('instance.not_found');
+      await (instance.sendEvent as Fn).call(instance, call.args);
+    } else {
+      throw new Error(`no Workflow method ${call.method}`);
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ result: null }));
   } catch (error) {
-    res.writeHead(503).end(String(error));
-    return;
+    res
+      .writeHead(500, { 'Content-Type': 'application/json' })
+      .end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
   }
-  res.writeHead(204).end();
 }
 
 const bridges = new WeakMap<object, Promise<string>>();
 
-/** The bridge's URL for this binding, starting its server once. */
-export function workflowBridgeUrl(workflow: WorkflowLike): Promise<string> {
-  let url = bridges.get(workflow);
+/** `{ EXECUTE_SEQUENCE: url }` for the Workflow bindings `env` has, or undefined. */
+export async function workflowUrls(env: Record<string, unknown>): Promise<Record<string, string> | undefined> {
+  const present = WORKFLOW_BINDINGS.filter((name) => isWorkflowLike(env[name]));
+  if (present.length === 0) return undefined;
+  let url = bridges.get(env);
   if (!url) {
-    url = new Promise<string>((resolve, reject) => {
-      const server: Server = createServer((req, res) => {
-        handle(workflow, req, res).catch((error: unknown) => {
-          res.writeHead(500).end(String(error));
-        });
-      });
-      server.unref();
-      server.on('error', reject);
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address();
-        const port = typeof address === 'object' && address ? address.port : 0;
-        process.once('beforeExit', () => server.close());
-        resolve(`http://127.0.0.1:${port}`);
-      });
-    });
-    bridges.set(workflow, url);
+    const instances = new Map<string, unknown>();
+    url = serveOnLoopback((req, res) => handle(env, instances, req, res));
+    bridges.set(env, url);
   }
-  return url;
+  const bridge = await url;
+  return Object.fromEntries(present.map((name) => [name, bridge]));
 }
+
+/** What Rust called through the bridge since the last call, clearing it. */
+export function takeRustWorkflowCalls(): WorkflowCall[] {
+  return rustCalls.splice(0);
+}
+
+/** An instance whose `sendEvent` is recorded and runs silently. */
+function recordedInstance(instance: unknown, binding: string, id: string, calls: WorkflowCall[]): unknown {
+  if (!instance || typeof instance !== 'object') return instance;
+  const target = instance as Record<string, unknown>;
+  if (typeof target.sendEvent !== 'function') return instance;
+  return new Proxy(target, {
+    get(object, prop, receiver) {
+      const value = Reflect.get(object, prop, receiver) as unknown;
+      if (prop !== 'sendEvent') return value;
+      return (event: unknown) => {
+        calls.push(record(binding, 'sendEvent', id, event));
+        return silently(value, object, [event]);
+      };
+    },
+  });
+}
+
+/** `env` with its Workflow bindings recording the TypeScript run's calls. */
+export function recordTypeScriptWorkflowCalls(env: Record<string, unknown>): {
+  env: Record<string, unknown>;
+  finish: () => WorkflowCall[];
+} {
+  if (!WORKFLOW_BINDINGS.some((binding) => isWorkflowLike(env[binding]))) return { env, finish: () => [] };
+  const calls: WorkflowCall[] = [];
+  const wrapped: Record<string, unknown> = { ...env };
+  for (const binding of WORKFLOW_BINDINGS) {
+    const target = env[binding];
+    if (!isWorkflowLike(target)) continue;
+    wrapped[binding] = {
+      create: (options?: { id?: string }) => {
+        calls.push(record(binding, 'create', options?.id, options));
+        return silently(target.create, target, [options]);
+      },
+      get: async (id: string) => {
+        calls.push(record(binding, 'get', id, undefined));
+        return recordedInstance(await silently(target.get, target, [id]), binding, id, calls);
+      },
+    };
+  }
+  return { env: wrapped, finish: () => calls };
+}
+

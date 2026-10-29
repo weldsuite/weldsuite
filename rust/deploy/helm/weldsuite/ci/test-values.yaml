@@ -7,9 +7,22 @@ secret:
     S3_ACCESS_KEY_ID: not-a-real-key
     S3_SECRET_ACCESS_KEY: not-a-real-secret
     SIGN_PORTAL_SECRET: not-a-real-secret
+    ZITADEL_SERVICE_TOKEN: not-a-real-token
+    TENANT_SHARDS: '[{"name":"tenants-1","adminUrl":"postgres://tenant:x@tenants-1-rw:5432/tenants","poolerHost":"tenants-1-pooler"}]'
 config:
+  edition: eu
+  publicEnv:
+    VITE_MAPBOX_ACCESS_TOKEN: pk.example
   sign:
     portalUrl: https://sign.example.org
+  identity:
+    zitadel:
+      apiUrl: http://zitadel.zitadel.svc:8080
+      host: auth.example.org
+      projectId: "123456789012345678"
+  tenants:
+    region: eu
+  aadWrites: true
   realtime:
     publicUrl: wss://app.example.org/ws
   files:
@@ -36,6 +49,14 @@ signPortal:
   enabled: true
   ingress:
     enabled: true
+cron:
+  jobs:
+    identity-sync:
+      enabled: true
+    workspace-deletion:
+      enabled: true
+    workspace-teardown:
+      enabled: true
 consume:
   enabled: true
   subscribers: [audit, search-index, webhooks, realtime]

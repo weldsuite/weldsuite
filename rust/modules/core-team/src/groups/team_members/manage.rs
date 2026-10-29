@@ -579,6 +579,7 @@ async fn invite_member(
                 role: clerk_role.to_owned(),
                 redirect_url: Some(invitation_redirect_url(caller, &org)),
                 public_metadata: is_guest.then(|| json!({ "member_type": "EXTERNAL_GUEST" })),
+                inviter_user_id: None,
             },
         )
         .await
@@ -996,6 +997,7 @@ async fn resend(state: &CoreTeamState, caller: &Caller, member_id: &str) -> Team
                 role: provider_role(text(&member, "role")).to_owned(),
                 redirect_url: Some(invitation_redirect_url(caller, &org)),
                 public_metadata: None,
+                inviter_user_id: None,
             },
         )
         .await

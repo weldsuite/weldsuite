@@ -13,6 +13,8 @@
 //! | [`SystemMail`] | the `SEND_EMAIL` binding behind `@weldsuite/emails` (`workerTransport`) | [`RecordingSystemMail`] |
 //! | [`FlagSource`] | the Cloudflare Flagship binding (`@weldsuite/feature-flags/server`) | [`StaticFlags`] |
 //! | [`Identity`] | Clerk's Backend API (`api.clerk.com/v1`, `@clerk/backend`), ADR SEC-012 | [`MemoryIdentity`] |
+//! | [`MailTransport`] | customer mail over the `SEND_EMAIL` binding (`@weldsuite/worker-email`), ADR MAIL-010 | [`RecordingMailTransport`] |
+//! | [`LedgerStore`] | the `OutboundLedger` / `OutboundPlatformBudget` Durable Objects' storage (MAIL-006) | [`MemoryLedgerStore`] |
 //! | [`DatabaseProvisioner`] | Neon provisioning (`@weldsuite/neon-provisioning`, workspace worker) | [`MemoryProvisioner`] |
 //! | [`BatchHandler`] | a Cloudflare Queues consumer (`queue(batch)`, `ack()`, `retry()`) | (call `handle` directly) |
 //! | [`Embeddings`] | Workers AI embeddings through the AI Gateway (`@weldsuite/ai`) | [`FakeEmbeddings`] |
@@ -37,8 +39,13 @@ pub mod flags;
 pub mod identity;
 pub mod in_process_jobs;
 pub mod jobs;
+pub mod ledger_store;
 pub mod mail;
+pub mod outbound;
+pub mod presence;
 pub mod realtime;
+pub mod transport;
+pub mod video_rooms;
 
 pub use cache::{Cache, CacheExt, DynCache, MemoryCache, RequestCache};
 pub use consume::{BatchHandler, Delivery, Disposition};
@@ -54,20 +61,27 @@ pub use files::{
 };
 pub use flags::{DefaultFlags, DynFlagSource, FlagContext, FlagSource, FlagSourceExt, StaticFlags};
 pub use identity::{
-    Identity, IdentityCall, IdentityError, IdentityProvider, IdentityResult, Invitation, ListPage,
-    Listing, MemberUser, Membership, MemoryIdentity, NewInvitation, NewMembership, Organization,
-    OrganizationChanges, OrganizationRef, Session, User, UserProfile, with_identity,
+    ChangeEvent, Identity, IdentityCall, IdentityChange, IdentityError, IdentityProvider,
+    IdentityResult, Invitation, ListPage, Listing, MemberUser, Membership, MemoryIdentity,
+    NewInvitation, NewMembership, NewOrganization, Organization, OrganizationChanges,
+    OrganizationRef, Session, User, UserChanges, UserProfile, merge_metadata, with_identity,
 };
 pub use in_process_jobs::InProcessJobs;
 pub use jobs::{
-    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, StepFn, StepRetry,
-    step,
+    DynJobs, Job, JobContext, JobError, JobRegistry, JobRequest, Jobs, NoopJob, PENDING_SIGNAL_TTL,
+    StepFn, StepRetry, step,
 };
+pub use ledger_store::{LedgerChanges, LedgerSnapshot, LedgerStore, MemoryLedgerStore};
 pub use mail::{
     DynSystemMail, MailAttachment, Mailbox, OutgoingMail, RecordingSystemMail, SentMail, SystemMail,
 };
+pub use outbound::{DynOutboundHttp, HttpRequest, HttpResponse, OutboundHttp};
+pub use presence::{DynPresence, PresenceReader};
 pub use realtime::{
     DynRealtimePublisher, LivePresence, RealtimeMessage, RealtimePublisher, RecordingRealtime, Room,
+};
+pub use transport::{
+    Envelope, MailTransport, RecordingMailTransport, SentEnvelope, TransportFailure,
 };
 
 /// A boxed, sendable future: what the `Dyn*` port traits return.
