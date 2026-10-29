@@ -12,10 +12,10 @@ on:
   workflow_dispatch:
   push:
     branches: ['deploy/**']
-    # Cluster settings and docs only: nothing to build.
+    # Deploy config and docs only: nothing in the images changes. (A new run
+    # cancels the branch's running one, so a settings push must not start one.)
     paths-ignore:
-      - 'rust/deploy/flux/**'
-      - 'rust/deploy/hetzner/**'
+      - 'rust/deploy/**'
       - '**/*.md'
 
 concurrency:
