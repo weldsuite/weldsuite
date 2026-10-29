@@ -32,6 +32,7 @@
     "./testing": "./src/testing/harness.ts",
     "./testing/pglite": "./src/testing/pglite.ts",
     "./testing/conformance": "./src/testing/conformance.ts",
+    "./testing/conformance-cron": "./src/testing/conformance-cron.ts",
     "./testing/d1": "./src/testing/d1.ts",
     "./testing/sweeps": "./src/testing/sweeps.ts",
     "./timing": "./src/timing.ts",

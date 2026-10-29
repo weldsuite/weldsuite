@@ -28,6 +28,19 @@ import {
   knowledgeTeammateSchema,
   knowledgeTrashedPageSchema,
 } from '@weldsuite/core-api-client/schemas/knowledge';
+import {
+  signDocumentDtoSchema,
+  signDocumentListSchema,
+  signEnvelopeDetailSchema,
+  signEnvelopeSummarySchema,
+  signEventListSchema,
+  signFieldListSchema,
+  signRecipientDtoSchema,
+  signRecipientSuggestionListSchema,
+  signRemindResultSchema,
+  signSigningLinkSchema,
+  signTemplateSummarySchema,
+} from '@weldsuite/app-api-client/schemas/weldsign';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -73,6 +86,36 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/knowledge/pages/:id/versions/:versionId/restore', envelope: 'single', data: knowledgePageSchema },
   { method: 'GET', route: '/api/knowledge/favorites', envelope: 'list', data: knowledgeFavoriteSchema },
   { method: 'POST', route: '/api/knowledge/favorites', envelope: 'single', data: knowledgeFavoriteRefSchema },
+  // sign (WeldSign, members)
+  { method: 'GET', route: '/api/sign/envelopes', envelope: 'list', data: signEnvelopeSummarySchema },
+  { method: 'POST', route: '/api/sign/envelopes', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'GET', route: '/api/sign/envelopes/:id', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'PATCH', route: '/api/sign/envelopes/:id', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'GET', route: '/api/sign/envelopes/:id/events', envelope: 'single', data: signEventListSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/send', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/void', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/remind', envelope: 'single', data: signRemindResultSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/signing-link', envelope: 'single', data: signSigningLinkSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/recipients', envelope: 'single', data: signRecipientDtoSchema },
+  { method: 'PATCH', route: '/api/sign/envelopes/:id/recipients/:recipientId', envelope: 'single', data: signRecipientDtoSchema },
+  { method: 'GET', route: '/api/sign/envelopes/:id/recipients/suggestions', envelope: 'single', data: signRecipientSuggestionListSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/recipients/:recipientId/resend', envelope: 'single', data: signRecipientDtoSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/recipients/:recipientId/correct', envelope: 'single', data: signRecipientDtoSchema },
+  { method: 'PUT', route: '/api/sign/envelopes/:id/fields', envelope: 'single', data: signFieldListSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/documents', envelope: 'single', data: signDocumentDtoSchema },
+  { method: 'POST', route: '/api/sign/envelopes/:id/documents/from-drive', envelope: 'single', data: signDocumentDtoSchema },
+  { method: 'PUT', route: '/api/sign/envelopes/:id/documents/order', envelope: 'single', data: signDocumentListSchema },
+  { method: 'GET', route: '/api/sign/templates', envelope: 'list', data: signTemplateSummarySchema },
+  { method: 'POST', route: '/api/sign/templates', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'GET', route: '/api/sign/templates/:id', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'PATCH', route: '/api/sign/templates/:id', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'POST', route: '/api/sign/templates/:id/use', envelope: 'single', data: signEnvelopeDetailSchema },
+  { method: 'POST', route: '/api/sign/templates/:id/roles', envelope: 'single', data: signRecipientDtoSchema },
+  { method: 'PATCH', route: '/api/sign/templates/:id/roles/:roleId', envelope: 'single', data: signRecipientDtoSchema },
+  { method: 'PUT', route: '/api/sign/templates/:id/fields', envelope: 'single', data: signFieldListSchema },
+  { method: 'POST', route: '/api/sign/templates/:id/documents', envelope: 'single', data: signDocumentDtoSchema },
+  { method: 'POST', route: '/api/sign/templates/:id/documents/from-drive', envelope: 'single', data: signDocumentDtoSchema },
+  { method: 'PUT', route: '/api/sign/templates/:id/documents/order', envelope: 'single', data: signDocumentListSchema },
 ];
 
 /** null when valid, else why not. */

@@ -177,6 +177,8 @@ export async function createMasterPgliteDb(): Promise<{ db: any; close: () => Pr
 
     const client = new PGlite();
     const db = drizzlePg.drizzle(client, { schema: masterSchemaModule });
+    // Conformance mode serves it to the Rust server (`masterDb` in a test context).
+    clients.set(db, client);
 
     const here = path.dirname(url.fileURLToPath(import.meta.url));
     const migrationsDir = path.resolve(here, '../../../db/drizzle/master-migrations');

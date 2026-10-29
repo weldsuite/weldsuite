@@ -52,6 +52,26 @@
         "packages/clients/core-api-client/src/schemas/knowledge.ts",
         "rust/modules/know/"
       ]
+    },
+    {
+      "name": "sign",
+      "module": "sign",
+      "workspace": "apps/workers/sign-api",
+      "tests": [
+        "src/routes/envelopes/envelopes.test.ts",
+        "src/routes/envelopes/sources.test.ts",
+        "src/routes/templates/templates.test.ts",
+        "src/flow.test.ts",
+        "src/cron/lifecycle-sweep.test.ts"
+      ],
+      "paths": [
+        "apps/workers/sign-api/src/",
+        "packages/domains/sign/src/",
+        "packages/clients/app-api-client/src/schemas/weldsign.ts",
+        "packages/core/emails/src/templates/sign/",
+        "rust/modules/sign/",
+        "rust/crates/emails/"
+      ]
     }
   ]
 }

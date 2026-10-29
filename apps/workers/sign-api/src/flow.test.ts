@@ -8,12 +8,22 @@
  * apps/web/sign-portal does. Also: codes, consent, required fields, decline,
  * expiry, the signer's IP and browser on the evidence trail, and finishing
  * again when finalizing could not start.
+ *
+ * In conformance mode (CONFORMANCE_TARGET=rust) every member request also runs
+ * on the Rust backend. The signer portal is the next stage of that port
+ * (ADR FE-017: on Kubernetes the portal calls the backend): until it lands,
+ * the tests that are about the portal run on TypeScript only
+ * (`it.skipIf(PORTAL_STAGE)`), and the portal checks inside member tests are
+ * skipped (`portalChecks`). The plan allowance needs the usage meter, which
+ * the Kubernetes editions don't have yet, so its 402 tests are TypeScript
+ * only too.
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { PDFDocument } from 'pdf-lib';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { createMemoryKv } from '@weldsuite/worker-kit/testing/d1';
 import { memoryCodeAttempts } from '@weldsuite/sign-domain/code-attempts.memory';
@@ -63,6 +73,15 @@ vi.mock('@weldsuite/worker-kit/db', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@weldsuite/worker-kit/db')>();
   return { ...actual, getMasterDb: () => dbs.master };
 });
+
+/**
+ * The signer portal's half of a test: in conformance mode it is the next
+ * stage of the Rust port, so those tests and checks run on TypeScript only.
+ */
+const PORTAL_STAGE = conformanceTarget() !== null;
+const portalChecks = !PORTAL_STAGE;
+/** The plan allowance needs the usage meter, which the Kubernetes editions have no counterpart of yet. */
+const NO_METER = conformanceTarget() !== null;
 
 const ORG = 'org_flow';
 const WS = 'ws_flow';
@@ -128,7 +147,7 @@ beforeEach(() => {
 
 function member(grants: string[] = ['*'], userId = 'user_sender') {
   return createTestApp(BASE, envelopesRoutes, {
-    context: { permissions: permissions(...grants), tenantDb: db, userId, workspaceId: WS, orgId: ORG },
+    context: { permissions: permissions(...grants), tenantDb: db, masterDb: master as unknown as Database, userId, workspaceId: WS, orgId: ORG },
     env: env() as Partial<Env>,
   });
 }
@@ -284,7 +303,7 @@ async function openAndConsent(p: ReturnType<typeof portal>, token: string): Prom
 }
 
 describe('signing flow', () => {
-  it('runs from send to a signed PDF with a certificate', async () => {
+  it.skipIf(PORTAL_STAGE)('runs from send to a signed PDF with a certificate', async () => {
     const { envelope, ann, bob } = await draftWithTwoSigners();
     expect(envelope.status).toBe('sent');
     expect(envelope.expiresAt).not.toBeNull();
@@ -370,7 +389,7 @@ describe('signing flow', () => {
     expect(bob.id).toBeTruthy();
   });
 
-  it('closes the request for everyone when a signer declines', async () => {
+  it.skipIf(PORTAL_STAGE)('closes the request for everyone when a signer declines', async () => {
     const { envelope } = await draftWithTwoSigners();
     const p = portal();
     const token = linksByRecipient().get('ann@example.com')!;
@@ -387,7 +406,7 @@ describe('signing flow', () => {
     expect(links.every((l) => l.revokedAt)).toBe(true);
   });
 
-  it('reports an expired request as closed', async () => {
+  it.skipIf(PORTAL_STAGE)('reports an expired request as closed', async () => {
     const { envelope } = await draftWithTwoSigners({ expiresAt: new Date(Date.now() + 60_000).toISOString() });
     const token = linksByRecipient().get('ann@example.com')!;
     await db.update(schema.signEnvelopes).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(schema.signEnvelopes.id, envelope.id));
@@ -396,7 +415,7 @@ describe('signing flow', () => {
     expect(res).toEqual({ state: 'closed', reason: 'expired' });
   });
 
-  it('records the signer IP and browser the portal reads from the request', async () => {
+  it.skipIf(PORTAL_STAGE)('records the signer IP and browser the portal reads from the request', async () => {
     const { ann } = await draftWithTwoSigners();
     const token = linksByRecipient().get('ann@example.com')!;
     await portal({}, { ip: '198.51.100.7', userAgent: 'Other/2.0' }).request('/session', json({ token }));
@@ -407,7 +426,7 @@ describe('signing flow', () => {
     expect(opened).toMatchObject({ ip: '198.51.100.7', userAgent: 'Other/2.0' });
   });
 
-  it('lets the last signer finish again when finalizing could not start', async () => {
+  it.skipIf(PORTAL_STAGE)('lets the last signer finish again when finalizing could not start', async () => {
     const { envelope, bob } = await draftWithTwoSigners();
     await db.update(schema.signRecipients).set({ authMode: 'link' }).where(eq(schema.signRecipients.id, bob.id));
     const workflow = flakyWorkflow();
@@ -440,7 +459,7 @@ describe('signing flow', () => {
     expect(workflow.instances.get(id)).toEqual({ status: 'running', restarted: 1 });
   });
 
-  it('lets only one of two simultaneous submissions sign', async () => {
+  it.skipIf(PORTAL_STAGE)('lets only one of two simultaneous submissions sign', async () => {
     const { envelope, ann } = await draftWithTwoSigners();
     const p = portal();
     const session = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
@@ -519,7 +538,7 @@ describe('a sent request', () => {
     // Ann had the request and is told; Bob's turn never came, so he never heard of it.
     expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
     expect(mail.transport.sent[0]!.text).toContain('Wrong version attached.');
-    expect((await portal().request('/session', json({ token: annToken }))).status).toBe(404);
+    if (portalChecks) expect((await portal().request('/session', json({ token: annToken }))).status).toBe(404);
 
     expect((await app.request(`${BASE}/${envelope.id}/void`, json({ reason: 'Again' }))).status).toBe(409);
     expect((await app.request(`${BASE}/${envelope.id}/remind`, POST)).status).toBe(409);
@@ -538,7 +557,9 @@ describe('a sent request', () => {
     expect(await data<{ reminded: number }>(await app.request(`${BASE}/${envelope.id}/remind`, POST))).toEqual({ reminded: 1 });
     expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
     expect(mail.transport.sent[0]!.subject).toMatch(/^Reminder:/);
-    expect(await data<{ state: string }>(await portal().request('/session', json({ token: lastLinkFor('ann@example.com') })))).toMatchObject({ state: 'ready' });
+    if (portalChecks) {
+      expect(await data<{ state: string }>(await portal().request('/session', json({ token: lastLinkFor('ann@example.com') })))).toMatchObject({ state: 'ready' });
+    }
 
     const [row] = await db.select().from(schema.signRecipients).where(eq(schema.signRecipients.id, ann.id));
     expect(row!.lastRemindedAt).not.toBeNull();
@@ -564,7 +585,7 @@ describe('a sent request', () => {
     const oldToken = linksByRecipient().get('ann@example.com')!;
     const p = portal();
     // Whoever holds the wrong address already agreed to sign electronically.
-    const oldSession = await openAndConsent(p, oldToken);
+    const oldSession = portalChecks ? await openAndConsent(p, oldToken) : '';
     const app = member();
     mail.transport = memoryTransport();
 
@@ -574,14 +595,16 @@ describe('a sent request', () => {
     );
     expect(res.status).toBe(200);
     expect(await data<SignRecipientDto>(res)).toMatchObject({ name: 'Ann de Vries', email: 'ann.devries@example.com', status: 'sent', openedAt: null });
-    expect((await p.request('/session', json({ token: oldToken }))).status).toBe(404);
-    // The session the wrong address already holds ends with its link: it reads nothing and signs nothing.
-    expect((await p.request('/envelope', {}, oldSession)).status).toBe(401);
-    expect((await p.request('/consent', json({ disclosureVersion: '2026-10-24' }), oldSession)).status).toBe(401);
-    expect((await p.request('/complete', json({ values: [], signature }), oldSession)).status).toBe(401);
-    const opened = await data<{ session: string }>(await p.request('/session', json({ token: lastLinkFor('ann.devries@example.com') })));
-    const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, opened.session));
-    expect(view.recipient.consented).toBe(false);
+    if (portalChecks) {
+      expect((await p.request('/session', json({ token: oldToken }))).status).toBe(404);
+      // The session the wrong address already holds ends with its link: it reads nothing and signs nothing.
+      expect((await p.request('/envelope', {}, oldSession)).status).toBe(401);
+      expect((await p.request('/consent', json({ disclosureVersion: '2026-10-24' }), oldSession)).status).toBe(401);
+      expect((await p.request('/complete', json({ values: [], signature }), oldSession)).status).toBe(401);
+      const opened = await data<{ session: string }>(await p.request('/session', json({ token: lastLinkFor('ann.devries@example.com') })));
+      const view = await data<SignPortalEnvelope>(await p.request('/envelope', {}, opened.session));
+      expect(view.recipient.consented).toBe(false);
+    }
 
     // Taken by another recipient, or nothing changed: refused.
     expect((await app.request(`${BASE}/${envelope.id}/recipients/${ann.id}/correct`, json({ email: 'bob@example.com' }))).status).toBe(400);
@@ -596,7 +619,7 @@ describe('a sent request', () => {
     expect(events.find((e) => e.type === 'recipient_corrected')?.details).toMatchObject({ from: 'ann@example.com', to: 'ann.devries@example.com' });
   });
 
-  it('keeps a signer’s consent when only their name is fixed', async () => {
+  it.skipIf(PORTAL_STAGE)('keeps a signer’s consent when only their name is fixed', async () => {
     const { envelope, ann } = await draftWithTwoSigners();
     const p = portal();
     const session = await openAndConsent(p, linksByRecipient().get('ann@example.com')!);
@@ -625,7 +648,7 @@ describe('a sent request', () => {
 
     const link = await data<{ url: string }>(await annApp.request(`${BASE}/${envelope.id}/signing-link`, POST));
     const token = /\/r\/([A-Za-z0-9_-]+)$/.exec(link.url)![1]!;
-    expect(await data<{ state: string }>(await portal().request('/session', json({ token })))).toMatchObject({ state: 'ready' });
+    if (portalChecks) expect(await data<{ state: string }>(await portal().request('/session', json({ token })))).toMatchObject({ state: 'ready' });
 
     // A draft that names her stays the sender's own; a member not on the request sees nothing.
     const draft = await data<SignEnvelopeDetail>(await member().request(BASE, json({ title: 'Still a draft' })));
@@ -635,12 +658,80 @@ describe('a sent request', () => {
   });
 });
 
+describe('sending and a sent request, through the routes', () => {
+  it('sends a complete draft, and refuses what cannot go', async () => {
+    const { draft } = await completeDraft();
+    const app = member();
+    const send = (body: Record<string, unknown>, id = draft.id) => app.request(`${BASE}/${id}/send`, json(body));
+    // An expiry in the past, or not a date at all.
+    expect((await send({ expiresAt: '2020-01-01T00:00:00Z' })).status).toBe(400);
+    expect((await send({ expiresAt: 'tomorrow' })).status).toBe(400);
+
+    mail.transport = memoryTransport();
+    const res = await send({ expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString() });
+    expect(res.status).toBe(200);
+    expect(await data<SignEnvelopeDetail>(res)).toMatchObject({ status: 'sent', canVoid: true, canRemind: true, canEdit: false });
+    // Signing order: Ann first.
+    expect(mail.transport.sent.map(to)).toEqual(['ann@example.com']);
+    // Only a draft is sent.
+    expect((await send({})).status).toBe(409);
+
+    // A draft without documents says what is missing.
+    const empty = await data<SignEnvelopeDetail>(await app.request(BASE, json({ title: 'Empty' })));
+    const refused = await send({}, empty.id);
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: { message: string } }).error.message).toBe('Add at least one document');
+  });
+
+  it('downloads the signed PDF of a completed request, and only then', async () => {
+    const { envelope } = await draftWithTwoSigners();
+    const app = member();
+    expect((await app.request(`${BASE}/${envelope.id}/download`)).status).toBe(409);
+
+    await db
+      .update(schema.signRecipients)
+      .set({ status: 'signed', signedAt: new Date() })
+      .where(and(eq(schema.signRecipients.envelopeId, envelope.id), eq(schema.signRecipients.role, 'signer')));
+    const built = await buildFinalPdf({ env: env(), db, bucket: storage.bucket, clerkOrgId: ORG, master }, envelope.id);
+    const res = await app.request(`${BASE}/${envelope.id}/download`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/pdf');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="Service agreement.pdf"');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(storage.objects.get(built!.key));
+    // Everyone signed: nothing left to chase.
+    expect((await app.request(`${BASE}/${envelope.id}/remind`, POST)).status).toBe(409);
+
+    storage.objects.delete(built!.key);
+    expect((await app.request(`${BASE}/${envelope.id}/download`)).status).toBe(404);
+  });
+
+  it('refuses lifecycle actions that do not apply', async () => {
+    const { envelope, bob } = await draftWithTwoSigners();
+    const app = member();
+    // No such recipient on the request.
+    expect((await app.request(`${BASE}/${envelope.id}/recipients/sgr_missing/resend`, POST)).status).toBe(404);
+    expect((await app.request(`${BASE}/${envelope.id}/recipients/sgr_missing/correct`, json({ email: 'x@example.com' }))).status).toBe(404);
+    // Bodies the schemas refuse.
+    expect((await app.request(`${BASE}/${envelope.id}/void`, json({ reason: '   ' }))).status).toBe(400);
+    expect((await app.request(`${BASE}/${envelope.id}/recipients/${bob.id}/correct`, json({ email: 'not an email' }))).status).toBe(400);
+    // The sender is no signer: it is not their turn.
+    expect((await app.request(`${BASE}/${envelope.id}/signing-link`, POST)).status).toBe(409);
+    // Without the permission, and on someone else's request.
+    expect((await member(['sign_envelopes:read']).request(`${BASE}/${envelope.id}/remind`, POST)).status).toBe(403);
+    const other = member(['sign_envelopes:read', 'sign_envelopes:send', 'sign_envelopes:void'], 'user_other');
+    expect((await other.request(`${BASE}/${envelope.id}/void`, json({ reason: 'Not mine' }))).status).toBe(404);
+    expect((await other.request(`${BASE}/${envelope.id}/recipients/${bob.id}/resend`, POST)).status).toBe(404);
+  });
+});
+
 describe('the monthly allowance', () => {
   const setFeatures = (features: PlanFeatures, priceMonthly = '0') =>
     master.update(masterSchema.plans).set({ features, priceMonthly }).where(eq(masterSchema.plans.id, 'plan_flow'));
   const usage = () => (meters.storages.get(WS)?.data.get(`m:${new Date().toISOString().slice(0, 7)}:sign_requests`) as { used: number } | undefined)?.used ?? 0;
 
-  it('answers 402 once a free plan has used its requests, and leaves the draft a draft', async () => {
+  // The usage meter (mail-api's UsageMeter Durable Object) has no Kubernetes
+  // counterpart yet: Rust sends as the workers do without the binding.
+  it.skipIf(NO_METER)('answers 402 once a free plan has used its requests, and leaves the draft a draft', async () => {
     const { draft } = await completeDraft();
     await setFeatures({ signRequestsPerMonth: 0 });
     try {
@@ -656,7 +747,7 @@ describe('the monthly allowance', () => {
     }
   });
 
-  it('answers 402 INSUFFICIENT_CREDITS on a paid plan whose wallet cannot pay the extra request', async () => {
+  it.skipIf(NO_METER)('answers 402 INSUFFICIENT_CREDITS on a paid plan whose wallet cannot pay the extra request', async () => {
     const { draft } = await completeDraft();
     await setFeatures({ signRequestsPerMonth: 0 }, '20');
     try {
