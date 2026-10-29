@@ -74,6 +74,13 @@ const { suites } = JSON.parse(readFileSync(path.join(rustDir, 'conformance', 'su
   suites: Suite[];
 };
 
+/** Modules marked ported (`RUST_PORTED_MODULES`, exported by `pnpm rust:catalogs`). */
+const portedModules = new Set(
+  (JSON.parse(readFileSync(path.join(rustDir, 'catalogs', 'api-modules.json'), 'utf8')) as Array<{ id: string; rust: boolean }>)
+    .filter((m) => m.rust)
+    .map((m) => m.id),
+);
+
 function changedFiles(base: string): string[] {
   const result = spawnSync('git', ['diff', '--name-only', `${base}...HEAD`], { cwd: repo, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(`git diff against ${base} failed: ${result.stderr}`);
@@ -233,8 +240,11 @@ function buildReport(selected: Suite[], results: Map<string, boolean>): SuiteRep
       Boolean(file) && suite.tests.some((t) => file!.replaceAll('\\', '/').endsWith(`${suite.workspace}/${t}`));
     const routes = routeReports(lines.filter((l): l is RequestLine => l.kind === 'request' && inSuite(l.file)));
     const inventory = lines.filter((l): l is InventoryLine => l.kind === 'inventory' && inSuite(l.file));
-    const passed = (results.get(suite.name) ?? false) && routes.every((r) => r.mismatches.length === 0);
-    return { name: suite.name, module: suite.module, passed, routes, uncovered: uncoveredRoutes(inventory, routes) };
+    const uncovered = uncoveredRoutes(inventory, routes);
+    // A ported module needs every route covered (playbook steps 2 and 6).
+    const covered = !portedModules.has(suite.module) || uncovered.length === 0;
+    const passed = (results.get(suite.name) ?? false) && covered && routes.every((r) => r.mismatches.length === 0);
+    return { name: suite.name, module: suite.module, passed, routes, uncovered };
   });
 }
 
@@ -255,7 +265,12 @@ function suiteSection(report: SuiteReport): string[] {
   if (report.routes.length === 0) out.push('| _no requests recorded_ | | | | | |');
   out.push('');
   if (report.uncovered.length > 0) {
-    out.push('Routes of the routers under test that no test reached:', '');
+    out.push(
+      portedModules.has(report.module)
+        ? 'Routes no test reached (a ported module must reach them all):'
+        : 'Routes of the routers under test that no test reached:',
+      '',
+    );
     out.push(...report.uncovered.map((r) => `- \`${r.method} ${r.route}\``), '');
   }
   const differences = report.routes.flatMap((r) => r.mismatches.map((m) => `- \`${r.method} ${r.route}\`: ${m}`));
@@ -388,7 +403,11 @@ async function main(): Promise<void> {
     for (const suite of selected) {
       console.log(`\n== ${suite.name}: ${suite.tests.length} test file(s) against ${rustUrl}`);
       // One file at a time: Rust's side-effect recordings belong to one request.
-      const status = run('pnpm', ['exec', 'vitest', 'run', '--no-file-parallelism', ...suite.tests], path.join(repo, suite.workspace), {
+      // Every request runs twice and a write copies the database first, so a
+      // test takes several times as long; at vitest's 5 s default a test that
+      // times out leaves requests running into the next test's recordings.
+      const vitest = ['exec', 'vitest', 'run', '--no-file-parallelism', '--testTimeout=120000', ...suite.tests];
+      const status = run('pnpm', vitest, path.join(repo, suite.workspace), {
         CONFORMANCE_TARGET: 'rust',
         CONFORMANCE_RUST_URL: rustUrl,
         CONFORMANCE_REPORT_DIR: reportDir,

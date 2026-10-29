@@ -106,6 +106,15 @@ check POST /api/access-requests 400 auth '{"permission":"*"}'
 # The permission gate: a member without team:update may not resolve.
 check PATCH /api/access-requests/areq_smoke 403 auth '{"status":"approved"}'
 contains '"FORBIDDEN"'
+# The first ported module (know): a teamspace, a page in it, and the list
+# with the member's private space created on first visit.
+check POST /api/knowledge/spaces 201 auth '{"name":"Smoke space","visibility":"open"}'
+space_id="$(sed -n 's/.*"id":"\(kspc_[a-z0-9]*\)".*/\1/p' "$work/body")"
+check POST /api/knowledge/pages 201 auth "{\"spaceId\":\"$space_id\",\"title\":\"Runbook\"}"
+contains '"title":"Runbook"'
+check GET /api/knowledge/spaces 200 auth
+contains '"kind":"personal"'
+contains '"name":"Smoke space"'
 
 if [ "$failed" != "0" ]; then
   kubectl logs deployment/weldsuite --tail=80 >&2 || true

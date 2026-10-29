@@ -151,13 +151,14 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
       // Mirror featureFlagsMiddleware so flag-gated routes can be tested.
       if (ctx.flags) set('flags', ctx.flags);
       await next();
-      // Conformance mode reports which route answered: the last matched
-      // handler that isn't a middleware.
+      // Conformance mode reports which route answered: the handler Hono ran
+      // last (`routeIndex`), not the last route that matched, since
+      // `/pages/tree` and `/pages/:id` both match and the first one answers.
+      // A route's own middleware (a 403 from requirePermission) shares its
+      // path; an app-wide one (`ALL`, e.g. nothing matched) is no route.
       if (target || recorder) {
-        const endpoint = matchedRoutes(c)
-          .filter((r) => r.method !== 'ALL')
-          .at(-1);
-        if (endpoint) c.res.headers.set(ROUTE_HEADER, endpoint.path);
+        const endpoint = matchedRoutes(c)[c.req.routeIndex];
+        if (endpoint && endpoint.method !== 'ALL') c.res.headers.set(ROUTE_HEADER, endpoint.path);
       }
     });
 

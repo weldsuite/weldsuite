@@ -10,12 +10,13 @@ design, the decisions and the phase plan live in the private docs repo:
 `design/platform/editions-and-self-hosting.md` and
 `editions-and-self-hosting-phases.md` in `weldsuite/weldsuite-documentation`.
 
-Status: **P1 (foundations) and P2 (conformance suite) done.** `weldsuite serve`
-runs the full request pipeline (session token → workspace → tenant database →
-licence and read-only → feature flags → permission → envelope) with entity
-events, realtime and cache behind ports. Ported routes: `GET /api/me/permissions`,
-`GET /api/feature-flags` and `/api/access-requests`. Next is P3: the pilot
-modules (`know`, `sign`).
+Status: **P1 (foundations) and P2 (conformance suite) done; P3 (pilot
+modules) in progress.** `weldsuite serve` runs the full request pipeline
+(session token → workspace → tenant database → licence and read-only → feature
+flags → permission → envelope) with entity events, realtime and cache behind
+ports. Ported: the core routes `GET /api/me/permissions`, `GET /api/feature-flags`
+and `/api/access-requests`, and the first module, **know** (`/api/knowledge`, all
+27 routes). Next: `sign`.
 
 ## Layout
 
@@ -41,6 +42,8 @@ rust/
   crates/ports/         ports (cache, event bus, realtime, flags) and their recording test doubles
   crates/events/        @weldsuite/entity-events: the hub message and the fire-and-forget publisher
   crates/adapters-oss/  open-source adapters: Valkey cache + pub/sub, NATS JetStream, flags in the master DB
+  modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
+                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, the chart, a signed request
 ```
