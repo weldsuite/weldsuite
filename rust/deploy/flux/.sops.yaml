@@ -1,0 +1,15 @@
+# SOPS encrypts the secrets under secrets/<cluster>/ with age; Flux decrypts
+# them in the cluster with the private key in the flux-system/sops-age
+# Secret (README.md, step 6). Only data and stringData are encrypted, so the
+# files still diff readably.
+#
+# Replace the recipient with your cluster's age public key
+# (`age-keygen -o eu.agekey`, then the "public key" line). The drill gets
+# its own key.
+creation_rules:
+  - path_regex: secrets/eu/.*\.sops\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1replace0with0the0eu0cluster0public0key0000000000000000000000000
+  - path_regex: secrets/drill/.*\.sops\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1replace0with0the0drill0cluster0public0key00000000000000000000000

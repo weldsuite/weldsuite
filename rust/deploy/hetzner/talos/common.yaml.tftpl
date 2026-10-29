@@ -1,0 +1,37 @@
+# Every node: name, location labels, the private network for kubelet and
+# etcd traffic, an EU DNS resolver, and the host path OpenEBS LocalPV
+# provisions volumes under (local NVMe, no Cloud Volumes).
+machine:
+  network:
+    hostname: ${hostname}
+    # CoreDNS forwards to the node resolvers: an EU resolver instead of
+    # Hetzner's. Quad9 (Swiss foundation); DNS4EU's addresses can replace them.
+    nameservers:
+      - 9.9.9.9
+      - 149.112.112.112
+  nodeLabels:
+    topology.kubernetes.io/region: ${region}
+    topology.kubernetes.io/zone: ${location}
+    node.weldsuite.org/pool: ${pool}
+  kubelet:
+    nodeIP:
+      validSubnets:
+        - ${nodes_subnet}
+    extraMounts:
+      - destination: /var/openebs/local
+        type: bind
+        source: /var/openebs/local
+        options:
+          - bind
+          - rshared
+          - rw
+  time:
+    servers:
+      - ntp1.hetzner.de
+      - ntp2.hetzner.com
+cluster:
+  network:
+    podSubnets:
+      - ${pod_cidr}
+    serviceSubnets:
+      - ${service_cidr}

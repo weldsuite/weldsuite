@@ -1,0 +1,167 @@
+# Postgres on CloudNativePG, on the dedicated pool (local NVMe, tainted
+# node.weldsuite.org/postgres). Every cluster: a primary and a synchronous
+# replica in different locations, WAL archiving and nightly base backups to a
+# second EU provider (barman-cloud plugin), and a transaction-mode PgBouncer
+# Pooler in front.
+#
+#   master     the master database (workspaces, link registry, flags, …)
+#   tenants-1  the first tenant shard: one database per workspace (DATA-016)
+#   zitadel-db Zitadel's own database (namespace zitadel, next to Zitadel,
+#              which reads its superuser secret)
+#
+# Images: CloudNativePG's "standard" images, which ship pgvector (tenant
+# schemas use it, with pg_trgm). Both are created in template1, so every new
+# database has them.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: master
+  namespace: postgres
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie
+  primaryUpdateStrategy: unsupervised
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+    parameters:
+      max_connections: "300"
+      shared_buffers: 1GB
+  bootstrap:
+    initdb:
+      database: weldsuite_master
+      owner: weldsuite
+      secret:
+        name: master-db-owner
+      postInitTemplateSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  storage:
+    storageClass: openebs-hostpath
+    size: 50Gi
+  walStorage:
+    storageClass: openebs-hostpath
+    size: 20Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: topology.kubernetes.io/zone
+    nodeSelector:
+      node.weldsuite.org/pool: postgres
+    tolerations:
+      - key: node.weldsuite.org/postgres
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      memory: 4Gi
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: master-backups
+---
+# The first tenant shard. A workspace's database is created here with
+# CREATE DATABASE by the tenant role (CREATEDB), and its connection string
+# (through the tenants-1-pooler Pooler) goes into workspaces.database_url,
+# encrypted. Automatic placement across shards is the DatabaseProvisioner
+# port of P4 (4a); until then, see README.md "Tenant databases".
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: tenants-1
+  namespace: postgres
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie
+  primaryUpdateStrategy: unsupervised
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+    parameters:
+      # Spike S4: the Pooler's max_user_connections stays under this.
+      max_connections: "500"
+      shared_buffers: 2GB
+  bootstrap:
+    initdb:
+      database: tenants
+      owner: tenant
+      secret:
+        name: tenants-1-owner
+      postInitSQL:
+        - ALTER ROLE tenant CREATEDB;
+      postInitTemplateSQL:
+        - CREATE EXTENSION IF NOT EXISTS vector;
+        - CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  storage:
+    storageClass: openebs-hostpath
+    size: 200Gi
+  walStorage:
+    storageClass: openebs-hostpath
+    size: 50Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: topology.kubernetes.io/zone
+    nodeSelector:
+      node.weldsuite.org/pool: postgres
+    tolerations:
+      - key: node.weldsuite.org/postgres
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      memory: 8Gi
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: tenants-1-backups
+---
+# Zitadel creates its own role and schema with the superuser on first start.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: zitadel-db
+  namespace: zitadel
+spec:
+  instances: 2
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.8-standard-trixie
+  primaryUpdateStrategy: unsupervised
+  enableSuperuserAccess: true
+  postgresql:
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+  storage:
+    storageClass: openebs-hostpath
+    size: 10Gi
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+    topologyKey: topology.kubernetes.io/zone
+    nodeSelector:
+      node.weldsuite.org/pool: postgres
+    tolerations:
+      - key: node.weldsuite.org/postgres
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: zitadel-backups

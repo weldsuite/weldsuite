@@ -1,0 +1,9 @@
+# Volumes on the node's own disk (local NVMe on the Postgres pool), under
+# /var/openebs/local, which every Talos node mounts (hetzner/talos/common.yaml.tftpl).
+# No Cloud Volumes: failover never waits on the Hetzner Cloud API, and the
+# same setup runs on bare metal.
+hostpathClass:
+  name: openebs-hostpath
+  enabled: true
+  reclaimPolicy: Retain
+  isDefaultClass: true

@@ -1,0 +1,55 @@
+# Where a drill cluster archives its own WAL: drill/<cluster>, never the
+# production paths it restores from.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: drill-master-backups
+  namespace: postgres
+spec:
+  retentionPolicy: 7d
+  configuration:
+    destinationPath: s3://${BACKUP_S3_BUCKET}/drill/master
+    endpointURL: ${BACKUP_S3_ENDPOINT}
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: drill-tenants-1-backups
+  namespace: postgres
+spec:
+  retentionPolicy: 7d
+  configuration:
+    destinationPath: s3://${BACKUP_S3_BUCKET}/drill/tenants-1
+    endpointURL: ${BACKUP_S3_ENDPOINT}
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY
+---
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: drill-zitadel-backups
+  namespace: zitadel
+spec:
+  retentionPolicy: 7d
+  configuration:
+    destinationPath: s3://${BACKUP_S3_BUCKET}/drill/zitadel-db
+    endpointURL: ${BACKUP_S3_ENDPOINT}
+    s3Credentials:
+      accessKeyId:
+        name: postgres-backup-s3
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: postgres-backup-s3
+        key: ACCESS_SECRET_KEY

@@ -47,6 +47,9 @@ rust/
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), the chart, a signed request
+  deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
+  deploy/flux/          Flux GitOps for that cluster: CloudNativePG, NATS, Valkey, Restate, Zitadel, the app
+  deploy/validate.sh    checks the two above without a cloud account (CI: Rust · deploy config)
 ```
 
 ## Commands

@@ -167,6 +167,28 @@ jobs:
           KEEP_CLUSTER: "1"
         run: rust/deploy/kind/smoke-test.sh
 
+  # The EU deploy configuration (rust/deploy): OpenTofu for Hetzner validated,
+  # every Flux layer built and schema-checked, every pinned chart rendered with
+  # its values. No cloud account involved.
+  rust-deploy:
+    name: Rust · deploy config
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.13.1
+          tofu_wrapper: false
+      - uses: azure/setup-helm@v4
+      - name: Install kubeconform
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          sudo tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform
+      - name: Validate
+        run: rust/deploy/validate.sh
+
   # Phase P2: the worker tests of every ported route run against a conformance
   # build of the Rust server and are compared with the Hono app (bodies,
   # schemas, side effects). On a PR only the suites its changes touch; on
@@ -209,7 +231,7 @@ jobs:
 
   rust-all:
     name: Rust
-    needs: [rust-checks, rust-image, rust-conformance]
+    needs: [rust-checks, rust-image, rust-deploy, rust-conformance]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -219,9 +241,11 @@ jobs:
           set -euo pipefail
           echo "checks: ${{ needs.rust-checks.result }}"
           echo "image and chart: ${{ needs.rust-image.result }}"
+          echo "deploy config: ${{ needs.rust-deploy.result }}"
           echo "conformance: ${{ needs.rust-conformance.result }}"
           test "${{ needs.rust-checks.result }}" = "success"
           test "${{ needs.rust-image.result }}" = "success"
+          test "${{ needs.rust-deploy.result }}" = "success"
           test "${{ needs.rust-conformance.result }}" = "success"
 
   # app-api plus every module worker and domain is ~17 minutes of tsc.

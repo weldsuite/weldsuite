@@ -1,0 +1,45 @@
+# PgBouncer in transaction mode in front of master and the tenant shard, as
+# spikes S3 and S4 settled (rust/docs/spikes.md):
+#   - max_prepared_statements keeps PgBouncer's default (never 0): sqlx's
+#     named statements need it;
+#   - max_client_conn must cover pods x tenant pools (CloudNativePG leaves
+#     PgBouncer's default of 100, which one pod alone exceeds);
+#   - max_user_connections caps server connections under max_connections
+#     (all tenant databases share one role), so an idle database's
+#     connection can be closed to serve another.
+# The weldsuite server connects to the master through master-pooler and gets
+# tenant URLs (pointing at tenants-1-pooler) from workspaces.database_url.
+# (Not <cluster>-rw: CloudNativePG names the cluster's own Services that.)
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: master-pooler
+  namespace: postgres
+spec:
+  cluster:
+    name: master
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "2000"
+      default_pool_size: "20"
+      max_user_connections: "200"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: tenants-1-pooler
+  namespace: postgres
+spec:
+  cluster:
+    name: tenants-1
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "10000"
+      default_pool_size: "4"
+      max_user_connections: "400"
