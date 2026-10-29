@@ -5,7 +5,7 @@
 //! | Port | Adapter | Replaces |
 //! |---|---|---|
 //! | `Cache` | [`ValkeyCache`] | KV `WORKSPACE_CACHE` |
-//! | `RealtimePublisher` | [`ValkeyRealtime`] (pub/sub) | realtime-worker `/publish/*` over `REALTIME` |
+//! | `RealtimePublisher` | [`ValkeyRealtime`] (pub/sub; [`realtime::ValkeyBackplane`] is the WebSocket gateway's side) | realtime-worker `/publish/*` over `REALTIME`, and its Durable Objects' state |
 //! | `EventBus` | [`JetStreamEventBus`] | Queue `ENTITY_EVENTS` |
 //! | `FlagSource` | [`MasterDbFlagSource`] | Cloudflare Flagship `FLAGSHIP` |
 //! | `FileStore` | [`S3FileStore`] (MinIO, Garage, Ceph RGW, Hetzner, AWS) | R2 `PRIVATE_STORAGE`, `STORAGE` |
@@ -18,6 +18,7 @@
 
 mod flags;
 mod nats;
+pub mod realtime;
 mod restate;
 mod s3;
 mod smtp;

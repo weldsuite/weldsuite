@@ -28,6 +28,7 @@ weldsuite-know = { workspace = true }
 weldsuite-sign = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }
+weldsuite-realtime = { workspace = true }
 weldsuite-ports = { workspace = true }
 axum = { workspace = true, features = ["http1", "json", "matched-path", "original-uri", "tokio"] }
 base64 = { workspace = true, optional = true }

@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use redis::AsyncCommands;
 use redis::aio::{ConnectionManager, ConnectionManagerConfig};
-use weldsuite_ports::{Cache, PortError, RealtimeMessage, RealtimePublisher};
+use weldsuite_ports::{Cache, LivePresence, PortError, RealtimeMessage, RealtimePublisher};
+
+use crate::realtime::RealtimeKeys;
 
 /// Connects to Valkey at `url` (`redis://`, or `rediss://` for TLS; user and
 /// password in the URL). Fails when the first connection fails, so a bad URL
@@ -75,36 +77,42 @@ impl Cache for ValkeyCache {
     }
 }
 
-/// [`RealtimePublisher`] on Valkey pub/sub: `PUBLISH <prefix><channel>
-/// <payload JSON>`. The WebSocket gateway subscribes to the same channels
-/// (`<prefix>workspace:*` and the room prefixes).
+/// [`RealtimePublisher`] on Valkey: publishes on `<prefix><channel>`, the
+/// channel the WebSocket gateway's pods subscribe to, stamping workspace
+/// events and chat messages on the way ([`crate::realtime`] has the format).
+/// Presence comes from the state the gateway keeps there.
 #[derive(Clone)]
 pub struct ValkeyRealtime {
     connection: ConnectionManager,
-    prefix: String,
+    keys: RealtimeKeys,
 }
 
 impl ValkeyRealtime {
     pub fn new(connection: ConnectionManager, prefix: impl Into<String>) -> Self {
         Self {
             connection,
-            prefix: prefix.into(),
+            keys: RealtimeKeys::new(prefix),
         }
     }
 
     /// The Valkey channel a message goes to.
     pub fn channel(&self, message: &RealtimeMessage) -> String {
-        format!("{}{}", self.prefix, message.channel)
+        self.keys.channel(&message.channel)
     }
 }
 
 impl RealtimePublisher for ValkeyRealtime {
     async fn publish(&self, message: &RealtimeMessage) -> Result<(), PortError> {
-        let payload = serde_json::to_string(&message.payload)?;
         let mut connection = self.connection.clone();
-        connection
-            .publish::<_, _, ()>(self.channel(message), payload)
-            .await
-            .map_err(PortError::backend)
+        crate::realtime::publish(&mut connection, &self.keys, message).await
+    }
+
+    async fn presence(
+        &self,
+        workspace: &str,
+        user_ids: &[String],
+    ) -> Result<LivePresence, PortError> {
+        let mut connection = self.connection.clone();
+        crate::realtime::presence(&mut connection, &self.keys, workspace, user_ids).await
     }
 }
