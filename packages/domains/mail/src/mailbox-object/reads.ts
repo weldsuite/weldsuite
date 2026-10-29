@@ -642,9 +642,21 @@ export function listAttachments(sql: SqlStorage, messageId: string): MailAttachm
     .map(mapAttachmentRow);
 }
 
-/** `MailboxStore.getAttachment`. `accountId` is always this mailbox's own — no join needed, unlike Postgres's cross-table lookup. */
+/**
+ * `MailboxStore.getAttachment`. `accountId` is always this mailbox's own, but
+ * still needs the join Postgres's cross-table lookup does, to rule out an
+ * attachment whose owning message is itself soft-deleted — a message delete
+ * (`writes.ts`'s `applySoftDelete`) only ever sets `messages.deleted_at`,
+ * never touches the `attachments` rows it owns.
+ */
 export function getAttachment(sql: SqlStorage, ref: MailboxRef, id: string): (MailAttachmentRecord & { accountId: string }) | null {
-  const row = sql.exec<AttachmentRow>('SELECT * FROM attachments WHERE id = ? AND deleted_at IS NULL', id).toArray()[0];
+  const row = sql
+    .exec<AttachmentRow>(
+      `SELECT a.* FROM attachments a JOIN messages m ON m.id = a.message_id
+       WHERE a.id = ? AND a.deleted_at IS NULL AND m.deleted_at IS NULL`,
+      id,
+    )
+    .toArray()[0];
   if (!row) return null;
   return { ...mapAttachmentRow(row), accountId: ref.accountId };
 }

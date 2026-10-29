@@ -3,36 +3,46 @@
  * tests: `get` (with a byte range), `put`, `delete` (single key or array) and
  * `list` (prefix + cursor paging). Not a full R2 emulation — just enough
  * surface for the mail body/raw-MIME read and delete paths.
+ *
+ * A thin adapter over `@weldsuite/worker-kit/testing/r2`'s `createMemoryR2()`
+ * — the actual byte/range/blob handling (`toBytes`, range math, `Blob`
+ * construction) lives there exactly once now, instead of being duplicated
+ * here. This class only exists to keep its callers' existing shape: a
+ * constructor (`new MemoryR2Bucket()`), `.asBucket()`, and a synchronous
+ * `.objects` key view for the one caller that inspects stored keys directly
+ * without an `await` (`email-storage.store.test.ts`'s
+ * `[...bucket.objects.keys()]`) — `R2Bucket.list()` is async, so that one
+ * piece of bookkeeping stays local rather than delegated. `asBucket()` still
+ * returns `this` (not the delegate): every write must go through this
+ * class's own `put`/`delete` so `.objects` stays in sync even when a caller
+ * writes through the bucket binding directly (e.g. `ObjectMailboxStore`'s own
+ * R2 puts), not just through this class's methods.
  */
 
-interface StoredObject {
-  body: Uint8Array;
-  httpMetadata?: { contentType?: string };
-}
+import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
 
-function toBytes(value: ArrayBuffer | ArrayBufferView | string): Uint8Array {
-  if (typeof value === 'string') return new TextEncoder().encode(value);
-  if (value instanceof Uint8Array) return value;
-  return new Uint8Array(value as ArrayBuffer);
-}
-
-function sliceForRange(bytes: Uint8Array, range?: { offset?: number; length?: number }): Uint8Array {
-  if (!range) return bytes;
-  const offset = range.offset ?? 0;
-  const end = range.length !== undefined ? offset + range.length : bytes.byteLength;
-  return bytes.slice(offset, Math.min(end, bytes.byteLength));
+/** `{offset?, length?}` (both optional — this file's own, looser shape) → the ambient `R2Range` union, which requires at least one of them. `undefined` when neither is set (matches a full read, same as passing no range at all). */
+function toR2Range(range?: { offset?: number; length?: number }): R2Range | undefined {
+  if (!range) return undefined;
+  const { offset, length } = range;
+  if (offset !== undefined) return { offset, length };
+  if (length !== undefined) return { length };
+  return undefined;
 }
 
 export class MemoryR2Bucket {
-  readonly objects = new Map<string, StoredObject>();
+  private readonly delegate: R2Bucket = createMemoryR2();
+  /** Keys currently stored — mirrors `put`/`delete` for synchronous introspection only (the bytes themselves live in the delegate above, not duplicated here). */
+  readonly objects = new Map<string, true>();
 
   async put(
     key: string,
     value: ArrayBuffer | ArrayBufferView | string,
     options?: { httpMetadata?: { contentType?: string } },
   ): Promise<{ key: string }> {
-    this.objects.set(key, { body: toBytes(value), httpMetadata: options?.httpMetadata });
-    return { key };
+    const result = await this.delegate.put(key, value, options);
+    this.objects.set(key, true);
+    return { key: result.key };
   }
 
   async get(
@@ -46,22 +56,16 @@ export class MemoryR2Bucket {
       }
     | null
   > {
-    const object = this.objects.get(key);
-    if (!object) return null;
-    const bytes = sliceForRange(object.body, options?.range);
-    return {
-      httpMetadata: object.httpMetadata,
-      arrayBuffer: async () => bytes.slice().buffer,
-      text: async () => new TextDecoder().decode(bytes),
-    };
+    return this.delegate.get(key, { range: toR2Range(options?.range) });
   }
 
   async head(key: string): Promise<{ key: string; size: number } | null> {
-    const object = this.objects.get(key);
-    return object ? { key, size: object.body.byteLength } : null;
+    const result = await this.delegate.head(key);
+    return result ? { key: result.key, size: result.size } : null;
   }
 
   async delete(keys: string | string[]): Promise<void> {
+    await this.delegate.delete(keys);
     for (const key of Array.isArray(keys) ? keys : [keys]) this.objects.delete(key);
   }
 
@@ -70,20 +74,11 @@ export class MemoryR2Bucket {
     cursor?: string;
     limit?: number;
   }): Promise<{ objects: { key: string }[]; truncated: boolean; cursor?: string }> {
-    const prefix = options?.prefix ?? '';
-    const limit = options?.limit ?? 1000;
-    // Sorted key order, resumed from the last key of the previous page (not a
-    // positional offset), so deleting earlier pages between calls — the
-    // mailbox-teardown pager's whole point — can never skip or repeat a key.
-    const matching = [...this.objects.keys()].filter((k) => k.startsWith(prefix)).sort();
-    const from = options?.cursor ? matching.findIndex((k) => k > options.cursor!) : 0;
-    const start = from === -1 ? matching.length : from;
-    const page = matching.slice(start, start + limit);
-    const truncated = start + limit < matching.length;
+    const result = await this.delegate.list(options);
     return {
-      objects: page.map((key) => ({ key })),
-      truncated,
-      cursor: truncated ? page[page.length - 1] : undefined,
+      objects: result.objects.map((o) => ({ key: o.key })),
+      truncated: result.truncated,
+      cursor: result.truncated ? result.cursor : undefined,
     };
   }
 

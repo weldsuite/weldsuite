@@ -124,6 +124,9 @@ export class PostgresWorkspaceMailStore implements WorkspaceMailStore {
         and(
           eq(mailAttachments.id, id),
           isNull(mailAttachments.deletedAt),
+          // An attachment of a soft-deleted message is not reachable either —
+          // the message's own soft delete must 404 it, same as the message itself.
+          isNull(mailMessages.deletedAt),
           inArray(mailMessages.accountId, accountIds),
         ),
       )

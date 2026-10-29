@@ -487,6 +487,42 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
   });
 
   // -------------------------------------------------------------------------
+  // labels.add / labels.remove — `OpResult.labels` must be filled by both
+  // backends, for both `semantics`, not just the object's `message` (single
+  // id only) or Postgres's single-semantics path.
+  // -------------------------------------------------------------------------
+
+  describe('labels.add / labels.remove', () => {
+    it('OpResult.labels reports every applied id\'s resulting labels, single semantics', async () => {
+      const store = await freshStore();
+      const { id } = await ingest(store, { labels: ['INBOX'] });
+
+      const added = await store.apply({ kind: 'labels.add', ids: [id], labels: ['STARRED'], semantics: 'single' }, 2_000);
+      expect(added.applied).toEqual([id]);
+      expect([...(added.labels?.[id] ?? [])].sort()).toEqual(['INBOX', 'STARRED']);
+
+      const removed = await store.apply({ kind: 'labels.remove', ids: [id], labels: ['STARRED'], semantics: 'single' }, 3_000);
+      expect(removed.applied).toEqual([id]);
+      expect(removed.labels?.[id]).toEqual(['INBOX']);
+    });
+
+    it('OpResult.labels reports every applied id\'s resulting labels, bulk semantics', async () => {
+      const store = await freshStore();
+      const { id: a } = await ingest(store, { labels: ['INBOX'] });
+      const { id: b } = await ingest(store, { labels: ['INBOX'] });
+
+      const added = await store.apply({ kind: 'labels.add', ids: [a, b], labels: ['STARRED'], semantics: 'bulk' }, 2_000);
+      expect(added.applied.slice().sort()).toEqual([a, b].sort());
+      expect([...(added.labels?.[a] ?? [])].sort()).toEqual(['INBOX', 'STARRED']);
+      expect([...(added.labels?.[b] ?? [])].sort()).toEqual(['INBOX', 'STARRED']);
+
+      const removed = await store.apply({ kind: 'labels.remove', ids: [a, b], labels: ['STARRED'], semantics: 'bulk' }, 3_000);
+      expect(removed.labels?.[a]).toEqual(['INBOX']);
+      expect(removed.labels?.[b]).toEqual(['INBOX']);
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // Snooze / unsnooze / wake
   //
   // `until`/`now` values are offsets from the real wall clock (`Date.now()`),
@@ -778,6 +814,20 @@ describe.each(BACKENDS)('mailbox store contract: $name', ({ name }) => {
       await store.apply({ kind: 'attachment.delete', id: attId }, 3_000);
       expect((await store.getMessage(id))!.hasAttachments).toBe(false);
       expect((await store.getMessage(id))!.attachmentCount).toBe(0);
+    });
+
+    it('getAttachment returns null once the owning message is soft-deleted, not just once the attachment itself is', async () => {
+      const store = await freshStore();
+      const attId = nextId('att');
+      const { id } = await ingest(store, {
+        labels: ['INBOX'],
+        attachments: [{ id: attId, messageId: 'ignored', fileName: 'report.pdf', size: 10 }],
+      });
+      expect((await store.getAttachment(attId))?.id).toBe(attId);
+
+      await store.apply({ kind: 'delete', ids: [id] }, 2_000);
+
+      expect(await store.getAttachment(attId)).toBeNull();
     });
   });
 

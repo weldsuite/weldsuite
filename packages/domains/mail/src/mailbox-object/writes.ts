@@ -568,13 +568,19 @@ function applyLabelsAddRemove(
   at: number,
 ): OpResult {
   const labels = rawLabels.map(normalizeLabel);
+  // Postgres's `labels.add`/`labels.remove` fills `OpResult.labels` for every
+  // applied id (`applySingleLabelChange`) — mirrored here (and, since the B4
+  // postgres bulk path didn't, backfilled there too) so neither backend is
+  // the odd one out regardless of `semantics`.
+  const resultLabels: Record<string, string[]> = {};
   const { applied, missing, stale, lastRow } = applyToEach(sql, ref, ids, ['labels'], at, (row) => {
     const current = parseJsonArray<string>(row.labels_json);
     const next = action === 'add' ? addLabels(current, ...labels) : removeLabels(current, ...labels);
+    resultLabels[row.id] = next;
     return labelPatch(next);
   });
   const message = ids.length === 1 && lastRow ? mapMessageRow(lastRow, ref) : undefined;
-  return baseResult({ applied, missing, stale, message });
+  return baseResult({ applied, missing, stale, message, labels: resultLabels });
 }
 
 function applyLabelsSet(sql: SqlStorage, ref: MailboxRef, id: string, rawLabels: readonly string[], at: number): OpResult {

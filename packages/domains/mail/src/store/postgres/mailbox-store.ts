@@ -387,6 +387,9 @@ export class PostgresMailboxStore implements MailboxStore {
         and(
           eq(mailAttachments.id, id),
           isNull(mailAttachments.deletedAt),
+          // An attachment of a soft-deleted message is not reachable either —
+          // the message's own soft delete must 404 it, same as the message itself.
+          isNull(mailMessages.deletedAt),
           eq(mailMessages.accountId, this.ref.accountId),
         ),
       )
@@ -917,7 +920,21 @@ export class PostgresMailboxStore implements MailboxStore {
         else await bulkRemoveLabelFromMessages(this.db, label, idsArr, now);
       }
     }
-    return { applied: idsArr, missing: ids.filter((id) => !existing.has(id)), stale: [], ready: true };
+    // `applySingleLabelChange` fills `labels` per applied id (it already reads
+    // each row back); the bulk path didn't, leaving the object as the only
+    // backend that returned labels at all for `semantics: 'bulk'` — read the
+    // final `labels` column back for the same ids so both semantics agree.
+    const resultLabels = await this.finalLabelsFor(idsArr);
+    return { applied: idsArr, missing: ids.filter((id) => !existing.has(id)), stale: [], labels: resultLabels, ready: true };
+  }
+
+  /** The current `labels` array for each of `ids`, keyed by id — used to fill `OpResult.labels` after a bulk write that doesn't already return the final row. */
+  private async finalLabelsFor(ids: string[]): Promise<Record<string, string[]>> {
+    if (ids.length === 0) return {};
+    const rows = await this.db.select({ id: mailMessages.id, labels: mailMessages.labels }).from(mailMessages).where(inArray(mailMessages.id, ids));
+    const out: Record<string, string[]> = {};
+    for (const row of rows) out[row.id] = row.labels ?? [];
+    return out;
   }
 
   private async applyMove(ids: string[], location: LocationLabel, now: Date): Promise<OpResult> {

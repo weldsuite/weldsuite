@@ -68,7 +68,6 @@
  * secondary counts.
  */
 
-import type { KVNamespace } from '@cloudflare/workers-types';
 import { mailboxKeyFor, mailboxStubFor, type MailboxStoreNamespaceEnv } from './object';
 import { isDowngrade } from './mode';
 import {
@@ -362,9 +361,22 @@ export interface MailboxDriftMarker {
   sampleIds: string[];
 }
 
+/**
+ * Only `put` is ever called on the drift marker's KV binding — narrowed to
+ * that one structural method (rather than the full ambient `KVNamespace`,
+ * referenced here without an explicit `@cloudflare/workers-types` import so
+ * it resolves to whichever ambient `KVNamespace` the consuming worker's own
+ * tsconfig `types` loads, the same one `PermissionsCacheEnv.WORKSPACE_CACHE`
+ * — the value every caller actually passes in — is typed against). A plain
+ * `KVNamespace` alias here would pick up `@cloudflare/workers-types`'s
+ * explicit module export instead, which is a structurally different `get()`
+ * overload set from the ambient one and fails to type-check against it.
+ */
+type DriftKv = Pick<KVNamespace, 'put'>;
+
 /** Sets the KV drift marker for `ref`, never throwing (a failed write here only delays repair, it must not fail the caller). */
 export async function markMailboxDrift(
-  kv: KVNamespace,
+  kv: DriftKv,
   ref: MailboxRef,
   direction: SecondaryDirection,
   info: { kind: string; ids: string[] },
@@ -391,7 +403,7 @@ export interface RoutedMailboxStoreDeps {
   /** For `setMode`/`status()` via `mailboxStubFor` — required for every mode except `postgres`. */
   adminEnv?: MailboxStoreNamespaceEnv;
   /** `WORKSPACE_CACHE`, for the drift marker — required for every mode except `postgres`. */
-  kv?: KVNamespace;
+  kv?: DriftKv;
   waitUntil: (p: Promise<unknown>) => void;
   /** Present only in `shadow` mode. */
   parity?: ParitySampler;
@@ -405,7 +417,7 @@ export class RoutedMailboxStore implements MailboxStore {
   private readonly postgres: MailboxStore;
   private readonly object?: MailboxStore;
   private readonly adminEnv?: MailboxStoreNamespaceEnv;
-  private readonly kv?: KVNamespace;
+  private readonly kv?: DriftKv;
   private readonly waitUntilFn: (p: Promise<unknown>) => void;
   private readonly parity?: ParitySampler;
   private readonly now: () => number;
@@ -702,7 +714,7 @@ export interface RoutedWorkspaceMailStoreDeps {
   /** Required for every mode except `postgres`. */
   objectWorkspace?: WorkspaceMailStore;
   adminEnv?: MailboxStoreNamespaceEnv;
-  kv?: KVNamespace;
+  kv?: DriftKv;
   waitUntil: (p: Promise<unknown>) => void;
   /** `shadow`-mode parity sample rate; ignored otherwise. Defaults inside `ParitySampler` when omitted. */
   parityRate?: number;
@@ -718,7 +730,7 @@ export class RoutedWorkspaceMailStore implements WorkspaceMailStore {
   private readonly postgresWorkspace: WorkspaceMailStore;
   private readonly objectWorkspace?: WorkspaceMailStore;
   private readonly adminEnv?: MailboxStoreNamespaceEnv;
-  private readonly kv?: KVNamespace;
+  private readonly kv?: DriftKv;
   private readonly waitUntilFn: (p: Promise<unknown>) => void;
   private readonly parity?: ParitySampler;
   private readonly now: () => number;

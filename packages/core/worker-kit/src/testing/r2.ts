@@ -144,7 +144,11 @@ function buildObjectBody(entry: StoredObject, range?: { offset: number; length: 
     bytes: async () => markUsed(bytes),
     text: async () => markUsed(new TextDecoder().decode(bytes)),
     json: async <T>() => markUsed(JSON.parse(new TextDecoder().decode(bytes)) as T),
-    blob: async () => markUsed(typeof Blob !== 'undefined' ? new Blob([bytes]) : (bytes as unknown as Blob)),
+    // `.slice()` always returns a fresh, plain-`ArrayBuffer`-backed copy
+    // (its return type is pinned to `Uint8Array<ArrayBuffer>`, unlike `bytes`
+    // itself, which can be `Uint8Array<ArrayBufferLike>` when `range` is
+    // unset) — `BlobPart` requires the `ArrayBuffer`-backed view.
+    blob: async () => markUsed(typeof Blob !== 'undefined' ? new Blob([bytes.slice()]) : (bytes as unknown as Blob)),
   };
 }
 
