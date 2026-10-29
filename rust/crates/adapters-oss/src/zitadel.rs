@@ -47,6 +47,9 @@ use weldsuite_ports::{
 
 const SLUG_KEY: &str = "weldsuite.slug";
 const CAP_KEY: &str = "weldsuite.max_memberships";
+const NAME_KEY: &str = "weldsuite.name";
+const PUBLIC_METADATA_KEY: &str = "weldsuite.public_metadata";
+const PRIVATE_METADATA_KEY: &str = "weldsuite.private_metadata";
 /// Grants fetched per list call; a workspace's members fit many times over.
 const LIST_LIMIT: u32 = 1000;
 
@@ -524,14 +527,55 @@ impl ZitadelIdentity {
                 .and_then(|value| BASE64.decode(value).ok())
                 .and_then(|bytes| String::from_utf8(bytes).ok())
         };
+        let json_value = |key: &str| {
+            value(key)
+                .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                .unwrap_or(Value::Null)
+        };
         Ok(Organization {
             id: str_field(organization, "id").unwrap_or(org).to_owned(),
-            name: str_field(organization, "name")
-                .unwrap_or_default()
-                .to_owned(),
+            // The workspace's own name when Zitadel's had to differ (names
+            // are unique per instance in Zitadel, not in WeldSuite).
+            name: value(NAME_KEY)
+                .or_else(|| str_field(organization, "name").map(str::to_owned))
+                .unwrap_or_default(),
             slug: value(SLUG_KEY),
             max_memberships: value(CAP_KEY).and_then(|cap| cap.parse().ok()),
+            public_metadata: json_value(PUBLIC_METADATA_KEY),
+            private_metadata: json_value(PRIVATE_METADATA_KEY),
         })
+    }
+
+    /// Rename the organization: `name`, or when another organization has
+    /// that name already, `name (suffix)`, with the name itself kept in
+    /// metadata (`weldsuite.name`) for [`Identity::organization`].
+    async fn rename(&self, org: &str, name: &str, suffix: &str) -> IdentityResult<()> {
+        let renamed = self
+            .call(
+                Method::PUT,
+                "/management/v1/orgs/me",
+                Some(org),
+                Some(json!({ "name": name })),
+            )
+            .await;
+        match renamed {
+            Ok(_) => self.set_metadata(org, NAME_KEY, None).await,
+            Err(error) if error.status() == Some(409) => {
+                self.call(
+                    Method::PUT,
+                    "/management/v1/orgs/me",
+                    Some(org),
+                    Some(json!({ "name": format!("{name} ({suffix})") })),
+                )
+                .await?;
+                self.set_metadata(org, NAME_KEY, Some(name)).await
+            }
+            // Renaming to its own name: nothing changed.
+            Err(error) if error.status() == Some(400) && error.code() == Some("ORG-4VSdf") => {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn update_organization_inner(
@@ -540,13 +584,8 @@ impl ZitadelIdentity {
         changes: &OrganizationChanges,
     ) -> IdentityResult<()> {
         if let Some(name) = &changes.name {
-            self.call(
-                Method::PUT,
-                "/management/v1/orgs/me",
-                Some(org),
-                Some(json!({ "name": name })),
-            )
-            .await?;
+            self.rename(org, name, changes.slug.as_deref().unwrap_or(org))
+                .await?;
         }
         if let Some(slug) = &changes.slug {
             self.set_metadata(org, SLUG_KEY, Some(slug)).await?;
