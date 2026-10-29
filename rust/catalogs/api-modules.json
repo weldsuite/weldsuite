@@ -90,7 +90,7 @@
       "/api/pipelines",
       "/api/sequences"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "crm-api"
   },
   {
