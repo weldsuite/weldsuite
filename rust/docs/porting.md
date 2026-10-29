@@ -100,7 +100,13 @@ templates).
    both backends made are compared as a side effect (method, URL, body). A
    stub answers both runs, so it must answer by URL and method
    (`mockImplementation`), never by call order (`mockResolvedValueOnce`).
-6. The harness shares what a test sets up: the tenant pglite, `masterDb` from
+6. Routes that write the master database: put `masterDb` (from
+   `createMasterPgliteDb()`) in the test context and mock `getMasterDb` to
+   return `conformanceMasterDb(masterDb)` (from
+   `@weldsuite/worker-kit/testing/conformance`). On a write the TypeScript
+   run then reads a copy of the master taken before Rust ran, as it does for
+   the tenant database.
+7. The harness shares what a test sets up: the tenant pglite, `masterDb` from
    the test context, R2-shaped buckets in `env` (served over HTTP), and the
    forwarded env values (`FORWARDED_ENV` in `conformance.ts`; add a secret the
    routes read there). A test that mocks something the harness can't see
