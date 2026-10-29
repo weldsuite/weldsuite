@@ -20,7 +20,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
-use weldsuite_auth::{AuthContext, ClerkVerifier};
+use weldsuite_auth::{AuthContext, SessionVerifier};
 use weldsuite_db::{Tenant, TenantPermissionQueries, Workspaces};
 use weldsuite_kit::{ApiError, Data, api_cors, request_id};
 use weldsuite_permissions::{app_context, resolve_effective_permissions};
@@ -33,7 +33,7 @@ pub(crate) struct AppState {
     pub(crate) workspaces: Arc<Workspaces>,
     /// Unused by conformance builds, which take the test's context instead.
     #[cfg_attr(feature = "conformance", allow(dead_code))]
-    pub(crate) verifier: Arc<ClerkVerifier>,
+    pub(crate) verifier: Arc<SessionVerifier>,
     /// `PERMISSIONS_APP_ENFORCE`, reported to clients by `/api/me/permissions`.
     pub(crate) permissions_app_enforce: bool,
     /// Set on SIGTERM: `/readyz` fails so the pod leaves the Service first.
@@ -263,9 +263,11 @@ mod tests {
             "../../../crates/auth/tests/fixtures/clerk-tokens.json"
         ))
         .expect("fixture");
-        let verifier =
-            ClerkVerifier::from_pem(fixture["publicKeyPem"].as_str().expect("pem"), None)
-                .expect("key");
+        let verifier = weldsuite_auth::ClerkVerifier::from_pem(
+            fixture["publicKeyPem"].as_str().expect("pem"),
+            None,
+        )
+        .expect("key");
         AppState {
             service: "weldsuite",
             environment: "test".to_owned(),
@@ -274,7 +276,7 @@ mod tests {
                 Keyring::default(),
                 WorkspaceConfig::default(),
             )),
-            verifier: Arc::new(verifier),
+            verifier: Arc::new(verifier.into()),
             permissions_app_enforce: false,
             draining: Arc::new(AtomicBool::new(false)),
         }

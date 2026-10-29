@@ -16,6 +16,10 @@ pub(crate) enum ClerkKey {
     Pem(String),
     /// `CLERK_JWKS_FILE`: a JWKS document on disk (a mounted `ConfigMap`).
     Jwks(String),
+    /// `CLERK_JWKS_URL`: a JWKS document fetched and refreshed over HTTP.
+    JwksUrl(String),
+    /// `CLERK_SECRET_KEY`: the keys fetched from Clerk's Backend API.
+    SecretKey(String),
 }
 
 /// Log lines as JSON (for the cluster's log pipeline) or text (local runs).
@@ -128,19 +132,27 @@ impl Config {
             v2: lookup("DATABASE_ENCRYPTION_KEY_V2"),
         };
 
-        let clerk_key = match (lookup("CLERK_JWT_KEY"), lookup("CLERK_JWKS_FILE")) {
-            (Some(pem), _) => ClerkKey::Pem(pem.replace("\\n", "\n")),
-            (None, Some(path)) => match read_file(&path) {
-                Ok(jwks) => ClerkKey::Jwks(jwks),
-                Err(error) => {
+        // In order of preference: a fixed key, then keys fetched over HTTP.
+        let clerk_key = if let Some(pem) = lookup("CLERK_JWT_KEY") {
+            ClerkKey::Pem(pem.replace("\\n", "\n"))
+        } else if let Some(path) = lookup("CLERK_JWKS_FILE") {
+            read_file(&path).map_or_else(
+                |error| {
                     problems.push(format!("CLERK_JWKS_FILE {path} cannot be read: {error}"));
                     ClerkKey::Jwks(String::new())
-                }
-            },
-            (None, None) => {
-                problems.push("CLERK_JWT_KEY or CLERK_JWKS_FILE is required".to_owned());
-                ClerkKey::Pem(String::new())
-            }
+                },
+                ClerkKey::Jwks,
+            )
+        } else if let Some(url) = lookup("CLERK_JWKS_URL") {
+            ClerkKey::JwksUrl(url)
+        } else if let Some(secret) = lookup("CLERK_SECRET_KEY") {
+            ClerkKey::SecretKey(secret)
+        } else {
+            problems.push(
+                "one of CLERK_JWT_KEY, CLERK_JWKS_FILE, CLERK_JWKS_URL or CLERK_SECRET_KEY is required"
+                    .to_owned(),
+            );
+            ClerkKey::Pem(String::new())
         };
 
         let log_format = match lookup("LOG_FORMAT").as_deref() {

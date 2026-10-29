@@ -7,13 +7,13 @@ use axum::response::{IntoResponse, Response};
 use http::request::Parts;
 use weldsuite_kit::ApiError;
 
-use crate::{AuthContext, ClerkVerifier};
+use crate::{AuthContext, SessionVerifier};
 
 /// Middleware: `axum::middleware::from_fn_with_state(verifier, clerk_auth)`.
 /// Verifies the bearer token and puts the [`AuthContext`] in the request
 /// extensions, or answers 401 as `clerkMiddleware` does.
 pub async fn clerk_auth(
-    State(verifier): State<Arc<ClerkVerifier>>,
+    State(verifier): State<Arc<SessionVerifier>>,
     mut request: Request,
     next: Next,
 ) -> Response {
@@ -24,7 +24,7 @@ pub async fn clerk_auth(
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs());
-    match verifier.authenticate(authorization, now) {
+    match verifier.authenticate(authorization, now).await {
         Ok(context) => {
             request.extensions_mut().insert(context);
             next.run(request).await

@@ -9,7 +9,9 @@ use axum::routing::get;
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
-use weldsuite_auth::{AuthContext, ClerkVerifier, TokenError, clerk_auth, require_second_factor};
+use weldsuite_auth::{
+    AuthContext, ClerkVerifier, SessionVerifier, TokenError, clerk_auth, require_second_factor,
+};
 
 const EXTENSION: &str = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
 
@@ -178,7 +180,7 @@ fn second_factor_errors_match_require_second_factor() {
 
 #[tokio::test]
 async fn middleware_rejects_without_a_token_and_handlers_get_the_context() {
-    let verifier = Arc::new(pem_verifier());
+    let verifier = Arc::new(SessionVerifier::from(pem_verifier()));
     let app = Router::new()
         .route(
             "/me",

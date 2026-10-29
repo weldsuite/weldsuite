@@ -25,7 +25,7 @@ pub struct AuthContext {
 }
 
 /// Why a token was refused. Never contains the token.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenError {
     Malformed,
     UnsupportedAlgorithm,
@@ -74,6 +74,24 @@ impl fmt::Display for KeyError {
 }
 
 impl std::error::Error for KeyError {}
+
+impl KeyError {
+    pub(crate) fn new(reason: String) -> Self {
+        Self(reason)
+    }
+}
+
+/// The 401 `clerkMiddleware` answers a refused token with.
+pub(crate) fn refusal(error: TokenError) -> ApiError {
+    if error == TokenError::EmptySubject {
+        ApiError::unauthorized().with_message("Invalid token payload")
+    } else {
+        if error != TokenError::UnauthorizedParty {
+            tracing::warn!(%error, "Clerk auth: token refused");
+        }
+        ApiError::unauthorized().with_message("Token verification failed")
+    }
+}
 
 enum Keys {
     /// `CLERK_JWT_KEY`: one PEM public key, used whatever the token's `kid`.
@@ -198,16 +216,7 @@ impl ClerkVerifier {
                 ApiError::unauthorized().with_message("Missing or invalid Authorization header")
             );
         };
-        self.verify(token, now).map_err(|error| {
-            if error == TokenError::EmptySubject {
-                ApiError::unauthorized().with_message("Invalid token payload")
-            } else {
-                if error != TokenError::UnauthorizedParty {
-                    tracing::warn!(%error, "Clerk auth: token refused");
-                }
-                ApiError::unauthorized().with_message("Token verification failed")
-            }
-        })
+        self.verify(token, now).map_err(refusal)
     }
 
     fn key_for(&self, kid: Option<&str>) -> Result<&DecodingKey, TokenError> {

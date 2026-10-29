@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use tracing_subscriber::EnvFilter;
-use weldsuite_auth::ClerkVerifier;
+use weldsuite_auth::{ClerkVerifier, SessionVerifier};
 use weldsuite_db::{Workspaces, master_pool};
 
 use crate::config::{ClerkKey, Config, LogFormat};
@@ -98,11 +98,12 @@ fn serve() -> ExitCode {
 }
 
 async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    let verifier = match &config.clerk_key {
-        ClerkKey::Pem(pem) => ClerkVerifier::from_pem(pem, config.authorized_parties.as_deref())?,
-        ClerkKey::Jwks(jwks) => {
-            ClerkVerifier::from_jwks(jwks, config.authorized_parties.as_deref())?
-        }
+    let parties = config.authorized_parties.clone();
+    let verifier: SessionVerifier = match &config.clerk_key {
+        ClerkKey::Pem(pem) => ClerkVerifier::from_pem(pem, parties.as_deref())?.into(),
+        ClerkKey::Jwks(jwks) => ClerkVerifier::from_jwks(jwks, parties.as_deref())?.into(),
+        ClerkKey::JwksUrl(url) => SessionVerifier::remote(url.clone(), None, parties)?,
+        ClerkKey::SecretKey(secret) => SessionVerifier::clerk_backend_api(secret.clone(), parties)?,
     };
 
     // Lazy: the pod starts and reports not-ready until the database answers,
