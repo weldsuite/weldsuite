@@ -225,7 +225,7 @@ describe('the outbound guard on invitations', () => {
     expect(sent().map((m) => m.to[0]).sort()).toEqual(['guest0@example.com', 'guest1@example.com']);
     expect(reserved().every((r) => r.recipients.length === 2)).toBe(true);
     for (let i = 0; i < 60 && ledger.calls.commit.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
-    expect(ledger.calls.commit.length).toBe(ledger.calls.reserve.length);
+    expect(ledger.calls.commit).toHaveLength(ledger.calls.reserve.length);
     expect(ledger.calls.release).toHaveLength(0);
   });
 

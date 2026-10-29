@@ -178,6 +178,11 @@ function calendarSpecs(): Spec[] {
     { kind: 'cancel', flags: ['where'] },
     { kind: 'removed', flags: ['where'] },
   ];
+  const meetingUrl = (f: Set<string>): string | null => {
+    if (!f.has('meeting')) return null;
+    const prefix = f.has('weldmeet') ? WELDMEET : '';
+    return `${prefix}${S('meeting_url')}`;
+  };
   return kinds.map(({ kind, flags }) => ({
     id: 'calendar.event',
     name: `calendar.event.${kind}`,
@@ -201,7 +206,7 @@ function calendarSpecs(): Spec[] {
       location: f.has('where') ? S('where') : null,
       timezone: 'UTC',
       allDay: false,
-      meetingUrl: f.has('meeting') ? `${f.has('weldmeet') ? WELDMEET : ''}${S('meeting_url')}` : null,
+      meetingUrl: meetingUrl(f),
       eventUrl: f.has('event_url') ? S('event_url') : null,
     }),
   }));

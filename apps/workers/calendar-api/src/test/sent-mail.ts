@@ -101,7 +101,14 @@ function parts(head: string, body: string): Part[] {
   }
   const filename = param(map.get('content-disposition'), 'filename') ?? param(contentType, 'name');
   const text = new TextDecoder().decode(decodeBytes(body, map.get('content-transfer-encoding')));
-  return [{ type, filename, text: text.replace(/\r\n/g, '\n').replace(/\n+$/, '') }];
+  return [{ type, filename, text: trimTrailingNewlines(text.replace(/\r\n/g, '\n')) }];
+}
+
+/** `text` without its trailing newlines. */
+function trimTrailingNewlines(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '\n') end--;
+  return text.slice(0, end);
 }
 
 function readOne(raw: string, to: string): SentMail {
