@@ -98,6 +98,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/readyz", get(readyz))
         .route("/health", get(health))
         .route("/robots.txt", get(robots))
+        .route("/config.json", get(config_json))
         .nest("/api", api)
         .fallback(not_found)
         .with_state(state)
@@ -190,6 +191,31 @@ async fn health(State(state): State<AppState>) -> Response {
         status,
         [(header::CACHE_CONTROL, "no-cache, no-store")],
         Json(body),
+    )
+        .into_response()
+}
+
+/// `GET /config.json`: what this backend offers, for the EU and self-hosted
+/// frontends. `modules` is the core platform plus every module ported to Rust
+/// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`); a client hides the
+/// apps of any other module. Global never asks: it runs every module in
+/// TypeScript.
+async fn config_json() -> Response {
+    let modules: Vec<&str> = std::iter::once("core")
+        .chain(
+            weldsuite_catalogs::api_modules()
+                .iter()
+                .filter(|module| module.rust && module.id != "core")
+                .map(|module| module.id.as_str()),
+        )
+        .collect();
+    (
+        [(header::CACHE_CONTROL, "no-cache")],
+        Json(json!({
+            "backend": "rust",
+            "version": env!("CARGO_PKG_VERSION"),
+            "modules": modules,
+        })),
     )
         .into_response()
 }
@@ -367,6 +393,20 @@ mod tests {
             (status, body.as_str()),
             (StatusCode::SERVICE_UNAVAILABLE, "draining")
         );
+    }
+
+    #[tokio::test]
+    async fn config_offers_core_and_the_ported_modules() {
+        let (status, _, body) = call(state(), get("/config.json")).await;
+        assert_eq!(status, StatusCode::OK);
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["backend"], "rust");
+        assert_eq!(body["modules"][0], "core");
+        let ported = weldsuite_catalogs::api_modules()
+            .iter()
+            .filter(|m| m.rust)
+            .count();
+        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
     }
 
     #[tokio::test]
