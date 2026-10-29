@@ -54,3 +54,13 @@ export function moduleForApp(appCode: string): ApiModuleId {
 export function isAppOffered(appCode: string): boolean {
   return isModuleOffered(moduleForApp(appCode));
 }
+
+/**
+ * Whether the backend serves a feature inside the modules it offers. The
+ * runtime config's `unavailableFeatures` (`UNAVAILABLE_FEATURES` in
+ * `rust/bins/weldsuite/src/edition.rs`) names what it lacks; Global serves
+ * no list and has every feature.
+ */
+export function isFeatureAvailable(feature: string): boolean {
+  return !(getRuntimeConfig()?.unavailableFeatures ?? []).includes(feature);
+}

@@ -583,6 +583,12 @@
         "src/routes/companies/integration.test.ts",
         "src/routes/companies/routes.integration.test.ts"
       ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/company-logos/resolve",
+          "reason": "Fetches each company's own website and stores the logo in R2 under the request's public origin; not served on the Kubernetes editions, /config.json lists company-logos as unavailable and the platform asks nothing there (initials)."
+        }
+      ],
       "paths": [
         "apps/workers/crm-api/src/routes/companies/",
         "apps/workers/crm-api/src/lib/record-chat-forward.ts",

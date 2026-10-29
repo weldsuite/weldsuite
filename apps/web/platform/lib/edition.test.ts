@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { isAppOffered, isModuleOffered, moduleForApp, offeredModules } from './edition';
+import { isAppOffered, isFeatureAvailable, isModuleOffered, moduleForApp, offeredModules } from './edition';
 import { setRuntimeConfig } from './runtime-config';
 
 afterEach(() => setRuntimeConfig(null));
@@ -39,5 +39,14 @@ describe('edition flags', () => {
     expect(moduleForApp('weldcrm')).toBe('crm');
     expect(moduleForApp('parcel')).toBe('commerce');
     expect(moduleForApp('weldcalendar')).toBe('calendar');
+  });
+
+  it('has every feature unless the runtime config lists it as unavailable', () => {
+    expect(isFeatureAvailable('company-logos')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['crm'] });
+    expect(isFeatureAvailable('company-logos')).toBe(true);
+    setRuntimeConfig({ backend: 'rust', modules: ['crm'], unavailableFeatures: ['billing', 'company-logos'] });
+    expect(isFeatureAvailable('company-logos')).toBe(false);
+    expect(isFeatureAvailable('search-reindex')).toBe(true);
   });
 });

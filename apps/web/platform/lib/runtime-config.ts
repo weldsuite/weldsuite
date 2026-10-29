@@ -98,6 +98,8 @@ export const runtimeConfigSchema = z.object({
   backend: z.string().min(1).optional(),
   version: z.string().optional(),
   modules: z.array(z.string().min(1)).optional(),
+  /** Features the backend lacks inside the modules it serves (`lib/edition.ts`). */
+  unavailableFeatures: z.array(z.string().min(1)).optional(),
   apiBaseUrl: z.string().url().optional(),
   realtimeUrl: z.string().url().optional(),
   auth: authSchema.optional(),

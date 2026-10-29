@@ -57,6 +57,9 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "analytics",
     // `POST /api/search/reindex` isn't served.
     "search-reindex",
+    // `POST /api/company-logos/resolve` (crm-api) fetches each company's
+    // website and keeps the logo in R2; not served, so avatars keep initials.
+    "company-logos",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
