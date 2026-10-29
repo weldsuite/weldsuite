@@ -38,10 +38,10 @@ reloader:
 natsBox:
   enabled: false
 podTemplate:
+  # The chart uses each key as the constraint's topologyKey.
   topologySpreadConstraints:
-    zone:
+    topology.kubernetes.io/zone:
       maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
       whenUnsatisfiable: DoNotSchedule
   merge:
     spec:
