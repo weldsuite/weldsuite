@@ -80,20 +80,27 @@ export interface SuggestionMatch {
   start: number;
   end: number;
   prefix: string;
+  /** The identifier is also a cell reference (`G10`): Enter keeps it as typed, only Tab takes a suggestion. */
+  reference: boolean;
   items: FormulaSuggestion[];
 }
+
+/** Letters then digits, as a cell reference is typed (`G10`, `ab2`). */
+const CELL_REFERENCE = /^[A-Za-z]{1,3}\d+$/;
 
 /**
  * Functions and defined names for the identifier at the caret, as Excel lists
  * them: the ones that start with it first, then the ones that contain it
  * ("LOOKUP" → HLOOKUP, VLOOKUP, XLOOKUP). Nothing once the identifier is the
- * only match and typed in full.
+ * only match and typed in full. A cell reference lists only names that start
+ * with it: `G10` is not a hint at LOG10.
  */
 export function formulaSuggestions(text: string, caret: number, definedNames: readonly string[] = [], limit = 50): SuggestionMatch | null {
   const at = functionPrefixAt(text, caret);
   if (!at) return null;
   let end = caret;
   while (end < text.length && IDENTIFIER.test(text[end]!)) end++;
+  const reference = CELL_REFERENCE.test(at.prefix);
   const upper = at.prefix.toUpperCase();
   const all: FormulaSuggestion[] = [
     ...functionNames().map((name) => ({ kind: 'function' as const, name })),
@@ -105,10 +112,10 @@ export function formulaSuggestions(text: string, caret: number, definedNames: re
     return key(a) < key(b) ? -1 : 1;
   };
   const starting = all.filter((s) => key(s).startsWith(upper)).sort(byName);
-  const containing = all.filter((s) => !key(s).startsWith(upper) && key(s).includes(upper)).sort(byName);
+  const containing = reference ? [] : all.filter((s) => !key(s).startsWith(upper) && key(s).includes(upper)).sort(byName);
   const items = [...starting, ...containing].slice(0, limit);
   const complete = items.length === 1 && key(items[0]!) === upper;
-  return { start: at.start, end, prefix: at.prefix, items: complete ? [] : items };
+  return { start: at.start, end, prefix: at.prefix, reference, items: complete ? [] : items };
 }
 
 /** The edit text with a suggestion put in place of the identifier: a function gets its opening parenthesis. */

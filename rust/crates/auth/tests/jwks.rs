@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use axum::Router;
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::get;
 use serde_json::Value;
 use weldsuite_auth::{SessionVerifier, TokenError};
@@ -67,6 +67,41 @@ async fn fetches_once_and_reuses_the_keys() {
         .await
         .expect_err("expired");
     assert_eq!(refused.message(), "Token verification failed");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_fetch_holds_off_the_next() {
+    let fixture = fixture();
+    let now = fixture["now"].as_u64().expect("now");
+    let token = fixture["tokens"]["valid"].as_str().expect("token");
+    let hits = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&hits);
+    let app = Router::new().route(
+        "/v1/jwks",
+        get(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+            async { (StatusCode::SERVICE_UNAVAILABLE, "down") }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let address = listener.local_addr().expect("address");
+    tokio::spawn(async move { axum::serve(listener, app).await.expect("serve") });
+
+    let verifier =
+        SessionVerifier::remote(format!("http://{address}/v1/jwks"), None, None).expect("client");
+    for _ in 0..3 {
+        assert_eq!(
+            verifier.verify(token, now).await,
+            Err(TokenError::UnknownKey)
+        );
+    }
+    assert_eq!(
+        hits.load(Ordering::SeqCst),
+        1,
+        "one fetch, not one per request"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
