@@ -3586,6 +3586,7 @@ dependencies = [
  "weldsuite-adapters-oss",
  "weldsuite-auth",
  "weldsuite-catalogs",
+ "weldsuite-core-objects",
  "weldsuite-db",
  "weldsuite-emails",
  "weldsuite-events",
@@ -3651,6 +3652,27 @@ dependencies = [
  "sqlx",
  "tokio",
  "weldsuite-db",
+]
+
+[[package]]
+name = "weldsuite-core-objects"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "form_urlencoded",
+ "http",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
 ]
 
 [[package]]

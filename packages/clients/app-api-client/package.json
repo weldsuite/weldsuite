@@ -48,6 +48,7 @@
     "./schemas/call-intelligence": "./src/schemas/call-intelligence.ts",
     "./schemas/customer-statuses": "./src/schemas/customer-statuses.ts",
     "./schemas/custom-fields": "./src/schemas/custom-fields.ts",
+    "./schemas/grid-views": "./src/schemas/grid-views.ts",
     "./schemas/enrich-fields": "./src/schemas/enrich-fields.ts",
     "./schemas/digest-settings": "./src/schemas/digest-settings.ts",
     "./schemas/pipeline-field-visibility": "./src/schemas/pipeline-field-visibility.ts",

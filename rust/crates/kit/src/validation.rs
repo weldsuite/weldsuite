@@ -387,6 +387,47 @@ impl Issues {
         Field::Set(text)
     }
 
+    /// `z.string().min(min).max(max).regex(pattern, message)` with `presence`:
+    /// Zod runs the checks in that order and reports every one that fails,
+    /// so a too-short value that doesn't match gets both issues.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pattern(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        min: Option<usize>,
+        max: Option<usize>,
+        matches: impl Fn(&str) -> bool,
+        message: &str,
+    ) -> Field<String> {
+        let field = self.text_at(Some(key), body.get(key), presence, Text::length(min, max));
+        if let Some(Value::String(text)) = body.get(key)
+            && !matches(text)
+        {
+            let path = self.path(key);
+            self.issues.push(json!({
+                "validation": "regex",
+                "code": "invalid_string",
+                "message": message,
+                "path": path,
+            }));
+            return Field::Absent;
+        }
+        field
+    }
+
+    /// A failed `.refine(check, { message })` on `key`. Zod runs a refinement
+    /// whenever the value got past its type check, even when one of its own
+    /// checks failed. `zValidator` parses asynchronously, which settles a
+    /// refinement after every synchronous check of the body: call this once
+    /// the other fields are read, in key order.
+    pub fn custom(&mut self, key: &str, message: &str) {
+        let path = self.path(key);
+        self.issues
+            .push(json!({ "code": "custom", "message": message, "path": path }));
+    }
+
     /// `z.boolean()` with `presence`.
     pub fn boolean(
         &mut self,
@@ -544,8 +585,23 @@ impl Issues {
         presence: Presence,
         min: Option<usize>,
         max: Option<usize>,
+        read: impl FnMut(&mut Self, &Value) -> Option<T>,
+    ) -> Field<Vec<T>> {
+        self.list_with(body, key, presence, (min, None), max, read)
+    }
+
+    /// [`Issues::list`] with `.min(min, message)`: `min` is the bound and,
+    /// when given, the message in place of Zod's default.
+    pub fn list_with<T>(
+        &mut self,
+        body: &Map<String, Value>,
+        key: &str,
+        presence: Presence,
+        min: (Option<usize>, Option<&str>),
+        max: Option<usize>,
         mut read: impl FnMut(&mut Self, &Value) -> Option<T>,
     ) -> Field<Vec<T>> {
+        let (min, min_message) = min;
         let value = body.get(key);
         if let Some(field) = self.left_out(Some(key), "array", value, presence) {
             return field;
@@ -559,12 +615,11 @@ impl Issues {
             && items.len() < min
         {
             let path = self.path(key);
-            self.too_small(
-                &path,
-                "array",
-                &json!(min),
-                &format!("Array must contain at least {min} element(s)"),
+            let message = min_message.map_or_else(
+                || format!("Array must contain at least {min} element(s)"),
+                str::to_owned,
             );
+            self.too_small(&path, "array", &json!(min), &message);
         }
         if let Some(max) = max
             && items.len() > max
@@ -713,12 +768,12 @@ static DATETIME_OFFSET: LazyLock<Regex> = LazyLock::new(|| {
 
 /// `String.prototype.trim()`: JavaScript's whitespace, which is Unicode
 /// `White_Space` plus the BOM.
-fn js_trim(text: &str) -> &str {
+pub fn js_trim(text: &str) -> &str {
     text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
 }
 
 /// `Number(value)` for what a body or query string holds.
-fn js_number_of(value: Option<&Value>) -> f64 {
+pub fn js_number_of(value: Option<&Value>) -> f64 {
     match value {
         None | Some(Value::Object(_)) => f64::NAN,
         Some(Value::Null) => 0.0,
@@ -737,7 +792,7 @@ fn js_number_of(value: Option<&Value>) -> f64 {
 
 /// `Number(text)`: trimmed, empty is 0, decimal or `0x`/`0o`/`0b`, and
 /// `Infinity`. Anything else is NaN.
-fn js_number(text: &str) -> f64 {
+pub fn js_number(text: &str) -> f64 {
     let text = js_trim(text);
     if text.is_empty() {
         return 0.0;
@@ -815,6 +870,49 @@ mod tests {
     use super::*;
 
     /// Issues Zod 3 produced for the same input (`safeParse`, JSON-serialised).
+    /// `createObjectTemplateSchema` and `createCustomObjectSchema`: regex
+    /// after the length checks, a refinement after a failed check, and an
+    /// array minimum with its own message (Zod 3's issues for these bodies).
+    #[test]
+    fn patterns_refinements_and_list_messages_match_zod() {
+        let lowercase = |text: &str| {
+            text.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+                && text
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        };
+        let mut issues = Issues::default();
+        let body = json!({ "slug": "", "fields": [] });
+        let object = issues.object(&body).expect("object");
+        issues.pattern(
+            object,
+            "slug",
+            Presence::Required,
+            Some(1),
+            Some(24),
+            lowercase,
+            "Slug must start with a letter",
+        );
+        issues.list_with(
+            object,
+            "fields",
+            Presence::Required,
+            (Some(1), Some("Select at least one field")),
+            None,
+            |issues, item| issues.item_text(item, Text::length(Some(1), None)),
+        );
+        issues.custom("slug", "Reserved");
+        assert_eq!(
+            issues.take(),
+            json!([
+                {"code":"too_small","minimum":1,"type":"string","inclusive":true,"exact":false,"message":"String must contain at least 1 character(s)","path":["slug"]},
+                {"validation":"regex","code":"invalid_string","message":"Slug must start with a letter","path":["slug"]},
+                {"code":"too_small","minimum":1,"type":"array","inclusive":true,"exact":false,"message":"Select at least one field","path":["fields"]},
+                {"code":"custom","message":"Reserved","path":["slug"]}
+            ])
+        );
+    }
+
     #[test]
     fn issues_match_zod() {
         let mut issues = Issues::default();

@@ -46,7 +46,9 @@ rust/
                         files over the S3 API, system mail over SMTP
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
-                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know
+                        `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
+                        modules/sign; core app-api areas too: modules/core-objects (WeldObjects,
+                        custom fields, object templates, grid views; conformance builds only for now)
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres, Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
   deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill

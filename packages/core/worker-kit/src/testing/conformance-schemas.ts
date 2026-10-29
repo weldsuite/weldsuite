@@ -11,7 +11,25 @@
  */
 
 import { accessRequestSchema } from '@weldsuite/app-api-client/schemas/access-requests';
+import {
+  customFieldDefinitionSchema,
+  customFieldDefinitionsByEntityTypeSchema,
+  customFieldDeletedSchema,
+} from '@weldsuite/app-api-client/schemas/custom-fields';
+import {
+  customObjectDeleteImpactSchema,
+  customObjectLinkPanelSchema,
+  customObjectLinkSchema,
+  customObjectLinkTargetSchema,
+  customObjectRecordSchema,
+  customObjectRelatedRecordSchema,
+  customObjectReversePanelSchema,
+  customObjectSchema,
+  reorderResultSchema,
+} from '@weldsuite/app-api-client/schemas/custom-objects';
 import { featureFlagsResponseSchema } from '@weldsuite/app-api-client/schemas/feature-flags';
+import { gridViewResponseSchema } from '@weldsuite/app-api-client/schemas/grid-views';
+import { objectTemplateSchema } from '@weldsuite/app-api-client/schemas/object-templates';
 import { myPermissionsSchema } from '@weldsuite/app-api-client/schemas/me';
 import {
   knowledgeFavoriteRefSchema,
@@ -34,12 +52,12 @@ interface ResponseSchema {
   safeParse(value: unknown): { success: true } | { success: false; error: { message: string } };
 }
 
-type Envelope = 'single' | 'list';
+type Envelope = 'single' | 'list' | 'array';
 
 interface RouteSchema {
   method: string;
   route: string;
-  /** `{ data: T }` or `{ data: T[], pagination }`. */
+  /** `{ data: T }`, `{ data: T[], pagination }`, or `{ data: T[] }` (`success(c, rows)`). */
   envelope: Envelope;
   data: ResponseSchema;
 }
@@ -73,30 +91,73 @@ const ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/knowledge/pages/:id/versions/:versionId/restore', envelope: 'single', data: knowledgePageSchema },
   { method: 'GET', route: '/api/knowledge/favorites', envelope: 'list', data: knowledgeFavoriteSchema },
   { method: 'POST', route: '/api/knowledge/favorites', envelope: 'single', data: knowledgeFavoriteRefSchema },
+  // core: WeldObjects definitions
+  { method: 'GET', route: '/api/custom-objects', envelope: 'list', data: customObjectSchema },
+  { method: 'GET', route: '/api/custom-objects/:id', envelope: 'single', data: customObjectSchema },
+  { method: 'GET', route: '/api/custom-objects/:id/delete-impact', envelope: 'single', data: customObjectDeleteImpactSchema },
+  { method: 'PUT', route: '/api/custom-objects/reorder', envelope: 'single', data: reorderResultSchema },
+  { method: 'POST', route: '/api/custom-objects', envelope: 'single', data: customObjectSchema },
+  { method: 'PUT', route: '/api/custom-objects/:id', envelope: 'single', data: customObjectSchema },
+  { method: 'GET', route: '/api/custom-objects/link-targets', envelope: 'array', data: customObjectLinkTargetSchema },
+  { method: 'GET', route: '/api/custom-objects/:id/links', envelope: 'array', data: customObjectLinkSchema },
+  { method: 'POST', route: '/api/custom-objects/:id/links', envelope: 'single', data: customObjectLinkSchema },
+  { method: 'PUT', route: '/api/custom-objects/:id/links/:linkId', envelope: 'single', data: customObjectLinkSchema },
+  // core: WeldObjects records and relationships
+  { method: 'GET', route: '/api/objects/:slug/records', envelope: 'list', data: customObjectRecordSchema },
+  { method: 'GET', route: '/api/objects/:slug/records/:id', envelope: 'single', data: customObjectRecordSchema },
+  { method: 'POST', route: '/api/objects/:slug/records', envelope: 'single', data: customObjectRecordSchema },
+  { method: 'PATCH', route: '/api/objects/:slug/records/:id', envelope: 'single', data: customObjectRecordSchema },
+  { method: 'GET', route: '/api/objects/:slug/records/:id/links', envelope: 'array', data: customObjectLinkPanelSchema },
+  { method: 'GET', route: '/api/objects/:slug/records/:id/links/:linkSlug', envelope: 'array', data: customObjectRelatedRecordSchema },
+  { method: 'POST', route: '/api/objects/:slug/records/:id/links/:linkSlug/:targetId', envelope: 'array', data: customObjectRelatedRecordSchema },
+  { method: 'GET', route: '/api/related/:entityType/:entityId/custom-objects', envelope: 'array', data: customObjectReversePanelSchema },
+  // core: custom fields
+  { method: 'GET', route: '/api/custom-fields', envelope: 'array', data: customFieldDefinitionSchema },
+  { method: 'GET', route: '/api/custom-fields/all', envelope: 'single', data: customFieldDefinitionsByEntityTypeSchema },
+  { method: 'PUT', route: '/api/custom-fields/reorder', envelope: 'single', data: reorderResultSchema },
+  { method: 'GET', route: '/api/custom-fields/:id', envelope: 'single', data: customFieldDefinitionSchema },
+  { method: 'POST', route: '/api/custom-fields', envelope: 'single', data: customFieldDefinitionSchema },
+  { method: 'PUT', route: '/api/custom-fields/:id', envelope: 'single', data: customFieldDefinitionSchema },
+  { method: 'DELETE', route: '/api/custom-fields/:id', envelope: 'single', data: customFieldDeletedSchema },
+  // core: object templates
+  { method: 'GET', route: '/api/object-templates', envelope: 'list', data: objectTemplateSchema },
+  { method: 'GET', route: '/api/object-templates/:id', envelope: 'single', data: objectTemplateSchema },
+  { method: 'POST', route: '/api/object-templates', envelope: 'single', data: objectTemplateSchema },
+  { method: 'PATCH', route: '/api/object-templates/:id', envelope: 'single', data: objectTemplateSchema },
+  // core: grid views
+  { method: 'GET', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
+  { method: 'PUT', route: '/api/grid-views/:gridName', envelope: 'single', data: gridViewResponseSchema },
 ];
 
 /** null when valid, else why not. */
 type Validator = (body: unknown) => string | null;
 
+/** Every item of `data` against the route's item schema. */
+function validateItems(entry: RouteSchema, data: unknown): string | null {
+  if (!Array.isArray(data)) return '`data` is not an array';
+  for (const [i, item] of data.entries()) {
+    const result = entry.data.safeParse(item);
+    if (!result.success) return `data[${i}]: ${result.error.message}`;
+  }
+  return null;
+}
+
 function validate(entry: RouteSchema, body: unknown): string | null {
   if (!body || typeof body !== 'object' || !('data' in body)) return 'no `data` in the response envelope';
   const data = (body as { data: unknown }).data;
+  if (entry.envelope === 'array') return validateItems(entry, data);
   if (entry.envelope === 'list') {
-    if (!Array.isArray(data)) return '`data` is not an array';
     const pagination = (body as { pagination?: unknown }).pagination as Record<string, unknown> | undefined;
     if (
-      !pagination ||
-      typeof pagination.totalCount !== 'number' ||
-      typeof pagination.hasMore !== 'boolean' ||
-      !(typeof pagination.cursor === 'string' || pagination.cursor === null)
+      Array.isArray(data) &&
+      (!pagination ||
+        typeof pagination.totalCount !== 'number' ||
+        typeof pagination.hasMore !== 'boolean' ||
+        !(typeof pagination.cursor === 'string' || pagination.cursor === null))
     ) {
       return '`pagination` is not { totalCount, hasMore, cursor }';
     }
-    for (const [i, item] of data.entries()) {
-      const result = entry.data.safeParse(item);
-      if (!result.success) return `data[${i}]: ${result.error.message}`;
-    }
-    return null;
+    return validateItems(entry, data);
   }
   const result = entry.data.safeParse(data);
   return result.success ? null : result.error.message;
