@@ -2894,6 +2894,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-core-domain"
+version = "0.0.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "weldsuite-db",
+]
+
+[[package]]
 name = "weldsuite-db"
 version = "0.0.0"
 dependencies = [
