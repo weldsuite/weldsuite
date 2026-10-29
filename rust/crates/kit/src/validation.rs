@@ -126,8 +126,6 @@ pub enum Format {
     Digits,
     /// `.url()`: what `new URL(text)` accepts ([`js_url_parses`]).
     Url,
-    /// `.datetime()`: UTC only, `Z` required.
-    Datetime,
 }
 
 /// A number's checks: `z.number()` (`z.coerce.number()` when `coerce`),
@@ -1101,7 +1099,6 @@ impl Format {
             Self::Datetime => DATETIME_UTC.is_match(text),
             Self::Digits => !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()),
             Self::Url => js_url_parses(text),
-            Self::Datetime => DATETIME_UTC.is_match(text),
         }
     }
 }
@@ -1191,12 +1188,6 @@ static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
 });
 
-/// Zod 3.25's `datetime()`: as [`DATETIME_OFFSET`], with `Z` only.
-static DATETIME_UTC: LazyLock<Regex> = LazyLock::new(|| {
-    let date = r"((dd[2468][048]|dd[13579][26]|dd0[48]|[02468][048]00|[13579][26]00)-02-29|d{4}-((0[13578]|1[02])-(0[1-9]|[12]d|3[01])|(0[469]|11)-(0[1-9]|[12]d|30)|(02)-(0[1-9]|1d|2[0-8])))";
-    let time = r"([01]d|2[0-3]):[0-5]d(:[0-5]d(.d+)?)?";
-    Regex::new(&format!(r"(?-u)^{date}T{time}Z$")).expect("the datetime pattern compiles")
-});
 
 /// `new Date(text).toISOString()` for an ISO date string, `None` for one
 /// JavaScript would read as an invalid date (or that is not ISO).
