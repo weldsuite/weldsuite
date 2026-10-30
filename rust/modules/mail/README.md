@@ -8,21 +8,28 @@ send through too.
 
 One Rust module per mail-api route group (`src/routes/<group>.rs`), each with
 a `routes()` function at its paths relative to `/api`; `src/lib.rs` assembles
-them. Groups outside `/api` (`/internal/*`) have their own router. Four
-workstreams fill this crate in; add your group's line here when it lands.
+them. Groups outside `/api` (`/internal/*`) have their own router.
 
-| Route group (mail-api) | Rust module | Workstream | Status |
-|---|---|---|---|
-| `/api/mail-sending` | `routes::mail_sending` | outbound | ported |
-| `/internal/outbound` | `routes::internal_outbound` | outbound | ported |
-| `/api/mail-accounts/:id/send` | `routes::mail_accounts` (send only) | outbound | ported |
-| `/api/mail-messages/:id/reply` | `routes::mail_messages` (sends only) | outbound | ported |
-| `/api/mail-messages/:id/forward` | `routes::mail_messages` | outbound | in progress |
-| `/api/mail-scheduled` | `routes::mail_scheduled` | outbound | in progress |
-| `mail-sending-events`, `mail-outbound-review` consumers | `consumers` | outbound | handlers ported |
-| outbound-alerts cron | `cron::outbound_alerts` | outbound | in progress |
-| `/api/mail-messages` reads, `/api/mail-threads`, `/api/mail-labels`, `/api/mail-folders`, `/api/mail-drafts`, … | (domain: `weldsuite_mail_domain::labels`) | mailbox store | started: label model and label SQL only, no routes |
-| `/api/mailboxes`, `/api/mail-accounts` (CRUD), `/api/mail-domains`, `/api/mail-weldmail` | | accounts and domains | not started |
-| inbound (mail-inbound-worker) | | inbound | not started |
+| Route group (mail-api) | Rust module | Status |
+|---|---|---|
+| `/api/mail-sending` | `routes::mail_sending` | ported |
+| `/internal/outbound` | `routes::internal_outbound` | ported |
+| `/api/mail-accounts` (CRUD, access, sync, send) | `routes::mail_accounts` | ported |
+| `/api/mail-messages` (reads, updates, bulk, labels, reply) | `routes::mail_messages` (+ `_reads`, `_writes`) | ported, except `POST /:id/forward` |
+| `/api/mail-labels`, `/api/mail-folders`, `/api/mail-signatures` | `routes::mail_labels`, `mail_folders`, `mail_signatures` | ported |
+| `/api/mail-drafts`, `/api/mail-attachments` | `routes::mail_drafts`, `mail_attachments` | ported |
+| `/api/mail-threads`, `/api/mail-snooze`, `/api/mail-sync` | `routes::mail_threads`, `mail_snooze`, `mail_sync` | ported |
+| `/api/mail-templates`, `/api/mail-rules`, `/api/mail-campaigns` | `routes::mail_templates`, `mail_rules`, `mail_campaigns` | ported |
+| `/api/mail-scheduled` | | not started (needs the SendScheduledEmail job) |
+| `/api/mail-subscriptions` | | not started |
+| `/api/mailboxes` | | not started (cross-workspace, org-less) |
+| `/api/mail-domains`, `/api/mail-weldmail`, `/api/mail-ai`, `/internal/mail-store` | | not ported; proposed exclusions (MAIL-010, the AI port, the object store) |
+| `mail-sending-events`, `mail-outbound-review` consumers | `consumers` | handlers ported |
+| inbound (mail-inbound-worker) | | not started |
+
+The routes run the `postgres` mailbox store only (MAIL-010); the shared
+message, thread and label logic is in `weldsuite_mail_domain::{messages,
+threads, labels, access}`. Conformance suites: `mail: *` in
+`rust/conformance/suites.json`.
 
 The module is not marked ported (`RUST_PORTED_MODULES`) until every group is.

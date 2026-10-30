@@ -78,3 +78,42 @@ pub async fn check_account_access(
     let admin = is_admin_or_owner(db, user_id).await?;
     Ok(has_access_to_account(&account, user_id, admin))
 }
+
+/// `accessibleAccountIds(db, userId)`: the live mailboxes the member may
+/// open (`userAccessCondition`), in the database's row order.
+pub async fn accessible_account_ids(
+    db: &PgPool,
+    user_id: &str,
+) -> Result<Vec<String>, sqlx::Error> {
+    let admin = is_admin_or_owner(db, user_id).await?;
+    sqlx::query_scalar(
+        "select id from mail_accounts
+         where deleted_at is null and (
+           is_shared = true
+           or assigned_user_ids @> jsonb_build_array($1::text)
+           or ($2 and coalesce(assigned_user_ids, '[]'::jsonb) in ('[]'::jsonb, 'null'::jsonb)))",
+    )
+    .bind(user_id)
+    .bind(admin)
+    .fetch_all(db)
+    .await
+}
+
+/// `canManageAccount(account, userId, isAdmin)`.
+pub fn can_manage_account(account: &AccountAccess, user_id: &str, is_admin: bool) -> bool {
+    is_admin || has_access_to_account(account, user_id, false)
+}
+
+/// `checkAccountManageAccess(db, accountId, userId)`: whether `user_id` may
+/// change the mailbox's settings (admins may, without opening it).
+pub async fn check_account_manage_access(
+    db: &PgPool,
+    account_id: &str,
+    user_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let Some(account) = load_access_fields(db, account_id).await? else {
+        return Ok(false);
+    };
+    let admin = is_admin_or_owner(db, user_id).await?;
+    Ok(can_manage_account(&account, user_id, admin))
+}

@@ -80,6 +80,30 @@ impl SequenceRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_mail::scheduled::ScheduledRuns for BridgedWorkflow {
+    /// `binding.create({ id, params })`; the instance id is the one asked for.
+    fn create<'a>(
+        &'a self,
+        id: &'a str,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>> {
+        Box::pin(async move {
+            self.call("create", id, json!({ "id": id, "params": params }))
+                .await
+                .map(|()| id.to_owned())
+        })
+    }
+
+    /// `(await binding.get(id)).terminate()`, best effort.
+    fn terminate<'a>(&'a self, id: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if self.call("get", id, Value::Null).await.is_ok() {
+                let _ = self.call("terminate", id, Value::Null).await;
+            }
+        })
+    }
+}
+
 /// The bridged Workflow bindings, one HTTP client per process.
 #[derive(Default)]
 pub(crate) struct WorkflowBridges {
@@ -87,6 +111,20 @@ pub(crate) struct WorkflowBridges {
 }
 
 impl WorkflowBridges {
+    /// The test's `SEND_SCHEDULED_EMAIL`, from `{ SEND_SCHEDULED_EMAIL: url }`.
+    pub(crate) fn scheduled_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_mail::scheduled::ScheduledRuns>> {
+        workflows.get("SEND_SCHEDULED_EMAIL").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "SEND_SCHEDULED_EMAIL",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_mail::scheduled::ScheduledRuns>
+        })
+    }
+
     /// The test's `EXECUTE_SEQUENCE`, from `{ EXECUTE_SEQUENCE: url }`.
     pub(crate) fn sequence_runs(
         &self,

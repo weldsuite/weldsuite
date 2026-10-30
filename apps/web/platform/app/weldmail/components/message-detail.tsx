@@ -110,6 +110,7 @@ import { CustomerDetailPanel } from './customer-detail-panel';
 import { CalendarInviteCard } from './calendar-invite-card';
 import { TaskDialog } from '@/app/weldcrm/task-dialog';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useAiCreditsToast } from '@/hooks/use-ai-credits-toast';
 import { copyText } from '@/lib/clipboard';
 import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/editor-commands';
@@ -1094,19 +1095,24 @@ function ComposeToolbar({ activeFormats, editorRef, onCommand, onFilesSelected, 
         iconClassName="text-muted-foreground"
       />
       {signaturePicker}
-      <div className="w-px h-5 bg-border mx-0.5" />
-      <Button
-        variant="ghost"
-        size="icon"
-        className="p-2 hover:bg-muted rounded-md transition-colors"
-        title={t.mail.toolbar.aiAssistant}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          onOpenAi();
-        }}
-      >
-        <img src="/assets/images/weldagent/logo-light.png" alt="WeldAgent" className="h-4 w-4" />
-      </Button>
+      {/* The AI assistant needs `/mail-ai`, which the Kubernetes editions lack. */}
+      {isFeatureAvailable('mail-ai') && (
+        <>
+          <div className="w-px h-5 bg-border mx-0.5" />
+          <Button
+            variant="ghost"
+            size="icon"
+            className="p-2 hover:bg-muted rounded-md transition-colors"
+            title={t.mail.toolbar.aiAssistant}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onOpenAi();
+            }}
+          >
+            <img src="/assets/images/weldagent/logo-light.png" alt="WeldAgent" className="h-4 w-4" />
+          </Button>
+        </>
+      )}
     </div>
   );
 }
@@ -2759,15 +2765,17 @@ export function MessageDetail({ message, thread = [], accountId, folder, availab
 
           {/* Reply, Forward, and Auto Draft Buttons */}
           <div className="flex items-center justify-end gap-2 mt-4 md:mt-6">
-            <Button
-              variant="ghost"
-              onClick={handleAutoDraft}
-              disabled={isAutoGenerating}
-              className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
-            >
-              {isAutoGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <img src="/assets/images/weldagent/logo-light.png" alt="WeldAgent" className="h-4 w-4" />}
-              <span className="text-sm">{t.mail.messageDetail.autoDraft}</span>
-            </Button>
+            {isFeatureAvailable('mail-ai') && (
+              <Button
+                variant="ghost"
+                onClick={handleAutoDraft}
+                disabled={isAutoGenerating}
+                className="flex-1 md:flex-initial px-3 py-2 md:py-1.5 border border-gray-200 dark:border-border text-gray-600 dark:text-muted-foreground rounded-lg hover:bg-gray-50 dark:hover:bg-secondary transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isAutoGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <img src="/assets/images/weldagent/logo-light.png" alt="WeldAgent" className="h-4 w-4" />}
+                <span className="text-sm">{t.mail.messageDetail.autoDraft}</span>
+              </Button>
+            )}
             <Button
               variant="ghost"
               onClick={handleReplyToggle}

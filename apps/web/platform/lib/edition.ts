@@ -46,6 +46,12 @@ export const EDITION_FEATURES = [
   'search-reindex',
   /** Company logos fetched from each company's website (`POST /api/company-logos/resolve`). */
   'company-logos',
+  /** Custom mail domains (`/api/mail-domains`, Cloudflare Email Routing and DNS; ADR MAIL-010). */
+  'mail-domains',
+  /** Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`; off on Kubernetes, ADR MAIL-010). */
+  'mail-free-addresses',
+  /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
+  'mail-ai',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

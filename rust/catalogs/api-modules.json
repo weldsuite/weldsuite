@@ -166,7 +166,7 @@
       "/api/mail-weldmail",
       "/api/mailboxes"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "mail-api"
   },
   {

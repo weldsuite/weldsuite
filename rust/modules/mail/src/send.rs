@@ -60,6 +60,35 @@ impl SendContext {
             public_url: self.public_url.as_deref(),
         }
     }
+
+    /// The deployment's own bindings, outside a request (the delivery job).
+    pub(crate) fn for_state(state: &MailState) -> Self {
+        let bindings = crate::caller::Bindings::default();
+        Self {
+            guard: bindings.guard(state),
+            transport: bindings.outbound(state).transport,
+            files: bindings.files(state),
+            mx: MxLookup {
+                cache: bindings.cache(state),
+                doh: state.doh.clone(),
+            },
+            public_url: bindings
+                .env_value(state, "R2_PUBLIC_URL")
+                .map(str::to_owned),
+        }
+    }
+
+    /// [`Self::deps`] on a tenant database of the caller's choosing.
+    pub(crate) fn deps_for<'a>(&'a self, db: &'a weldsuite_db::PgPool) -> SendDeps<'a> {
+        SendDeps {
+            db,
+            guard: &self.guard,
+            transport: self.transport.as_deref(),
+            files: self.files.as_ref(),
+            mx: &self.mx,
+            public_url: self.public_url.as_deref(),
+        }
+    }
 }
 
 /// `z.string().email()` rules.

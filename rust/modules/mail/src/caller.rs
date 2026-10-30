@@ -13,7 +13,8 @@ use weldsuite_db::{MasterDb, PgPool, Tenant};
 use weldsuite_events::{EventContext, publish_entity_event};
 use weldsuite_kit::{ApiError, RequestEnv};
 use weldsuite_mail_domain::outbound::{OutboundBindings, OutboundGuard, RequestOutbound};
-use weldsuite_ports::{DynCache, FileStores, RequestCache};
+use weldsuite_permissions::Permissions;
+use weldsuite_ports::{DynCache, FileStores, OutboundHttp, RequestCache, StorageBuckets};
 
 use crate::MailState;
 
@@ -26,6 +27,9 @@ pub(crate) struct Bindings {
     cache: Option<Arc<dyn DynCache>>,
     outbound: Option<OutboundBindings>,
     files: Option<FileStores>,
+    http: Option<OutboundHttp>,
+    buckets: Option<StorageBuckets>,
+    scheduled: Option<crate::scheduled::RequestScheduledRuns>,
 }
 
 impl Bindings {
@@ -42,6 +46,12 @@ impl Bindings {
                 .get::<RequestOutbound>()
                 .map(|o| o.0.clone()),
             files: parts.extensions.get::<FileStores>().cloned(),
+            http: parts.extensions.get::<OutboundHttp>().cloned(),
+            buckets: parts.extensions.get::<StorageBuckets>().cloned(),
+            scheduled: parts
+                .extensions
+                .get::<crate::scheduled::RequestScheduledRuns>()
+                .cloned(),
         }
     }
 
@@ -72,6 +82,45 @@ impl Bindings {
             .unwrap_or_else(|| state.outbound.clone())
     }
 
+    /// Third-party HTTP (Expo push): the request's bridge in conformance
+    /// builds, else the app's.
+    pub(crate) fn http(&self, state: &MailState) -> Option<OutboundHttp> {
+        if self.env.is_some() {
+            return self.http.clone();
+        }
+        self.http.clone().or_else(|| state.http.clone())
+    }
+
+    /// `env.PRIVATE_STORAGE` / `env.STORAGE`, each optional: only the buckets
+    /// a conformance test shares, else the app's.
+    pub(crate) fn buckets(&self, state: &MailState) -> StorageBuckets {
+        if self.env.is_some() {
+            return self.buckets.clone().unwrap_or_default();
+        }
+        self.buckets
+            .clone()
+            .or_else(|| state.files.clone().map(Into::into))
+            .unwrap_or_default()
+    }
+
+    /// The `SEND_SCHEDULED_EMAIL` binding: the test's in conformance builds
+    /// (or none), else delayed jobs on the deployment's jobs port.
+    pub(crate) fn scheduled_runs(
+        &self,
+        state: &MailState,
+    ) -> Option<Arc<dyn crate::scheduled::ScheduledRuns>> {
+        if let Some(runs) = &self.scheduled {
+            return runs.0.clone();
+        }
+        if self.env.is_some() {
+            return None;
+        }
+        state.jobs.clone().map(|jobs| {
+            Arc::new(crate::scheduled::JobsScheduledRuns { jobs })
+                as Arc<dyn crate::scheduled::ScheduledRuns>
+        })
+    }
+
     pub(crate) fn files(&self, state: &MailState) -> Option<FileStores> {
         self.files.clone().or_else(|| state.files.clone())
     }
@@ -97,10 +146,11 @@ pub(crate) struct Caller {
     /// `c.get('orgId')`.
     pub(crate) org_id: Option<String>,
     /// `c.get('workspaceId')`: `workspaces.id`.
-    #[allow(dead_code)] // the forward route (next)
     pub(crate) workspace_id: String,
     pub(crate) events: EventContext,
     pub(crate) bindings: Bindings,
+    /// The permissions `requirePermission` resolved for the request.
+    pub(crate) permissions: Option<Permissions>,
 }
 
 impl Caller {
@@ -110,6 +160,13 @@ impl Caller {
             .as_deref()
             .filter(|org| !org.is_empty())
             .ok_or_else(ApiError::org_required)
+    }
+
+    /// `hasContextPermission(c, key)`.
+    pub(crate) fn can(&self, key: &str) -> bool {
+        self.permissions
+            .as_ref()
+            .is_some_and(|permissions| permissions.has_any(&[key]))
     }
 
     /// `publishEntityEvent({ c, entityType, action, entityId, data })`.
@@ -143,6 +200,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
                 workspace_id: tenant.workspace_id.clone(),
                 events: EventContext::for_request(auth, tenant),
                 bindings: Bindings::from_parts(parts),
+                permissions: parts.extensions.get::<Permissions>().cloned(),
             })
         } else {
             tracing::error!("mail: a route without the session or tenant layer");

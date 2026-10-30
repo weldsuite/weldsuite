@@ -609,8 +609,7 @@
       "workspace": "apps/workers/mail-api",
       "tests": [
         "src/routes/mail-sending/index.test.ts",
-        "src/routes/internal-outbound/index.test.ts",
-        "src/routes/mail-accounts/send.test.ts"
+        "src/routes/internal-outbound/index.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/routes/mail-sending/",
@@ -620,6 +619,208 @@
         "packages/clients/app-api-client/src/schemas/outbound-mail.ts",
         "rust/crates/mail-domain/src/outbound/",
         "rust/modules/mail/"
+      ]
+    },
+    {
+      "name": "mail: accounts and messages",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-accounts/send.test.ts",
+        "src/routes/mail-accounts/routes.test.ts",
+        "src/routes/mail-messages/routes.test.ts",
+        "src/routes/mail-messages/access.test.ts",
+        "src/routes/mail-messages/stats-access.test.ts",
+        "src/routes/mail-attachments/access.test.ts",
+        "src/routes/mail-attachments/routes.test.ts",
+        "src/routes/mailboxes/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "DELETE /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "DELETE /api/mail-weldmail/:id",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "GET /api/mail-domains",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "GET /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "GET /api/mail-domains/by-name/:domainName",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "GET /api/mail-weldmail",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "GET /api/mail-weldmail/domain",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "GET /internal/mail-store/backfill",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "GET /internal/mail-store/export",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "GET /internal/mail-store/status",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "GET /internal/mail-store/status/all",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "PATCH /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/auto-draft",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/draft",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/improve-text",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/inbox-summary",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/label",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/label/batch",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/reply",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/smart-replies",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains/:id/generate-dkim",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains/:id/sync",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains/:id/verify",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-weldmail/check",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "POST /api/mail-weldmail/reserve",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "POST /internal/mail-store/backfill",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "POST /internal/mail-store/parity",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "POST /internal/mail-store/rebuild",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "POST /internal/mail-store/reverse-sync",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "PUT /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        }
+      ]
+    },
+    {
+      "name": "mail: labels, folders, signatures",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-labels/routes.test.ts",
+        "src/routes/mail-labels/access.test.ts",
+        "src/routes/mail-folders/routes.test.ts",
+        "src/routes/mail-signatures/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
+      "name": "mail: drafts, threads, snooze, scheduled",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-drafts/routes.test.ts",
+        "src/routes/mail-threads/read-all.test.ts",
+        "src/routes/mail-threads/routes.test.ts",
+        "src/routes/mail-snooze/access.test.ts",
+        "src/routes/mail-snooze/routes.test.ts",
+        "src/routes/mail-scheduled/routes.test.ts",
+        "src/routes/mail-scheduled/access.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
+      "name": "mail: templates, rules, campaigns, sync, subscriptions",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-templates/routes.test.ts",
+        "src/routes/mail-rules/routes.test.ts",
+        "src/routes/mail-campaigns/routes.test.ts",
+        "src/routes/mail-sync/routes.test.ts",
+        "src/routes/mail-subscriptions/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
       ]
     },
     {
