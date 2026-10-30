@@ -200,6 +200,10 @@ struct TestContext {
     /// The test's master database, when its routes use one.
     #[serde(default)]
     master_database_url: Option<String>,
+    /// Other workspaces' tenant databases, by the reference a route looks
+    /// them up with (`context.tenantDbs`).
+    #[serde(default)]
+    tenant_database_urls: HashMap<String, String>,
     permissions: Option<TestPermissions>,
     /// Flag values the test's `context.flags` answers; `None` = no evaluator.
     flags: Option<HashMap<String, Value>>,
@@ -413,6 +417,17 @@ pub(crate) async fn auth(
     if let Some(master) = master {
         extensions.insert(weldsuite_db::MasterDb(master));
     }
+    // Other workspaces' tenant databases (WeldMail's mailbox directory).
+    let mut tenants = HashMap::new();
+    for (reference, url) in &context.tenant_database_urls {
+        match pools.get(url) {
+            Ok(pool) => {
+                tenants.insert(reference.clone(), pool);
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    extensions.insert(weldsuite_mail::RequestTenantDatabases(Arc::new(tenants)));
     pools.insert_shared(extensions, &context);
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);

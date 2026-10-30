@@ -188,6 +188,8 @@ interface ConformanceContext {
   tenantDb: Database;
   /** The master database, when the routes use one (shared, never cloned). */
   masterDb?: Database;
+  /** Other workspaces' tenant databases by reference (shared, never cloned). */
+  tenantDbs?: Record<string, Database>;
   permissions?: unknown;
   /** The test's flag evaluator (`context.flags`), if any. */
   flags?: unknown;
@@ -789,6 +791,16 @@ async function masterDatabaseUrl(masterDb: Database | undefined): Promise<string
   return client ? databaseUrlFor(client) : null;
 }
 
+/** The URLs other workspaces' tenant pglites are served at, by reference. */
+async function tenantDatabaseUrls(tenantDbs: Record<string, Database> | undefined): Promise<Record<string, string>> {
+  const urls: Record<string, string> = {};
+  for (const [reference, db] of Object.entries(tenantDbs ?? {})) {
+    const client = pgliteClientOf(db);
+    if (client) urls[reference] = await databaseUrlFor(client);
+  }
+  return urls;
+}
+
 /** The test's context as the Rust server's conformance mode reads it. */
 async function testContext(ctx: ConformanceContext, env: Record<string, unknown>, databaseUrl: string) {
   return {
@@ -800,6 +812,7 @@ async function testContext(ctx: ConformanceContext, env: Record<string, unknown>
     factorVerificationAge: ctx.factorVerificationAge ?? null,
     databaseUrl,
     masterDatabaseUrl: await masterDatabaseUrl(ctx.masterDb),
+    tenantDatabaseUrls: await tenantDatabaseUrls(ctx.tenantDbs),
     permissions: ctx.permissions,
     flags: await flagValues(ctx.flags),
     env: forwardedEnv(env),

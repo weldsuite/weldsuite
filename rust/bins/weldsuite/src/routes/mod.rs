@@ -190,6 +190,7 @@ pub(crate) fn mail_state(state: &AppState) -> weldsuite_mail::MailState {
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
         doh: Some(weldsuite_mail::send::reqwest_doh()),
+        workspace_tenants: Some(mail_workspace_tenants(state)),
         env: Arc::clone(ENV.get_or_init(|| Arc::new(weldsuite_mail::env_from_process()))),
     }
 }
@@ -712,6 +713,12 @@ fn core_platform(router: Router<AppState>, state: &AppState) -> Router<AppState>
 /// Mounted with core, like [`core_team`].
 pub(crate) fn account(state: &AppState) -> Router<AppState> {
     let router = onboarding(state);
+    // WeldMail's mailbox directory reads every workspace the user belongs to.
+    let router = if mounts("mail") {
+        router.merge(weldsuite_mail::mailboxes_router(mail_state(state)))
+    } else {
+        router
+    };
     if !mounts("core") {
         return router;
     }
@@ -986,6 +993,22 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
         presence: None,
         env: Arc::clone(env),
     }
+}
+
+/// Another workspace's tenant database and its suspension, for WeldMail's
+/// mailbox directory (`/api/mailboxes`).
+fn mail_workspace_tenants(state: &AppState) -> weldsuite_mail::WorkspaceTenants {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| (tenant.db, tenant.suspended))
+                .map_err(|error| error.to_string())
+        })
+    })
 }
 
 /// A workspace's tenant database for WeldMail's scheduled-send job.

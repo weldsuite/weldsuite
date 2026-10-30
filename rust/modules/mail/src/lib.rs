@@ -13,8 +13,8 @@ mod caller;
 pub mod consumers;
 pub mod cron;
 mod read_push;
-pub mod scheduled;
 mod routes;
+pub mod scheduled;
 pub mod send;
 mod util;
 
@@ -53,6 +53,9 @@ pub struct MailState {
     pub http: Option<OutboundHttp>,
     /// DNS-over-HTTPS for the recipients' MX lookup.
     pub doh: Option<Arc<dyn DnsOverHttps>>,
+    /// Another workspace's tenant database and whether it is suspended,
+    /// by reference (`/api/mailboxes`).
+    pub workspace_tenants: Option<WorkspaceTenants>,
     /// The worker's env values the routes read (`OUTBOUND_ADMIN_SECRET`,
     /// `ABUSE_NOTIFY_EMAIL`, …), from the process.
     pub env: Arc<HashMap<String, String>>,
@@ -66,6 +69,19 @@ impl std::fmt::Debug for MailState {
             .finish_non_exhaustive()
     }
 }
+
+/// A workspace's tenant database and whether it is suspended, by reference
+/// (`getWorkspaceContextForOrg`).
+pub type WorkspaceTenants = Arc<
+    dyn Fn(String) -> weldsuite_ports::BoxFuture<'static, Result<(PgPool, bool), String>>
+        + Send
+        + Sync,
+>;
+
+/// Other workspaces' tenant databases a conformance test shares, by
+/// reference.
+#[derive(Clone, Debug)]
+pub struct RequestTenantDatabases(pub Arc<HashMap<String, PgPool>>);
 
 /// The env values mail-api's routes read, from the process environment.
 pub fn env_from_process() -> HashMap<String, String> {
@@ -111,6 +127,15 @@ where
         .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_subscriptions::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
+}
+
+/// `/api/mailboxes`: the user's mailboxes across workspaces, behind the
+/// session alone (`clerkMiddleware` without a workspace). Relative to `/api`.
+pub fn mailboxes_router<S>(state: MailState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    routes::mailboxes::routes(state)
 }
 
 /// `/internal/outbound`: the outbound guard's staff API for the admin

@@ -626,7 +626,8 @@
         "src/routes/mail-messages/access.test.ts",
         "src/routes/mail-messages/stats-access.test.ts",
         "src/routes/mail-attachments/access.test.ts",
-        "src/routes/mail-attachments/routes.test.ts"
+        "src/routes/mail-attachments/routes.test.ts",
+        "src/routes/mailboxes/routes.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/",

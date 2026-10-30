@@ -139,6 +139,23 @@ export async function createPgliteDb(): Promise<PgliteHandle> {
 }
 
 /**
+ * A second, separate tenant database: a copy of {@link createPgliteDb}'s as
+ * it is now (take it before seeding to start empty). For a route that reads
+ * more than one workspace's database; conformance mode serves it to the Rust
+ * server too, through the test context's `tenantDbs`.
+ */
+export async function createSeparatePgliteDb(): Promise<PgliteHandle> {
+  const base = await createPgliteDb();
+  const client = pgliteClientOf(base.db);
+  if (!client) throw new Error('createPgliteDb() returned a database without its pglite client');
+  const [drizzlePg, schemaModule] = await Promise.all([import('drizzle-orm/pglite'), import('@weldsuite/db/schema')]);
+  const clone = await client.clone();
+  const db = drizzlePg.drizzle(clone, { schema: schemaModule });
+  clients.set(db, clone);
+  return { db: db as unknown as Database, close: () => clone.close() };
+}
+
+/**
  * Check whether pglite + drizzle-kit could be loaded in this
  * environment. Tests that depend on a real DB use this to skip on
  * platforms where the WASM or kit can't initialise.
