@@ -9,10 +9,12 @@ import { ActiveCallBanner } from './active-call-banner';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import type { ChatChannel, ChatChannelMember } from '@/hooks/queries/use-weldchat-queries';
 import { useAppApiClient } from '@/lib/api/use-app-api';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
+import { ACTIVE_CALLS_KEY, withChannelCall, type ActiveCallEntry } from '../lib/active-calls';
 import { getRecordChatTypeInfo, openRecordPanel } from '../lib/record-chat-types';
 import { isFeatureAvailable } from '@/lib/edition';
 import { RecordChatFollowButton } from './record-chat-follow-button';
@@ -133,6 +135,16 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
     enabled: callsAvailable,
   });
   const hasActiveCall = !!activeCallData?.data;
+
+  // This check is the truth for this conversation: put it on the sidebar's
+  // list too, which only hears of a call ending by push (see lib/active-calls).
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!activeCallData) return;
+    queryClient.setQueryData<ActiveCallEntry[]>(ACTIVE_CALLS_KEY, (prev) =>
+      prev ? withChannelCall(prev, channel.id, activeCallData.data ?? null) : prev,
+    );
+  }, [activeCallData, channel.id, queryClient]);
   const callButtonsDisabled = hasActiveCall;
 
   const openPanel = isDm ? onOpenMemberPanel : openChannelPanel;

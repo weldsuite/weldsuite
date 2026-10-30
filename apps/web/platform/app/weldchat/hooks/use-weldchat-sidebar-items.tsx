@@ -63,6 +63,7 @@ import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { findDmChannelIdForUser, resolveOneToOneDmTarget } from '../lib/dm-links';
 import { parseWeldChatPath } from '../lib/route-segments';
+import { ACTIVE_CALLS_KEY, type ActiveCallEntry } from '../lib/active-calls';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useObjectPanel } from '@/components/object-panel';
 import {
@@ -677,19 +678,20 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     return drafts.filter((d) => d?.channelId !== activeChannelId).length;
   })();
 
-  // Single batch fetch at mount — push events below keep the cache in sync.
-  const activeCallsKey = ['weldchat', 'active-calls'] as const;
+  // One batch fetch, kept in sync by the push events below. Refetched on focus
+  // and every minute too: a push missed while the socket was down would
+  // otherwise keep an ended call's green phone on its row (see lib/active-calls).
   const { data: activeCallsList } = useQuery({
-    queryKey: activeCallsKey,
+    queryKey: ACTIVE_CALLS_KEY,
     queryFn: async () => {
       const client = await getClient();
-      const res = await client.get<{ data: Array<{ channelId: string; callId: string; callType: 'voice' | 'video' }> }>(
-        '/chat-calls/active',
-      );
+      const res = await client.get<{ data: ActiveCallEntry[] }>('/chat-calls/active');
       return res?.data ?? [];
     },
     enabled: isActive && isFeatureAvailable('chat-calls'),
-    staleTime: Infinity,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 
   // Push updates: on CALL_STARTED / CALL_ENDED from the user's topic, patch the cache.
@@ -697,8 +699,8 @@ export function useWeldchatSidebarItems(isActive: boolean): {
     getUserTopic(user?.id, isActive),
     (event) => {
       if (event.event !== 'call_started' && event.event !== 'call_ended') return;
-      queryClient.setQueryData<Array<{ channelId: string; callId: string; callType: 'voice' | 'video' }>>(
-        activeCallsKey,
+      queryClient.setQueryData<ActiveCallEntry[]>(
+        ACTIVE_CALLS_KEY,
         (prev) => {
           const list = prev ?? [];
           if (event.event === 'call_started') {
