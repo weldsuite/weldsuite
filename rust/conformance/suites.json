@@ -1208,6 +1208,7 @@
       "workspace": "apps/workers/desk-api",
       "tests": [
         "src/routes/desk-conversations/routes.test.ts",
+        "src/routes/desk-conversations/attributes.integration.test.ts",
         "src/routes/helpdesk-integrations/routes.test.ts",
         "src/routes/integrations/helpdesk-oauth.test.ts",
         "src/routes/public-helpcenter/routes.test.ts"
@@ -1218,12 +1219,14 @@
         "apps/workers/desk-api/src/routes/integrations/",
         "apps/workers/desk-api/src/routes/public-helpcenter/",
         "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
         "packages/domains/desk/src/",
         "apps/workers/desk-api/src/lib/",
         "apps/workers/desk-api/src/services/",
         "packages/clients/core-api-client/src/schemas/",
         "rust/modules/desk/",
-        "rust/crates/desk-domain/"
+        "rust/crates/desk-domain/",
+        "rust/crates/core-domain/src/custom_field_values.rs"
       ]
     },
     {

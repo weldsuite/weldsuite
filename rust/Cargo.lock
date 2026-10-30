@@ -4226,6 +4226,7 @@ dependencies = [
  "tracing",
  "weldsuite-auth",
  "weldsuite-catalogs",
+ "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-desk-domain",
  "weldsuite-events",

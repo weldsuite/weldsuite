@@ -313,6 +313,19 @@ fn validate_value(definition: &Definition, raw: Option<&Js>) -> Result<Option<St
     Ok(Some(stored))
 }
 
+/// `validateCustomFieldValue(def, raw)` of a value that isn't empty: the
+/// coerced value as the caller sees it (`result.value`: a date as
+/// `toISOString()`, a multi select as its strings), or the field's message.
+pub fn coerce(definition: &Definition, raw: &Js) -> Result<Value, String> {
+    Ok(match validate_value(definition, Some(raw))? {
+        None => Value::Null,
+        Some(Stored::Text(text) | Stored::Date(text) | Stored::Ref(text)) => Value::String(text),
+        Some(Stored::Number(number)) => number_value(number),
+        Some(Stored::Bool(flag)) => Value::Bool(flag),
+        Some(Stored::Json(value)) => value,
+    })
+}
+
 /// What `setValues` refuses with.
 #[derive(Debug)]
 pub enum ValuesError {

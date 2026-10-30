@@ -82,6 +82,10 @@ export const deskConversationSchema = z
     email: z.string().nullable(),
     contactId: z.string().nullable(),
     assigneeId: z.string().nullable(),
+    ticketTypeId: z.string().nullable(),
+    priority: z.enum(DESK_PRIORITIES).nullable(),
+    tags: z.array(z.string()),
+    departmentId: z.string().nullable(),
     waitingSince: z.string().nullable(),
     lastMessageAt: z.string().nullable(),
     lastMessagePreview: z.string().nullable(),
@@ -106,9 +110,47 @@ export const deskMessageSchema = z
   })
   .passthrough();
 
-/** GET /api/desk/conversations/:id: the conversation, with its timeline under `?include=messages`. */
+/** The type's custom field values, slug → value. */
+const deskConversationCustomFieldsSchema = z.record(z.unknown());
+
+/** GET /api/desk/conversations/:id: the conversation and its custom fields, with its timeline under `?include=messages`. */
 export const deskConversationDetailSchema = deskConversationSchema.extend({
+  customFields: deskConversationCustomFieldsSchema,
   messages: z.array(deskMessageSchema).optional(),
+});
+
+/** GET /api/desk/conversations/attributes: what the details panel can pick. */
+export const deskConversationAttributeOptionsSchema = z.object({
+  ticketTypes: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().nullable(),
+      icon: z.string().nullable(),
+      color: z.string().nullable(),
+    }),
+  ),
+  teams: z.array(z.object({ id: z.string(), name: z.string() })),
+  fields: z.array(
+    z.object({
+      id: z.string(),
+      ticketTypeId: z.string().nullable(),
+      slug: z.string(),
+      name: z.string(),
+      description: z.string().nullable(),
+      fieldType: z.string(),
+      options: z.array(z.object({ label: z.string(), value: z.string(), color: z.string().optional() })).nullable(),
+      required: z.boolean(),
+      sortOrder: z.number().int(),
+    }),
+  ),
+  tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
+});
+
+/** PATCH /api/desk/conversations/:id: the conversation with its custom fields, and the `attributes_changed` event (null when nothing changed). */
+export const deskConversationAttributesChangeSchema = z.object({
+  conversation: deskConversationSchema.extend({ customFields: deskConversationCustomFieldsSchema }),
+  message: deskMessageSchema.nullable(),
 });
 
 /** POST /api/desk/conversations/:id/attachments: the stored file, ready to send in a reply. */

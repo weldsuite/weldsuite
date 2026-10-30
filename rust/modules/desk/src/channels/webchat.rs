@@ -58,7 +58,7 @@ pub(crate) fn preview_of(body: Option<&str>) -> Option<String> {
 }
 
 /// `text.replace(/\s+/g, ' ')`.
-fn collapse_whitespace(text: &str) -> String {
+pub(crate) fn collapse_whitespace(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut in_space = false;
     for c in text.chars() {
@@ -244,6 +244,12 @@ pub(crate) struct ListQuery {
     pub(crate) visitor_id: Option<String>,
     pub(crate) email: Option<String>,
     pub(crate) q: Option<String>,
+    /// A priority, or `none` for conversations without one.
+    pub(crate) priority: Option<String>,
+    pub(crate) ticket_type_id: Option<String>,
+    pub(crate) department_id: Option<String>,
+    /// Conversations carrying this tag (exact match).
+    pub(crate) tag: Option<String>,
     pub(crate) sort: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<f64>,
@@ -281,7 +287,11 @@ const FILTERS: &str = "($1::text is null or t.state = $1)
       and ($7::text is null or (t.name ILIKE $7 or t.email ILIKE $7 or t.title ILIKE $7
            or t.last_message_preview ILIKE $7
            or exists (select 1 from desk_messages m where m.conversation_id = t.id and m.kind <> 'event' and m.body ILIKE $7)
-           or ($8::integer is not null and t.conversation_number = $8)))";
+           or ($8::integer is not null and t.conversation_number = $8)))
+      and ($9::text is null or (case when $9 = 'none' then t.priority is null else t.priority = $9 end))
+      and ($10::text is null or t.ticket_type_id = $10)
+      and ($11::text is null or t.department_id = $11)
+      and ($12::text is null or t.tags @> jsonb_build_array($12::text))";
 
 /// `listDeskConversations(db, query)`.
 pub(crate) async fn list(
@@ -328,6 +338,10 @@ pub(crate) async fn list(
                 .bind(email.clone())
                 .bind(pattern.clone())
                 .bind(number.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
+                .bind(empty(&query.priority))
+                .bind(empty(&query.ticket_type_id))
+                .bind(empty(&query.department_id))
+                .bind(empty(&query.tag))
         };
     }
     let count: i64 = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
@@ -336,7 +350,7 @@ pub(crate) async fn list(
     .fetch_one(db)
     .await?;
     let rows: Vec<Value> = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from desk_conversations t where {FILTERS} order by {order} limit $9 offset $10"
+        "select to_jsonb(t) from desk_conversations t where {FILTERS} order by {order} limit $13 offset $14"
     ))))
     .bind(page + 1)
     .bind(offset)
@@ -404,9 +418,12 @@ pub(crate) fn author_from_member(name: Option<&str>, picture: Option<&str>) -> A
     }
 }
 
-/// `isPublicDeskMessage`.
+/// `isPublicDeskMessage`: notes and ticket-field changes stay with the team.
 pub(crate) fn is_public(message: &Value) -> bool {
-    message["kind"] != "note"
+    if message["kind"] == "note" {
+        return false;
+    }
+    !(message["kind"] == "event" && message["metadata"]["eventType"] == "attributes_changed")
 }
 
 /// `toPublicDeskMessage(message, authors)`.

@@ -1,5 +1,7 @@
 /** WeldDesk (desk-api) response schemas: the webchat inbox (desk conversations), Discord/Slack integrations and their OAuth callbacks, the public help center. Spread into ROUTES by conformance-schemas.ts. */
 import {
+  deskConversationAttributeOptionsSchema,
+  deskConversationAttributesChangeSchema,
   deskConversationChangeSchema,
   deskConversationDetailSchema,
   deskConversationSchema,
@@ -36,7 +38,9 @@ const HI = '/api/helpdesk-integrations';
 export const DESK_CHANNEL_ROUTES: RouteSchema[] = [
   // the webchat inbox
   { method: 'GET', route: '/api/desk/conversations', envelope: 'list', data: deskConversationSchema },
+  { method: 'GET', route: '/api/desk/conversations/attributes', envelope: 'single', data: deskConversationAttributeOptionsSchema },
   { method: 'GET', route: '/api/desk/conversations/:id', envelope: 'single', data: deskConversationDetailSchema },
+  { method: 'PATCH', route: '/api/desk/conversations/:id', envelope: 'single', data: deskConversationAttributesChangeSchema },
   { method: 'POST', route: '/api/desk/conversations/:id/attachments', envelope: 'single', data: deskUploadedAttachmentSchema },
   { method: 'POST', route: '/api/desk/conversations/:id/reply', envelope: 'single', data: deskConversationChangeSchema },
   { method: 'POST', route: '/api/desk/conversations/:id/manage', envelope: 'single', data: deskConversationChangeSchema },

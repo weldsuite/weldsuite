@@ -6,6 +6,8 @@
 //!
 //! One submodule per TypeScript route file, named in each module's docs.
 
+#[path = "channels/attributes.rs"]
+mod attributes;
 #[path = "channels/helpcenter.rs"]
 mod helpcenter;
 #[path = "channels/inbox.rs"]

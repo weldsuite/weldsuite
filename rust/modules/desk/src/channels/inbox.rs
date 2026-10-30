@@ -12,7 +12,7 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, FromRequest, Multipart, Path, RawQuery, Request, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use http::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
@@ -32,6 +32,7 @@ use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{PutOptions, RealtimeMessage};
 
 use super::Ctx;
+use super::attributes;
 use super::webchat::{self, Append, AppendError, Author};
 use crate::notify::{Assigned, assigned};
 use crate::{DeskState, Refusal, validate};
@@ -44,7 +45,9 @@ where
     let update = || gate.require([perm::CONVERSATIONS_UPDATE.to_owned()]);
     Router::new()
         .route("/", get(list).route_layer(read()))
+        .route("/attributes", get(attribute_options).route_layer(read()))
         .route("/{id}", get(detail).route_layer(read()))
+        .route("/{id}", patch(update_attributes).route_layer(update()))
         .route(
             "/{id}/attachments",
             post(upload)
@@ -107,6 +110,21 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
         let visitor_id = text(issues, "visitorId", Text::length(None, Some(64)));
         let email = text(issues, "email", Text::trimmed(None, Some(255)));
         let q = text(issues, "q", Text::trimmed(None, Some(200)));
+        let priority = issues
+            .choice(
+                values,
+                "priority",
+                Presence::Optional,
+                &["low", "medium", "high", "urgent", "none"],
+            )
+            .into_option();
+        let ticket_type_id = text(issues, "ticketTypeId", Text::length(None, Some(30)));
+        let department_id = text(issues, "departmentId", Text::length(None, Some(30)));
+        let tag = text(
+            issues,
+            "tag",
+            Text::trimmed(Some(1), Some(attributes::MAX_TAG_LENGTH)),
+        );
         let sort = issues
             .choice(
                 values,
@@ -137,6 +155,10 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
             visitor_id,
             email,
             q,
+            priority,
+            ticket_type_id,
+            department_id,
+            tag,
             sort,
             cursor,
             limit,
@@ -178,16 +200,162 @@ async fn detail(ctx: Ctx, Path(id): Path<String>, RawQuery(query): RawQuery) -> 
         Err(response) => return response,
     };
     let with_messages = include.as_deref() == Some("messages");
-    match webchat::get(&ctx.caller.db, &id, with_messages).await {
-        Ok(None) => ApiError::not_found("Conversation", Some(&id)).into_response(),
-        Ok(Some((mut conversation, messages))) => {
-            if with_messages && let Some(object) = conversation.as_object_mut() {
-                object.insert("messages".to_owned(), Value::Array(messages));
-            }
-            Data(conversation).into_response()
+    let db = &ctx.caller.db;
+    let found = match webchat::get(db, &id, with_messages).await {
+        Ok(found) => found,
+        Err(error) => return Refusal::Database(error).respond("Failed to fetch conversation"),
+    };
+    let Some((mut conversation, messages)) = found else {
+        return ApiError::not_found("Conversation", Some(&id)).into_response();
+    };
+    let custom_fields = match attributes::custom_fields(db, &conversation).await {
+        Ok(fields) => fields,
+        Err(error) => return Refusal::Database(error).respond("Failed to fetch conversation"),
+    };
+    if let Some(object) = conversation.as_object_mut() {
+        object.insert("customFields".to_owned(), Value::Object(custom_fields));
+        if with_messages {
+            object.insert("messages".to_owned(), Value::Array(messages));
         }
-        Err(error) => Refusal::Database(error).respond("Failed to fetch conversation"),
     }
+    Data(conversation).into_response()
+}
+
+// ── GET /attributes ───────────────────────────────────────────────────────────
+
+/// Ticket types, their fields, teams and tags in use, for the details panel.
+async fn attribute_options(ctx: Ctx) -> Response {
+    match attributes::options(&ctx.caller.db).await {
+        Ok(options) => Data(options).into_response(),
+        Err(error) => {
+            tracing::error!(%error, "[desk-api/desk-conversations] attribute options failed");
+            ApiError::internal()
+                .with_message("Failed to load conversation attributes")
+                .into_response()
+        }
+    }
+}
+
+// ── PATCH /:id ────────────────────────────────────────────────────────────────
+
+/// `updateConversationAttributesSchema`.
+fn attributes_schema(issues: &mut Issues, body: &Map<String, Value>) -> attributes::Update {
+    const KEYS: [&str; 5] = [
+        "ticketTypeId",
+        "priority",
+        "tags",
+        "departmentId",
+        "customFields",
+    ];
+    let ticket_type_id = issues.text(body, "ticketTypeId", Presence::Nullish, None, Some(30));
+    let priority = issues.choice(body, "priority", Presence::Nullish, attributes::PRIORITIES);
+    let tags = issues
+        .list(
+            body,
+            "tags",
+            Presence::Optional,
+            None,
+            Some(attributes::MAX_TAGS),
+            |issues, item| {
+                issues.item_text(
+                    item,
+                    Text::trimmed(Some(1), Some(attributes::MAX_TAG_LENGTH)),
+                )
+            },
+        )
+        .into_option();
+    let department_id = issues.text(body, "departmentId", Presence::Nullish, None, Some(30));
+    // `z.record(z.string().max(100), z.unknown())`: only the keys are checked.
+    let _ = issues.nested(
+        body,
+        "customFields",
+        Presence::Optional,
+        |issues, fields| {
+            for key in fields.keys() {
+                if key.encode_utf16().count() > 100 {
+                    issues.string_too_big(key, 100, "String must contain at most 100 character(s)");
+                }
+            }
+        },
+    );
+    // `.refine(data => Object.values(data).some(v => v !== undefined))`.
+    if KEYS.iter().all(|key| !body.contains_key(*key)) {
+        issues.custom_root("Nothing to update");
+    }
+    attributes::Update {
+        ticket_type_id,
+        priority,
+        tags,
+        department_id,
+        custom_fields: Vec::new(),
+    }
+}
+
+/// Set the conversation's ticket fields: type, priority, tags, team and the
+/// type's custom fields. The change goes on the timeline as an internal
+/// event (never to the visitor); a request that changes nothing writes
+/// nothing.
+async fn update_attributes(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let mut input = match validate(&headers, &body, attributes_schema) {
+        Ok(input) => input,
+        Err(refusal) => return refusal.respond("Failed to update conversation"),
+    };
+    // The custom field values in the body's order, as `Object.entries` reads them.
+    if let Some(weldsuite_core_domain::js::Js::Object(entries)) =
+        weldsuite_core_domain::js::parse_body(&body).get("customFields")
+    {
+        input.custom_fields.clone_from(entries);
+    }
+    let caller = &ctx.caller;
+    let updated = match attributes::update(&caller.db, &id, &caller.user_id, &input).await {
+        Ok(updated) => updated,
+        Err(attributes::UpdateError::NotFound) => {
+            return ApiError::not_found("Conversation", Some(&id)).into_response();
+        }
+        Err(attributes::UpdateError::Rejected { field, message }) => {
+            return ApiError::bad_request(message)
+                .with_details(json!({ "field": field }))
+                .into_response();
+        }
+        Err(attributes::UpdateError::Failed(error)) => {
+            tracing::error!(%error, "[desk-api/desk-conversations] attribute update failed");
+            return ApiError::internal()
+                .with_message("Failed to update conversation")
+                .into_response();
+        }
+    };
+    // Other agents' open threads take the field values from the hub event.
+    let mut conversation = updated.conversation;
+    if let Some(object) = conversation.as_object_mut() {
+        object.insert(
+            "customFields".to_owned(),
+            Value::Object(updated.custom_fields),
+        );
+    }
+    if let Some(message) = &updated.message {
+        publish_events(
+            &ctx,
+            &state,
+            ev::DESK_CONVERSATION_UPDATED,
+            &conversation,
+            message,
+        );
+        publish_change(
+            &state,
+            &caller.clerk_org_id,
+            &conversation,
+            message,
+            &HashMap::new(),
+        );
+    }
+    let message = updated.message.unwrap_or(Value::Null);
+    Data(json!({ "conversation": conversation, "message": message })).into_response()
 }
 
 // ── POST /:id/attachments ─────────────────────────────────────────────────────
