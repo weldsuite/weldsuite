@@ -64,7 +64,8 @@ export function useDriveFile(id: string | null | undefined) {
 }
 // ── Folder Queries ──────────────────────────────────────────────────────
 
-export function useDriveFolders(parentId?: string | null) {
+/** The folders in `parentId` (null: My Drive). `enabled` keeps it quiet until they are shown. */
+export function useDriveFolders(parentId?: string | null, enabled = true) {
   const { folders } = useAppApi();
   return useQuery({
     queryKey: driveKeys.folders(parentId),
@@ -73,6 +74,7 @@ export function useDriveFolders(parentId?: string | null) {
         success: boolean;
         data: DriveFolder[];
       }>,
+    enabled,
   });
 }
 

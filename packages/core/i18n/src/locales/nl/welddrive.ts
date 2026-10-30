@@ -230,13 +230,39 @@ export const welddrive = {
   /** De keuzevensters die andere modules openen om bestanden of een map uit WeldDrive te kiezen. */
   picker: {
     files: {
-      searchPlaceholder: 'Zoek bestanden',
+      searchPlaceholder: 'Zoeken in WeldDrive',
       loading: 'Bestanden laden…',
       loadFailed: 'De bestanden konden niet worden geladen.',
-      empty: 'Geen bestanden gevonden.',
+      empty: 'Geen bestanden gevonden',
+      emptyHint: 'Upload er een, of kijk in een andere map',
+      emptySearchHint: 'Probeer een andere naam',
       limited: 'De eerste {count} bestanden worden getoond. Zoek om andere te vinden.',
       selected: '{count} geselecteerd',
       selectedOf: '{count} van {max} geselecteerd',
+      tabs: {
+        recent: 'Recent',
+        myDrive: 'Mijn Drive',
+        shared: 'Gedeeld met mij',
+        upload: 'Uploaden',
+      },
+      groups: {
+        today: 'Vandaag',
+        yesterday: 'Gisteren',
+        thisWeek: 'Eerder deze week',
+        thisMonth: 'Eerder deze maand',
+        thisYear: 'Eerder dit jaar',
+        older: 'Ouder',
+      },
+      columns: {
+        name: 'Naam',
+        modified: 'Laatst gewijzigd',
+        size: 'Grootte',
+      },
+      upload: {
+        drop: 'Sleep bestanden hierheen',
+        hint: 'Of kies ze op je computer',
+        browse: 'Bladeren',
+      },
     },
     folders: {
       loading: 'Mappen laden…',
