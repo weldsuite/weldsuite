@@ -1,9 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Lucide "square-asterisk", filled with the asterisk cut out (a mask keeps Lucide's round line ends). Padded to draw at 23px in a 24px slot, same as WeldSheets. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="1.565 1.565 20.87 20.87">
-  <mask id="asterisk" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
-    <rect width="24" height="24" fill="#fff"/>
-    <path d="M12 8v8m-3.5-2 7-4m-7 0 7 4" stroke="#000" stroke-width="2" stroke-linecap="round"/>
-  </mask>
-  <path fill="#818cf8" mask="url(#asterisk)" d="M5 2h14a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z"/>
+<!-- Lucide "asterisk" with a 2.5 stroke (Lucide draws 2) so it carries the weight of the filled logos. Padded to draw 23px tall in a 24px slot, same as WeldSheets. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="4.435 4.435 15.13 15.13">
+  <path d="M12 6v12M17.196 9 6.804 15M6.804 9l10.392 6" fill="none" stroke="#818cf8" stroke-width="2.5" stroke-linecap="round"/>
 </svg>

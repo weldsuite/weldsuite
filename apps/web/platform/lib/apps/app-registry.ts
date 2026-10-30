@@ -20,7 +20,7 @@ import {
   Database,
   Zap,
   Megaphone,
-  SquareAsterisk,
+  Asterisk,
   UsersRound,
   Send,
   FileSpreadsheet,
@@ -123,13 +123,13 @@ export const APP_REGISTRY: Record<string, AppAssets> = {
     logo: makeLogo('weldhost', { iconClassName: 'h-[22px] w-[22px] shrink-0 object-contain' }),
     sidebarIconClass: 'h-[27px] w-[27px]',
   },
-  // WeldPass. Icon-only logo like welddata/weldbooks: Lucide's square-asterisk,
-  // filled, with the asterisk cut out — wordmark variants need the brand
-  // typeface and can be added later.
+  // WeldPass. Icon-only logo like welddata/weldbooks: Lucide's asterisk with a
+  // heavier stroke — wordmark variants need the brand typeface and can be
+  // added later.
   // `?v=2`: same immutable /assets/* caching as WeldBooks below, the redrawn
   // mark needs a new URL or browsers keep the old key.
   weldpass: {
-    lucideIcon: SquareAsterisk,
+    lucideIcon: Asterisk,
     shortName: 'Secrets',
     icon: '/assets/images/weldpass/icon.svg?v=2',
     logo: {
