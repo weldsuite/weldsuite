@@ -16,6 +16,10 @@
  * 25), several components ask for the same one, and the pickers that use this
  * render outside a QueryClientProvider in tests. A workspace switch reloads the
  * page, so the store never mixes tenants.
+ *
+ * A Kubernetes edition without the resolver (`company-logos` in the runtime
+ * config's `unavailableFeatures`) asks nothing: every company keeps its
+ * initials there.
  */
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -23,6 +27,7 @@ import type { ClientApi } from '@weldsuite/api-client/types';
 import { createCompanyLogosApi } from '@weldsuite/app-api-client/domains/company-logos';
 import { COMPANY_LOGO_BATCH_MAX, normalizeLogoDomain } from '@weldsuite/app-api-client/schemas/company-logos';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isFeatureAvailable } from '@/lib/edition';
 
 /** The server keeps the real cache (a month); this only avoids re-asking in a session. */
 const RESOLVED_TTL_MS = 60 * 60 * 1000;
@@ -155,6 +160,7 @@ function flush(): void {
 
 /** Queue lookups for domains that are not cached; they go out in one batch shortly. */
 export function requestCompanyLogos(domains: readonly string[], loader: ClientLoader): void {
+  if (!isFeatureAvailable('company-logos')) return;
   const now = Date.now();
   let added = false;
   for (const domain of domains) {

@@ -146,6 +146,62 @@ export interface AnalyticsChart {
 }
 
 // ============================================================================
+// Response schemas (the `AnalyticsReport` / `AnalyticsChart` rows as JSON)
+// ============================================================================
+
+/** An `analytics_reports` row (`GET /api/crm-analytics`, `/:reportId`). */
+export const analyticsReportRowSchema = z.object({
+  id: z.string(),
+  app: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  chartCount: z.number(),
+  createdById: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** An `analytics_charts` row (`GET /api/crm-analytics/:reportId/charts`). */
+export const analyticsChartRowSchema = z.object({
+  id: z.string(),
+  reportId: z.string(),
+  app: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  chartType: z.string(),
+  entity: z.string(),
+  metric: z.string(),
+  color: z.string().nullable(),
+  smoothCurve: z.boolean().nullable(),
+  fillArea: z.boolean().nullable(),
+  showDataLabels: z.boolean().nullable(),
+  showLegend: z.boolean().nullable(),
+  timeRange: z.string().nullable(),
+  groupBy: z.string().nullable(),
+  aggregation: z.string().nullable(),
+  sortOrder: z.string().nullable(),
+  limit: z.number().nullable(),
+  compareWith: z.string().nullable(),
+  layout: z.record(z.unknown()).nullable(),
+  sortIndex: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});
+
+/** `{ id }`: what a report or chart write answers. */
+export const analyticsIdResultSchema = z.object({ id: z.string() });
+
+/** `PATCH …/charts/layouts`. */
+export const analyticsLayoutsUpdatedSchema = z.object({ updated: z.number() });
+
+/** `POST …/chart-data`: each chart's series, by chart id. */
+export const analyticsChartsDataSchema = z.record(
+  z.array(z.object({ label: z.string(), value: z.number(), date: z.string().optional() })),
+);
+
+// ============================================================================
 // KPI summary schemas
 // ============================================================================
 

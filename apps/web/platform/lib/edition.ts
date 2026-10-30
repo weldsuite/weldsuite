@@ -44,6 +44,8 @@ export const EDITION_FEATURES = [
   'analytics',
   /** `POST /api/search/reindex`. */
   'search-reindex',
+  /** Company logos fetched from each company's website (`POST /api/company-logos/resolve`). */
+  'company-logos',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

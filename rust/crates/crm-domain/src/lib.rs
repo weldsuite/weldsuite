@@ -14,6 +14,7 @@ pub mod events;
 pub use weldsuite_core_domain::js;
 pub mod leads;
 pub mod opportunities;
+pub mod people;
 pub mod sequence_run;
 pub mod tables;
 #[allow(clippy::too_many_lines)]

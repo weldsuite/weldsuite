@@ -583,6 +583,12 @@
         "src/routes/companies/integration.test.ts",
         "src/routes/companies/routes.integration.test.ts"
       ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/company-logos/resolve",
+          "reason": "Fetches each company's own website and stores the logo in R2 under the request's public origin; not served on the Kubernetes editions, /config.json lists company-logos as unavailable and the platform asks nothing there (initials)."
+        }
+      ],
       "paths": [
         "apps/workers/crm-api/src/routes/companies/",
         "apps/workers/crm-api/src/lib/record-chat-forward.ts",
@@ -631,6 +637,42 @@
         "rust/modules/crm/",
         "rust/crates/crm-domain/",
         "rust/bins/weldsuite/src/conformance_workflows.rs"
+      ]
+    },
+    {
+      "name": "crm: people",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/people/integration.test.ts",
+        "src/routes/people/routes.integration.test.ts",
+        "src/routes/people/recent-correspondents.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/people/",
+        "packages/domains/crm/src/people.ts",
+        "packages/domains/crm/src/member-validation.ts",
+        "packages/domains/crm/src/list-query.ts",
+        "packages/domains/mail/src/access.ts",
+        "packages/clients/core-api-client/src/schemas/people.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/",
+        "rust/crates/mail-domain/src/access.rs",
+        "rust/crates/mail-domain/src/store.rs"
+      ]
+    },
+    {
+      "name": "crm: analytics",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/crm-analytics/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/crm-analytics/",
+        "packages/domains/core/src/analytics-query.ts",
+        "packages/clients/core-api-client/src/schemas/project-analytics.ts",
+        "rust/modules/crm/src/crm_analytics.rs"
       ]
     },
     {
