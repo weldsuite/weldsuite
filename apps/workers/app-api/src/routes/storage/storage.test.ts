@@ -28,9 +28,11 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 
+// Applying every tenant migration to pglite outlasts the 10 s default hook
+// timeout on a busy CI runner; the other pglite suites allow 60 s too.
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
-});
+}, 60_000);
 
 function memoryKv() {
   const store = new Map<string, string>();

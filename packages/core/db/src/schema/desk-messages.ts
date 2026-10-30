@@ -13,8 +13,10 @@ import {
  * kind:
  *   message — public chat (visitor, agent, or bot)
  *   note    — internal, never shown to the visitor
- *   event   — state change (closed, reopened, assigned, …), or the
- *             visitor's rating (rated: metadata.rating + ratingComment)
+ *   event   — state change (closed, reopened, assigned, …), the visitor's
+ *             rating (rated: metadata.rating + ratingComment), or a change
+ *             to the ticket fields (attributes_changed: metadata.changes,
+ *             internal like a note)
  *
  * Rows are ONLY written through appendDeskMessage in @weldsuite/db/lib,
  * which also updates desk_conversations.state / waitingSince / lastMessage*.
@@ -24,7 +26,21 @@ export type DeskMessageKind = 'message' | 'note' | 'event';
 
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
 
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated';
+export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated' | 'attributes_changed';
+
+/**
+ * One ticket field an `attributes_changed` event changed. `from` / `to` are
+ * what the timeline shows: the type's or team's name at the time, the
+ * priority, the tag list, or the custom field's value (`label` is its name).
+ */
+export interface DeskAttributeChange {
+  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField';
+  /** The custom field's slug. */
+  key?: string;
+  label?: string;
+  from: unknown;
+  to: unknown;
+}
 
 export interface DeskMessageAttachment {
   name: string;
@@ -40,6 +56,7 @@ export interface DeskMessageMetadata {
   assigneeId?: string | null;
   rating?: number;
   ratingComment?: string | null;
+  changes?: DeskAttributeChange[];
   [key: string]: unknown;
 }
 

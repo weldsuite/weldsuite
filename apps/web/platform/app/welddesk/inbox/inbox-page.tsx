@@ -3,7 +3,7 @@ import { useUser } from '@/lib/auth';
 import { useRouter } from '@/lib/router';
 import type { DeskConversationSort, DeskConversationState } from '@/hooks/queries/use-desk-queries';
 import { DeskSplitLayout, InboxLayout } from './inbox-layout';
-import { ConversationList, type InboxAssigneeFilter } from './conversation-list';
+import { ConversationList, type InboxAssigneeFilter, type InboxTicketFilters } from './conversation-list';
 import { ConversationPane } from './conversation-pane';
 import { EmptyConversationPane } from './empty-conversation-pane';
 import { useDeskInboxLive } from '@/hooks/welddesk/use-desk-live';
@@ -42,6 +42,7 @@ export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>)
   const [state, setState] = useState<DeskConversationState>('open');
   const [sort, setSort] = useState<DeskConversationSort>('newest');
   const [assigneeFilter, setAssigneeFilter] = useState<InboxAssigneeFilter>('all');
+  const [ticketFilters, setTicketFilters] = useState<InboxTicketFilters>({});
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
 
@@ -84,6 +85,8 @@ export function InboxPage({ conversationId, channel }: Readonly<InboxPageProps>)
             onSortChange={setSort}
             assigneeFilter={assigneeFilter}
             onAssigneeFilterChange={setAssigneeFilter}
+            ticketFilters={ticketFilters}
+            onTicketFiltersChange={setTicketFilters}
             onSearchChange={setSearch}
             selectedId={selectedId}
             onSelect={handleSelect}

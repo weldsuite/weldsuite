@@ -4,6 +4,10 @@ export const DESK_CHANNELS = ['messenger', 'email', 'phone', 'whatsapp', 'sms', 
 export const DESK_CONVERSATION_STATES = ['open', 'closed'] as const;
 export const DESK_CONVERSATION_SORTS = ['newest', 'oldest', 'waiting_longest'] as const;
 export const DESK_MESSAGE_KINDS = ['message', 'note', 'event'] as const;
+export const DESK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
+/** Mirrors DESK_MAX_TAGS / DESK_MAX_TAG_LENGTH in @weldsuite/db/lib/desk. */
+export const DESK_MAX_TAGS = 20;
+export const DESK_MAX_TAG_LENGTH = 50;
 
 export const listConversationsQuerySchema = z.object({
   state: z.enum(DESK_CONVERSATION_STATES).optional(),
@@ -16,6 +20,12 @@ export const listConversationsQuerySchema = z.object({
   email: z.string().trim().max(255).optional(),
   /** Free-text search over customer, subject, number and message text. */
   q: z.string().trim().max(200).optional(),
+  /** A priority, or `none` for conversations without one. */
+  priority: z.enum([...DESK_PRIORITIES, 'none']).optional(),
+  ticketTypeId: z.string().max(30).optional(),
+  /** The team (helpdesk department). */
+  departmentId: z.string().max(30).optional(),
+  tag: z.string().trim().min(1).max(DESK_MAX_TAG_LENGTH).optional(),
   sort: z.enum(DESK_CONVERSATION_SORTS).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).optional(),
@@ -55,7 +65,25 @@ export const manageConversationSchema = z.discriminatedUnion('action', [
   }),
 ]);
 
+/**
+ * The conversation's ticket fields. Omitted fields are left alone, null
+ * clears one, `tags` replaces the list, and `customFields` patches the
+ * type's fields by slug.
+ */
+export const updateConversationAttributesSchema = z
+  .object({
+    ticketTypeId: z.string().max(30).nullable().optional(),
+    priority: z.enum(DESK_PRIORITIES).nullable().optional(),
+    tags: z.array(z.string().trim().min(1).max(DESK_MAX_TAG_LENGTH)).max(DESK_MAX_TAGS).optional(),
+    departmentId: z.string().max(30).nullable().optional(),
+    customFields: z.record(z.string().max(100), z.unknown()).optional(),
+  })
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: 'Nothing to update',
+  });
+
 export type ListConversationsQuery = z.infer<typeof listConversationsQuerySchema>;
+export type UpdateConversationAttributesInput = z.infer<typeof updateConversationAttributesSchema>;
 export type ReplyToConversationInput = z.infer<typeof replyToConversationSchema>;
 export type DeskMessageAttachmentInput = z.infer<typeof deskMessageAttachmentSchema>;
 export type ManageConversationInput = z.infer<typeof manageConversationSchema>;

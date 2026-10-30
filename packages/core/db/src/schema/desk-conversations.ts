@@ -4,6 +4,7 @@ import {
   timestamp,
   integer,
   text,
+  jsonb,
   index,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
@@ -19,11 +20,20 @@ import {
  * rating / ratingComment / ratedAt: the visitor's CSAT answer (1–5) after
  * the team closed the conversation. One per conversation; the answer is
  * also on the timeline as a `rated` event.
+ *
+ * The conversation is the ticket: ticketTypeId (helpdesk_ticket_types),
+ * priority, tags and departmentId (the team, helpdesk_departments) are the
+ * ticket fields, and the type's custom fields live in custom_field_values
+ * under entity type `desk_conversation`. They are written only by
+ * updateDeskConversationAttributes, which puts the change on the timeline.
  */
 
 export type DeskConversationState = 'open' | 'closed';
 
 export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api';
+
+/** null = no priority set. */
+export type DeskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 export const deskConversations = pgTable(
   'desk_conversations',
@@ -45,6 +55,11 @@ export const deskConversations = pgTable(
 
     assigneeId: varchar('assignee_id', { length: 255 }),
 
+    ticketTypeId: varchar('ticket_type_id', { length: 30 }),
+    priority: varchar('priority', { length: 10 }).$type<DeskPriority>(),
+    tags: jsonb('tags').$type<string[]>().notNull().default([]),
+    departmentId: varchar('department_id', { length: 30 }),
+
     waitingSince: timestamp('waiting_since'),
     lastMessageAt: timestamp('last_message_at'),
     lastMessagePreview: varchar('last_message_preview', { length: 200 }),
@@ -60,6 +75,10 @@ export const deskConversations = pgTable(
     index('desk_conversations_assignee_idx').on(table.assigneeId, table.state),
     index('desk_conversations_visitor_idx').on(table.visitorId),
     index('desk_conversations_channel_idx').on(table.channel),
+    index('desk_conversations_ticket_type_idx').on(table.ticketTypeId, table.state),
+    index('desk_conversations_priority_idx').on(table.priority, table.state),
+    index('desk_conversations_department_idx').on(table.departmentId, table.state),
+    index('desk_conversations_tags_gin').using('gin', table.tags),
   ],
 );
 
