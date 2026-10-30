@@ -10,7 +10,18 @@ export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' |
 export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated';
+export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated' | 'attributes_changed';
+export type DeskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export const DESK_PRIORITIES: DeskPriority[] = ['urgent', 'high', 'medium', 'low'];
+
+/** One ticket field an `attributes_changed` event changed (display values). */
+export interface DeskAttributeChange {
+  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField';
+  key?: string;
+  label?: string;
+  from: unknown;
+  to: unknown;
+}
 
 export interface DeskConversation {
   id: string;
@@ -32,6 +43,14 @@ export interface DeskConversation {
   rating?: number | null;
   ratingComment?: string | null;
   ratedAt?: string | null;
+  /** Ticket fields: the conversation is the ticket. */
+  ticketTypeId?: string | null;
+  priority?: DeskPriority | null;
+  tags?: string[];
+  /** The team (helpdesk department). */
+  departmentId?: string | null;
+  /** The type's custom field values by slug; only on the detail read. */
+  customFields?: Record<string, unknown>;
 }
 
 export interface DeskMessageAttachment {
@@ -57,6 +76,7 @@ export interface DeskMessage {
     assigneeId?: string | null;
     rating?: number;
     ratingComment?: string | null;
+    changes?: DeskAttributeChange[];
     event?: string;
     callId?: string;
     turnIndex?: number;
@@ -112,6 +132,7 @@ export const deskKeys = {
   conversationList: (filters: DeskConversationFilters, sort?: DeskConversationSort) =>
     [...deskKeys.conversations(), 'list', filters, sort ?? 'newest'] as const,
   conversationDetail: (id: string) => [...deskKeys.conversations(), 'detail', id] as const,
+  attributeOptions: () => [...deskKeys.all, 'attribute-options'] as const,
   widget: () => [...deskKeys.all, 'widget'] as const,
   widgetDetail: (widgetId: string) => [...deskKeys.widget(), widgetId] as const,
   assignment: () => [...deskKeys.all, 'assignment'] as const,
@@ -181,6 +202,11 @@ export interface DeskConversationFilters {
   /** A customer's conversations: by email, else by widget visitor. */
   email?: string;
   visitorId?: string;
+  /** A priority, or `none` for conversations without one. */
+  priority?: DeskPriority | 'none';
+  ticketTypeId?: string;
+  departmentId?: string;
+  tag?: string;
 }
 
 function buildConversationQuery(
@@ -196,6 +222,10 @@ function buildConversationQuery(
   if (filters.q?.trim()) params.set('q', filters.q.trim());
   if (filters.email) params.set('email', filters.email);
   if (filters.visitorId) params.set('visitorId', filters.visitorId);
+  if (filters.priority) params.set('priority', filters.priority);
+  if (filters.ticketTypeId) params.set('ticketTypeId', filters.ticketTypeId);
+  if (filters.departmentId) params.set('departmentId', filters.departmentId);
+  if (filters.tag) params.set('tag', filters.tag);
   if (sort) params.set('sort', sort);
   if (cursor) params.set('cursor', cursor);
   const qs = params.toString();
@@ -412,6 +442,81 @@ export function useManageDeskConversation() {
         return { ...old, data: { ...old.data, ...conversation, messages: [...messages, message] } };
       });
       qc.invalidateQueries({ queryKey: [...deskKeys.conversations(), 'list'] });
+    },
+  });
+}
+
+export interface DeskTicketTypeOption {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  color: string | null;
+}
+
+/** A ticket custom field; `ticketTypeId` null applies to every type. */
+export interface DeskTicketField {
+  id: string;
+  ticketTypeId: string | null;
+  slug: string;
+  name: string;
+  description: string | null;
+  fieldType: string;
+  options: { label: string; value: string; color?: string }[] | null;
+  required: boolean;
+  sortOrder: number;
+}
+
+export interface DeskAttributeOptions {
+  ticketTypes: DeskTicketTypeOption[];
+  teams: Array<{ id: string; name: string }>;
+  fields: DeskTicketField[];
+  tags: Array<{ tag: string; count: number }>;
+}
+
+/** What the details panel can pick: types, their fields, teams, tags in use. */
+export function useDeskAttributeOptions() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: deskKeys.attributeOptions(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: DeskAttributeOptions }>('/desk/conversations/attributes');
+      return res.data;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export interface DeskAttributesUpdate {
+  ticketTypeId?: string | null;
+  priority?: DeskPriority | null;
+  tags?: string[];
+  departmentId?: string | null;
+  customFields?: Record<string, unknown>;
+}
+
+/** Set a conversation's type, priority, tags, team or custom fields. */
+export function useUpdateDeskConversationAttributes() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: DeskAttributesUpdate }) => {
+      const client = await getClient();
+      return client.patch<{ data: { conversation: DeskConversation; message: DeskMessage | null } }>(
+        `/desk/conversations/${id}`,
+        data,
+      );
+    },
+    onSuccess: (result, variables) => {
+      const { conversation, message } = result.data;
+      qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(variables.id), (old) => {
+        if (!old?.data) return old;
+        const messages = (old.data.messages ?? []).filter((m) => m.id !== message?.id);
+        return { ...old, data: { ...old.data, ...conversation, messages: message ? [...messages, message] : messages } };
+      });
+      qc.invalidateQueries({ queryKey: [...deskKeys.conversations(), 'list'] });
+      if (variables.data.tags) qc.invalidateQueries({ queryKey: deskKeys.attributeOptions() });
     },
   });
 }

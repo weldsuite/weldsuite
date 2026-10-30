@@ -3,7 +3,7 @@ import { format, isSameDay } from 'date-fns';
 import { ArrowDown, Bot, Lock, Paperclip } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import type { DeskConversation, DeskMessage, DeskMessageAttachment } from '@/hooks/queries/use-desk-queries';
+import type { DeskConversation, DeskMessage, DeskMessageAttachment, DeskPriority } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 import { formatFileSize } from './attachments';
 
@@ -74,6 +74,55 @@ function getAvatarColor(name: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
+function displayValue(value: unknown, t: ReturnType<typeof getTranslations<'deskInbox2'>>): string {
+  if (Array.isArray(value)) return value.join(', ');
+  if (value === true) return t.ticket.yes;
+  if (value === false) return t.ticket.no;
+  return String(value);
+}
+
+/** One line per ticket field an `attributes_changed` event changed. */
+function attributeSentences(message: DeskMessage, actor: string): string[] {
+  const t = getTranslations('deskInbox2');
+  const fill = (template: string, value?: unknown, field?: string) =>
+    template
+      .replace('{actor}', actor)
+      .replace('{value}', value === undefined ? '' : displayValue(value, t))
+      .replace('{field}', field ?? '');
+  const empty = (value: unknown) => value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0);
+
+  return (message.metadata?.changes ?? []).flatMap((change): string[] => {
+    switch (change.field) {
+      case 'ticketType':
+        return [empty(change.to) ? fill(t.timeline.typeCleared) : fill(t.timeline.typeSet, change.to)];
+      case 'team':
+        return [empty(change.to) ? fill(t.timeline.teamCleared) : fill(t.timeline.teamSet, change.to)];
+      case 'priority': {
+        const priority = change.to as DeskPriority | null;
+        return [priority ? fill(t.timeline.prioritySet, t.ticket.priorities[priority] ?? priority) : fill(t.timeline.priorityCleared)];
+      }
+      case 'tags': {
+        const before = Array.isArray(change.from) ? (change.from as string[]) : [];
+        const after = Array.isArray(change.to) ? (change.to as string[]) : [];
+        const added = after.filter((tag) => !before.includes(tag));
+        const removed = before.filter((tag) => !after.includes(tag));
+        return [
+          ...(added.length ? [fill(t.timeline.tagsAdded, added)] : []),
+          ...(removed.length ? [fill(t.timeline.tagsRemoved, removed)] : []),
+        ];
+      }
+      case 'customField':
+        return [
+          empty(change.to)
+            ? fill(t.timeline.fieldCleared, undefined, change.label ?? change.key)
+            : fill(t.timeline.fieldSet, change.to, change.label ?? change.key),
+        ];
+      default:
+        return [];
+    }
+  });
+}
+
 function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], visitorLabel: string) {
   const t = getTranslations('deskInbox2');
   const eventType = message.metadata?.eventType;
@@ -108,6 +157,21 @@ function EventRow({
   visitorLabel,
 }: Readonly<{ message: DeskMessage; members: DeskWorkspaceMember[]; visitorLabel: string }>) {
   const comment = message.metadata?.eventType === 'rated' ? message.metadata.ratingComment : null;
+  if (message.metadata?.eventType === 'attributes_changed') {
+    const actor = memberLabel(members, message.authorId) ?? getTranslations('deskInbox2').timeline.unknownActor;
+    const time = format(new Date(message.createdAt), 'HH:mm');
+    return (
+      <div className="py-2 px-4" data-testid="desk-inbox-attributes-event">
+        {attributeSentences(message, actor).map((sentence, index) => (
+          // A sentence can repeat (two fields cleared), so the index keeps keys unique.
+          <p key={`${index}-${sentence}`} className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1">
+            <Lock className="h-3 w-3 flex-shrink-0" />
+            {sentence} · {time}
+          </p>
+        ))}
+      </div>
+    );
+  }
   return (
     <>
       <p className="text-xs text-muted-foreground text-center py-2 px-4">

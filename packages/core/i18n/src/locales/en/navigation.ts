@@ -224,6 +224,7 @@ export const navigation = {
         phoneSettings: 'Phone settings',
         helpCenter: 'Help Center',
         articles: 'Articles',
+        ticketTypes: 'Ticket types',
         savedReplies: 'Saved replies',
         assignment: 'Assignment',
       },
