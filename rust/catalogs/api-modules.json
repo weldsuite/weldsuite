@@ -134,7 +134,7 @@
       "/api/tickets",
       "/public/helpcenter"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "desk-api"
   },
   {

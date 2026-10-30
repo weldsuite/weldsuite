@@ -327,7 +327,8 @@ fn desk_public(state: &AppState) -> Router<AppState> {
     if !mounts("desk") {
         return Router::new();
     }
-    let router = weldsuite_desk::public_router(desk_state(state), Some(Arc::clone(&state.workspaces)));
+    let router =
+        weldsuite_desk::public_router(desk_state(state), Some(Arc::clone(&state.workspaces)));
     #[cfg(feature = "conformance")]
     let router = router.route_layer(axum::middleware::from_fn_with_state(
         Arc::clone(&state.conformance_pools),
