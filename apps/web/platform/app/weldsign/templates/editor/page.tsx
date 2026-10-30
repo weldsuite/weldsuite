@@ -62,6 +62,7 @@ function TemplateEditor({ templateId }: Readonly<{ templateId: string }>) {
       title={template.title}
       titleLabel={tt.editor.titleLabel}
       editable={editable}
+      back={{ to: '/weldsign/templates', label: tt.editor.backToTemplates }}
       badge={<Badge variant="outline">{tt.editor.badge}</Badge>}
       steps={STEPS}
       stepLabels={t.weldsign.editor.steps}

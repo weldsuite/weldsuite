@@ -1,11 +1,13 @@
 /**
- * Step 4: the message, reminders, where the signed copy goes, what is still
- * missing, and Send. Sending asks for the expiry date and then emails the
- * first signers (sign-api checks the draft again before anything goes out).
+ * The last part of a request: the message, reminders and where the signed copy
+ * goes (`ReviewSettings`), what is in it (`ReviewSummary`), and Send
+ * (`SendButton`), which stays off while something is missing. Sending asks for
+ * the expiry date and then emails the first signers (sign-api checks the draft
+ * again before anything goes out).
  */
 
 import { useState } from 'react';
-import { Send } from 'lucide-react';
+import { Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
 import { Button } from '@weldsuite/ui/components/button';
@@ -15,9 +17,9 @@ import { Label } from '@weldsuite/ui/components/label';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
 import { targetOf, useSendSignEnvelope, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
-import { readinessProblems } from '../lib/readiness';
+import type { ReadinessProblem } from '../lib/readiness';
 import { apiErrorMessage } from '../lib/errors';
-import { MessageField, ReadinessChecklist, ReminderSettings, SummaryStats } from './settings-fields';
+import { MessageField, ReminderSettings } from './settings-fields';
 import { SignedCopy } from './signed-copy';
 
 const DEFAULT_EXPIRY_DAYS = 30;
@@ -28,60 +30,79 @@ function isoDay(days: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export function ReviewStep({ envelope, editable }: Readonly<{ envelope: SignEnvelopeDetail; editable: boolean }>) {
+/** The message, the reminders and where the signed copy goes. */
+export function ReviewSettings({ envelope, editable }: Readonly<{ envelope: SignEnvelopeDetail; editable: boolean }>) {
+  const update = useUpdateSignEnvelope(targetOf(envelope));
+  return (
+    <>
+      <MessageField message={envelope.message} disabled={!editable} onSave={(message) => update.mutate({ message })} />
+      <ReminderSettings settings={envelope} editable={editable} save={(input) => update.mutate(input)} />
+      <SignedCopy envelope={envelope} editable={editable} />
+    </>
+  );
+}
+
+/** What the request holds, as the totals under an invoice. */
+export function ReviewSummary({ counts }: Readonly<{ counts: { documents: number; recipients: number; fields: number } }>) {
   const { t } = useI18n();
   const tr = t.weldsign.editor.review;
-  const update = useUpdateSignEnvelope(targetOf(envelope));
+  const rows = [
+    { label: tr.summaryDocuments, value: counts.documents },
+    { label: tr.summaryRecipients, value: counts.recipients },
+    { label: tr.summaryFields, value: counts.fields },
+  ];
+  return (
+    <dl className="space-y-2 text-sm">
+      {rows.map((row) => (
+        <div key={row.label} className="flex justify-between gap-4">
+          <dt className="text-muted-foreground">{row.label}</dt>
+          <dd className="text-right font-medium tabular-nums">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+interface SendButtonProps {
+  envelope: SignEnvelopeDetail;
+  editable: boolean;
+  problems: ReadinessProblem[];
+  /** Runs before the send dialog opens, to save what is still unsaved; the dialog stays closed when it rejects. */
+  beforeSend?: () => Promise<void>;
+}
+
+/** Send, for whoever may send a request that can still be changed, and the dialog that asks for the expiry. */
+export function SendButton({ envelope, editable, problems, beforeSend }: Readonly<SendButtonProps>) {
+  const { t } = useI18n();
+  const tr = t.weldsign.editor.review;
   const send = useSendSignEnvelope(envelope.id);
   const canSend = useCan('sign_envelopes:send');
+  const [preparing, setPreparing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [expiresOn, setExpiresOn] = useState(() => isoDay(DEFAULT_EXPIRY_DAYS));
 
-  const problems = readinessProblems(envelope);
+  if (!editable || !canSend) return null;
+
+  const open = async () => {
+    setPreparing(true);
+    try {
+      await beforeSend?.();
+      setConfirming(true);
+    } catch {
+      // The save reported its own failure.
+    } finally {
+      setPreparing(false);
+    }
+  };
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-      <div>
-        <h2 className="text-lg font-semibold">{tr.title}</h2>
-        <p className="text-sm text-muted-foreground">{tr.description}</p>
-      </div>
+    <>
+      <Button size="sm" className="h-8" disabled={problems.length > 0 || preparing} onClick={() => void open()}>
+        {preparing && <Loader2 className="animate-spin" />}
+        {tr.send}
+      </Button>
 
-      <MessageField message={envelope.message} disabled={!editable} onSave={(message) => update.mutate({ message })} />
-
-      <ReminderSettings settings={envelope} editable={editable} save={(input) => update.mutate(input)} />
-
-      <SignedCopy envelope={envelope} editable={editable} />
-
-      <SummaryStats
-        title={tr.summary}
-        stats={[
-          { label: tr.summaryDocuments, value: envelope.documents.length },
-          { label: tr.summaryRecipients, value: envelope.recipientList.length },
-          { label: tr.summaryFields, value: envelope.fields.length },
-        ]}
-      />
-
-      <ReadinessChecklist
-        problems={problems}
-        heading={tr.problems}
-        messages={{
-          ready: tr.ready,
-          noDocuments: tr.noDocuments,
-          noSigners: tr.noSigners,
-          signerWithoutSignature: tr.signerWithoutSignature,
-        }}
-      />
-
-      {editable && canSend && (
-        <div className="flex justify-end">
-          <Button disabled={problems.length > 0} onClick={() => setConfirming(true)}>
-            <Send />
-            {tr.send}
-          </Button>
-        </div>
-      )}
-
-      <Dialog open={confirming} onOpenChange={(open) => !send.isPending && setConfirming(open)}>
+      <Dialog open={confirming} onOpenChange={(next) => !send.isPending && setConfirming(next)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{tr.sendTitle}</DialogTitle>
@@ -123,6 +144,6 @@ export function ReviewStep({ envelope, editable }: Readonly<{ envelope: SignEnve
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

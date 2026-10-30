@@ -1,5 +1,5 @@
 /**
- * The pieces the review step of a draft and the settings step of a template
+ * The pieces the settings of a draft and the settings step of a template
  * have in common: message, signing order, reminders, the summary and the list
  * of what is still missing. Each one saves through the callback it is given, so
  * they know nothing about whether they edit a request or a template.
@@ -13,6 +13,7 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
+import { cn } from '@/lib/utils';
 import type { SignSettingsInput } from '@/hooks/queries/use-weldsign-queries';
 import type { ReadinessProblem } from '../lib/readiness';
 
@@ -56,17 +57,19 @@ interface SigningOrderToggleProps {
   checked: boolean;
   disabled: boolean;
   onChange: (checked: boolean) => void;
+  /** Just the switch and its label: no box, and no line saying what the order does. */
+  plain?: boolean;
 }
 
-export function SigningOrderToggle({ checked, disabled, onChange }: Readonly<SigningOrderToggleProps>) {
+export function SigningOrderToggle({ checked, disabled, onChange, plain = false }: Readonly<SigningOrderToggleProps>) {
   const { t } = useI18n();
   const tr = t.weldsign.editor.recipients;
   return (
-    <label className="flex items-start gap-3 rounded-lg border p-3">
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} className="mt-0.5" />
+    <label className={cn('flex gap-3', plain ? 'items-center' : 'items-start rounded-lg border p-3')}>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} className={cn(!plain && 'mt-0.5')} />
       <span>
         <span className="block text-sm font-medium">{tr.signingOrder}</span>
-        <span className="block text-xs text-muted-foreground">{tr.signingOrderHint}</span>
+        {!plain && <span className="block text-xs text-muted-foreground">{tr.signingOrderHint}</span>}
       </span>
     </label>
   );
@@ -98,7 +101,7 @@ export function ReminderSettings({ settings, editable, save }: Readonly<Reminder
         />
       </label>
       {remindersOn && (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid items-end gap-3 sm:grid-cols-3">
           <NumberSetting
             id="sign-reminder-after"
             label={tr.reminderAfter}

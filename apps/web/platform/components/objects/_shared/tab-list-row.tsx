@@ -34,6 +34,7 @@ export function TabListRow({
   menuLabel,
   menu,
   children,
+  className,
 }: Readonly<{
   /** Accessible name of the row's click target, e.g. the record's name. */
   label: string;
@@ -45,12 +46,15 @@ export function TabListRow({
   menu?: ReactNode;
   /** The row's cells. */
   children: ReactNode;
+  /** Extra classes for the row, e.g. less padding in a narrow side panel. */
+  className?: string;
 }>) {
   return (
     <div
       className={cn(
         'group relative flex items-center gap-4 px-4 py-3 border-b border-gray-200/70 dark:border-border hover:bg-gray-50 dark:hover:bg-secondary/50',
         onOpen && 'cursor-pointer',
+        className,
       )}
     >
       {onOpen && <RowOverlayButton label={label} onClick={onOpen} />}

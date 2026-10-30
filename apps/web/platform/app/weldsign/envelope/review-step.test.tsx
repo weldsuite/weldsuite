@@ -32,7 +32,8 @@ vi.mock('@/hooks/queries/use-drive-queries', () => ({
   },
 }));
 
-import { ReviewStep } from './review-step';
+import { readinessProblems } from '../lib/readiness';
+import { ReviewSettings, ReviewSummary, SendButton } from './review-step';
 
 const tr = en.weldsign.editor.review;
 
@@ -59,12 +60,17 @@ function ready(overrides: Partial<SignEnvelopeDetail> = {}): SignEnvelopeDetail 
   } as unknown as SignEnvelopeDetail;
 }
 
-function renderStep(envelope: SignEnvelopeDetail, editable = true) {
+/** The settings, the summary and Send, as the request editor shows them. */
+function renderStep(envelope: SignEnvelopeDetail, editable = true, beforeSend?: () => Promise<void>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const problems = readinessProblems(envelope);
+  const counts = { documents: envelope.documents.length, recipients: envelope.recipientList.length, fields: envelope.fields.length };
   render(
     <QueryClientProvider client={client}>
       <I18nProvider initialLanguage="en">
-        <ReviewStep envelope={envelope} editable={editable} />
+        <ReviewSettings envelope={envelope} editable={editable} />
+        <ReviewSummary counts={counts} />
+        <SendButton envelope={envelope} editable={editable} problems={problems} beforeSend={beforeSend} />
       </I18nProvider>
     </QueryClientProvider>,
   );
@@ -90,7 +96,7 @@ beforeEach(() => {
 
 afterEach(() => cleanup());
 
-describe('review step', () => {
+describe('review: settings, summary and Send', () => {
   it('saves the message through the request API', async () => {
     const user = userEvent.setup();
     renderStep(ready());
@@ -126,16 +132,13 @@ describe('review step', () => {
     expect(stat(tr.summaryFields)).toBe('1');
   });
 
-  it('says what stops the draft from being sent, naming the person', () => {
-    renderStep(ready({ fields: [], documents: [] }));
-    expect(screen.getByText(tr.noDocuments)).toBeInTheDocument();
-    expect(screen.getByText('Ann has no signature field.')).toBeInTheDocument();
+  it('keeps Send off while something is missing', () => {
+    renderStep(ready({ fields: [] }));
     expect(screen.getByRole('button', { name: tr.send })).toBeDisabled();
   });
 
-  it('says when nothing does', () => {
+  it('turns Send on when nothing is', () => {
     renderStep(ready());
-    expect(screen.getByText(tr.ready)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: tr.send })).toBeEnabled();
   });
 
@@ -294,6 +297,25 @@ describe('review step', () => {
       expect(within(sectionOf()).queryByText(/^From/)).toBeNull();
       expect(within(sectionOf()).queryByRole('link')).toBeNull();
     });
+  });
+
+  it('saves what is still unsaved before it asks for the expiry', async () => {
+    const beforeSend = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderStep(ready(), true, beforeSend);
+    await user.click(screen.getByRole('button', { name: tr.send }));
+    expect(beforeSend).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText(tr.sendTitle)).toBeInTheDocument();
+  });
+
+  it('does not ask when that save fails', async () => {
+    const beforeSend = vi.fn().mockRejectedValue(new Error('offline'));
+    const user = userEvent.setup();
+    renderStep(ready(), true, beforeSend);
+    await user.click(screen.getByRole('button', { name: tr.send }));
+    await waitFor(() => expect(beforeSend).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText(tr.sendTitle)).toBeNull();
+    expect(api.weldsign.send).not.toHaveBeenCalled();
   });
 
   it('shows the server\'s reason when sending fails', async () => {
