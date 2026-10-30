@@ -155,8 +155,13 @@ export const FORWARDED_ENV = [
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
   'DATABASE_URL_MASTER',
-  // WeldDesk: the Discord bot (agent replies, ticket threads closed).
+  // WeldDesk: the Discord bot (agent replies, ticket threads closed), and the
+  // Discord and Slack OAuth apps (connect, token exchange and refresh).
   'DISCORD_BOT_TOKEN',
+  'DISCORD_CLIENT_ID',
+  'DISCORD_CLIENT_SECRET',
+  'SLACK_CLIENT_ID',
+  'SLACK_CLIENT_SECRET',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -509,6 +514,8 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const SIGNER_SESSION = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/;
 /** `generateId()` output: a prefix, `_`, base36 time and randomness. */
 const GENERATED_ID = /^[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
+/** A WeldDesk helpdesk mail account id: `helpdesk_` and a generated id (`helpdesk_hd_<id>`). */
+const HELPDESK_ACCOUNT_ID = /^helpdesk_[a-z][a-z0-9]*_[0-9a-z]{12,}$/;
 /**
  * `Date.now()` inside a string (a storage key, a URL): 13 digits from 2001 to
  * 2286, not part of a longer number. Differs between two runs of a write.
@@ -523,15 +530,21 @@ const API_KEY_PREFIX = /^wsk_[0-9a-f]{8}$/;
 const RANDOM_HEX = /(?<![0-9a-f])[0-9a-f]{32}(?![0-9a-f])/g;
 /** An upload token (`upl_` and 32 random characters), alone or in a URL. */
 const UPLOAD_TOKEN = /\bupl_[A-Za-z0-9]{32}\b/g;
+/**
+ * The generated id in a WeldDesk agent file's object name
+ * (`<Date.now()>_att_<id>_<file name>`), in its URL and its event's entityId.
+ */
+const DESK_ATTACHMENT_ID = /_att_[0-9a-z]{12,}_/g;
 /** The `<Date.now()>_<random UUID hex>` segment of a new upload's object key. */
 const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 /** A signed object URL's credential (`?exp=<seconds>&sig=<HMAC>`). */
 const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
 /**
- * A ticket number WeldDesk generates (`TKT-<Date.now() in base 36>`, and a
+ * A ticket or conversation number WeldDesk generates (`TKT-` or `CONV-` and
+ * `Date.now()` in base 36, and a
  * random `-<4 characters>` on `POST /api/tickets`): new per run.
  */
-const GENERATED_TICKET_NUMBER = /^TKT-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
+const GENERATED_TICKET_NUMBER = /^(TKT|CONV)-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
 /**
  * A custom WeldFlow pipeline stage's id (`slugifyStage`): a slug of its name,
  * `_`, and 4 random base36 characters, new per run by construction. A stage
@@ -594,7 +607,7 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
 /** A string in a write's answer, with what differs per run by construction replaced. */
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
-  if (GENERATED_TICKET_NUMBER.test(value)) return 'TKT-<generated>';
+  if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
 
@@ -619,6 +632,7 @@ function normalizeGeneratedValue(value: string, key: string | undefined): string
   if (ISO_TIMESTAMP.test(value)) return '<timestamp>';
   if (FRESH_MESSAGE_ID.test(value)) return value.replace(FRESH_MESSAGE_ID, '<message-id@$1>');
   if (GENERATED_ID.test(value)) return '<id>';
+  if (HELPDESK_ACCOUNT_ID.test(value)) return 'helpdesk_<id>';
   // A taken channel slug gets the new channel's id appended
   // (`resolveChannelSlug`): `sales-ch_<id>`.
   if (key === 'slug' && SLUG_WITH_ID.test(value)) return value.replace(SLUG_WITH_ID, '-<id>');
@@ -641,6 +655,7 @@ function normalizeRandomParts(value: string): string {
     .replace(UPLOAD_KEY_SEGMENT, '/<time>_<random>/')
     // A WeldChat attachment's key: `…/files/<32 random hex>/<name>`.
     .replace(CHAT_FILE_SEGMENT, '/files/<random>/')
+    .replace(DESK_ATTACHMENT_ID, '_att_<id>_')
     .replace(SIGNED_URL_QUERY, '?exp=<expires-at>&sig=<signature>')
     .replace(RANDOM_HEX, '<hex>')
     .replace(EPOCH_MS, '<epoch-ms>');
@@ -890,6 +905,7 @@ async function runBoth(
       ts: result.ts,
       tsEffects: {
         ...result.effects,
+        events: sortEvents(result.effects.events),
         outbound: sortOutbound(calls),
         ...mailEffects(sends.finish(), ledger.finish()),
         ...workflowEffects(workflows.finish()),
@@ -905,6 +921,7 @@ async function runBoth(
       rust,
       rustEffects: {
         ...side.effects,
+        events: sortEvents(side.effects.events),
         outbound: sortOutbound(takeRustOutbound()),
         ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
         ...workflowEffects(takeRustWorkflowCalls()),
@@ -946,6 +963,16 @@ function mailEffects(sends: SendRecord[], calls: LedgerCall[]): Pick<SideEffects
     ...(sends.length > 0 ? { sendEmail: sortSends(sends) } : {}),
     ...(calls.length > 0 ? { ledger: sortLedgerCalls(calls) } : {}),
   };
+}
+
+/**
+ * Entity events sorted by their normalised form: both backends publish fire
+ * and forget, so a request's events (a conversation updated and the ticket it
+ * became) reach the bus in either order.
+ */
+function sortEvents(events: unknown[]): unknown[] {
+  const key = (event: unknown) => JSON.stringify(normalizeForDiff(event, true));
+  return [...events].sort((a, b) => key(a).localeCompare(key(b)));
 }
 
 /**
@@ -1063,7 +1090,8 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     request,
     client,
     isWrite,
-    () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body }).then(capture),
+    // A redirect is the answer, as `app.request` gives TypeScript's: never followed.
+    () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body, redirect: 'manual' }).then(capture),
     (db, runEnv) => request.runTypeScript(db, tsInput, { ...init, method, headers, body }, runEnv).then(capture),
   );
   const { ts, rust } = runs;

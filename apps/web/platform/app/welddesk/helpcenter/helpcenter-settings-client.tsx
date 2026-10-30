@@ -28,6 +28,7 @@ import { useI18n } from '@/lib/i18n/provider';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import { copyText } from '@/lib/clipboard';
+import { isFeatureAvailable } from '@/lib/edition';
 
 export interface HelpcenterSettingsData {
   id?: string;
@@ -98,6 +99,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
 
   const updateMutation = useUpdateHelpcenterSettings();
   const enableMutation = useEnableHelpcenter();
+  const customDomainsAvailable = isFeatureAvailable('helpcenter-custom-domains');
   const { data: domains, isLoading: domainsLoading } = useHelpcenterDomains();
   const { data: hostDomains } = useHelpcenterHostDomains();
   const addDomainMutation = useAddHelpcenterDomain();
@@ -368,7 +370,9 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
           </div>
         )}
 
-        {/* Custom domains */}
+        {/* Custom domains: Global only (a Cloudflare zone record and the Vercel-hosted help center) */}
+        {customDomainsAvailable && (
+        <>
         {!domainsLoading && domains?.map((domain: HelpcenterDomain) => (
           <div key={domain.id} className="flex items-center justify-between rounded-lg border px-4 py-3">
             <div className="flex items-center gap-2">
@@ -457,6 +461,8 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
             </p>
           )}
         </div>
+        </>
+        )}
       </Section>
 
       {/* SEO */}

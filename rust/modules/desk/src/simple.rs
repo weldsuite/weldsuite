@@ -8,7 +8,7 @@ use weldsuite_catalogs::entity_events as ev;
 use weldsuite_catalogs::permission_keys as perm;
 use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text};
 
-use crate::crud::{Changed, Crud, Filter, Gates, Messages, Partial};
+use crate::crud::{Changed, Crud, Filter, Gates, Hook, Messages, Partial};
 use crate::tables;
 
 const ARTICLES: Gates = Gates {
@@ -279,6 +279,7 @@ pub(crate) static FAQS: Crud = Crud {
     updated: ev::HELPDESK_FAQ_UPDATED,
     updated_fields: &[Changed::UpdateOrExisting("category")],
     deleted: ev::HELPDESK_FAQ_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static NEWS: Crud = Crud {
@@ -303,6 +304,7 @@ pub(crate) static NEWS: Crud = Crud {
     updated: ev::HELPDESK_NEWS_UPDATED,
     updated_fields: &[Changed::UpdateOrExisting("title")],
     deleted: ev::HELPDESK_NEWS_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static ANNOUNCEMENTS: Crud = Crud {
@@ -327,6 +329,7 @@ pub(crate) static ANNOUNCEMENTS: Crud = Crud {
     updated: ev::HELPDESK_ANNOUNCEMENT_UPDATED,
     updated_fields: &[Changed::UpdateOrExisting("title")],
     deleted: ev::HELPDESK_ANNOUNCEMENT_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static FEEDBACK: Crud = Crud {
@@ -351,6 +354,7 @@ pub(crate) static FEEDBACK: Crud = Crud {
     updated: ev::HELPDESK_FEEDBACK_UPDATED,
     updated_fields: &[Changed::UpdateOrExisting("title")],
     deleted: ev::HELPDESK_FEEDBACK_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static REVIEWS: Crud = Crud {
@@ -375,6 +379,7 @@ pub(crate) static REVIEWS: Crud = Crud {
     updated: ev::HELPDESK_REVIEW_UPDATED,
     updated_fields: &[Changed::UpdateOrExisting("title")],
     deleted: ev::HELPDESK_REVIEW_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static SLA: Crud = Crud {
@@ -399,6 +404,7 @@ pub(crate) static SLA: Crud = Crud {
     updated: ev::SLA_UPDATED,
     updated_fields: &[Changed::UpdateOrExisting("name")],
     deleted: ev::SLA_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static TICKET_NOTES: Crud = Crud {
@@ -423,6 +429,7 @@ pub(crate) static TICKET_NOTES: Crud = Crud {
     updated: ev::TICKET_NOTE_UPDATED,
     updated_fields: &[Changed::Existing("ticketId"), Changed::Existing("authorId")],
     deleted: ev::TICKET_NOTE_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static TICKET_MESSAGES: Crud = Crud {
@@ -455,6 +462,7 @@ pub(crate) static TICKET_MESSAGES: Crud = Crud {
         Changed::UpdateOrExisting("subject"),
     ],
     deleted: ev::HELPDESK_MESSAGE_DELETED,
+    hook: Hook::None,
 };
 
 pub(crate) static SURVEYS: Crud = Crud {
@@ -487,4 +495,5 @@ pub(crate) static SURVEYS: Crud = Crud {
         Changed::UpdateOrExisting("status"),
     ],
     deleted: ev::SATISFACTION_SURVEY_DELETED,
+    hook: Hook::None,
 };

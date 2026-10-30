@@ -54,6 +54,8 @@ export const EDITION_FEATURES = [
   'mail-ai',
   /** WeldChat voice and video calls (`/api/chat-calls`, Cloudflare RealtimeKit). */
   'chat-calls',
+  /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
+  'helpcenter-custom-domains',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

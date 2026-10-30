@@ -72,6 +72,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // RealtimeKit, its API and the call UI's client SDK alike; they come with
     // LiveKit in the call UI.
     "chat-calls",
+    // WeldDesk help center custom domains: attaching one writes a CNAME into a
+    // Cloudflare zone and registers the host on the Vercel-hosted help center
+    // (`/api/helpcenter-settings/domains`, its verify and delete).
+    "helpcenter-custom-domains",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

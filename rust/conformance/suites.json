@@ -1114,6 +1114,119 @@
       ]
     },
     {
+      "name": "desk: knowledge base",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/articles/routes.test.ts",
+        "src/routes/article-folders/routes.test.ts",
+        "src/routes/ticket-types/routes.test.ts",
+        "src/routes/canned-responses/routes.test.ts",
+        "src/routes/helpdesk-changelog/routes.test.ts",
+        "src/routes/helpdesk-stats/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/articles/",
+        "apps/workers/desk-api/src/routes/article-folders/",
+        "apps/workers/desk-api/src/routes/ticket-types/",
+        "apps/workers/desk-api/src/routes/canned-responses/",
+        "apps/workers/desk-api/src/routes/helpdesk-changelog/",
+        "apps/workers/desk-api/src/routes/helpdesk-stats/",
+        "packages/core/db/src/lib/custom-field-ticket-types.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: team and workflows",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/helpdesk-agents/routes.test.ts",
+        "src/routes/helpdesk-departments/routes.test.ts",
+        "src/routes/helpdesk-contacts/routes.test.ts",
+        "src/routes/helpdesk-weldagent/routes.test.ts",
+        "src/routes/helpdesk-workflows/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/helpdesk-agents/",
+        "apps/workers/desk-api/src/routes/helpdesk-departments/",
+        "apps/workers/desk-api/src/routes/helpdesk-contacts/",
+        "apps/workers/desk-api/src/routes/helpdesk-weldagent/",
+        "apps/workers/desk-api/src/routes/helpdesk-workflows/",
+        "apps/workers/desk-api/src/lib/notify.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: settings",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/helpdesk-settings/routes.test.ts",
+        "src/routes/helpcenter-settings/routes.test.ts",
+        "src/routes/desk-widget/routes.test.ts",
+        "src/routes/desk-assignment/integration.test.ts",
+        "src/routes/helpdesk-email/routes.test.ts",
+        "src/routes/helpdesk-analytics/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/helpdesk-settings/",
+        "apps/workers/desk-api/src/routes/helpcenter-settings/",
+        "apps/workers/desk-api/src/routes/desk-widget/",
+        "apps/workers/desk-api/src/routes/desk-assignment/",
+        "apps/workers/desk-api/src/routes/helpdesk-email/",
+        "apps/workers/desk-api/src/routes/helpdesk-analytics/",
+        "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/helpcenter-settings/domains",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        },
+        {
+          "route": "POST /api/helpcenter-settings/domains/:id/verify",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        },
+        {
+          "route": "DELETE /api/helpcenter-settings/domains/:id",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        }
+      ]
+    },
+    {
+      "name": "desk: webchat and channels",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/desk-conversations/routes.test.ts",
+        "src/routes/helpdesk-integrations/routes.test.ts",
+        "src/routes/integrations/helpdesk-oauth.test.ts",
+        "src/routes/public-helpcenter/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/desk-conversations/",
+        "apps/workers/desk-api/src/routes/helpdesk-integrations/",
+        "apps/workers/desk-api/src/routes/integrations/",
+        "apps/workers/desk-api/src/routes/public-helpcenter/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/domains/desk/src/",
+        "apps/workers/desk-api/src/lib/",
+        "apps/workers/desk-api/src/services/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
       "name": "flow: projects",
       "module": "flow",
       "workspace": "apps/workers/flow-api",

@@ -517,6 +517,33 @@ pub(crate) async fn public(
     run_reporting_route(request, next).await
 }
 
+/// Middleware for public routes that open a workspace's tenant database
+/// themselves (WeldDesk's help center and OAuth callbacks): the test mocks
+/// `getTenantDbForWorkspace` to hand out its tenant database for every
+/// workspace, so the test's `databaseUrl` goes in as the request's `Tenant`.
+/// Runs inside [`public`], which adds the rest of what the test shares.
+pub(crate) async fn public_tenant(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request.extensions_mut().insert(Tenant {
+                    workspace_id: context.workspace_id,
+                    clerk_org_id: context.clerk_org_id,
+                    db,
+                    suspended: false,
+                    restrictions: WorkspaceRestrictions::default(),
+                });
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    next.run(request).await
+}
+
 // ── Cron jobs ───────────────────────────────────────────────────────────────
 
 /// `POST /__conformance/cron/sign-lifecycle`: one tick of the WeldSign

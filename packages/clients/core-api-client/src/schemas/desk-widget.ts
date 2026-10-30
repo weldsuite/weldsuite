@@ -75,6 +75,31 @@ export const updateDeskWidgetSchema = z.object({
   expectedReplyTime: z.enum(DESK_EXPECTED_REPLY_TIMES).nullish(),
 });
 
+/** A `desk_widget_settings` row, as /api/desk/widget returns it. */
+export const deskWidgetSettingsSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    widgetId: z.string(),
+    widgetName: z.string().nullable(),
+    enabled: z.boolean(),
+    greeting: z.string().nullable(),
+    branding: deskWidgetBrandingSchema.passthrough().nullable(),
+    allowedDomains: z.array(z.string()).nullable(),
+    officeHours: z
+      .object({ enabled: z.boolean(), days: z.record(z.object({ start: z.string(), end: z.string() }).nullable()) })
+      .passthrough()
+      .nullable(),
+    timezone: z.string().nullable(),
+    awayMessage: z.string().nullable(),
+    expectedReplyTime: z.string().nullable(),
+  })
+  .passthrough();
+
+/** DELETE /api/desk/widget/:widgetId. */
+export const deskWidgetRefSchema = z.object({ id: z.string(), widgetId: z.string() });
+
 export type CreateDeskWidgetInput = z.infer<typeof createDeskWidgetSchema>;
 export type UpdateDeskWidgetInput = z.infer<typeof updateDeskWidgetSchema>;
 export type DeskOfficeHoursInput = z.infer<typeof deskOfficeHoursSchema>;
