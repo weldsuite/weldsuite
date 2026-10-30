@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { weldchatKeys } from '@/hooks/queries/use-weldchat-queries';
 import { useI18n } from '@/lib/i18n/provider';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
+import { isFeatureAvailable } from '@/lib/edition';
 
 interface ActiveCallBannerProps {
   channelId: string;
@@ -22,6 +23,7 @@ export function ActiveCallBanner({ channelId }: Readonly<ActiveCallBannerProps>)
       return client.get<{ data: ChatCall | null }>(`/chat-calls/active/${channelId}`);
     },
     staleTime: Infinity,
+    enabled: isFeatureAvailable('chat-calls'),
   });
 
   const activeCall = data?.data;

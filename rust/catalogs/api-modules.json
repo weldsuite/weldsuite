@@ -407,7 +407,7 @@
       "/api/chat-status",
       "/public/chat-calls"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "chat-api"
   },
   {

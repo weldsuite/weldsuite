@@ -52,6 +52,8 @@ export const EDITION_FEATURES = [
   'mail-free-addresses',
   /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
   'mail-ai',
+  /** WeldChat voice and video calls (`/api/chat-calls`, Cloudflare RealtimeKit). */
+  'chat-calls',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
