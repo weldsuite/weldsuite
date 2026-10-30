@@ -82,7 +82,11 @@ impl SequenceRuns for BridgedWorkflow {
 
 impl weldsuite_mail::scheduled::ScheduledRuns for BridgedWorkflow {
     /// `binding.create({ id, params })`; the instance id is the one asked for.
-    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<String, String>> {
+    fn create<'a>(
+        &'a self,
+        id: &'a str,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
             self.call("create", id, json!({ "id": id, "params": params }))
                 .await

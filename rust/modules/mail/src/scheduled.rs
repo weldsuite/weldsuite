@@ -32,7 +32,11 @@ pub const SEND_SCHEDULED_EMAIL_JOB: &str = "mail.send-scheduled-email";
 /// Starts and stops scheduled-send runs (the `SEND_SCHEDULED_EMAIL` binding).
 pub trait ScheduledRuns: Send + Sync {
     /// `binding.create({ id, params })`: the run's instance id.
-    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<String, String>>;
+    fn create<'a>(
+        &'a self,
+        id: &'a str,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>>;
 
     /// `(await binding.get(id)).terminate()`, best effort.
     fn terminate<'a>(&'a self, id: &'a str) -> BoxFuture<'a, ()>;
@@ -48,7 +52,11 @@ pub struct JobsScheduledRuns {
 }
 
 impl ScheduledRuns for JobsScheduledRuns {
-    fn create<'a>(&'a self, id: &'a str, params: &'a Value) -> BoxFuture<'a, Result<String, String>> {
+    fn create<'a>(
+        &'a self,
+        id: &'a str,
+        params: &'a Value,
+    ) -> BoxFuture<'a, Result<String, String>> {
         Box::pin(async move {
             let mut request = JobRequest::new(SEND_SCHEDULED_EMAIL_JOB, id, params)
                 .map_err(|error| error.to_string())?;
@@ -84,7 +92,10 @@ pub(crate) struct ScheduledRow {
 }
 
 /// A live message row (`loadScheduled`).
-pub(crate) async fn load_scheduled(db: &PgPool, id: &str) -> Result<Option<ScheduledRow>, sqlx::Error> {
+pub(crate) async fn load_scheduled(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<ScheduledRow>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(m) from mail_messages m where m.id = $1 and m.deleted_at is null limit 1",
     )
@@ -129,9 +140,12 @@ pub(crate) async fn apply_scheduled_patch(
     let Some(labels) = labels else {
         return Ok(false);
     };
-    let labels = patch
-        .drop_scheduled_label
-        .then(|| labels_value(&remove_labels(&labels_of(labels.as_ref()), &["SCHEDULED".to_owned()])));
+    let labels = patch.drop_scheduled_label.then(|| {
+        labels_value(&remove_labels(
+            &labels_of(labels.as_ref()),
+            &["SCHEDULED".to_owned()],
+        ))
+    });
     let now = iso(time::OffsetDateTime::now_utc());
     let (delivery_status, delivery_detail) = patch.delivery.unzip();
     sqlx::query(
@@ -198,12 +212,13 @@ pub(crate) async fn deliver(
     let attachments: Vec<SendAttachmentInput> = rows
         .into_iter()
         .filter_map(|(filename, content_type, size, path)| {
-            path.filter(|p| !p.is_empty()).map(|file_key| SendAttachmentInput {
-                filename,
-                content_type,
-                size: size.unwrap_or(0),
-                file_key,
-            })
+            path.filter(|p| !p.is_empty())
+                .map(|file_key| SendAttachmentInput {
+                    filename,
+                    content_type,
+                    size: size.unwrap_or(0),
+                    file_key,
+                })
         })
         .collect();
     let row = &message.row;
@@ -309,11 +324,17 @@ impl SendScheduledEmailJob {
             .await
             .map_err(JobError::Failed)?;
         let fail = |error: sqlx::Error| JobError::Failed(error.to_string());
-        let Some(message) = load_scheduled(&db, &params.message_id).await.map_err(fail)? else {
+        let Some(message) = load_scheduled(&db, &params.message_id)
+            .await
+            .map_err(fail)?
+        else {
             return Ok("skipped".to_owned());
         };
         if message.send_status.as_deref() != Some("scheduled")
-            || message.trigger_run_id.as_deref().is_some_and(|run| run != key)
+            || message
+                .trigger_run_id
+                .as_deref()
+                .is_some_and(|run| run != key)
         {
             return Ok("skipped".to_owned());
         }
@@ -327,7 +348,10 @@ impl SendScheduledEmailJob {
                     SendError::Mail { message, .. } => message.clone(),
                     SendError::Internal(message) => message.clone(),
                 };
-                tracing::warn!("[SendScheduledEmail] {} failed: {detail}", params.message_id);
+                tracing::warn!(
+                    "[SendScheduledEmail] {} failed: {detail}",
+                    params.message_id
+                );
                 apply_scheduled_patch(
                     &db,
                     &params.message_id,
@@ -359,10 +383,11 @@ impl Job for SendScheduledEmailJob {
         Box::pin(async move {
             let params: Params = serde_json::from_value(payload)?;
             let key = ctx.key().to_owned();
-            let outcome: String = weldsuite_ports::step(ctx, "send-email", StepRetry::default(), || {
-                self.send_once(&key, &params)
-            })
-            .await?;
+            let outcome: String =
+                weldsuite_ports::step(ctx, "send-email", StepRetry::default(), || {
+                    self.send_once(&key, &params)
+                })
+                .await?;
             tracing::info!(message = %params.message_id, outcome, "[SendScheduledEmail] done");
             Ok(())
         })

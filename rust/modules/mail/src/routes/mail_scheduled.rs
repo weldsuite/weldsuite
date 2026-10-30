@@ -35,7 +35,9 @@ use crate::scheduled::{
     ScheduledPatch, ScheduledRuns, apply_scheduled_patch, deliver, load_scheduled, now_millis,
     run_params,
 };
-use crate::send::{EMAIL, RequestDoh, SendContext, attachments, emails, optional_text, send_error_response};
+use crate::send::{
+    EMAIL, RequestDoh, SendContext, attachments, emails, optional_text, send_error_response,
+};
 use crate::util::{MailError, MailResult, answer, unhandled, validate, validate_query};
 use crate::{Caller, MailState};
 
@@ -183,8 +185,8 @@ async fn validate_attachments(
         ));
     }
     let prefix = format!("workspaces/{org}/");
-    let mut total = data.body.as_ref().map_or(0, String::len)
-        + data.html_body.as_ref().map_or(0, String::len);
+    let mut total =
+        data.body.as_ref().map_or(0, String::len) + data.html_body.as_ref().map_or(0, String::len);
     let mut out = Vec::new();
     for att in &data.attachments {
         if !att.file_key.starts_with(&prefix) {
@@ -289,10 +291,20 @@ async fn schedule(
         let text = issues.text(object, "body", Presence::Optional, None, None);
         let html = issues.text(object, "htmlBody", Presence::Optional, None, None);
         let reply_to = issues.text_with(object, "replyTo", Presence::Optional, EMAIL);
-        issues.choice(object, "importance", Presence::Optional, &["low", "normal", "high"]);
-        let ids = issues.list(object, "attachmentIds", Presence::Optional, None, None, |issues, item| {
-            issues.item_text(item, Text::default())
-        });
+        issues.choice(
+            object,
+            "importance",
+            Presence::Optional,
+            &["low", "normal", "high"],
+        );
+        let ids = issues.list(
+            object,
+            "attachmentIds",
+            Presence::Optional,
+            None,
+            None,
+            |issues, item| issues.item_text(item, Text::default()),
+        );
         let files = attachments(issues, object);
         let scheduled_for = issues.text_with(
             object,
@@ -304,9 +316,14 @@ async fn schedule(
             },
         );
         let in_reply_to = issues.text(object, "inReplyTo", Presence::Optional, None, None);
-        let references = issues.list(object, "references", Presence::Optional, None, None, |issues, item| {
-            issues.item_text(item, Text::default())
-        });
+        let references = issues.list(
+            object,
+            "references",
+            Presence::Optional,
+            None,
+            None,
+            |issues, item| issues.item_text(item, Text::default()),
+        );
         ScheduleInput {
             account_id: account.into_option().unwrap_or_default(),
             send: SendInput {
@@ -525,7 +542,11 @@ async fn terminate(runs: Option<&Arc<dyn ScheduledRuns>>, run: Option<&str>) {
 }
 
 /// `POST /:messageId/cancel` (`cancelScheduled`).
-async fn cancel(State(state): State<MailState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn cancel(
+    State(state): State<MailState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     let result = async {
         reach(&caller, &id).await?;
         let message = scheduled_row(&caller, &id).await?;
@@ -601,7 +622,13 @@ async fn reschedule(
         terminate(Some(&runs), message.trigger_run_id.as_deref()).await;
         let instance = format!("{id}-r{}", now_millis());
         let scheduled_iso = iso_ms(at);
-        let params = run_params(&org, &caller.user_id, &id, &message.account_id, &scheduled_iso);
+        let params = run_params(
+            &org,
+            &caller.user_id,
+            &id,
+            &message.account_id,
+            &scheduled_iso,
+        );
         let run = runs.create(&instance, &params).await.map_err(|error| {
             tracing::error!("[mail-scheduled] could not start the run: {error}");
             MailError::api(ApiError::internal().with_message("Failed to reschedule email"))
@@ -700,7 +727,8 @@ async fn send_now(
                 .into_response()
         }
         Err(error) => {
-            let partial = matches!(&error, SendError::Mail { code, .. } if code == "PARTIALLY_SENT");
+            let partial =
+                matches!(&error, SendError::Mail { code, .. } if code == "PARTIALLY_SENT");
             if !partial {
                 restore_schedule(&caller, runs.as_ref(), &org, &message).await;
             }

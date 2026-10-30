@@ -29,10 +29,10 @@ use crate::{Caller, MailState};
 #[path = "mail_messages_reads.rs"]
 mod reads;
 pub(crate) use reads::locate as locate_message;
-#[path = "mail_messages_writes.rs"]
-mod writes;
 #[path = "mail_messages_forward.rs"]
 mod forward;
+#[path = "mail_messages_writes.rs"]
+mod writes;
 
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where

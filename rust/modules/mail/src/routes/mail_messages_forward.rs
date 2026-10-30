@@ -19,7 +19,9 @@ use weldsuite_kit::validation::{Presence, Text};
 use weldsuite_mail_domain::messages::mailbox_message;
 use weldsuite_mail_domain::outbound::OutboundKind;
 use weldsuite_mail_domain::outbound::clock::parse_iso;
-use weldsuite_mail_domain::outbound::mime::{MailAddress, MimeAttachment, MimeMessage, build_rfc5322};
+use weldsuite_mail_domain::outbound::mime::{
+    MailAddress, MimeAttachment, MimeMessage, build_rfc5322,
+};
 use weldsuite_mail_domain::send::{
     ExtraAttachment, SendError, SendInput, SendOptions, send_and_persist,
 };
@@ -28,7 +30,9 @@ use weldsuite_ports::get_stored;
 
 use super::locate as locate_for_send;
 use crate::routes::mail_accounts::email_event_data;
-use crate::send::{RequestDoh, SendContext, attachments, emails, optional_text, send_error_response};
+use crate::send::{
+    RequestDoh, SendContext, attachments, emails, optional_text, send_error_response,
+};
 use crate::util::validate;
 use crate::{Caller, MailState};
 
@@ -100,13 +104,9 @@ fn format_forward_date(millis: i64, time_zone: Option<&str>) -> String {
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     let month = MONTHS[usize::try_from(date.month() - 1).unwrap_or(0)];
-    let time = weldsuite_emails::format_time(
-        millis,
-        weldsuite_emails::EmailLocale::En,
-        zone_name,
-        true,
-    )
-    .unwrap_or_default();
+    let time =
+        weldsuite_emails::format_time(millis, weldsuite_emails::EmailLocale::En, zone_name, true)
+            .unwrap_or_default();
     format!("{weekday}, {month} {}, {}, {time}", date.day(), date.year())
 }
 
@@ -149,9 +149,13 @@ async fn original_files(
     };
     let mut loaded = Vec::new();
     for (_, file_name, content_type, _, path) in wanted {
-        let object = get_stored(private.as_ref(), public, path.as_deref().unwrap_or_default())
-            .await
-            .map_err(|error| SendError::Internal(error.to_string()))?;
+        let object = get_stored(
+            private.as_ref(),
+            public,
+            path.as_deref().unwrap_or_default(),
+        )
+        .await
+        .map_err(|error| SendError::Internal(error.to_string()))?;
         let Some(object) = object else {
             return Err(SendError::mail(
                 "ATTACHMENT_NOT_IN_STORAGE",
@@ -173,13 +177,20 @@ async fn original_files(
 /// Kubernetes editions keep no raw copy apart from it).
 fn eml_attachment(original: &Value, files: &[ExtraAttachment]) -> ExtraAttachment {
     let address = |v: &Value| {
-        v.get("email").and_then(Value::as_str).filter(|e| !e.is_empty()).map(|email| MailAddress {
-            email: email.to_owned(),
-            name: v.get("name").and_then(Value::as_str).map(str::to_owned),
-        })
+        v.get("email")
+            .and_then(Value::as_str)
+            .filter(|e| !e.is_empty())
+            .map(|email| MailAddress {
+                email: email.to_owned(),
+                name: v.get("name").and_then(Value::as_str).map(str::to_owned),
+            })
     };
     let list = |v: &Value| -> Vec<MailAddress> {
-        v.as_array().into_iter().flatten().filter_map(address).collect()
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(address)
+            .collect()
     };
     let from = address(&original["from"]).unwrap_or_else(|| MailAddress::new("unknown@invalid"));
     let date = original["sentDate"]
@@ -209,11 +220,15 @@ fn eml_attachment(original: &Value, files: &[ExtraAttachment]) -> ExtraAttachmen
             .collect(),
         ..MimeMessage::default()
     };
-    let content = build_rfc5322(&message).map(|built| built.raw).unwrap_or_default();
+    let content = build_rfc5322(&message)
+        .map(|built| built.raw)
+        .unwrap_or_default();
     let mut name = String::new();
     let mut last_space = false;
     for ch in original["subject"].as_str().unwrap_or_default().chars() {
-        let ch = if matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || ch.is_whitespace() {
+        let ch = if matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+            || ch.is_whitespace()
+        {
             ' '
         } else {
             ch

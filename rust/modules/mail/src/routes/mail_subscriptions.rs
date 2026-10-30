@@ -6,11 +6,11 @@
 use std::sync::Arc;
 
 use axum::Extension;
+use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 use http::HeaderMap;
 use serde_json::{Value, json};
 use weldsuite_catalogs::entity_events::MAIL_SUBSCRIPTION_UNSUBSCRIBED;
@@ -69,7 +69,10 @@ async fn list(caller: Caller, RawQuery(raw): RawQuery) -> Response {
     let query = validate_query(raw.as_deref(), |issues, q| {
         let account = issues.text(q, "accountId", Presence::Required, Some(1), None);
         let status = issues.choice(q, "status", Presence::Optional, &["active", "unsubscribed"]);
-        (account.into_option().unwrap_or_default(), status.into_option())
+        (
+            account.into_option().unwrap_or_default(),
+            status.into_option(),
+        )
     });
     let (account, status) = match query {
         Ok(query) => query,
@@ -155,9 +158,16 @@ fn is_safe_unsubscribe_url(value: &str) -> bool {
     if dotted_quad || host == "localhost" {
         return false;
     }
-    ![".localhost", ".local", ".internal", ".lan", ".home", ".corp"]
-        .iter()
-        .any(|suffix| host.ends_with(suffix))
+    ![
+        ".localhost",
+        ".local",
+        ".internal",
+        ".lan",
+        ".home",
+        ".corp",
+    ]
+    .iter()
+    .any(|suffix| host.ends_with(suffix))
 }
 
 /// `parseMailto(value)`: the address and the subject and body to send.
@@ -197,7 +207,10 @@ fn parse_mailto(value: &str) -> Option<(String, String, String)> {
             _ => {}
         }
     }
-    let pick = |v: Option<String>| v.filter(|s| !s.is_empty()).unwrap_or_else(|| "unsubscribe".to_owned());
+    let pick = |v: Option<String>| {
+        v.filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "unsubscribe".to_owned())
+    };
     Some((to, pick(subject), pick(body)))
 }
 
@@ -260,7 +273,8 @@ async fn unsubscribe(
                         outcome = Some(Outcome::Done("one_click", None));
                     }
                     Ok(response) => {
-                        last_error = Some(format!("One-click POST returned HTTP {}", response.status));
+                        last_error =
+                            Some(format!("One-click POST returned HTTP {}", response.status));
                     }
                     Err(error) => last_error = Some(error.to_string()),
                 },
@@ -282,7 +296,16 @@ async fn unsubscribe(
                 kind: Some(OutboundKind::NewThread),
                 ..SendOptions::default()
             };
-            match send_and_persist(&context.deps(&caller), &org, &caller.user_id, &account, &input, &options).await {
+            match send_and_persist(
+                &context.deps(&caller),
+                &org,
+                &caller.user_id,
+                &account,
+                &input,
+                &options,
+            )
+            .await
+            {
                 Ok(_) => outcome = Some(Outcome::Done("mailto", None)),
                 Err(SendError::Mail { message, .. } | SendError::Internal(message)) => {
                     last_error = Some(message);
@@ -298,7 +321,9 @@ async fn unsubscribe(
         let (method, link) = match outcome {
             Outcome::Done(method, link) => (method, link),
             Outcome::NoMethod => {
-                return Err(MailError::bad_request("This sender offers no way to unsubscribe"));
+                return Err(MailError::bad_request(
+                    "This sender offers no way to unsubscribe",
+                ));
             }
             Outcome::Failed(detail) => {
                 return Err(MailError::api(
@@ -330,7 +355,10 @@ async fn unsubscribe(
                 "method": method,
             }),
         );
-        Ok(Data(json!({ "subscription": subscription, "method": method, "url": link })).into_response())
+        Ok(
+            Data(json!({ "subscription": subscription, "method": method, "url": link }))
+                .into_response(),
+        )
     }
     .await;
     answer(result, "Failed to unsubscribe")
