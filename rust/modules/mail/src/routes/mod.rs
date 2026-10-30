@@ -14,6 +14,7 @@ pub(crate) mod mail_scheduled;
 pub(crate) mod mail_sending;
 pub(crate) mod mail_signatures;
 pub(crate) mod mail_snooze;
+pub(crate) mod mail_subscriptions;
 pub(crate) mod mail_sync;
 pub(crate) mod mail_templates;
 pub(crate) mod mail_threads;
