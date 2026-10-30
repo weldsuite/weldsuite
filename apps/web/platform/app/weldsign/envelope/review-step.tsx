@@ -1,12 +1,12 @@
 /**
  * The last part of a request: the message, reminders and where the signed copy
  * goes (`ReviewSettings`), what is in it (`ReviewSummary`), and Send
- * (`SendButton`), which stays off while something is missing. Sending asks for
- * the expiry date and then emails the first signers (sign-api checks the draft
- * again before anything goes out).
+ * (`SendButton`), which stays off while something is missing and says what on
+ * hover. Sending asks for the expiry date and then emails the first signers
+ * (sign-api checks the draft again before anything goes out).
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useCan } from '@weldsuite/permissions/react';
@@ -14,12 +14,13 @@ import { Button } from '@weldsuite/ui/components/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@weldsuite/ui/components/dialog';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@weldsuite/ui/components/tooltip';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
 import { targetOf, useSendSignEnvelope, useUpdateSignEnvelope } from '@/hooks/queries/use-weldsign-queries';
 import type { ReadinessProblem } from '../lib/readiness';
 import { apiErrorMessage } from '../lib/errors';
-import { MessageField, ReminderSettings } from './settings-fields';
+import { describeProblem, MessageField, problemKey, ReminderSettings } from './settings-fields';
 import { SignedCopy } from './signed-copy';
 
 const DEFAULT_EXPIRY_DAYS = 30;
@@ -71,6 +72,29 @@ interface SendButtonProps {
   beforeSend?: () => Promise<void>;
 }
 
+/** Says what is still missing, on hovering or focusing the Send that it keeps off. */
+function MissingTooltip({ problems, children }: Readonly<{ problems: ReadinessProblem[]; children: ReactNode }>) {
+  const { t, format } = useI18n();
+  const tr = t.weldsign.editor.review;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {/* A disabled button gets no pointer events or focus, so the tooltip hangs on a wrapper that does. */}
+        <span tabIndex={0} className="inline-flex rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="end" className="max-w-xs">
+        <ul className="flex flex-col gap-1">
+          {problems.map((problem) => (
+            <li key={problemKey(problem)}>{describeProblem(problem, tr, format)}</li>
+          ))}
+        </ul>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** Send, for whoever may send a request that can still be changed, and the dialog that asks for the expiry. */
 export function SendButton({ envelope, editable, problems, beforeSend }: Readonly<SendButtonProps>) {
   const { t } = useI18n();
@@ -95,12 +119,16 @@ export function SendButton({ envelope, editable, problems, beforeSend }: Readonl
     }
   };
 
+  const button = (
+    <Button size="sm" className="h-8" disabled={problems.length > 0 || preparing} onClick={() => void open()}>
+      {preparing && <Loader2 className="animate-spin" />}
+      {tr.send}
+    </Button>
+  );
+
   return (
     <>
-      <Button size="sm" className="h-8" disabled={problems.length > 0 || preparing} onClick={() => void open()}>
-        {preparing && <Loader2 className="animate-spin" />}
-        {tr.send}
-      </Button>
+      {problems.length > 0 ? <MissingTooltip problems={problems}>{button}</MissingTooltip> : button}
 
       <Dialog open={confirming} onOpenChange={(next) => !send.isPending && setConfirming(next)}>
         <DialogContent>

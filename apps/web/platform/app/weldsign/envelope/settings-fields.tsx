@@ -152,27 +152,33 @@ export function SummaryStats({ title, stats }: Readonly<{ title: string; stats: 
   );
 }
 
+/** The words for what can still be missing. */
+export interface ProblemMessages {
+  noDocuments: string;
+  noSigners: string;
+  /** `{name}` is the signer's (or the role's) name. */
+  signerWithoutSignature: string;
+}
+
+/** One thing still missing, in words. */
+export function describeProblem(problem: ReadinessProblem, messages: ProblemMessages, format: ReturnType<typeof useI18n>['format']): string {
+  if (problem.kind === 'no_documents') return messages.noDocuments;
+  if (problem.kind === 'no_signers') return messages.noSigners;
+  return format(messages.signerWithoutSignature, { name: problem.name });
+}
+
+/** A problem's key in a list: one per kind, or per signer. */
+export const problemKey = (problem: ReadinessProblem): string => (problem.kind === 'signer_without_signature' ? problem.recipientId : problem.kind);
+
 interface ReadinessChecklistProps {
   problems: ReadinessProblem[];
   heading: string;
-  messages: {
-    ready: string;
-    noDocuments: string;
-    noSigners: string;
-    /** `{name}` is the signer's (or the role's) name. */
-    signerWithoutSignature: string;
-  };
+  messages: ProblemMessages & { ready: string };
 }
 
 /** What still stands between this draft (or template) and being sendable, or a tick when nothing does. */
 export function ReadinessChecklist({ problems, heading, messages }: Readonly<ReadinessChecklistProps>) {
   const { format } = useI18n();
-
-  const describe = (problem: ReadinessProblem): string => {
-    if (problem.kind === 'no_documents') return messages.noDocuments;
-    if (problem.kind === 'no_signers') return messages.noSigners;
-    return format(messages.signerWithoutSignature, { name: problem.name });
-  };
 
   return (
     <section className="flex flex-col gap-2 rounded-lg border p-4">
@@ -185,9 +191,9 @@ export function ReadinessChecklist({ problems, heading, messages }: Readonly<Rea
       ) : (
         <ul className="flex flex-col gap-1.5">
           {problems.map((problem) => (
-            <li key={problem.kind === 'signer_without_signature' ? problem.recipientId : problem.kind} className="flex items-center gap-2 text-sm">
+            <li key={problemKey(problem)} className="flex items-center gap-2 text-sm">
               <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-              {describe(problem)}
+              {describeProblem(problem, messages, format)}
             </li>
           ))}
         </ul>

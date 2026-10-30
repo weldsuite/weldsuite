@@ -137,6 +137,16 @@ describe('review: settings, summary and Send', () => {
     expect(screen.getByRole('button', { name: tr.send })).toBeDisabled();
   });
 
+  it('says on hover what keeps Send off', async () => {
+    const user = userEvent.setup();
+    const bob = { ...ann, id: 'rcp_bob', name: 'Bob', email: 'bob@example.com' } as SignRecipientDto;
+    renderStep(ready({ recipientList: [ann, bob] }));
+
+    await user.hover(screen.getByRole('button', { name: tr.send }).parentElement!);
+    expect((await screen.findAllByText('Bob has no signature field.')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Ann has no signature field.')).toBeNull();
+  });
+
   it('turns Send on when nothing is', () => {
     renderStep(ready());
     expect(screen.getByRole('button', { name: tr.send })).toBeEnabled();
