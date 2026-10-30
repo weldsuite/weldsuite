@@ -28,7 +28,8 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 
-// Building the schema in pglite takes longer than the 10s default on a busy runner.
+// Applying every tenant migration to pglite outlasts the 10 s default hook
+// timeout on a busy CI runner; the other pglite suites allow 60 s too.
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
 }, 60_000);
