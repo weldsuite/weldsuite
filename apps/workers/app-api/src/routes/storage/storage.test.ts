@@ -28,9 +28,10 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 let db: Database;
 
+// Building the schema in pglite takes longer than the 10s default on a busy runner.
 beforeAll(async () => {
   db = (await createPgliteDb()).db;
-});
+}, 60_000);
 
 function memoryKv() {
   const store = new Map<string, string>();
