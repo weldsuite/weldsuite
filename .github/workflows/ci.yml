@@ -232,21 +232,22 @@ jobs:
   # Phase P2: the worker tests of every ported route run against a conformance
   # build of the Rust server and are compared with the Hono app (bodies,
   # schemas, side effects). On a PR only the suites its changes touch; on
-  # develop and main all of them. Also the route coverage of every worker the
-  # change touches, as a report (first shard).
+  # develop and main all of them. The route coverage of the changed workers
+  # runs on its own runner (rust-conformance-coverage).
   # Every suite in one job outgrew 45 minutes once wave 3 added its modules;
-  # the suites are dealt over six runners (four took up to 36 minutes at 62
-  # suites; the ported wave 3 modules made it 76). "Rust · conformance" stays
+  # the suites are dealt over eight runners (four took up to 36 minutes at 62
+  # suites; the ported wave 3 modules made it 76, and six still came within
+  # five minutes of the limit). "Rust · conformance" stays
   # the check that fails unless every shard succeeded. Keep --shard's n equal
   # to the matrix length.
   rust-conformance-shards:
-    name: Rust · conformance (${{ matrix.shard }}/6)
+    name: Rust · conformance (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -262,15 +263,12 @@ jobs:
       - name: Conformance suites
         run: |
           set -euo pipefail
-          shard="${{ matrix.shard }}/6"
+          shard="${{ matrix.shard }}/8"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             pnpm rust:conformance --changed "origin/${{ github.base_ref }}" --shard "$shard"
           else
             pnpm rust:conformance --shard "$shard"
           fi
-      - name: Route coverage of the changed workers
-        if: github.event_name == 'pull_request' && matrix.shard == 1
-        run: pnpm rust:conformance --coverage-changed "origin/${{ github.base_ref }}"
       - name: Upload the reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -279,19 +277,44 @@ jobs:
           path: rust/target/conformance/**/*.md
           if-no-files-found: ignore
 
+  # Which routes the changed workers' own tests reach (record-only, no Rust):
+  # a ported module fails when a route goes unreached. It ran after the first
+  # shard's suites until wave 3's five workers took it past 45 minutes.
+  rust-conformance-coverage:
+    name: Rust · conformance coverage
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-monorepo
+      - name: Route coverage of the changed workers
+        run: pnpm rust:conformance --coverage-changed "origin/${{ github.base_ref }}"
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-coverage-report
+          path: rust/target/conformance/**/*.md
+          if-no-files-found: ignore
+
   rust-conformance:
     name: Rust · conformance
-    needs: [rust-conformance-shards]
+    needs: [rust-conformance-shards, rust-conformance-coverage]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every conformance shard
+      - name: Require every conformance shard, and coverage on a PR
         run: |
           set -euo pipefail
-          result="${{ needs.rust-conformance-shards.result }}"
-          echo "shards: $result"
-          test "$result" = "success"
+          shards="${{ needs.rust-conformance-shards.result }}"
+          coverage="${{ needs.rust-conformance-coverage.result }}"
+          echo "shards: $shards, coverage: $coverage"
+          test "$shards" = "success"
+          test "$coverage" = "success" || test "$coverage" = "skipped"
 
   rust-all:
     name: Rust
