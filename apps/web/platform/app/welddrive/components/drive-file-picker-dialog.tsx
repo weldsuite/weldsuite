@@ -62,7 +62,7 @@ export function DriveFilePickerDialog({
   onConfirm,
   onClose,
 }: Readonly<DriveFilePickerDialogProps>) {
-  const { t, format } = useI18n();
+  const { t } = useI18n();
   const tp = t.welddrive.picker.files;
   const [tab, setTab] = useState<Tab>('recent');
   const [path, setPath] = useState<Pick<DriveFolder, 'id' | 'name'>[]>([]);
@@ -72,52 +72,8 @@ export function DriveFilePickerDialog({
   const deferredSearch = useDeferredValue(search.trim());
 
   const folderId = path.at(-1)?.id;
-  const allParams = { type: fileType, search: deferredSearch || undefined, pageSize: PAGE_SIZE };
-  const all = useDriveFiles(allParams);
-  // Outside a folder this is the same query as `all`, so it is not asked for twice.
-  const inFolder = useDriveFiles(folderId ? { type: fileType, folderId, pageSize: PAGE_SIZE } : allParams);
-  const folders = useDriveFolders(folderId ?? null, !deferredSearch && (tab === 'myDrive' || (tab === 'shared' && !!folderId)));
-  const shared = useSharedWithMe(tab === 'shared' && !folderId);
-
-  const fits = (file: UnifiedFile) => accept?.(file) ?? true;
-  const content = contentOf();
+  const content = usePickerListing({ fileType, accept, tab, folderId, search: deferredSearch });
   const full = maxSelect !== undefined && chosen.size >= maxSelect;
-
-  function contentOf(): { files: UnifiedFile[]; folders: DriveFolder[]; loading: boolean; failed: boolean; limited: boolean; grouped: boolean } {
-    const fromAll = { loading: all.isLoading, failed: all.isError, limited: all.data?.pagination?.hasMore === true };
-    if (deferredSearch || tab === 'recent') {
-      return { ...fromAll, files: newestFirst((all.data?.data ?? []).filter(fits)), folders: [], grouped: !deferredSearch };
-    }
-    if (folderId) {
-      return {
-        files: (inFolder.data?.data ?? []).filter(fits),
-        folders: folders.data?.data ?? [],
-        loading: inFolder.isLoading || folders.isLoading,
-        failed: inFolder.isError || folders.isError,
-        limited: inFolder.data?.pagination?.hasMore === true,
-        grouped: false,
-      };
-    }
-    if (tab === 'shared') {
-      const items = shared.data;
-      return {
-        files: (items?.files ?? []).filter((file) => file.fileType === fileType && fits(file)),
-        folders: items?.folders ?? [],
-        loading: shared.isLoading,
-        failed: shared.isError,
-        limited: false,
-        grouped: false,
-      };
-    }
-    return {
-      ...fromAll,
-      files: (all.data?.data ?? []).filter((file) => !file.folderId && fits(file)),
-      folders: folders.data?.data ?? [],
-      loading: all.isLoading || folders.isLoading,
-      failed: all.isError || folders.isError,
-      grouped: false,
-    };
-  }
 
   const selectTab = (next: Tab) => {
     setTab(next);
@@ -207,25 +163,122 @@ export function DriveFilePickerDialog({
           )}
         </div>
 
-        <footer className="flex items-center justify-between gap-4 border-t px-4 py-4">
-          <span className="text-sm text-muted-foreground">
-            {maxSelect === undefined
-              ? format(tp.selected, { count: chosen.size })
-              : format(tp.selectedOf, { count: chosen.size, max: maxSelect })}
-          </span>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={pending} onClick={onClose}>
-              {t.common.actions.cancel}
-            </Button>
-            <Button disabled={pending || chosen.size === 0} onClick={() => void confirm()}>
-              {pending && <Loader2 className="animate-spin" />}
-              {pending ? pendingLabel : confirmLabel}
-            </Button>
-          </div>
-        </footer>
+        <PickerFooter
+          count={chosen.size}
+          maxSelect={maxSelect}
+          pending={pending}
+          confirmLabel={confirmLabel}
+          pendingLabel={pendingLabel}
+          onCancel={onClose}
+          onConfirm={() => void confirm()}
+        />
       </DialogContent>
     </Dialog>
   );
+}
+
+interface PickerFooterProps {
+  count: number;
+  maxSelect?: number;
+  pending: boolean;
+  confirmLabel: string;
+  pendingLabel: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+/** How many files are chosen, Cancel, and the confirm button, busy while it works. */
+function PickerFooter({ count, maxSelect, pending, confirmLabel, pendingLabel, onCancel, onConfirm }: Readonly<PickerFooterProps>) {
+  const { t, format } = useI18n();
+  const tp = t.welddrive.picker.files;
+  return (
+    <footer className="flex items-center justify-between gap-4 border-t px-4 py-4">
+      <span className="text-sm text-muted-foreground">
+        {maxSelect === undefined ? format(tp.selected, { count }) : format(tp.selectedOf, { count, max: maxSelect })}
+      </span>
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={pending} onClick={onCancel}>
+          {t.common.actions.cancel}
+        </Button>
+        <Button disabled={pending || count === 0} onClick={onConfirm}>
+          {pending && <Loader2 className="animate-spin" />}
+          {pending ? pendingLabel : confirmLabel}
+        </Button>
+      </div>
+    </footer>
+  );
+}
+
+/** What a tab lists, and whether that is still loading. */
+interface Listing {
+  files: UnifiedFile[];
+  folders: DriveFolder[];
+  loading: boolean;
+  failed: boolean;
+  /** More files exist than were asked for. */
+  limited: boolean;
+  /** Under date headings, as the recent files are. */
+  grouped: boolean;
+}
+
+interface ListingInput {
+  fileType: string;
+  accept?: (file: UnifiedFile) => boolean;
+  tab: Tab;
+  /** The folder opened in My Drive or Shared with me. */
+  folderId?: string;
+  search: string;
+}
+
+/** What the open tab, or a search, lists: the queries it takes, and their files narrowed down. */
+function usePickerListing({ fileType, accept, tab, folderId, search }: Readonly<ListingInput>): Listing {
+  const allParams = { type: fileType, search: search || undefined, pageSize: PAGE_SIZE };
+  const all = useDriveFiles(allParams);
+  // Outside a folder this is the same query as `all`, so it is not asked for twice.
+  const inFolder = useDriveFiles(folderId ? { type: fileType, folderId, pageSize: PAGE_SIZE } : allParams);
+  const showsFolders = !search && (tab === 'myDrive' || (tab === 'shared' && !!folderId));
+  const folders = useDriveFolders(folderId ?? null, showsFolders);
+  const shared = useSharedWithMe(tab === 'shared' && !folderId);
+  const fits = (file: UnifiedFile) => accept?.(file) ?? true;
+
+  if (search || tab === 'recent') {
+    const recent = listingOf(all, fits);
+    return { ...recent, files: newestFirst(recent.files), grouped: !search };
+  }
+  if (folderId) return withFolders(listingOf(inFolder, fits), folders);
+  if (tab === 'shared') return sharedListing(shared, (file) => file.fileType === fileType && fits(file));
+  return withFolders(listingOf(all, (file) => !file.folderId && fits(file)), folders);
+}
+
+function listingOf(query: ReturnType<typeof useDriveFiles>, keep: (file: UnifiedFile) => boolean): Listing {
+  return {
+    files: (query.data?.data ?? []).filter(keep),
+    folders: [],
+    loading: query.isLoading,
+    failed: query.isError,
+    limited: query.data?.pagination?.hasMore === true,
+    grouped: false,
+  };
+}
+
+function withFolders(listing: Listing, folders: ReturnType<typeof useDriveFolders>): Listing {
+  return {
+    ...listing,
+    folders: folders.data?.data ?? [],
+    loading: listing.loading || folders.isLoading,
+    failed: listing.failed || folders.isError,
+  };
+}
+
+function sharedListing(shared: ReturnType<typeof useSharedWithMe>, keep: (file: UnifiedFile) => boolean): Listing {
+  return {
+    files: (shared.data?.files ?? []).filter(keep),
+    folders: shared.data?.folders ?? [],
+    loading: shared.isLoading,
+    failed: shared.isError,
+    limited: false,
+    grouped: false,
+  };
 }
 
 const stampOf = (file: UnifiedFile) => file.updatedAt ?? file.createdAt;
@@ -258,15 +311,7 @@ const COLUMN = {
   size: 'w-[90px]',
 };
 
-interface PickerListProps {
-  files: UnifiedFile[];
-  folders: DriveFolder[];
-  loading: boolean;
-  failed: boolean;
-  /** More files exist than were asked for. */
-  limited: boolean;
-  /** Under date headings, as the recent files are. */
-  grouped: boolean;
+interface PickerListProps extends Listing {
   searching: boolean;
   chosen: ReadonlyMap<string, UnifiedFile>;
   /** The selection is at its limit: files not chosen can not be added. */
