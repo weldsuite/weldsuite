@@ -881,6 +881,7 @@ async function runBoth(
       ts: result.ts,
       tsEffects: {
         ...result.effects,
+        events: sortEvents(result.effects.events),
         outbound: sortOutbound(calls),
         ...mailEffects(sends.finish(), ledger.finish()),
         ...workflowEffects(workflows.finish()),
@@ -896,6 +897,7 @@ async function runBoth(
       rust,
       rustEffects: {
         ...side.effects,
+        events: sortEvents(side.effects.events),
         outbound: sortOutbound(takeRustOutbound()),
         ...mailEffects(takeRustSends(), takeRustLedgerCalls()),
         ...workflowEffects(takeRustWorkflowCalls()),
@@ -937,6 +939,16 @@ function mailEffects(sends: SendRecord[], calls: LedgerCall[]): Pick<SideEffects
     ...(sends.length > 0 ? { sendEmail: sortSends(sends) } : {}),
     ...(calls.length > 0 ? { ledger: sortLedgerCalls(calls) } : {}),
   };
+}
+
+/**
+ * Entity events sorted by their normalised form: both backends publish fire
+ * and forget, so a request's events (a conversation updated and the ticket it
+ * became) reach the bus in either order.
+ */
+function sortEvents(events: unknown[]): unknown[] {
+  const key = (event: unknown) => JSON.stringify(normalizeForDiff(event, true));
+  return [...events].sort((a, b) => key(a).localeCompare(key(b)));
 }
 
 /**
