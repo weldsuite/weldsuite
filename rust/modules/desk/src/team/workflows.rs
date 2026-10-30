@@ -347,14 +347,14 @@ fn text_of<'a>(row: &'a Map<String, Value>, key: &str) -> &'a str {
     row.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
-fn created_event(state: &DeskState, caller: &Caller, row: &Map<String, Value>) {
+/// A default workflow's created event.
+fn created_event(row: &Map<String, Value>) -> (ev::EventName, String, Value) {
     let id = text_of(row, "id");
-    caller.publish(
-        state,
+    (
         ev::HELPDESK_WORKFLOW_CREATED,
-        id,
-        &json!({ "id": id, "name": row["name"], "templateId": row["templateId"] }),
-    );
+        id.to_owned(),
+        json!({ "id": id, "name": row["name"], "templateId": row["templateId"] }),
+    )
 }
 
 async fn seed_defaults(State(state): State<DeskState>, caller: Caller) -> Response {
@@ -385,9 +385,7 @@ async fn seed_defaults(State(state): State<DeskState>, caller: Caller) -> Respon
         if let Err(error) = insert_defaults(&caller, &rows).await {
             return write_failed(&error, MESSAGE);
         }
-        for row in &rows {
-            created_event(&state, &caller, row);
-        }
+        caller.publish_in_order(&state, rows.iter().map(created_event).collect());
     }
     let template_ids: Vec<&str> = rows.iter().map(|row| text_of(row, "templateId")).collect();
     Created(json!({ "seeded": rows.len(), "templateIds": template_ids })).into_response()
@@ -409,17 +407,18 @@ async fn reset_defaults(State(state): State<DeskState>, caller: Caller) -> Respo
     if let Err(error) = insert_defaults(&caller, &rows).await {
         return write_failed(&error, MESSAGE);
     }
-    for id in &deleted {
-        caller.publish(
-            &state,
-            ev::HELPDESK_WORKFLOW_DELETED,
-            id,
-            &json!({ "id": id }),
-        );
-    }
-    for row in &rows {
-        created_event(&state, &caller, row);
-    }
+    let events = deleted
+        .iter()
+        .map(|id| {
+            (
+                ev::HELPDESK_WORKFLOW_DELETED,
+                id.clone(),
+                json!({ "id": id }),
+            )
+        })
+        .chain(rows.iter().map(created_event))
+        .collect();
+    caller.publish_in_order(&state, events);
     let template_ids: Vec<&str> = rows.iter().map(|row| text_of(row, "templateId")).collect();
     Data(json!({
         "deleted": deleted.len(),
