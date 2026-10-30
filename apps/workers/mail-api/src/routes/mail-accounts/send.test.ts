@@ -399,3 +399,50 @@ describe('POST /api/mail-messages/:id/reply', () => {
     expect(res.status).toBe(503);
   });
 });
+
+describe('POST /api/mail-messages/:id/forward', () => {
+  const forward = (id: string, body: unknown, extra?: Record<string, unknown>) =>
+    messages(extra).request(`/api/mail-messages/${id}/forward`, json(body));
+
+  it('quotes the original and sends its files along', async () => {
+    await tenantDb.insert(schema.mailAttachments).values([
+      {
+        id: 'attach_fwd_1',
+        messageId: 'msg_in_1',
+        fileName: 'notes.txt',
+        contentType: 'text/plain',
+        size: 13,
+        storagePath: 'workspaces/org_test_default/uploads/notes.txt',
+      },
+      { id: 'attach_fwd_inline', messageId: 'msg_in_1', fileName: 'logo.png', size: 3, isInline: true, storagePath: 'x' },
+    ] as never);
+    const res = await forward('msg_in_1', {
+      to: ['bob@y.com'],
+      body: 'FYI, see below.',
+      timeZone: 'Europe/Amsterdam',
+      locale: 'en-US',
+    });
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { forwardedFrom: string } };
+    expect(data.forwardedFrom).toBe('msg_in_1');
+  });
+
+  it('forwards without the removed files, an html note and an unknown time zone', async () => {
+    const res = await forward('msg_in_1', {
+      to: ['bob@y.com', 'anna@x.com'],
+      htmlBody: '<p>Have a look</p>',
+      excludeAttachmentIds: ['attach_fwd_1'],
+      timeZone: 'Mars/Olympus',
+    });
+    expect(res.status).toBe(200);
+    expect((await forward('msg_sent_1', { to: ['dave@x.com'] })).status).toBe(200);
+  });
+
+  it('refuses what it cannot forward', async () => {
+    expect((await forward('msg_nope', { to: ['bob@y.com'] })).status).toBe(404);
+    expect((await forward('msg_private_1', { to: ['bob@y.com'] })).status).toBe(403);
+    expect((await forward('msg_in_1', { to: [] })).status).toBe(400);
+    expect((await forward('msg_in_1', { to: ['bob@y.com'], timeZone: 'x'.repeat(65) })).status).toBe(400);
+    expect((await forward('msg_in_1', { to: ['bob@y.com'] }, { SEND_EMAIL: undefined })).status).toBe(503);
+  });
+});

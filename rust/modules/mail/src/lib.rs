@@ -12,8 +12,11 @@
 mod caller;
 pub mod consumers;
 pub mod cron;
+mod read_push;
 mod routes;
+pub mod scheduled;
 pub mod send;
+mod util;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,7 +27,7 @@ use weldsuite_events::EntityEventPublisher;
 use weldsuite_mail_domain::outbound::OutboundBindings;
 use weldsuite_mail_domain::recipients::DnsOverHttps;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
-use weldsuite_ports::{DynCache, DynJobs, DynSystemMail, FileStores};
+use weldsuite_ports::{DynCache, DynJobs, DynSystemMail, FileStores, OutboundHttp};
 
 pub(crate) use caller::Caller;
 
@@ -46,8 +49,13 @@ pub struct MailState {
     pub jobs: Option<Arc<dyn DynJobs>>,
     /// System mail (`@weldsuite/emails`): the staff alerts.
     pub system_mail: Option<Arc<dyn DynSystemMail>>,
+    /// Third-party HTTP: Expo push for the mobile read sync.
+    pub http: Option<OutboundHttp>,
     /// DNS-over-HTTPS for the recipients' MX lookup.
     pub doh: Option<Arc<dyn DnsOverHttps>>,
+    /// Another workspace's tenant database and whether it is suspended,
+    /// by reference (`/api/mailboxes`).
+    pub workspace_tenants: Option<WorkspaceTenants>,
     /// The worker's env values the routes read (`OUTBOUND_ADMIN_SECRET`,
     /// `ABUSE_NOTIFY_EMAIL`, …), from the process.
     pub env: Arc<HashMap<String, String>>,
@@ -61,6 +69,19 @@ impl std::fmt::Debug for MailState {
             .finish_non_exhaustive()
     }
 }
+
+/// A workspace's tenant database and whether it is suspended, by reference
+/// (`getWorkspaceContextForOrg`).
+pub type WorkspaceTenants = Arc<
+    dyn Fn(String) -> weldsuite_ports::BoxFuture<'static, Result<(PgPool, bool), String>>
+        + Send
+        + Sync,
+>;
+
+/// Other workspaces' tenant databases a conformance test shares, by
+/// reference.
+#[derive(Clone, Debug)]
+pub struct RequestTenantDatabases(pub Arc<HashMap<String, PgPool>>);
 
 /// The env values mail-api's routes read, from the process environment.
 pub fn env_from_process() -> HashMap<String, String> {
@@ -92,7 +113,29 @@ where
     Router::new()
         .merge(routes::mail_sending::routes(state.clone(), gate))
         .merge(routes::mail_accounts::routes(state.clone(), gate))
+        .merge(routes::mail_folders::routes(state.clone(), gate))
+        .merge(routes::mail_labels::routes(state.clone(), gate))
+        .merge(routes::mail_signatures::routes(state.clone(), gate))
+        .merge(routes::mail_attachments::routes(state.clone(), gate))
+        .merge(routes::mail_drafts::routes(state.clone(), gate))
+        .merge(routes::mail_snooze::routes(state.clone(), gate))
+        .merge(routes::mail_threads::routes(state.clone(), gate))
+        .merge(routes::mail_templates::routes(state.clone(), gate))
+        .merge(routes::mail_rules::routes(state.clone(), gate))
+        .merge(routes::mail_campaigns::routes(state.clone(), gate))
+        .merge(routes::mail_sync::routes(state.clone(), gate))
+        .merge(routes::mail_scheduled::routes(state.clone(), gate))
+        .merge(routes::mail_subscriptions::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
+}
+
+/// `/api/mailboxes`: the user's mailboxes across workspaces, behind the
+/// session alone (`clerkMiddleware` without a workspace). Relative to `/api`.
+pub fn mailboxes_router<S>(state: MailState) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    routes::mailboxes::routes(state)
 }
 
 /// `/internal/outbound`: the outbound guard's staff API for the admin

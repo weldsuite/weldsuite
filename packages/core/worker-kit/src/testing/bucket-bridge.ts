@@ -199,6 +199,13 @@ export function serveOnLoopback(
         res.writeHead(500).end(String(error));
       });
     });
+    // The Rust server's client (reqwest) keeps an idle connection 90s; Node
+    // closes one after 5s by default, and a request sent on it as it closes
+    // fails ("connection closed before message completed"). Outlive the
+    // client's pool instead, and let an idle connection never hold the
+    // process open.
+    server.keepAliveTimeout = 120_000;
+    server.on('connection', (socket) => socket.unref());
     server.unref();
     server.on('error', reject);
     server.listen(0, '127.0.0.1', () => {

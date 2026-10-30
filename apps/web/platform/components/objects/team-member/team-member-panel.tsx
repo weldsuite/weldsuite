@@ -54,7 +54,7 @@ import { usePresence } from '@/contexts/presence-context';
 import { useComposeSafe } from '@/contexts/compose-context';
 import { useMemberProfile } from '@/hooks/queries/use-team-queries';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
-import { isModuleOffered } from '@/lib/edition';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { useWeldChatCallOptional } from '@/contexts/weldchat-call-context';
 import { OverviewTab } from '@/components/team-member-panel/tabs/overview-tab';
 import { CommonTab } from '@/components/team-member-panel/tabs/common-tab';
@@ -190,7 +190,7 @@ function MemberActions({ profile }: Readonly<{ profile?: MemberProfile }>) {
             {t('sweep.entities.composeEmail')}
           </DropdownMenuItem>
         )}
-        {callCtx && chatOffered && (
+        {callCtx && chatOffered && isFeatureAvailable('chat-calls') && (
           <>
             <DropdownMenuItem disabled={!dmChannelId} onClick={() => handleCall('voice')}>
               <Phone />

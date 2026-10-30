@@ -19,3 +19,23 @@ export const updateArticleFolderSchema = createArticleFolderSchema.partial();
 
 export type CreateArticleFolderInput = z.infer<typeof createArticleFolderSchema>;
 export type UpdateArticleFolderInput = z.infer<typeof updateArticleFolderSchema>;
+
+/** A `helpdesk_article_folders` row, as /api/article-folders returns it. */
+export const helpdeskArticleFolderSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+    name: z.string(),
+    slug: z.string().nullable(),
+    description: z.string().nullable(),
+    parentId: z.string().nullable(),
+    path: z.string().nullable(),
+    level: z.number(),
+    sortOrder: z.number(),
+    icon: z.string().nullable(),
+    color: z.string().nullable(),
+    articleCount: z.number(),
+  })
+  .passthrough();

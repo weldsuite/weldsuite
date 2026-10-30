@@ -252,3 +252,60 @@ describe('/api/project-members reads', () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe('GET /api/projects/workload/overview', () => {
+  it('aggregates the open work of every accessible project', async () => {
+    const res = await as(MANAGER, READ)('GET', '/projects/workload/overview');
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as { data: { totalProjects: number; teamMembers: unknown[] } };
+    expect(data.totalProjects).toBe(2);
+    expect(data.teamMembers.length).toBeGreaterThan(0);
+  });
+
+  it('answers the empty overview to someone without projects', async () => {
+    const res = await as(OUTSIDER, READ)('GET', '/projects/workload/overview');
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('/api/project-members writes', () => {
+  const WRITE = ['projects:read', 'projects:update', 'projects:delete'];
+
+  it('adds a workspace member, and refuses a second add, a stranger and a non-manager', async () => {
+    const add = (userId: string, body: Record<string, unknown>) =>
+      as(userId, WRITE)('POST', '/project-members', { projectId: EMPTY_PROJECT, ...body });
+
+    const res = await add(MANAGER, { userId: SPARE, role: 'member', allocationPercentage: 25, hourlyRate: '60' });
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { data: { id: string } }).data.id).toMatch(/^pmem_/);
+    expect((await add(MANAGER, { userId: SPARE })).status).toBe(400);
+    expect((await add(MANAGER, { userId: 'user_cov_not_in_workspace' })).status).toBe(400);
+    expect((await add(MEMBER, { userId: MEMBER })).status).toBe(403);
+    expect((await add(MANAGER, { userId: MEMBER, role: 'boss' })).status).toBe(400);
+  });
+
+  it('updates a member by user, and keeps the last owner', async () => {
+    const send = as(MANAGER, WRITE);
+    const res = await send('PATCH', `/project-members/by-user/${EMPTY_PROJECT}/${SPARE}`, {
+      role: 'admin',
+      hourlyRate: 75,
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: { role: string } }).data.role).toBe('admin');
+    expect((await send('PATCH', `/project-members/by-user/${EMPTY_PROJECT}/${OUTSIDER}`, { role: 'member' })).status).toBe(
+      404,
+    );
+    expect(
+      (await as(MEMBER, WRITE)('PATCH', `/project-members/by-user/${PROJECT}/${MANAGER}`, { role: 'member' })).status,
+    ).toBe(403);
+    expect((await send('PATCH', `/project-members/by-user/${PROJECT}/${MANAGER}`, { role: 'member' })).status).toBe(409);
+  });
+
+  it('removes a member by user, and keeps the last owner', async () => {
+    const send = as(MANAGER, WRITE);
+    expect((await send('DELETE', `/project-members/by-user/${EMPTY_PROJECT}/${SPARE}`)).status).toBe(204);
+    expect((await send('DELETE', `/project-members/by-user/${EMPTY_PROJECT}/${SPARE}`)).status).toBe(404);
+    expect((await as(MEMBER, WRITE)('DELETE', `/project-members/by-user/${PROJECT}/${MANAGER}`)).status).toBe(403);
+    expect((await send('DELETE', `/project-members/by-user/${PROJECT}/${MANAGER}`)).status).toBe(409);
+  });
+});

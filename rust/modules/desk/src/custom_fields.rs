@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 
 use serde_json::{Map, Value, json};
+use weldsuite_core_domain::custom_field_values as values;
 use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 use weldsuite_kit::validation::js_number;
@@ -76,6 +77,42 @@ pub(crate) async fn definitions_for_ticket(
             slug,
             field_type,
             options,
+        })
+        .collect())
+}
+
+/// id, slug, field type, options, required, name.
+type NamedDefinitionRow = (String, String, String, Option<Value>, Option<bool>, String);
+
+/// `getDefinitionsForTicket(db, ticketTypeId)` for the shared value code
+/// (`weldsuite_core_domain::custom_field_values`), each with the field's
+/// name: the definitions a desk conversation of that type carries.
+pub(crate) async fn ticket_field_definitions(
+    db: &PgPool,
+    ticket_type_id: Option<&str>,
+) -> Result<Vec<(values::Definition, String)>, sqlx::Error> {
+    let rows: Vec<NamedDefinitionRow> =
+        sqlx::query_as(
+            "select id, slug, field_type, options, required, name from custom_field_definitions
+             where entity_type = 'ticket'
+               and (case when $1::text is not null and $1 <> '' then (ticket_type_id = $1 or ticket_type_id is null)
+                         else ticket_type_id is null end)
+               and deleted_at is null",
+        )
+        .bind(ticket_type_id)
+        .fetch_all(db)
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, slug, field_type, options, required, name)| {
+            let definition = values::Definition {
+                id,
+                slug,
+                field_type,
+                options,
+                required: required.unwrap_or(false),
+            };
+            (definition, name)
         })
         .collect())
 }

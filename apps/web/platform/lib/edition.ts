@@ -44,6 +44,18 @@ export const EDITION_FEATURES = [
   'analytics',
   /** `POST /api/search/reindex`. */
   'search-reindex',
+  /** Company logos fetched from each company's website (`POST /api/company-logos/resolve`). */
+  'company-logos',
+  /** Custom mail domains (`/api/mail-domains`, Cloudflare Email Routing and DNS; ADR MAIL-010). */
+  'mail-domains',
+  /** Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`; off on Kubernetes, ADR MAIL-010). */
+  'mail-free-addresses',
+  /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
+  'mail-ai',
+  /** WeldChat voice and video calls (`/api/chat-calls`, Cloudflare RealtimeKit). */
+  'chat-calls',
+  /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
+  'helpcenter-custom-domains',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

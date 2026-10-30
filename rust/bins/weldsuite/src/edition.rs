@@ -57,6 +57,25 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "analytics",
     // `POST /api/search/reindex` isn't served.
     "search-reindex",
+    // `POST /api/company-logos/resolve` (crm-api) fetches each company's
+    // website and keeps the logo in R2; not served, so avatars keep initials.
+    "company-logos",
+    // WeldMail custom domains (`/api/mail-domains`) are Cloudflare Email
+    // Routing and DNS on Global; the Kubernetes answers differ (MAIL-010).
+    "mail-domains",
+    // Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`): that
+    // domain's MX and reputation belong to Global (MAIL-010).
+    "mail-free-addresses",
+    // WeldMail AI (`/api/mail-ai`): the Rust backend has no AI port yet.
+    "mail-ai",
+    // WeldChat voice and video calls (`/api/chat-calls`) run on Cloudflare
+    // RealtimeKit, its API and the call UI's client SDK alike; they come with
+    // LiveKit in the call UI.
+    "chat-calls",
+    // WeldDesk help center custom domains: attaching one writes a CNAME into a
+    // Cloudflare zone and registers the host on the Vercel-hosted help center
+    // (`/api/helpcenter-settings/domains`, its verify and delete).
+    "helpcenter-custom-domains",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

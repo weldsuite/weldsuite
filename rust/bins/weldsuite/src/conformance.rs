@@ -200,6 +200,10 @@ struct TestContext {
     /// The test's master database, when its routes use one.
     #[serde(default)]
     master_database_url: Option<String>,
+    /// Other workspaces' tenant databases, by the reference a route looks
+    /// them up with (`context.tenantDbs`).
+    #[serde(default)]
+    tenant_database_urls: HashMap<String, String>,
     permissions: Option<TestPermissions>,
     /// Flag values the test's `context.flags` answers; `None` = no evaluator.
     flags: Option<HashMap<String, Value>>,
@@ -329,6 +333,10 @@ impl Pools {
         extensions.insert(weldsuite_crm::RequestSequenceRuns(
             self.workflows.sequence_runs(&context.workflows),
         ));
+        // Scheduled sends start on the test's `SEND_SCHEDULED_EMAIL`, or nowhere.
+        extensions.insert(weldsuite_mail::scheduled::RequestScheduledRuns(
+            self.workflows.scheduled_runs(&context.workflows),
+        ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {
@@ -409,6 +417,17 @@ pub(crate) async fn auth(
     if let Some(master) = master {
         extensions.insert(weldsuite_db::MasterDb(master));
     }
+    // Other workspaces' tenant databases (WeldMail's mailbox directory).
+    let mut tenants = HashMap::new();
+    for (reference, url) in &context.tenant_database_urls {
+        match pools.get(url) {
+            Ok(pool) => {
+                tenants.insert(reference.clone(), pool);
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    extensions.insert(weldsuite_mail::RequestTenantDatabases(Arc::new(tenants)));
     pools.insert_shared(extensions, &context);
     if let Some(permissions) = context.permissions {
         let app = extensions.get::<AppContext>().map(|app| app.0);
@@ -496,6 +515,33 @@ pub(crate) async fn public(
         pools.insert_shared(request.extensions_mut(), &context);
     }
     run_reporting_route(request, next).await
+}
+
+/// Middleware for public routes that open a workspace's tenant database
+/// themselves (WeldDesk's help center and OAuth callbacks): the test mocks
+/// `getTenantDbForWorkspace` to hand out its tenant database for every
+/// workspace, so the test's `databaseUrl` goes in as the request's `Tenant`.
+/// Runs inside [`public`], which adds the rest of what the test shares.
+pub(crate) async fn public_tenant(
+    State(pools): State<Arc<Pools>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if let Some(context) = TestContext::from_headers(request.headers()) {
+        match pools.get(&context.database_url) {
+            Ok(db) => {
+                request.extensions_mut().insert(Tenant {
+                    workspace_id: context.workspace_id,
+                    clerk_org_id: context.clerk_org_id,
+                    db,
+                    suspended: false,
+                    restrictions: WorkspaceRestrictions::default(),
+                });
+            }
+            Err(error) => return error.into_response(),
+        }
+    }
+    next.run(request).await
 }
 
 // ── Cron jobs ───────────────────────────────────────────────────────────────

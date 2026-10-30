@@ -67,6 +67,7 @@ import { runEditorCommand, isEditorCommandActive } from '@weldsuite/ui/lib/edito
 import { cn } from '@/lib/utils';
 import { MAIL_EDITOR_PARAGRAPH_CLASSES } from '../lib/editor-styles';
 import { useI18n } from '@/lib/i18n/provider';
+import { isFeatureAvailable } from '@/lib/edition';
 import { useMailAccounts } from '@/hooks/queries/use-mail-queries';
 import { WeldAgentIcon } from '@/components/icons/weldagent-icon';
 import { ComposeAttachButton } from '@/app/weldmail/components/compose-attach-button';
@@ -392,6 +393,8 @@ export function ComposeSurface({
   isSending,
 }: Readonly<ComposeSurfaceProps>) {
   const { t } = useI18n();
+  // The AI bar and its button need `/mail-ai`, which the Kubernetes editions lack.
+  const aiAvailable = isFeatureAvailable('mail-ai');
   const signature = useComposeSignature({ editorRef, accountId, autoInsert: signatureMode, onChange: onBodyInput });
 
   const [fontSize, setFontSize] = useState('14');
@@ -827,7 +830,7 @@ export function ComposeSurface({
       {/* Footer */}
       <div className="border-t border-border flex-shrink-0 relative">
         {/* AI draft bar: toggled by the WeldAgent button, same spot and look as the formatting bar */}
-        {showAiInput && (
+        {aiAvailable && showAiInput && (
           <div className="px-3 pt-2">
             <div className="flex items-center gap-1.5 rounded-lg bg-muted/60 pl-3 pr-1 py-1">
               <input
@@ -1142,16 +1145,18 @@ export function ComposeSurface({
             </Popover>
 
             {/* AI Assistant */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onMouseDown={preventFocusLoss}
-              onClick={() => !isAiGenerating && (showAiInput ? handleCloseAiInput() : handleOpenAiInput())}
-              className={cn(TOOL_BUTTON, showAiInput && "bg-[#8d65ef]/10")}
-              title={t.mail.toolbar.aiAssistant}
-            >
-              <WeldAgentIcon className={cn("h-4 w-4", showAiInput && "text-[#8d65ef]")} />
-            </Button>
+            {aiAvailable && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onMouseDown={preventFocusLoss}
+                onClick={() => !isAiGenerating && (showAiInput ? handleCloseAiInput() : handleOpenAiInput())}
+                className={cn(TOOL_BUTTON, showAiInput && "bg-[#8d65ef]/10")}
+                title={t.mail.toolbar.aiAssistant}
+              >
+                <WeldAgentIcon className={cn("h-4 w-4", showAiInput && "text-[#8d65ef]")} />
+              </Button>
+            )}
           </div>
 
           {/* Send, or schedule at the chosen time */}

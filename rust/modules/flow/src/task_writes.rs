@@ -519,6 +519,66 @@ fn announce_next(state: &FlowState, caller: &Caller, row: &Value) {
         text_of(row, "id").unwrap_or_default(),
         &task_analytics_payload(row, &json!({ "projectId": project }), crate::now_ms()),
     );
+    crate::notify::assignment(
+        state,
+        caller,
+        crate::notify::Assignment {
+            assignee_ids: assignee_ids_of(row),
+            task_id: text_of(row, "id").unwrap_or_default().to_owned(),
+            task_title: text_of(row, "title").unwrap_or_default().to_owned(),
+            project_id: text_of(row, "projectId").map(str::to_owned),
+        },
+    );
+}
+
+/// `assigneeIdsOf(row)`: the assignee list, else the single assignee.
+fn assignee_ids_of(row: &Value) -> Vec<String> {
+    let ids: Vec<String> = row
+        .get("assigneeIds")
+        .and_then(Value::as_array)
+        .map(|ids| {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default();
+    if !ids.is_empty() {
+        return ids;
+    }
+    text_of(row, "assigneeId")
+        .filter(|id| !id.is_empty())
+        .map(|id| vec![id.to_owned()])
+        .unwrap_or_default()
+}
+
+/// `newlyAddedAssignees(existing, update)`: the assignees a PATCH adds.
+fn newly_added_assignees(task: &Value, update: &Update) -> Vec<String> {
+    let strings = |ids: &[Js]| -> Vec<String> {
+        ids.iter()
+            .filter_map(|id| match id {
+                Js::String(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let old: Vec<String> = match task.get("assigneeIds") {
+        Some(Value::Array(ids)) => ids
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect(),
+        _ => text_of(task, "assigneeId")
+            .filter(|id| !id.is_empty())
+            .map(|id| vec![id.to_owned()])
+            .unwrap_or_default(),
+    };
+    let new: Vec<String> = match (update.get("assigneeIds"), update.get("assigneeId")) {
+        (Some(Js::Array(ids)), _) => strings(ids),
+        (_, Some(Js::String(id))) if !id.is_empty() => vec![id.clone()],
+        _ => old.clone(),
+    };
+    new.into_iter().filter(|id| !old.contains(id)).collect()
 }
 
 /// `handleTaskCompletion`: the `completed` event and, for a repeating
@@ -763,6 +823,18 @@ async fn create_with(
             &json!({ "projectId": project_id }),
             crate::now_ms(),
         ),
+    );
+    crate::notify::assignment(
+        state,
+        caller,
+        crate::notify::Assignment {
+            assignee_ids: created.assignee_ids.clone(),
+            task_id: id.clone(),
+            task_title: text_of(&created.row, "title")
+                .unwrap_or_default()
+                .to_owned(),
+            project_id: project_id.clone(),
+        },
     );
     let enriched = enrich(state, db, vec![created.row]).await?;
     Ok(Created(enriched.into_iter().next().unwrap_or(Value::Null)).into_response())
@@ -1429,6 +1501,21 @@ async fn patch_task(state: &FlowState, caller: &Caller, id: &str, body: &Update)
             echo.insert("blocks".to_owned(), json!(plan.blocks));
         }
     }
+    // `notifyAddedAssigneesOnUpdate`.
+    crate::notify::assignment(
+        state,
+        caller,
+        crate::notify::Assignment {
+            assignee_ids: newly_added_assignees(&task, &update),
+            task_id: id.to_owned(),
+            task_title: js_text(&data, "title")
+                .filter(|t| !t.is_empty())
+                .or_else(|| text_of(&task, "title"))
+                .unwrap_or_default()
+                .to_owned(),
+            project_id: text_of(&task, "projectId").map(str::to_owned),
+        },
+    );
     let names = assignee_names(db, &assignee_ids_involved(&task, &update)).await?;
     let changes = build_task_changes(&task, &update, &names);
     let mut merged_data = task.as_object().cloned().unwrap_or_default();

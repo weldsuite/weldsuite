@@ -5,6 +5,7 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 import type { Helpdesk } from '@/lib/api/types/apps/helpdesk.types';
 import type { AuditLogEntry } from '@/components/audit-timeline';
 import { asText } from '@weldsuite/text';
+import { isFeatureAvailable } from '@/lib/edition';
 
 interface HelpcenterSettingsData {
   id?: string;
@@ -2358,6 +2359,8 @@ export function useHelpcenterDomains() {
       const result = await client.get<{ data: HelpcenterDomain[] }>('/helpcenter-settings/domains');
       return result.data || [];
     },
+    // Custom domains are Global-only (a Cloudflare zone and the Vercel-hosted help center).
+    enabled: isFeatureAvailable('helpcenter-custom-domains'),
   });
 }
 
@@ -2371,6 +2374,7 @@ export function useHelpcenterHostDomains() {
       const result = await client.get<{ data: Array<{ id: string; fullDomain: string; hasZone: boolean }> }>('/helpcenter-settings/host-domains');
       return result.data || [];
     },
+    enabled: isFeatureAvailable('helpcenter-custom-domains'),
   });
 }
 

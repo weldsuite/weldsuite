@@ -49,8 +49,20 @@ const ROUTES: VolatileRoute[] = [
   },
   // The minted key's display prefix (`wsk_` + 8 random hex characters).
   { method: 'POST', route: '/api/cli-auth/approve', fields: [{ path: 'data.keyPrefix' }] },
+  // A scheduled message's Message-ID carries its new id (`<msg_…@scheduled…>`).
+  {
+    method: 'POST',
+    route: '/api/mail-scheduled',
+    fields: [{ path: 'data.smtpMessageId', pattern: /msg_[0-9a-z]+/g, replacement: '<id>' }],
+  },
   // `Date.now() + 120s`, a number.
   { method: 'POST', route: '/api/auth-desktop/ticket', fields: [{ path: 'data.expiresAt' }] },
+  // WeldDesk OAuth starts: a fresh state nonce (`crypto.randomUUID()`) per run.
+  ...['discord', 'slack'].map((provider) => ({
+    method: 'POST',
+    route: `/api/helpdesk-integrations/${provider}/connect`,
+    fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
+  })),
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

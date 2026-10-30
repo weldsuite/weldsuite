@@ -65,6 +65,108 @@ export const manageConversationSchema = z.discriminatedUnion('action', [
   }),
 ]);
 
+// ── responses ────────────────────────────────────────────────────────────────
+
+/** A `desk_conversations` row, as /api/desk/conversations answers it. */
+export const deskConversationSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    conversationNumber: z.number().int(),
+    title: z.string().nullable(),
+    state: z.enum(DESK_CONVERSATION_STATES),
+    channel: z.enum(DESK_CHANNELS),
+    visitorId: z.string().nullable(),
+    name: z.string().nullable(),
+    email: z.string().nullable(),
+    contactId: z.string().nullable(),
+    assigneeId: z.string().nullable(),
+    ticketTypeId: z.string().nullable(),
+    priority: z.enum(DESK_PRIORITIES).nullable(),
+    tags: z.array(z.string()),
+    departmentId: z.string().nullable(),
+    waitingSince: z.string().nullable(),
+    lastMessageAt: z.string().nullable(),
+    lastMessagePreview: z.string().nullable(),
+    rating: z.number().int().nullable(),
+    ratingComment: z.string().nullable(),
+    ratedAt: z.string().nullable(),
+  })
+  .passthrough();
+
+/** A `desk_messages` row: a chat message, an internal note or an event. */
+export const deskMessageSchema = z
+  .object({
+    id: z.string(),
+    createdAt: z.string(),
+    conversationId: z.string(),
+    kind: z.enum(DESK_MESSAGE_KINDS),
+    body: z.string().nullable(),
+    authorType: z.enum(['visitor', 'agent', 'bot', 'system']),
+    authorId: z.string().nullable(),
+    attachments: z.array(deskMessageAttachmentSchema.passthrough()).nullable(),
+    metadata: z.record(z.unknown()).nullable(),
+  })
+  .passthrough();
+
+/** The type's custom field values, slug → value. */
+const deskConversationCustomFieldsSchema = z.record(z.unknown());
+
+/** GET /api/desk/conversations/:id: the conversation and its custom fields, with its timeline under `?include=messages`. */
+export const deskConversationDetailSchema = deskConversationSchema.extend({
+  customFields: deskConversationCustomFieldsSchema,
+  messages: z.array(deskMessageSchema).optional(),
+});
+
+/** GET /api/desk/conversations/attributes: what the details panel can pick. */
+export const deskConversationAttributeOptionsSchema = z.object({
+  ticketTypes: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().nullable(),
+      icon: z.string().nullable(),
+      color: z.string().nullable(),
+    }),
+  ),
+  teams: z.array(z.object({ id: z.string(), name: z.string() })),
+  fields: z.array(
+    z.object({
+      id: z.string(),
+      ticketTypeId: z.string().nullable(),
+      slug: z.string(),
+      name: z.string(),
+      description: z.string().nullable(),
+      fieldType: z.string(),
+      options: z.array(z.object({ label: z.string(), value: z.string(), color: z.string().optional() })).nullable(),
+      required: z.boolean(),
+      sortOrder: z.number().int(),
+    }),
+  ),
+  tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
+});
+
+/** PATCH /api/desk/conversations/:id: the conversation with its custom fields, and the `attributes_changed` event (null when nothing changed). */
+export const deskConversationAttributesChangeSchema = z.object({
+  conversation: deskConversationSchema.extend({ customFields: deskConversationCustomFieldsSchema }),
+  message: deskMessageSchema.nullable(),
+});
+
+/** POST /api/desk/conversations/:id/attachments: the stored file, ready to send in a reply. */
+export const deskUploadedAttachmentSchema = z.object({
+  name: z.string(),
+  url: z.string(),
+  contentType: z.string(),
+  filesize: z.number().int().nonnegative(),
+});
+
+/** POST /api/desk/conversations/:id/{reply,manage}: the conversation after the change, and the new timeline entry. */
+export const deskConversationChangeSchema = z.object({
+  conversation: deskConversationSchema,
+  message: deskMessageSchema,
+});
+
 /**
  * The conversation's ticket fields. Omitted fields are left alone, null
  * clears one, `tags` replaces the list, and `customFields` patches the

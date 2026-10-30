@@ -45,7 +45,7 @@ pub enum SendError {
 }
 
 impl SendError {
-    fn mail(code: &str, message: impl Into<String>) -> Self {
+    pub fn mail(code: &str, message: impl Into<String>) -> Self {
         Self::Mail {
             code: code.to_owned(),
             message: message.into(),
@@ -124,6 +124,18 @@ pub struct SendOptions {
     pub kind: Option<OutboundKind>,
     /// The master `workspaces.id`, when the caller has it.
     pub workspace_id: Option<String>,
+    /// `extraAttachments`: files the server supplies itself (a forward's
+    /// originals, a generated `.eml`), sent after the uploaded ones and
+    /// stored under the sent copy.
+    pub extra_attachments: Vec<ExtraAttachment>,
+}
+
+/// `InlineAttachment`: a file with its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExtraAttachment {
+    pub filename: String,
+    pub content_type: Option<String>,
+    pub content: Vec<u8>,
 }
 
 struct Account {
@@ -204,7 +216,7 @@ async fn find_existing_sent(
 }
 
 /// `prepareBody(data)`: the sanitized HTML and the text/plain part.
-fn prepare_body(data: &SendInput) -> (Option<String>, Option<String>) {
+pub fn prepare_body(data: &SendInput) -> (Option<String>, Option<String>) {
     let raw_html = data.html_body.clone().or_else(|| {
         data.body
             .as_deref()
@@ -293,6 +305,66 @@ struct Resolved {
     file_key: String,
 }
 
+/// `storeExtraAttachments`: the server-supplied files in the public bucket
+/// (`STORAGE`) under the sent copy's id, in order; a file that cannot be
+/// stored is left out of the copy.
+async fn store_extra_attachments(
+    files: Option<&FileStores>,
+    org: &str,
+    message_id: &str,
+    extras: &[ExtraAttachment],
+) -> Vec<Resolved> {
+    let Some(storage) = files.and_then(|f| f.public.as_ref()) else {
+        return Vec::new();
+    };
+    let mut stored = Vec::new();
+    for (index, att) in extras.iter().enumerate() {
+        // `filename.replace(/[^\w.\- ]+/g, '_').slice(0, 200) || 'attachment'`.
+        let mut safe = String::new();
+        let mut in_run = false;
+        for ch in att.filename.chars() {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | ' ') {
+                safe.push(ch);
+                in_run = false;
+            } else if !in_run {
+                safe.push('_');
+                in_run = true;
+            }
+        }
+        safe.truncate(200);
+        if safe.is_empty() {
+            "attachment".clone_into(&mut safe);
+        }
+        let key = format!(
+            "workspaces/{org}/mail/attachments/{message_id}/{}_{safe}",
+            index + 1
+        );
+        let options = weldsuite_ports::PutOptions {
+            content_type: Some(
+                att.content_type
+                    .clone()
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or_else(|| "application/octet-stream".to_owned()),
+            ),
+            ..weldsuite_ports::PutOptions::default()
+        };
+        match storage.put_boxed(&key, att.content.clone(), &options).await {
+            Ok(_) => stored.push(Resolved {
+                filename: att.filename.clone(),
+                content_type: att.content_type.clone(),
+                content: att.content.clone(),
+                file_key: key,
+            }),
+            Err(error) => tracing::error!(
+                %error,
+                "[mail-send] Failed to store attachment {} for message {message_id}",
+                att.filename
+            ),
+        }
+    }
+    stored
+}
+
 fn too_large() -> SendError {
     SendError::mail(
         "EMAIL_TOO_LARGE",
@@ -308,9 +380,14 @@ async fn resolve_attachments(
     files: Option<&FileStores>,
     org: &str,
     data: &SendInput,
+    extra_bytes: usize,
 ) -> Result<Vec<Resolved>, SendError> {
-    let mut total =
-        data.body.as_ref().map_or(0, String::len) + data.html_body.as_ref().map_or(0, String::len);
+    let mut total = extra_bytes
+        + data.body.as_ref().map_or(0, String::len)
+        + data.html_body.as_ref().map_or(0, String::len);
+    if extra_bytes > 0 && total > MAX_EMAIL_SIZE_BYTES {
+        return Err(too_large());
+    }
     if data.attachments.is_empty() {
         return Ok(Vec::new());
     }
@@ -488,7 +565,8 @@ pub async fn send_and_persist(
         ));
     }
     let reservation = reserve_outbound(deps, org, &account, data, &body, opts).await?;
-    let resolved = match resolve_attachments(deps.files, org, data).await {
+    let extra_bytes: usize = opts.extra_attachments.iter().map(|a| a.content.len()).sum();
+    let resolved = match resolve_attachments(deps.files, org, data, extra_bytes).await {
         Ok(resolved) => resolved,
         Err(error) => {
             release_outbound(deps.guard, &reservation).await;
@@ -530,6 +608,12 @@ pub async fn send_and_persist(
                 content: a.content.clone(),
                 cid: None,
             })
+            .chain(opts.extra_attachments.iter().map(|a| MimeAttachment {
+                filename: a.filename.clone(),
+                content_type: a.content_type.clone(),
+                content: a.content.clone(),
+                cid: None,
+            }))
             .collect(),
     };
     let (sent, partial) = match send_email(transport, &params).await {
@@ -597,6 +681,10 @@ pub async fn send_and_persist(
     let message_id = generate_id("msg");
     let now = iso(now_ms());
     let thread_id = resolve_thread_id(deps.db, account_id, data, &smtp).await?;
+    let mut resolved = resolved;
+    resolved.extend(
+        store_extra_attachments(deps.files, org, &message_id, &opts.extra_attachments).await,
+    );
     let delivery = match (&partial, sent.suppressed_recipients.is_empty()) {
         (Some(p), _) => Some(("failed", format!("Not sent to: {}", p.failed.join(", ")))),
         (None, false) => Some((
@@ -730,7 +818,7 @@ pub async fn send_and_persist(
 }
 
 /// `text.replace(/\s+/g, ' ')`.
-fn collapse_whitespace(text: &str) -> String {
+pub fn collapse_whitespace(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut in_space = false;
     for c in text.chars() {
@@ -758,6 +846,7 @@ pub struct ReplyInput {
 }
 
 /// `replyAndPersist(...)`: the reply's result and the message it answers.
+#[allow(clippy::too_many_lines)] // the steps of one reply, in TypeScript's order
 pub async fn reply_and_persist(
     deps: &SendDeps<'_>,
     org: &str,
@@ -863,6 +952,7 @@ pub async fn reply_and_persist(
             OutboundKind::Reply
         }),
         workspace_id: opts.workspace_id.clone(),
+        extra_attachments: Vec::new(),
     };
     let result = send_and_persist(deps, org, user_id, &account_id, &input, &options).await?;
     Ok((result, original_id.to_owned()))

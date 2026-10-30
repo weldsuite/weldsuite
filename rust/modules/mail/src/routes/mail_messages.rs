@@ -9,11 +9,13 @@ use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, patch, post};
 use http::HeaderMap;
 use serde_json::json;
 use weldsuite_catalogs::entity_events::EMAIL_REPLY_SENT;
-use weldsuite_catalogs::permission_keys::MESSAGES_CREATE;
+use weldsuite_catalogs::permission_keys::{
+    MESSAGES_CREATE, MESSAGES_DELETE, MESSAGES_READ, MESSAGES_UPDATE,
+};
 use weldsuite_kit::validation::{Issues, Presence, json_body};
 use weldsuite_kit::{ApiError, Data};
 use weldsuite_mail_domain::access::check_account_access;
@@ -24,12 +26,61 @@ use crate::routes::mail_accounts::email_event_data;
 use crate::send::{RequestDoh, SendContext, attachments, optional_text, send_error_response};
 use crate::{Caller, MailState};
 
+#[path = "mail_messages_reads.rs"]
+mod reads;
+pub(crate) use reads::locate as locate_message;
+#[path = "mail_messages_forward.rs"]
+mod forward;
+#[path = "mail_messages_writes.rs"]
+mod writes;
+
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    let read = || gate.require([MESSAGES_READ]);
+    let update = || gate.require([MESSAGES_UPDATE]);
     Router::new()
+        .route("/mail-messages", get(reads::list).route_layer(read()))
+        .route(
+            "/mail-messages/stats",
+            get(reads::stats).route_layer(read()),
+        )
+        .route(
+            "/mail-messages/bulk",
+            post(writes::bulk).route_layer(update()),
+        )
+        .route(
+            "/mail-messages/{id}",
+            get(reads::detail).route_layer(read()),
+        )
+        .route(
+            "/mail-messages/{id}",
+            patch(writes::update)
+                .put(writes::update)
+                .route_layer(update()),
+        )
+        .route(
+            "/mail-messages/{id}",
+            axum::routing::delete(writes::remove).route_layer(gate.require([MESSAGES_DELETE])),
+        )
+        .route(
+            "/mail-messages/{id}/thread",
+            get(reads::thread).route_layer(read()),
+        )
+        .route(
+            "/mail-messages/{id}/labels/add",
+            post(writes::add_labels).route_layer(update()),
+        )
+        .route(
+            "/mail-messages/{id}/labels/remove",
+            post(writes::remove_labels).route_layer(update()),
+        )
+        .route(
+            "/mail-messages/{id}/forward",
+            post(forward::forward).route_layer(gate.require([MESSAGES_CREATE])),
+        )
         .route(
             "/mail-messages/{id}/reply",
             post(reply).route_layer(gate.require([MESSAGES_CREATE])),

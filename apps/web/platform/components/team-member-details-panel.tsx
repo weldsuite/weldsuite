@@ -65,7 +65,7 @@ import {
 import { WorkingHoursEditor, DEFAULT_HOURS } from '@/components/working-hours/working-hours-editor';
 import { MemberAppPermissions } from '@/components/settings/member-app-permissions';
 import { useComposeSafe } from '@/contexts/compose-context';
-import { isModuleOffered } from '@/lib/edition';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { ActivitySection } from '@/components/customer-detail/sections/activity-section';
 import type { Customer } from '@/components/customer-detail/types';
 import type { TeamMember } from '@/components/settings/team-section';
@@ -1671,8 +1671,8 @@ function MemberCallButtons({ userId }: Readonly<{ userId?: string | null }>) {
   const { startCall } = useWeldChatCall();
   const dmChannelId: string | undefined = dmQuery.data?.data?.id;
 
-  // Edition flags (4.F3): calls are WeldChat's.
-  if (!userId || !isModuleOffered('chat')) return null;
+  // Edition flags (4.F3): calls are WeldChat's, and need its call feature.
+  if (!userId || !isModuleOffered('chat') || !isFeatureAvailable('chat-calls')) return null;
 
   const handleCall = async (kind: 'voice' | 'video') => {
     if (!dmChannelId) {
