@@ -329,6 +329,10 @@ impl Pools {
         extensions.insert(weldsuite_crm::RequestSequenceRuns(
             self.workflows.sequence_runs(&context.workflows),
         ));
+        // Scheduled sends start on the test's `SEND_SCHEDULED_EMAIL`, or nowhere.
+        extensions.insert(weldsuite_mail::scheduled::RequestScheduledRuns(
+            self.workflows.scheduled_runs(&context.workflows),
+        ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {

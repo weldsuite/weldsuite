@@ -24,7 +24,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The Workflow bindings the bridge serves. */
-export const WORKFLOW_BINDINGS = ['EXECUTE_SEQUENCE'] as const;
+export const WORKFLOW_BINDINGS = ['EXECUTE_SEQUENCE', 'SEND_SCHEDULED_EMAIL'] as const;
 
 interface WorkflowLike {
   create(options?: unknown): Promise<unknown>;
@@ -102,10 +102,11 @@ async function handle(
       await binding.create(call.args);
     } else if (call.method === 'get') {
       instances.set(key, await binding.get(call.id ?? ''));
-    } else if (call.method === 'sendEvent') {
-      const instance = instances.get(key) as { sendEvent?: unknown } | undefined;
-      if (!instance || typeof instance.sendEvent !== 'function') throw new Error('instance.not_found');
-      await (instance.sendEvent as Fn).call(instance, call.args);
+    } else if (call.method === 'sendEvent' || call.method === 'terminate') {
+      const instance = instances.get(key) as Record<string, unknown> | undefined;
+      const method = instance?.[call.method];
+      if (!instance || typeof method !== 'function') throw new Error('instance.not_found');
+      await (method as Fn).call(instance, ...(call.method === 'sendEvent' ? [call.args] : []));
     } else {
       throw new Error(`no Workflow method ${call.method}`);
     }
@@ -142,15 +143,23 @@ export function takeRustWorkflowCalls(): WorkflowCall[] {
 function recordedInstance(instance: unknown, binding: string, id: string, calls: WorkflowCall[]): unknown {
   if (!instance || typeof instance !== 'object') return instance;
   const target = instance as Record<string, unknown>;
-  if (typeof target.sendEvent !== 'function') return instance;
+  if (typeof target.sendEvent !== 'function' && typeof target.terminate !== 'function') return instance;
   return new Proxy(target, {
     get(object, prop, receiver) {
       const value = Reflect.get(object, prop, receiver) as unknown;
-      if (prop !== 'sendEvent') return value;
-      return (event: unknown) => {
-        calls.push(record(binding, 'sendEvent', id, event));
-        return silently(value, object, [event]);
-      };
+      if (prop === 'sendEvent') {
+        return (event: unknown) => {
+          calls.push(record(binding, 'sendEvent', id, event));
+          return silently(value, object, [event]);
+        };
+      }
+      if (prop === 'terminate') {
+        return () => {
+          calls.push(record(binding, 'terminate', id, undefined));
+          return silently(value, object, []);
+        };
+      }
+      return value;
     },
   });
 }

@@ -29,6 +29,7 @@ pub(crate) struct Bindings {
     files: Option<FileStores>,
     http: Option<OutboundHttp>,
     buckets: Option<StorageBuckets>,
+    scheduled: Option<crate::scheduled::RequestScheduledRuns>,
 }
 
 impl Bindings {
@@ -47,6 +48,10 @@ impl Bindings {
             files: parts.extensions.get::<FileStores>().cloned(),
             http: parts.extensions.get::<OutboundHttp>().cloned(),
             buckets: parts.extensions.get::<StorageBuckets>().cloned(),
+            scheduled: parts
+                .extensions
+                .get::<crate::scheduled::RequestScheduledRuns>()
+                .cloned(),
         }
     }
 
@@ -96,6 +101,24 @@ impl Bindings {
             .clone()
             .or_else(|| state.files.clone().map(Into::into))
             .unwrap_or_default()
+    }
+
+    /// The `SEND_SCHEDULED_EMAIL` binding: the test's in conformance builds
+    /// (or none), else delayed jobs on the deployment's jobs port.
+    pub(crate) fn scheduled_runs(
+        &self,
+        state: &MailState,
+    ) -> Option<Arc<dyn crate::scheduled::ScheduledRuns>> {
+        if let Some(runs) = &self.scheduled {
+            return runs.0.clone();
+        }
+        if self.env.is_some() {
+            return None;
+        }
+        state.jobs.clone().map(|jobs| {
+            Arc::new(crate::scheduled::JobsScheduledRuns { jobs })
+                as Arc<dyn crate::scheduled::ScheduledRuns>
+        })
     }
 
     pub(crate) fn files(&self, state: &MailState) -> Option<FileStores> {

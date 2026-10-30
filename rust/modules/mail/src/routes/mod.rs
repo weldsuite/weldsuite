@@ -10,6 +10,7 @@ pub(crate) mod mail_folders;
 pub(crate) mod mail_labels;
 pub(crate) mod mail_messages;
 pub(crate) mod mail_rules;
+pub(crate) mod mail_scheduled;
 pub(crate) mod mail_sending;
 pub(crate) mod mail_signatures;
 pub(crate) mod mail_snooze;

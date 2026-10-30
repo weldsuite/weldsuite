@@ -13,6 +13,7 @@ mod caller;
 pub mod consumers;
 pub mod cron;
 mod read_push;
+pub mod scheduled;
 mod routes;
 pub mod send;
 mod util;
@@ -107,6 +108,7 @@ where
         .merge(routes::mail_rules::routes(state.clone(), gate))
         .merge(routes::mail_campaigns::routes(state.clone(), gate))
         .merge(routes::mail_sync::routes(state.clone(), gate))
+        .merge(routes::mail_scheduled::routes(state.clone(), gate))
         .merge(routes::mail_messages::routes(state, gate))
 }
 

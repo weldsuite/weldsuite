@@ -112,6 +112,14 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = if mounts("mail") {
+        // Scheduled sends: the delayed delivery job (SendScheduledEmailWorkflow).
+        state
+            .infra
+            .job_registry
+            .register(weldsuite_mail::scheduled::SendScheduledEmailJob {
+                state: mail_state(state),
+                tenants: mail_tenants(state),
+            });
         router.merge(weldsuite_mail::router(
             mail_state(state),
             &state.permissions,
@@ -978,6 +986,21 @@ fn chat_state(state: &AppState) -> weldsuite_chat::ChatState {
         presence: None,
         env: Arc::clone(env),
     }
+}
+
+/// A workspace's tenant database for WeldMail's scheduled-send job.
+fn mail_tenants(state: &AppState) -> weldsuite_mail::scheduled::TenantDatabases {
+    let workspaces = Arc::clone(&state.workspaces);
+    Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    })
 }
 
 /// A workspace's tenant database for WeldChat's jobs.

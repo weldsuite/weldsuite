@@ -49,6 +49,12 @@ const ROUTES: VolatileRoute[] = [
   },
   // The minted key's display prefix (`wsk_` + 8 random hex characters).
   { method: 'POST', route: '/api/cli-auth/approve', fields: [{ path: 'data.keyPrefix' }] },
+  // A scheduled message's Message-ID carries its new id (`<msg_…@scheduled…>`).
+  {
+    method: 'POST',
+    route: '/api/mail-scheduled',
+    fields: [{ path: 'data.smtpMessageId', pattern: /msg_[0-9a-z]+/g, replacement: '<id>' }],
+  },
   // `Date.now() + 120s`, a number.
   { method: 'POST', route: '/api/auth-desktop/ticket', fields: [{ path: 'data.expiresAt' }] },
 ];

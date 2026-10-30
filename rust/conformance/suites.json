@@ -779,7 +779,7 @@
       ]
     },
     {
-      "name": "mail: drafts, threads, snooze",
+      "name": "mail: drafts, threads, snooze, scheduled",
       "module": "mail",
       "workspace": "apps/workers/mail-api",
       "tests": [
@@ -787,7 +787,9 @@
         "src/routes/mail-threads/read-all.test.ts",
         "src/routes/mail-threads/routes.test.ts",
         "src/routes/mail-snooze/access.test.ts",
-        "src/routes/mail-snooze/routes.test.ts"
+        "src/routes/mail-snooze/routes.test.ts",
+        "src/routes/mail-scheduled/routes.test.ts",
+        "src/routes/mail-scheduled/access.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/",
