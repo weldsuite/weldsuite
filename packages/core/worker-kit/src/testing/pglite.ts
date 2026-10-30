@@ -149,7 +149,8 @@ export async function createSeparatePgliteDb(): Promise<PgliteHandle> {
   const client = pgliteClientOf(base.db);
   if (!client) throw new Error('createPgliteDb() returned a database without its pglite client');
   const [drizzlePg, schemaModule] = await Promise.all([import('drizzle-orm/pglite'), import('@weldsuite/db/schema')]);
-  const clone = await client.clone();
+  // `clone()` is typed as the interface; it is a PGlite like `client`.
+  const clone = (await client.clone()) as unknown as import('@electric-sql/pglite').PGlite;
   const db = drizzlePg.drizzle(clone, { schema: schemaModule });
   clients.set(db, clone);
   return { db: db as unknown as Database, close: () => clone.close() };

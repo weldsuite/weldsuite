@@ -222,6 +222,7 @@ enum Outcome {
 }
 
 /// `POST /:id/unsubscribe`.
+#[allow(clippy::too_many_lines)] // every way to unsubscribe, in TypeScript's order
 async fn unsubscribe(
     State(state): State<MailState>,
     caller: Caller,

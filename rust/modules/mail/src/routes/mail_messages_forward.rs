@@ -81,6 +81,9 @@ fn format_address(addr: &Value) -> String {
 /// `formatForwardDate(date, timeZone, locale)` for `en-US`: `Sun, Mar 1,
 /// 2026, 9:00 AM UTC`, in the sender's zone (UTC when unknown or invalid).
 fn format_forward_date(millis: i64, time_zone: Option<&str>) -> String {
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
     let zone_name = time_zone
         .filter(|z| !z.is_empty() && TimeZone::get(z).is_ok())
         .unwrap_or("UTC");
@@ -100,15 +103,15 @@ fn format_forward_date(millis: i64, time_zone: Option<&str>) -> String {
         Weekday::Saturday => "Sat",
         Weekday::Sunday => "Sun",
     };
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
     let month = MONTHS[usize::try_from(date.month() - 1).unwrap_or(0)];
     let time =
         weldsuite_emails::format_time(millis, weldsuite_emails::EmailLocale::En, zone_name, true)
             .unwrap_or_default();
     format!("{weekday}, {month} {}, {}, {time}", date.day(), date.year())
 }
+
+/// A stored attachment: id, file name, content type, inline, storage path.
+type StoredAttachment = (String, String, Option<String>, Option<bool>, Option<String>);
 
 /// The original's own files minus the removed ones (`loadOriginalAttachments`).
 async fn original_files(
@@ -117,7 +120,7 @@ async fn original_files(
     message_id: &str,
     exclude: &[String],
 ) -> Result<Vec<ExtraAttachment>, SendError> {
-    let rows: Vec<(String, String, Option<String>, Option<bool>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<StoredAttachment> = sqlx::query_as(
         "select id, file_name, content_type, is_inline, storage_path from mail_attachments
          where message_id = $1 and deleted_at is null",
     )
@@ -252,6 +255,7 @@ fn eml_attachment(original: &Value, files: &[ExtraAttachment]) -> ExtraAttachmen
 }
 
 /// `POST /:id/forward`.
+#[allow(clippy::too_many_lines)] // the route's steps, in TypeScript's order
 pub(super) async fn forward(
     State(state): State<MailState>,
     caller: Caller,
@@ -328,7 +332,7 @@ pub(super) async fn forward(
                 .iter()
                 .find_map(|k| original[*k].as_str().and_then(parse_iso))
                 .unwrap_or_else(weldsuite_mail_domain::outbound::clock::now_ms);
-            let date = format_forward_date(millis, data.time_zone.as_deref());
+            let sent_on = format_forward_date(millis, data.time_zone.as_deref());
             let original_subject = original["subject"].as_str().unwrap_or_default();
             let original_text = original["textBody"]
                 .as_str()
@@ -343,7 +347,7 @@ pub(super) async fn forward(
                 .unwrap_or_default();
             let mut header_lines = vec![
                 format!("From: {sender}"),
-                format!("Date: {date}"),
+                format!("Date: {sent_on}"),
                 format!("Subject: {original_subject}"),
             ];
             if !to_label.is_empty() {
@@ -355,7 +359,7 @@ pub(super) async fn forward(
             );
             let mut quoted_header = vec![
                 format!("<b>From:</b> {}", escape_html(&sender)),
-                format!("<b>Date:</b> {}", escape_html(&date)),
+                format!("<b>Date:</b> {}", escape_html(&sent_on)),
                 format!("<b>Subject:</b> {}", escape_html(original_subject)),
             ];
             if !to_label.is_empty() {

@@ -80,11 +80,32 @@ async fn tenant(
     }
 }
 
+/// A mailbox row: id, email, display name, name, provider, default, status.
+type MailboxRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<bool>,
+    String,
+);
+
+/// A membership: Clerk org id, workspace id, name, slug, image, role.
+type MembershipRow = (
+    Option<String>,
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+);
+
 /// `accountsForWorkspace`: the first 100 mailboxes the user may open there
 /// (`listMailAccounts(db, userId, { limit: 100 })`), as directory entries.
 async fn accounts(db: &PgPool, user_id: &str) -> Result<Vec<Value>, sqlx::Error> {
     let admin = is_admin_or_owner(db, user_id).await?;
-    let rows: Vec<(String, String, Option<String>, String, Option<String>, Option<bool>, String)> =
+    let rows: Vec<MailboxRow> =
         sqlx::query_as(
             "select a.id, a.email, a.display_name, a.name, a.provider::text, a.is_default,
                a.status::text
@@ -123,17 +144,7 @@ async fn list(State(state): State<MailState>, caller: SignedIn) -> Response {
         tracing::error!("[app-api/mailboxes] list failed: no master database");
         return Data(json!([])).into_response();
     };
-    let rows: Result<
-        Vec<(
-            Option<String>,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-        )>,
-        sqlx::Error,
-    > = sqlx::query_as(
+    let rows: Result<Vec<MembershipRow>, sqlx::Error> = sqlx::query_as(
         "select w.clerk_org_id, w.id, w.name, w.slug, w.image_url, uw.role
              from user_workspaces uw
              inner join workspaces w on uw.workspace_id = w.id

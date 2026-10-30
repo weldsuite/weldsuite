@@ -333,7 +333,7 @@ async fn store_extra_attachments(
         }
         safe.truncate(200);
         if safe.is_empty() {
-            safe = "attachment".to_owned();
+            "attachment".clone_into(&mut safe);
         }
         let key = format!(
             "workspaces/{org}/mail/attachments/{message_id}/{}_{safe}",
@@ -846,6 +846,7 @@ pub struct ReplyInput {
 }
 
 /// `replyAndPersist(...)`: the reply's result and the message it answers.
+#[allow(clippy::too_many_lines)] // the steps of one reply, in TypeScript's order
 pub async fn reply_and_persist(
     deps: &SendDeps<'_>,
     org: &str,

@@ -114,6 +114,7 @@ pub(crate) async fn load_scheduled(
 
 /// `applyScheduledPatch`: the scheduled fields a step changes.
 #[derive(Debug, Default)]
+#[allow(clippy::option_option)] // unchanged, cleared or set, like the TypeScript patch
 pub(crate) struct ScheduledPatch {
     pub(crate) send_status: Option<&'static str>,
     /// `Some(None)` clears it.
@@ -192,6 +193,9 @@ fn addresses(value: &Value) -> Vec<String> {
         .collect()
 }
 
+/// A stored attachment: file name, content type, size, storage path.
+type StoredFile = (String, Option<String>, Option<i64>, Option<String>);
+
 /// `sendScheduledNow`'s send: the stored message through `sendAndPersist`,
 /// then the scheduled row becomes the sent copy. On a partial send the
 /// scheduled row goes; on any other failure it is left as it was for the
@@ -202,7 +206,7 @@ pub(crate) async fn deliver(
     user_id: &str,
     message: &ScheduledRow,
 ) -> Result<SendResult, SendError> {
-    let rows: Vec<(String, Option<String>, Option<i64>, Option<String>)> = sqlx::query_as(
+    let rows: Vec<StoredFile> = sqlx::query_as(
         "select file_name, content_type, size::bigint, storage_path from mail_attachments
          where message_id = $1 and deleted_at is null",
     )
@@ -303,6 +307,7 @@ pub type TenantDatabases =
 /// `SendScheduledEmailParams`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(clippy::struct_field_names)] // `SendScheduledEmailParams`, named as TypeScript names them
 struct Params {
     /// The Clerk org id the schedule was made under.
     workspace_id: String,
@@ -345,8 +350,9 @@ impl SendScheduledEmailJob {
             Err(SendError::Mail { code, .. }) if code == "PARTIALLY_SENT" => Ok("sent".to_owned()),
             Err(error) => {
                 let detail = match &error {
-                    SendError::Mail { message, .. } => message.clone(),
-                    SendError::Internal(message) => message.clone(),
+                    SendError::Mail { message, .. } | SendError::Internal(message) => {
+                        message.clone()
+                    }
                 };
                 tracing::warn!(
                     "[SendScheduledEmail] {} failed: {detail}",

@@ -259,13 +259,12 @@ async fn movable_attachment_ids(caller: &Caller, ids: &[String]) -> MailResult<V
     let mut access: Vec<(String, bool)> = Vec::new();
     let mut movable = Vec::new();
     for (id, account) in rows {
-        let allowed = match access.iter().find(|(a, _)| *a == account) {
-            Some((_, allowed)) => *allowed,
-            None => {
-                let allowed = check_account_access(&caller.db, &account, &caller.user_id).await?;
-                access.push((account, allowed));
-                allowed
-            }
+        let allowed = if let Some((_, allowed)) = access.iter().find(|(a, _)| *a == account) {
+            *allowed
+        } else {
+            let allowed = check_account_access(&caller.db, &account, &caller.user_id).await?;
+            access.push((account, allowed));
+            allowed
         };
         if allowed {
             movable.push(id);
@@ -609,7 +608,7 @@ async fn reschedule(
     if let Err(error) = reach(&caller, &id).await {
         return match error {
             MailError::Database(error) => unhandled(error.into()),
-            other => other.respond(""),
+            error @ MailError::Response(_) => error.respond(""),
         };
     }
     let result = async {
@@ -702,7 +701,7 @@ async fn send_now(
     if let Err(error) = reach(&caller, &id).await {
         return match error {
             MailError::Database(error) => unhandled(error.into()),
-            other => other.respond(""),
+            error @ MailError::Response(_) => error.respond(""),
         };
     }
     let doh = doh
