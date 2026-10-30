@@ -527,10 +527,11 @@ const UPLOAD_KEY_SEGMENT = /\/\d{13}_[0-9a-f]{32}\//g;
 /** A signed object URL's credential (`?exp=<seconds>&sig=<HMAC>`). */
 const SIGNED_URL_QUERY = /\?exp=\d+&sig=[\w-]+$/;
 /**
- * A ticket number WeldDesk generates (`TKT-<Date.now() in base 36>`, and a
+ * A ticket or conversation number WeldDesk generates (`TKT-` or `CONV-` and
+ * `Date.now()` in base 36, and a
  * random `-<4 characters>` on `POST /api/tickets`): new per run.
  */
-const GENERATED_TICKET_NUMBER = /^TKT-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
+const GENERATED_TICKET_NUMBER = /^(TKT|CONV)-[0-9A-Z]{8}(-[0-9A-Z]{4})?$/;
 /**
  * A custom WeldFlow pipeline stage's id (`slugifyStage`): a slug of its name,
  * `_`, and 4 random base36 characters, new per run by construction. A stage
@@ -593,7 +594,7 @@ export function normalizeForDiff(value: unknown, isWrite: boolean, key?: string)
 /** A string in a write's answer, with what differs per run by construction replaced. */
 function normalizeWrittenString(value: string, key: string | undefined): string {
   if (key === 'cursor') return '<cursor>';
-  if (GENERATED_TICKET_NUMBER.test(value)) return 'TKT-<generated>';
+  if (GENERATED_TICKET_NUMBER.test(value)) return `${value.split('-')[0]}-<generated>`;
   return normalizeSignedValue(value, key) ?? normalizeGeneratedValue(value, key) ?? normalizeRandomParts(value);
 }
 
