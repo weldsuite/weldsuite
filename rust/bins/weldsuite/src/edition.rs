@@ -57,6 +57,14 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     "analytics",
     // `POST /api/search/reindex` isn't served.
     "search-reindex",
+    // WeldMail custom domains (`/api/mail-domains`) are Cloudflare Email
+    // Routing and DNS on Global; the Kubernetes answers differ (MAIL-010).
+    "mail-domains",
+    // Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`): that
+    // domain's MX and reputation belong to Global (MAIL-010).
+    "mail-free-addresses",
+    // WeldMail AI (`/api/mail-ai`): the Rust backend has no AI port yet.
+    "mail-ai",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,

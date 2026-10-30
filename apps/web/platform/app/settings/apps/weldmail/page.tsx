@@ -7,6 +7,7 @@ import MailSendingLimitsSettingsPage from './limits/page';
 import { useMailSendingUsage } from '@/hooks/queries/use-mail-sending-queries';
 import { PageTabs, type PageTab } from '@weldsuite/ui/components/page-tabs';
 import { getTranslations } from '@/lib/i18n';
+import { isFeatureAvailable } from '@/lib/edition';
 
 const TAB_VALUES = ['accounts', 'signatures', 'domains', 'limits'] as const;
 type TabValue = (typeof TAB_VALUES)[number];
@@ -18,15 +19,17 @@ export default function WeldMailSettingsPage() {
   // The outbound guard's usage. A workspace it does not apply to (no data) gets no tab.
   const sendingUsage = useMailSendingUsage();
   const showLimits = sendingUsage.isLoading || Boolean(sendingUsage.data);
+  // Custom domains need `/mail-domains`, which the Kubernetes editions lack.
+  const showDomains = isFeatureAvailable('mail-domains');
 
   const tabs: PageTab[] = [
     { id: 'accounts', label: ts.weldmail.tabs.accounts, icon: Users },
     { id: 'signatures', label: ts.weldmail.tabs.signatures, icon: Signature },
-    { id: 'domains', label: ts.weldmail.tabs.domains, icon: Globe },
+    ...(showDomains ? [{ id: 'domains', label: ts.weldmail.tabs.domains, icon: Globe }] : []),
     ...(showLimits ? [{ id: 'limits', label: ts.weldmail.tabs.limits, icon: Gauge }] : []),
   ];
   const tabParam = searchParams.get('tab');
-  const activeTab: TabValue = TAB_VALUES.includes(tabParam as TabValue)
+  const activeTab: TabValue = TAB_VALUES.includes(tabParam as TabValue) && (showDomains || tabParam !== 'domains')
     ? (tabParam as TabValue)
     : 'accounts';
 

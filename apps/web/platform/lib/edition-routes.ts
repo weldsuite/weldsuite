@@ -36,6 +36,9 @@ const ROUTE_REQUIREMENTS: ReadonlyArray<readonly [prefix: string, requirement: E
   ['/settings/plans', { feature: 'billing' }],
   ['/settings/billing', { feature: 'billing' }],
   ['/settings/apps/phone-numbers', { modules: ['call'] }],
+  // WeldMail pages whose API is a feature the Kubernetes editions lack.
+  ['/weldmail/ai', { modules: ['mail'], feature: 'mail-ai' }],
+  ['/weldmail/domains', { modules: ['mail'], feature: 'mail-domains' }],
   ['/settings/integrations', { modules: ['connect'] }],
   ['/settings/webhooks', { modules: ['connect'] }],
   // WeldBooks entities and WeldHR payroll employers share the page.

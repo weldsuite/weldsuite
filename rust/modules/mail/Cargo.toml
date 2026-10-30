@@ -23,6 +23,7 @@ weldsuite-ports = { workspace = true }
 axum = { workspace = true, features = ["json", "query"] }
 form_urlencoded = { workspace = true }
 http = { workspace = true }
+jiff = { workspace = true }
 regex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

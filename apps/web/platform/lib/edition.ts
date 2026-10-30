@@ -44,6 +44,12 @@ export const EDITION_FEATURES = [
   'analytics',
   /** `POST /api/search/reindex`. */
   'search-reindex',
+  /** Custom mail domains (`/api/mail-domains`, Cloudflare Email Routing and DNS; ADR MAIL-010). */
+  'mail-domains',
+  /** Free `{slug}.weldmail.com` addresses (`/api/mail-weldmail`; off on Kubernetes, ADR MAIL-010). */
+  'mail-free-addresses',
+  /** WeldMail's AI drafts, replies, summaries and smart replies (`/api/mail-ai`). */
+  'mail-ai',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

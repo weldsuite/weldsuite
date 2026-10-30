@@ -31,6 +31,8 @@ mod reads;
 pub(crate) use reads::locate as locate_message;
 #[path = "mail_messages_writes.rs"]
 mod writes;
+#[path = "mail_messages_forward.rs"]
+mod forward;
 
 pub(crate) fn routes<S, Q>(state: MailState, gate: &Arc<PermissionGate<Q>>) -> Router<S>
 where
@@ -74,6 +76,10 @@ where
         .route(
             "/mail-messages/{id}/labels/remove",
             post(writes::remove_labels).route_layer(update()),
+        )
+        .route(
+            "/mail-messages/{id}/forward",
+            post(forward::forward).route_layer(gate.require([MESSAGES_CREATE])),
         )
         .route(
             "/mail-messages/{id}/reply",

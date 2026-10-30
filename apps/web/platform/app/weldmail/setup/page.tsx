@@ -48,8 +48,20 @@ import {
 } from '@/app/weldmail/components/mail-access-picker';
 import { toast } from 'sonner';
 import { toPublicPath } from '@/lib/workspace-url-rewrite';
+import { isFeatureAvailable } from '@/lib/edition';
+import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 
 type SetupMethod = 'select' | 'weldmail' | 'custom-domain';
+
+// Free WeldMail addresses and custom domains each need a route the Kubernetes
+// editions lack (`mail-free-addresses`, `mail-domains`); a method that is
+// unavailable is not offered.
+function setupMethodsAvailable() {
+  return {
+    weldmail: isFeatureAvailable('mail-free-addresses'),
+    customDomain: isFeatureAvailable('mail-domains'),
+  };
+}
 
 // --- Icons ---
 
@@ -67,6 +79,7 @@ function ChooseMethodContent({
   onSelectMethod: (method: SetupMethod) => void;
 }>) {
   const { t } = useI18n();
+  const methods = setupMethodsAvailable();
 
   return (
     <div className="space-y-6">
@@ -74,29 +87,33 @@ function ChooseMethodContent({
         <p className="text-sm font-medium text-muted-foreground">
           {t.mail.setupPage.createNewEmailAddress}
         </p>
-        <Button
-          variant="outline"
-          className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-          onClick={() => onSelectMethod('weldmail')}
-        >
-          {WELDMAIL_ICON}
-          <div className="flex flex-col items-start">
-            <span className="font-medium">{t.mail.setupPage.weldMailAddress}</span>
-            <span className="text-xs text-muted-foreground">{t.mail.setupPage.getFreeWeldMailAddress}</span>
-          </div>
-        </Button>
+        {methods.weldmail && (
+          <Button
+            variant="outline"
+            className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+            onClick={() => onSelectMethod('weldmail')}
+          >
+            {WELDMAIL_ICON}
+            <div className="flex flex-col items-start">
+              <span className="font-medium">{t.mail.setupPage.weldMailAddress}</span>
+              <span className="text-xs text-muted-foreground">{t.mail.setupPage.getFreeWeldMailAddress}</span>
+            </div>
+          </Button>
+        )}
 
-        <Button
-          variant="outline"
-          className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
-          onClick={() => onSelectMethod('custom-domain')}
-        >
-          <AppIcon icon="weldhost" className="size-5 mx-1 shrink-0" />
-          <div className="flex flex-col items-start">
-            <span className="font-medium">{t.mail.setupPage.customDomainEmail}</span>
-            <span className="text-xs text-muted-foreground">{t.mail.setupPage.useYourOwnDomain}</span>
-          </div>
-        </Button>
+        {methods.customDomain && (
+          <Button
+            variant="outline"
+            className="w-full h-14 px-3 justify-start gap-3 text-left font-normal rounded-lg"
+            onClick={() => onSelectMethod('custom-domain')}
+          >
+            <AppIcon icon="weldhost" className="size-5 mx-1 shrink-0" />
+            <div className="flex flex-col items-start">
+              <span className="font-medium">{t.mail.setupPage.customDomainEmail}</span>
+              <span className="text-xs text-muted-foreground">{t.mail.setupPage.useYourOwnDomain}</span>
+            </div>
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -495,6 +512,10 @@ export default function MailSetupPage() {
   if (emailAccounts.length > 0) {
     return <PageLoader fullScreen={false} />;
   }
+
+  // Neither way of creating an address is offered here (Kubernetes editions).
+  const methods = setupMethodsAvailable();
+  if (!methods.weldmail && !methods.customDomain) return <EditionUnavailablePage />;
 
   const handleSuccess = () => {
     router.push('/weldmail');
