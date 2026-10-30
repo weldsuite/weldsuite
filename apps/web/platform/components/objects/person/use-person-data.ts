@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useTopic } from '@weldsuite/realtime/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isModuleOffered } from '@/lib/edition';
 import { invalidateOnboardingChecklist } from '@/hooks/queries/use-onboarding-checklist';
 import { buildQueryString } from '@weldsuite/api-client';
 import type {
@@ -182,6 +183,8 @@ export function usePeople(filters?: ListPeopleQuery) {
   usePersonLiveSync();
   return useQuery({
     queryKey: personKeys.list(filters as Record<string, unknown> | undefined),
+    // Edition flags (4.F3): WeldCalendar's guest pickers list people too.
+    enabled: isModuleOffered('crm'),
     queryFn: async () => {
       const client = await getClient();
       return client.get<ListEnvelope<Person>>(

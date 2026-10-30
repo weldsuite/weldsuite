@@ -1,0 +1,23 @@
+[package]
+name = "weldsuite-emails"
+description = "System email (@weldsuite/emails) for the Rust backend: the exported templates, rendered with minijinja, and sending through the SystemMail port"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-ports = { workspace = true }
+jiff = { workspace = true }
+minijinja = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

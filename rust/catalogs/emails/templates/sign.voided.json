@@ -1,0 +1,40 @@
+{
+  "fields": [
+    "sender_name",
+    "title",
+    "reason"
+  ],
+  "flags": [],
+  "id": "sign.voided",
+  "multiline": [
+    "reason"
+  ],
+  "variants": {
+    "en": {
+      "": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">{{ sender_name }} cancelled this signing request</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Their reason</p><p style=\"font-size:15px;line-height:1.6;margin:0;padding:2px 0 2px 16px;border-left:2px solid #e4e4e7;color:#3f3f46;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0\">{{ reason|multiline }}</p></td></tr></tbody></table><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">You do not need to sign it any more, and the signing link has stopped working.</p>",
+        "preview": "{{ sender_name }} cancelled this signing request.",
+        "subject": "\"{{ title }}\" was cancelled",
+        "text": {
+          "weldsuite": "{{ sender_name|collapse }} cancelled this signing request\n\n{{ title|collapse }}\n\nTheir reason\n\n{{ reason|text_lines }}\n\nYou do not need to sign it any more, and the signing link has stopped working.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\n{{ sender_name|collapse }} cancelled this signing request\n\n{{ title|collapse }}\n\nTheir reason\n\n{{ reason|text_lines }}\n\nYou do not need to sign it any more, and the signing link has stopped working.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "{{ sender_name|collapse }} cancelled this signing request\n\n{{ title|collapse }}\n\nTheir reason\n\n{{ reason|text_lines }}\n\nYou do not need to sign it any more, and the signing link has stopped working.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      }
+    },
+    "nl": {
+      "": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">{{ sender_name }} heeft dit ondertekenverzoek ingetrokken</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><table align=\"center\" width=\"100%\" border=\"0\" cellPadding=\"0\" cellSpacing=\"0\" role=\"presentation\" style=\"margin:0 0 24px\"><tbody><tr><td><p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">De reden</p><p style=\"font-size:15px;line-height:1.6;margin:0;padding:2px 0 2px 16px;border-left:2px solid #e4e4e7;color:#3f3f46;margin-top:0;margin-bottom:0;margin-left:0;margin-right:0\">{{ reason|multiline }}</p></td></tr></tbody></table><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Je hoeft het niet meer te ondertekenen, en de ondertekenlink werkt niet meer.</p>",
+        "preview": "{{ sender_name }} heeft dit ondertekenverzoek ingetrokken.",
+        "subject": "\"{{ title }}\" is ingetrokken",
+        "text": {
+          "weldsuite": "{{ sender_name|collapse }} heeft dit ondertekenverzoek ingetrokken\n\n{{ title|collapse }}\n\nDe reden\n\n{{ reason|text_lines }}\n\nJe hoeft het niet meer te ondertekenen, en de ondertekenlink werkt niet meer.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\n{{ sender_name|collapse }} heeft dit ondertekenverzoek ingetrokken\n\n{{ title|collapse }}\n\nDe reden\n\n{{ reason|text_lines }}\n\nJe hoeft het niet meer te ondertekenen, en de ondertekenlink werkt niet meer.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "{{ sender_name|collapse }} heeft dit ondertekenverzoek ingetrokken\n\n{{ title|collapse }}\n\nDe reden\n\n{{ reason|text_lines }}\n\nJe hoeft het niet meer te ondertekenen, en de ondertekenlink werkt niet meer.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      }
+    }
+  }
+}

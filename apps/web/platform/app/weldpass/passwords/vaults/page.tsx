@@ -10,7 +10,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { toast } from 'sonner';
 import { LockKeyhole, SearchX } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';

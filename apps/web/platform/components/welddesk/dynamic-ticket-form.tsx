@@ -13,7 +13,7 @@ import {
 } from '@weldsuite/ui/components/select';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useTranslations } from '@weldsuite/i18n/client';
 import { useCreateTicket } from '@/hooks/queries/use-helpdesk-queries';
 import type { TicketTypeConfig, TicketTypeField } from '@/hooks/queries/use-helpdesk-queries';

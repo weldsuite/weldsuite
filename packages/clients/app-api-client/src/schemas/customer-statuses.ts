@@ -26,3 +26,15 @@ export const reorderCustomerStatusesSchema = z.object({
 export type CreateCustomerStatusInput = z.infer<typeof createCustomerStatusSchema>;
 export type UpdateCustomerStatusInput = z.infer<typeof updateCustomerStatusSchema>;
 export type ReorderCustomerStatusesInput = z.infer<typeof reorderCustomerStatusesSchema>;
+
+/** A `crm_customer_statuses` row as the routes return it. */
+export const customerStatusSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  color: z.string(),
+  sortOrder: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+});

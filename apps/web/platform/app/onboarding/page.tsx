@@ -1,5 +1,5 @@
 
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useRouter } from '@/lib/router';
 import { useEffect, useMemo } from 'react';
 import { PageLoader } from '@/components/page-loader';

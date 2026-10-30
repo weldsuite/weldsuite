@@ -1,6 +1,6 @@
 [package]
 name = "weldsuite-ports"
-description = "The infrastructure ports (cache, event bus, realtime, flags) the backend runs on, with in-memory doubles for tests"
+description = "The infrastructure ports (cache, event bus, realtime, flags, files, jobs) the backend runs on, with in-memory doubles for tests"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,10 +12,12 @@ publish.workspace = true
 weldsuite-catalogs = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["macros", "rt", "time", "test-util"] }
 
 [lints]
 workspace = true

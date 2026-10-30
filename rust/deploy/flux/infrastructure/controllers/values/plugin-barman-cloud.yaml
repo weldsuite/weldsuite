@@ -1,0 +1,3 @@
+# Defaults: the plugin runs next to the operator in cnpg-system and gets its
+# TLS certificates from cert-manager.
+{}

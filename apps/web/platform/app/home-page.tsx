@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useNavigate, useRouter } from '@tanstack/react-router';
 import { Link } from '@/lib/router';
 import { BreadcrumbHeader } from '@/components/breadcrumb-header';
@@ -8,8 +8,9 @@ import { AgentChatInput, AgentSuggestions } from '@/components/weldagent/agent-c
 import { useI18n } from '@/lib/i18n/provider';
 import { Button } from '@weldsuite/ui/components/button';
 import { useUserPreferences } from '@/hooks/queries/use-settings-queries';
-import { HOME_WIDGETS, emptySlots, type NullableSlot } from '@/lib/home-widgets/registry';
+import { HOME_WIDGETS, emptySlots, isWidgetOffered, type NullableSlot } from '@/lib/home-widgets/registry';
 import type { HomeWidgetSlot, WidgetId } from '@/lib/home-widgets/types';
+import { isModuleOffered } from '@/lib/edition';
 
 function resolveHomeSlots(prefs: ReturnType<typeof useUserPreferences>['data']): [NullableSlot, NullableSlot] {
   const persisted = prefs?.uiPreferences?.homeWidgets?.slots;
@@ -17,7 +18,8 @@ function resolveHomeSlots(prefs: ReturnType<typeof useUserPreferences>['data']):
   return persisted.map((slot) => {
     if (!slot) return null;
     const def = HOME_WIDGETS[slot.widgetId as WidgetId];
-    if (!def) return null;
+    // Edition flags (4.F3): a widget whose module this deployment doesn't serve stays empty.
+    if (!def || !isWidgetOffered(def)) return null;
     const parsed = def.schema.safeParse(slot.settings);
     return {
       widgetId: slot.widgetId as WidgetId,
@@ -118,11 +120,15 @@ export default function HomePage() {
     return () => ro.disconnect();
   }, [input]);
 
+  // Edition flags (4.F3): the agent composer needs the agent module.
+  const agentOffered = isModuleOffered('agent');
+
   // Load the chat page's chunk up front so the handoff below never waits on it
   // (or flashes the route skeleton) mid-transition.
   useEffect(() => {
+    if (!agentOffered) return;
     router.preloadRoute({ to: '/new-chat', search: { prompt: undefined, conversation: undefined } }).catch(() => {});
-  }, [router]);
+  }, [router, agentOffered]);
 
   const startNewChat = (prompt: string) => {
     const trimmed = prompt.trim();
@@ -162,18 +168,20 @@ export default function HomePage() {
             */}
             <div className="flex-1" style={{ minHeight: spacerHeight }} />
 
-            {!input.trim() && (
+            {agentOffered && !input.trim() && (
               <div ref={suggestionsRef} className="w-full max-w-3xl mx-auto flex-shrink-0">
                 <AgentSuggestions onSelect={startNewChat} />
               </div>
             )}
           </div>
 
-          <div className="flex-shrink-0 px-6 pb-6">
-            <div className="w-full max-w-3xl mx-auto weldagent-composer-vt">
-              <AgentChatInput value={input} onChange={setInput} onSubmit={startNewChat} autoFocus />
+          {agentOffered && (
+            <div className="flex-shrink-0 px-6 pb-6">
+              <div className="w-full max-w-3xl mx-auto weldagent-composer-vt">
+                <AgentChatInput value={input} onChange={setInput} onSubmit={startNewChat} autoFocus />
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </ModuleContent>
     </div>

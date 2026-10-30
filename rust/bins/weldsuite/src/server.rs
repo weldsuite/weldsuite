@@ -33,9 +33,11 @@ use crate::infra::Infra;
 pub(crate) struct AppState {
     pub(crate) service: &'static str,
     pub(crate) environment: String,
+    /// The edition and public settings `/config.json` reports.
+    pub(crate) edition: Arc<crate::edition::EditionConfig>,
     pub(crate) workspaces: Arc<Workspaces>,
-    /// Unused by conformance builds, which take the test's context instead.
-    #[cfg_attr(feature = "conformance", allow(dead_code))]
+    /// Session tokens: the `/api` layer (not in conformance builds, which
+    /// take the test's context) and the private-object read's bearer check.
     pub(crate) verifier: Arc<SessionVerifier>,
     /// `PERMISSIONS_APP_ENFORCE`, reported to clients by `/api/me/permissions`.
     pub(crate) permissions_app_enforce: bool,
@@ -46,9 +48,28 @@ pub(crate) struct AppState {
     /// `requirePermission(...)` for the routes.
     pub(crate) permissions: Arc<PermissionGate<TenantPermissionQueries>>,
     pub(crate) flags: Arc<FlagGate>,
+    /// `SIGN_SESSION_SECRET`, for WeldSign.
+    pub(crate) sign_session_secret: Option<Arc<str>>,
+    /// `SIGN_PORTAL_URL`, for WeldSign's signing links.
+    pub(crate) sign_portal_url: Option<Arc<str>>,
+    /// `SIGN_PORTAL_SECRET`, the signer portal's key.
+    pub(crate) sign_portal_secret: Option<Arc<str>>,
+    /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
+    pub(crate) files_public_url: Option<Arc<str>>,
+    /// `STORAGE_SIGNING_KEY`, for private-object cookies and signed URLs.
+    pub(crate) storage_signing_key: Option<Arc<str>>,
+    /// Sign-in settings for `/config.json`: the OIDC issuer and the
+    /// platform's client id. `None` with Clerk.
+    pub(crate) public_auth: Option<Arc<serde_json::Value>>,
+    /// Where `/config.json` sends the frontends for realtime.
+    pub(crate) realtime: crate::realtime::PublicRealtime,
     /// What conformance builds record instead of publishing.
     #[cfg(feature = "conformance")]
     pub(crate) recorders: crate::conformance::Recorders,
+    /// The test databases and bridges, shared by every conformance route
+    /// (one connection per pglite).
+    #[cfg(feature = "conformance")]
+    pub(crate) conformance_pools: Arc<crate::conformance::Pools>,
 }
 
 impl AppState {
@@ -89,21 +110,38 @@ pub(crate) fn router(state: AppState) -> Router {
         ))
         .layer(axum::middleware::from_fn(weldsuite_pipeline::licence_gate));
     let api = authenticated(api, &state);
+    // Session only, no workspace: app-api mounts these above its guard.
+    let api = api.merge(signed_in(crate::routes::account(&state), &state));
+    // Before any authentication, at their full `/api/...` paths: the routes
+    // that check their own credential (an upload token, a files cookie, a
+    // signed URL), as app-api mounts them ahead of `clerkMiddleware`.
+    let public = before_authentication(crate::routes::public(&state), &state);
 
-    let root = Router::new();
+    let root = Router::new().merge(public);
     #[cfg(feature = "conformance")]
-    let root = root.route(
-        "/__conformance/side-effects",
-        get(crate::conformance::side_effects),
-    );
+    let root = root
+        .route(
+            "/__conformance/side-effects",
+            get(crate::conformance::side_effects),
+        )
+        .route(
+            "/__conformance/cron/sign-lifecycle",
+            axum::routing::post(crate::conformance::sign_lifecycle_sweep),
+        )
+        .route(
+            "/__conformance/cron/calendar-replan",
+            axum::routing::post(crate::conformance::calendar_replan_sweep),
+        );
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
         .route("/robots.txt", get(robots))
         .route("/config.json", get(config_json))
         .nest("/api", api)
+        .nest("/public/sign-portal", crate::routes::sign_portal(&state))
         .fallback(not_found)
         .with_state(state)
+        .layer(axum::middleware::from_fn(bundle_host_guard))
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
         // One INFO span per request, so the default `info` filter keeps it
@@ -113,6 +151,20 @@ pub(crate) fn router(state: AppState) -> Router {
                 .make_span_with(DefaultMakeSpan::new().level(tracing::Level::INFO)),
         )
         .layer(axum::middleware::from_fn(request_id))
+}
+
+/// With a dedicated WeldApps bundle origin (`USER_APP_BUNDLE_ORIGIN`), that
+/// host serves bundles and nothing else (`bundleHostRejection`).
+async fn bundle_host_guard(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let env = crate::routes::apps_env();
+    match weldsuite_core_apps::bundle_host_rejection(&env, request.headers(), request.uri().path())
+    {
+        Some(rejection) => rejection,
+        None => next.run(request).await,
+    }
 }
 
 /// Session token → tenant database, as `apiAuth()` does.
@@ -128,12 +180,45 @@ fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     ))
 }
 
+/// The session alone, for the routes that need no workspace
+/// (`clerkMiddleware()` without `workspaceDbMiddleware()`).
+#[cfg(not(feature = "conformance"))]
+fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    api.layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.verifier),
+        weldsuite_auth::clerk_auth,
+    ))
+}
+
 /// Conformance builds take the test's context from a header instead.
 #[cfg(feature = "conformance")]
-fn authenticated(api: Router<AppState>, _state: &AppState) -> Router<AppState> {
+fn authenticated(api: Router<AppState>, state: &AppState) -> Router<AppState> {
     api.layer(axum::middleware::from_fn_with_state(
-        Arc::new(crate::conformance::Pools::default()),
+        Arc::clone(&state.conformance_pools),
         crate::conformance::auth,
+    ))
+}
+
+/// Conformance builds take the test's context from a header, workspace or
+/// not.
+#[cfg(feature = "conformance")]
+fn signed_in(api: Router<AppState>, state: &AppState) -> Router<AppState> {
+    authenticated(api, state)
+}
+
+/// The public routes as they are.
+#[cfg(not(feature = "conformance"))]
+fn before_authentication(public: Router<AppState>, _state: &AppState) -> Router<AppState> {
+    public
+}
+
+/// Conformance builds give the public routes what the test shares (its
+/// buckets, KV and env), without a session.
+#[cfg(feature = "conformance")]
+fn before_authentication(public: Router<AppState>, state: &AppState) -> Router<AppState> {
+    public.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public,
     ))
 }
 
@@ -201,8 +286,11 @@ async fn health(State(state): State<AppState>) -> Response {
 /// frontends. `modules` is the core platform plus every module ported to Rust
 /// (`RUST_PORTED_MODULES` in `@weldsuite/api-modules`); a client hides the
 /// apps of any other module. Global never asks: it runs every module in
-/// TypeScript.
-async fn config_json() -> Response {
+/// TypeScript. With an OIDC provider, `auth` tells the frontends where to
+/// sign in (issuer, the platform's PKCE client id, the organization claim).
+/// `realtimeUrl` is the WebSocket gateway on the same origin
+/// (`crate::realtime`).
+async fn config_json(State(state): State<AppState>, headers: axum::http::HeaderMap) -> Response {
     let modules: Vec<&str> = std::iter::once("core")
         .chain(
             weldsuite_catalogs::api_modules()
@@ -211,15 +299,21 @@ async fn config_json() -> Response {
                 .map(|module| module.id.as_str()),
         )
         .collect();
-    (
-        [(header::CACHE_CONTROL, "no-cache")],
-        Json(json!({
-            "backend": "rust",
-            "version": env!("CARGO_PKG_VERSION"),
-            "modules": modules,
-        })),
-    )
-        .into_response()
+    let mut body = json!({
+        "backend": "rust",
+        "version": env!("CARGO_PKG_VERSION"),
+        "modules": modules,
+    });
+    // Edition flags (4.F3): the edition, the features this backend lacks
+    // and the public settings (`crate::edition`).
+    state.edition.describe(&mut body);
+    if let Some(auth) = &state.public_auth {
+        body["auth"] = auth.as_ref().clone();
+    }
+    if let Some(url) = state.realtime.url(&headers) {
+        body["realtimeUrl"] = json!(url);
+    }
+    ([(header::CACHE_CONTROL, "no-cache")], Json(body)).into_response()
 }
 
 async fn robots() -> &'static str {
@@ -317,6 +411,7 @@ mod tests {
         AppState {
             service: "weldsuite",
             environment: "test".to_owned(),
+            edition: Arc::default(),
             workspaces: Arc::new(Workspaces::new(
                 unreachable_master(),
                 Keyring::default(),
@@ -332,8 +427,17 @@ mod tests {
                 "test",
                 None,
             )),
+            sign_session_secret: None,
+            sign_portal_url: None,
+            sign_portal_secret: None,
+            files_public_url: None,
+            storage_signing_key: None,
+            public_auth: None,
+            realtime: crate::realtime::PublicRealtime::default(),
             #[cfg(feature = "conformance")]
             recorders: crate::conformance::Recorders::default(),
+            #[cfg(feature = "conformance")]
+            conformance_pools: Arc::default(),
         }
     }
 
@@ -408,7 +512,110 @@ mod tests {
             .iter()
             .filter(|m| m.rust)
             .count();
-        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported + 1));
+        assert_eq!(body["modules"].as_array().map(Vec::len), Some(ported));
+        for module in ["core", "know", "sign"] {
+            assert!(
+                body["modules"]
+                    .as_array()
+                    .is_some_and(|modules| modules.contains(&json!(module))),
+                "{module} is offered"
+            );
+        }
+        assert!(body.get("auth").is_none(), "Clerk setups add nothing");
+        assert!(
+            body.get("realtimeUrl").is_none(),
+            "no gateway without Valkey"
+        );
+    }
+
+    /// Edition flags (4.F3): the edition, the features the platform hides,
+    /// and the public settings only when some are set.
+    #[tokio::test]
+    async fn config_reports_the_edition_and_what_it_lacks() {
+        let (_, _, body) = call(state(), get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["edition"], "self-hosted");
+        let lacks = body["unavailableFeatures"].as_array().expect("list");
+        for feature in [
+            "sso-connections",
+            "billing",
+            "credit-top-up",
+            "desktop-sign-in",
+        ] {
+            assert!(lacks.contains(&json!(feature)), "{feature}");
+        }
+        assert!(body.get("env").is_none());
+
+        let mut state = state();
+        state.edition = Arc::new(crate::edition::EditionConfig {
+            edition: crate::edition::Edition::Eu,
+            public_env: [("VITE_MAPBOX_ACCESS_TOKEN".to_owned(), "pk.eu".to_owned())]
+                .into_iter()
+                .collect(),
+        });
+        let (_, _, body) = call(state, get("/config.json")).await;
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["edition"], "eu");
+        assert_eq!(body["env"]["VITE_MAPBOX_ACCESS_TOKEN"], "pk.eu");
+    }
+
+    /// The app state with an OIDC verifier over the auth crate's fixture keys.
+    fn oidc_state() -> (AppState, Value) {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../crates/auth/tests/fixtures/oidc-tokens.json"
+        ))
+        .expect("fixture");
+        let settings = weldsuite_auth::OidcSettings::new(
+            fixture["issuer"].as_str().expect("issuer"),
+            vec![fixture["project"].as_str().expect("project").to_owned()],
+        );
+        let verifier =
+            SessionVerifier::oidc_with_jwks(settings, &fixture["jwks"].to_string()).expect("jwks");
+        let mut state = state();
+        state.verifier = Arc::new(verifier);
+        state.public_auth = Some(Arc::new(json!({
+            "provider": "oidc",
+            "issuer": fixture["issuer"],
+            "clientId": "300000000000000300",
+        })));
+        (state, fixture)
+    }
+
+    #[cfg(not(feature = "conformance"))]
+    #[tokio::test]
+    async fn an_oidc_session_passes_auth_and_reaches_the_workspace_lookup() {
+        let (state, fixture) = oidc_state();
+        let with = |name: &str| {
+            Request::builder()
+                .uri("/api/me/permissions")
+                .header(
+                    "Authorization",
+                    format!(
+                        "Bearer {}",
+                        fixture["tokens"][name].as_str().expect("token")
+                    ),
+                )
+                .body(Body::empty())
+                .expect("request")
+        };
+        // Signed in: the next layer looks the organization up in the master
+        // database, which this test has none of (500, not 401).
+        let (status, _, body) = call(state.clone(), with("longLived")).await;
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+        let (status, _, body) = call(state, with("expired")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(body.contains("Token verification failed"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn config_tells_oidc_frontends_where_to_sign_in() {
+        let (state, fixture) = oidc_state();
+        let (status, _, body) = call(state, get("/config.json")).await;
+        assert_eq!(status, StatusCode::OK);
+        let body: Value = serde_json::from_str(&body).expect("json");
+        assert_eq!(body["auth"]["provider"], "oidc");
+        assert_eq!(body["auth"]["issuer"], fixture["issuer"]);
+        assert_eq!(body["auth"]["clientId"], "300000000000000300");
     }
 
     #[tokio::test]
@@ -431,6 +638,23 @@ mod tests {
                 "{body}"
             );
         }
+    }
+
+    /// Core is marked ported, so a release build serves its routes too, not
+    /// only a conformance build: the CLI's device login is one of core's
+    /// public routes, which an unmounted core would leave to the session
+    /// guard.
+    #[tokio::test]
+    async fn core_routes_are_served() {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/cli-auth/device")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .expect("request");
+        let (status, _, body) = call(state(), request).await;
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "{body}");
+        assert_ne!(status, StatusCode::NOT_FOUND, "{body}");
     }
 
     #[tokio::test]

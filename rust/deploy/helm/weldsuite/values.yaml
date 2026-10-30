@@ -22,7 +22,48 @@ config:
   logLevel: info
   # Refuse per-app permission denials instead of only logging them.
   permissionsAppEnforce: false
-  # Extra origins allowed as a session token's azp (comma separated).
+  # Which edition this install is, told to the platform by /config.json:
+  # self-hosted (a customer's own install) or eu (WeldSuite's EU edition).
+  # The platform offers only the modules this release ports to Rust and hides
+  # the features it lacks (rust/bins/weldsuite/src/edition.rs); neither is a
+  # setting.
+  edition: self-hosted
+  # Public settings the platform would otherwise bake in at build time, by
+  # their VITE_* name, served in /config.json's `env`. Anyone can read that
+  # document, so the server takes only the names it knows are public
+  # (PUBLIC_ENV_KEYS in edition.rs) and refuses to start on any other:
+  #   VITE_MAPBOX_ACCESS_TOKEN              Mapbox public token (pk.…): maps, address search
+  #   VITE_EXTERNAL_API_URL                 the public API's origin
+  #   VITE_USER_APP_BUNDLE_ORIGIN           WeldApps' dedicated bundle origin
+  #   VITE_USER_APP_ISOLATE_COMMUNITY_APPS  "true": one origin per community app
+  #   VITE_BOOKING_PORTAL_URL, VITE_MEETING_PORTAL_URL  public pages the platform links to
+  publicEnv: {}
+  # Who signs people in (ADR SEC-012): clerk (the Global edition's provider;
+  # its key goes in the Secret: CLERK_JWT_KEY, CLERK_JWKS_URL, ... or
+  # clerkJwks below) or oidc (Zitadel, or the customer's own provider).
+  auth:
+    provider: clerk
+    oidc:
+      # Compared with the token's iss exactly; discovery reads
+      # <issuer>/.well-known/openid-configuration. Zitadel: https://auth.<domain>.
+      issuer: ""
+      # A token's aud must name one of these (comma separated). Zitadel: the
+      # WeldSuite project id; the platform asks for it with the
+      # urn:zitadel:iam:org:project:id:<project id>:aud scope. Quote Zitadel's
+      # 18-digit ids: unquoted, YAML reads them as (rounded) numbers.
+      audience: ""
+      # The claim naming the session's organization (the workspace).
+      # Zitadel sets urn:zitadel:iam:org:id when the platform asks for the
+      # urn:zitadel:iam:org:id:<org id> scope. For people in several
+      # workspaces: urn:zitadel:iam:org:project:<project id>:roles, narrowed
+      # by the urn:zitadel:iam:org:roles:id:<org id> scope.
+      orgClaim: urn:zitadel:iam:org:id
+      # Fetch the keys here instead of discovery's jwks_uri (optional).
+      jwksUrl: ""
+      # The platform's public client (PKCE), told to the frontends by
+      # /config.json (optional).
+      webClientId: ""
+  # Extra origins allowed as a Clerk session token's azp (comma separated).
   clerkAuthorizedParties: ""
   masterMaxConnections: 10
   # One connection per workspace database and up to 2,000 pools: the pair
@@ -47,11 +88,83 @@ config:
     cachePrefix: "cache:"
     # The WebSocket gateway subscribes under the same prefix.
     realtimePrefix: "realtime:"
+  # The realtime WebSocket gateway (/ws…): on whenever VALKEY_URL is set, on
+  # every pod; pods share hubs, rooms, presence and the replay log through
+  # Valkey, so no sticky sessions are needed. It needs a standalone Valkey
+  # (or a primary with replicas), not a Valkey cluster.
+  realtime:
+    # The URL /config.json gives the frontends. Empty: the origin that
+    # /config.json was requested on, with /ws (wss:// behind TLS), which is
+    # right when the SPA and the API share a host.
+    publicUrl: ""
+    # Sockets per pod; more are refused (503) and the client retries.
+    maxConnections: 20000
+    # Sockets per person per pod (tabs, devices).
+    maxConnectionsPerUser: 100
+    # Topics one workspace socket may hold.
+    maxSubscriptions: 2000
+    # Messages queued for one socket before a slow client is dropped (it
+    # reconnects and replays from its cursor).
+    sendQueue: 1024
   nats:
     entityEventsStream: ENTITY_EVENTS
     entityEventsSubject: entity-events
     # Create or update the entity-event stream at start.
     ensureStreams: false
+  # Object storage over the S3 API (MinIO, RustFS, Garage, Ceph RGW, Hetzner
+  # Object Storage, AWS): the workers' R2 buckets. Leave endpoint empty for
+  # none (file routes then fail). The keys go in the Secret below.
+  files:
+    endpoint: ""
+    region: us-east-1
+    # Everything a member or signer must be authorised to read.
+    privateBucket: weldsuite-private
+    # Read only, for objects stored before the private bucket (optional).
+    publicBucket: ""
+    # Path-style URLs; MinIO, RustFS, Garage and endpoints reached by IP need them.
+    forcePathStyle: false
+  # Durable jobs (the workers' Workflows) on Restate. Leave ingressUrl empty
+  # to run jobs inside the server process instead (lost on a restart; fine
+  # for a small self-hosted install). With Restate, every pod also serves the
+  # jobs service on `port` (HTTP/2) behind the <release>-jobs Service, and
+  # registers that Service with the admin API at start (set adminUrl).
+  jobs:
+    restate:
+      ingressUrl: ""   # http://restate:8080
+      adminUrl: ""     # http://restate:9070
+    port: 9080
+  # System mail goes through the SMTP relay in the Secret (SMTP_URL). Mail is
+  # sent from notifications@mail.weldsuite.org unless `from` names another
+  # address, for a relay that only takes its own domain.
+  mail:
+    from: ""
+  # WeldSign: the signer portal's origin; signing links are <portalUrl>/r/<token>
+  # (empty: https://sign.weldsuite.org). SIGN_SESSION_SECRET goes in the Secret.
+  sign:
+    portalUrl: ""
+  # The identity provider's management API (Zitadel, ADR SEC-012):
+  # onboarding creates a workspace's organization through it, the team
+  # routes change members, and the identity-sync cron reads its changes.
+  # ZITADEL_SERVICE_TOKEN (a service user's personal access token, IAM_OWNER)
+  # goes in the Secret. Empty apiUrl: no identity provider.
+  identity:
+    zitadel:
+      apiUrl: ""             # http://zitadel.zitadel.svc:8080
+      # The instance's external domain, sent as Host when apiUrl is in-cluster.
+      host: ""
+      projectId: ""
+      # Where Zitadel's invite email links to ({{.UserID}}, {{.Code}}, {{.OrgID}}).
+      inviteUrlTemplate: ""
+  # New workspace databases (P4 4a): the provisioner places them on the
+  # CloudNativePG shards in TENANT_SHARDS (in the Secret, it holds the admin
+  # passwords). With it set the server serves /api/onboarding and runs the
+  # workspace.provision job.
+  tenants:
+    # neon_shared_projects.region of the shards (empty: "default").
+    region: ""
+  # Seal new workspaces.database_url values as v3 (bound to the workspace);
+  # every Rust reader opens v3, so a new cluster can have it on.
+  aadWrites: false
   # Extra plain environment variables. Traces go to an OpenTelemetry
   # Collector when OTEL_EXPORTER_OTLP_ENDPOINT is set here, e.g.
   #   - { name: OTEL_EXPORTER_OTLP_ENDPOINT, value: "http://otel-collector:4318" }
@@ -65,16 +178,58 @@ config:
 #   CLERK_JWT_KEY                PEM public key of the Clerk instance; or
 #   CLERK_SECRET_KEY             fetch the keys from Clerk's Backend API; or
 #   CLERK_JWKS_URL               fetch them from a JWKS URL (or use clerkJwks)
-#   VALKEY_URL                   redis://… cache + realtime publish (optional)
+#                                (none of the CLERK_* with config.auth.provider: oidc)
+#   VALKEY_URL                   redis://… cache, realtime publish and the WebSocket gateway (optional)
+#   REALTIME_INTERNAL_SECRET     what callers of /publish/* and /internal/presence send in
+#                                x-internal-secret (optional; unset refuses them all)
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
+#   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
+#   SMTP_URL                     smtp://user:password@relay:587?tls=required, or smtps://…:465:
+#                                the relay system mail goes through (optional; unset skips mail)
+#   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
+#   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
+#   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
+#   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
+#                                as a role with CREATEDB and CREATEROLE), poolerHost (optional;
+#                                unset: no new workspaces)
 # Or leave existingSecret empty and set `values` to let the chart create the
 # Secret (fine for a test cluster, not for production: the values end up in
 # the Helm release).
 secret:
   existingSecret: ""
   values: {}
+
+# The database migrations: a Job that runs `weldsuite migrate` with the same
+# image, Secret and settings as the server, as a Helm pre-install and
+# pre-upgrade hook. The server's pods roll out only after it succeeded; when it
+# fails, the install or upgrade fails and the Job stays for its logs. It needs
+# DATABASE_URL_MASTER, and the encryption keys to open the tenants' stored
+# database URLs. Turn it off only when the migrations run some other way.
+migrations:
+  enabled: true
+  # weldsuite migrate's flags (weldsuite migrate --help): the master database
+  # and every active workspace's database. Add "--apply-skipped" to also apply
+  # migrations Drizzle skipped.
+  args: ["--master", "--tenants"]
+  # Tenant databases migrated at once (the TypeScript runner does one).
+  concurrency: 1
+  # Retries of a failed run; every run starts where the last one stopped.
+  backoffLimit: 2
+  # The whole Job, retries included; keep it under the release's timeout
+  # (helm --timeout, or the HelmRelease's spec.timeout under Flux).
+  activeDeadlineSeconds: 1500
+  # Leave a finished Job this long (unset: until the next install or upgrade).
+  ttlSecondsAfterFinished: null
+  # A succeeded Job is removed; a failed one stays until the next attempt.
+  hookDeletePolicy: before-hook-creation,hook-succeeded
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
 
 # Verify session tokens against a JWKS document instead of CLERK_JWT_KEY: the
 # document is mounted from a ConfigMap and read at start.
@@ -111,16 +266,69 @@ service:
   type: ClusterIP
   port: 80
 
+# The server's ingress. With the SPA on, one host is the platform and its
+# API on the same origin (app.<domain>); add api.<domain> for clients that
+# call the API by that name.
+# The realtime gateway's sockets (/ws…) go through the same Ingress and host
+# as the API: Traefik passes the WebSocket upgrade on without annotations,
+# and its default timeouts (3.6) keep a socket open as long as the client
+# pings every 25 s, as @weldsuite/realtime's clients do. Pods share their
+# state through Valkey, so no sticky sessions.
 ingress:
   enabled: false
   className: ""
   annotations: {}
   hosts:
-    - host: api.example.org
+    - host: app.example.org
       paths:
         - path: /
           pathType: Prefix
   tls: []
+
+# The platform SPA in the image (/srv/spa, built with VITE_RUNTIME_CONFIG=on):
+# the server answers every path its API and probes don't with the app's files,
+# or index.html for a client route (rust/bins/weldsuite/src/spa.rs). The app
+# reads /config.json and calls the API on its own origin. Off: the API alone.
+spa:
+  enabled: true
+  dir: /srv/spa
+
+# The WeldSign signer portal (ADR FE-017): a Node container
+# (ghcr.io/weldsuite/weldsuite-sign-portal, `--target sign-portal` of
+# rust/Dockerfile) whose server routes call this server's
+# /public/sign-portal/* endpoints. Needs SIGN_PORTAL_SECRET in the Secret.
+signPortal:
+  enabled: false
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sign-portal
+    # Defaults to the chart's appVersion.
+    tag: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  # Where the portal calls the server; defaults to the server's Service.
+  backendUrl: ""
+  # How many proxies in front of the portal append to X-Forwarded-For, which
+  # the signer's IP on the evidence trail is read from (counted from the
+  # right): 1 for the ingress controller, 2 with a CDN the ingress trusts.
+  trustedProxies: 1
+  # The signing links the server emails point at config.sign.portalUrl: set
+  # it to this portal's public URL (https://sign.<domain>).
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: sign.example.org
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
 
 resources:
   requests:
@@ -155,6 +363,73 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
+# The entity-event subscribers (`weldsuite consume`, its own Deployment from
+# the same image, no Service): the audit log, the semantic search index,
+# outgoing webhooks and realtime fan-out, each a durable consumer on the NATS
+# JetStream hub (config.nats). Needs NATS_URL in the Secret; realtime needs
+# VALKEY_URL. Analytics, WeldConnect and WeldAgent have no consumer yet.
+consume:
+  enabled: false
+  replicaCount: 2
+  # The subscribers to run; empty runs every ported one (audit, search-index,
+  # webhooks, realtime). search-index needs `embeddings` below.
+  subscribers: []
+  # With config.nats.ensureStreams: create or update the hub and the
+  # dead-letter stream at start with this many replicas (3 on a three-node
+  # JetStream cluster).
+  streamReplicas: 1
+  # With config.nats.ensureStreams: the most the hub and the dead-letter
+  # stream keep on disk, in bytes; a full stream drops its oldest messages.
+  # Keep both together under the JetStream volume. 0: no cap (age only).
+  streamMaxBytes: 0
+  deadLetterMaxBytes: 0
+  # Where a message goes after a subscriber's last retry (subjects
+  # <entityEventsSubject>-dlq.<subscriber>.<entityType>.<action>, kept 14 days).
+  deadLetterStream: ENTITY_EVENTS_DLQ
+  # An OpenAI-compatible embeddings endpoint for the semantic search index
+  # (Mistral, or bge-m3 served in the cluster by TEI, vLLM or Ollama); the
+  # vectors must have 1024 dimensions. A key goes in the Secret as
+  # EMBEDDINGS_API_KEY. Without a url the search-index subscriber is off.
+  embeddings:
+    url: ""
+    model: ""
+  webhooks:
+    # Deliver to private and loopback addresses too. Off: the pod sits next
+    # to the cluster's own services, so a customer's webhook URL must not
+    # reach them.
+    allowPrivateNetworks: false
+    # Retry failed deliveries every ten minutes from this role (one pod at a
+    # time, under an advisory lock on the master database).
+    retrySweep: true
+  # After SIGTERM, how long the batches in hand may take; below
+  # terminationGracePeriodSeconds.
+  drainSeconds: 45
+  terminationGracePeriodSeconds: 60
+  podAnnotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  probes:
+    startup:
+      httpGet: { path: /livez, port: probes }
+      periodSeconds: 2
+      failureThreshold: 30
+    liveness:
+      httpGet: { path: /livez, port: probes }
+      periodSeconds: 10
+      failureThreshold: 3
+    # The master database and NATS answer.
+    readiness:
+      httpGet: { path: /readyz, port: probes }
+      periodSeconds: 10
+      failureThreshold: 3
+
 # Spread pods over nodes and zones when the cluster has them.
 topologySpread:
   enabled: true
@@ -164,6 +439,48 @@ topologySpread:
 networkPolicy:
   enabled: false
   ingressFrom: []
+  # Who may call the jobs port (the Restate pods); empty allows any pod.
+  jobsFrom: []
+  # Who may call the sign portal (the ingress controller); empty allows any
+  # peer. The portal's own pods may always call the server.
+  signPortalFrom: []
+
+# Scheduled jobs (the workers' Cron Triggers), one CronJob each running
+# `weldsuite cron <name>` with the server's environment. A run that is still
+# going when the next is due is left alone (concurrencyPolicy: Forbid).
+cron:
+  jobs:
+    # WeldSign: automatic reminders and expiry of open requests.
+    sign-lifecycle:
+      enabled: true
+      schedule: "*/15 * * * *"
+      # Kill a run that hangs before the next one is due.
+      activeDeadlineSeconds: 840
+    # The identity provider's changes (users, organizations, memberships)
+    # into the databases: what Clerk's webhooks do on Global. Needs
+    # config.identity.
+    identity-sync:
+      enabled: false
+      schedule: "* * * * *"
+      activeDeadlineSeconds: 55
+    # Workspaces past their scheduled deletion lose their organization (the
+    # identity sync then tears the database down). Needs config.identity.
+    workspace-deletion:
+      enabled: false
+      schedule: "0 3 * * *"
+      activeDeadlineSeconds: 3000
+    # Deleted workspaces whose database teardown never finished, after 48
+    # hours. Needs TENANT_SHARDS.
+    workspace-teardown:
+      enabled: false
+      schedule: "17 * * * *"
+      activeDeadlineSeconds: 3000
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
 
 nodeSelector: {}
 tolerations: []

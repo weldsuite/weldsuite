@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { portal, portalContext } from '@/lib/server/portal'
+import { signerPortal } from '@/lib/server/signer-portal'
 
 /** Emails a fresh code for the link token. */
 export const Route = createFileRoute('/api/resend-code')({
@@ -7,7 +7,7 @@ export const Route = createFileRoute('/api/resend-code')({
     handlers: {
       POST: async ({ request }) => {
         const input = (await request.json().catch(() => ({}))) as { token?: unknown }
-        return portal.resendCode(portalContext(request), { token: String(input.token ?? '') })
+        return signerPortal().resendCode(request, { token: String(input.token ?? '') })
       },
     },
   },

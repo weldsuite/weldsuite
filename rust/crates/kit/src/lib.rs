@@ -15,6 +15,7 @@ pub mod cursor;
 pub mod id;
 pub mod log_safe;
 pub mod pagination;
+pub mod request_env;
 pub mod request_id;
 pub mod response;
 pub mod validation;
@@ -25,6 +26,7 @@ pub use cors::{
 pub use id::{generate_id, random_string};
 pub use log_safe::log_safe;
 pub use pagination::{Page, parse_limit, parse_limit_or_fallback};
+pub use request_env::RequestEnv;
 pub use request_id::{RequestId, request_id};
 pub use response::{
     ApiError, ApiResult, Created, CreditShortfall, Data, List, NoContent, Pagination,

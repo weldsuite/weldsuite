@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useRouter } from '@/lib/router';
 import type { DeskConversationSort, DeskConversationState } from '@/hooks/queries/use-desk-queries';
 import { DeskSplitLayout, InboxLayout } from './inbox-layout';

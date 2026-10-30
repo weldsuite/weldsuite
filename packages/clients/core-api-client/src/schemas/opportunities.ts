@@ -180,3 +180,43 @@ export interface Opportunity {
   createdAt: string;
   updatedAt: string;
 }
+
+/** A `crm_opportunities` row as the routes return it (the `Opportunity` shape). */
+export const opportunitySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  customerId: z.string(),
+  customerName: z.string().nullish(),
+  companyDeleted: z.boolean().optional(),
+  primaryContactId: z.string().nullish(),
+  amount: z.string(),
+  currency: z.string().nullish(),
+  expectedRevenue: z.string().nullish(),
+  recurringRevenue: z.string().nullish(),
+  contractLength: z.number().nullish(),
+  stage: z.string(),
+  stageId: z.string().nullish(),
+  status: z.string(),
+  probability: z.number().nullish(),
+  pipeline: z.string().nullish(),
+  closeDate: z.string().nullable(),
+  actualCloseDate: z.string().nullish(),
+  startDate: z.string().nullish(),
+  ownerId: z.string(),
+  teamMembers: z.unknown(),
+  leadSource: z.string().nullish(),
+  campaign: z.string().nullish(),
+  type: z.string().nullish(),
+  category: z.string().nullish(),
+  nextStep: z.string().nullish(),
+  nextStepDate: z.string().nullish(),
+  riskLevel: z.string().nullish(),
+  riskReason: z.string().nullish(),
+  proposalUrl: z.string().nullish(),
+  contractUrl: z.string().nullish(),
+  tags: z.unknown(),
+  customFields: z.unknown(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});

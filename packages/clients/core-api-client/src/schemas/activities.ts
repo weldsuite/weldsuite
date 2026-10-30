@@ -133,3 +133,39 @@ export interface Activity {
   createdAt: string;
   updatedAt: string;
 }
+
+/** A `crm_activities` row as the routes return it (the `Activity` shape). */
+export const activitySchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  subject: z.string(),
+  description: z.string().nullish(),
+  relatedTo: z.string().nullish(),
+  relatedToId: z.string().nullish(),
+  relatedToName: z.string().nullish(),
+  customerId: z.string().nullish(),
+  contactId: z.string().nullish(),
+  personId: z.string().nullish(),
+  leadId: z.string().nullish(),
+  opportunityId: z.string().nullish(),
+  assignedToId: z.string(),
+  dueDate: z.string().nullish(),
+  startTime: z.string().nullish(),
+  endTime: z.string().nullish(),
+  duration: z.number().nullish(),
+  status: z.string(),
+  priority: z.string().nullish(),
+  location: z.string().nullish(),
+  isVirtual: z.boolean().nullish(),
+  meetingUrl: z.string().nullish(),
+  callDirection: z.string().nullish(),
+  callDuration: z.number().nullish(),
+  callRecordingUrl: z.string().nullish(),
+  outcome: z.string().nullish(),
+  nextAction: z.string().nullish(),
+  followUpDate: z.string().nullish(),
+  tags: z.unknown(),
+  customFields: z.unknown(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});

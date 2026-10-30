@@ -464,6 +464,12 @@ export const common = {
       appUnavailableNamed: '{app} is niet voor je beschikbaar in deze workspace',
       appUnavailableHint: 'Vraag een workspace-beheerder om de app te installeren of je toegang te geven.',
     },
+    edition: {
+      unavailableTitle: 'Niet beschikbaar in deze editie',
+      unavailableDescription: 'Dit deel van WeldSuite zit niet in deze editie, dus hier is niets te zien.',
+      backHome: 'Terug naar home',
+      desktopSignInUnavailable: 'Inloggen in de desktop-app is niet beschikbaar in deze editie. Gebruik WeldSuite in je browser.',
+    },
     time: {
       justNow: 'Zojuist',
       minutesAgo: '{count} minuten geleden',
@@ -650,6 +656,16 @@ export const common = {
     },
     auth: {
       logoAlt: 'WeldSuite',
+      identityProvider: {
+        redirecting: 'Je wordt doorgestuurd om in te loggen...',
+        completing: 'Inloggen wordt afgerond...',
+        failed: 'Inloggen kon niet worden afgerond.',
+        retry: 'Opnieuw inloggen',
+        managedTitle: 'Beheerd door je identiteitsprovider',
+        managedDescription: 'Je wachtwoord, tweestapsverificatie, passkeys en sessies worden beheerd door de identiteitsprovider van je organisatie, niet in WeldSuite.',
+        openAccount: 'Accountinstellingen openen',
+        invitationsManaged: 'Lidmaatschap van werkruimtes wordt beheerd door de identiteitsprovider van je organisatie. Vraag je beheerder om toegang.',
+      },
       error: {
         alertTitle: 'Fout',
         tryAgain: 'Opnieuw proberen',

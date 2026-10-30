@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useRouterState } from '@tanstack/react-router';
-import { useAuth, useOrganizationList } from '@clerk/clerk-react';
+import { useAuth, useOrganizationList } from '@/lib/auth';
 import {
   clearPendingOrganizationIf,
   peekPendingOrganization,
@@ -82,7 +82,7 @@ export function useWorkspaceUrlGate(pathname: string): WorkspaceUrlGate {
   // Memberships are paged; only decide once every page is in.
   const needsMore = (decision?.kind === 'wait' || decision?.kind === 'activate') && !allMemberships;
   useEffect(() => {
-    if (needsMore && userMemberships?.hasNextPage && !userMemberships.isFetching) userMemberships.fetchNext();
+    if (needsMore && userMemberships?.hasNextPage && !userMemberships.isFetching) userMemberships.fetchNext?.();
   }, [needsMore, userMemberships]);
 
   // Settled: links carry the workspace, and the address bar names it by slug

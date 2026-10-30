@@ -14,6 +14,8 @@ version = 2
 # Licences compatible with shipping the backend under AGPL-3.0-only (OPS-002).
 # Adding one here is a licensing decision: say why in the PR.
 allow = [
+  # Zero-clause BSD: no conditions at all (quoted_printable, via lettre).
+  "0BSD",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",

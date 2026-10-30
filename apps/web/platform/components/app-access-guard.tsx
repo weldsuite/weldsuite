@@ -7,6 +7,8 @@ import { useIsEmployeeMember, useIsGuest } from '@/hooks/use-current-member';
 import { usePermissionsMaybe } from '@weldsuite/permissions/react';
 import { getAppPermissionObjects } from '@/lib/apps/app-permission-objects';
 import { useCanManageApps } from '@/hooks/queries/use-settings-queries';
+import { isRouteOffered } from '@/lib/edition-routes';
+import { EditionUnavailablePage } from '@/components/edition-unavailable-page';
 
 // `/documents` is the shared full-screen document editor — an app-agnostic
 // surface keyed by file id, reachable from WeldFlow, WeldDrive, etc. Its first
@@ -160,8 +162,12 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
   const isEmployeeMember = useIsEmployeeMember();
   const t = useTranslations();
   const { data: canManageApps } = useCanManageApps();
+  // Edition flags (4.F3): a page of a module or feature this deployment
+  // doesn't serve says so in place, for everyone, instead of redirecting.
+  const offered = isRouteOffered(pathname);
 
   useEffect(() => {
+    if (!offered) return;
     if (isLoading || perms?.isLoading) return;
     // Wait for the installed-apps query to actually resolve. `data` is
     // undefined while the query is disabled (e.g. orgId briefly falsy
@@ -179,7 +185,8 @@ export function AppAccessGuard({ children }: Readonly<{ children: React.ReactNod
       notifyUnavailableApp(redirect.notInstalledApp, canManageApps === true, t, () => router.push('/appstore'));
     }
     router.replace(redirect.to);
-  }, [pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t, canManageApps]);
+  }, [offered, pathname, installedApps, isLoading, router, perms, isGuest, isEmployeeMember, t, canManageApps]);
 
+  if (!offered) return <EditionUnavailablePage />;
   return <>{children}</>;
 }

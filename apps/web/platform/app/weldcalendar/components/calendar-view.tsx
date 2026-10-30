@@ -64,6 +64,7 @@ import {
   SelectValue,
 } from '@weldsuite/ui/components/select';
 import { cn } from '@/lib/utils';
+import { isModuleOffered } from '@/lib/edition';
 import {
   Command,
   CommandEmpty,
@@ -112,7 +113,7 @@ import { formatEventWhen } from '../lib/event-when';
 import { getCurrentSlot, getNotifiableGuests, isSameSlot } from '../lib/event-reschedule';
 import { isEditableTarget, isEscapeHandledElsewhere } from '../lib/escape-guard';
 import { useSearchCalendarEvents } from '@/hooks/queries/use-calendar-queries';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { CalendarSearchResults } from './calendar-search-results';
 import { RescheduleNotifyDialog } from './reschedule-notify-dialog';
 import { EntityList, FilterPills, type HeaderColumn, type FilterConfig, type GroupConfig, type ActiveFilter } from '@/components/entity-list';
@@ -939,8 +940,8 @@ export function CalendarView() {
   const handleSelectEvent = useCallback((event: CalendarEvent) => {
     // Task-backed events open the standard task object panel (same in-flow
     // right panel used in WeldFlow / WeldCRM) so behavior matches every other
-    // surface where tasks appear.
-    if (event.sourceType === 'task' && event.sourceId) {
+    // surface where tasks appear. Edition flags (4.F3): that panel is WeldFlow's.
+    if (event.sourceType === 'task' && event.sourceId && isModuleOffered('flow')) {
       setEventPreviewOpen(false);
       setQuickCreateOpen(false);
       setSelectedEvent(null);
@@ -2106,7 +2107,9 @@ export function QuickCreateCard({
   // "Add WeldMeet" only marks the event: the meeting (with the event's times,
   // guests and these settings) is created when the event is saved, so closing
   // the card without saving leaves no orphan meeting behind.
-  const [weldMeetPending, setWeldMeetPending] = useState(() => !editEvent && defaultWeldMeet);
+  // Edition flags (4.F3): WeldMeet links need the meet module.
+  const meetOffered = isModuleOffered('meet');
+  const [weldMeetPending, setWeldMeetPending] = useState(() => !editEvent && defaultWeldMeet && meetOffered);
   const [meetingLinkCopied, setMeetingLinkCopied] = useState(false);
   const [meetingSettings, setMeetingSettings] = useState<MeetingSettings>(DEFAULT_WELDMEET_SETTINGS);
   // Enter in the title input and the Save button can both fire a save.
@@ -2376,8 +2379,8 @@ export function QuickCreateCard({
         />
       </div>
 
-      {/* Type tabs */}
-      {showTypeTabs && (
+      {/* Type tabs. Edition flags (4.F3): tasks are WeldFlow's. */}
+      {showTypeTabs && isModuleOffered('flow') && (
         <div className="px-4 pb-3">
           <Tabs value={type} onValueChange={(value) => { setType(value); setActiveField(null); }}>
             {/* `--muted` equals `--popover` in dark mode, so the default pill
@@ -2514,19 +2517,21 @@ export function QuickCreateCard({
             />
 
             {/* Event: WeldMeet row */}
-            <MeetingRow
-              meetingUrl={meetingUrl}
-              pending={weldMeetPending}
-              linkCopied={meetingLinkCopied}
-              settings={meetingSettings}
-              onAdd={() => setWeldMeetPending(true)}
-              onCopyLink={handleCopyMeetingLink}
-              onUpdateSetting={updateMeetingSetting}
-              onRemove={() => {
-                setMeetingUrl('');
-                setWeldMeetPending(false);
-              }}
-            />
+            {meetOffered && (
+              <MeetingRow
+                meetingUrl={meetingUrl}
+                pending={weldMeetPending}
+                linkCopied={meetingLinkCopied}
+                settings={meetingSettings}
+                onAdd={() => setWeldMeetPending(true)}
+                onCopyLink={handleCopyMeetingLink}
+                onUpdateSetting={updateMeetingSetting}
+                onRemove={() => {
+                  setMeetingUrl('');
+                  setWeldMeetPending(false);
+                }}
+              />
+            )}
 
             {/* Event: Location row */}
             <LocationRow
@@ -4730,7 +4735,8 @@ export function EventDetailPanel({
                     >
                       {event.meetingUrl}
                     </a>
-                  ) : (
+                  ) : isModuleOffered('meet') && (
+                    // Edition flags (4.F3): generating a WeldMeet link needs the meet module.
                     <Button
                       variant="ghost"
                       type="button"
@@ -5126,7 +5132,8 @@ function EventAttendeesField({
                     checked={isSelected(o.email)}
                   />
                 ))}
-                {query.trim() && (
+                {/* Edition flags (4.F3): people are WeldCRM's. */}
+                {query.trim() && isModuleOffered('crm') && (
                   <RecordPickerCreateItem
                     value={`create person ${query}`}
                     label={sweep.createPersonFromSearch.replace('{name}', query.trim())}

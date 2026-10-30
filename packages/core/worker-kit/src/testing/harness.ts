@@ -27,6 +27,8 @@ import {
   recordOnlyTarget,
 } from './conformance';
 
+export { conformanceMasterDb, conformanceTenantDb } from './conformance';
+
 // One-time init: the `requirePermission` middleware throws if its DB
 // query factory was never registered. Tests pre-cache `userPermissions`
 // on the context (see `createTestApp`), so the factory is never actually
@@ -55,6 +57,12 @@ export interface TestContext {
   /** Clerk's `fva` claim; defaults to both factors just verified, so `requireSecondFactor` passes. */
   factorVerificationAge?: readonly [number, number] | null;
   tenantDb: Database;
+  /**
+   * The master database, when the routes under test use one (the test mocks
+   * `getMasterDb` to return it). Only conformance mode reads it here: it is
+   * served to the Rust server like `tenantDb`.
+   */
+  masterDb?: Database;
   /**
    * Pre-resolved permissions cached on the context. When set, the
    * `requirePermission` middleware short-circuits its DB query and uses
@@ -133,6 +141,14 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
     ...(sideEffects?.bindings ?? {}),
     ...options.env,
   } as E;
+  // A test's own REALTIME binding is recorded too: its publishes are side
+  // effects both backends must agree on.
+  const ownRealtime = (options.env as Record<string, unknown> | undefined)?.REALTIME as
+    | { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> }
+    | undefined;
+  if (sideEffects && ownRealtime && typeof ownRealtime.fetch === 'function') {
+    (env as unknown as Record<string, unknown>).REALTIME = sideEffects.wrapRealtime(ownRealtime);
+  }
 
   const buildApp = (tenantDb: Database) => {
     const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {
@@ -203,8 +219,13 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
           env: env as unknown as Record<string, unknown>,
           input,
           init,
-          runTypeScript: async (tenantDb, path, requestInit) =>
-            buildApp(tenantDb).request(path, requestInit, env as unknown as Record<string, unknown>, executionCtx),
+          runTypeScript: async (tenantDb, path, requestInit, runEnv) =>
+            buildApp(tenantDb).request(
+              path,
+              requestInit,
+              runEnv ?? (env as unknown as Record<string, unknown>),
+              executionCtx,
+            ),
           sideEffects: sideEffects!,
         });
       }

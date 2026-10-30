@@ -1,8 +1,6 @@
 
 import { useState } from 'react';
-import { useUser, useReverification } from '@clerk/clerk-react';
-import { isReverificationCancelledError } from '@clerk/clerk-react/errors';
-import type { TOTPResource } from '@clerk/types';
+import { useClerkUser, useReverification, isReverificationCancelledError, type TOTPResource } from '@/lib/auth/clerk';
 import { QRCodeSVG } from 'qrcode.react';
 import { Copy, Loader2, ShieldCheck } from 'lucide-react';
 import { Badge } from '@weldsuite/ui/components/badge';
@@ -35,7 +33,7 @@ function isIncorrectCode(error: unknown): boolean {
  * go through Clerk's reverification, like the passkeys.
  */
 export function TwoFactorSection() {
-  const { user } = useUser();
+  const { user } = useClerkUser();
   const { t } = useI18n();
   const tf = t.settings.security.twoFactor;
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { apiUrl, getApiOriginForPath, getApiOrigins, getAppApiUrl, getRealtimeUrl } from './public-env';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 
 describe('getAppApiUrl', () => {
   const originalHostname = window.location.hostname;
@@ -99,5 +100,44 @@ describe('getRealtimeUrl', () => {
     });
     vi.stubEnv('VITE_REALTIME_URL', 'ws://localhost:8790/ws');
     expect(getRealtimeUrl()).toBe('wss://realtime-test.weldsuite.org/ws');
+  });
+});
+
+describe('runtime config (/config.json)', () => {
+  afterEach(() => {
+    setRuntimeConfig(null);
+    vi.unstubAllEnvs();
+  });
+
+  function stubLocation(origin: string) {
+    const url = new URL(origin);
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, hostname: url.hostname, origin: url.origin },
+    });
+  }
+
+  it('wins over the build-time values', () => {
+    stubLocation('https://app.weldsuite.org');
+    vi.stubEnv('VITE_APP_API_URL', 'https://app-api.weldsuite.org');
+    setRuntimeConfig({ apiBaseUrl: 'https://api.example.eu/', realtimeUrl: 'wss://rt.example.eu/ws' });
+    expect(getAppApiUrl()).toBe('https://api.example.eu');
+    expect(getRealtimeUrl()).toBe('wss://rt.example.eu/ws');
+  });
+
+  it('trusts a stated localhost URL (a local Kubernetes run)', () => {
+    stubLocation('https://weldsuite.example.eu');
+    setRuntimeConfig({ apiBaseUrl: 'http://localhost:8080' });
+    expect(getAppApiUrl()).toBe('http://localhost:8080');
+  });
+
+  it('sends every module to the SPA origin on the Rust backend', () => {
+    stubLocation('https://weldsuite.example.eu');
+    vi.stubEnv('VITE_API_MODULES', 'all');
+    setRuntimeConfig({ backend: 'rust', modules: ['core'] });
+    expect(getAppApiUrl()).toBe('https://weldsuite.example.eu');
+    expect(getApiOriginForPath('/api/tickets')).toBe('https://weldsuite.example.eu');
+    expect(getApiOrigins()).toEqual(['https://weldsuite.example.eu']);
+    expect(getRealtimeUrl()).toBe('wss://weldsuite.example.eu/ws');
   });
 });

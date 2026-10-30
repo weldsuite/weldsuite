@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { parseWorkspacePath, workspacePath } from '@/lib/workspace-url';
 
 /**

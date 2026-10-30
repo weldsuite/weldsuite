@@ -1,14 +1,16 @@
 
 import { useState } from 'react';
-import { useSignIn } from '@clerk/clerk-react';
+import { useSignIn } from '@/lib/auth/clerk';
 import { useRouter, Link } from '@/lib/router';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';
 import { Label } from '@weldsuite/ui/components/label';
 import { Loader2, Mail, Check } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
+import { ClerkOnly } from '@/lib/auth';
+import { HostedSignInRedirect } from '@/components/auth/identity-provider-screens';
 
-export default function ForgotPasswordPage() {
+function ClerkForgotPasswordPage() {
   const t = getTranslations('common');
   const router = useRouter();
   const { signIn, isLoaded } = useSignIn();
@@ -196,5 +198,14 @@ export default function ForgotPasswordPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+/** Clerk's own screen; providers that host sign-in themselves (OIDC) get hosted sign in redirect instead. */
+export default function ForgotPasswordPage() {
+  return (
+    <ClerkOnly fallback={<HostedSignInRedirect />}>
+      <ClerkForgotPasswordPage />
+    </ClerkOnly>
   );
 }

@@ -1,6 +1,6 @@
 
 import { useState, useMemo, useCallback } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { Checkbox } from '@weldsuite/ui/components/checkbox';
 import {
   Popover,

@@ -13,8 +13,9 @@ import React, {
   useRef,
   useMemo,
 } from 'react';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { AwsWebSocketClient } from '@/lib/notifications/aws-websocket-client';
+import { publicEnv } from '@/lib/runtime-config';
 import type {
   NotificationMessage,
   ConnectionStatus,
@@ -36,7 +37,7 @@ const NotificationContext = createContext<NotificationContextValue | null>(
 );
 
 // Get WebSocket URL from environment
-const WEBSOCKET_URL = import.meta.env.VITE_EMAIL_WEBSOCKET_URL || '';
+const WEBSOCKET_URL = publicEnv('VITE_EMAIL_WEBSOCKET_URL') ?? '';
 const MAX_STORED_NOTIFICATIONS = 100;
 
 interface NotificationProviderProps {

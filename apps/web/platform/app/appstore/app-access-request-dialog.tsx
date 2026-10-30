@@ -14,7 +14,7 @@ import { useForm, type DefaultValues } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import type { z } from 'zod';
 import { toast } from 'sonner';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { Loader2 } from 'lucide-react';
 import {
   Dialog,

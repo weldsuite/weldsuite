@@ -1,13 +1,14 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useCan, useCanAny } from '@weldsuite/permissions/react';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useInstalledUserApps } from '@/hooks/queries/use-user-apps-queries';
 import { useCustomObjects } from '@/hooks/queries/use-custom-objects-queries';
 import { usePreviewInstalledAppsOverride } from '@/contexts/preview-installed-apps-context';
 import type { InstalledApp } from '@/lib/api/apps';
+import { isAppOffered } from '@/lib/edition';
 
 // Client-side app name mapping (matches server-side APP_CATALOG)
 const APP_NAMES: Record<string, string> = {
@@ -149,6 +150,8 @@ export function useInstalledApps() {
 
     for (const systemApp of systemAppsQuery.data) {
       if (seenCodes.has(systemApp.appCode)) continue;
+      // Edition flags (4.F3): an app whose module this deployment doesn't serve stays hidden.
+      if (!isAppOffered(systemApp.appCode)) continue;
       seenCodes.add(systemApp.appCode);
       merged.push(systemApp);
     }

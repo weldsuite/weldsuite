@@ -13,6 +13,7 @@
 
 mod atomically;
 mod crypto;
+pub mod due_index;
 mod middleware;
 mod permissions;
 pub mod pg_errors;
@@ -22,7 +23,8 @@ mod workspaces;
 
 pub use atomically::{TransactionFuture, atomically, atomically_with};
 pub use crypto::{
-    DecryptError, Keyring, decrypt_workspace_database_url, resolve_database_url,
+    DecryptError, EncryptError, Keyring, aad_writes_enabled, decrypt_workspace_database_url,
+    encrypt_field, encrypt_workspace_database_url, resolve_database_url,
     workspace_database_url_aad,
 };
 pub use middleware::workspace_db;
@@ -41,3 +43,9 @@ pub use workspaces::{
     Tenant, WRITE_BLOCKING_DATABASE_MOVE_STATUSES, WorkspaceConfig, WorkspaceError, Workspaces,
     master_pool,
 };
+
+/// The master database a request should use, as a request extension.
+/// Conformance builds insert the test's master database; elsewhere modules
+/// use the app's master pool.
+#[derive(Debug, Clone)]
+pub struct MasterDb(pub PgPool);
