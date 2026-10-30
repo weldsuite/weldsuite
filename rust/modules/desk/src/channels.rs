@@ -97,7 +97,9 @@ impl<S: Send + Sync> FromRequestParts<S> for Ctx {
                 .and_then(|auth| auth.org_id.clone()),
             conformance: extensions.get::<RequestEnv>().is_some(),
             buckets: extensions.get::<StorageBuckets>().cloned(),
-            cache: extensions.get::<RequestCache>().map(|cache| Arc::clone(&cache.0)),
+            cache: extensions
+                .get::<RequestCache>()
+                .map(|cache| Arc::clone(&cache.0)),
             outbound_http: extensions.get::<OutboundHttp>().cloned(),
         })
     }
@@ -146,15 +148,22 @@ pub(crate) struct PublicCtx {
 impl<S: Send + Sync> FromRequestParts<S> for PublicCtx {
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         let extensions = &parts.extensions;
-        Ok(Self {
+        std::future::ready(Ok(Self {
             env: extensions.get::<RequestEnv>().cloned(),
             master: extensions.get::<MasterDb>().map(|master| master.0.clone()),
             tenant: extensions.get::<Tenant>().map(|tenant| tenant.db.clone()),
-            cache: extensions.get::<RequestCache>().map(|cache| Arc::clone(&cache.0)),
-            http: extensions.get::<RequestHttp>().map(|http| Arc::clone(&http.0)),
-        })
+            cache: extensions
+                .get::<RequestCache>()
+                .map(|cache| Arc::clone(&cache.0)),
+            http: extensions
+                .get::<RequestHttp>()
+                .map(|http| Arc::clone(&http.0)),
+        }))
     }
 }
 
@@ -188,7 +197,11 @@ impl PublicCtx {
 
     /// `getTenantDbForWorkspace(env, ref)`: the test's tenant database in
     /// conformance builds (every workspace opens it), else the workspace's.
-    pub(crate) async fn tenant_db(&self, state: &PublicState, reference: &str) -> Result<PgPool, String> {
+    pub(crate) async fn tenant_db(
+        &self,
+        state: &PublicState,
+        reference: &str,
+    ) -> Result<PgPool, String> {
         if let Some(db) = &self.tenant {
             return Ok(db.clone());
         }
@@ -212,7 +225,11 @@ pub(crate) fn error_body(status: StatusCode, code: &'static str, message: &str) 
 
 /// `error.orgRequired(c)`.
 pub(crate) fn org_required() -> Response {
-    error_body(StatusCode::BAD_REQUEST, "ORG_REQUIRED", "Organization context required")
+    error_body(
+        StatusCode::BAD_REQUEST,
+        "ORG_REQUIRED",
+        "Organization context required",
+    )
 }
 
 /// JavaScript truthiness of a JSON value.
@@ -248,7 +265,12 @@ pub(crate) fn json_object(fields: &[(&str, Option<&Value>)]) -> String {
 }
 
 /// `kv.put(key, value, ttl)`.
-pub(crate) async fn kv_put(kv: Option<&Arc<dyn DynCache>>, key: &str, value: &str, ttl: Option<u64>) -> Result<(), String> {
+pub(crate) async fn kv_put(
+    kv: Option<&Arc<dyn DynCache>>,
+    key: &str,
+    value: &str,
+    ttl: Option<u64>,
+) -> Result<(), String> {
     let kv = kv.ok_or("WORKSPACE_CACHE is not bound")?;
     kv.put_boxed(key, value, ttl.map(Duration::from_secs))
         .await
@@ -256,18 +278,25 @@ pub(crate) async fn kv_put(kv: Option<&Arc<dyn DynCache>>, key: &str, value: &st
 }
 
 /// `kv.get(key, 'json')`.
-pub(crate) async fn kv_get_json(kv: Option<&Arc<dyn DynCache>>, key: &str) -> Result<Option<Value>, String> {
+pub(crate) async fn kv_get_json(
+    kv: Option<&Arc<dyn DynCache>>,
+    key: &str,
+) -> Result<Option<Value>, String> {
     let kv = kv.ok_or("WORKSPACE_CACHE is not bound")?;
     let Some(text) = kv.get_boxed(key).await.map_err(|error| error.to_string())? else {
         return Ok(None);
     };
-    serde_json::from_str(&text).map(Some).map_err(|error| error.to_string())
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 /// `kv.delete(key)`.
 pub(crate) async fn kv_delete(kv: Option<&Arc<dyn DynCache>>, key: &str) -> Result<(), String> {
     let kv = kv.ok_or("WORKSPACE_CACHE is not bound")?;
-    kv.delete_boxed(key).await.map_err(|error| error.to_string())
+    kv.delete_boxed(key)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 /// `new URLSearchParams(pairs).toString()`.
@@ -284,9 +313,13 @@ fn form_component(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for byte in text.bytes() {
         match byte {
-            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => out.push(char::from(byte)),
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'*' | b'-' | b'.' | b'_' => {
+                out.push(char::from(byte));
+            }
             b' ' => out.push('+'),
-            _ => out.push_str(&format!("%{byte:02X}")),
+            _ => {
+                let _ = std::fmt::Write::write_fmt(&mut out, format_args!("%{byte:02X}"));
+            }
         }
     }
     out
@@ -303,7 +336,10 @@ pub(crate) fn sanitized(row: &Value) -> Map<String, Value> {
 /// `discordGuildId(row)`: the guild recorded on a Discord integration.
 pub(crate) fn discord_guild_id(row: &Value) -> Option<String> {
     let info = &row["accountInfo"];
-    if let Some(guild) = info["metadata"]["guildId"].as_str().filter(|g| !g.is_empty()) {
+    if let Some(guild) = info["metadata"]["guildId"]
+        .as_str()
+        .filter(|g| !g.is_empty())
+    {
         return Some(guild.to_owned());
     }
     info["id"]
@@ -352,7 +388,10 @@ impl Urls {
     }
 
     pub(crate) fn redirect_uri(&self, provider: &str) -> String {
-        format!("{}/api/integrations/helpdesk/{provider}/callback", self.worker())
+        format!(
+            "{}/api/integrations/helpdesk/{provider}/callback",
+            self.worker()
+        )
     }
 }
 

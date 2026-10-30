@@ -204,9 +204,7 @@ async fn duplicate(
     let mut set = |prop: &str, value: Value| table.set(&mut values, prop, value);
     set("id", json!(new_id));
     set("name", json!(name));
-    for prop in ["description"] {
-        set(prop, original[prop].clone());
-    }
+    set("description", original["description"].clone());
     set("status", json!("draft"));
     for prop in ["triggers", "steps", "settings", "tags", "folderId"] {
         set(prop, original[prop].clone());
@@ -444,6 +442,7 @@ fn truthy(value: &Value) -> bool {
     }
 }
 
+#[allow(clippy::too_many_lines)] // the route, step by step
 async fn resume(
     State(state): State<DeskState>,
     caller: Caller,

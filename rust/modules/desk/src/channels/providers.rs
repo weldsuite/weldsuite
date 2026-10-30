@@ -34,7 +34,10 @@ fn json_of(response: &HttpResponse) -> Result<Value, String> {
 async fn discord_fetch(http: Option<&DynDeskHttp>, request: HttpRequest) -> Result<Value, String> {
     let response = send(http, request).await?;
     if !response.ok() {
-        return Err(format!("Discord API error ({}): {}", response.status, response.body));
+        return Err(format!(
+            "Discord API error ({}): {}",
+            response.status, response.body
+        ));
     }
     json_of(&response)
 }
@@ -49,20 +52,36 @@ fn snowflake<'a>(value: &'a str, label: &str) -> Result<&'a str, String> {
 }
 
 fn get(url: String, headers: Vec<(String, String)>) -> HttpRequest {
-    HttpRequest { method: "GET", url, headers, body: None }
+    HttpRequest {
+        method: "GET",
+        url,
+        headers,
+        body: None,
+    }
 }
 
 /// `getGuild(botToken, guildId)`.
-pub(super) async fn get_guild(http: Option<&DynDeskHttp>, token: &str, guild_id: &str) -> Result<Value, String> {
+pub(super) async fn get_guild(
+    http: Option<&DynDeskHttp>,
+    token: &str,
+    guild_id: &str,
+) -> Result<Value, String> {
     let guild = snowflake(guild_id, "guild id")?;
-    discord_fetch(http, get(format!("{DISCORD_API_BASE}/guilds/{guild}"), bot(token))).await
+    discord_fetch(
+        http,
+        get(format!("{DISCORD_API_BASE}/guilds/{guild}"), bot(token)),
+    )
+    .await
 }
 
 fn form_post(url: String, body: String) -> HttpRequest {
     HttpRequest {
         method: "POST",
         url,
-        headers: vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())],
+        headers: vec![(
+            "Content-Type".to_owned(),
+            "application/x-www-form-urlencoded".to_owned(),
+        )],
         body: Some(body),
     }
 }
@@ -82,7 +101,11 @@ pub(super) async fn exchange_code(
         ("client_id", client_id),
         ("client_secret", client_secret),
     ]);
-    discord_fetch(http, form_post(format!("{DISCORD_API_BASE}/oauth2/token"), body)).await
+    discord_fetch(
+        http,
+        form_post(format!("{DISCORD_API_BASE}/oauth2/token"), body),
+    )
+    .await
 }
 
 /// `refreshOAuthToken(clientId, clientSecret, refreshToken)`.
@@ -98,22 +121,44 @@ pub(super) async fn refresh_token(
         ("client_id", client_id),
         ("client_secret", client_secret),
     ]);
-    discord_fetch(http, form_post(format!("{DISCORD_API_BASE}/oauth2/token"), body)).await
+    discord_fetch(
+        http,
+        form_post(format!("{DISCORD_API_BASE}/oauth2/token"), body),
+    )
+    .await
 }
 
 /// `getBotUser(botToken)`.
 pub(super) async fn bot_user(http: Option<&DynDeskHttp>, token: &str) -> Result<Value, String> {
-    discord_fetch(http, get(format!("{DISCORD_API_BASE}/users/@me"), bot(token))).await
+    discord_fetch(
+        http,
+        get(format!("{DISCORD_API_BASE}/users/@me"), bot(token)),
+    )
+    .await
 }
 
 /// `getGuildChannels(botToken, guildId)`: text channels only.
-pub(super) async fn guild_channels(http: Option<&DynDeskHttp>, token: &str, guild_id: &str) -> Result<Vec<Value>, String> {
+pub(super) async fn guild_channels(
+    http: Option<&DynDeskHttp>,
+    token: &str,
+    guild_id: &str,
+) -> Result<Vec<Value>, String> {
     let guild = snowflake(guild_id, "guild id")?;
-    let channels = discord_fetch(http, get(format!("{DISCORD_API_BASE}/guilds/{guild}/channels"), bot(token))).await?;
+    let channels = discord_fetch(
+        http,
+        get(
+            format!("{DISCORD_API_BASE}/guilds/{guild}/channels"),
+            bot(token),
+        ),
+    )
+    .await?;
     let Value::Array(channels) = channels else {
         return Err("channels.filter is not a function".to_owned());
     };
-    Ok(channels.into_iter().filter(|c| c["type"] == json!(0)).collect())
+    Ok(channels
+        .into_iter()
+        .filter(|c| c["type"] == json!(0))
+        .collect())
 }
 
 /// `sendMessage` / `sendMessageWithEmbed`: POST a message body.
@@ -137,25 +182,50 @@ pub(super) async fn post_message(
 }
 
 /// A PATCH whose failed status throws, the body unread otherwise.
-async fn patch(http: Option<&DynDeskHttp>, token: &str, url: String, body: &Value) -> Result<(), String> {
+async fn patch(
+    http: Option<&DynDeskHttp>,
+    token: &str,
+    url: String,
+    body: &Value,
+) -> Result<(), String> {
     let response = send(
         http,
-        HttpRequest { method: "PATCH", url, headers: bot_json(token), body: Some(body.to_string()) },
+        HttpRequest {
+            method: "PATCH",
+            url,
+            headers: bot_json(token),
+            body: Some(body.to_string()),
+        },
     )
     .await?;
     if !response.ok() {
-        return Err(format!("Discord API error ({}): {}", response.status, response.body));
+        return Err(format!(
+            "Discord API error ({}): {}",
+            response.status, response.body
+        ));
     }
     Ok(())
 }
 
 /// `setBotGuildNickname(botToken, guildId, nickname)`.
-pub(super) async fn set_nickname(http: Option<&DynDeskHttp>, token: &str, guild_id: &str, nickname: &str) -> Result<(), String> {
+pub(super) async fn set_nickname(
+    http: Option<&DynDeskHttp>,
+    token: &str,
+    guild_id: &str,
+    nickname: &str,
+) -> Result<(), String> {
     let guild = snowflake(guild_id, "guild id")?;
-    patch(http, token, format!("{DISCORD_API_BASE}/guilds/{guild}/members/@me"), &json!({ "nick": nickname })).await
+    patch(
+        http,
+        token,
+        format!("{DISCORD_API_BASE}/guilds/{guild}/members/@me"),
+        &json!({ "nick": nickname }),
+    )
+    .await
 }
 
 /// `parsePublicAvatarUrl(raw)`: a public https URL, or the error.
+#[allow(clippy::case_sensitive_file_extension_comparisons)] // a host name, already lower case
 fn public_avatar_url(raw: &str) -> Result<String, String> {
     let uri: http::Uri = raw.parse().map_err(|_| "Invalid avatar URL".to_owned())?;
     let (Some(scheme), Some(authority)) = (uri.scheme_str(), uri.authority()) else {
@@ -174,7 +244,9 @@ fn public_avatar_url(raw: &str) -> Result<String, String> {
             || host.starts_with("169.254.")
             || host.starts_with("192.168.")
             || (first == Some(172) && (16..=31).contains(&second) && host.matches('.').count() >= 2)
-            || (first == Some(100) && (64..=127).contains(&second) && host.matches('.').count() >= 2)
+            || (first == Some(100)
+                && (64..=127).contains(&second)
+                && host.matches('.').count() >= 2)
     };
     let internal = host == "localhost"
         || host.ends_with(".localhost")
@@ -193,7 +265,11 @@ fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
         let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         for (i, shift) in [18, 12, 6, 0].into_iter().enumerate() {
             if i <= chunk.len() {
@@ -208,7 +284,11 @@ fn base64(bytes: &[u8]) -> String {
 
 /// The avatar image: status and bytes. The bytes client when there is one
 /// (the desk port reads text), else the desk port.
-async fn fetch_image(bytes_http: Option<&OutboundHttp>, http: Option<&DynDeskHttp>, url: &str) -> Result<(u16, Vec<u8>), String> {
+async fn fetch_image(
+    bytes_http: Option<&OutboundHttp>,
+    http: Option<&DynDeskHttp>,
+    url: &str,
+) -> Result<(u16, Vec<u8>), String> {
     if let Some(client) = bytes_http {
         let response = client
             .send(weldsuite_ports::HttpRequest::empty("GET", url))
@@ -240,21 +320,36 @@ pub(super) async fn set_avatar(
         }
         None => Value::Null,
     };
-    patch(http, token, format!("{DISCORD_API_BASE}/users/@me"), &json!({ "avatar": avatar })).await
+    patch(
+        http,
+        token,
+        format!("{DISCORD_API_BASE}/users/@me"),
+        &json!({ "avatar": avatar }),
+    )
+    .await
 }
 
 /// `slackAuthTest(botToken)`.
-pub(super) async fn slack_auth_test(http: Option<&DynDeskHttp>, token: &str) -> Result<Value, String> {
+pub(super) async fn slack_auth_test(
+    http: Option<&DynDeskHttp>,
+    token: &str,
+) -> Result<Value, String> {
     let response = send(
         http,
-        get("https://slack.com/api/auth.test".to_owned(), vec![("Authorization".to_owned(), format!("Bearer {token}"))]),
+        get(
+            "https://slack.com/api/auth.test".to_owned(),
+            vec![("Authorization".to_owned(), format!("Bearer {token}"))],
+        ),
     )
     .await?;
     json_of(&response)
 }
 
 /// `slackListChannels(botToken)`.
-pub(super) async fn slack_channels(http: Option<&DynDeskHttp>, token: &str) -> Result<Value, String> {
+pub(super) async fn slack_channels(
+    http: Option<&DynDeskHttp>,
+    token: &str,
+) -> Result<Value, String> {
     let response = send(
         http,
         get(
@@ -267,8 +362,15 @@ pub(super) async fn slack_channels(http: Option<&DynDeskHttp>, token: &str) -> R
 }
 
 /// `POST https://slack.com/api/oauth.v2.access`.
-pub(super) async fn slack_exchange(http: Option<&DynDeskHttp>, form: String) -> Result<Value, String> {
-    let response = send(http, form_post("https://slack.com/api/oauth.v2.access".to_owned(), form)).await?;
+pub(super) async fn slack_exchange(
+    http: Option<&DynDeskHttp>,
+    form: String,
+) -> Result<Value, String> {
+    let response = send(
+        http,
+        form_post("https://slack.com/api/oauth.v2.access".to_owned(), form),
+    )
+    .await?;
     json_of(&response)
 }
 

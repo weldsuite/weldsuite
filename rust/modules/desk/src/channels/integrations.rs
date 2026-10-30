@@ -21,7 +21,10 @@ use weldsuite_kit::{ApiError, Created, Data, generate_id, random_string};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::DynCache;
 
-use super::{Ctx, Urls, discord_guild_id, form_encode, js_number, json_object, kv_delete, kv_put, or_value, org_required, providers, sanitized, truthy};
+use super::{
+    Ctx, Urls, discord_guild_id, form_encode, js_number, json_object, kv_delete, kv_put, or_value,
+    org_required, providers, sanitized, truthy,
+};
 use crate::js::query_param;
 use crate::tables::HELPDESK_CHANNEL_INTEGRATIONS as HCI;
 use crate::{DeskState, now, validate};
@@ -35,16 +38,34 @@ where
     Router::new()
         .route("/", get(list).route_layer(read()))
         .route("/token", post(save_token).route_layer(update()))
-        .route("/discord/connect", post(discord_connect).route_layer(update()))
+        .route(
+            "/discord/connect",
+            post(discord_connect).route_layer(update()),
+        )
         .route("/discord/servers", get(discord_servers).route_layer(read()))
-        .route("/discord/settings", get(discord_settings).route_layer(read()))
-        .route("/discord/settings", put(update_discord_settings).route_layer(update()))
-        .route("/discord/channels", get(discord_channels).route_layer(read()))
-        .route("/discord/ticket-panel", post(ticket_panel).route_layer(update()))
+        .route(
+            "/discord/settings",
+            get(discord_settings).route_layer(read()),
+        )
+        .route(
+            "/discord/settings",
+            put(update_discord_settings).route_layer(update()),
+        )
+        .route(
+            "/discord/channels",
+            get(discord_channels).route_layer(read()),
+        )
+        .route(
+            "/discord/ticket-panel",
+            post(ticket_panel).route_layer(update()),
+        )
         .route("/discord/send", post(discord_send).route_layer(update()))
         .route("/slack/connect", post(slack_connect).route_layer(update()))
         .route("/slack/settings", get(slack_settings).route_layer(read()))
-        .route("/slack/settings", put(update_slack_settings).route_layer(update()))
+        .route(
+            "/slack/settings",
+            put(update_slack_settings).route_layer(update()),
+        )
         .route("/slack/channels", get(slack_channels).route_layer(read()))
         .route("/slack/test", post(slack_test).route_layer(read()))
         .route("/{id}/test", post(provider_test).route_layer(read()))
@@ -113,9 +134,14 @@ async fn by_id_or_provider(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx:
 }
 
 /// `resolveDiscordIntegration(db, integrationId)`.
-async fn resolve_discord(db: &PgPool, integration_id: Option<&str>) -> Result<Option<Value>, sqlx::Error> {
+async fn resolve_discord(
+    db: &PgPool,
+    integration_id: Option<&str>,
+) -> Result<Option<Value>, sqlx::Error> {
     if let Some(id) = integration_id.filter(|id| !id.is_empty()) {
-        return Ok(by_id(db, id).await?.filter(|row| row["provider"] == "discord"));
+        return Ok(by_id(db, id)
+            .await?
+            .filter(|row| row["provider"] == "discord"));
     }
     by_provider_row(db, "discord").await
 }
@@ -131,7 +157,10 @@ fn row_id(row: &Value) -> &str {
 
 /// `accountInfo?.name || row.name || fallback`.
 fn guild_name(row: &Value, fallback: &str) -> Value {
-    or_value(&row["accountInfo"]["name"], or_value(&row["name"], json!(fallback)))
+    or_value(
+        &row["accountInfo"]["name"],
+        or_value(&row["name"], json!(fallback)),
+    )
 }
 
 async fn set_config(db: &PgPool, id: &str, config: &Map<String, Value>) -> Result<(), sqlx::Error> {
@@ -181,7 +210,10 @@ async fn list(ctx: Ctx) -> Response {
     }
     match list_all(&ctx.caller.db).await {
         Ok(rows) => {
-            let integrations: Vec<Value> = rows.iter().map(|row| Value::Object(sanitized(row))).collect();
+            let integrations: Vec<Value> = rows
+                .iter()
+                .map(|row| Value::Object(sanitized(row)))
+                .collect();
             Data(json!({ "integrations": integrations })).into_response()
         }
         Err(error) => internal("List error", error, None),
@@ -208,10 +240,22 @@ struct TokenBody {
 }
 
 fn token_schema(issues: &mut Issues, body: &Map<String, Value>) -> TokenBody {
-    let provider = issues.text(body, "provider", Presence::Required, Some(1), None).into_option();
-    let token = issues.text(body, "token", Presence::Required, Some(1), None).into_option();
-    let config = issues.nested(body, "config", Presence::Optional, |_, fields| fields.clone()).into_option();
-    TokenBody { provider: provider.unwrap_or_default(), token: token.unwrap_or_default(), config }
+    let provider = issues
+        .text(body, "provider", Presence::Required, Some(1), None)
+        .into_option();
+    let token = issues
+        .text(body, "token", Presence::Required, Some(1), None)
+        .into_option();
+    let config = issues
+        .nested(body, "config", Presence::Optional, |_, fields| {
+            fields.clone()
+        })
+        .into_option();
+    TokenBody {
+        provider: provider.unwrap_or_default(),
+        token: token.unwrap_or_default(),
+        config,
+    }
 }
 
 /// `provider.charAt(0).toUpperCase() + provider.slice(1)`.
@@ -238,7 +282,9 @@ async fn save_token(ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
     };
     let now = now();
     if let Some(existing) = existing {
-        let config = data.config.map_or_else(|| existing["config"].clone(), Value::Object);
+        let config = data
+            .config
+            .map_or_else(|| existing["config"].clone(), Value::Object);
         let updated = sqlx::query(
             "update helpdesk_channel_integrations set access_token = $2, status = 'connected', config = $3,
              updated_at = $4::timestamp, last_sync_at = $4::timestamp, error_message = null where id = $1",
@@ -282,13 +328,31 @@ async fn save_token(ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
 fn random_uuid() -> String {
     let hex = random_string(32, "0123456789abcdef");
     let variant = ["8", "9", "a", "b"][usize::from(hex.as_bytes()[16] % 4)];
-    format!("{}-{}-4{}-{variant}{}-{}", &hex[..8], &hex[8..12], &hex[13..16], &hex[17..20], &hex[20..32])
+    format!(
+        "{}-{}-4{}-{variant}{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[13..16],
+        &hex[17..20],
+        &hex[20..32]
+    )
 }
 
 /// `beginOAuth`: a one-time state nonce in KV, carrying the caller's origin.
-async fn begin_oauth(ctx: &Ctx, state: &DeskState, headers: &HeaderMap, provider: &str, org_id: &str) -> Result<String, String> {
+async fn begin_oauth(
+    ctx: &Ctx,
+    state: &DeskState,
+    headers: &HeaderMap,
+    provider: &str,
+    org_id: &str,
+) -> Result<String, String> {
     let nonce = random_uuid();
-    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).filter(|v| !v.is_empty());
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .filter(|v| !v.is_empty())
+    };
     let caller_origin = header("origin").map_or_else(
         || {
             header("referer").map_or_else(String::new, |referer| match referer.rfind('/') {
@@ -303,7 +367,13 @@ async fn begin_oauth(ctx: &Ctx, state: &DeskState, headers: &HeaderMap, provider
         ("userId", Some(&json!(ctx.caller.user_id))),
         ("callerOrigin", Some(&json!(caller_origin))),
     ]);
-    kv_put(ctx.kv(state).as_ref(), &format!("{provider}_oauth_state:{nonce}"), &value, Some(300)).await?;
+    kv_put(
+        ctx.kv(state).as_ref(),
+        &format!("{provider}_oauth_state:{nonce}"),
+        &value,
+        Some(300),
+    )
+    .await?;
     Ok(nonce)
 }
 
@@ -311,8 +381,14 @@ async fn discord_connect(State(state): State<DeskState>, ctx: Ctx, headers: Head
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
-    let Some(client_id) = ctx.caller.env("DISCORD_CLIENT_ID").filter(|c| !c.is_empty()) else {
-        return ApiError::internal().with_message("Discord client ID not configured").into_response();
+    let Some(client_id) = ctx
+        .caller
+        .env("DISCORD_CLIENT_ID")
+        .filter(|c| !c.is_empty())
+    else {
+        return ApiError::internal()
+            .with_message("Discord client ID not configured")
+            .into_response();
     };
     match begin_oauth(&ctx, &state, &headers, "discord", &org_id).await {
         Ok(nonce) => {
@@ -324,7 +400,8 @@ async fn discord_connect(State(state): State<DeskState>, ctx: Ctx, headers: Head
                 ("permissions", "360844446720"),
                 ("state", &nonce),
             ]);
-            Data(json!({ "authUrl": format!("https://discord.com/oauth2/authorize?{params}") })).into_response()
+            Data(json!({ "authUrl": format!("https://discord.com/oauth2/authorize?{params}") }))
+                .into_response()
         }
         Err(error) => internal("Discord connect error", error, None),
     }
@@ -335,7 +412,9 @@ async fn slack_connect(State(state): State<DeskState>, ctx: Ctx, headers: Header
         return org_required();
     };
     let Some(client_id) = ctx.caller.env("SLACK_CLIENT_ID").filter(|c| !c.is_empty()) else {
-        return ApiError::internal().with_message("Slack client ID not configured").into_response();
+        return ApiError::internal()
+            .with_message("Slack client ID not configured")
+            .into_response();
     };
     match begin_oauth(&ctx, &state, &headers, "slack", &org_id).await {
         Ok(nonce) => {
@@ -348,7 +427,8 @@ async fn slack_connect(State(state): State<DeskState>, ctx: Ctx, headers: Header
                 ),
                 ("state", &nonce),
             ]);
-            Data(json!({ "authUrl": format!("https://slack.com/oauth/v2/authorize?{params}") })).into_response()
+            Data(json!({ "authUrl": format!("https://slack.com/oauth/v2/authorize?{params}") }))
+                .into_response()
         }
         Err(error) => internal("Slack connect error", error, None),
     }
@@ -372,7 +452,10 @@ async fn discord_servers(State(state): State<DeskState>, ctx: Ctx) -> Response {
         .iter()
         .map(|row| {
             let mut safe = sanitized(row);
-            safe.insert("guildId".to_owned(), discord_guild_id(row).map_or(Value::Null, Value::String));
+            safe.insert(
+                "guildId".to_owned(),
+                discord_guild_id(row).map_or(Value::Null, Value::String),
+            );
             safe.insert("guildName".to_owned(), guild_name(row, "Discord Server"));
             Value::Object(safe)
         })
@@ -385,20 +468,42 @@ fn discord_view(config: &Map<String, Value>) -> Map<String, Value> {
     let get = |key: &str| config.get(key).cloned().unwrap_or(Value::Null);
     let nullish = |key: &str, fallback: bool| {
         let value = get(key);
-        if value.is_null() { json!(fallback) } else { value }
+        if value.is_null() {
+            json!(fallback)
+        } else {
+            value
+        }
     };
     let mut view = Map::new();
-    view.insert("supportChannels".to_owned(), or_value(&get("supportChannels"), json!([])));
-    view.insert("processDirectMessages".to_owned(), nullish("processDirectMessages", false));
+    view.insert(
+        "supportChannels".to_owned(),
+        or_value(&get("supportChannels"), json!([])),
+    );
+    view.insert(
+        "processDirectMessages".to_owned(),
+        nullish("processDirectMessages", false),
+    );
     view.insert("ignoreBots".to_owned(), nullish("ignoreBots", true));
-    for key in ["supportPrefix", "autoReplyMessage", "botDisplayName", "botAvatarUrl"] {
+    for key in [
+        "supportPrefix",
+        "autoReplyMessage",
+        "botDisplayName",
+        "botAvatarUrl",
+    ] {
         view.insert(key.to_owned(), or_value(&get(key), json!("")));
     }
-    view.insert("ticketPanel".to_owned(), or_value(&get("ticketPanel"), Value::Null));
+    view.insert(
+        "ticketPanel".to_owned(),
+        or_value(&get("ticketPanel"), Value::Null),
+    );
     view
 }
 
-async fn discord_settings(State(state): State<DeskState>, ctx: Ctx, RawQuery(query): RawQuery) -> Response {
+async fn discord_settings(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    RawQuery(query): RawQuery,
+) -> Response {
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
@@ -411,8 +516,14 @@ async fn discord_settings(State(state): State<DeskState>, ctx: Ctx, RawQuery(que
     sync_guild(ctx.kv(&state).as_ref(), &org_id, &integration).await;
     let mut view = discord_view(&config_of(&integration));
     view.insert("integrationId".to_owned(), integration["id"].clone());
-    view.insert("guildId".to_owned(), discord_guild_id(&integration).map_or(Value::Null, Value::String));
-    view.insert("guildName".to_owned(), guild_name(&integration, "Discord Server"));
+    view.insert(
+        "guildId".to_owned(),
+        discord_guild_id(&integration).map_or(Value::Null, Value::String),
+    );
+    view.insert(
+        "guildName".to_owned(),
+        guild_name(&integration, "Discord Server"),
+    );
     Data(Value::Object(view)).into_response()
 }
 
@@ -444,11 +555,25 @@ fn panel_fields(issues: &mut Issues, fields: &Map<String, Value>, out: &mut Map<
             .unwrap_or_else(|| default.to_owned())
     };
     let title = text(issues, "embedTitle", Some(256), "Support Tickets");
-    let description = text(issues, "embedDescription", Some(4096), "Click the button below to open a support ticket.");
+    let description = text(
+        issues,
+        "embedDescription",
+        Some(4096),
+        "Click the button below to open a support ticket.",
+    );
     let color = text(issues, "embedColor", None, "#5865F2");
     let button = text(issues, "buttonText", Some(80), "Open a Ticket");
     let style = issues
-        .number(fields, "buttonStyle", Presence::Optional, Number { min: Some(1.0), max: Some(4.0), ..Number::default() })
+        .number(
+            fields,
+            "buttonStyle",
+            Presence::Optional,
+            Number {
+                min: Some(1.0),
+                max: Some(4.0),
+                ..Number::default()
+            },
+        )
         .into_option()
         .map_or(json!(1), js_number);
     out.insert("embedTitle".to_owned(), json!(title));
@@ -462,11 +587,17 @@ fn ticket_panel_schema(issues: &mut Issues, fields: &Map<String, Value>) -> Map<
     let mut out = Map::new();
     let channel_id = issues.text(fields, "channelId", Presence::Required, None, None);
     out.insert("channelId".to_owned(), json!(channel_id.into_option()));
-    if let Some(name) = issues.text(fields, "channelName", Presence::Optional, None, None).into_option() {
+    if let Some(name) = issues
+        .text(fields, "channelName", Presence::Optional, None, None)
+        .into_option()
+    {
         out.insert("channelName".to_owned(), json!(name));
     }
     panel_fields(issues, fields, &mut out);
-    if let Some(message) = issues.text(fields, "messageId", Presence::Optional, None, None).into_option() {
+    if let Some(message) = issues
+        .text(fields, "messageId", Presence::Optional, None, None)
+        .into_option()
+    {
         out.insert("messageId".to_owned(), json!(message));
     }
     out
@@ -479,7 +610,15 @@ fn avatar_url(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> 
         None => None,
         Some(Value::String(text)) if text.is_empty() => Some(String::new()),
         Some(Value::String(_)) => issues
-            .text_with(body, "botAvatarUrl", Presence::Optional, Text { format: Some(Format::Url), ..Text::default() })
+            .text_with(
+                body,
+                "botAvatarUrl",
+                Presence::Optional,
+                Text {
+                    format: Some(Format::Url),
+                    ..Text::default()
+                },
+            )
             .into_option(),
         Some(other) => {
             let received = match other {
@@ -515,9 +654,18 @@ struct DiscordSettings {
 }
 
 fn discord_settings_schema(issues: &mut Issues, body: &Map<String, Value>) -> DiscordSettings {
-    let integration_id = issues.text(body, "integrationId", Presence::Optional, None, None).into_option();
+    let integration_id = issues
+        .text(body, "integrationId", Presence::Optional, None, None)
+        .into_option();
     let mut changes = Map::new();
-    if let Field::Set(channels) = issues.list(body, "supportChannels", Presence::Optional, None, None, support_channel) {
+    if let Field::Set(channels) = issues.list(
+        body,
+        "supportChannels",
+        Presence::Optional,
+        None,
+        None,
+        support_channel,
+    ) {
         changes.insert("supportChannels".to_owned(), Value::Array(channels));
     }
     for key in ["processDirectMessages", "ignoreBots"] {
@@ -526,11 +674,16 @@ fn discord_settings_schema(issues: &mut Issues, body: &Map<String, Value>) -> Di
         }
     }
     for key in ["supportPrefix", "autoReplyMessage"] {
-        if let Some(text) = issues.text(body, key, Presence::Optional, None, None).into_option() {
+        if let Some(text) = issues
+            .text(body, key, Presence::Optional, None, None)
+            .into_option()
+        {
             changes.insert(key.to_owned(), json!(text));
         }
     }
-    let bot_display_name = issues.text(body, "botDisplayName", Presence::Optional, None, Some(80)).into_option();
+    let bot_display_name = issues
+        .text(body, "botDisplayName", Presence::Optional, None, Some(80))
+        .into_option();
     if let Some(name) = &bot_display_name {
         changes.insert("botDisplayName".to_owned(), json!(name));
     }
@@ -538,15 +691,31 @@ fn discord_settings_schema(issues: &mut Issues, body: &Map<String, Value>) -> Di
     if let Some(url) = &bot_avatar_url {
         changes.insert("botAvatarUrl".to_owned(), json!(url));
     }
-    if let Field::Set(panel) = issues.nested(body, "ticketPanel", Presence::Optional, ticket_panel_schema) {
+    if let Field::Set(panel) =
+        issues.nested(body, "ticketPanel", Presence::Optional, ticket_panel_schema)
+    {
         changes.insert("ticketPanel".to_owned(), Value::Object(panel));
     }
-    DiscordSettings { integration_id, changes, bot_display_name, bot_avatar_url }
+    DiscordSettings {
+        integration_id,
+        changes,
+        bot_display_name,
+        bot_avatar_url,
+    }
 }
 
 /// The nickname and the avatar, pushed to Discord; failures are logged.
-async fn push_bot_profile(ctx: &Ctx, state: &DeskState, integration: &Value, current: &Map<String, Value>, data: &DiscordSettings) {
-    let token = ctx.caller.env("DISCORD_BOT_TOKEN").filter(|t| !t.is_empty());
+async fn push_bot_profile(
+    ctx: &Ctx,
+    state: &DeskState,
+    integration: &Value,
+    current: &Map<String, Value>,
+    data: &DiscordSettings,
+) {
+    let token = ctx
+        .caller
+        .env("DISCORD_BOT_TOKEN")
+        .filter(|t| !t.is_empty());
     let http = ctx.http(state);
     if let Some(name) = &data.bot_display_name
         && let (Some(token), Some(guild)) = (token.as_deref(), discord_guild_id(integration))
@@ -555,19 +724,32 @@ async fn push_bot_profile(ctx: &Ctx, state: &DeskState, integration: &Value, cur
         tracing::error!(%error, "[app-api/helpdesk-integrations] Failed to update bot nickname");
     }
     if let Some(url) = &data.bot_avatar_url {
-        let previous = current.get("botAvatarUrl").filter(|v| truthy(v)).and_then(Value::as_str).unwrap_or_default();
-        let Some(token) = token.as_deref() else { return };
+        let previous = current
+            .get("botAvatarUrl")
+            .filter(|v| truthy(v))
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let Some(token) = token.as_deref() else {
+            return;
+        };
         if previous == url {
             return;
         }
         let avatar = (!url.is_empty()).then_some(url.as_str());
-        if let Err(error) = providers::set_avatar(ctx.bytes_http().as_ref(), http.as_ref(), token, avatar).await {
+        if let Err(error) =
+            providers::set_avatar(ctx.bytes_http().as_ref(), http.as_ref(), token, avatar).await
+        {
             tracing::error!(%error, "[app-api/helpdesk-integrations] Failed to update bot avatar");
         }
     }
 }
 
-async fn update_discord_settings(State(state): State<DeskState>, ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
+async fn update_discord_settings(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let data = match validate(&headers, &body, discord_settings_schema) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond("Internal server error"),
@@ -593,13 +775,19 @@ async fn update_discord_settings(State(state): State<DeskState>, ctx: Ctx, heade
     push_bot_profile(&ctx, &state, &integration, &current, &data).await;
     let mut view = discord_view(&updated);
     view.insert("integrationId".to_owned(), integration["id"].clone());
-    view.insert("guildId".to_owned(), discord_guild_id(&integration).map_or(Value::Null, Value::String));
+    view.insert(
+        "guildId".to_owned(),
+        discord_guild_id(&integration).map_or(Value::Null, Value::String),
+    );
     Data(Value::Object(view)).into_response()
 }
 
 /// `mergeChannelEnabledState(providerChannels, config)`.
 fn merge_channels(provider: &[Value], config: &Map<String, Value>) -> Vec<Value> {
-    let configured = or_value(config.get("supportChannels").unwrap_or(&Value::Null), json!([]));
+    let configured = or_value(
+        config.get("supportChannels").unwrap_or(&Value::Null),
+        json!([]),
+    );
     let mut enabled: Vec<(Value, Value)> = Vec::new();
     for channel in configured.as_array().into_iter().flatten() {
         let key = channel["channelId"].clone();
@@ -624,12 +812,22 @@ fn merge_channels(provider: &[Value], config: &Map<String, Value>) -> Vec<Value>
         .collect()
 }
 
-async fn discord_channels(State(state): State<DeskState>, ctx: Ctx, RawQuery(query): RawQuery) -> Response {
+async fn discord_channels(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    RawQuery(query): RawQuery,
+) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
-    let Some(token) = ctx.caller.env("DISCORD_BOT_TOKEN").filter(|t| !t.is_empty()) else {
-        return ApiError::internal().with_message("Discord bot token not configured").into_response();
+    let Some(token) = ctx
+        .caller
+        .env("DISCORD_BOT_TOKEN")
+        .filter(|t| !t.is_empty())
+    else {
+        return ApiError::internal()
+            .with_message("Discord bot token not configured")
+            .into_response();
     };
     let integration_id = query_param(query.as_deref(), "integrationId");
     let integration = match resolve_discord(&ctx.caller.db, integration_id.as_deref()).await {
@@ -640,7 +838,8 @@ async fn discord_channels(State(state): State<DeskState>, ctx: Ctx, RawQuery(que
     let Some(guild) = discord_guild_id(&integration) else {
         return ApiError::bad_request("No guild connected").into_response();
     };
-    let channels = match providers::guild_channels(ctx.http(&state).as_ref(), &token, &guild).await {
+    let channels = match providers::guild_channels(ctx.http(&state).as_ref(), &token, &guild).await
+    {
         Ok(channels) => channels,
         Err(error) => return internal("Get Discord channels error", error, None),
     };
@@ -659,15 +858,23 @@ struct PanelRequest {
 }
 
 fn panel_request_schema(issues: &mut Issues, body: &Map<String, Value>) -> PanelRequest {
-    let integration_id = issues.text(body, "integrationId", Presence::Optional, None, None).into_option();
+    let integration_id = issues
+        .text(body, "integrationId", Presence::Optional, None, None)
+        .into_option();
     let mut panel = Map::new();
     let channel_id = issues.text(body, "channelId", Presence::Required, Some(1), None);
     panel.insert("channelId".to_owned(), json!(channel_id.into_option()));
-    if let Some(name) = issues.text(body, "channelName", Presence::Optional, None, None).into_option() {
+    if let Some(name) = issues
+        .text(body, "channelName", Presence::Optional, None, None)
+        .into_option()
+    {
         panel.insert("channelName".to_owned(), json!(name));
     }
     panel_fields(issues, body, &mut panel);
-    PanelRequest { integration_id, panel }
+    PanelRequest {
+        integration_id,
+        panel,
+    }
 }
 
 /// `Number.parseInt(text, 16)`: `None` for `NaN`.
@@ -678,7 +885,10 @@ fn parse_hex(text: &str) -> Option<i64> {
         Some(b'+') => (false, &rest[1..]),
         _ => (false, rest),
     };
-    let rest = rest.strip_prefix("0x").or_else(|| rest.strip_prefix("0X")).unwrap_or(rest);
+    let rest = rest
+        .strip_prefix("0x")
+        .or_else(|| rest.strip_prefix("0X"))
+        .unwrap_or(rest);
     let digits = &rest[..rest.bytes().take_while(u8::is_ascii_hexdigit).count()];
     if digits.is_empty() {
         return None;
@@ -687,7 +897,12 @@ fn parse_hex(text: &str) -> Option<i64> {
     Some(if negative { -value } else { value })
 }
 
-async fn ticket_panel(State(state): State<DeskState>, ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
+async fn ticket_panel(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to post ticket panel";
     let data = match validate(&headers, &body, panel_request_schema) {
         Ok(data) => data,
@@ -696,8 +911,14 @@ async fn ticket_panel(State(state): State<DeskState>, ctx: Ctx, headers: HeaderM
     let Some(org_id) = ctx.org_id.clone() else {
         return org_required();
     };
-    let Some(token) = ctx.caller.env("DISCORD_BOT_TOKEN").filter(|t| !t.is_empty()) else {
-        return ApiError::internal().with_message("Discord bot token not configured").into_response();
+    let Some(token) = ctx
+        .caller
+        .env("DISCORD_BOT_TOKEN")
+        .filter(|t| !t.is_empty())
+    else {
+        return ApiError::internal()
+            .with_message("Discord bot token not configured")
+            .into_response();
     };
     let db = &ctx.caller.db;
     let integration = match resolve_discord(db, data.integration_id.as_deref()).await {
@@ -706,8 +927,13 @@ async fn ticket_panel(State(state): State<DeskState>, ctx: Ctx, headers: HeaderM
         Err(error) => return internal("Post ticket panel error", error, Some(FAILED)),
     };
     let panel = &data.panel;
-    let color_text = panel["embedColor"].as_str().unwrap_or_default().replacen('#', "", 1);
-    let color = parse_hex(&color_text).filter(|c| *c != 0).unwrap_or(0x0058_65f2);
+    let color_text = panel["embedColor"]
+        .as_str()
+        .unwrap_or_default()
+        .replacen('#', "", 1);
+    let color = parse_hex(&color_text)
+        .filter(|c| *c != 0)
+        .unwrap_or(0x0058_65f2);
     let message = json!({
         "embeds": [{ "title": panel["embedTitle"], "description": panel["embedDescription"], "color": color }],
         "components": [{
@@ -716,14 +942,24 @@ async fn ticket_panel(State(state): State<DeskState>, ctx: Ctx, headers: HeaderM
         }],
     });
     let channel_id = panel["channelId"].as_str().unwrap_or_default();
-    let sent = match providers::post_message(ctx.http(&state).as_ref(), &token, channel_id, &message).await {
+    let sent = match providers::post_message(
+        ctx.http(&state).as_ref(),
+        &token,
+        channel_id,
+        &message,
+    )
+    .await
+    {
         Ok(sent) => sent,
         Err(error) => return internal("Post ticket panel error", error, Some(FAILED)),
     };
     let mut ticket_panel = panel.clone();
     ticket_panel.insert("messageId".to_owned(), sent["id"].clone());
     let mut config = config_of(&integration);
-    config.insert("ticketPanel".to_owned(), Value::Object(ticket_panel.clone()));
+    config.insert(
+        "ticketPanel".to_owned(),
+        Value::Object(ticket_panel.clone()),
+    );
     if let Err(error) = set_config(db, row_id(&integration), &config).await {
         return internal("Post ticket panel error", error, Some(FAILED));
     }
@@ -732,13 +968,22 @@ async fn ticket_panel(State(state): State<DeskState>, ctx: Ctx, headers: HeaderM
 }
 
 fn send_schema(issues: &mut Issues, body: &Map<String, Value>) -> (String, String) {
-    let channel = issues.text(body, "channelId", Presence::Required, Some(1), None).into_option();
-    let content = issues.text(body, "content", Presence::Required, Some(1), None).into_option();
+    let channel = issues
+        .text(body, "channelId", Presence::Required, Some(1), None)
+        .into_option();
+    let content = issues
+        .text(body, "content", Presence::Required, Some(1), None)
+        .into_option();
     let _ = issues.text(body, "conversationId", Presence::Optional, None, None);
     (channel.unwrap_or_default(), content.unwrap_or_default())
 }
 
-async fn discord_send(State(state): State<DeskState>, ctx: Ctx, headers: HeaderMap, body: Bytes) -> Response {
+async fn discord_send(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to send Discord message";
     let (channel, content) = match validate(&headers, &body, send_schema) {
         Ok(data) => data,
@@ -747,10 +992,23 @@ async fn discord_send(State(state): State<DeskState>, ctx: Ctx, headers: HeaderM
     if ctx.org_id.is_none() {
         return org_required();
     }
-    let Some(token) = ctx.caller.env("DISCORD_BOT_TOKEN").filter(|t| !t.is_empty()) else {
-        return ApiError::internal().with_message("Discord bot token not configured").into_response();
+    let Some(token) = ctx
+        .caller
+        .env("DISCORD_BOT_TOKEN")
+        .filter(|t| !t.is_empty())
+    else {
+        return ApiError::internal()
+            .with_message("Discord bot token not configured")
+            .into_response();
     };
-    let sent = match providers::post_message(ctx.http(&state).as_ref(), &token, &channel, &json!({ "content": content })).await {
+    let sent = match providers::post_message(
+        ctx.http(&state).as_ref(),
+        &token,
+        &channel,
+        &json!({ "content": content }),
+    )
+    .await
+    {
         Ok(sent) => sent,
         Err(error) => return internal("Send Discord message error", error, Some(FAILED)),
     };
@@ -771,20 +1029,26 @@ async fn discord_send(State(state): State<DeskState>, ctx: Ctx, headers: HeaderM
         Ok(None) => {}
         Err(error) => return internal("Send Discord message error", error, Some(FAILED)),
     }
-    Data(json!({ "success": true, "messageId": sent["id"], "message": "Message sent" })).into_response()
+    Data(json!({ "success": true, "messageId": sent["id"], "message": "Message sent" }))
+        .into_response()
 }
 
 // ── Slack ─────────────────────────────────────────────────────────────────────
 
 /// `projectSlackSettings(config)`.
 fn slack_view(config: &Map<String, Value>) -> Value {
-    let ignore = config.get("ignoreBots").cloned().filter(|v| !v.is_null()).unwrap_or(json!(true));
+    let ignore = config
+        .get("ignoreBots")
+        .cloned()
+        .filter(|v| !v.is_null())
+        .unwrap_or(json!(true));
     json!({
         "supportChannels": or_value(config.get("supportChannels").unwrap_or(&Value::Null), json!([])),
         "ignoreBots": ignore,
     })
 }
 
+#[allow(clippy::result_large_err)] // the response is the route's answer
 async fn slack_row(ctx: &Ctx, scope: &str) -> Result<Value, Response> {
     match by_provider_row(&ctx.caller.db, "slack").await {
         Ok(Some(row)) => Ok(row),
@@ -803,9 +1067,23 @@ async fn slack_settings(ctx: Ctx) -> Response {
     }
 }
 
-fn slack_settings_schema(issues: &mut Issues, body: &Map<String, Value>) -> (Option<Vec<Value>>, Option<bool>) {
-    let channels = issues.list(body, "supportChannels", Presence::Optional, None, None, support_channel).into_option();
-    let ignore = issues.boolean(body, "ignoreBots", Presence::Optional).into_option();
+fn slack_settings_schema(
+    issues: &mut Issues,
+    body: &Map<String, Value>,
+) -> (Option<Vec<Value>>, Option<bool>) {
+    let channels = issues
+        .list(
+            body,
+            "supportChannels",
+            Presence::Optional,
+            None,
+            None,
+            support_channel,
+        )
+        .into_option();
+    let ignore = issues
+        .boolean(body, "ignoreBots", Presence::Optional)
+        .into_option();
     (channels, ignore)
 }
 
@@ -824,8 +1102,12 @@ async fn update_slack_settings(ctx: Ctx, headers: HeaderMap, body: Bytes) -> Res
     let mut config = config_of(&row);
     // `{ ...current, key: data.key ?? current.key }`: an undefined value is
     // left out of the stored JSON.
-    let channels = channels.map(Value::Array).or_else(|| config.get("supportChannels").cloned());
-    let ignore = ignore.map(Value::Bool).or_else(|| config.get("ignoreBots").cloned());
+    let channels = channels
+        .map(Value::Array)
+        .or_else(|| config.get("supportChannels").cloned());
+    let ignore = ignore
+        .map(Value::Bool)
+        .or_else(|| config.get("ignoreBots").cloned());
     for (key, value) in [("supportChannels", channels), ("ignoreBots", ignore)] {
         match value {
             Some(value) => {
@@ -849,7 +1131,9 @@ fn slack_token(row: &Value) -> Option<Value> {
 
 /// A token value as the string a template literal makes of it.
 fn token_text(token: &Value) -> String {
-    token.as_str().map_or_else(|| token.to_string(), str::to_owned)
+    token
+        .as_str()
+        .map_or_else(|| token.to_string(), str::to_owned)
 }
 
 async fn slack_channels(State(state): State<DeskState>, ctx: Ctx) -> Response {
@@ -863,16 +1147,22 @@ async fn slack_channels(State(state): State<DeskState>, ctx: Ctx) -> Response {
     let Some(token) = slack_token(&row) else {
         return ApiError::bad_request("No bot token configured").into_response();
     };
-    let result = match providers::slack_channels(ctx.http(&state).as_ref(), &token_text(&token)).await {
-        Ok(result) => result,
-        Err(error) => return internal("Get Slack channels error", error, None),
-    };
+    let result =
+        match providers::slack_channels(ctx.http(&state).as_ref(), &token_text(&token)).await {
+            Ok(result) => result,
+            Err(error) => return internal("Get Slack channels error", error, None),
+        };
     if !truthy(&result["ok"]) {
         let error = js_text(&result["error"]);
         tracing::error!("[app-api/helpdesk-integrations] Slack channels error: {error}");
-        return ApiError::internal().with_message(format!("Slack API error: {error}")).into_response();
+        return ApiError::internal()
+            .with_message(format!("Slack API error: {error}"))
+            .into_response();
     }
-    let channels: Vec<Value> = or_value(&result["channels"], json!([])).as_array().cloned().unwrap_or_default();
+    let channels: Vec<Value> = or_value(&result["channels"], json!([]))
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     Data(json!({
         "teamName": or_value(&row["accountInfo"]["name"], json!("Slack Workspace")),
         "channels": merge_channels(&channels, &config_of(&row)),
@@ -913,7 +1203,8 @@ async fn slack_test(State(state): State<DeskState>, ctx: Ctx) -> Response {
                     details.insert(key.to_owned(), value.clone());
                 }
             }
-            Data(json!({ "success": true, "message": "Connection is working", "details": details })).into_response()
+            Data(json!({ "success": true, "message": "Connection is working", "details": details }))
+                .into_response()
         }
         Err(error) => Data(json!({ "success": false, "message": error })).into_response(),
     }
@@ -921,13 +1212,24 @@ async fn slack_test(State(state): State<DeskState>, ctx: Ctx) -> Response {
 
 // ── POST /:provider/test ──────────────────────────────────────────────────────
 
-async fn provider_test(State(state): State<DeskState>, ctx: Ctx, Path(provider): Path<String>) -> Response {
+async fn provider_test(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    Path(provider): Path<String>,
+) -> Response {
     if ctx.org_id.is_none() {
         return org_required();
     }
     if provider == "discord" {
-        let Some(token) = ctx.caller.env("DISCORD_BOT_TOKEN").filter(|t| !t.is_empty()) else {
-            return Data(json!({ "success": false, "message": "Discord bot token not configured" })).into_response();
+        let Some(token) = ctx
+            .caller
+            .env("DISCORD_BOT_TOKEN")
+            .filter(|t| !t.is_empty())
+        else {
+            return Data(
+                json!({ "success": false, "message": "Discord bot token not configured" }),
+            )
+            .into_response();
         };
         return match providers::bot_user(ctx.http(&state).as_ref(), &token).await {
             Ok(bot) => Data(json!({
@@ -943,8 +1245,14 @@ async fn provider_test(State(state): State<DeskState>, ctx: Ctx, Path(provider):
         };
     }
     match by_provider_row(&ctx.caller.db, &provider).await {
-        Ok(Some(_)) => Data(json!({ "success": true, "message": format!("{provider} integration is connected") })).into_response(),
-        Ok(None) => Data(json!({ "success": false, "message": format!("No {provider} integration found") })).into_response(),
+        Ok(Some(_)) => Data(
+            json!({ "success": true, "message": format!("{provider} integration is connected") }),
+        )
+        .into_response(),
+        Ok(None) => {
+            Data(json!({ "success": false, "message": format!("No {provider} integration found") }))
+                .into_response()
+        }
         Err(error) => {
             tracing::error!(%error, "[app-api/helpdesk-integrations] Test {provider} error");
             Data(json!({ "success": false, "message": error.to_string() })).into_response()
@@ -972,13 +1280,31 @@ async fn refresh(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String
         ))
         .into_response();
     }
-    let client_id = ctx.caller.env("DISCORD_CLIENT_ID").filter(|c| !c.is_empty());
-    let client_secret = ctx.caller.env("DISCORD_CLIENT_SECRET").filter(|c| !c.is_empty());
-    let refresh_token = integration["refreshToken"].as_str().filter(|t| !t.is_empty()).map(str::to_owned);
-    let (Some(client_id), Some(client_secret), Some(refresh_token)) = (client_id, client_secret, refresh_token) else {
+    let client_id = ctx
+        .caller
+        .env("DISCORD_CLIENT_ID")
+        .filter(|c| !c.is_empty());
+    let client_secret = ctx
+        .caller
+        .env("DISCORD_CLIENT_SECRET")
+        .filter(|c| !c.is_empty());
+    let refresh_token = integration["refreshToken"]
+        .as_str()
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned);
+    let (Some(client_id), Some(client_secret), Some(refresh_token)) =
+        (client_id, client_secret, refresh_token)
+    else {
         return ApiError::bad_request("Cannot refresh token — missing credentials").into_response();
     };
-    let tokens = match providers::refresh_token(ctx.http(&state).as_ref(), &client_id, &client_secret, &refresh_token).await {
+    let tokens = match providers::refresh_token(
+        ctx.http(&state).as_ref(),
+        &client_id,
+        &client_secret,
+        &refresh_token,
+    )
+    .await
+    {
         Ok(tokens) => tokens,
         Err(error) => return internal("Refresh token error", error, Some(FAILED)),
     };
@@ -1024,7 +1350,8 @@ async fn disconnect(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<Str
     };
     if integration["provider"] == "discord"
         && let Some(guild) = discord_guild_id(&integration)
-        && let Err(error) = kv_delete(ctx.kv(&state).as_ref(), &format!("discord_guild:{guild}")).await
+        && let Err(error) =
+            kv_delete(ctx.kv(&state).as_ref(), &format!("discord_guild:{guild}")).await
     {
         return internal("Delete error", error, None);
     }

@@ -14,7 +14,10 @@ use serde_json::{Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 
-use super::{PublicCtx, PublicState, Urls, discord_guild_id, form_encode, json_object, kv_delete, kv_get_json, kv_put, providers, truthy};
+use super::{
+    PublicCtx, PublicState, Urls, discord_guild_id, form_encode, json_object, kv_delete,
+    kv_get_json, kv_put, providers, truthy,
+};
 use crate::js::query_param;
 use crate::tables::HELPDESK_CHANNEL_INTEGRATIONS as HCI;
 
@@ -35,7 +38,11 @@ fn redirect(url: &str) -> Response {
 /// `workspaceAppUrl(baseUrl, clerkOrgId, path)`: `{base}/w/{org}{path}`.
 fn workspace_url(base: &str, org: Option<&str>, path: &str) -> String {
     let base = weldsuite_kit::validation::js_trim(base).trim_end_matches('/');
-    let inner = if path.starts_with('/') { path.to_owned() } else { format!("/{path}") };
+    let inner = if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        format!("/{path}")
+    };
     match org.filter(|o| !o.is_empty()) {
         Some(org) => format!("{base}/w/{}{inner}", encode_uri_component(org)),
         None => format!("{base}{inner}"),
@@ -49,7 +56,7 @@ fn encode_uri_component(text: &str) -> String {
         if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
             out.push(char::from(byte));
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = std::fmt::Write::write_fmt(&mut out, format_args!("%{byte:02X}"));
         }
     }
     out
@@ -70,7 +77,12 @@ struct StateData {
 }
 
 /// Read and spend the state nonce. `Ok(None)`: no such state.
-async fn take_state(ctx: &PublicCtx, state: &PublicState, provider: &str, nonce: &str) -> Result<Option<StateData>, String> {
+async fn take_state(
+    ctx: &PublicCtx,
+    state: &PublicState,
+    provider: &str,
+    nonce: &str,
+) -> Result<Option<StateData>, String> {
     let kv = ctx.kv(state);
     let key = format!("{provider}_oauth_state:{nonce}");
     let Some(data) = kv_get_json(kv.as_ref(), &key).await? else {
@@ -82,7 +94,10 @@ async fn take_state(ctx: &PublicCtx, state: &PublicState, provider: &str, nonce:
     kv_delete(kv.as_ref(), &key).await?;
     Ok(Some(StateData {
         org_id: js_text(&data["orgId"]),
-        caller_origin: data["callerOrigin"].as_str().filter(|o| !o.is_empty()).map(str::to_owned),
+        caller_origin: data["callerOrigin"]
+            .as_str()
+            .filter(|o| !o.is_empty())
+            .map(str::to_owned),
     }))
 }
 
@@ -96,19 +111,28 @@ fn js_text(value: &Value) -> String {
 
 /// `getWorkspaceForOrg(env, orgId)`: the workspace's id, from the master
 /// database.
-async fn workspace_id(ctx: &PublicCtx, state: &PublicState, reference: &str) -> Result<String, String> {
+async fn workspace_id(
+    ctx: &PublicCtx,
+    state: &PublicState,
+    reference: &str,
+) -> Result<String, String> {
     let master = ctx.master(state).ok_or("no master database")?;
-    let id: Option<String> = sqlx::query_scalar("select id from workspaces where id = $1 or clerk_org_id = $1 limit 1")
-        .bind(reference)
-        .fetch_optional(&master)
-        .await
-        .map_err(|error| error.to_string())?;
+    let id: Option<String> =
+        sqlx::query_scalar("select id from workspaces where id = $1 or clerk_org_id = $1 limit 1")
+            .bind(reference)
+            .fetch_optional(&master)
+            .await
+            .map_err(|error| error.to_string())?;
     id.ok_or_else(|| format!("Workspace not found: {reference}"))
 }
 
 // ── Discord ───────────────────────────────────────────────────────────────────
 
-async fn discord_callback(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query): RawQuery) -> Response {
+async fn discord_callback(
+    State(state): State<PublicState>,
+    ctx: PublicCtx,
+    RawQuery(query): RawQuery,
+) -> Response {
     let query = query.as_deref();
     let code = query_param(query, "code").filter(|c| !c.is_empty());
     let nonce = query_param(query, "state").filter(|s| !s.is_empty());
@@ -116,21 +140,38 @@ async fn discord_callback(State(state): State<PublicState>, ctx: PublicCtx, RawQ
     let urls = urls(&ctx);
     let default_app = urls.app();
     let (Some(code), Some(nonce)) = (code, nonce) else {
-        return redirect(&format!("{default_app}{DISCORD_SETTINGS_PATH}?error=missing_params"));
+        return redirect(&format!(
+            "{default_app}{DISCORD_SETTINGS_PATH}?error=missing_params"
+        ));
     };
     let mut app_url = default_app.clone();
     let mut state_org: Option<String> = None;
-    let outcome = discord_flow(&ctx, &state, &urls, &code, &nonce, guild_param, &mut app_url, &mut state_org).await;
+    let outcome = discord_flow(
+        &ctx,
+        &state,
+        &urls,
+        &code,
+        &nonce,
+        guild_param,
+        &mut app_url,
+        &mut state_org,
+    )
+    .await;
     match outcome {
         Ok(response) => response,
         Err(error) => {
             tracing::error!(%error, "[app-api/integrations-helpdesk] Discord OAuth callback error");
-            redirect(&workspace_url(&app_url, state_org.as_deref(), &format!("{DISCORD_SETTINGS_PATH}?error=callback_failed")))
+            redirect(&workspace_url(
+                &app_url,
+                state_org.as_deref(),
+                &format!("{DISCORD_SETTINGS_PATH}?error=callback_failed"),
+            ))
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)] // the route's locals, shared with its catch
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 async fn discord_flow(
     ctx: &PublicCtx,
     state: &PublicState,
@@ -143,12 +184,23 @@ async fn discord_flow(
 ) -> Result<Response, String> {
     let default_app = urls.app();
     let Some(data) = take_state(ctx, state, "discord", nonce).await? else {
-        return Ok(redirect(&format!("{default_app}{DISCORD_SETTINGS_PATH}?error=invalid_state")));
+        return Ok(redirect(&format!(
+            "{default_app}{DISCORD_SETTINGS_PATH}?error=invalid_state"
+        )));
     };
-    *app_url = data.caller_origin.clone().unwrap_or_else(|| default_app.clone());
+    *app_url = data
+        .caller_origin
+        .clone()
+        .unwrap_or_else(|| default_app.clone());
     let org = data.org_id.clone();
     *state_org = Some(org.clone());
-    let page = |query: &str| workspace_url(app_url, Some(&org), &format!("{DISCORD_SETTINGS_PATH}?{query}"));
+    let page = |query: &str| {
+        workspace_url(
+            app_url,
+            Some(&org),
+            &format!("{DISCORD_SETTINGS_PATH}?{query}"),
+        )
+    };
 
     let client_id = ctx.env("DISCORD_CLIENT_ID").filter(|c| !c.is_empty());
     let client_secret = ctx.env("DISCORD_CLIENT_SECRET").filter(|c| !c.is_empty());
@@ -158,14 +210,25 @@ async fn discord_flow(
     };
 
     let http = ctx.http(state);
-    let tokens = providers::exchange_code(http.as_ref(), &client_id, &client_secret, code, &urls.redirect_uri("discord")).await?;
+    let tokens = providers::exchange_code(
+        http.as_ref(),
+        &client_id,
+        &client_secret,
+        code,
+        &urls.redirect_uri("discord"),
+    )
+    .await?;
     let guild = &tokens["guild"];
     let resolved = guild["id"]
         .as_str()
         .filter(|g| !g.is_empty())
         .map(str::to_owned)
         .or(guild_param);
-    let mut guild_name = guild["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Discord Server").to_owned();
+    let mut guild_name = guild["name"]
+        .as_str()
+        .filter(|n| !n.is_empty())
+        .unwrap_or("Discord Server")
+        .to_owned();
     if let (Some(resolved), Some(bot_token)) = (&resolved, &bot_token)
         && let Ok(info) = providers::get_guild(http.as_ref(), bot_token, resolved).await
     {
@@ -185,7 +248,9 @@ async fn discord_flow(
     let expires = weldsuite_events::iso_timestamp(expires_at);
     let account = json!({ "id": resolved, "name": guild_name, "metadata": { "guildId": resolved, "guildName": guild_name } });
 
-    let existing = integration_for_guild(&db, &resolved).await.map_err(|e| e.to_string())?;
+    let existing = integration_for_guild(&db, &resolved)
+        .await
+        .map_err(|e| e.to_string())?;
     let integration_id = if let Some(existing) = existing {
         let id = existing["id"].as_str().unwrap_or_default().to_owned();
         sqlx::query(
@@ -226,8 +291,17 @@ async fn discord_flow(
         id
     };
 
-    let mapping = json_object(&[("clerkOrgId", Some(&json!(org))), ("internalWorkspaceId", Some(&json!(workspace)))]);
-    kv_put(ctx.kv(state).as_ref(), &format!("discord_guild:{resolved}"), &mapping, None).await?;
+    let mapping = json_object(&[
+        ("clerkOrgId", Some(&json!(org))),
+        ("internalWorkspaceId", Some(&json!(workspace))),
+    ]);
+    kv_put(
+        ctx.kv(state).as_ref(),
+        &format!("discord_guild:{resolved}"),
+        &mapping,
+        None,
+    )
+    .await?;
     let query = form_encode(&[("connected", "true"), ("integrationId", &integration_id)]);
     Ok(redirect(&page(&query)))
 }
@@ -240,19 +314,28 @@ async fn integration_for_guild(db: &PgPool, guild: &str) -> Result<Option<Value>
     )
     .fetch_all(db)
     .await?;
-    Ok(rows.into_iter().map(|row| HCI.js(row)).find(|row| discord_guild_id(row).as_deref() == Some(guild)))
+    Ok(rows
+        .into_iter()
+        .map(|row| HCI.js(row))
+        .find(|row| discord_guild_id(row).as_deref() == Some(guild)))
 }
 
 // ── Slack ─────────────────────────────────────────────────────────────────────
 
-async fn slack_callback(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query): RawQuery) -> Response {
+async fn slack_callback(
+    State(state): State<PublicState>,
+    ctx: PublicCtx,
+    RawQuery(query): RawQuery,
+) -> Response {
     let query = query.as_deref();
     let code = query_param(query, "code").filter(|c| !c.is_empty());
     let nonce = query_param(query, "state").filter(|s| !s.is_empty());
     let urls = urls(&ctx);
     let default_app = urls.app();
     let (Some(code), Some(nonce)) = (code, nonce) else {
-        return redirect(&format!("{default_app}{SLACK_SETTINGS_PATH}?error=missing_params"));
+        return redirect(&format!(
+            "{default_app}{SLACK_SETTINGS_PATH}?error=missing_params"
+        ));
     };
     let mut state_org: Option<String> = None;
     match slack_flow(&ctx, &state, &urls, &code, &nonce, &mut state_org).await {
@@ -260,11 +343,16 @@ async fn slack_callback(State(state): State<PublicState>, ctx: PublicCtx, RawQue
         Err(error) => {
             tracing::error!(%error, "[app-api/integrations-helpdesk] Slack OAuth callback error");
             // The catch redirects to the default app, not the caller's origin.
-            redirect(&workspace_url(&default_app, state_org.as_deref(), &format!("{SLACK_SETTINGS_PATH}?error=callback_failed")))
+            redirect(&workspace_url(
+                &default_app,
+                state_org.as_deref(),
+                &format!("{SLACK_SETTINGS_PATH}?error=callback_failed"),
+            ))
         }
     }
 }
 
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 async fn slack_flow(
     ctx: &PublicCtx,
     state: &PublicState,
@@ -275,12 +363,23 @@ async fn slack_flow(
 ) -> Result<Response, String> {
     let default_app = urls.app();
     let Some(data) = take_state(ctx, state, "slack", nonce).await? else {
-        return Ok(redirect(&format!("{default_app}{SLACK_SETTINGS_PATH}?error=invalid_state")));
+        return Ok(redirect(&format!(
+            "{default_app}{SLACK_SETTINGS_PATH}?error=invalid_state"
+        )));
     };
-    let app_url = data.caller_origin.clone().unwrap_or_else(|| default_app.clone());
+    let app_url = data
+        .caller_origin
+        .clone()
+        .unwrap_or_else(|| default_app.clone());
     let org = data.org_id.clone();
     *state_org = Some(org.clone());
-    let page = |query: &str| workspace_url(&app_url, Some(&org), &format!("{SLACK_SETTINGS_PATH}?{query}"));
+    let page = |query: &str| {
+        workspace_url(
+            &app_url,
+            Some(&org),
+            &format!("{SLACK_SETTINGS_PATH}?{query}"),
+        )
+    };
 
     let client_id = ctx.env("SLACK_CLIENT_ID").filter(|c| !c.is_empty());
     let client_secret = ctx.env("SLACK_CLIENT_SECRET").filter(|c| !c.is_empty());
@@ -296,12 +395,22 @@ async fn slack_flow(
     let token = providers::slack_exchange(ctx.http(state).as_ref(), form).await?;
     let bot_token = token["access_token"].as_str().filter(|t| !t.is_empty());
     let Some(bot_token) = bot_token.filter(|_| truthy(&token["ok"])) else {
-        let reason = token["error"].as_str().filter(|e| !e.is_empty()).unwrap_or("token_exchange_failed");
+        let reason = token["error"]
+            .as_str()
+            .filter(|e| !e.is_empty())
+            .unwrap_or("token_exchange_failed");
         tracing::error!("[app-api/integrations-helpdesk] Slack token exchange failed: {reason}");
-        return Ok(redirect(&page(&format!("error={}", encode_uri_component(reason)))));
+        return Ok(redirect(&page(&format!(
+            "error={}",
+            encode_uri_component(reason)
+        ))));
     };
     let team_id = token["team"]["id"].as_str().map(str::to_owned);
-    let team_name = token["team"]["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Slack Workspace").to_owned();
+    let team_name = token["team"]["name"]
+        .as_str()
+        .filter(|n| !n.is_empty())
+        .unwrap_or("Slack Workspace")
+        .to_owned();
 
     let workspace = workspace_id(ctx, state, &org).await?;
     let db = ctx.tenant_db(state, &org).await?;
@@ -356,8 +465,17 @@ async fn slack_flow(
         .map_err(|e| e.to_string())?;
     }
     if let Some(team) = team_id.filter(|t| !t.is_empty()) {
-        let mapping = json_object(&[("clerkOrgId", Some(&json!(org))), ("internalWorkspaceId", Some(&json!(workspace)))]);
-        kv_put(ctx.kv(state).as_ref(), &format!("slack_team:{team}"), &mapping, None).await?;
+        let mapping = json_object(&[
+            ("clerkOrgId", Some(&json!(org))),
+            ("internalWorkspaceId", Some(&json!(workspace))),
+        ]);
+        kv_put(
+            ctx.kv(state).as_ref(),
+            &format!("slack_team:{team}"),
+            &mapping,
+            None,
+        )
+        .await?;
     }
     Ok(redirect(&page("connected=true")))
 }

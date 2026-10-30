@@ -49,6 +49,7 @@ where
 
 /// `getMasterDb(c.env)` inside the route's `try`: without one the route
 /// answers its 500.
+#[allow(clippy::result_large_err)] // the response is the route's answer
 fn master_or(caller: &Caller, state: &DeskState, message: &str) -> Result<PgPool, Response> {
     master(caller, state).ok_or_else(|| ApiError::internal().with_message(message).into_response())
 }
@@ -63,6 +64,7 @@ async fn addresses(
         Ok(master) => master,
         Err(response) => return response,
     };
+    #[allow(clippy::type_complexity)] // the registry row's columns
     let registry: Result<Vec<(String, String, String, bool, Option<String>)>, _> = sqlx::query_as(
         "select id, email, account_id, is_active, to_jsonb(created_at)#>>'{}' from mail_account_registry
          where workspace_id = $1 and account_id like 'helpdesk_%'",
@@ -158,6 +160,7 @@ async fn mail_accounts(caller: Caller) -> Response {
 }
 
 async fn domains(caller: Caller) -> Response {
+    #[allow(clippy::type_complexity)] // the domain row's columns
     let rows: Result<Vec<(String, String, Option<String>, bool)>, _> = sqlx::query_as(
         "select id, domain_name, dns_status::text, is_active from mail_domains
          where is_active = true and dns_status = 'verified' and deleted_at is null",

@@ -29,26 +29,47 @@ pub(super) fn routes() -> Router<PublicState> {
 
 /// `helpcenterDomainMiddleware()`: the tenant database for `?domain=`, or
 /// the middleware's answer.
-async fn tenant(ctx: &PublicCtx, state: &PublicState, query: Option<&str>) -> Result<PgPool, Response> {
+#[allow(clippy::result_large_err)] // the response is the route's answer
+async fn tenant(
+    ctx: &PublicCtx,
+    state: &PublicState,
+    query: Option<&str>,
+) -> Result<PgPool, Response> {
     let Some(domain) = query_param(query, "domain").filter(|d| !d.is_empty()) else {
-        return Err(error_body(StatusCode::BAD_REQUEST, "BAD_REQUEST", "Missing domain query parameter"));
+        return Err(error_body(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "Missing domain query parameter",
+        ));
     };
     match resolve(ctx, state, &domain).await {
         Ok(Ok(db)) => Ok(db),
         Ok(Err(response)) => Err(response),
         Err(error) => {
             tracing::error!(%error, "[app-api/helpcenter-domain] resolution error");
-            Err(error_body(StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Failed to resolve help center domain"))
+            Err(error_body(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "Failed to resolve help center domain",
+            ))
         }
     }
 }
 
-async fn resolve(ctx: &PublicCtx, state: &PublicState, domain: &str) -> Result<Result<PgPool, Response>, String> {
+async fn resolve(
+    ctx: &PublicCtx,
+    state: &PublicState,
+    domain: &str,
+) -> Result<Result<PgPool, Response>, String> {
     let kv = ctx.kv(state);
     let key = format!("hc:{domain}");
-    let cached = kv_get_json(kv.as_ref(), &key).await?.filter(|entry| !entry.is_null());
+    let cached = kv_get_json(kv.as_ref(), &key)
+        .await?
+        .filter(|entry| !entry.is_null());
     let clerk_org_id = if let Some(entry) = cached {
-        entry["clerkOrgId"].as_str().map_or_else(|| entry["clerkOrgId"].to_string(), str::to_owned)
+        entry["clerkOrgId"]
+            .as_str()
+            .map_or_else(|| entry["clerkOrgId"].to_string(), str::to_owned)
     } else {
         let master = ctx.master(state).ok_or("no master database")?;
         let registry: Option<String> = sqlx::query_scalar(
@@ -59,17 +80,29 @@ async fn resolve(ctx: &PublicCtx, state: &PublicState, domain: &str) -> Result<R
         .await
         .map_err(|e| e.to_string())?;
         let Some(workspace_id) = registry else {
-            return Ok(Err(error_body(StatusCode::NOT_FOUND, "NOT_FOUND", "Help center not found for this domain")));
+            return Ok(Err(error_body(
+                StatusCode::NOT_FOUND,
+                "NOT_FOUND",
+                "Help center not found for this domain",
+            )));
         };
-        let org: Option<Option<String>> = sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
-            .bind(&workspace_id)
-            .fetch_optional(&master)
-            .await
-            .map_err(|e| e.to_string())?;
+        let org: Option<Option<String>> =
+            sqlx::query_scalar("select clerk_org_id from workspaces where id = $1 limit 1")
+                .bind(&workspace_id)
+                .fetch_optional(&master)
+                .await
+                .map_err(|e| e.to_string())?;
         let Some(org) = org.flatten().filter(|o| !o.is_empty()) else {
-            return Ok(Err(error_body(StatusCode::NOT_FOUND, "NOT_FOUND", "Workspace not found")));
+            return Ok(Err(error_body(
+                StatusCode::NOT_FOUND,
+                "NOT_FOUND",
+                "Workspace not found",
+            )));
         };
-        let entry = json_object(&[("workspaceId", Some(&json!(workspace_id))), ("clerkOrgId", Some(&json!(org)))]);
+        let entry = json_object(&[
+            ("workspaceId", Some(&json!(workspace_id))),
+            ("clerkOrgId", Some(&json!(org))),
+        ]);
         kv_put(kv.as_ref(), &key, &entry, Some(300)).await?;
         org
     };
@@ -92,7 +125,11 @@ fn internal(scope: &str, error: &sqlx::Error, message: &str) -> Response {
 
 // ── GET /config ───────────────────────────────────────────────────────────────
 
-async fn config(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query): RawQuery) -> Response {
+async fn config(
+    State(state): State<PublicState>,
+    ctx: PublicCtx,
+    RawQuery(query): RawQuery,
+) -> Response {
     let db = tenant_or_answer!(ctx, state, query.as_deref());
     let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(
         "select to_jsonb(t) from helpcenter_settings t where t.deleted_at is null order by t.created_at asc, t.id asc limit 1",
@@ -101,10 +138,20 @@ async fn config(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query
     .await;
     let row = match row {
         Ok(row) => row,
-        Err(error) => return internal("config", &error, "Failed to fetch help center configuration"),
+        Err(error) => {
+            return internal(
+                "config",
+                &error,
+                "Failed to fetch help center configuration",
+            );
+        }
     };
     let Some(row) = row.filter(|row| row["is_enabled"].as_i64().is_some_and(|e| e != 0)) else {
-        return error_body(StatusCode::NOT_FOUND, "NOT_FOUND", "Help center is not enabled");
+        return error_body(
+            StatusCode::NOT_FOUND,
+            "NOT_FOUND",
+            "Help center is not enabled",
+        );
     };
     let mut out = serde_json::Map::new();
     for (prop, column) in [
@@ -133,17 +180,32 @@ async fn config(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query
 
 // ── GET /folders ──────────────────────────────────────────────────────────────
 
-const LIVE_PUBLIC: &str = "t.status = 'published' and t.visibility = 'public' and t.deleted_at is null";
+const LIVE_PUBLIC: &str =
+    "t.status = 'published' and t.visibility = 'public' and t.deleted_at is null";
 
-async fn folders(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query): RawQuery) -> Response {
+async fn folders(
+    State(state): State<PublicState>,
+    ctx: PublicCtx,
+    RawQuery(query): RawQuery,
+) -> Response {
     let db = tenant_or_answer!(ctx, state, query.as_deref());
-    let rows: Result<Vec<(String, String, Option<String>, Option<i32>, Option<String>, Option<String>)>, sqlx::Error> =
-        sqlx::query_as(
-            "select id, name, parent_id, sort_order, icon, description from helpdesk_article_folders
+    #[allow(clippy::type_complexity)] // the folder row's columns
+    let rows: Result<
+        Vec<(
+            String,
+            String,
+            Option<String>,
+            Option<i32>,
+            Option<String>,
+            Option<String>,
+        )>,
+        sqlx::Error,
+    > = sqlx::query_as(
+        "select id, name, parent_id, sort_order, icon, description from helpdesk_article_folders
              where deleted_at is null order by sort_order",
-        )
-        .fetch_all(&db)
-        .await;
+    )
+    .fetch_all(&db)
+    .await;
     let counts: Result<Vec<(Option<String>, i32)>, sqlx::Error> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select t.category_id, count(*)::int from helpdesk_articles t where {LIVE_PUBLIC} group by t.category_id"
     )))
@@ -151,12 +213,18 @@ async fn folders(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(quer
     .await;
     let (rows, counts) = match (rows, counts) {
         (Ok(rows), Ok(counts)) => (rows, counts),
-        (Err(error), _) | (_, Err(error)) => return internal("folders", &error, "Failed to fetch folders"),
+        (Err(error), _) | (_, Err(error)) => {
+            return internal("folders", &error, "Failed to fetch folders");
+        }
     };
     let data: Vec<Value> = rows
         .into_iter()
         .map(|(id, name, parent_id, sort_order, icon, description)| {
-            let count = counts.iter().rev().find(|(category, _)| category.as_deref() == Some(id.as_str())).map_or(0, |(_, n)| *n);
+            let count = counts
+                .iter()
+                .rev()
+                .find(|(category, _)| category.as_deref() == Some(id.as_str()))
+                .map_or(0, |(_, n)| *n);
             json!({
                 "id": id,
                 "name": name,
@@ -182,7 +250,7 @@ fn paging(query: Option<&str>) -> (i64, i64, i64) {
     #[allow(clippy::cast_possible_truncation)]
     let page = int("page", "1").unwrap_or(1.0).max(1.0) as i64;
     #[allow(clippy::cast_possible_truncation)]
-    let size = int("pageSize", "20").unwrap_or(20.0).max(1.0).min(50.0) as i64;
+    let size = int("pageSize", "20").unwrap_or(20.0).clamp(1.0, 50.0) as i64;
     (page, size, (page - 1) * size)
 }
 
@@ -198,34 +266,52 @@ fn like(term: &str) -> String {
 }
 
 fn iso(value: &Value) -> Value {
-    value.as_str().map_or(Value::Null, |text| json!(crate::table::js_date(text)))
+    value
+        .as_str()
+        .map_or(Value::Null, |text| json!(crate::table::js_date(text)))
 }
 
 fn or_zero(value: &Value) -> Value {
-    if value.is_null() { json!(0) } else { value.clone() }
+    if value.is_null() {
+        json!(0)
+    } else {
+        value.clone()
+    }
 }
 
 fn or_empty(value: &Value) -> Value {
-    if value.is_null() { json!([]) } else { value.clone() }
+    if value.is_null() {
+        json!([])
+    } else {
+        value.clone()
+    }
 }
 
 // ── GET /articles ─────────────────────────────────────────────────────────────
 
-async fn articles(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query): RawQuery) -> Response {
+async fn articles(
+    State(state): State<PublicState>,
+    ctx: PublicCtx,
+    RawQuery(query): RawQuery,
+) -> Response {
     let query = query.as_deref();
     let db = tenant_or_answer!(ctx, state, query);
     let (page, size, offset) = paging(query);
-    let search = query_param(query, "search").filter(|s| !s.is_empty()).map(|s| like(&s));
+    let search = query_param(query, "search")
+        .filter(|s| !s.is_empty())
+        .map(|s| like(&s));
     let folder = query_param(query, "folderId").filter(|f| !f.is_empty());
     let filters = format!(
         "{LIVE_PUBLIC} and ($1::text is null or (t.title like $1 or t.content like $1 or t.excerpt like $1))
          and ($2::text is null or t.category_id = $2)"
     );
-    let total: Result<i32, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("select count(*)::int from helpdesk_articles t where {filters}")))
-        .bind(&search)
-        .bind(&folder)
-        .fetch_one(&db)
-        .await;
+    let total: Result<i32, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "select count(*)::int from helpdesk_articles t where {filters}"
+    )))
+    .bind(&search)
+    .bind(&folder)
+    .fetch_one(&db)
+    .await;
     let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select to_jsonb(t) from helpdesk_articles t where {filters} order by t.updated_at desc limit $3 offset $4"
     )))
@@ -237,7 +323,9 @@ async fn articles(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(que
     .await;
     let (total, rows) = match (total, rows) {
         (Ok(total), Ok(rows)) => (total, rows),
-        (Err(error), _) | (_, Err(error)) => return internal("articles", &error, "Failed to fetch articles"),
+        (Err(error), _) | (_, Err(error)) => {
+            return internal("articles", &error, "Failed to fetch articles");
+        }
     };
     let data: Vec<Value> = rows
         .iter()
@@ -250,12 +338,18 @@ async fn articles(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(que
             })
         })
         .collect();
-    axum::Json(json!({ "data": data, "pagination": page_meta(page, size, i64::from(total)) })).into_response()
+    axum::Json(json!({ "data": data, "pagination": page_meta(page, size, i64::from(total)) }))
+        .into_response()
 }
 
 // ── GET /articles/:slug ───────────────────────────────────────────────────────
 
-async fn article(State(state): State<PublicState>, ctx: PublicCtx, Path(slug): Path<String>, RawQuery(query): RawQuery) -> Response {
+async fn article(
+    State(state): State<PublicState>,
+    ctx: PublicCtx,
+    Path(slug): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
     let db = tenant_or_answer!(ctx, state, query.as_deref());
     let row: Result<Option<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select to_jsonb(t) from helpdesk_articles t where t.slug = $1 and {LIVE_PUBLIC} limit 1"
@@ -268,10 +362,11 @@ async fn article(State(state): State<PublicState>, ctx: PublicCtx, Path(slug): P
         Ok(None) => return ApiError::not_found("Article", None).into_response(),
         Err(error) => return internal("article", &error, "Failed to fetch article"),
     };
-    let bumped = sqlx::query("update helpdesk_articles set view_count = view_count + 1 where id = $1")
-        .bind(a["id"].as_str())
-        .execute(&db)
-        .await;
+    let bumped =
+        sqlx::query("update helpdesk_articles set view_count = view_count + 1 where id = $1")
+            .bind(a["id"].as_str())
+            .execute(&db)
+            .await;
     if let Err(error) = bumped {
         return internal("article", &error, "Failed to fetch article");
     }
@@ -313,11 +408,17 @@ async fn feedback(
         Ok(None) => return ApiError::not_found("Article", Some(&id)).into_response(),
         Err(error) => return internal("feedback", &error, "Failed to record feedback"),
     }
-    let column = if helpful { "helpful_count" } else { "not_helpful_count" };
-    let updated = sqlx::query(sqlx::AssertSqlSafe(format!("update helpdesk_articles set {column} = {column} + 1 where id = $1")))
-        .bind(&id)
-        .execute(&db)
-        .await;
+    let column = if helpful {
+        "helpful_count"
+    } else {
+        "not_helpful_count"
+    };
+    let updated = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "update helpdesk_articles set {column} = {column} + 1 where id = $1"
+    )))
+    .bind(&id)
+    .execute(&db)
+    .await;
     if let Err(error) = updated {
         return internal("feedback", &error, "Failed to record feedback");
     }
@@ -326,21 +427,29 @@ async fn feedback(
 
 // ── GET /search ───────────────────────────────────────────────────────────────
 
-async fn search(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query): RawQuery) -> Response {
+async fn search(
+    State(state): State<PublicState>,
+    ctx: PublicCtx,
+    RawQuery(query): RawQuery,
+) -> Response {
     let query = query.as_deref();
     let db = tenant_or_answer!(ctx, state, query);
     let term = query_param(query, "q").unwrap_or_default();
     let term = weldsuite_kit::validation::js_trim(&term).to_owned();
     if term.is_empty() {
-        return axum::Json(json!({ "data": [], "pagination": page_meta(1, 20, 0) })).into_response();
+        return axum::Json(json!({ "data": [], "pagination": page_meta(1, 20, 0) }))
+            .into_response();
     }
     let (page, size, offset) = paging(query);
     let pattern = like(&term);
-    let filters = format!("{LIVE_PUBLIC} and (t.title like $1 or t.content like $1 or t.excerpt like $1)");
-    let total: Result<i32, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!("select count(*)::int from helpdesk_articles t where {filters}")))
-        .bind(&pattern)
-        .fetch_one(&db)
-        .await;
+    let filters =
+        format!("{LIVE_PUBLIC} and (t.title like $1 or t.content like $1 or t.excerpt like $1)");
+    let total: Result<i32, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "select count(*)::int from helpdesk_articles t where {filters}"
+    )))
+    .bind(&pattern)
+    .fetch_one(&db)
+    .await;
     let rows: Result<Vec<Value>, sqlx::Error> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select to_jsonb(t) from helpdesk_articles t where {filters} order by t.updated_at desc limit $2 offset $3"
     )))
@@ -362,5 +471,6 @@ async fn search(State(state): State<PublicState>, ctx: PublicCtx, RawQuery(query
             })
         })
         .collect();
-    axum::Json(json!({ "data": data, "pagination": page_meta(page, size, i64::from(total)) })).into_response()
+    axum::Json(json!({ "data": data, "pagination": page_meta(page, size, i64::from(total)) }))
+        .into_response()
 }

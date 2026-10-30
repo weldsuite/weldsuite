@@ -23,11 +23,11 @@ use weldsuite_desk_domain::notify::EntityKind;
 use weldsuite_desk_domain::realtime::{conversation_publish, now_ms};
 use weldsuite_kit::validation::{Field, Format, Issues, Number, Presence, Text, query_values};
 use weldsuite_kit::{ApiError, Created, Data, List, Pagination, generate_id};
+use weldsuite_mail_domain::outbound::content_screen::ScreenAttachment;
 use weldsuite_mail_domain::outbound::{
     CheckOutboundInput, GuardedSendError, MimeAttachment, OutboundKind, SendEmailParams,
     SubjectInput, TransmitError, guarded_send, send_email,
 };
-use weldsuite_mail_domain::outbound::content_screen::ScreenAttachment;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 use weldsuite_ports::{PutOptions, RealtimeMessage};
 
@@ -58,7 +58,11 @@ where
 const CHANNELS: &[&str] = &["messenger", "email", "phone", "whatsapp", "sms", "api"];
 
 /// `zValidator('query', schema)`: the query's values, or the 400.
-fn read_query<T>(query: Option<&str>, read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T) -> Result<T, Response> {
+#[allow(clippy::result_large_err)] // the response is the route's answer
+fn read_query<T>(
+    query: Option<&str>,
+    read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
+) -> Result<T, Response> {
     let values = query_values(query);
     let mut issues = Issues::default();
     let value = read(&mut issues, &values);
@@ -68,32 +72,48 @@ fn read_query<T>(query: Option<&str>, read: impl FnOnce(&mut Issues, &Map<String
 
 /// `isDeskSchemaMissing(err)`.
 fn schema_missing(error: &sqlx::Error) -> bool {
-    let code = error.as_database_error().and_then(|e| e.code().map(|c| c.into_owned()));
+    let code = error
+        .as_database_error()
+        .and_then(|e| e.code().map(std::borrow::Cow::into_owned));
     if matches!(code.as_deref(), Some("42P01" | "42703")) {
         return true;
     }
     let message = error.to_string().to_lowercase();
-    (message.contains("column ") || message.contains("relation ")) && message.contains(" does not exist")
+    (message.contains("column ") || message.contains("relation "))
+        && message.contains(" does not exist")
 }
 
 // ── GET / ─────────────────────────────────────────────────────────────────────
 
 async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
     let query = match read_query(query.as_deref(), |issues, values| {
-        let text = |issues: &mut Issues, key: &str, rules: Text| issues.text_with(values, key, Presence::Optional, rules).into_option();
-        let state = issues.choice(values, "state", Presence::Optional, &["open", "closed"]).into_option();
+        let text = |issues: &mut Issues, key: &str, rules: Text| {
+            issues
+                .text_with(values, key, Presence::Optional, rules)
+                .into_option()
+        };
+        let state = issues
+            .choice(values, "state", Presence::Optional, &["open", "closed"])
+            .into_option();
         let assignee_id = text(issues, "assigneeId", Text::length(None, Some(255)));
         // `z.coerce.boolean()`: `Boolean(value)`.
         let unassigned = values.get("unassigned").is_some_and(|v| match v {
             Value::String(s) => !s.is_empty(),
             _ => true,
         });
-        let channel = issues.choice(values, "channel", Presence::Optional, CHANNELS).into_option();
+        let channel = issues
+            .choice(values, "channel", Presence::Optional, CHANNELS)
+            .into_option();
         let visitor_id = text(issues, "visitorId", Text::length(None, Some(64)));
         let email = text(issues, "email", Text::trimmed(None, Some(255)));
         let q = text(issues, "q", Text::trimmed(None, Some(200)));
         let sort = issues
-            .choice(values, "sort", Presence::Optional, &["newest", "oldest", "waiting_longest"])
+            .choice(
+                values,
+                "sort",
+                Presence::Optional,
+                &["newest", "oldest", "waiting_longest"],
+            )
             .into_option();
         let cursor = text(issues, "cursor", Text::default());
         let limit = issues
@@ -101,25 +121,47 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
                 values,
                 "limit",
                 Presence::Optional,
-                Number { coerce: true, int: true, min: Some(1.0), max: Some(100.0) },
+                Number {
+                    coerce: true,
+                    int: true,
+                    min: Some(1.0),
+                    max: Some(100.0),
+                },
             )
             .into_option();
-        webchat::ListQuery { state, assignee_id, unassigned, channel, visitor_id, email, q, sort, cursor, limit }
+        webchat::ListQuery {
+            state,
+            assignee_id,
+            unassigned,
+            channel,
+            visitor_id,
+            email,
+            q,
+            sort,
+            cursor,
+            limit,
+        }
     }) {
         Ok(query) => query,
         Err(response) => return response,
     };
     match webchat::list(&ctx.caller.db, &query).await {
-        Ok((data, total, has_more, cursor)) => {
-            List::new(data, Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor)).into_response()
-        }
+        Ok((data, total, has_more, cursor)) => List::new(
+            data,
+            Pagination::new(u64::try_from(total).unwrap_or(0), has_more, cursor),
+        )
+        .into_response(),
         Err(error) => {
             tracing::error!(%error, "[app-api/desk-conversations] list failed");
             if schema_missing(&error) {
-                return ApiError::unavailable("WeldDesk schema is not applied. Run tenant migration 0185_welddesk_webchat.")
-                    .into_response();
+                return ApiError::unavailable(
+                    "WeldDesk schema is not applied. Run tenant migration 0185_welddesk_webchat.",
+                )
+                .into_response();
             }
-            ApiError::internal().with_message("Failed to list conversations").into_response()
+            ApiError::internal()
+                .with_message("Failed to list conversations")
+                .into_response()
         }
     }
 }
@@ -128,7 +170,9 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
 
 async fn detail(ctx: Ctx, Path(id): Path<String>, RawQuery(query): RawQuery) -> Response {
     let include = match read_query(query.as_deref(), |issues, values| {
-        issues.choice(values, "include", Presence::Optional, &["messages"]).into_option()
+        issues
+            .choice(values, "include", Presence::Optional, &["messages"])
+            .into_option()
     }) {
         Ok(include) => include,
         Err(response) => return response,
@@ -195,7 +239,10 @@ fn is_uploaded_name(name: &str) -> bool {
     let Some(tail) = rest[id..].strip_prefix('_') else {
         return false;
     };
-    !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    !tail.is_empty()
+        && tail
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
 
 /// `name.replaceAll(/[^a-zA-Z0-9.\-_]/g, '_').slice(-120) || 'file'`: per
@@ -213,7 +260,11 @@ fn safe_name(name: &str) -> String {
     }
     let start = out.len().saturating_sub(120);
     let out = out[start..].to_owned();
-    if out.is_empty() { "file".to_owned() } else { out }
+    if out.is_empty() {
+        "file".to_owned()
+    } else {
+        out
+    }
 }
 
 /// `text.slice(0, max)` in UTF-16 units.
@@ -224,7 +275,11 @@ fn utf16_prefix(text: &str, max: usize) -> String {
 
 /// What `formData().get('file')` found.
 enum FormFile {
-    File { name: String, content_type: String, bytes: Vec<u8> },
+    File {
+        name: String,
+        content_type: String,
+        bytes: Vec<u8>,
+    },
     Missing,
     Unreadable,
 }
@@ -254,7 +309,11 @@ async fn form_file(request: Request) -> FormFile {
                     return FormFile::Unreadable;
                 };
                 return match name {
-                    Some(name) => FormFile::File { name, content_type, bytes: bytes.to_vec() },
+                    Some(name) => FormFile::File {
+                        name,
+                        content_type,
+                        bytes: bytes.to_vec(),
+                    },
                     None => FormFile::Missing,
                 };
             }
@@ -264,9 +323,15 @@ async fn form_file(request: Request) -> FormFile {
     }
 }
 
-async fn upload(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String>, request: Request) -> Response {
+async fn upload(
+    State(state): State<DeskState>,
+    ctx: Ctx,
+    Path(id): Path<String>,
+    request: Request,
+) -> Response {
     let bucket = ctx.public_bucket(&state);
-    let (Some(bucket), Some((key_prefix, url_prefix))) = (bucket, attachment_location(&ctx, &id)) else {
+    let (Some(bucket), Some((key_prefix, url_prefix))) = (bucket, attachment_location(&ctx, &id))
+    else {
         return ApiError::unavailable("File upload is not configured").into_response();
     };
     let exists: Result<Option<String>, sqlx::Error> =
@@ -283,17 +348,26 @@ async fn upload(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String>
         }
     }
     let (name, content_type, bytes) = match form_file(request).await {
-        FormFile::File { name, content_type, bytes } => (name, content_type, bytes),
+        FormFile::File {
+            name,
+            content_type,
+            bytes,
+        } => (name, content_type, bytes),
         FormFile::Missing => return ApiError::bad_request("No file provided").into_response(),
         FormFile::Unreadable => {
-            return ApiError::bad_request("Expected multipart form data with a file").into_response();
+            return ApiError::bad_request("Expected multipart form data with a file")
+                .into_response();
         }
     };
     if bytes.len() > MAX_ATTACHMENT_BYTES {
         return ApiError::bad_request("File too large (max 10 MB)").into_response();
     }
     if !ATTACHMENT_TYPES.contains(&content_type.as_str()) {
-        let shown = if content_type.is_empty() { "unknown" } else { content_type.as_str() };
+        let shown = if content_type.is_empty() {
+            "unknown"
+        } else {
+            content_type.as_str()
+        };
         return ApiError::bad_request(format!("File type not allowed: {shown}")).into_response();
     }
     let safe = safe_name(&name);
@@ -304,9 +378,14 @@ async fn upload(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String>
         content_disposition: Some(format!("inline; filename=\"{safe}\"")),
         ..PutOptions::default()
     };
-    if let Err(error) = bucket.put_boxed(&format!("{key_prefix}{file_name}"), bytes, &options).await {
+    if let Err(error) = bucket
+        .put_boxed(&format!("{key_prefix}{file_name}"), bytes, &options)
+        .await
+    {
         tracing::error!(%error, "[desk-api/desk-conversations] attachment upload failed");
-        return ApiError::internal().with_message("Failed to upload file").into_response();
+        return ApiError::internal()
+            .with_message("Failed to upload file")
+            .into_response();
     }
     let display = utf16_prefix(&name, 255);
     let attachment = json!({
@@ -317,7 +396,12 @@ async fn upload(State(state): State<DeskState>, ctx: Ctx, Path(id): Path<String>
     });
     let mut data = attachment.as_object().cloned().unwrap_or_default();
     data.insert("conversationId".to_owned(), json!(id));
-    ctx.caller.publish(&state, ev::DESK_ATTACHMENT_CREATED, &file_name, &Value::Object(data));
+    ctx.caller.publish(
+        &state,
+        ev::DESK_ATTACHMENT_CREATED,
+        &file_name,
+        &Value::Object(data),
+    );
     Created(attachment).into_response()
 }
 
@@ -329,6 +413,7 @@ async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Auth
     let Some(user_id) = user_id.filter(|u| !u.is_empty()) else {
         return authors;
     };
+    #[allow(clippy::type_complexity)] // name and picture
     let member: Result<Option<(Option<String>, Option<String>)>, sqlx::Error> =
         sqlx::query_as("select name, picture from workspace_members where user_id = $1 limit 1")
             .bind(user_id)
@@ -336,7 +421,10 @@ async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Auth
             .await;
     match member {
         Ok(Some((name, picture))) => {
-            authors.insert(user_id.to_owned(), webchat::author_from_member(name.as_deref(), picture.as_deref()));
+            authors.insert(
+                user_id.to_owned(),
+                webchat::author_from_member(name.as_deref(), picture.as_deref()),
+            );
         }
         Ok(None) => {}
         Err(error) => tracing::error!(%error, "[app-api/desk-conversations] author lookup failed"),
@@ -346,13 +434,25 @@ async fn load_author(db: &PgPool, user_id: Option<&str>) -> HashMap<String, Auth
 
 /// `publishDeskChange`: the workspace hub (agents' inboxes, notes
 /// included) and, for public entries, the visitor's conversation room.
-fn publish_change(state: &DeskState, org: &str, conversation: &Value, message: &Value, authors: &HashMap<String, Author>) {
+fn publish_change(
+    state: &DeskState,
+    org: &str,
+    conversation: &Value,
+    message: &Value,
+    authors: &HashMap<String, Author>,
+) {
     let Some(realtime) = state.realtime.clone() else {
         return;
     };
     let user = message["authorId"].as_str().unwrap_or("system");
     let mut messages = vec![
-        RealtimeMessage::workspace(org, "desk_conversation", "updated", conversation.clone(), user),
+        RealtimeMessage::workspace(
+            org,
+            "desk_conversation",
+            "updated",
+            conversation.clone(),
+            user,
+        ),
         RealtimeMessage::workspace(org, "desk_message", "created", message.clone(), user),
     ];
     if webchat::is_public(message) {
@@ -362,8 +462,14 @@ fn publish_change(state: &DeskState, org: &str, conversation: &Value, message: &
             let mut payload = Map::new();
             payload.insert("type".to_owned(), json!("message"));
             payload.insert("id".to_owned(), message["id"].clone());
-            payload.insert("content".to_owned(), json!(message["body"].as_str().unwrap_or_default()));
-            payload.insert("senderId".to_owned(), json!(message["authorId"].as_str().unwrap_or_default()));
+            payload.insert(
+                "content".to_owned(),
+                json!(message["body"].as_str().unwrap_or_default()),
+            );
+            payload.insert(
+                "senderId".to_owned(),
+                json!(message["authorId"].as_str().unwrap_or_default()),
+            );
             payload.insert(
                 "senderName".to_owned(),
                 json!(record["authorName"].as_str().unwrap_or("Support")),
@@ -398,10 +504,29 @@ fn publish_change(state: &DeskState, org: &str, conversation: &Value, message: &
     });
 }
 
-fn publish_events(ctx: &Ctx, state: &DeskState, conversation_event: ev::EventName, conversation: &Value, message: &Value) {
+fn publish_events(
+    ctx: &Ctx,
+    state: &DeskState,
+    conversation_event: ev::EventName,
+    conversation: &Value,
+    message: &Value,
+) {
     let caller = &ctx.caller;
-    caller.publish(state, conversation_event, conversation["id"].as_str().unwrap_or_default(), conversation);
-    caller.publish(state, ev::DESK_MESSAGE_CREATED, message["id"].as_str().unwrap_or_default(), message);
+    caller.publish_in_order(
+        state,
+        vec![
+            (
+                conversation_event,
+                conversation["id"].as_str().unwrap_or_default().to_owned(),
+                conversation.clone(),
+            ),
+            (
+                ev::DESK_MESSAGE_CREATED,
+                message["id"].as_str().unwrap_or_default().to_owned(),
+                message.clone(),
+            ),
+        ],
+    );
 }
 
 // ── POST /:id/reply ───────────────────────────────────────────────────────────
@@ -421,10 +546,23 @@ fn read_attachment(issues: &mut Issues, item: &Value) -> Option<Value> {
         fields,
         "url",
         Presence::Required,
-        Text { format: Some(Format::Url), max: Some(2000), ..Text::default() },
+        Text {
+            format: Some(Format::Url),
+            max: Some(2000),
+            ..Text::default()
+        },
     );
     let content_type = issues.text(fields, "contentType", Presence::Required, None, Some(255));
-    let filesize = issues.number(fields, "filesize", Presence::Required, Number { int: true, min: Some(0.0), ..Number::default() });
+    let filesize = issues.number(
+        fields,
+        "filesize",
+        Presence::Required,
+        Number {
+            int: true,
+            min: Some(0.0),
+            ..Number::default()
+        },
+    );
     let width = issues.number(fields, "width", Presence::Optional, Number::default());
     let height = issues.number(fields, "height", Presence::Optional, Number::default());
     if issues.count() > before {
@@ -451,19 +589,38 @@ fn reply_schema(issues: &mut Issues, body: &Map<String, Value>) -> ReplyBody {
         .into_option()
         .unwrap_or_else(|| "message".to_owned());
     let text = issues
-        .text_with(body, "body", Presence::Optional, Text::trimmed(None, Some(20_000)))
+        .text_with(
+            body,
+            "body",
+            Presence::Optional,
+            Text::trimmed(None, Some(20_000)),
+        )
         .into_option()
         .unwrap_or_default();
     let attachments = issues
-        .list(body, "attachments", Presence::Optional, None, Some(10), read_attachment)
+        .list(
+            body,
+            "attachments",
+            Presence::Optional,
+            None,
+            Some(10),
+            read_attachment,
+        )
         .into_option();
     // The refinement sees the parsed data even where an attachment failed a
     // string check, so it counts the items sent.
-    let sent = body.get("attachments").and_then(Value::as_array).map_or(0, Vec::len);
+    let sent = body
+        .get("attachments")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
     if text.is_empty() && sent == 0 {
         issues.custom("body", "A reply needs a message or an attachment");
     }
-    ReplyBody { kind, body: text, attachments }
+    ReplyBody {
+        kind,
+        body: text,
+        attachments,
+    }
 }
 
 async fn reply(
@@ -481,11 +638,19 @@ async fn reply(
         let location = attachment_location(&ctx, &id);
         let owned = |url: &str| {
             location.as_ref().is_some_and(|(_, prefix)| {
-                url.strip_prefix(prefix.as_str()).is_some_and(is_uploaded_name)
+                url.strip_prefix(prefix.as_str())
+                    .is_some_and(is_uploaded_name)
             })
         };
-        if location.is_none() || attachments.iter().any(|a| !owned(a["url"].as_str().unwrap_or_default())) {
-            return ApiError::bad_request("Attachments must be uploaded to this conversation first").into_response();
+        if location.is_none()
+            || attachments
+                .iter()
+                .any(|a| !owned(a["url"].as_str().unwrap_or_default()))
+        {
+            return ApiError::bad_request(
+                "Attachments must be uploaded to this conversation first",
+            )
+            .into_response();
         }
     }
     let caller = &ctx.caller;
@@ -505,15 +670,31 @@ async fn reply(
     .await;
     let (conversation, message) = match appended {
         Ok(done) => done,
-        Err(AppendError::NotFound) => return ApiError::not_found("Conversation", Some(&id)).into_response(),
+        Err(AppendError::NotFound) => {
+            return ApiError::not_found("Conversation", Some(&id)).into_response();
+        }
         Err(AppendError::Write(error)) => {
             tracing::error!(%error, "[app-api/desk-conversations] reply failed");
-            return ApiError::internal().with_message("Failed to reply").into_response();
+            return ApiError::internal()
+                .with_message("Failed to reply")
+                .into_response();
         }
     };
-    publish_events(&ctx, &state, ev::DESK_CONVERSATION_UPDATED, &conversation, &message);
+    publish_events(
+        &ctx,
+        &state,
+        ev::DESK_CONVERSATION_UPDATED,
+        &conversation,
+        &message,
+    );
     let authors = load_author(&caller.db, Some(&caller.user_id)).await;
-    publish_change(&state, &caller.clerk_org_id, &conversation, &message, &authors);
+    publish_change(
+        &state,
+        &caller.clerk_org_id,
+        &conversation,
+        &message,
+        &authors,
+    );
     if conversation["channel"] == "email" && data.kind == "message" {
         send_email_reply(&ctx, &state, &conversation, &message).await;
     }
@@ -525,8 +706,15 @@ async fn reply(
 /// `replySubject(subject)`.
 fn reply_subject(subject: Option<&str>) -> String {
     let trimmed = weldsuite_kit::validation::js_trim(subject.unwrap_or_default());
-    let trimmed = if trimmed.is_empty() { "Support" } else { trimmed };
-    if trimmed.get(..3).is_some_and(|head| head.eq_ignore_ascii_case("re:")) {
+    let trimmed = if trimmed.is_empty() {
+        "Support"
+    } else {
+        trimmed
+    };
+    if trimmed
+        .get(..3)
+        .is_some_and(|head| head.eq_ignore_ascii_case("re:"))
+    {
         trimmed.to_owned()
     } else {
         format!("Re: {trimmed}")
@@ -535,7 +723,11 @@ fn reply_subject(subject: Option<&str>) -> String {
 
 /// `prepareEmailAttachments(env, files)`: our files up to 10 MB in total as
 /// MIME parts, the rest as links.
-async fn email_attachments(ctx: &Ctx, state: &DeskState, files: &[Value]) -> (Vec<MimeAttachment>, Vec<Value>) {
+async fn email_attachments(
+    ctx: &Ctx,
+    state: &DeskState,
+    files: &[Value],
+) -> (Vec<MimeAttachment>, Vec<Value>) {
     let mut attached = Vec::new();
     let mut linked = Vec::new();
     let mut total: u64 = 0;
@@ -552,8 +744,15 @@ async fn email_attachments(ctx: &Ctx, state: &DeskState, files: &[Value]) -> (Ve
                 .map(|_| url[base.len() + 1..].to_owned())
                 .filter(|key| !key.contains(".."))
         });
-        let size = file["filesize"].as_f64().filter(|s| *s > 0.0).unwrap_or(0.0);
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+        let size = file["filesize"]
+            .as_f64()
+            .filter(|s| *s > 0.0)
+            .unwrap_or(0.0);
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::cast_precision_loss
+        )]
         let over = |total: u64, size: f64| total as f64 + size > MAX_ATTACHMENT_BYTES as f64;
         let (Some(key), Some(bucket)) = (key, bucket.as_ref()) else {
             linked.push(file.clone());
@@ -567,7 +766,10 @@ async fn email_attachments(ctx: &Ctx, state: &DeskState, files: &[Value]) -> (Ve
             #[allow(clippy::cast_precision_loss)]
             Ok(Some(object)) if !over(total, object.bytes.len() as f64) => {
                 total += object.bytes.len() as u64;
-                let content_type = file["contentType"].as_str().filter(|t| !t.is_empty()).unwrap_or("application/octet-stream");
+                let content_type = file["contentType"]
+                    .as_str()
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or("application/octet-stream");
                 attached.push(MimeAttachment {
                     filename: file["name"].as_str().unwrap_or_default().to_owned(),
                     content_type: Some(content_type.to_owned()),
@@ -588,14 +790,22 @@ async fn email_attachments(ctx: &Ctx, state: &DeskState, files: &[Value]) -> (Ve
 /// `emailTextBody(body, attached, linked)`.
 fn email_text_body(body: Option<&str>, attached: &[MimeAttachment], linked: &[Value]) -> String {
     let mut parts = Vec::new();
-    let text = body.map(weldsuite_kit::validation::js_trim).filter(|t| !t.is_empty());
+    let text = body
+        .map(weldsuite_kit::validation::js_trim)
+        .filter(|t| !t.is_empty());
     if let Some(text) = text {
         parts.push(text.to_owned());
     }
     if !linked.is_empty() {
         let lines: Vec<String> = linked
             .iter()
-            .map(|f| format!("- {}: {}", f["name"].as_str().unwrap_or_default(), f["url"].as_str().unwrap_or_default()))
+            .map(|f| {
+                format!(
+                    "- {}: {}",
+                    f["name"].as_str().unwrap_or_default(),
+                    f["url"].as_str().unwrap_or_default()
+                )
+            })
             .collect();
         parts.push(format!("Attachments:\n{}", lines.join("\n")));
     } else if text.is_none() && !attached.is_empty() {
@@ -606,12 +816,18 @@ fn email_text_body(body: Option<&str>, attached: &[MimeAttachment], linked: &[Va
 }
 
 /// `sendDeskEmailReply`: a failure is logged, the reply stands.
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
 async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, message: &Value) {
     let Some(recipient) = conversation["email"].as_str().filter(|e| !e.is_empty()) else {
         return;
     };
-    let files: Vec<Value> = message["attachments"].as_array().cloned().unwrap_or_default();
-    let has_text = message["body"].as_str().is_some_and(|b| !weldsuite_kit::validation::js_trim(b).is_empty());
+    let files: Vec<Value> = message["attachments"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let has_text = message["body"]
+        .as_str()
+        .is_some_and(|b| !weldsuite_kit::validation::js_trim(b).is_empty());
     if !has_text && files.is_empty() {
         return;
     }
@@ -626,10 +842,17 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
     };
     let Some(thread) = thread else { return };
     let Some(from) = thread.helpdesk_address.clone() else {
-        tracing::warn!("[desk-email] Skipping outbound send for {id}: no helpdesk address on the thread");
+        tracing::warn!(
+            "[desk-email] Skipping outbound send for {id}: no helpdesk address on the thread"
+        );
         return;
     };
-    let subject = reply_subject(thread.subject.as_deref().or_else(|| conversation["title"].as_str()));
+    let subject = reply_subject(
+        thread
+            .subject
+            .as_deref()
+            .or_else(|| conversation["title"].as_str()),
+    );
     let (attached, linked) = email_attachments(ctx, state, &files).await;
     let text = email_text_body(message["body"].as_str(), &attached, &linked);
     let mut headers = Vec::new();
@@ -640,7 +863,10 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
         headers.push(("References".to_owned(), thread.references.join(" ")));
     }
     let mut input = CheckOutboundInput::new(
-        SubjectInput::Workspace { clerk_org_id: ctx.caller.clerk_org_id.clone(), workspace_id: None },
+        SubjectInput::Workspace {
+            clerk_org_id: ctx.caller.clerk_org_id.clone(),
+            workspace_id: None,
+        },
         "desk",
         OutboundKind::Reply,
         &from,
@@ -650,7 +876,10 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
     input.text = Some(text.clone());
     input.attachments = attached
         .iter()
-        .map(|a| ScreenAttachment { filename: a.filename.clone(), content_type: a.content_type.clone() })
+        .map(|a| ScreenAttachment {
+            filename: a.filename.clone(),
+            content_type: a.content_type.clone(),
+        })
         .collect();
     let params = SendEmailParams {
         from: from.clone(),
@@ -669,15 +898,21 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
     let sent = guarded_send(&outbound.guard, Some(db), &input, || async {
         match &transport {
             Some(transport) => send_email(transport.as_ref(), &params).await,
-            None => Err(TransmitError::Config("SEND_EMAIL binding missing".to_owned())),
+            None => Err(TransmitError::Config(
+                "SEND_EMAIL binding missing".to_owned(),
+            )),
         }
     })
     .await;
     match sent {
         Ok(sent) => {
             if !sent.message_id.is_empty()
-                && let Err(error) =
-                    webchat::stamp_email_id(db, message["id"].as_str().unwrap_or_default(), &sent.message_id).await
+                && let Err(error) = webchat::stamp_email_id(
+                    db,
+                    message["id"].as_str().unwrap_or_default(),
+                    &sent.message_id,
+                )
+                .await
             {
                 tracing::error!(%error, "[app-api/desk-conversations] outbound email failed");
             }
@@ -697,13 +932,23 @@ async fn send_email_reply(ctx: &Ctx, state: &DeskState, conversation: &Value, me
 /// only where the worker has one (`DATABASE_URL_MASTER`).
 fn outbound(ctx: &Ctx, state: &DeskState) -> crate::dispatch::Outbound {
     let caller = &ctx.caller;
-    let bindings = caller.outbound.as_ref().map_or_else(|| state.outbound.clone(), |own| own.0.clone());
+    let bindings = caller
+        .outbound
+        .as_ref()
+        .map_or_else(|| state.outbound.clone(), |own| own.0.clone());
     let master = if caller.env.is_some() && caller.env("DATABASE_URL_MASTER").is_none() {
         None
     } else {
-        caller.master.as_ref().map(|m| m.0.clone()).or_else(|| state.master.clone())
+        caller
+            .master
+            .as_ref()
+            .map(|m| m.0.clone())
+            .or_else(|| state.master.clone())
     };
-    crate::dispatch::Outbound { guard: bindings.guard(master, ctx.kv(state)), transport: bindings.transport.clone() }
+    crate::dispatch::Outbound {
+        guard: bindings.guard(master, ctx.kv(state)),
+        transport: bindings.transport.clone(),
+    }
 }
 
 // ── POST /:id/manage ──────────────────────────────────────────────────────────
@@ -755,14 +1000,19 @@ async fn manage(
     let (event_type, assignee, is_assign) = match &action {
         Action::Close => ("closed", None, false),
         Action::Open => ("reopened", None, false),
-        Action::Assign(Some(assignee)) if !assignee.is_empty() => ("assigned", Some(Some(assignee.clone())), true),
+        Action::Assign(Some(assignee)) if !assignee.is_empty() => {
+            ("assigned", Some(Some(assignee.clone())), true)
+        }
         Action::Assign(_) => ("unassigned", Some(None), true),
     };
     let mut metadata = Map::new();
     metadata.insert("eventType".to_owned(), json!(event_type));
     metadata.insert(
         "assigneeId".to_owned(),
-        assignee.clone().flatten().map_or(Value::Null, Value::String),
+        assignee
+            .clone()
+            .flatten()
+            .map_or(Value::Null, Value::String),
     );
     let appended = webchat::append_desk_message(
         &caller.db,
@@ -780,22 +1030,40 @@ async fn manage(
     .await;
     let (conversation, message) = match appended {
         Ok(done) => done,
-        Err(AppendError::NotFound) => return ApiError::not_found("Conversation", Some(&id)).into_response(),
+        Err(AppendError::NotFound) => {
+            return ApiError::not_found("Conversation", Some(&id)).into_response();
+        }
         Err(AppendError::Write(error)) => {
             tracing::error!(%error, "[app-api/desk-conversations] manage failed");
-            return ApiError::internal().with_message("Failed to update conversation").into_response();
+            return ApiError::internal()
+                .with_message("Failed to update conversation")
+                .into_response();
         }
     };
-    let event = if is_assign { ev::DESK_CONVERSATION_ASSIGNED } else { ev::DESK_CONVERSATION_STATE_CHANGED };
+    let event = if is_assign {
+        ev::DESK_CONVERSATION_ASSIGNED
+    } else {
+        ev::DESK_CONVERSATION_STATE_CHANGED
+    };
     publish_events(&ctx, &state, event, &conversation, &message);
     let authors = load_author(&caller.db, conversation["assigneeId"].as_str()).await;
-    publish_change(&state, &caller.clerk_org_id, &conversation, &message, &authors);
+    publish_change(
+        &state,
+        &caller.clerk_org_id,
+        &conversation,
+        &message,
+        &authors,
+    );
     if event_type == "assigned" {
-        let subject = [&conversation["title"], &conversation["name"], &conversation["email"]]
-            .into_iter()
-            .find(|v| super::truthy(v))
-            .and_then(Value::as_str)
-            .map(str::to_owned);
+        let subject = [
+            &conversation["title"],
+            &conversation["name"],
+            &conversation["email"],
+        ]
+        .into_iter()
+        .find(|v| super::truthy(v))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
         assigned(
             &state,
             caller,

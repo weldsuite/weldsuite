@@ -239,6 +239,7 @@ async fn enable(State(state): State<DeskState>, caller: Caller) -> Response {
     }
 }
 
+#[allow(clippy::single_match_else)] // the route's two branches, as TypeScript writes them
 async fn enable_on(
     state: &DeskState,
     caller: &Caller,

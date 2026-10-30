@@ -9,8 +9,8 @@ use serde_json::{Map, Value, json};
 use weldsuite_db::PgPool;
 use weldsuite_kit::generate_id;
 
-use crate::tables::{DESK_CONVERSATIONS, DESK_MESSAGES};
 use crate::table::WriteError;
+use crate::tables::{DESK_CONVERSATIONS, DESK_MESSAGES};
 
 /// `DeskConversationNotFoundError`, or the statement that failed.
 pub(crate) enum AppendError {
@@ -40,6 +40,7 @@ pub(crate) struct Append<'a> {
     pub(crate) attachments: Option<Vec<Value>>,
     pub(crate) metadata: Option<Map<String, Value>>,
     /// `Some(None)`: `assigneeId: null`; `None`: left out.
+    #[allow(clippy::option_option)] // left out vs null, as `appendDeskMessage` reads it
     pub(crate) assignee_id: Option<Option<String>>,
 }
 
@@ -78,7 +79,19 @@ fn collapse_whitespace(text: &str) -> String {
 fn is_js_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        '\t' | '\n'
+            | '\u{b}'
+            | '\u{c}'
+            | '\r'
+            | ' '
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202f}'
+            | '\u{205f}'
+            | '\u{3000}'
+            | '\u{feff}'
     ) || ('\u{2000}'..='\u{200a}').contains(&c)
 }
 
@@ -91,16 +104,23 @@ fn attachment_preview_of(attachments: Option<&Vec<Value>>) -> Option<String> {
     } else {
         String::new()
     };
-    let name = first["name"].as_str().map_or_else(|| "undefined".to_owned(), str::to_owned);
+    let name = first["name"]
+        .as_str()
+        .map_or_else(|| "undefined".to_owned(), str::to_owned);
     preview_of(Some(&format!("📎 {name}{more}")))
 }
 
 /// `appendDeskMessage(db, input)`: the message, and the conversation after it.
-pub(crate) async fn append_desk_message(db: &PgPool, input: Append<'_>) -> Result<(Value, Value), AppendError> {
-    let current: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
-        .bind(input.conversation_id)
-        .fetch_optional(db)
-        .await?;
+#[allow(clippy::too_many_lines)] // the TypeScript function, step by step
+pub(crate) async fn append_desk_message(
+    db: &PgPool,
+    input: Append<'_>,
+) -> Result<(Value, Value), AppendError> {
+    let current: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
+            .bind(input.conversation_id)
+            .fetch_optional(db)
+            .await?;
     let Some(current) = current else {
         return Err(AppendError::NotFound);
     };
@@ -110,12 +130,17 @@ pub(crate) async fn append_desk_message(db: &PgPool, input: Append<'_>) -> Resul
     let mut assignee = current["assignee_id"].clone();
     let mut last_message_at = current["last_message_at"].clone();
     let mut last_preview = current["last_message_preview"].clone();
-    let event_type = input.metadata.as_ref().and_then(|m| m.get("eventType")).and_then(Value::as_str).map(str::to_owned);
+    let event_type = input
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("eventType"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
     match input.kind {
         "message" => {
             last_message_at = json!(now);
-            if let Some(preview) =
-                preview_of(input.body.as_deref()).or_else(|| attachment_preview_of(input.attachments.as_ref()))
+            if let Some(preview) = preview_of(input.body.as_deref())
+                .or_else(|| attachment_preview_of(input.attachments.as_ref()))
             {
                 last_preview = json!(preview);
             }
@@ -153,9 +178,13 @@ pub(crate) async fn append_desk_message(db: &PgPool, input: Append<'_>) -> Resul
         },
         _ => {}
     }
-    let owner_changes = input.kind == "event" && matches!(event_type.as_deref(), Some("assigned" | "unassigned"));
+    let owner_changes =
+        input.kind == "event" && matches!(event_type.as_deref(), Some("assigned" | "unassigned"));
 
-    let assignee_patch = input.assignee_id.as_ref().map(|id| id.clone().map_or(Value::Null, Value::String));
+    let assignee_patch = input
+        .assignee_id
+        .as_ref()
+        .map(|id| id.clone().map_or(Value::Null, Value::String));
     let metadata = match (input.metadata, &assignee_patch) {
         (Some(mut metadata), patch) => {
             if let Some(patch) = patch {
@@ -172,10 +201,19 @@ pub(crate) async fn append_desk_message(db: &PgPool, input: Append<'_>) -> Resul
     message.insert("created_at".to_owned(), json!(now));
     message.insert("conversation_id".to_owned(), json!(input.conversation_id));
     message.insert("kind".to_owned(), json!(input.kind));
-    message.insert("body".to_owned(), input.body.map_or(Value::Null, Value::String));
+    message.insert(
+        "body".to_owned(),
+        input.body.map_or(Value::Null, Value::String),
+    );
     message.insert("author_type".to_owned(), json!(input.author_type));
-    message.insert("author_id".to_owned(), input.author_id.map_or(Value::Null, |a| json!(a)));
-    message.insert("attachments".to_owned(), input.attachments.map_or(Value::Null, Value::Array));
+    message.insert(
+        "author_id".to_owned(),
+        input.author_id.map_or(Value::Null, |a| json!(a)),
+    );
+    message.insert(
+        "attachments".to_owned(),
+        input.attachments.map_or(Value::Null, Value::Array),
+    );
     message.insert("metadata".to_owned(), metadata);
     let message = DESK_MESSAGES.insert(db, message, &["createdAt"]).await?;
 
@@ -246,9 +284,16 @@ const FILTERS: &str = "($1::text is null or t.state = $1)
            or ($8::integer is not null and t.conversation_number = $8)))";
 
 /// `listDeskConversations(db, query)`.
-pub(crate) async fn list(db: &PgPool, query: &ListQuery) -> Result<(Vec<Value>, i64, bool, Option<String>), sqlx::Error> {
+pub(crate) async fn list(
+    db: &PgPool,
+    query: &ListQuery,
+) -> Result<(Vec<Value>, i64, bool, Option<String>), sqlx::Error> {
     let limit = query.limit.unwrap_or(30.0).min(100.0);
-    let term = query.q.as_deref().map(weldsuite_kit::validation::js_trim).filter(|t| !t.is_empty());
+    let term = query
+        .q
+        .as_deref()
+        .map(weldsuite_kit::validation::js_trim)
+        .filter(|t| !t.is_empty());
     let pattern = term.map(like_pattern);
     let number = term.and_then(conversation_number);
     let email = query
@@ -285,9 +330,11 @@ pub(crate) async fn list(db: &PgPool, query: &ListQuery) -> Result<(Vec<Value>, 
                 .bind(number.map(|n| i32::try_from(n).unwrap_or(i32::MAX)))
         };
     }
-    let count: i64 = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!("select count(*) from desk_conversations t where {FILTERS}"))))
-        .fetch_one(db)
-        .await?;
+    let count: i64 = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+        "select count(*) from desk_conversations t where {FILTERS}"
+    ))))
+    .fetch_one(db)
+    .await?;
     let rows: Vec<Value> = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
         "select to_jsonb(t) from desk_conversations t where {FILTERS} order by {order} limit $9 offset $10"
     ))))
@@ -295,7 +342,10 @@ pub(crate) async fn list(db: &PgPool, query: &ListQuery) -> Result<(Vec<Value>, 
     .bind(offset)
     .fetch_all(db)
     .await?;
-    let mut rows: Vec<Value> = rows.into_iter().map(|row| DESK_CONVERSATIONS.js(row)).collect();
+    let mut rows: Vec<Value> = rows
+        .into_iter()
+        .map(|row| DESK_CONVERSATIONS.js(row))
+        .collect();
     let has_more = i64::try_from(rows.len()).unwrap_or(i64::MAX) > page;
     if has_more {
         rows.truncate(usize::try_from(page).unwrap_or(0));
@@ -305,11 +355,16 @@ pub(crate) async fn list(db: &PgPool, query: &ListQuery) -> Result<(Vec<Value>, 
 }
 
 /// `getDeskConversation(db, id, { includeMessages })`.
-pub(crate) async fn get(db: &PgPool, id: &str, include_messages: bool) -> Result<Option<(Value, Vec<Value>)>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(db)
-        .await?;
+pub(crate) async fn get(
+    db: &PgPool,
+    id: &str,
+    include_messages: bool,
+) -> Result<Option<(Value, Vec<Value>)>, sqlx::Error> {
+    let row: Option<Value> =
+        sqlx::query_scalar("select to_jsonb(t) from desk_conversations t where t.id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(db)
+            .await?;
     let Some(row) = row else {
         return Ok(None);
     };
@@ -358,7 +413,10 @@ pub(crate) fn is_public(message: &Value) -> bool {
 pub(crate) fn public_message(message: &Value, authors: &HashMap<String, Author>) -> Value {
     let author_type = message["authorType"].as_str().unwrap_or_default();
     let author = if author_type == "agent" {
-        message["authorId"].as_str().filter(|a| !a.is_empty()).and_then(|id| authors.get(id))
+        message["authorId"]
+            .as_str()
+            .filter(|a| !a.is_empty())
+            .and_then(|id| authors.get(id))
     } else {
         None
     };
@@ -384,12 +442,18 @@ pub(crate) fn public_message(message: &Value, authors: &HashMap<String, Author>)
 }
 
 /// `toPublicDeskConversation(conversation, authors)`.
-pub(crate) fn public_conversation(conversation: &Value, authors: &HashMap<String, Author>) -> Value {
+pub(crate) fn public_conversation(
+    conversation: &Value,
+    authors: &HashMap<String, Author>,
+) -> Value {
     let assignee = conversation["assigneeId"]
         .as_str()
         .filter(|a| !a.is_empty())
         .and_then(|id| authors.get(id))
-        .map_or(Value::Null, |a| json!({ "name": a.name, "avatar": a.avatar }));
+        .map_or(
+            Value::Null,
+            |a| json!({ "name": a.name, "avatar": a.avatar }),
+        );
     json!({
         "id": conversation["id"],
         "conversationNumber": conversation["conversationNumber"],
@@ -413,7 +477,10 @@ pub(crate) struct EmailThread {
     pub(crate) subject: Option<String>,
 }
 
-pub(crate) async fn email_thread(db: &PgPool, id: &str) -> Result<Option<EmailThread>, sqlx::Error> {
+pub(crate) async fn email_thread(
+    db: &PgPool,
+    id: &str,
+) -> Result<Option<EmailThread>, sqlx::Error> {
     let Some((conversation, messages)) = get(db, id, true).await? else {
         return Ok(None);
     };
@@ -448,16 +515,24 @@ fn normalize_rfc_message_id(id: &str) -> Option<String> {
 }
 
 /// `stampDeskMessageEmailId`: the sent RFC Message-ID on the message.
-pub(crate) async fn stamp_email_id(db: &PgPool, message_id: &str, email_message_id: &str) -> Result<(), sqlx::Error> {
-    let rfc = normalize_rfc_message_id(email_message_id).unwrap_or_else(|| email_message_id.to_owned());
-    let metadata: Option<Option<Value>> = sqlx::query_scalar("select metadata from desk_messages where id = $1 limit 1")
-        .bind(message_id)
-        .fetch_optional(db)
-        .await?;
+pub(crate) async fn stamp_email_id(
+    db: &PgPool,
+    message_id: &str,
+    email_message_id: &str,
+) -> Result<(), sqlx::Error> {
+    let rfc =
+        normalize_rfc_message_id(email_message_id).unwrap_or_else(|| email_message_id.to_owned());
+    let metadata: Option<Option<Value>> =
+        sqlx::query_scalar("select metadata from desk_messages where id = $1 limit 1")
+            .bind(message_id)
+            .fetch_optional(db)
+            .await?;
     let Some(metadata) = metadata else {
         return Ok(());
     };
-    let mut next = metadata.and_then(|m| m.as_object().cloned()).unwrap_or_default();
+    let mut next = metadata
+        .and_then(|m| m.as_object().cloned())
+        .unwrap_or_default();
     next.insert("emailMessageId".to_owned(), json!(rfc));
     sqlx::query("update desk_messages set metadata = $2 where id = $1")
         .bind(message_id)

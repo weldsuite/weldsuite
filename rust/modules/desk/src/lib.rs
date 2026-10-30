@@ -254,6 +254,28 @@ impl Caller {
         publish_entity_event(&state.events, &self.events, event, entity_id, data);
     }
 
+    /// Several `publishEntityEvent` calls in a row, kept in that order: each
+    /// [`Caller::publish`] is its own task, and the runtime may run a later
+    /// one first. Still fire and forget.
+    pub(crate) fn publish_in_order(
+        &self,
+        state: &DeskState,
+        events: Vec<(EventName, String, Value)>,
+    ) {
+        let publisher = state.events.clone();
+        let context = self.events.clone();
+        state.events.tracker().spawn(async move {
+            for (event, entity_id, data) in events {
+                publisher
+                    .publish_and_wait(
+                        &context,
+                        weldsuite_events::EntityEvent::new(event, entity_id, data),
+                    )
+                    .await;
+            }
+        });
+    }
+
     /// `c.env.<name>`: the request's env first (conformance), then the
     /// process's.
     pub(crate) fn env(&self, name: &str) -> Option<String> {

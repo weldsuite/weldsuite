@@ -1054,7 +1054,8 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     request,
     client,
     isWrite,
-    () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body }).then(capture),
+    // A redirect is the answer, as `app.request` gives TypeScript's: never followed.
+    () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body, redirect: 'manual' }).then(capture),
     (db, runEnv) => request.runTypeScript(db, tsInput, { ...init, method, headers, body }, runEnv).then(capture),
   );
   const { ts, rust } = runs;

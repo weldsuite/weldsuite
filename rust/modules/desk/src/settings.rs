@@ -1,12 +1,12 @@
 //! WeldDesk settings: helpdesk settings and widgets, help center settings and domains, the desk widget, desk assignment, helpdesk email addresses, helpdesk analytics.
 //!
 //! One submodule per desk-api route file:
-//! - [`helpdesk`]: `/api/helpdesk-settings` (`routes/helpdesk-settings`)
-//! - [`helpcenter`]: `/api/helpcenter-settings` (`routes/helpcenter-settings`)
-//! - [`widget`]: `/api/desk/widget` (`routes/desk-widget`)
-//! - [`assignment`]: `/api/desk/assignment` (`routes/desk-assignment`)
-//! - [`email`]: `/api/helpdesk-email` (`routes/helpdesk-email`)
-//! - [`analytics`]: `/api/helpdesk-analytics` (`routes/helpdesk-analytics`)
+//! - [`helpdesk`], `/api/helpdesk-settings` (`routes/helpdesk-settings`)
+//! - [`helpcenter`], `/api/helpcenter-settings` (`routes/helpcenter-settings`)
+//! - [`widget`], `/api/desk/widget` (`routes/desk-widget`)
+//! - [`assignment`], `/api/desk/assignment` (`routes/desk-assignment`)
+//! - [`email`], `/api/helpdesk-email` (`routes/helpdesk-email`)
+//! - [`analytics`], `/api/helpdesk-analytics` (`routes/helpdesk-analytics`)
 
 mod analytics;
 mod assignment;

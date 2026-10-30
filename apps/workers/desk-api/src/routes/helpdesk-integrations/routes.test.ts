@@ -401,6 +401,20 @@ interface DiscordSettings {
  * conformance mode the stub answers both backends' calls (the harness
  * compares the two lists itself).
  */
+/** A JSON body with its object keys sorted; anything else as it is. */
+function canonicalBody(body: string | null): string | null {
+  if (body === null) return null;
+  try {
+    return JSON.stringify(JSON.parse(body), (_key, value: unknown) =>
+      value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+        : value,
+    );
+  } catch {
+    return body;
+  }
+}
+
 function discordCallsSince(from: number): Array<[string, string, string | null]> {
   const calls = fetchStub.mock.calls
     .slice(from)
@@ -410,7 +424,15 @@ function discordCallsSince(from: number): Array<[string, string, string | null]>
       typeof init?.body === 'string' && init.body !== '' ? init.body : null,
     ])
     .filter(([, url]) => !url.startsWith('http://127.0.0.1'));
-  return [...new Map(calls.map((c) => [JSON.stringify(c), c])).values()];
+  // In conformance mode the stub answers both backends: one entry per call,
+  // the first (TypeScript's) kept. A JSON body is keyed by its content, as
+  // the two serialise object keys in different orders.
+  const seen = new Map<string, [string, string, string | null]>();
+  for (const call of calls) {
+    const key = JSON.stringify([call[0], call[1], canonicalBody(call[2])]);
+    if (!seen.has(key)) seen.set(key, call);
+  }
+  return [...seen.values()];
 }
 
 describe('Discord settings, one server', () => {

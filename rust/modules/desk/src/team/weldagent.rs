@@ -389,6 +389,7 @@ async fn pending(caller: Caller) -> Response {
 // ── one conversation ────────────────────────────────────────────────────────
 
 /// The live conversation, or the route's 404 / 500.
+#[allow(clippy::result_large_err)] // the response is the route's answer
 async fn existing(caller: &Caller, id: &str, message: &str) -> Result<Value, Response> {
     match CONV.find_live(&caller.db, id).await {
         Ok(Some(row)) => Ok(row),

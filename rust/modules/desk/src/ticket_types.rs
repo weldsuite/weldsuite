@@ -91,8 +91,7 @@ fn wanted(field: &Map<String, Value>) -> Result<Wanted, Unwritable> {
             }
             Some(Value::Array(mapped))
         }
-        Some(Value::Array(_)) | None | Some(Value::Null) => None,
-        Some(Value::Bool(false)) => None,
+        Some(Value::Array(_) | Value::Null | Value::Bool(false)) | None => None,
         Some(Value::String(text)) if text.is_empty() => None,
         Some(_) => return Err(Unwritable("options")),
     };
