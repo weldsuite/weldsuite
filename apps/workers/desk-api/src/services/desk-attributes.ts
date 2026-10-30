@@ -17,6 +17,11 @@ const conversations = schema.deskConversations;
 
 /** How many of the most used tags the picker suggests. */
 const TAG_SUGGESTIONS = 100;
+/**
+ * Tags are counted over conversations active this recently, so the read
+ * stays the same size however long the workspace's history gets.
+ */
+const TAG_WINDOW_DAYS = 90;
 
 export interface DeskAttributeOptions {
   ticketTypes: Array<{
@@ -39,6 +44,7 @@ export interface DeskAttributeOptions {
     required: boolean;
     sortOrder: number;
   }>;
+  /** Most used first, over conversations active in the last TAG_WINDOW_DAYS. */
   tags: Array<{ tag: string; count: number }>;
 }
 
@@ -72,6 +78,8 @@ export async function getDeskAttributeOptions(db: Database): Promise<DeskAttribu
     db.execute<{ tag: string; count: number }>(sql`
       SELECT tag, count(*)::int AS count
       FROM ${conversations}, jsonb_array_elements_text(${conversations.tags}) AS tag
+      WHERE ${conversations.tags} <> '[]'::jsonb
+        AND COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) > now() - make_interval(days => ${TAG_WINDOW_DAYS})
       GROUP BY tag
       ORDER BY count DESC, tag ASC
       LIMIT ${TAG_SUGGESTIONS}

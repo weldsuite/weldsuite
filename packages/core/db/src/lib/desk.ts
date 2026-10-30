@@ -532,8 +532,35 @@ async function namesById(
   return new Map(rows.map((r) => [r.id, { name: r.name, usable: r.isActive !== false && !r.deletedAt }]));
 }
 
-/** Type and team changes, checked against their tables. */
-async function referenceChanges(
+/**
+ * A type or team change: the new id must name a usable row; the change is
+ * recorded with both names. Null when the id doesn't change.
+ */
+async function referenceChange(
+  db: AnyDb,
+  ref: {
+    table: typeof schema.helpdeskTicketTypes | typeof schema.helpdeskDepartments;
+    input: 'ticketTypeId' | 'departmentId';
+    field: 'ticketType' | 'team';
+    noun: string;
+  },
+  from: string | null,
+  to: string | null | undefined,
+): Promise<DeskAttributeChange | null> {
+  if (to === undefined || to === from) return null;
+  const names = await namesById(db, ref.table, [from, to]);
+  if (to && !names.get(to)?.usable) {
+    throw new DeskAttributeRejectedError(ref.input, `${ref.noun} '${to}' does not exist or is inactive`);
+  }
+  const nameOf = (id: string | null) => (id ? names.get(id)?.name ?? null : null);
+  return { field: ref.field, from: nameOf(from), to: nameOf(to) };
+}
+
+const TICKET_TYPE_REF = { table: schema.helpdeskTicketTypes, input: 'ticketTypeId', field: 'ticketType', noun: 'Ticket type' } as const;
+const TEAM_REF = { table: schema.helpdeskDepartments, input: 'departmentId', field: 'team', noun: 'Team' } as const;
+
+/** Type, team, priority and tag changes: the column patch and the timeline entries. */
+async function columnChanges(
   db: AnyDb,
   current: DeskConversation,
   input: UpdateDeskConversationAttributesInput,
@@ -541,33 +568,56 @@ async function referenceChanges(
   const patch: Partial<DeskConversation> = {};
   const changes: DeskAttributeChange[] = [];
 
-  if (input.ticketTypeId !== undefined && input.ticketTypeId !== current.ticketTypeId) {
-    const types = await namesById(db, schema.helpdeskTicketTypes, [current.ticketTypeId, input.ticketTypeId]);
-    if (input.ticketTypeId && !types.get(input.ticketTypeId)?.usable) {
-      throw new DeskAttributeRejectedError('ticketTypeId', `Ticket type '${input.ticketTypeId}' does not exist or is inactive`);
-    }
+  const type = await referenceChange(db, TICKET_TYPE_REF, current.ticketTypeId, input.ticketTypeId);
+  if (type) {
     patch.ticketTypeId = input.ticketTypeId;
-    changes.push({
-      field: 'ticketType',
-      from: current.ticketTypeId ? types.get(current.ticketTypeId)?.name ?? null : null,
-      to: input.ticketTypeId ? types.get(input.ticketTypeId)?.name ?? null : null,
-    });
+    changes.push(type);
   }
-
-  if (input.departmentId !== undefined && input.departmentId !== current.departmentId) {
-    const teams = await namesById(db, schema.helpdeskDepartments, [current.departmentId, input.departmentId]);
-    if (input.departmentId && !teams.get(input.departmentId)?.usable) {
-      throw new DeskAttributeRejectedError('departmentId', `Team '${input.departmentId}' does not exist or is inactive`);
-    }
+  const team = await referenceChange(db, TEAM_REF, current.departmentId, input.departmentId);
+  if (team) {
     patch.departmentId = input.departmentId;
-    changes.push({
-      field: 'team',
-      from: current.departmentId ? teams.get(current.departmentId)?.name ?? null : null,
-      to: input.departmentId ? teams.get(input.departmentId)?.name ?? null : null,
-    });
+    changes.push(team);
   }
-
+  if (input.priority !== undefined && input.priority !== current.priority) {
+    patch.priority = input.priority;
+    changes.push({ field: 'priority', from: current.priority, to: input.priority });
+  }
+  const tags = input.tags === undefined ? null : normalizeDeskTags(input.tags);
+  if (tags && !sameTags(current.tags ?? [], tags)) {
+    patch.tags = tags;
+    changes.push({ field: 'tags', from: current.tags ?? [], to: tags });
+  }
   return { patch, changes };
+}
+
+function readDeskCustomFields(
+  db: AnyDb,
+  conversationId: string,
+  definitions: CustomFieldDefinitionRow[],
+): Promise<CustomFieldMap> {
+  if (definitions.length === 0) return Promise.resolve({});
+  return getValuesForEntity(db, DESK_CONVERSATION_FIELD_ENTITY, conversationId, definitions);
+}
+
+/** Write the custom field values; a value the store refuses is a 400, like the checks before it. */
+async function writeDeskCustomFields(
+  db: AnyDb,
+  generateId: IdGenerator,
+  conversationId: string,
+  definitions: CustomFieldDefinitionRow[],
+  writes: CustomFieldMap,
+): Promise<void> {
+  if (Object.keys(writes).length === 0) return;
+  try {
+    await setValues(db, DESK_CONVERSATION_FIELD_ENTITY, conversationId, writes, {
+      generateId,
+      definitions,
+      enforceRequired: false,
+    });
+  } catch (err) {
+    if (err instanceof CustomFieldValidationError) throw new DeskAttributeRejectedError('customFields', err.message);
+    throw err;
+  }
 }
 
 /**
@@ -628,46 +678,19 @@ export async function updateDeskConversationAttributes(
     .limit(1);
   if (!current) throw new DeskConversationNotFoundError(input.conversationId);
 
-  const { patch, changes } = await referenceChanges(db, current, input);
+  const { patch, changes } = await columnChanges(db, current, input);
 
-  if (input.priority !== undefined && input.priority !== current.priority) {
-    patch.priority = input.priority;
-    changes.push({ field: 'priority', from: current.priority, to: input.priority });
-  }
-
-  if (input.tags !== undefined) {
-    const tags = normalizeDeskTags(input.tags);
-    const before = current.tags ?? [];
-    if (!sameTags(before, tags)) {
-      patch.tags = tags;
-      changes.push({ field: 'tags', from: before, to: tags });
-    }
-  }
-
-  const ticketTypeId = patch.ticketTypeId !== undefined ? patch.ticketTypeId : current.ticketTypeId;
+  const ticketTypeId = patch.ticketTypeId === undefined ? current.ticketTypeId : patch.ticketTypeId;
   const definitions = await getDeskConversationFieldDefinitions(db, ticketTypeId);
   const fields = await customFieldChanges(db, current.id, definitions, input.customFields);
   changes.push(...fields.changes);
 
   if (changes.length === 0) {
-    const customFields = definitions.length
-      ? await getValuesForEntity(db, DESK_CONVERSATION_FIELD_ENTITY, current.id, definitions)
-      : {};
+    const customFields = await readDeskCustomFields(db, current.id, definitions);
     return { conversation: current, message: null, customFields };
   }
 
-  if (Object.keys(fields.writes).length > 0) {
-    try {
-      await setValues(db, DESK_CONVERSATION_FIELD_ENTITY, current.id, fields.writes, {
-        generateId: input.generateId,
-        definitions,
-        enforceRequired: false,
-      });
-    } catch (err) {
-      if (err instanceof CustomFieldValidationError) throw new DeskAttributeRejectedError('customFields', err.message);
-      throw err;
-    }
-  }
+  await writeDeskCustomFields(db, input.generateId, current.id, definitions, fields.writes);
   if (Object.keys(patch).length > 0) {
     await db
       .update(conversations)
@@ -683,9 +706,7 @@ export async function updateDeskConversationAttributes(
     authorId: input.authorId ?? null,
     metadata: { eventType: 'attributes_changed', changes },
   });
-  const customFields = definitions.length
-    ? await getValuesForEntity(db, DESK_CONVERSATION_FIELD_ENTITY, current.id, definitions)
-    : {};
+  const customFields = await readDeskCustomFields(db, current.id, definitions);
   return { conversation, message, customFields };
 }
 
@@ -815,24 +836,35 @@ function conversationOrderBy(sort: ListDeskConversationsQuery['sort']) {
   ];
 }
 
-export async function listDeskConversations(
-  db: AnyDb,
-  query: ListDeskConversationsQuery,
-): Promise<{ data: DeskConversation[]; totalCount: number; hasMore: boolean; cursor: string | null }> {
-  const limit = Math.min(query.limit ?? 30, 100);
+/** State, owner, channel and customer filters. */
+function stateFilters(query: ListDeskConversationsQuery): SQL[] {
   const filters: SQL[] = [];
-
   if (query.state) filters.push(eq(conversations.state, query.state));
   if (query.assigneeId) filters.push(eq(conversations.assigneeId, query.assigneeId));
   if (query.unassigned) filters.push(isNull(conversations.assigneeId));
   if (query.channel) filters.push(eq(conversations.channel, query.channel));
   if (query.visitorId) filters.push(eq(conversations.visitorId, query.visitorId));
   if (query.email) filters.push(sql`lower(${conversations.email}) = ${query.email.trim().toLowerCase()}`);
+  return filters;
+}
+
+/** Priority, type, team and tag filters. */
+function ticketFieldFilters(query: ListDeskConversationsQuery): SQL[] {
+  const filters: SQL[] = [];
   if (query.priority === 'none') filters.push(isNull(conversations.priority));
   else if (query.priority) filters.push(eq(conversations.priority, query.priority));
   if (query.ticketTypeId) filters.push(eq(conversations.ticketTypeId, query.ticketTypeId));
   if (query.departmentId) filters.push(eq(conversations.departmentId, query.departmentId));
   if (query.tag) filters.push(sql`${conversations.tags} @> ${JSON.stringify([query.tag])}::jsonb`);
+  return filters;
+}
+
+export async function listDeskConversations(
+  db: AnyDb,
+  query: ListDeskConversationsQuery,
+): Promise<{ data: DeskConversation[]; totalCount: number; hasMore: boolean; cursor: string | null }> {
+  const limit = Math.min(query.limit ?? 30, 100);
+  const filters = [...stateFilters(query), ...ticketFieldFilters(query)];
   const search = searchCondition(query.q);
   if (search) filters.push(search);
 

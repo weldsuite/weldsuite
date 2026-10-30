@@ -11,6 +11,7 @@ import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { createDeskConversation, isPublicDeskMessage, type DeskMessage } from '@weldsuite/db/lib/desk';
 import { syncTicketTypeDefinitions } from '@weldsuite/db/lib/custom-field-ticket-types';
 import { generateId } from '@weldsuite/worker-kit/id';
+import { eq } from 'drizzle-orm';
 
 let db: Database;
 
@@ -208,5 +209,19 @@ describe('GET /api/desk/conversations/attributes', () => {
       expect.objectContaining({ ticketTypeId: 'tt_billing', slug: 'plan', fieldType: 'single_select', required: false }),
     );
     expect(data.tags).toContainEqual({ tag: 'outage', count: 1 });
+  });
+
+  it('suggests only tags from conversations active in the last 90 days', async () => {
+    const stale = await startConversation('visitor_tags_stale', 'Old question');
+    await patch(stale.id, { tags: ['archived-tag'] });
+    const longAgo = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+    await db
+      .update(schema.deskConversations)
+      .set({ lastMessageAt: longAgo, createdAt: longAgo })
+      .where(eq(schema.deskConversations.id, stale.id));
+
+    const res = await appFor('conversations:read').request('/api/desk/conversations/attributes');
+    const { data } = (await res.json()) as { data: { tags: Array<{ tag: string }> } };
+    expect(data.tags.map((entry) => entry.tag)).not.toContain('archived-tag');
   });
 });

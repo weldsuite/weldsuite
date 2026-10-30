@@ -496,11 +496,42 @@ export interface DeskAttributesUpdate {
   customFields?: Record<string, unknown>;
 }
 
-/** Set a conversation's type, priority, tags, team or custom fields. */
+const ATTRIBUTES_MUTATION = [...deskKeys.all, 'update-attributes'] as const;
+
+function withAttributes<T extends DeskConversation>(conversation: T, data: DeskAttributesUpdate): T {
+  const { customFields, ...columns } = data;
+  return {
+    ...conversation,
+    ...columns,
+    customFields: customFields ? { ...conversation.customFields, ...customFields } : conversation.customFields,
+  };
+}
+
+/** Tags the agent just used go to the top of the suggestions without re-reading them. */
+function rememberTags(qc: ReturnType<typeof useQueryClient>, tags: string[]) {
+  qc.setQueryData<DeskAttributeOptions>(deskKeys.attributeOptions(), (old) => {
+    if (!old) return old;
+    const known = new Set(old.tags.map((entry) => entry.tag));
+    const added = tags.filter((tag) => !known.has(tag)).map((tag) => ({ tag, count: 1 }));
+    return added.length ? { ...old, tags: [...added, ...old.tags] } : old;
+  });
+}
+
+/**
+ * Set a conversation's type, priority, tags, team or custom fields. The
+ * change shows at once, so the next edit (another option, another tag)
+ * builds on it rather than on the value from before this request.
+ */
 export function useUpdateDeskConversationAttributes() {
   const { getClient } = useAppApiClient();
   const qc = useQueryClient();
+  const pendingFor = (id: string) =>
+    qc.isMutating({
+      mutationKey: ATTRIBUTES_MUTATION,
+      predicate: (mutation) => (mutation.state.variables as { id?: string } | undefined)?.id === id,
+    });
   return useMutation({
+    mutationKey: ATTRIBUTES_MUTATION,
     mutationFn: async ({ id, data }: { id: string; data: DeskAttributesUpdate }) => {
       const client = await getClient();
       return client.patch<{ data: { conversation: DeskConversation; message: DeskMessage | null } }>(
@@ -508,15 +539,29 @@ export function useUpdateDeskConversationAttributes() {
         data,
       );
     },
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: deskKeys.conversationDetail(id) });
+      qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(id), (old) =>
+        old?.data ? { ...old, data: withAttributes(old.data, data) } : old,
+      );
+    },
     onSuccess: (result, variables) => {
       const { conversation, message } = result.data;
+      // A later edit to this conversation is still on its way: keep its
+      // values on screen and take only this request's timeline event.
+      const newerPending = pendingFor(variables.id) > 1;
       qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(variables.id), (old) => {
         if (!old?.data) return old;
         const messages = (old.data.messages ?? []).filter((m) => m.id !== message?.id);
-        return { ...old, data: { ...old.data, ...conversation, messages: message ? [...messages, message] : messages } };
+        const fields = newerPending ? {} : conversation;
+        return { ...old, data: { ...old.data, ...fields, messages: message ? [...messages, message] : messages } };
       });
       qc.invalidateQueries({ queryKey: [...deskKeys.conversations(), 'list'] });
-      if (variables.data.tags) qc.invalidateQueries({ queryKey: deskKeys.attributeOptions() });
+      if (conversation.tags) rememberTags(qc, conversation.tags);
+    },
+    // The optimistic value is wrong: read the conversation back.
+    onError: (_err, variables) => {
+      qc.invalidateQueries({ queryKey: deskKeys.conversationDetail(variables.id) });
     },
   });
 }
