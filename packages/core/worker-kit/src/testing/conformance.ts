@@ -446,7 +446,18 @@ export async function cloneDatabase(
   ]);
   const clone = await client.clone();
   const db = drizzlePg.drizzle(clone as never, { schema }) as unknown as Database;
-  return { db, close: () => (clone as { close: () => Promise<void> }).close() };
+  const closable = clone as unknown as { close: () => Promise<void>; mod?: unknown };
+  return {
+    db,
+    close: async () => {
+      await closable.close();
+      // Let the copy's WebAssembly heap go even while something still holds the
+      // copy: an entity-event spy's recorded calls keep the request context, and
+      // so this database, for the rest of the file. Each write takes a full copy,
+      // so without this a test file grows by one database per write.
+      closable.mod = undefined;
+    },
+  };
 }
 
 /** The copy of the master database the TypeScript side of a write runs on, while it runs. */

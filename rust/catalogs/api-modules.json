@@ -203,7 +203,7 @@
       "/api/time-entries",
       "/api/whiteboards"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "flow-api"
   },
   {

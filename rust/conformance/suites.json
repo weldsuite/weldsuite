@@ -942,11 +942,85 @@
       ]
     },
     {
+      "name": "flow: tasks",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/tasks/integration.test.ts",
+        "src/routes/tasks/audit-fixes.integration.test.ts",
+        "src/routes/tasks/web-contract.integration.test.ts",
+        "src/routes/my-tasks/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/tasks/",
+        "apps/workers/flow-api/src/routes/my-tasks/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: time and comments",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/time-entries/integration.test.ts",
+        "src/routes/time-entries/guards.integration.test.ts",
+        "src/routes/task-comments/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/time-entries/",
+        "apps/workers/flow-api/src/routes/task-comments/",
+        "apps/workers/flow-api/src/services/task-comment-notifications.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: analytics",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-analytics/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-analytics/",
+        "apps/workers/flow-api/src/services/project-kpi-summary.ts",
+        "packages/clients/core-api-client/src/schemas/project-analytics.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "flow: cross-cutting",
       "module": "flow",
       "workspace": "apps/workers/flow-api",
       "tests": [
         "src/routes/project-hardening.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: viewer writes",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/viewer-writes.integration.test.ts"
       ],
       "paths": [
         "apps/workers/flow-api/src/routes/",

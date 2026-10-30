@@ -590,3 +590,212 @@ export const flowTaskMovedSchema = z.object({
 
 /** `{ success: true }`. */
 export const flowSuccessSchema = z.object({ success: z.literal(true) });
+
+// ── task comments ───────────────────────────────────────────────────────────
+
+/** A task comment row; the list adds the author's display fields. */
+export const flowTaskCommentSchema = z
+  .object({
+    id: z.string(),
+    taskId: z.string(),
+    taskType: z.string(),
+    content: z.string(),
+    authorId: z.string(),
+    authorName: z.string().optional(),
+    authorAvatar: nullableString.optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: nullableString,
+  })
+  .passthrough();
+
+/** `POST /api/task-comments`. */
+export const flowTaskCommentCreatedSchema = z.object({
+  id: z.string(),
+  taskId: z.string(),
+  content: z.string(),
+  authorId: z.string(),
+});
+
+/** `PATCH /api/task-comments/:id`. */
+export const flowTaskCommentUpdatedSchema = z.object({ id: z.string(), content: z.string() });
+
+// ── time entries ────────────────────────────────────────────────────────────
+
+/** A `time_entries` row. */
+export const flowTimeEntryRowSchema = z
+  .object({
+    id: z.string(),
+    projectId: nullableString,
+    taskId: nullableString,
+    userId: z.string(),
+    date: z.string(),
+    startTime: nullableString,
+    endTime: nullableString,
+    duration: z.string(),
+    description: nullableString,
+    activity: nullableString,
+    billable: z.boolean(),
+    rate: nullableString,
+    cost: nullableString,
+    status: z.string(),
+    approvedBy: nullableString,
+    approvedAt: nullableString,
+    location: nullableString,
+    isRemote: z.boolean().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: nullableString,
+  })
+  .passthrough();
+
+/** A row of `GET /api/time-entries`: the entry with its author and task. */
+export const flowTimeEntrySchema = flowTimeEntryRowSchema.extend({
+  user: z.object({ id: z.string(), name: z.string(), email: z.string(), avatar: z.string() }),
+  task: z.object({ id: z.string(), title: z.string() }).optional(),
+});
+
+/** What `PATCH /api/time-entries/:id` answers: the id and the fields sent. */
+export const flowTimeEntryUpdatedSchema = z.object({ id: z.string() }).passthrough();
+
+/** `PATCH /api/time-entries/:id/approve` and `/reject`. */
+export const flowTimeEntryReviewSchema = z.object({
+  id: z.string(),
+  status: z.enum(['approved', 'rejected']),
+});
+
+/** A running timer (`active_timers`). */
+export const flowTimerSchema = z
+  .object({
+    id: z.string(),
+    projectId: nullableString,
+    taskId: nullableString,
+    userId: z.string(),
+    startedAt: z.string(),
+    description: nullableString,
+    activity: nullableString,
+    billable: z.boolean(),
+    rate: nullableString,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+
+/** `POST /api/time-entries/timer/stop`: the entry the timer became. */
+export const flowTimerStoppedSchema = z.object({
+  id: z.string(),
+  duration: z.string(),
+  startTime: z.string(),
+  endTime: z.string(),
+});
+
+const flowMinutesSchema = z.object({
+  totalMinutes: z.number(),
+  billableMinutes: z.number(),
+  nonBillableMinutes: z.number(),
+  entryCount: z.number().int(),
+});
+
+/** `GET /api/time-entries/team-summary`. */
+export const flowTeamSummarySchema = z.object({
+  projectId: z.string(),
+  projectName: z.string(),
+  range: z.object({ fromDate: nullableString, toDate: nullableString }),
+  totals: flowMinutesSchema.extend({
+    memberCount: z.number().int(),
+    contributorCount: z.number().int(),
+  }),
+  members: z.array(
+    flowMinutesSchema.extend({
+      userId: z.string(),
+      name: z.string(),
+      email: z.string(),
+      avatar: z.string(),
+      initials: z.string(),
+      role: nullableString,
+      isActiveMember: z.boolean(),
+    }),
+  ),
+  entries: z.array(
+    z
+      .object({
+        id: z.string(),
+        projectId: nullableString,
+        taskId: nullableString,
+        userId: z.string(),
+        date: z.string(),
+        startTime: nullableString,
+        endTime: nullableString,
+        duration: z.number(),
+        description: nullableString,
+        activity: nullableString,
+        billable: z.boolean(),
+        status: z.string(),
+        userName: z.string(),
+        task: z.object({ id: z.string(), title: z.string() }).optional(),
+      })
+      .strict(),
+  ),
+  entriesTruncated: z.boolean(),
+});
+
+// ── project analytics ───────────────────────────────────────────────────────
+
+/** An `analytics_reports` row. */
+export const flowAnalyticsReportSchema = z
+  .object({
+    id: z.string(),
+    app: z.string(),
+    title: z.string(),
+    description: nullableString,
+    chartCount: z.number().int(),
+    createdById: nullableString,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: nullableString,
+  })
+  .passthrough();
+
+/** An `analytics_charts` row. */
+export const flowAnalyticsChartSchema = z
+  .object({
+    id: z.string(),
+    reportId: z.string(),
+    app: z.string(),
+    title: z.string(),
+    description: nullableString,
+    chartType: z.string(),
+    entity: z.string(),
+    metric: z.string(),
+    color: nullableString,
+    smoothCurve: z.boolean().nullable(),
+    fillArea: z.boolean().nullable(),
+    showDataLabels: z.boolean().nullable(),
+    showLegend: z.boolean().nullable(),
+    timeRange: nullableString,
+    groupBy: nullableString,
+    aggregation: nullableString,
+    sortOrder: nullableString,
+    limit: z.number().int().nullable(),
+    compareWith: nullableString,
+    layout: z.record(z.unknown()).nullable(),
+    sortIndex: z.number().int(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: nullableString,
+  })
+  .passthrough();
+
+/** `GET /api/project-analytics/reports/:reportId`. */
+export const flowAnalyticsReportDetailSchema = z.object({
+  report: flowAnalyticsReportSchema,
+  charts: z.array(flowAnalyticsChartSchema),
+});
+
+/** `POST /api/project-analytics/reports/:reportId/charts-data`: points by chart id. */
+export const flowChartsDataSchema = z.record(
+  z.array(z.object({ label: z.string(), value: z.number(), date: z.string().optional() })),
+);
+
+/** `PATCH /api/project-analytics/reports/:reportId/charts/layouts`. */
+export const flowLayoutsUpdatedSchema = z.object({ updated: z.number().int() });

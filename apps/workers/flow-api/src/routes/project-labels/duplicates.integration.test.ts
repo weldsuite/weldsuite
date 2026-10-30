@@ -74,3 +74,29 @@ describe('/api/project-labels · duplicate names', () => {
     expect(same.status).toBe(200);
   });
 });
+
+describe('/api/project-labels · reads and delete', () => {
+  const remove = (id: string) =>
+    createTestApp('/api/project-labels', projectLabelsRoutes, {
+      context: { permissions: permissions('projects:read', 'projects:delete'), tenantDb: db },
+    }).request(`/api/project-labels/${id}`, { method: 'DELETE' });
+
+  it('lists, reads and deletes a workspace label', async () => {
+    const created = await send('POST', '', { name: 'Gamma', color: '#123456' });
+    const { data } = (await created.json()) as { data: { id: string } };
+
+    const list = await send('GET', '?limit=50');
+    expect(list.status).toBe(200);
+    const listed = (await list.json()) as { data: Array<{ id: string }> };
+    expect(listed.data.map((label) => label.id)).toContain(data.id);
+
+    const read = await send('GET', `/${data.id}`);
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as { data: { name: string } }).data.name).toBe('Gamma');
+    expect((await send('GET', '/plbl_missing')).status).toBe(404);
+
+    expect((await remove(data.id)).status).toBe(204);
+    expect((await send('GET', `/${data.id}`)).status).toBe(404);
+    expect((await remove(data.id)).status).toBe(404);
+  });
+});
