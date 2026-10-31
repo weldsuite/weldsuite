@@ -1693,6 +1693,109 @@
         "rust/modules/core-onboarding/",
         "rust/crates/ports/src/identity.rs"
       ]
+    },
+    {
+      "name": "hr: directory",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/employees.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
+      "name": "hr: lifecycle",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/lifecycle.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
+      "name": "hr: time",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/time.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
+      "name": "hr: declarations and announcements",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/declarations.routes.test.ts",
+        "src/routes/weldhr/announcements.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
+      "name": "hr: performance",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/performance.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
+    },
+    {
+      "name": "hr: my hr",
+      "module": "hr",
+      "workspace": "apps/workers/hr-api",
+      "tests": [
+        "src/routes/weldhr/me.routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/hr-api/src/",
+        "packages/domains/payroll/src/",
+        "packages/clients/app-api-client/src/schemas/weldhr.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-responses.ts",
+        "packages/clients/app-api-client/src/schemas/weldhr-payroll.ts",
+        "rust/modules/hr/",
+        "rust/crates/payroll-domain/"
+      ]
     }
   ]
 }

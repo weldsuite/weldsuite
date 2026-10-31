@@ -34,6 +34,7 @@ weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-flow = { workspace = true }
 weldsuite-kit = { workspace = true }
+weldsuite-hr = { workspace = true }
 weldsuite-know = { workspace = true }
 weldsuite-pass = { workspace = true }
 weldsuite-mail = { workspace = true }

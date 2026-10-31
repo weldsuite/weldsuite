@@ -9,6 +9,8 @@ mod config;
 #[cfg(feature = "conformance")]
 mod conformance;
 #[cfg(feature = "conformance")]
+mod conformance_books;
+#[cfg(feature = "conformance")]
 mod conformance_files;
 #[cfg(feature = "conformance")]
 mod conformance_kv;

@@ -3837,6 +3837,7 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-flow",
+ "weldsuite-hr",
  "weldsuite-kit",
  "weldsuite-know",
  "weldsuite-mail",
