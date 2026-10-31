@@ -26,6 +26,7 @@ export const helpcenterSettingsSchema = z
     heroSubtitle: z.string().nullable(),
     showSearch: z.number().nullable(),
     showCategories: z.number().nullable(),
+    portalEnabled: z.number().nullable(),
     metaTitle: z.string().nullable(),
     metaDescription: z.string().nullable(),
     ogImage: z.string().nullable(),

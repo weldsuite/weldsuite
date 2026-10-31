@@ -68,10 +68,16 @@ const ROUTES: VolatileRoute[] = [
     route: `/api/helpdesk-integrations/${provider}/connect`,
     fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
   })),
+  // A widget's new identity secret: 32 random bytes per run.
+  { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
   // The widget's realtime token: an HS256 JWT whose `iat` is the second it was
   // minted, so its payload and signature differ per run. Its content is checked
   // by the test itself. The route is the prefixed one Rust serves the worker at.
   { method: 'POST', route: '/public/helpdesk-widget/api/realtime/token', fields: [{ path: 'data.token' }] },
+  // The widget's visitor token (POST /api/visitor): an HS256 JWT stamped with
+  // the second it was issued, so it differs per run like the realtime token.
+  // The visitor tests decode it and check its claims and signature.
+  { method: 'POST', route: '/public/helpdesk-widget/api/visitor', fields: [{ path: 'data.visitorToken' }] },
   // The widget worker's health check stamps the time it answered.
   { method: 'GET', route: '/public/helpdesk-widget/health', fields: [{ path: 'timestamp' }] },
   // WeldFlow's timer: a stopped entry's duration is the minutes since it

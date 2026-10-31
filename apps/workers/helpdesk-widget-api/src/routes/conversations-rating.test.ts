@@ -31,13 +31,19 @@ vi.mock('@weldsuite/db/lib/desk', () => ({
   getDeskConversation: mocks.getDeskConversation,
   attachDeskVisitorContact: vi.fn(),
   createDeskConversation: vi.fn(),
-  listDeskConversationsForVisitor: vi.fn(),
   upsertDeskVisitor: vi.fn(),
   rateDeskConversation: mocks.rateDeskConversation,
   DESK_RATING_MIN: 1,
   DESK_RATING_MAX: 5,
   DeskConversationNotFoundError: class DeskConversationNotFoundError extends Error {},
   DeskRatingRejectedError: mocks.DeskRatingRejectedError,
+}));
+
+vi.mock('@weldsuite/db/lib/desk-portal', () => ({
+  canAccessDeskConversation: vi.fn(async (_db: unknown, conversation: { visitorId: string }, principal: { visitorId: string }) =>
+    conversation.visitorId === principal.visitorId,
+  ),
+  listDeskConversationsForPrincipal: vi.fn(),
 }));
 
 vi.mock('../lib/desk-live', () => ({
@@ -62,6 +68,9 @@ function buildApp() {
     c.set('tenantDb', {} as Variables['tenantDb']);
     c.set('workspaceId', 'ws_1');
     c.set('widgetId', 'wdg_1');
+    // What visitorAuthMiddleware sets from the visitor token.
+    c.set('visitor', { id: VISITOR, verifiedEmail: null } as Variables['visitor']);
+    c.set('principal', { visitorId: VISITOR, verifiedEmail: null });
     await next();
   });
   app.route('/api/conversations', conversationsRoutes);
@@ -74,7 +83,7 @@ async function rate(body: Record<string, unknown>) {
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ visitorId: VISITOR, ...body }),
+      body: JSON.stringify(body),
     },
     {} as Env,
     { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext,

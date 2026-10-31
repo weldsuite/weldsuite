@@ -58,6 +58,7 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
     whatsapp: 'WhatsApp',
     sms: 'SMS',
     api: 'API',
+    portal: t.channel.portal,
   };
   const displayName = conversation.name || conversation.email || t.pane.visitor;
 

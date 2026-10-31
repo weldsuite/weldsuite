@@ -78,6 +78,24 @@ service = "helpdesk-workflow-worker-dev"
 binding = "REALTIME"
 service = "weldsuite-realtime"
 
+# Cloudflare Email Sending: the help-center sign-in code emails. Without the
+# binding no code is sent (in development the code is logged instead).
+[[send_email]]
+name = "SEND_EMAIL"
+
+# Atomic counters for the help-center sign-in limits (/api/portal/auth/*):
+# one PortalRateLimiter Durable Object per limiter key; KV has no atomic
+# increment. Sign-in is refused when the binding is missing, so it must exist
+# in every environment. Durable Object bindings and migrations are NOT
+# inherited by [env.*].
+[[durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -119,6 +137,20 @@ service = "helpdesk-workflow-worker-test"
 [[env.test.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-test"
+
+[[env.test.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Sign-in rate-limit counters (see the top-level block).
+[[env.test.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.test.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 [[env.test.r2_buckets]]
 binding = "STORAGE"
@@ -174,6 +206,20 @@ service = "helpdesk-workflow-worker"
 [[env.production.services]]
 binding = "REALTIME"
 service = "weldsuite-realtime-production"
+
+[[env.production.send_email]]
+name = "SEND_EMAIL"
+# Only system mail goes through this binding, always from this address.
+allowed_sender_addresses = ["notifications@mail.weldsuite.org"]
+
+# Sign-in rate-limit counters (see the top-level block).
+[[env.production.durable_objects.bindings]]
+name = "PORTAL_RATE_LIMITER"
+class_name = "PortalRateLimiter"
+
+[[env.production.migrations]]
+tag = "portal-rate-limiter-v1"
+new_sqlite_classes = ["PortalRateLimiter"]
 
 [[env.production.r2_buckets]]
 binding = "STORAGE"

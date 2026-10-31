@@ -121,6 +121,7 @@ describe('GET /api/helpcenter-settings', () => {
         heroSubtitle: null,
         showSearch: 1,
         showCategories: 1,
+        portalEnabled: 0,
         metaTitle: null,
         metaDescription: null,
         ogImage: null,
@@ -147,6 +148,7 @@ describe('PUT /api/helpcenter-settings', () => {
       { googleAnalyticsId: 'G'.repeat(51) },
       { showSearch: 2 },
       { showCategories: -1 },
+      { portalEnabled: 2 },
       { socialLinks: { twitter: 5 } },
       { heroTitle: 7 },
     ]) {
@@ -167,12 +169,20 @@ describe('PUT /api/helpcenter-settings', () => {
       primaryColor: '#112233',
       showSearch: 0,
       showCategories: 1,
+      portalEnabled: 0,
       isEnabled: 0,
       socialLinks: { twitter: 'https://x.test/acme' },
       heroTitle: null,
       deletedAt: null,
     });
     expect(data.id).toMatch(/^hcs_/);
+  });
+
+  it('switches sign-in and requests on and off', async () => {
+    const on = await UPDATE().request(BASE, send('PUT', { portalEnabled: 1 }));
+    expect(((await on.json()) as { data: Record<string, unknown> }).data).toMatchObject({ portalEnabled: 1 });
+    const off = await UPDATE().request(BASE, send('PUT', { portalEnabled: 0 }));
+    expect(((await off.json()) as { data: Record<string, unknown> }).data).toMatchObject({ portalEnabled: 0 });
   });
 
   it('updates it afterwards, null clearing a field', async () => {

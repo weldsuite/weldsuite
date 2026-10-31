@@ -48,7 +48,7 @@ where
         )
 }
 
-/// `updateSettingsSchema`: each field `.optional().nullable()` but the two
+/// `updateSettingsSchema`: each field `.optional().nullable()` but the
 /// 0/1 toggles, in the schema's order.
 fn read_settings(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, Value> {
     enum F {
@@ -56,7 +56,7 @@ fn read_settings(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, 
         Toggle,
         Links,
     }
-    const FIELDS: [(&str, F); 17] = [
+    const FIELDS: [(&str, F); 18] = [
         ("siteName", F::Str(Some(255))),
         ("logo", F::Str(Some(500))),
         ("logoDark", F::Str(Some(500))),
@@ -67,6 +67,8 @@ fn read_settings(issues: &mut Issues, body: &Map<String, Value>) -> Map<String, 
         ("heroSubtitle", F::Str(None)),
         ("showSearch", F::Toggle),
         ("showCategories", F::Toggle),
+        // Sign-in and requests on the help center (helpdesk-widget-api's /api/portal).
+        ("portalEnabled", F::Toggle),
         ("metaTitle", F::Str(Some(255))),
         ("metaDescription", F::Str(None)),
         ("ogImage", F::Str(Some(500))),
@@ -152,6 +154,7 @@ async fn read(caller: Caller) -> Response {
             "heroSubtitle": null,
             "showSearch": 1,
             "showCategories": 1,
+            "portalEnabled": 0,
             "metaTitle": null,
             "metaDescription": null,
             "ogImage": null,

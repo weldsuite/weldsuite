@@ -23,9 +23,11 @@ import {
   WIDGET,
   addDanglingWidget,
   addWidget,
+  bearer,
   get,
   json,
   seedWorkspaces,
+  startSession,
   widgetEnv } from './test/widget-fixtures';
 
 // Conformance mode runs every write on both backends, each on a fresh copy.
@@ -184,19 +186,20 @@ describe('CORS', () => {
   });
 
   it('answers a preflight without a widget id', async () => {
-    for (const path of ['/api/conversations', '/api/attachments/upload', CONFIG, '/health']) {
+    for (const path of ['/api/conversations', '/api/attachments/upload', '/api/visitor', CONFIG, '/health']) {
       const res = await call(path, {
         method: 'OPTIONS',
         headers: {
           Origin: 'https://shop.example',
           'Access-Control-Request-Method': 'POST',
-          'Access-Control-Request-Headers': 'content-type,x-widget-id',
+          'Access-Control-Request-Headers': 'authorization,content-type,x-widget-id',
         },
       });
       expect(res.status, path).toBe(204);
       expect(res.headers.get('access-control-allow-origin'), path).toBe('*');
       expect(headerList(res, 'access-control-allow-methods'), path).toEqual(['delete', 'get', 'options', 'patch', 'post', 'put']);
-      expect(headerList(res, 'access-control-allow-headers'), path).toEqual(['content-type', 'x-widget-id']);
+      // The visitor token travels in `Authorization`.
+      expect(headerList(res, 'access-control-allow-headers'), path).toEqual(['authorization', 'content-type', 'x-widget-id']);
       expect(res.headers.get('access-control-allow-credentials'), path).toBeNull();
     }
   });
@@ -214,15 +217,18 @@ describe('widget auth', () => {
   });
 
   it('guards every /api route, mutations included', async () => {
+    // A visitor token is no widget id: the widget is checked first.
+    const token = 'not.a.token';
     for (const [path, init] of [
-      ['/api/conversations?visitorId=v1', undefined],
-      ['/api/conversations/identify', json({ visitorId: 'v1' }, { widgetId: null })],
-      ['/api/conversations', json({ visitorId: 'v1', body: 'hi' }, { widgetId: null })],
+      ['/api/visitor', json({}, { widgetId: null })],
+      ['/api/conversations', { headers: bearer(token) }],
+      ['/api/conversations/identify', json({}, { widgetId: null, token })],
+      ['/api/conversations', json({ body: 'hi' }, { widgetId: null, token })],
       ['/api/conversations/dconv_x', undefined],
-      ['/api/conversations/dconv_x/messages', json({ visitorId: 'v1', body: 'hi' }, { widgetId: null })],
-      ['/api/conversations/dconv_x/rating', json({ visitorId: 'v1', rating: 5 }, { widgetId: null })],
-      ['/api/realtime/token', json({ visitorId: 'v1', conversationId: 'dconv_x' }, { widgetId: null })],
-      ['/api/attachments/upload', { method: 'POST' }],
+      ['/api/conversations/dconv_x/messages', json({ body: 'hi' }, { widgetId: null, token })],
+      ['/api/conversations/dconv_x/rating', json({ rating: 5 }, { widgetId: null, token })],
+      ['/api/realtime/token', json({ conversationId: 'dconv_x' }, { widgetId: null, token })],
+      ['/api/attachments/upload', { method: 'POST', headers: bearer(token) }],
     ] as Array<[string, RequestInit | undefined]>) {
       const res = await call(path, init);
       expect(res.status, path).toBe(401);
@@ -330,11 +336,21 @@ describe('widget auth: allowed domains', () => {
   });
 
   it('applies to every /api route, not just the config', async () => {
-    const res = await call('/api/conversations?visitorId=v1', get('wdg_domain', { Origin: 'https://evil.example' }));
+    const evil = { Origin: 'https://evil.example' };
+    const refused = await call('/api/visitor', json({}, { widgetId: 'wdg_domain', headers: evil }));
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual(forbidden('Origin not allowed'));
+
+    const { visitorToken } = await startSession(
+      (path, init) => call(path, { ...init, headers: { ...(init?.headers as Record<string, string>), Origin: 'https://example.com' } }),
+      {},
+      'wdg_domain',
+    );
+    const res = await call('/api/conversations', get('wdg_domain', { ...evil, ...bearer(visitorToken) }));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual(forbidden('Origin not allowed'));
 
-    const ok = await call('/api/conversations?visitorId=v1', get('wdg_domain', { Origin: 'https://example.com' }));
+    const ok = await call('/api/conversations', get('wdg_domain', { Origin: 'https://example.com', ...bearer(visitorToken) }));
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ success: true, data: [] });
   });

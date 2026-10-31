@@ -197,6 +197,14 @@ export interface CreateDeskConversationInput {
   authorType?: DeskAuthorType;
   authorId?: string | null;
   metadata?: DeskMessageMetadata;
+  /**
+   * Ticket fields a request starts with (the help-center request form). The
+   * caller checks they exist and are active; later changes go through
+   * updateDeskConversationAttributes.
+   */
+  ticketTypeId?: string | null;
+  priority?: DeskPriority | null;
+  departmentId?: string | null;
   /** Throws DeskExternalIdTakenError when another conversation has it. */
   externalId?: string | null;
 }
@@ -229,6 +237,9 @@ export async function createDeskConversation(
         email: input.email ?? null,
         contactId: input.contactId ?? null,
         assigneeId: null,
+        ticketTypeId: input.ticketTypeId ?? null,
+        priority: input.priority ?? null,
+        departmentId: input.departmentId ?? null,
         waitingSince: authorType === 'visitor' ? now : null,
         lastMessageAt: now,
         lastMessagePreview: previewOf(input.body),

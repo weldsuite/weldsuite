@@ -3209,6 +3209,9 @@ importers:
       '@tanstack/react-start':
         specifier: ^1.169.4
         version: 1.169.4(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(rolldown@1.2.15)(rollup@4.64.12)(vite@8.3.5(@types/node@24.10.6)(jiti@2.7.0)(sass@1.51.0)(terser@5.51.2)(tsx@4.21.0)(yaml@2.9.1))(webpack@5.105.4(lightningcss@1.33.0))
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/i18n':
         specifier: workspace:*
         version: link:../../../packages/core/i18n
@@ -3279,6 +3282,9 @@ importers:
       '@vercel/analytics':
         specifier: ^1.6.1
         version: 1.6.1(next@16.4.1(@babel/core@7.29.7)(@opentelemetry/api@1.9.0)(@playwright/test@1.57.0)(@types/node@20.19.27)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(sass@1.51.0))(react@19.2.3)(svelte@5.57.2(@typescript-eslint/types@8.67.0))(vue@3.5.44(typescript@5.9.2))
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
       '@weldsuite/core-api-client':
         specifier: workspace:*
         version: link:../../../packages/clients/core-api-client
@@ -5660,9 +5666,18 @@ importers:
       '@neondatabase/serverless':
         specifier: ^1.0.1
         version: 1.0.2
+      '@weldsuite/app-api-client':
+        specifier: workspace:*
+        version: link:../../../packages/clients/app-api-client
+      '@weldsuite/commerce-domain':
+        specifier: workspace:*
+        version: link:../../../packages/domains/commerce
       '@weldsuite/db':
         specifier: workspace:*
         version: link:../../../packages/core/db
+      '@weldsuite/emails':
+        specifier: workspace:*
+        version: link:../../../packages/core/emails
       '@weldsuite/entity-events':
         specifier: workspace:*
         version: link:../../../packages/core/entity-events

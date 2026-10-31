@@ -11,6 +11,7 @@
 
 import { Hono } from 'hono';
 import { getDeskConversation } from '@weldsuite/db/lib/desk';
+import { canAccessDeskConversation } from '@weldsuite/db/lib/desk-portal';
 import type { Env, Variables } from '../index';
 import { success, error } from '../lib/response';
 import { generateId } from '../lib/id';
@@ -47,7 +48,7 @@ export const attachmentsRoutes = new Hono<{ Bindings: Env; Variables: Variables 
  * Accepts multipart form data with:
  * - file: The file to upload
  * - conversationId: The conversation the file belongs to
- * - visitorId: The calling visitor; must own the conversation
+ * - (the visitor comes from the visitor token and must be allowed into the conversation)
  *
  * Returns the uploaded file's metadata and public URL.
  */
@@ -70,7 +71,6 @@ attachmentsRoutes.post('/upload', async (c) => {
     const formData = await c.req.formData();
     const file = formData.get('file') as File | string | null;
     const conversationId = formData.get('conversationId');
-    const visitorId = formData.get('visitorId');
 
     if (!file || typeof file === 'string') {
       return error.badRequest(c, 'No file provided');
@@ -78,12 +78,10 @@ attachmentsRoutes.post('/upload', async (c) => {
     if (typeof conversationId !== 'string' || !ID_PATTERN.test(conversationId)) {
       return error.badRequest(c, 'conversationId is required');
     }
-    if (typeof visitorId !== 'string' || !ID_PATTERN.test(visitorId)) {
-      return error.badRequest(c, 'visitorId is required');
-    }
 
-    const owned = await getDeskConversation(c.get('tenantDb'), conversationId);
-    if (!owned || owned.conversation.visitorId !== visitorId) {
+    const db = c.get('tenantDb');
+    const owned = await getDeskConversation(db, conversationId);
+    if (!owned || !(await canAccessDeskConversation(db, owned.conversation, c.get('principal')))) {
       return error.notFound(c, 'Conversation', conversationId);
     }
 

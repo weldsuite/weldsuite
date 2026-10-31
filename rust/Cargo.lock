@@ -4219,6 +4219,8 @@ name = "weldsuite-desk"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
+ "getrandom 0.4.3",
  "http",
  "serde_json",
  "sqlx",

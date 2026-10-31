@@ -58,7 +58,15 @@ where
         .route("/{id}/manage", post(manage).route_layer(update()))
 }
 
-const CHANNELS: &[&str] = &["messenger", "email", "phone", "whatsapp", "sms", "api"];
+const CHANNELS: &[&str] = &[
+    "messenger",
+    "email",
+    "phone",
+    "whatsapp",
+    "sms",
+    "api",
+    "portal",
+];
 
 /// `zValidator('query', schema)`: the query's values, or the 400.
 #[allow(clippy::result_large_err)] // the response is the route's answer

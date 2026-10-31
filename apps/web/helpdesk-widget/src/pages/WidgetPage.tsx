@@ -25,6 +25,8 @@ function isEmbedded(): boolean {
  *   ← weld:open / weld:close         panel visibility
  *   → weld:close                     visitor pressed close
  *   → weld:unread-count {count}      forwarded to the launcher badge
+ *   ← weld:init {auth?}              / weld:auth:login / weld:auth:logout: who the
+ *                                    visitor is (lib/sdk-bridge, lib/visitor-session)
  */
 export function WidgetPage() {
   const [searchParams] = useSearchParams();

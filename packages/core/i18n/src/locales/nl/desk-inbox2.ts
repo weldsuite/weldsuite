@@ -45,6 +45,7 @@ export const deskInbox2 = {
     whatsapp: 'WhatsApp',
     sms: 'SMS',
     api: 'API',
+    portal: 'Helpcentrum',
   },
   pane: {
     selectTitle: 'Selecteer een gesprek',

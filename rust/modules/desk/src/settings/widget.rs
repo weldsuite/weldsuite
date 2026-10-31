@@ -2,6 +2,11 @@
 //! web chat widgets (`desk_widget_settings`), each registered in the master
 //! `widget_registry` so the public widget API resolves its workspace.
 //! Permissions `settings:read|update`, delete `settings:manage`.
+//!
+//! Identity verification: the widget's identity secret signs the identity
+//! tokens a customer's server hands the widget. It never appears in a
+//! settings response or an entity event; only `/:widgetId/identity` reads,
+//! rotates or removes it (`settings:manage`).
 
 use std::sync::Arc;
 
@@ -10,12 +15,14 @@ use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post};
 use axum::{Extension, Router};
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
 use weldsuite_catalogs::entity_events as ev;
 use weldsuite_db::{PgPool, Tenant};
 use weldsuite_kit::validation::{Field, Issues, Presence, Text};
-use weldsuite_kit::{Created, Data, generate_id};
+use weldsuite_kit::{ApiError, Created, Data, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
 use super::{lenient_json, master};
@@ -43,6 +50,43 @@ where
             "/{widget_id}",
             delete(remove).route_layer(need("settings:manage")),
         )
+        .route(
+            "/{widget_id}/identity",
+            get(identity).route_layer(need("settings:manage")),
+        )
+        .route(
+            "/{widget_id}/identity",
+            post(rotate_identity).route_layer(need("settings:manage")),
+        )
+        .route(
+            "/{widget_id}/identity",
+            delete(remove_identity).route_layer(need("settings:manage")),
+        )
+}
+
+/// `publicWidget(row)`: a settings row as the API shows it, everything but
+/// the identity secret.
+fn public(mut row: Value) -> Value {
+    if let Value::Object(fields) = &mut row {
+        fields.remove("identitySecret");
+    }
+    row
+}
+
+/// `newIdentitySecret()`: 256 random bits, base64url without padding, the
+/// HS256 key customers sign identity tokens with.
+fn new_identity_secret() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("the operating system has a random source");
+    URL_SAFE_NO_PAD.encode(bytes)
+}
+
+/// `{ secret, required }`, as the identity routes answer it.
+fn identity_of(row: &Value) -> Value {
+    json!({
+        "secret": row.get("identitySecret").cloned().unwrap_or(Value::Null),
+        "required": row.get("identityRequired").cloned().unwrap_or(Value::Bool(false)),
+    })
 }
 
 // ── schemas (`@weldsuite/core-api-client/schemas/desk-widget`) ──────────────
@@ -349,6 +393,9 @@ fn read_update(
         keep(&mut data, "awayMessage", text(away));
         let reply = issues.choice(fields, "expectedReplyTime", Presence::Nullish, &REPLY_TIMES);
         keep(&mut data, "expectedReplyTime", text(reply));
+        if let Field::Set(flag) = issues.boolean(fields, "identityRequired", Presence::Optional) {
+            data.insert("identityRequired".to_owned(), Value::Bool(flag));
+        }
         for refinement in refinements {
             issues.custom_at(&refinement.path, refinement.message);
         }
@@ -365,7 +412,9 @@ async fn list(caller: Caller) -> Response {
             .await;
     match rows {
         Ok(rows) => Data(Value::Array(
-            rows.into_iter().map(|row| WIDGETS.js(row)).collect(),
+            rows.into_iter()
+                .map(|row| public(WIDGETS.js(row)))
+                .collect(),
         ))
         .into_response(),
         Err(error) => Refusal::Database(error).respond("Failed to list widgets"),
@@ -449,9 +498,10 @@ async fn create(
         &id,
         &json!({ "id": id, "widgetId": widget_id, "widgetName": name }),
     );
-    Created(created).into_response()
+    Created(public(created)).into_response()
 }
 
+/// The row of `widget_id`, identity secret included.
 async fn by_widget_id(db: &PgPool, widget_id: &str) -> Result<Option<Value>, sqlx::Error> {
     let row: Option<Value> = sqlx::query_scalar(
         "select to_jsonb(t) from desk_widget_settings t where t.widget_id = $1 limit 1",
@@ -465,7 +515,7 @@ async fn by_widget_id(db: &PgPool, widget_id: &str) -> Result<Option<Value>, sql
 async fn detail(caller: Caller, Path(widget_id): Path<String>) -> Response {
     let message = "Failed to fetch widget";
     match by_widget_id(&caller.db, &widget_id).await {
-        Ok(Some(row)) => Data(row).into_response(),
+        Ok(Some(row)) => Data(public(row)).into_response(),
         Ok(None) => Refusal::not_found("Widget", &widget_id).respond(message),
         Err(error) => Refusal::Database(error).respond(message),
     }
@@ -528,6 +578,12 @@ async fn update(
         Ok(None) => return Refusal::not_found("Widget", &widget_id).respond(message),
         Err(error) => return Refusal::Database(error).respond(message),
     };
+    if data.get("identityRequired") == Some(&Value::Bool(true))
+        && existing["identitySecret"].is_null()
+    {
+        return ApiError::bad_request("Set up identity verification before requiring it")
+            .into_response();
+    }
     let id = existing["id"].as_str().unwrap_or_default().to_owned();
     // `widgetSettingsPatch(data)`: the fields sent; an empty away message
     // clears it (`data.awayMessage || null`).
@@ -575,9 +631,82 @@ async fn update(
             tracing::error!(%error, "[app-api/desk-widget] registry update failed");
         }
     }
-    let row = updated.unwrap_or(existing);
+    let row = public(updated.unwrap_or(existing));
     caller.publish(&state, ev::DESK_WIDGET_UPDATED, &id, &row);
     Data(row).into_response()
+}
+
+/// `GET /:widgetId/identity`: the identity secret and whether it is
+/// required; a null secret means identity verification is off.
+async fn identity(caller: Caller, Path(widget_id): Path<String>) -> Response {
+    let message = "Failed to read identity verification";
+    match by_widget_id(&caller.db, &widget_id).await {
+        Ok(Some(row)) => Data(identity_of(&row)).into_response(),
+        Ok(None) => Refusal::not_found("Widget", &widget_id).respond(message),
+        Err(error) => Refusal::Database(error).respond(message),
+    }
+}
+
+/// Write `fields` (and `updatedAt`) to the widget `widget_id` and publish
+/// `desk_widget.updated` with its public row; the route answers
+/// `answer(row)`, the row written with its secret.
+async fn write_identity(
+    state: &DeskState,
+    caller: &Caller,
+    widget_id: &str,
+    fields: &[(&str, Value)],
+    message: &str,
+    answer: fn(&Value) -> Value,
+) -> Response {
+    let existing = match by_widget_id(&caller.db, widget_id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => return Refusal::not_found("Widget", widget_id).respond(message),
+        Err(error) => return Refusal::Database(error).respond(message),
+    };
+    let id = existing["id"].as_str().unwrap_or_default().to_owned();
+    let mut values = Map::new();
+    for (prop, value) in fields {
+        WIDGETS.set(&mut values, prop, value.clone());
+    }
+    WIDGETS.set(&mut values, "updatedAt", json!(now()));
+    let updated = match WIDGETS
+        .patch(&caller.db, &id, values, true, &["updatedAt"])
+        .await
+    {
+        Ok(row) => row,
+        Err(error) => return write_failed(&error, message),
+    };
+    let row = updated.unwrap_or(existing);
+    caller.publish(state, ev::DESK_WIDGET_UPDATED, &id, &public(row.clone()));
+    Data(answer(&row)).into_response()
+}
+
+/// `POST /:widgetId/identity`: set up or rotate the identity secret. Tokens
+/// signed with the old one stop working at once.
+async fn rotate_identity(
+    State(state): State<DeskState>,
+    caller: Caller,
+    Path(widget_id): Path<String>,
+) -> Response {
+    let fields = [("identitySecret", json!(new_identity_secret()))];
+    let message = "Failed to set up identity verification";
+    write_identity(&state, &caller, &widget_id, &fields, message, identity_of).await
+}
+
+/// `DELETE /:widgetId/identity`: turn identity verification off, no secret
+/// and nobody required to be identified.
+async fn remove_identity(
+    State(state): State<DeskState>,
+    caller: Caller,
+    Path(widget_id): Path<String>,
+) -> Response {
+    let fields = [
+        ("identitySecret", Value::Null),
+        ("identityRequired", Value::Bool(false)),
+    ];
+    let message = "Failed to turn off identity verification";
+    let off = |_: &Value| json!({ "secret": null, "required": false });
+    write_identity(&state, &caller, &widget_id, &fields, message, off).await
 }
 
 async fn remove(

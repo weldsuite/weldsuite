@@ -1,17 +1,19 @@
 /**
- * Customer profile storage for persisting customer identification across sessions
+ * Customer profile storage for persisting customer identification across sessions,
+ * and the visitor token that identifies this browser to helpdesk-widget-api.
  */
 
 export interface CustomerProfile {
   email?: string;
-  visitorId?: string;
   customerId?: string;
   name?: string;
   lastUpdated: Date;
 }
 
 const STORAGE_KEY_PREFIX = 'weldsuite_helpdesk_customer_';
-const VISITOR_ID_KEY = 'weldsuite_helpdesk_visitor_id';
+/** Before visitor tokens the widget made its own visitor id; only read to swap it once (see visitor-session). */
+const LEGACY_VISITOR_ID_KEY = 'weldsuite_helpdesk_visitor_id';
+const VISITOR_TOKEN_KEY_PREFIX = 'weldsuite_helpdesk_visitor_token_';
 const VISITOR_NAME_KEY = 'weldsuite_helpdesk_visitor_name';
 
 // In-memory fallback when localStorage is unavailable (incognito, full, disabled)
@@ -33,6 +35,15 @@ function storageSet(key: string, value: string): void {
   }
 }
 
+function storageRemove(key: string): void {
+  memoryStore.delete(key);
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // storage unavailable: the memory copy is gone already
+  }
+}
+
 const ADJECTIVES = [
   'Brave', 'Bright', 'Calm', 'Clever', 'Cool', 'Curious', 'Daring', 'Eager',
   'Fair', 'Fast', 'Friendly', 'Gentle', 'Happy', 'Honest', 'Keen', 'Kind',
@@ -46,14 +57,6 @@ const ANIMALS = [
   'Penguin', 'Phoenix', 'Rabbit', 'Raven', 'Robin', 'Seal', 'Sparrow',
   'Tiger', 'Whale', 'Wolf', 'Wren', 'Zebra', 'Heron', 'Jaguar',
 ];
-
-
-/** Random base-36 string of `length` characters (Web Crypto, not Math.random). */
-function randomToken(length: number): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
-}
 
 /** Secure random index in [0, length). */
 function randomIndex(length: number): number {
@@ -84,29 +87,28 @@ export function getOrCreateVisitorName(): string {
 }
 
 /**
- * Generate a unique visitor ID
+ * The visitor token `POST /api/visitor` issued for this widget. It is the
+ * visitor's only credential: every other API call carries it as a Bearer.
  */
-function generateVisitorId(): string {
-  return `visitor_${Date.now()}_${randomToken(13)}`;
+export function getVisitorToken(widgetId: string): string | null {
+  return storageGet(`${VISITOR_TOKEN_KEY_PREFIX}${widgetId}`);
 }
 
-/**
- * Get or create a persistent visitor ID for anonymous users
- */
-export function getOrCreateVisitorId(): string {
-  let visitorId = storageGet(VISITOR_ID_KEY);
-  if (!visitorId) {
-    visitorId = generateVisitorId();
-    storageSet(VISITOR_ID_KEY, visitorId);
-  }
-  return visitorId;
+export function saveVisitorToken(widgetId: string, token: string): void {
+  storageSet(`${VISITOR_TOKEN_KEY_PREFIX}${widgetId}`, token);
 }
 
-/**
- * Get the visitor ID without creating a new one
- */
-export function getVisitorId(): string | null {
-  return storageGet(VISITOR_ID_KEY);
+export function clearVisitorToken(widgetId: string): void {
+  storageRemove(`${VISITOR_TOKEN_KEY_PREFIX}${widgetId}`);
+}
+
+/** The browser-made visitor id from before visitor tokens, if this browser still has one. */
+export function getLegacyVisitorId(): string | null {
+  return storageGet(LEGACY_VISITOR_ID_KEY);
+}
+
+export function clearLegacyVisitorId(): void {
+  storageRemove(LEGACY_VISITOR_ID_KEY);
 }
 
 /**
@@ -151,11 +153,7 @@ export function saveCustomerProfile(widgetId: string, profile: Omit<CustomerProf
  * Clear customer profile for a widget
  */
 export function clearCustomerProfile(widgetId: string): void {
-  try {
-    localStorage.removeItem(getStorageKey(widgetId));
-  } catch {
-    memoryStore.delete(getStorageKey(widgetId));
-  }
+  storageRemove(getStorageKey(widgetId));
 }
 
 /**

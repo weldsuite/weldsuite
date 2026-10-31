@@ -4,13 +4,15 @@ import clsx from 'clsx'
 
 import { ThemeSelector } from '@/components/ThemeSelector'
 import { LocaleSwitcher } from '@/components/LocaleSwitcher'
-import type { HelpcenterConfig } from '@/lib/api-client'
+import { AccountNav } from '@/components/portal/AccountNav'
+import type { HelpcenterConfig, PortalState } from '@/lib/api-client'
 
 interface HeaderProps {
   config: HelpcenterConfig
+  portal: PortalState
 }
 
-export function Header({ config }: Readonly<HeaderProps>) {
+export function Header({ config, portal }: Readonly<HeaderProps>) {
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
@@ -30,7 +32,7 @@ export function Header({ config }: Readonly<HeaderProps>) {
       )}
     >
       <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-6">
-        <Link to="/" className="flex items-center gap-2.5" aria-label="Home">
+        <Link to="/" className="flex min-w-0 items-center gap-2.5" aria-label="Home">
           {config.logo && (
             <>
               <img
@@ -51,12 +53,12 @@ export function Header({ config }: Readonly<HeaderProps>) {
               )}
             </>
           )}
-          <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-white">
+          <span className="truncate text-sm font-semibold tracking-tight text-zinc-900 dark:text-white">
             {config.siteName || 'Help Center'}
           </span>
         </Link>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           <Link
             to="/search"
             className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/60 px-3 py-1.5 text-sm text-zinc-500 transition-colors hover:border-zinc-300 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400 dark:hover:border-zinc-700 dark:hover:text-zinc-200"
@@ -67,6 +69,7 @@ export function Header({ config }: Readonly<HeaderProps>) {
             </svg>
             <span className="hidden sm:inline">Search</span>
           </Link>
+          <AccountNav portal={portal} />
           <LocaleSwitcher className="relative z-10" />
           <ThemeSelector className="relative z-10" />
         </div>

@@ -41,7 +41,7 @@ import type { DeskSlaMetric } from './desk-sla-clocks';
 
 export type DeskConversationState = 'open' | 'closed';
 
-export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api';
+export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api' | 'portal';
 
 /** null = no priority set. */
 export type DeskPriority = 'low' | 'medium' | 'high' | 'urgent';

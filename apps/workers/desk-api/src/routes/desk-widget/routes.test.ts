@@ -192,6 +192,7 @@ describe('/api/desk/widget/:widgetId', () => {
         timezone: null,
         awayMessage: null,
         expectedReplyTime: null,
+        identityRequired: false,
       },
     });
   });
@@ -308,6 +309,53 @@ describe('/api/desk/widget/:widgetId', () => {
     expect(res.status).toBe(200);
     const after = await rowOf('widget_seed');
     expect({ ...after, updatedAt: null }).toEqual({ ...before, updatedAt: null });
+  });
+
+  it('identity verification needs settings:manage and an existing widget', async () => {
+    for (const method of ['GET', 'POST', 'DELETE']) {
+      expect((await UPDATE().request(`${BASE}/widget_seed/identity`, send(method))).status).toBe(403);
+      expect((await app('settings:manage').request(`${BASE}/widget_missing/identity`, send(method))).status).toBe(404);
+    }
+  });
+
+  it('identity verification is off until a secret is set up, and cannot be required before', async () => {
+    const res = await app('settings:manage').request(`${BASE}/widget_seed/identity`);
+    expect(await res.json()).toEqual({ data: { secret: null, required: false } });
+    const require = await UPDATE().request(`${BASE}/widget_seed`, send('PATCH', { identityRequired: true }));
+    expect(require.status).toBe(400);
+    expect((await rowOf('widget_seed'))?.identityRequired).toBe(false);
+  });
+
+  it('sets up a secret that no settings response shows, then requires it', async () => {
+    const created = await app('settings:manage').request(`${BASE}/widget_seed/identity`, send('POST'));
+    expect(created.status).toBe(200);
+    const { data } = (await created.json()) as { data: { secret: string; required: boolean } };
+    expect(data.secret).toMatch(/^[\w-]{43}$/);
+    expect(data.required).toBe(false);
+    expect((await rowOf('widget_seed'))?.identitySecret).toBe(data.secret);
+
+    const read = await app('settings:manage').request(`${BASE}/widget_seed/identity`);
+    expect(await read.json()).toEqual({ data: { secret: data.secret, required: false } });
+
+    const patched = await UPDATE().request(`${BASE}/widget_seed`, send('PATCH', { identityRequired: true }));
+    expect(patched.status).toBe(200);
+    const patchedBody = (await patched.json()) as { data: Record<string, unknown> };
+    expect(patchedBody.data.identityRequired).toBe(true);
+    for (const res of [patchedBody, await (await READ().request(`${BASE}/widget_seed`)).json()]) {
+      expect(JSON.stringify(res)).not.toContain(data.secret);
+    }
+    const listed = await (await READ().request(BASE)).json();
+    expect(JSON.stringify(listed)).not.toContain(data.secret);
+  });
+
+  it('rotating replaces the secret; removing turns verification off', async () => {
+    const before = (await rowOf('widget_seed'))?.identitySecret;
+    await app('settings:manage').request(`${BASE}/widget_seed/identity`, send('POST'));
+    expect((await rowOf('widget_seed'))?.identitySecret).not.toBe(before);
+
+    const removed = await app('settings:manage').request(`${BASE}/widget_seed/identity`, send('DELETE'));
+    expect(await removed.json()).toEqual({ data: { secret: null, required: false } });
+    expect(await rowOf('widget_seed')).toMatchObject({ identitySecret: null, identityRequired: false });
   });
 
   it('DELETE needs settings:manage and an existing widget', async () => {

@@ -6,7 +6,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 export type DeskConversationState = 'open' | 'closed';
-export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api';
+export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api' | 'portal';
 export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest' | 'sla_due';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
@@ -136,6 +136,14 @@ export interface DeskWidgetSettings {
   timezone: string | null;
   awayMessage: string | null;
   expectedReplyTime: DeskExpectedReplyTime | null;
+  /** Refuse visitors without a valid identity token (needs an identity secret). */
+  identityRequired: boolean;
+}
+
+/** GET / POST / DELETE /api/desk/widget/:widgetId/identity. A null secret = identity verification is off. */
+export interface DeskWidgetIdentity {
+  secret: string | null;
+  required: boolean;
 }
 
 export interface DeskListPagination {
@@ -153,6 +161,8 @@ export const deskKeys = {
   attributeOptions: () => [...deskKeys.all, 'attribute-options'] as const,
   widget: () => [...deskKeys.all, 'widget'] as const,
   widgetDetail: (widgetId: string) => [...deskKeys.widget(), widgetId] as const,
+  /** Outside `widget()` on purpose: invalidating the widget rows must not refetch the secret. */
+  widgetIdentity: (widgetId: string) => [...deskKeys.all, 'widget-identity', widgetId] as const,
   assignment: () => [...deskKeys.all, 'assignment'] as const,
 };
 
@@ -640,14 +650,21 @@ export function useUpdateDeskWidget() {
         timezone?: string | null;
         awayMessage?: string | null;
         expectedReplyTime?: DeskExpectedReplyTime | null;
+        /** 400 when the widget has no identity secret yet. */
+        identityRequired?: boolean;
       };
     }) => {
       const client = await getClient();
       return client.patch<{ data: DeskWidgetSettings }>(`/desk/widget/${widgetId}`, data);
     },
-    onSuccess: (_result, variables) => {
+    onSuccess: (result, variables) => {
       qc.invalidateQueries({ queryKey: deskKeys.widget() });
       qc.invalidateQueries({ queryKey: deskKeys.widgetDetail(variables.widgetId) });
+      if (variables.data.identityRequired !== undefined) {
+        qc.setQueryData<DeskWidgetIdentity>(deskKeys.widgetIdentity(variables.widgetId), (prev) =>
+          prev ? { ...prev, required: result.data.identityRequired } : prev,
+        );
+      }
     },
   });
 }
@@ -662,6 +679,66 @@ export function useDeleteDeskWidget() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: deskKeys.widget() });
+    },
+  });
+}
+
+/**
+ * The widget's identity secret (settings:manage; 403 otherwise). It is a
+ * credential: fetched only while the identity section is open, never
+ * persisted to the offline cache, and dropped as soon as nothing shows it.
+ */
+export function useDeskWidgetIdentity(widgetId: string, enabled: boolean) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: deskKeys.widgetIdentity(widgetId),
+    queryFn: async () => {
+      const client = await getClient();
+      const result = await client.get<{ data: DeskWidgetIdentity }>(`/desk/widget/${widgetId}/identity`);
+      return result.data;
+    },
+    enabled: !!widgetId && enabled,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    meta: { persist: false },
+  });
+}
+
+/** Set up or rotate the identity secret. Tokens signed with the old one stop working at once. */
+export function useRotateDeskWidgetIdentity() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    // Keep the new secret out of the mutation cache once the call settles.
+    gcTime: 0,
+    mutationFn: async (widgetId: string) => {
+      const client = await getClient();
+      const result = await client.post<{ data: DeskWidgetIdentity }>(`/desk/widget/${widgetId}/identity`, {});
+      return result.data;
+    },
+    onSuccess: (identity, widgetId) => {
+      qc.setQueryData(deskKeys.widgetIdentity(widgetId), identity);
+    },
+  });
+}
+
+/** Turn identity verification off: the secret is deleted and nobody is required to sign in. */
+export function useDisableDeskWidgetIdentity() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    gcTime: 0,
+    mutationFn: async (widgetId: string) => {
+      const client = await getClient();
+      const result = await client.delete<{ data: DeskWidgetIdentity }>(`/desk/widget/${widgetId}/identity`);
+      return result.data;
+    },
+    onSuccess: (identity, widgetId) => {
+      qc.setQueryData(deskKeys.widgetIdentity(widgetId), identity);
+      qc.invalidateQueries({ queryKey: deskKeys.widget() });
+      qc.invalidateQueries({ queryKey: deskKeys.widgetDetail(widgetId) });
     },
   });
 }

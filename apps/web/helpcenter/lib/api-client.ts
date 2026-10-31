@@ -16,6 +16,8 @@ import { extractHeadings, type Heading } from '@/lib/headings'
 import * as helpcenter from '@/lib/server/helpcenter'
 import { sanitizeArticleHtml } from '@/lib/server/sanitize-article'
 import { requestDomain } from '@/lib/server/upstream'
+import { isPortalEnabled } from '@/lib/server/widget-api'
+import { readSignedInEmail } from '@/lib/server/portal-session'
 
 // ============================================================================
 // Types (shapes of desk-api's /public/helpcenter responses)
@@ -83,6 +85,14 @@ export interface SiteData {
   folders: Folder[]
   /** Request locale: cookie first, then Accept-Language. */
   language: Language
+  /** Sign-in and requests: whether they are on here, and who is signed in. */
+  portal: PortalState
+}
+
+export interface PortalState {
+  enabled: boolean
+  /** The signed-in reader's email (from the session cookie); null when signed out. */
+  email: string | null
 }
 
 // ============================================================================
@@ -105,9 +115,11 @@ export const getSite = createServerFn({ method: 'GET' }).handler(async (): Promi
   const domain = requestDomain()
   if (!domain) throw notFound()
 
-  const [config, folders] = await Promise.all([
+  // A widget-api outage only hides sign-in; the help center itself still renders.
+  const [config, folders, portalEnabled] = await Promise.all([
     helpcenter.getHelpcenterConfig(domain),
     helpcenter.getFolders(domain),
+    isPortalEnabled(domain),
   ])
   if (!config) throw notFound()
 
@@ -118,7 +130,12 @@ export const getSite = createServerFn({ method: 'GET' }).handler(async (): Promi
       acceptLanguage: headers.get('accept-language'),
     }).read?.() ?? defaultLanguage
 
-  return { domain, config, folders, language }
+  const portal: PortalState = {
+    enabled: portalEnabled,
+    email: portalEnabled ? readSignedInEmail() : null,
+  }
+
+  return { domain, config, folders, language, portal }
 })
 
 /** The six newest articles for the landing page. */

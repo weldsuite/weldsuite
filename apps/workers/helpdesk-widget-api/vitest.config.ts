@@ -13,14 +13,15 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
-      // Workers-only module; the worker's notifications (@weldsuite/notifications)
-      // reach @weldsuite/emails, whose binding transport imports it. The routes
-      // run for real in the integration tests, so it needs a stand-in under vitest.
+      '@': path.resolve(import.meta.dirname, './src'),
+      // Workers-only modules. @weldsuite/emails' binding transport (the
+      // sign-in code mail, and notifications) imports `cloudflare:email`; the
+      // PortalRateLimiter Durable Object extends `cloudflare:workers`.
       'cloudflare:email': path.resolve(
-        __dirname,
+        import.meta.dirname,
         '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
       ),
+      'cloudflare:workers': path.resolve(import.meta.dirname, './src/testing/cloudflare-workers-stub.ts'),
     },
   },
 });

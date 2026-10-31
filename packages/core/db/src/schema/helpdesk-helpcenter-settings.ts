@@ -39,6 +39,10 @@ export const helpcenterSettings = pgTable('helpcenter_settings', {
   showSearch: integer('show_search').default(1),
   showCategories: integer('show_categories').default(1),
 
+  // Sign-in and requests: readers sign in with an email code, submit requests
+  // built from the customer ticket types and follow them under "My requests".
+  portalEnabled: integer('portal_enabled').default(0),
+
   // SEO
   metaTitle: varchar('meta_title', { length: 255 }),
   metaDescription: text('meta_description'),

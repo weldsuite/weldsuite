@@ -81,6 +81,7 @@
     "./schemas/auth-desktop": "./src/schemas/auth-desktop.ts",
     "./schemas/cli-auth": "./src/schemas/cli-auth.ts",
     "./schemas/commerce-portal": "./src/schemas/commerce-portal.ts",
+    "./schemas/desk-portal": "./src/schemas/desk-portal.ts",
     "./schemas/weldhr": "./src/schemas/weldhr.ts",
     "./schemas/weldhr-payroll": "./src/schemas/weldhr-payroll.ts",
     "./schemas/weldpass": "./src/schemas/weldpass.ts",

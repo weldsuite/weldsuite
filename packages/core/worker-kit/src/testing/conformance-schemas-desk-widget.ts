@@ -19,12 +19,19 @@ import {
   widgetResponseSchema,
   widgetUploadedAttachmentSchema,
 } from '@weldsuite/core-api-client/schemas/helpdesk-widget';
+import { deskVisitorSessionSchema } from '@weldsuite/app-api-client/schemas/desk-portal';
 import type { RouteSchema } from './conformance-schemas';
 
 const WIDGET = '/public/helpdesk-widget';
 
 export const DESK_WIDGET_ROUTES: RouteSchema[] = [
   { method: 'GET', route: `${WIDGET}/api/config`, envelope: 'body', data: widgetResponseSchema(widgetConfigSchema) },
+  {
+    method: 'POST',
+    route: `${WIDGET}/api/visitor`,
+    envelope: 'body',
+    data: widgetResponseSchema(deskVisitorSessionSchema),
+  },
   {
     method: 'POST',
     route: `${WIDGET}/api/conversations/identify`,

@@ -103,6 +103,10 @@ function conversationToItem(
     labels.push(t.channel.phone);
     labelColors[t.channel.phone] = '#1d4ed8';
   }
+  if (conversation.channel === 'portal') {
+    labels.push(t.channel.portal);
+    labelColors[t.channel.portal] = '#b45309';
+  }
   // Opened by an integration, the AI or a workflow (public API, MCP, WeldConnect).
   if (conversation.channel === 'api') {
     labels.push('API');
