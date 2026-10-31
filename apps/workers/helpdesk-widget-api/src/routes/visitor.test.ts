@@ -17,7 +17,8 @@ import { signJwt } from '../lib/tokens';
 import { issueVisitorToken } from '../lib/visitor-identity';
 import { visitorAuthMiddleware } from '../middleware/visitor-auth';
 
-vi.setConfig({ testTimeout: 60_000 });
+// pglite builds the tenant schema on first use, slowly on a busy CI runner.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 
 vi.mock('../lib/desk-live', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/desk-live')>()),

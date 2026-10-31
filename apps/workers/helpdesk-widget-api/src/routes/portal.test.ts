@@ -20,7 +20,8 @@ import type { TicketTypeField } from '@weldsuite/db/schema';
 import type { Env, Variables } from '../index';
 import { generateId } from '../lib/id';
 
-vi.setConfig({ testTimeout: 60_000 });
+// pglite builds the tenant schema on first use, slowly on a busy CI runner.
+vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 
 const holder = vi.hoisted(() => ({
   tenant: null as unknown,
