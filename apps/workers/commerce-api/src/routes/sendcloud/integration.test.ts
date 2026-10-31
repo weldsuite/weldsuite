@@ -11,6 +11,10 @@ import { getSendcloudSettings } from '@weldsuite/sendcloud/settings';
 import { sendcloudRoutes } from './index';
 
 let db: Database;
+
+/** The real `fetch`: the stubs hand it every request but Sendcloud's (the conformance harness's own). */
+const realFetch = globalThis.fetch;
+const SENDCLOUD = 'https://panel.sendcloud.sc/';
 const clerkOrgId = 'org_test_default';
 
 beforeAll(async () => {
@@ -20,8 +24,9 @@ beforeAll(async () => {
 
 describe('POST /api/sendcloud/connect', () => {
   it('stores the connection after a successful catalog sync', async () => {
-    const fetchImpl: typeof fetch = async (input) => {
-      const url = String(input);
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.startsWith(SENDCLOUD)) return realFetch(input, init);
       if (url.includes('/addresses/sender-addresses')) {
         return new Response(
           JSON.stringify({
@@ -91,8 +96,10 @@ describe('POST /api/sendcloud/connect', () => {
 
   it('rejects invalid keys', async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = async () =>
-      new Response(JSON.stringify({ error: { message: 'Invalid credentials' } }), { status: 401 });
+    globalThis.fetch = async (input, init) =>
+      String(input instanceof Request ? input.url : input).startsWith(SENDCLOUD)
+        ? new Response(JSON.stringify({ error: { message: 'Invalid credentials' } }), { status: 401 })
+        : realFetch(input, init);
     try {
       const { request } = createTestApp('/api/sendcloud', sendcloudRoutes, {
         context: {
