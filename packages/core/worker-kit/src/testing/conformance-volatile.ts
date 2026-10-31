@@ -80,6 +80,33 @@ const ROUTES: VolatileRoute[] = [
   { method: 'POST', route: '/public/helpdesk-widget/api/visitor', fields: [{ path: 'data.visitorToken' }] },
   // The widget worker's health check stamps the time it answered.
   { method: 'GET', route: '/public/helpdesk-widget/health', fields: [{ path: 'timestamp' }] },
+  // WeldStash numbers its pick lists, putaway tasks and transfers from
+  // `Date.now()` in base 36 (`PL-…`, `PUT-…`, `TRF-…-<id>`), new per run.
+  { method: 'POST', route: '/api/pick-lists', fields: [{ path: 'data.pickListNumber' }] },
+  {
+    method: 'POST',
+    route: '/api/pick-lists/generate',
+    fields: [{ path: 'data.pickListNumber' }],
+    events: [{ path: 'data.pickListNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/putaway',
+    fields: [{ path: 'data.movementNumber' }],
+    events: [{ path: 'data.movementNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/inventory/transfer',
+    fields: [{ path: 'data.movementNumber' }],
+    events: [{ path: 'data.movementNumber' }],
+  },
+  // The activity summary's period ends now and starts N days before.
+  {
+    method: 'GET',
+    route: '/api/wms-activity/summary',
+    fields: [{ path: 'data.startDate' }, { path: 'data.endDate' }],
+  },
   // WeldFlow's timer: a stopped entry's duration is the minutes since it
   // started, to two decimals (`minutesBetween`), so it ticks every 0.6 s and
   // the two runs can straddle a tick. The whole minutes are still compared,

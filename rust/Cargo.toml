@@ -51,6 +51,7 @@ weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-sign = { path = "modules/sign" }
+weldsuite-stash = { path = "modules/stash" }
 weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-subscribers = { path = "crates/subscribers" }
 weldsuite-permissions = { path = "crates/permissions" }

@@ -321,7 +321,7 @@
       "/api/wms-activity",
       "/api/wms-suppliers"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "stash-api"
   },
   {

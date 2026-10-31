@@ -1695,6 +1695,93 @@
       ]
     },
     {
+      "name": "stash: warehouses, locations and records",
+      "module": "stash",
+      "workspace": "apps/workers/stash-api",
+      "tests": [
+        "src/routes/boxes/routes.test.ts",
+        "src/routes/boxes/integration.test.ts",
+        "src/routes/warehouses/routes.test.ts",
+        "src/routes/warehouses/integration.test.ts",
+        "src/routes/warehouse-zones/routes.test.ts",
+        "src/routes/warehouse-locations/routes.test.ts",
+        "src/routes/wms-suppliers/routes.test.ts",
+        "src/routes/cycle-counts/routes.test.ts",
+        "src/routes/purchase-orders/routes.test.ts",
+        "src/routes/inventory-movements/routes.test.ts",
+        "src/routes/stock-adjustments/routes.test.ts",
+        "src/routes/wms-activity/routes.test.ts",
+        "src/routes/pickers/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/stash-api/src/routes/boxes/",
+        "apps/workers/stash-api/src/routes/warehouses/",
+        "apps/workers/stash-api/src/routes/warehouse-zones/",
+        "apps/workers/stash-api/src/routes/warehouse-locations/",
+        "apps/workers/stash-api/src/routes/wms-suppliers/",
+        "apps/workers/stash-api/src/routes/cycle-counts/",
+        "apps/workers/stash-api/src/routes/purchase-orders/",
+        "apps/workers/stash-api/src/routes/inventory-movements/",
+        "apps/workers/stash-api/src/routes/stock-adjustments/",
+        "apps/workers/stash-api/src/routes/wms-activity/",
+        "apps/workers/stash-api/src/routes/pickers/",
+        "packages/clients/core-api-client/src/schemas/boxes.ts",
+        "packages/clients/core-api-client/src/schemas/warehouses.ts",
+        "packages/clients/core-api-client/src/schemas/cycle-counts.ts",
+        "packages/clients/core-api-client/src/schemas/purchase-orders.ts",
+        "packages/clients/core-api-client/src/schemas/inventory-movements.ts",
+        "packages/clients/app-api-client/src/schemas/warehouse-zones.ts",
+        "packages/clients/app-api-client/src/schemas/warehouse-locations.ts",
+        "packages/clients/app-api-client/src/schemas/wms-suppliers.ts",
+        "packages/clients/app-api-client/src/schemas/pickers.ts",
+        "packages/clients/app-api-client/src/schemas/stock-adjustments.ts",
+        "apps/workers/stash-api/src/test/",
+        "apps/workers/stash-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/stash-responses.ts",
+        "rust/modules/stash/"
+      ]
+    },
+    {
+      "name": "stash: inventory and putaway",
+      "module": "stash",
+      "workspace": "apps/workers/stash-api",
+      "tests": [
+        "src/routes/inventory/routes.test.ts",
+        "src/routes/putaway/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/stash-api/src/routes/inventory/",
+        "apps/workers/stash-api/src/routes/putaway/",
+        "apps/workers/stash-api/src/services/inventory-ledger.ts",
+        "packages/clients/app-api-client/src/schemas/inventory-ledger.ts",
+        "apps/workers/stash-api/src/test/",
+        "apps/workers/stash-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/stash-responses.ts",
+        "rust/modules/stash/"
+      ]
+    },
+    {
+      "name": "stash: pick lists",
+      "module": "stash",
+      "workspace": "apps/workers/stash-api",
+      "tests": [
+        "src/routes/pick-lists/routes.test.ts",
+        "src/services/pick-lists.test.ts"
+      ],
+      "paths": [
+        "apps/workers/stash-api/src/routes/pick-lists/",
+        "apps/workers/stash-api/src/services/",
+        "packages/clients/core-api-client/src/schemas/pick-lists.ts",
+        "packages/clients/app-api-client/src/schemas/sendcloud.ts",
+        "packages/core/sendcloud/src/",
+        "packages/core/db/src/lib/crypto.ts",
+        "apps/workers/stash-api/src/test/",
+        "apps/workers/stash-api/src/types.ts",
+        "packages/clients/app-api-client/src/schemas/stash-responses.ts",
+        "rust/modules/stash/"
+      ]
+    },
+    {
       "name": "commerce: catalog",
       "module": "commerce",
       "workspace": "apps/workers/commerce-api",
