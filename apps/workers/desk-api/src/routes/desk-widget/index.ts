@@ -3,6 +3,11 @@
  *
  * Creates tenant desk_widget_settings + master widget_registry so the
  * public widget API can resolve widgetId → workspace.
+ *
+ * Identity verification: the widget's identity secret signs the identity
+ * tokens a customer's server hands the widget (helpdesk-widget-api checks
+ * them). It never appears in a settings response or an entity event; only
+ * /:widgetId/identity reads, rotates or removes it (settings:manage).
  */
 
 import { Hono } from 'hono';
@@ -24,11 +29,27 @@ import { getMasterDb, masterSchema, schema } from '@weldsuite/worker-kit/db';
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 const widgets = schema.deskWidgetSettings;
 
+type WidgetRow = typeof widgets.$inferSelect;
+
+/** A settings row as the API shows it: everything but the identity secret. */
+function publicWidget(row: WidgetRow): Omit<WidgetRow, 'identitySecret'> {
+  const { identitySecret: _secret, ...rest } = row;
+  return rest;
+}
+
+/** 256 random bits, base64url: the HS256 key customers sign identity tokens with. */
+function newIdentitySecret(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
+  return btoa(binary).replaceAll('=', '').replaceAll('+', '-').replaceAll('/', '_');
+}
+
 app.get('/', requirePermission('settings:read'), async (c) => {
   const db = c.get('tenantDb');
   try {
     const rows = await db.select().from(widgets);
-    return success(c, rows);
+    return success(c, rows.map(publicWidget));
   } catch (err) {
     console.error('[app-api/desk-widget] list failed:', err);
     if (isDeskSchemaMissing(err)) {
@@ -83,7 +104,7 @@ app.post('/', requirePermission('settings:update'), zValidator('json', createDes
       entityId: id,
       data: { id, widgetId, widgetName },
     });
-    return success(c, created, 201);
+    return success(c, publicWidget(created), 201);
   } catch (err) {
     console.error('[app-api/desk-widget] create failed:', err);
     return error.internal(c, 'Failed to create widget');
@@ -96,7 +117,7 @@ app.get('/:widgetId', requirePermission('settings:read'), async (c) => {
   try {
     const [row] = await db.select().from(widgets).where(eq(widgets.widgetId, widgetId)).limit(1);
     if (!row) return error.notFound(c, 'Widget', widgetId);
-    return success(c, row);
+    return success(c, publicWidget(row));
   } catch (err) {
     console.error('[app-api/desk-widget] get failed:', err);
     return error.internal(c, 'Failed to fetch widget');
@@ -115,6 +136,7 @@ function widgetSettingsPatch(data: UpdateDeskWidgetInput) {
     ...(data.timezone !== undefined ? { timezone: data.timezone } : {}),
     ...(data.awayMessage !== undefined ? { awayMessage: data.awayMessage || null } : {}),
     ...(data.expectedReplyTime !== undefined ? { expectedReplyTime: data.expectedReplyTime } : {}),
+    ...(data.identityRequired !== undefined ? { identityRequired: data.identityRequired } : {}),
   };
 }
 
@@ -125,6 +147,9 @@ app.patch('/:widgetId',requirePermission('settings:update'), zValidator('json', 
   try {
     const [existing] = await db.select().from(widgets).where(eq(widgets.widgetId, widgetId)).limit(1);
     if (!existing) return error.notFound(c, 'Widget', widgetId);
+    if (data.identityRequired && !existing.identitySecret) {
+      return error.badRequest(c, 'Set up identity verification before requiring it');
+    }
 
     const [updated] = await db
       .update(widgets)
@@ -153,12 +178,79 @@ app.patch('/:widgetId',requirePermission('settings:update'), zValidator('json', 
       entityType: 'desk_widget',
       action: 'updated',
       entityId: existing.id,
-      data: (updated ?? existing) as unknown as Record<string, unknown>,
+      data: publicWidget(updated ?? existing) as unknown as Record<string, unknown>,
     });
-    return success(c, updated ?? existing);
+    return success(c, publicWidget(updated ?? existing));
   } catch (err) {
     console.error('[app-api/desk-widget] update failed:', err);
     return error.internal(c, 'Failed to update widget');
+  }
+});
+
+/** The identity secret and whether it is required; null secret = not set up. */
+app.get('/:widgetId/identity', requirePermission('settings:manage'), async (c) => {
+  const db = c.get('tenantDb');
+  const widgetId = c.req.param('widgetId');
+  try {
+    const [row] = await db.select().from(widgets).where(eq(widgets.widgetId, widgetId)).limit(1);
+    if (!row) return error.notFound(c, 'Widget', widgetId);
+    return success(c, { secret: row.identitySecret, required: row.identityRequired });
+  } catch (err) {
+    console.error('[desk-api/desk-widget] identity read failed:', err);
+    return error.internal(c, 'Failed to read identity verification');
+  }
+});
+
+/** Set up or rotate the identity secret. Tokens signed with the old one stop working at once. */
+app.post('/:widgetId/identity', requirePermission('settings:manage'), async (c) => {
+  const db = c.get('tenantDb');
+  const widgetId = c.req.param('widgetId');
+  try {
+    const [existing] = await db.select().from(widgets).where(eq(widgets.widgetId, widgetId)).limit(1);
+    if (!existing) return error.notFound(c, 'Widget', widgetId);
+    const [updated] = await db
+      .update(widgets)
+      .set({ identitySecret: newIdentitySecret(), updatedAt: new Date() })
+      .where(eq(widgets.id, existing.id))
+      .returning();
+    const row = updated ?? existing;
+    publishEntityEvent({
+      c,
+      entityType: 'desk_widget',
+      action: 'updated',
+      entityId: existing.id,
+      data: publicWidget(row) as unknown as Record<string, unknown>,
+    });
+    return success(c, { secret: row.identitySecret, required: row.identityRequired });
+  } catch (err) {
+    console.error('[desk-api/desk-widget] identity rotate failed:', err);
+    return error.internal(c, 'Failed to set up identity verification');
+  }
+});
+
+/** Turn identity verification off: no secret, nobody required to be identified. */
+app.delete('/:widgetId/identity', requirePermission('settings:manage'), async (c) => {
+  const db = c.get('tenantDb');
+  const widgetId = c.req.param('widgetId');
+  try {
+    const [existing] = await db.select().from(widgets).where(eq(widgets.widgetId, widgetId)).limit(1);
+    if (!existing) return error.notFound(c, 'Widget', widgetId);
+    const [updated] = await db
+      .update(widgets)
+      .set({ identitySecret: null, identityRequired: false, updatedAt: new Date() })
+      .where(eq(widgets.id, existing.id))
+      .returning();
+    publishEntityEvent({
+      c,
+      entityType: 'desk_widget',
+      action: 'updated',
+      entityId: existing.id,
+      data: publicWidget(updated ?? existing) as unknown as Record<string, unknown>,
+    });
+    return success(c, { secret: null, required: false });
+  } catch (err) {
+    console.error('[desk-api/desk-widget] identity remove failed:', err);
+    return error.internal(c, 'Failed to turn off identity verification');
   }
 });
 

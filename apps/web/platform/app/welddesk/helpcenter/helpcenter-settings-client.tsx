@@ -29,6 +29,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { EmptyStateIllustration } from '@/components/entity-list';
 import { copyText } from '@/lib/clipboard';
 import { isFeatureAvailable } from '@/lib/edition';
+import { Link } from '@/lib/router';
 
 export interface HelpcenterSettingsData {
   id?: string;
@@ -43,6 +44,8 @@ export interface HelpcenterSettingsData {
   heroSubtitle?: string | null;
   showSearch?: number;
   showCategories?: number;
+  /** Sign-in with an emailed code, the request form and My requests (0/1). */
+  portalEnabled?: number | null;
   metaTitle?: string | null;
   metaDescription?: string | null;
   ogImage?: string | null;
@@ -107,6 +110,9 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
   const deleteDomainMutation = useDeleteHelpcenterDomain();
 
   const isEnabled = settings.isEnabled === 1;
+  const portalEnabled = settings.portalEnabled === 1;
+  // A custom domain is only stored once it verified; until then the default subdomain serves.
+  const helpcenterHost = settings.customDomain || settings.defaultSubdomain || null;
 
   const updateField = <K extends keyof HelpcenterSettingsData>(field: K, value: HelpcenterSettingsData[K]) => {
     setSettings((prev) => ({ ...prev, [field]: value }));
@@ -140,6 +146,7 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
         heroSubtitle: settings.heroSubtitle,
         showSearch: settings.showSearch,
         showCategories: settings.showCategories,
+        portalEnabled: settings.portalEnabled === 1 ? 1 : 0,
         metaTitle: settings.metaTitle,
         metaDescription: settings.metaDescription,
         ogImage: settings.ogImage,
@@ -282,6 +289,61 @@ export function HelpcenterSettingsClient({ initialSettings }: Readonly<Props>) {
             onCheckedChange={(checked) => updateField('showCategories', checked ? 1 : 0)}
           />
         </div>
+      </Section>
+
+      {/* Sign-in and requests */}
+      <Section title={th.sectionPortal}>
+        <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
+          <div>
+            <Label htmlFor="helpcenter-portal-enabled">{th.portalEnabled}</Label>
+            <p className="text-xs text-muted-foreground mt-0.5">{th.portalEnabledDesc}</p>
+          </div>
+          <Switch
+            id="helpcenter-portal-enabled"
+            checked={portalEnabled}
+            onCheckedChange={(checked) => updateField('portalEnabled', checked ? 1 : 0)}
+          />
+        </div>
+        {portalEnabled && (
+          <div className="space-y-3">
+            {helpcenterHost && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">{th.portalPages}</p>
+                {[
+                  { label: th.portalNewRequest, url: `https://${helpcenterHost}/requests/new` },
+                  { label: th.portalMyRequests, url: `https://${helpcenterHost}/requests` },
+                ].map((page) => (
+                  <div key={page.url} className="flex items-center justify-between gap-2 rounded-lg border px-4 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm">{page.label}</p>
+                      <a
+                        href={page.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block font-mono text-xs text-muted-foreground truncate hover:text-foreground"
+                      >
+                        {page.url}
+                      </a>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => copyText(page.url, () => toast.success(th.copiedToClipboard))}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              {th.portalTicketTypesHint}{' '}
+              <Link href="/welddesk/settings/ticket-types" className="text-foreground underline underline-offset-2">
+                {th.portalTicketTypesLink}
+              </Link>
+            </p>
+          </div>
+        )}
       </Section>
 
       {/* Branding */}

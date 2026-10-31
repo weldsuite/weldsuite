@@ -1,7 +1,7 @@
 /** WeldDesk (desk-api) response schemas: helpdesk settings, help center settings, desk widget, desk assignment, helpdesk email, analytics. Spread into ROUTES by conformance-schemas.ts. */
 import { deskIdRefSchema } from '@weldsuite/core-api-client/schemas/desk-common';
 import { deskAssignmentStateSchema } from '@weldsuite/core-api-client/schemas/desk-assignment';
-import { deskWidgetRefSchema, deskWidgetSettingsSchema } from '@weldsuite/core-api-client/schemas/desk-widget';
+import { deskWidgetIdentitySchema, deskWidgetRefSchema, deskWidgetSettingsSchema } from '@weldsuite/core-api-client/schemas/desk-widget';
 import {
   helpdeskPrimaryWidgetRefSchema,
   helpdeskSettingsOkSchema,
@@ -64,6 +64,9 @@ export const DESK_SETTINGS_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/desk/widget/:widgetId', envelope: 'single', data: deskWidgetSettingsSchema },
   { method: 'PATCH', route: '/api/desk/widget/:widgetId', envelope: 'single', data: deskWidgetSettingsSchema },
   { method: 'DELETE', route: '/api/desk/widget/:widgetId', envelope: 'single', data: deskWidgetRefSchema },
+  { method: 'GET', route: '/api/desk/widget/:widgetId/identity', envelope: 'single', data: deskWidgetIdentitySchema },
+  { method: 'POST', route: '/api/desk/widget/:widgetId/identity', envelope: 'single', data: deskWidgetIdentitySchema },
+  { method: 'DELETE', route: '/api/desk/widget/:widgetId/identity', envelope: 'single', data: deskWidgetIdentitySchema },
   // WeldDesk auto-assignment
   { method: 'GET', route: '/api/desk/assignment', envelope: 'single', data: deskAssignmentStateSchema },
   { method: 'PUT', route: '/api/desk/assignment', envelope: 'single', data: deskAssignmentStateSchema },

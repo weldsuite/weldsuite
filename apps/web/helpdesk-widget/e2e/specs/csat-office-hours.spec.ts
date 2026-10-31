@@ -67,7 +67,8 @@ test.describe('CSAT rating', () => {
     await expect(page.locator('[data-testid="rating-done"]')).toContainText('Thanks for your feedback!');
     await expect(page.locator('[data-testid="rating-done"]')).toContainText('4/5');
     await expect(page.locator('[data-testid="rating-card"]')).toHaveCount(0);
-    expect(stats.ratings).toEqual([{ visitorId: expect.any(String), rating: 4, comment: 'Quick and friendly' }]);
+    // The visitor is the bearer of the visitor token, never a field in the body.
+    expect(stats.ratings).toEqual([{ rating: 4, comment: 'Quick and friendly' }]);
   });
 
   test('does not ask to rate an open conversation', async ({ widgetPage, page }) => {
@@ -75,5 +76,50 @@ test.describe('CSAT rating', () => {
     await widgetPage.openComposer();
     await widgetPage.sendMessage('Hello');
     await expect(page.locator('[data-testid="rating-card"]')).toHaveCount(0);
+  });
+});
+
+test.describe('Visitor session', () => {
+  test('opens a session first and sends its token on every call', async ({ widgetPage, page }) => {
+    const stats = await setupMessengerApi(page);
+    await widgetPage.openComposer();
+    await widgetPage.sendMessage('Hello');
+    await expect(page.locator('[data-testid="message"]').filter({ hasText: 'Hello' })).toBeVisible();
+
+    expect(stats.sessionRequests.length).toBeGreaterThanOrEqual(1);
+    expect(stats.unauthorizedCalls).toBe(0);
+    expect(stats.bodiesWithVisitorId).toBe(0);
+  });
+
+  test('keeps the visitor token it was given', async ({ page }) => {
+    const stats = await setupMessengerApi(page);
+    await page.goto(MESSENGER_URL);
+    await expect(page.locator('[data-testid="home-view"]')).toBeVisible();
+    await page.reload();
+    await expect(page.locator('[data-testid="home-view"]')).toBeVisible();
+    await expect.poll(() => stats.sessionRequests.length).toBeGreaterThanOrEqual(2);
+    expect(stats.sessionRequests.at(-1)).toEqual({ visitorToken: 'vt_test' });
+  });
+
+  test('swaps the old browser-made visitor id once', async ({ page }) => {
+    const stats = await setupMessengerApi(page);
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('seeded')) {
+        sessionStorage.setItem('seeded', '1');
+        localStorage.setItem('weldsuite_helpdesk_visitor_id', 'visitor_123_abc');
+      }
+    });
+    await page.goto(MESSENGER_URL);
+    await expect(page.locator('[data-testid="home-view"]')).toBeVisible();
+    await expect.poll(() => stats.sessionRequests.length).toBeGreaterThanOrEqual(1);
+    expect(stats.sessionRequests[0]).toEqual({ legacyVisitorId: 'visitor_123_abc' });
+    expect(await page.evaluate(() => localStorage.getItem('weldsuite_helpdesk_visitor_id'))).toBeNull();
+  });
+
+  test('asks the visitor to sign in on the site when the widget requires it', async ({ page }) => {
+    await setupMessengerApi(page, { identityRequired: true });
+    await page.goto(MESSENGER_URL);
+    await expect(page.locator('[data-testid="sign-in-required"]')).toContainText('Sign in to chat with us');
+    await expect(page.locator('[data-testid="new-conversation"]')).toHaveCount(0);
   });
 });

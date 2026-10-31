@@ -14,7 +14,10 @@
   "dependencies": {
     "@hono/zod-validator": "^0.4.0",
     "@neondatabase/serverless": "^1.0.1",
+    "@weldsuite/app-api-client": "workspace:*",
+    "@weldsuite/commerce-domain": "workspace:*",
     "@weldsuite/db": "workspace:*",
+    "@weldsuite/emails": "workspace:*",
     "@weldsuite/entity-events": "workspace:*",
     "@weldsuite/notifications": "workspace:*",
     "@weldsuite/realtime": "workspace:*",
@@ -28,6 +31,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250110.0",
     "@types/node": "^20",
+    "@weldsuite/worker-kit": "workspace:*",
     "typescript": "^5.7",
     "vitest": "^4.1.12",
     "wrangler": "^4.0.0"

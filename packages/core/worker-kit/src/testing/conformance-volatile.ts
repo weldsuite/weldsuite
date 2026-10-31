@@ -63,6 +63,8 @@ const ROUTES: VolatileRoute[] = [
     route: `/api/helpdesk-integrations/${provider}/connect`,
     fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
   })),
+  // A widget's new identity secret: 32 random bytes per run.
+  { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

@@ -21,6 +21,7 @@ import {
   defaultOfficeHours,
   invalidOfficeHoursDay,
 } from './office-hours-section';
+import { IdentityVerificationSection } from './identity-verification-section';
 
 export interface ChatWidgetClientHandle {
   save: () => Promise<void>;
@@ -155,6 +156,8 @@ export const ChatWidgetClient = forwardRef<ChatWidgetClientHandle, ChatWidgetCli
           expectedReplyTime={expectedReplyTime}
           onExpectedReplyTimeChange={setExpectedReplyTime}
         />
+
+        <IdentityVerificationSection widgetId={widgetId} identityRequired={initialSettings.identityRequired ?? false} />
 
         <section className="space-y-4">
           <h3 className="text-sm font-medium">{tw.installCode}</h3>

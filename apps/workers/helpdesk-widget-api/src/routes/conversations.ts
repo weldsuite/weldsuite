@@ -1,9 +1,12 @@
 /**
  * Visitor-facing conversation + message routes.
  *
- * Every route that touches a conversation checks that it belongs to the
- * calling visitor. Visitors never see internal notes, and message payloads
- * carry the teammate's display name/avatar so the widget never has to guess.
+ * The visitor comes from their visitor token (visitorAuthMiddleware), never
+ * from the request. Every route that touches a conversation checks that it
+ * belongs to them: their own, or, for a verified visitor, any of that email's
+ * (canAccessDeskConversation). Visitors never see internal notes, and message
+ * payloads carry the teammate's display name/avatar so the widget never has
+ * to guess.
  */
 
 import { Hono } from 'hono';
@@ -14,17 +17,18 @@ import {
   attachDeskVisitorContact,
   createDeskConversation,
   getDeskConversation,
-  listDeskConversationsForVisitor,
   rateDeskConversation,
   upsertDeskVisitor,
   DESK_RATING_MAX,
   DESK_RATING_MIN,
   DeskConversationNotFoundError,
   DeskRatingRejectedError,
-  type DeskConversation,
+  type DeskVisitor,
 } from '@weldsuite/db/lib/desk';
+import { canAccessDeskConversation, listDeskConversationsForPrincipal } from '@weldsuite/db/lib/desk-portal';
 import type { DeskMessageAttachment } from '@weldsuite/db/schema/desk-messages';
 import { MAX_MESSAGE_ATTACHMENTS, resolveVisitorAttachments } from '../lib/attachments';
+import type { Database } from '../db';
 import type { Env, Variables } from '../index';
 import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
@@ -43,10 +47,7 @@ import {
 
 export const conversationsRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const visitorIdSchema = z.string().min(1).max(64);
-
 const identifySchema = z.object({
-  visitorId: visitorIdSchema,
   name: z.string().trim().max(255).optional(),
   email: z.string().trim().email().max(255).optional(),
 });
@@ -54,7 +55,6 @@ const identifySchema = z.object({
 const clientIdSchema = z.string().max(64).optional();
 
 const startSchema = z.object({
-  visitorId: visitorIdSchema,
   name: z.string().trim().max(255).optional(),
   email: z.string().trim().email().max(255).optional(),
   body: z.string().trim().min(1).max(10_000),
@@ -72,7 +72,6 @@ const attachmentSchema = z.object({
 
 const sendSchema = z
   .object({
-    visitorId: visitorIdSchema,
     body: z.string().trim().max(10_000).optional(),
     attachments: z.array(attachmentSchema).max(MAX_MESSAGE_ATTACHMENTS).optional(),
     clientId: clientIdSchema,
@@ -82,40 +81,60 @@ const sendSchema = z
     path: ['body'],
   });
 
-const visitorQuerySchema = z.object({ visitorId: visitorIdSchema });
-
 const rateSchema = z.object({
-  visitorId: visitorIdSchema,
   rating: z.number().int().min(DESK_RATING_MIN).max(DESK_RATING_MAX),
   comment: z.string().trim().max(2000).optional(),
 });
 
-function ownedBy(conversation: DeskConversation, visitorId: string): boolean {
-  return conversation.visitorId === visitorId;
+/**
+ * Store the name / email a visitor typed. A verified visitor's email is the
+ * one that was proven, so a typed one never replaces it.
+ */
+function saveTypedContact(
+  db: Database,
+  visitor: DeskVisitor,
+  typed: { name?: string; email?: string },
+): Promise<DeskVisitor> {
+  return upsertDeskVisitor(db, {
+    id: visitor.id,
+    name: typed.name || undefined,
+    email: visitor.verifiedEmail ? undefined : typed.email?.toLowerCase() || undefined,
+  });
+}
+
+/** A conversation the calling visitor may see (with its messages when asked), or null. */
+async function accessibleConversation(
+  db: Database,
+  principal: Variables['principal'],
+  id: string,
+  includeMessages = false,
+) {
+  const result = await getDeskConversation(db, id, { includeMessages });
+  if (!result) return null;
+  return (await canAccessDeskConversation(db, result.conversation, principal)) ? result : null;
 }
 
 /** Register / update the visitor and attach their contact details to their conversations. */
 conversationsRoutes.post('/identify', zValidator('json', identifySchema), async (c) => {
   const db = c.get('tenantDb');
-  const widgetId = c.get('widgetId');
   const orgId = c.get('clerkOrgId');
   const data = c.req.valid('json');
   try {
-    const visitor = await upsertDeskVisitor(db, {
-      id: data.visitorId,
-      name: data.name || undefined,
-      email: data.email?.toLowerCase() || undefined,
-      widgetId,
-    });
+    const visitor = await saveTypedContact(db, c.get('visitor'), data);
     const updated = await attachDeskVisitorContact(db, visitor.id, {
       name: data.name,
-      email: data.email,
+      email: visitor.verifiedEmail ?? data.email,
     });
     c.executionCtx.waitUntil(
       Promise.all(updated.map((conversation) => publishConversationUpdated(c.env, orgId, conversation))),
     );
     return success(c, {
-      visitor: { id: visitor.id, name: visitor.name, email: visitor.email },
+      visitor: {
+        id: visitor.id,
+        name: visitor.name,
+        email: visitor.verifiedEmail ?? visitor.email,
+        verified: Boolean(visitor.verifiedEmail),
+      },
     });
   } catch (err) {
     console.error('[widget-api] identify failed:', err);
@@ -124,11 +143,10 @@ conversationsRoutes.post('/identify', zValidator('json', identifySchema), async 
 });
 
 /** The visitor's conversation history (messenger "Messages" tab). */
-conversationsRoutes.get('/', zValidator('query', visitorQuerySchema), async (c) => {
+conversationsRoutes.get('/', async (c) => {
   const db = c.get('tenantDb');
-  const { visitorId } = c.req.valid('query');
   try {
-    const rows = await listDeskConversationsForVisitor(db, visitorId);
+    const { rows } = await listDeskConversationsForPrincipal(db, c.get('principal'), { limit: 25 });
     const authors = await resolveAuthors(db, rows.map((r) => r.assigneeId));
     return success(c, rows.map((row) => toPublicConversation(row, authors)));
   } catch (err) {
@@ -140,22 +158,16 @@ conversationsRoutes.get('/', zValidator('query', visitorQuerySchema), async (c) 
 /** Start a new conversation with the visitor's first message. */
 conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
   const db = c.get('tenantDb');
-  const widgetId = c.get('widgetId');
   const orgId = c.get('clerkOrgId');
   const data = c.req.valid('json');
   try {
-    const visitor = await upsertDeskVisitor(db, {
-      id: data.visitorId,
-      name: data.name || undefined,
-      email: data.email?.toLowerCase() || undefined,
-      widgetId,
-    });
+    const visitor = await saveTypedContact(db, c.get('visitor'), data);
 
     const { conversation, message } = await createDeskConversation(db, {
       generateId,
       visitorId: visitor.id,
       name: visitor.name,
-      email: visitor.email,
+      email: visitor.verifiedEmail ?? visitor.email,
       body: data.body,
       authorType: 'visitor',
       authorId: visitor.id,
@@ -197,15 +209,12 @@ conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
   }
 });
 
-conversationsRoutes.get('/:id', zValidator('query', visitorQuerySchema), async (c) => {
+conversationsRoutes.get('/:id', async (c) => {
   const db = c.get('tenantDb');
   const id = c.req.param('id');
-  const { visitorId } = c.req.valid('query');
   try {
-    const result = await getDeskConversation(db, id, { includeMessages: true });
-    if (!result || !ownedBy(result.conversation, visitorId)) {
-      return error.notFound(c, 'Conversation', id);
-    }
+    const result = await accessibleConversation(db, c.get('principal'), id, true);
+    if (!result) return error.notFound(c, 'Conversation', id);
     const visible = result.messages.filter(isPublicMessage);
     const authors = await resolveAuthors(db, [
       result.conversation.assigneeId,
@@ -226,11 +235,10 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
   const orgId = c.get('clerkOrgId');
   const id = c.req.param('id');
   const data = c.req.valid('json');
+  const visitorId = c.get('visitor').id;
   try {
-    const existing = await getDeskConversation(db, id);
-    if (!existing || !ownedBy(existing.conversation, data.visitorId)) {
-      return error.notFound(c, 'Conversation', id);
-    }
+    const existing = await accessibleConversation(db, c.get('principal'), id);
+    if (!existing) return error.notFound(c, 'Conversation', id);
 
     // Files must be ones this worker stored for this very conversation.
     let attachments: DeskMessageAttachment[] | undefined;
@@ -245,13 +253,13 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
       conversationId: id,
       kind: 'message',
       authorType: 'visitor',
-      authorId: data.visitorId,
+      authorId: visitorId,
       body: data.body || null,
       attachments,
       metadata: data.clientId ? { clientId: data.clientId } : undefined,
     });
 
-    const visitorName = await visitorDisplayName(db, data.visitorId, existing.conversation);
+    const visitorName = await visitorDisplayName(db, visitorId, existing.conversation);
     // The ball was already in the team's court → they've been told.
     const teamAlreadyWaiting =
       existing.conversation.state === 'open' && existing.conversation.waitingSince !== null;
@@ -300,15 +308,13 @@ conversationsRoutes.post('/:id/rating', zValidator('json', rateSchema), async (c
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const existing = await getDeskConversation(db, id);
-    if (!existing || !ownedBy(existing.conversation, data.visitorId)) {
-      return error.notFound(c, 'Conversation', id);
-    }
+    const existing = await accessibleConversation(db, c.get('principal'), id);
+    if (!existing) return error.notFound(c, 'Conversation', id);
 
     const { conversation, message } = await rateDeskConversation(db, {
       generateId,
       conversationId: id,
-      authorId: data.visitorId,
+      authorId: c.get('visitor').id,
       rating: data.rating,
       comment: data.comment,
     });

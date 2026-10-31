@@ -94,6 +94,10 @@ function conversationToItem(
     labels.push(t.channel.phone);
     labelColors[t.channel.phone] = '#1d4ed8';
   }
+  if (conversation.channel === 'portal') {
+    labels.push(t.channel.portal);
+    labelColors[t.channel.portal] = '#b45309';
+  }
   if (!conversation.assigneeId) {
     labels.push(t.list.unassignedBadge);
     labelColors[t.list.unassignedBadge] = '#6b7280';

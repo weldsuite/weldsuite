@@ -42,6 +42,7 @@ export function ChannelBadge({
     whatsapp: t.channel.whatsapp,
     sms: t.channel.sms,
     api: t.channel.api,
+    portal: t.channel.portal,
   };
   return (
     <Badge variant="outline" size={size}>

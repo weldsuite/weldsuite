@@ -8,6 +8,11 @@
 # DESK_API service binding. Without the binding (local `pnpm dev`) it falls back
 # to HELPCENTER_API_URL: app-api on 8789 (`pnpm dev:api`) forwards the mount.
 #
+# Sign-in and "My requests" (the portal) call helpdesk-widget-api's
+# /api/portal/* over the WIDGET_API service binding, server-side only. Without
+# the binding they go to WIDGET_API_URL: `wrangler dev` of helpdesk-widget-api
+# on its default port 8787.
+#
 # Routes are not attached yet. Customer domains and *.welddesk.org move here in
 # the cutover (docs/plans/helpcenter-tanstack-start.md, Phase 5); until then the
 # deployed Worker is reachable on workers.dev only, where FALLBACK_DOMAIN picks
@@ -21,6 +26,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 HELPCENTER_API_URL = "http://localhost:8789"
+WIDGET_API_URL = "http://localhost:8787"
 FALLBACK_DOMAIN = "test.welddesk.org"
 
 # ── Test (develop) ──────────────────────────────────────────────────────────
@@ -35,6 +41,10 @@ FALLBACK_DOMAIN = "test.welddesk.org"
 binding = "DESK_API"
 service = "weldsuite-desk-api-test"
 
+[[env.test.services]]
+binding = "WIDGET_API"
+service = "helpdesk-widget-api-test"
+
 # ── Production (main) ───────────────────────────────────────────────────────
 # No workers.dev host and no fallback: production only ever serves the help
 # center its hostname names, once routes are attached at the cutover.
@@ -48,3 +58,7 @@ FALLBACK_DOMAIN = ""
 [[env.production.services]]
 binding = "DESK_API"
 service = "weldsuite-desk-api"
+
+[[env.production.services]]
+binding = "WIDGET_API"
+service = "helpdesk-widget-api"
