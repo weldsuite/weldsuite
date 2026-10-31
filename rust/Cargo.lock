@@ -4448,6 +4448,7 @@ name = "weldsuite-mail-inbound"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "encoding_rs",
  "regex",
  "serde",
@@ -4456,6 +4457,7 @@ dependencies = [
  "sqlx",
  "time",
  "tokio",
+ "tokio-util",
  "tracing",
  "url",
  "weldsuite-catalogs",

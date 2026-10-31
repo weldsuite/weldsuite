@@ -85,7 +85,7 @@ fn percent_decode_lossy(raw: &str) -> String {
 
 /// `selectDeskAttachments(attachments, htmlBody)`: real files, not the
 /// images the body embeds, within the count and size caps.
-fn select_desk_attachments<'a>(
+pub fn select_desk_attachments<'a>(
     attachments: &'a [ParsedAttachment],
     html: Option<&str>,
 ) -> Vec<&'a ParsedAttachment> {
@@ -132,7 +132,7 @@ const PASSIVE_TYPES: [&str; 12] = [
 ];
 
 /// `storedFileMetadata(contentType, fileName)`.
-fn stored_file_metadata(content_type: &str, file_name: &str) -> (String, String) {
+pub fn stored_file_metadata(content_type: &str, file_name: &str) -> (String, String) {
     let kind =
         crate::mime::js_trim(content_type.split(';').next().unwrap_or_default()).to_lowercase();
     if PASSIVE_TYPES.contains(&kind.as_str()) {
@@ -243,15 +243,17 @@ async fn find_prior_state(db: &PgPool, email: &ParsedEmail) -> Option<(String, b
     }
 }
 
-/// `planDeskNotification`.
+/// `planDeskNotification`: what to tell the team about a customer email.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Plan {
+pub enum Plan {
     Notify,
     AssigneeReply,
     None,
 }
 
-fn plan(created: bool, assignee: Option<&str>, prior: Option<&(String, bool)>) -> Plan {
+/// `planDeskNotification({ created, assigneeId, prior })`: `prior` is the
+/// conversation's state and whether it was waiting on the team.
+pub fn plan(created: bool, assignee: Option<&str>, prior: Option<&(String, bool)>) -> Plan {
     if created {
         return Plan::Notify;
     }
@@ -263,7 +265,7 @@ fn plan(created: bool, assignee: Option<&str>, prior: Option<&(String, bool)>) -
 }
 
 /// `deskNotificationContent`.
-fn notification_content(
+pub fn notification_content(
     is_new: bool,
     customer_name: &str,
     body: Option<&str>,

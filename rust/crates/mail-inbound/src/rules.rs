@@ -325,18 +325,13 @@ pub struct RulesOutcome {
     pub marked_spam: bool,
 }
 
-/// `applyMailRules(db, rules, email, messageId, state)`: every rule matched
-/// against the message as it was when the run began, the actions of each
-/// matching one folded into the state, and each applied rule's stats
-/// bumped. A condition TypeScript would throw on abandons the run (the
-/// stats bumped so far stay).
-pub async fn apply_mail_rules(
-    db: &PgPool,
+/// The rules' fold without the database: the outcome (or the error
+/// TypeScript would throw), and the rules that applied, in order, until then.
+pub fn fold_rules(
     rules: &[Value],
     email: &ParsedEmail,
-    message_id: &str,
     state: &RuleState,
-) -> Result<Result<RulesOutcome, RuleError>, sqlx::Error> {
+) -> (Result<RulesOutcome, RuleError>, Vec<String>) {
     let message = MatchMessage {
         from: &email.from,
         to: &email.to,
@@ -350,11 +345,12 @@ pub async fn apply_mail_rules(
     };
     let mut next = state.clone();
     let mut marked_spam = false;
+    let mut applied_rules = Vec::new();
     for rule in rules {
         match rule_matches(rule, &message) {
             Ok(true) => {}
             Ok(false) => continue,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return (Err(error), applied_rules),
         }
         let actions = rule["actions"].as_array().cloned().unwrap_or_default();
         let mut applied = 0;
@@ -371,6 +367,34 @@ pub async fn apply_mail_rules(
         if applied == 0 {
             continue;
         }
+        applied_rules.push(rule["id"].as_str().unwrap_or_default().to_owned());
+        if rule["stopProcessing"] == Value::Bool(true) {
+            break;
+        }
+    }
+    (
+        Ok(RulesOutcome {
+            state: next,
+            marked_spam,
+        }),
+        applied_rules,
+    )
+}
+
+/// `applyMailRules(db, rules, email, messageId, state)`: every rule matched
+/// against the message as it was when the run began, the actions of each
+/// matching one folded into the state, and each applied rule's stats
+/// bumped. A condition TypeScript would throw on abandons the run (the
+/// stats bumped before it stay).
+pub async fn apply_mail_rules(
+    db: &PgPool,
+    rules: &[Value],
+    email: &ParsedEmail,
+    message_id: &str,
+    state: &RuleState,
+) -> Result<Result<RulesOutcome, RuleError>, sqlx::Error> {
+    let (outcome, applied) = fold_rules(rules, email, state);
+    for id in applied {
         let now = weldsuite_mail_domain::outbound::clock::iso(
             weldsuite_mail_domain::outbound::clock::now_ms(),
         );
@@ -379,24 +403,13 @@ pub async fn apply_mail_rules(
                     last_applied_at = $2::timestamp, updated_at = $2::timestamp
              where id = $1",
         )
-        .bind(rule["id"].as_str().unwrap_or_default())
+        .bind(&id)
         .bind(&now)
         .execute(db)
         .await?;
-        tracing::info!(
-            rule = rule["name"].as_str().unwrap_or_default(),
-            applied,
-            message_id,
-            "[Rules] Applied rule"
-        );
-        if rule["stopProcessing"] == Value::Bool(true) {
-            break;
-        }
+        tracing::info!(rule = %id, message_id, "[Rules] Applied rule");
     }
-    Ok(Ok(RulesOutcome {
-        state: next,
-        marked_spam,
-    }))
+    Ok(outcome)
 }
 
 /// `finalizeOpFromStates(messageId, initialState, state)` applied by the

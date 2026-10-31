@@ -80,11 +80,23 @@ async fn classify_and_run_rules(
     initial: &RuleState,
 ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
     let db = ctx.tenants.tenant_db(&account.workspace_id).await?;
+    run_rules(&db, &account.account_id, message_id, email, initial).await
+}
+
+/// [`classify_and_run_rules`] on the mailbox's database.
+pub async fn run_rules(
+    db: &PgPool,
+    account_id: &str,
+    message_id: &str,
+    email: &ParsedEmail,
+    initial: &RuleState,
+) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    let db = db.clone();
     let ai_labels: Vec<(String, Option<String>)> = sqlx::query_as(
         "select name, ai_description from mail_labels
          where account_id = $1 and ai_enabled = true and deleted_at is null",
     )
-    .bind(&account.account_id)
+    .bind(account_id)
     .fetch_all(&db)
     .await?;
     let candidates = ai_labels
@@ -107,7 +119,7 @@ async fn classify_and_run_rules(
              where r.account_id = $1 and r.is_active = true and r.deleted_at is null
              order by r.priority desc",
         )
-        .bind(&account.account_id)
+        .bind(account_id)
         .fetch_all(&db)
         .await?;
         let rules: Vec<Value> = rows.into_iter().map(weldsuite_db::js_row).collect();
@@ -124,7 +136,7 @@ async fn classify_and_run_rules(
         ),
         Err(error) => tracing::error!(%error, message_id, "[Rules] Rule execution failed"),
     }
-    finalize_inbound(&db, &account.account_id, message_id, initial, &state).await?;
+    finalize_inbound(&db, account_id, message_id, initial, &state).await?;
     Ok(marked_spam)
 }
 
