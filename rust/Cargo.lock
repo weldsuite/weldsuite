@@ -3848,6 +3848,7 @@ dependencies = [
  "weldsuite-ports",
  "weldsuite-realtime",
  "weldsuite-sign",
+ "weldsuite-stash",
  "weldsuite-subscribers",
 ]
 
@@ -4602,6 +4603,27 @@ dependencies = [
  "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-stash"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",

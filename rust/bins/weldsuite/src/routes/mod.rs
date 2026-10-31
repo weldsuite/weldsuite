@@ -103,6 +103,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = chat(router, state);
     let router = desk(router, state);
     let router = flow(router, state);
+    let router = stash(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -128,6 +129,27 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     core_files(router, state)
+}
+
+/// WeldStash (`weldsuite-stash`): stash-api's routes at their own prefixes
+/// (`/warehouses`, `/inventory`, `/pick-lists`, …), once the module is marked
+/// ported (always in conformance builds).
+fn stash(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("stash") {
+        return router;
+    }
+    let stash = weldsuite_stash::StashState {
+        events: state.infra.events.clone(),
+        // Sendcloud; conformance builds take the test's bridge per request.
+        http: (!cfg!(feature = "conformance"))
+            .then(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(15))
+                    .ok()
+            })
+            .flatten()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
+    };
+    router.merge(weldsuite_stash::router(stash, &state.permissions))
 }
 
 /// WeldCRM (`weldsuite-crm`): crm-api's routes at their own prefixes

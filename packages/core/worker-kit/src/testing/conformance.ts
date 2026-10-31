@@ -168,6 +168,10 @@ export const FORWARDED_ENV = [
   'WIDGET_TOKEN_SECRET',
   'REALTIME_PUBLIC_URL',
   'REALTIME_INTERNAL_SECRET',
+  // WeldStash: the workspace keyring that opens the stored Sendcloud secret
+  // (the pick-list ship action).
+  'DATABASE_ENCRYPTION_KEY',
+  'DATABASE_ENCRYPTION_KEY_V2',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */

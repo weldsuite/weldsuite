@@ -1,0 +1,105 @@
+/** WeldStash (stash-api) response schemas: warehouses, zones, locations, stock, putaway, pick lists, pickers, suppliers, purchase orders, cycle counts, boxes, the activity log. Spread into ROUTES by conformance-schemas.ts. */
+import {
+  boxRowSchema,
+  cycleCountRowSchema,
+  inventoryAdjustResultSchema,
+  inventoryBucketSchema,
+  inventoryLedgerEntrySchema,
+  inventoryListRowSchema,
+  inventoryMovementRowSchema,
+  inventoryTransferResultSchema,
+  pickerDetailSchema,
+  pickerListBodySchema,
+  pickerStatsSchema,
+  pickListCreatedSchema,
+  pickListDetailSchema,
+  pickListGeneratedSchema,
+  pickListPackResultSchema,
+  pickListPickResultSchema,
+  pickListRowSchema,
+  pickListShipResultSchema,
+  purchaseOrderRowSchema,
+  putawayAssignedSchema,
+  putawayCompletedSchema,
+  putawayCreatedSchema,
+  putawayListBodySchema,
+  putawayTaskDetailSchema,
+  stashIdRefSchema,
+  stashStatusResultSchema,
+  stockAdjustmentRowSchema,
+  warehouseLocationRowSchema,
+  warehouseRowSchema,
+  warehouseZoneRowSchema,
+  wmsActivityListBodySchema,
+  wmsActivityRowSchema,
+  wmsActivitySummarySchema,
+  wmsSupplierRowSchema,
+} from '@weldsuite/app-api-client/schemas/stash-responses';
+import type { RouteSchema } from './conformance-schemas';
+
+/** The list, detail, create and update of a plain CRUD route file (delete is a 204). */
+function crud(base: string, row: RouteSchema['data']): RouteSchema[] {
+  return [
+    { method: 'GET', route: base, envelope: 'list', data: row },
+    { method: 'GET', route: `${base}/:id`, envelope: 'single', data: row },
+    { method: 'POST', route: base, envelope: 'single', data: stashIdRefSchema },
+    { method: 'PATCH', route: `${base}/:id`, envelope: 'single', data: stashIdRefSchema },
+  ];
+}
+
+export const STASH_ROUTES: RouteSchema[] = [
+  ...crud('/api/boxes', boxRowSchema),
+  ...crud('/api/warehouses', warehouseRowSchema),
+  ...crud('/api/warehouse-zones', warehouseZoneRowSchema),
+  ...crud('/api/warehouse-locations', warehouseLocationRowSchema),
+  ...crud('/api/wms-suppliers', wmsSupplierRowSchema),
+  ...crud('/api/cycle-counts', cycleCountRowSchema),
+  ...crud('/api/purchase-orders', purchaseOrderRowSchema),
+  ...crud('/api/inventory-movements', inventoryMovementRowSchema),
+  // stash: stock adjustments (append-only)
+  { method: 'GET', route: '/api/stock-adjustments', envelope: 'list', data: stockAdjustmentRowSchema },
+  { method: 'GET', route: '/api/stock-adjustments/:id', envelope: 'single', data: stockAdjustmentRowSchema },
+  { method: 'POST', route: '/api/stock-adjustments', envelope: 'single', data: stashIdRefSchema },
+  // stash: inventory and the ledger
+  { method: 'GET', route: '/api/inventory', envelope: 'list', data: inventoryListRowSchema },
+  { method: 'GET', route: '/api/inventory/ledger', envelope: 'list', data: inventoryLedgerEntrySchema },
+  { method: 'GET', route: '/api/inventory/:id', envelope: 'single', data: inventoryBucketSchema },
+  { method: 'POST', route: '/api/inventory', envelope: 'single', data: stashIdRefSchema },
+  { method: 'POST', route: '/api/inventory/adjust', envelope: 'single', data: inventoryAdjustResultSchema },
+  { method: 'POST', route: '/api/inventory/transfer', envelope: 'single', data: inventoryTransferResultSchema },
+  { method: 'PATCH', route: '/api/inventory/:id', envelope: 'single', data: stashIdRefSchema },
+  // stash: putaway
+  { method: 'GET', route: '/api/putaway', envelope: 'body', data: putawayListBodySchema },
+  { method: 'GET', route: '/api/putaway/:id', envelope: 'single', data: putawayTaskDetailSchema },
+  { method: 'POST', route: '/api/putaway', envelope: 'single', data: putawayCreatedSchema },
+  { method: 'PATCH', route: '/api/putaway/:id/start', envelope: 'single', data: stashStatusResultSchema },
+  { method: 'PATCH', route: '/api/putaway/:id/complete', envelope: 'single', data: putawayCompletedSchema },
+  { method: 'PATCH', route: '/api/putaway/:id/assign', envelope: 'single', data: putawayAssignedSchema },
+  // stash: pick lists
+  { method: 'GET', route: '/api/pick-lists', envelope: 'list', data: pickListRowSchema },
+  { method: 'GET', route: '/api/pick-lists/:id', envelope: 'single', data: pickListDetailSchema },
+  { method: 'POST', route: '/api/pick-lists', envelope: 'single', data: pickListCreatedSchema },
+  { method: 'PATCH', route: '/api/pick-lists/:id', envelope: 'single', data: stashIdRefSchema },
+  { method: 'POST', route: '/api/pick-lists/generate', envelope: 'single', data: pickListGeneratedSchema },
+  { method: 'PATCH', route: '/api/pick-lists/:id/assign', envelope: 'single', data: stashStatusResultSchema },
+  { method: 'PATCH', route: '/api/pick-lists/:id/start', envelope: 'single', data: stashStatusResultSchema },
+  { method: 'PATCH', route: '/api/pick-lists/:id/complete', envelope: 'single', data: stashStatusResultSchema },
+  { method: 'POST', route: '/api/pick-lists/:id/pack', envelope: 'single', data: pickListPackResultSchema },
+  { method: 'POST', route: '/api/pick-lists/:id/ship', envelope: 'single', data: pickListShipResultSchema },
+  { method: 'POST', route: '/api/pick-lists/:id/items/:itemId/pick', envelope: 'single', data: pickListPickResultSchema },
+  // stash: pickers
+  { method: 'GET', route: '/api/pickers', envelope: 'body', data: pickerListBodySchema },
+  { method: 'GET', route: '/api/pickers/stats', envelope: 'single', data: pickerStatsSchema },
+  { method: 'GET', route: '/api/pickers/:id', envelope: 'single', data: pickerDetailSchema },
+  { method: 'GET', route: '/api/pickers/:id/picklists', envelope: 'array', data: pickListRowSchema },
+  { method: 'POST', route: '/api/pickers', envelope: 'single', data: stashIdRefSchema },
+  { method: 'PUT', route: '/api/pickers/:id', envelope: 'single', data: stashIdRefSchema },
+  { method: 'PATCH', route: '/api/pickers/:id/status', envelope: 'single', data: stashStatusResultSchema },
+  // stash: the activity log
+  { method: 'GET', route: '/api/wms-activity', envelope: 'body', data: wmsActivityListBodySchema },
+  { method: 'GET', route: '/api/wms-activity/summary', envelope: 'single', data: wmsActivitySummarySchema },
+  { method: 'GET', route: '/api/wms-activity/entity/:entityType/:entityId', envelope: 'array', data: wmsActivityRowSchema },
+  { method: 'GET', route: '/api/wms-activity/user/:userId', envelope: 'array', data: wmsActivityRowSchema },
+  { method: 'GET', route: '/api/wms-activity/recent', envelope: 'array', data: wmsActivityRowSchema },
+];
+
