@@ -1,0 +1,27 @@
+[package]
+name = "weldsuite-ads-domain"
+description = "WeldAds code other modules share: the Meta Marketing API client, campaign sync and the ad sync index (@weldsuite/ads-domain, @weldsuite/meta-ads)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-core-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-ports = { workspace = true }
+form_urlencoded = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

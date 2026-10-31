@@ -62,7 +62,7 @@ use weldsuite_ports::{
     DynRealtimePublisher, DynSystemMail, FileStores, OutboundHttp, PresenceReader, StorageBuckets,
 };
 
-pub use books::{BooksInternal, BooksRequest, BooksResponse, RequestBooksInternal};
+pub use books::{BooksInternal, BooksRequest, BooksResponse, InProcessBooks, RequestBooksInternal};
 pub(crate) use shared::*;
 pub(crate) use validation::{hr_json, query_values, zod_json, zod_query};
 

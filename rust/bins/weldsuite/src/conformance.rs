@@ -348,6 +348,10 @@ impl Pools {
         if let Some(books) = self.books.request_books(&context.services) {
             extensions.insert(books);
         }
+        // WeldData's enrichment runs start on the test's `WELDDATA_ENRICH`, or nowhere.
+        extensions.insert(weldsuite_data::RequestEnrichRuns(
+            self.workflows.enrich_runs(&context.workflows),
+        ));
         // The identity provider and the other third parties answer from the
         // test's fetch stub.
         if let Some(bridge) = context.outbound.as_deref() {

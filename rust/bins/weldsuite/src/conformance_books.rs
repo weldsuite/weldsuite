@@ -29,10 +29,11 @@ struct BridgedBooks {
 }
 
 impl BooksInternal for BridgedBooks {
-    fn call(
-        &self,
+    fn call<'a>(
+        &'a self,
+        _db: &'a weldsuite_db::PgPool,
         request: BooksRequest,
-    ) -> Pin<Box<dyn Future<Output = Result<BooksResponse, String>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<BooksResponse, String>> + Send + 'a>> {
         Box::pin(async move {
             let method = reqwest::Method::from_bytes(request.method.as_bytes())
                 .map_err(|error| error.to_string())?;
@@ -56,7 +57,7 @@ impl BooksInternal for BridgedBooks {
             if threw {
                 return Err(body);
             }
-            Ok(BooksResponse { status, body })
+            Ok(BooksResponse { status, body, created_event: None })
         })
     }
 }

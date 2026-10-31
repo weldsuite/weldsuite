@@ -24,8 +24,8 @@ mod workspaces;
 pub use atomically::{TransactionFuture, atomically, atomically_with};
 pub use crypto::{
     DecryptError, EncryptError, Keyring, aad_writes_enabled, decrypt_field,
-    decrypt_workspace_database_url, encrypt_field, encrypt_workspace_database_url, resolve_database_url,
-    workspace_database_url_aad,
+    decrypt_workspace_database_url, encrypt_field, encrypt_workspace_database_url,
+    resolve_database_url, workspace_database_url_aad,
 };
 pub use middleware::workspace_db;
 pub use permissions::TenantPermissionQueries;

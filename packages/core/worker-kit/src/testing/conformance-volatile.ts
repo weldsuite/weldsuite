@@ -68,6 +68,15 @@ const ROUTES: VolatileRoute[] = [
     route: `/api/helpdesk-integrations/${provider}/connect`,
     fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
   })),
+  // WeldAds' Facebook OAuth start: a fresh state (`crypto.randomUUID()`) per run.
+  {
+    method: 'POST',
+    route: '/api/ad-connections/facebook/authorize',
+    fields: [
+      { path: 'data.state' },
+      { path: 'data.authorizeUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' },
+    ],
+  },
   // A widget's new identity secret: 32 random bytes per run.
   { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
   // The widget's realtime token: an HS256 JWT whose `iat` is the second it was
@@ -80,6 +89,33 @@ const ROUTES: VolatileRoute[] = [
   { method: 'POST', route: '/public/helpdesk-widget/api/visitor', fields: [{ path: 'data.visitorToken' }] },
   // The widget worker's health check stamps the time it answered.
   { method: 'GET', route: '/public/helpdesk-widget/health', fields: [{ path: 'timestamp' }] },
+  // WeldStash numbers its pick lists, putaway tasks and transfers from
+  // `Date.now()` in base 36 (`PL-…`, `PUT-…`, `TRF-…-<id>`), new per run.
+  { method: 'POST', route: '/api/pick-lists', fields: [{ path: 'data.pickListNumber' }] },
+  {
+    method: 'POST',
+    route: '/api/pick-lists/generate',
+    fields: [{ path: 'data.pickListNumber' }],
+    events: [{ path: 'data.pickListNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/putaway',
+    fields: [{ path: 'data.movementNumber' }],
+    events: [{ path: 'data.movementNumber' }],
+  },
+  {
+    method: 'POST',
+    route: '/api/inventory/transfer',
+    fields: [{ path: 'data.movementNumber' }],
+    events: [{ path: 'data.movementNumber' }],
+  },
+  // The activity summary's period ends now and starts N days before.
+  {
+    method: 'GET',
+    route: '/api/wms-activity/summary',
+    fields: [{ path: 'data.startDate' }, { path: 'data.endDate' }],
+  },
   // WeldFlow's timer: a stopped entry's duration is the minutes since it
   // started, to two decimals (`minutesBetween`), so it ticks every 0.6 s and
   // the two runs can straddle a tick. The whole minutes are still compared,
@@ -97,6 +133,9 @@ const ROUTES: VolatileRoute[] = [
       { path: 'data.actualHours' },
     ],
   },
+  // WeldBooks: the exchange rates are stamped with the moment they were answered.
+  { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
+  { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

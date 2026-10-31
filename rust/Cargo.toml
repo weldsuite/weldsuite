@@ -19,9 +19,13 @@ publish = false
 # Shared dependency versions go here; crates use `dep = { workspace = true }`.
 [workspace.dependencies]
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
+weldsuite-ads = { path = "modules/ads" }
+weldsuite-ads-domain = { path = "crates/ads-domain" }
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-calendar = { path = "modules/calendar" }
 weldsuite-calendar-domain = { path = "crates/calendar-domain" }
+weldsuite-books = { path = "modules/books" }
+weldsuite-books-domain = { path = "crates/books-domain" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }
@@ -34,6 +38,7 @@ weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
+weldsuite-data = { path = "modules/data" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-desk = { path = "modules/desk" }
 weldsuite-desk-domain = { path = "crates/desk-domain" }
@@ -51,6 +56,9 @@ weldsuite-pass = { path = "modules/pass" }
 weldsuite-payroll-domain = { path = "crates/payroll-domain" }
 weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-sign = { path = "modules/sign" }
+weldsuite-social = { path = "modules/social" }
+weldsuite-social-domain = { path = "crates/social-domain" }
+weldsuite-stash = { path = "modules/stash" }
 weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-subscribers = { path = "crates/subscribers" }
 weldsuite-permissions = { path = "crates/permissions" }

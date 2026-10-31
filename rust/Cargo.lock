@@ -3819,7 +3819,10 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "weldsuite-adapters-oss",
+ "weldsuite-ads",
  "weldsuite-auth",
+ "weldsuite-books",
+ "weldsuite-books-domain",
  "weldsuite-calendar",
  "weldsuite-catalogs",
  "weldsuite-chat",
@@ -3830,6 +3833,7 @@ dependencies = [
  "weldsuite-core-platform",
  "weldsuite-core-team",
  "weldsuite-crm",
+ "weldsuite-data",
  "weldsuite-db",
  "weldsuite-desk",
  "weldsuite-desk-domain",
@@ -3849,6 +3853,8 @@ dependencies = [
  "weldsuite-ports",
  "weldsuite-realtime",
  "weldsuite-sign",
+ "weldsuite-social",
+ "weldsuite-stash",
  "weldsuite-subscribers",
 ]
 
@@ -3884,6 +3890,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-ads"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde_json",
+ "sqlx",
+ "tracing",
+ "uuid",
+ "weldsuite-ads-domain",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-ads-domain"
+version = "0.0.0"
+dependencies = [
+ "form_urlencoded",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-auth"
 version = "0.0.0"
 dependencies = [
@@ -3897,6 +3940,52 @@ dependencies = [
  "tower",
  "tracing",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-books"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-books-domain"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "icu_collator",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-pipeline",
+ "weldsuite-ports",
 ]
 
 [[package]]
@@ -4195,6 +4284,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-data"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "futures-util",
+ "http",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-db"
 version = "0.0.0"
 dependencies = [
@@ -4370,6 +4487,7 @@ dependencies = [
  "tokio",
  "tracing",
  "weldsuite-auth",
+ "weldsuite-books-domain",
  "weldsuite-catalogs",
  "weldsuite-core-domain",
  "weldsuite-db",
@@ -4640,6 +4758,66 @@ dependencies = [
  "weldsuite-core-domain",
  "weldsuite-db",
  "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-social"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-social-domain",
+]
+
+[[package]]
+name = "weldsuite-social-domain"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "form_urlencoded",
+ "hex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-stash"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",

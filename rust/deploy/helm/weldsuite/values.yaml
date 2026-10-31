@@ -178,8 +178,9 @@ config:
 # The secrets the server needs. Point existingSecret at a Secret you manage
 # (External Secrets, Sealed Secrets, sops, ...) holding these keys:
 #   DATABASE_URL_MASTER          master database connection string (required)
-#   DATABASE_ENCRYPTION_KEY      v1 key for workspaces.database_url (optional)
-#   DATABASE_ENCRYPTION_KEY_V2   v2 key for workspaces.database_url (optional)
+#   DATABASE_ENCRYPTION_KEY      v1 key for workspaces.database_url and stored
+#                                Sendcloud secrets (WeldStash) (optional)
+#   DATABASE_ENCRYPTION_KEY_V2   v2 key for the same (optional)
 #   CLERK_JWT_KEY                PEM public key of the Clerk instance; or
 #   CLERK_SECRET_KEY             fetch the keys from Clerk's Backend API; or
 #   CLERK_JWKS_URL               fetch them from a JWKS URL (or use clerkJwks)

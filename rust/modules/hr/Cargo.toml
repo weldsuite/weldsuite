@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 weldsuite-auth = { workspace = true }
+weldsuite-books-domain = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 weldsuite-core-domain = { workspace = true }
 weldsuite-db = { workspace = true }

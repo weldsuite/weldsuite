@@ -137,29 +137,6 @@ pub fn decrypt_workspace_database_url(
     open(pair, key, &[])
 }
 
-/// Open a field sealed by [`encrypt_field`] (`decryptField`): `v2:iv:ciphertext`
-/// with the v2 key, `iv:ciphertext` with the v1 key. A v3 value is refused:
-/// without its additional data it could never authenticate.
-pub fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, DecryptError> {
-    if value.starts_with("v3:") {
-        return Err(DecryptError::UnknownFormat);
-    }
-    if let Some(rest) = value.strip_prefix("v2:") {
-        let pair = split_hex_pair(rest).ok_or(DecryptError::UnknownFormat)?;
-        let key = keyring
-            .v2
-            .as_deref()
-            .ok_or(DecryptError::MissingKey("v2"))?;
-        return open(pair, key, &[]);
-    }
-    let pair = split_hex_pair(value).ok_or(DecryptError::UnknownFormat)?;
-    let key = keyring
-        .v1
-        .as_deref()
-        .ok_or(DecryptError::MissingKey("v1"))?;
-    open(pair, key, &[])
-}
-
 /// Why a value could not be sealed. Never contains the value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EncryptError {
@@ -228,6 +205,38 @@ pub fn encrypt_field(plaintext: &str, keyring: &Keyring) -> Result<String, Encry
         return seal(plaintext, key, &[]);
     }
     Err(EncryptError::NoKey)
+}
+
+/// `prefix` (`v2:`, `v3:`) at the start of `value`, in any case, as the
+/// TypeScript format checks read it (`/^v2:.../i`).
+fn strip_version<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = value.get(..prefix.len())?;
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &value[prefix.len()..])
+}
+
+/// Open a field [`encrypt_field`] sealed (`decryptField`): the key comes
+/// from the value's format, `v2:iv:ciphertext` with the v2 key and
+/// `iv:ciphertext` with the v1 key. A v3 value is refused as an unknown
+/// format, as the TypeScript helper refuses it: without its additional data
+/// it could never authenticate.
+pub fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, DecryptError> {
+    if strip_version(value, "v3:").is_some_and(|rest| split_hex_pair(rest).is_some()) {
+        return Err(DecryptError::UnknownFormat);
+    }
+    if let Some(pair) = strip_version(value, "v2:").and_then(split_hex_pair) {
+        let key = keyring
+            .v2
+            .as_deref()
+            .ok_or(DecryptError::MissingKey("v2"))?;
+        return open(pair, key, &[]);
+    }
+    let pair = split_hex_pair(value).ok_or(DecryptError::UnknownFormat)?;
+    let key = keyring
+        .v1
+        .as_deref()
+        .ok_or(DecryptError::MissingKey("v1"))?;
+    open(pair, key, &[])
 }
 
 /// Seal a workspace's tenant connection string
@@ -309,6 +318,39 @@ mod tests {
         assert_eq!(
             resolve_database_url(url, "ws_1", &Keyring::default()).as_deref(),
             Ok(url)
+        );
+    }
+
+    #[test]
+    fn decrypt_field_opens_v1_and_v2_and_refuses_v3() {
+        let v = vectors();
+        let keys = keyring(&v);
+        let url = v["url"].as_str().expect("url");
+        for format in ["v1", "v2"] {
+            let sealed = v[format].as_str().expect("vector");
+            assert_eq!(decrypt_field(sealed, &keys).as_deref(), Ok(url), "{format}");
+        }
+        let upper = v["v2"].as_str().expect("v2").replacen("v2:", "V2:", 1);
+        assert_eq!(decrypt_field(&upper, &keys).as_deref(), Ok(url));
+        assert_eq!(
+            decrypt_field(v["v3"].as_str().expect("v3"), &keys),
+            Err(DecryptError::UnknownFormat)
+        );
+        assert_eq!(
+            decrypt_field("plain", &keys),
+            Err(DecryptError::UnknownFormat)
+        );
+        let sealed = encrypt_field("token", &keys).expect("sealed");
+        assert_eq!(decrypt_field(&sealed, &keys).as_deref(), Ok("token"));
+        assert_eq!(
+            decrypt_field(
+                &sealed,
+                &Keyring {
+                    v1: keys.v1.clone(),
+                    v2: None
+                }
+            ),
+            Err(DecryptError::MissingKey("v2"))
         );
     }
 

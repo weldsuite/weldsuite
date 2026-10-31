@@ -26,7 +26,7 @@ use weldsuite_catalogs::permission_keys::{
     EVALUATIONS_CREATE, EVALUATIONS_DELETE, EVALUATIONS_READ, EVALUATIONS_UPDATE,
 };
 use weldsuite_db::{PgPool, js_row};
-use weldsuite_kit::validation::{Field, Issues, Presence, Text};
+use weldsuite_kit::validation::{Field, Issues, Presence};
 use weldsuite_kit::{Created, Data, NoContent, generate_id};
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
 
