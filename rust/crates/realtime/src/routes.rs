@@ -358,8 +358,8 @@ async fn support(
 }
 
 /// `/ws/conversation/:conversationId`: a helpdesk conversation of the
-/// member's workspace, for agents. Widget visitors (HS256 widget tokens)
-/// come with WeldDesk's port.
+/// member's workspace for agents, or the one conversation a widget
+/// visitor's HS256 token was minted for.
 async fn conversation_socket(
     State(gateway): State<Arc<Gateway>>,
     Path(conversation_id): Path<String>,
@@ -378,10 +378,12 @@ async fn conversation(
     upgrade: Upgrade,
 ) -> Answer {
     let upgrade = upgraded(upgrade)?;
-    let auth = gateway
-        .session(uri, headers)
-        .await
-        .map_err(|_| unauthorized("Invalid token (widget tokens are not served here yet)"))?;
+    // An agent's session token first; anything else must be a widget
+    // visitor's token bound to this conversation (knowing its id alone is
+    // not enough to listen in).
+    let Ok(auth) = gateway.session(uri, headers).await else {
+        return visitor(gateway, conversation_id, uri, headers, upgrade);
+    };
     let org = auth
         .org_id
         .as_deref()
@@ -408,6 +410,43 @@ async fn conversation(
         user_name: display_name(&member),
         user_id: auth.user_id,
         role: "agent".to_owned(),
+        can_publish: true,
+    };
+    Ok(gateway
+        .upgrade(upgrade)
+        .on_upgrade(move |socket| serve_room(gateway, socket, session, admission)))
+}
+
+/// A widget visitor on `/ws/conversation/:conversationId`, with the token
+/// the widget API minted (`verifyWidgetToken`), as role `customer`.
+fn visitor(
+    gateway: Arc<Gateway>,
+    conversation_id: String,
+    uri: &Uri,
+    headers: &HeaderMap,
+    upgrade: WebSocketUpgrade,
+) -> Answer {
+    let Some(token) = token(uri, headers) else {
+        return Err(unauthorized("Missing widget token"));
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
+        });
+    let visitor = crate::widget::verify(gateway.config.widget_token_secret.as_deref(), &token, now)
+        .map_err(unauthorized)?;
+    if visitor.conversation_id.as_deref() != Some(conversation_id.as_str()) {
+        return Err(forbidden("token is not valid for this conversation"));
+    }
+    let user_id = format!("visitor:{}", visitor.user_id);
+    let admission = gateway.admitted(&user_id)?;
+    let session = RoomSession {
+        kind: RoomKind::Conversation,
+        room: conversation_id,
+        user_id,
+        user_name: visitor.user_name,
+        role: "customer".to_owned(),
         can_publish: true,
     };
     Ok(gateway

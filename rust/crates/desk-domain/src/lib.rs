@@ -5,6 +5,10 @@
 //! - [`webchat`] (`@weldsuite/db/lib/desk`): the webchat inbox, i.e.
 //!   `desk_conversations`, `desk_messages` and `desk_visitors`. The only
 //!   writer of a conversation's state, waiting time and last message.
+//! - [`assignment`] (`@weldsuite/db/lib/desk-assignment`): handing an open,
+//!   unowned conversation to a teammate when the workspace has it on.
+//! - [`table`]: writing a JSON object into a table the way Drizzle does,
+//!   for the webchat tables here and the desk crate's generated ones.
 //! - [`realtime`] (`desk-api/src/services/realtime/helpdesk-publisher.ts`
 //!   and the `RealtimePublisher` conversation calls): the helpdesk
 //!   conversation room payloads.
@@ -20,8 +24,10 @@
 //! Small on purpose: add what a ported route uses, with the TypeScript
 //! function it mirrors named in its doc comment.
 
+pub mod assignment;
 pub mod http;
 pub mod notify;
 pub mod realtime;
+pub mod table;
 pub mod webchat;
 pub mod workflow;

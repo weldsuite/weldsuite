@@ -3833,6 +3833,7 @@ dependencies = [
  "weldsuite-db",
  "weldsuite-desk",
  "weldsuite-desk-domain",
+ "weldsuite-desk-widget",
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-flow",
@@ -4253,6 +4254,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-desk-widget"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "form_urlencoded",
+ "hmac",
+ "http",
+ "jiff",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-notifications",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-emails"
 version = "0.0.0"
 dependencies = [
@@ -4531,11 +4556,14 @@ name = "weldsuite-realtime"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "form_urlencoded",
  "futures-util",
+ "hmac",
  "http",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sqlx",
  "tokio",
  "tokio-tungstenite",

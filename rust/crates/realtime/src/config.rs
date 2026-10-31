@@ -40,6 +40,10 @@ pub struct GatewayConfig {
     /// `REALTIME_INTERNAL_SECRET`: what `/publish/*` and `/internal/*`
     /// callers send in `x-internal-secret`. Unset: both refuse every request.
     pub internal_secret: Option<String>,
+    /// `WIDGET_TOKEN_SECRET`: verifies the helpdesk widget visitors' room
+    /// tokens (the widget API signs them with the same value). Unset: every
+    /// visitor is refused.
+    pub widget_token_secret: Option<String>,
 }
 
 impl Default for GatewayConfig {
@@ -57,6 +61,7 @@ impl Default for GatewayConfig {
             write_timeout: Duration::from_secs(10),
             linger: Duration::from_secs(30),
             internal_secret: None,
+            widget_token_secret: None,
         }
     }
 }
@@ -73,6 +78,10 @@ impl fmt::Debug for GatewayConfig {
             .field(
                 "internal_secret",
                 &self.internal_secret.as_ref().map(|_| "<set>"),
+            )
+            .field(
+                "widget_token_secret",
+                &self.widget_token_secret.as_ref().map(|_| "<set>"),
             )
             .finish_non_exhaustive()
     }
@@ -120,6 +129,7 @@ impl GatewayConfig {
             max_message_bytes,
             send_queue,
             internal_secret: lookup("REALTIME_INTERNAL_SECRET").filter(|s| !s.is_empty()),
+            widget_token_secret: lookup("WIDGET_TOKEN_SECRET").filter(|s| !s.is_empty()),
             ..defaults
         }
     }

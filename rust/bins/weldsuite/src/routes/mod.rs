@@ -354,6 +354,47 @@ fn desk_public(state: &AppState) -> Router<AppState> {
     router
 }
 
+/// WeldDesk's helpdesk widget API (`weldsuite-desk-widget`, the
+/// `helpdesk-widget-api` worker on Global): the public webchat API a site's
+/// widget calls with its widget id, at `/public/helpdesk-widget`. Served with
+/// the desk module, and merged outside the server's first-party CORS, as it
+/// answers CORS for any origin itself. Conformance builds give it what the
+/// test shares and open the test's tenant database for every workspace.
+pub(crate) fn desk_widget(state: &AppState) -> Router {
+    if !mounts("desk") {
+        return Router::new();
+    }
+    let realtime = state.realtime.clone();
+    let widget = weldsuite_desk_widget::router(weldsuite_desk_widget::WidgetState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        files: file_stores(state),
+        cache: state.infra.cache.clone(),
+        mail: state.infra.mail.clone(),
+        master: Some(state.workspaces.master().clone()),
+        workspaces: Some(Arc::clone(&state.workspaces)),
+        settings: Arc::new(weldsuite_desk_widget::Settings {
+            environment: state.environment.clone(),
+            token_secret: state.widget_token_secret.as_deref().map(str::to_owned),
+            public_storage_url: state.files_public_url.as_deref().map(str::to_owned),
+            realtime_url: Arc::new(move |headers| realtime.url(headers)),
+            trusted_proxies: state.trusted_proxies,
+        }),
+    });
+    // Layers, not route layers: the widget's own 404 runs its middleware too.
+    #[cfg(feature = "conformance")]
+    let widget = widget
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public_tenant,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state.conformance_pools),
+            crate::conformance::public,
+        ));
+    Router::new().nest("/public/helpdesk-widget", widget)
+}
+
 /// WeldDesk's handle on the app. The helpdesk workflow engine is not ported:
 /// its port answers as the worker does without `HELPDESK_WORKFLOW`.
 fn desk_state(state: &AppState) -> weldsuite_desk::DeskState {
