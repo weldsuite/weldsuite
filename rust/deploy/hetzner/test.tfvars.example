@@ -9,11 +9,15 @@ domain       = "test.weldsuite.eu"
 # address that reaches the Kubernetes and Talos APIs.
 admin_cidrs = ["203.0.113.10/32"]
 
-# One node for everything; the Flux `test` cluster sizes the workloads for it.
-# cpx32 (4 vCPU / 8 GB) holds the stack; cpx42 (8 vCPU / 16 GB) leaves room.
-# If the type is sold out in fsn1, use nbg1 or hel1 in both location lists.
-control_plane_locations = ["fsn1"]
-control_plane_type      = "cpx32"
-worker_count            = 0
-worker_locations        = ["fsn1"]
+# Six cx23 (2 vCPU / 4 GB, the cheapest x86 type): one control plane, five
+# workers, about €50 a month with both load balancers. The Flux `test` cluster
+# runs one replica of everything on them. The cx types are often sold out;
+# the server_types API says where one is free (TEST-CLUSTER.md, step 5).
+# worker_count = 0 instead runs everything on the control plane, which then
+# needs a cpx32 (4 vCPU / 8 GB) or bigger.
+control_plane_locations = ["nbg1"]
+control_plane_type      = "cx23"
+worker_count            = 5
+worker_locations        = ["nbg1"]
+worker_type             = "cx23"
 postgres_locations      = []
