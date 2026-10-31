@@ -145,6 +145,15 @@ export function getStepOutputVariables(stepType: string): VariableItem[] {
       { path: 'title', label: 'Task Title', type: 'string' },
       { path: 'url', label: 'Task URL', type: 'string' },
     ],
+    // `created` is false when the step added to the conversation with the same external id.
+    create_conversation: [
+      { path: 'success', label: 'Success', type: 'boolean' },
+      { path: 'created', label: 'Created', type: 'boolean' },
+      { path: 'conversationId', label: 'Conversation ID', type: 'string' },
+      { path: 'conversationNumber', label: 'Conversation Number', type: 'number' },
+      { path: 'state', label: 'State', type: 'string' },
+      { path: 'assigneeId', label: 'Assignee ID', type: 'string' },
+    ],
     create_customer: [
       { path: 'created', label: 'Created', type: 'boolean' },
       { path: 'customerId', label: 'Customer ID', type: 'string' },

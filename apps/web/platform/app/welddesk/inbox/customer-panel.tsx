@@ -82,6 +82,11 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">{t.customer.details}</p>
         <Row label={t.customer.conversation}>#{conversation.conversationNumber}</Row>
         <Row label={t.customer.channel}>{channelLabel[conversation.channel]}</Row>
+        {conversation.externalId && (
+          <Row label={t.customer.externalId}>
+            <span className="font-mono text-xs break-all">{conversation.externalId}</span>
+          </Row>
+        )}
         <Row label={t.details.state}>
           {conversation.state === 'open' ? t.tabs.open : t.tabs.closed}
         </Row>

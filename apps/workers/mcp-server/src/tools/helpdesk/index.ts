@@ -1,105 +1,45 @@
 import { z } from 'zod';
-import {
-  createTicketSchema,
-  updateTicketSchema,
-  listTicketsQuery,
-} from '../../schemas/tickets';
+import { createTicketSchema } from '../../schemas/tickets';
 import {
   createArticleSchema,
   updateArticleSchema,
 } from '../../schemas/articles';
 import {
-  createConversationSchema,
-  updateConversationSchema,
+  addDeskConversationMessageSchema,
+  listConversationsQuerySchema,
+  openDeskConversationSchema,
+  updateDeskConversationShape,
 } from '../../schemas/conversations';
 import type { ToolDefinition } from '../registry';
 
+/**
+ * WeldDesk works in one inbox of conversations. A support ticket from here
+ * opens one of those (`create_ticket` is kept for the name people ask for);
+ * reading, answering, closing and assigning all go through the conversation
+ * tools. The older `helpdesk_tickets` list has no screen, so no tool writes it.
+ */
 export const helpdeskTools: ToolDefinition[] = [
   // ---- Tickets ----------------------------------------------------------------
 
   {
-    name: 'search_tickets',
-    scope: 'tickets:read',
-    description: 'Search helpdesk support tickets by subject, status, priority, or assignee.',
-    inputSchema: listTicketsQuery.shape,
-    method: 'GET',
-    path: '/v1/tickets',
-  },
-
-  {
-    name: 'get_ticket',
-    scope: 'tickets:read',
-    description: 'Get full details of a specific helpdesk ticket, including metadata and SLA information.',
-    inputSchema: {
-      ticketId: z.string().describe('The ticket — its name, or the id from an earlier search'),
-    },
-    method: 'GET',
-    path: '/v1/tickets/:id',
-    pathParams: { id: 'ticketId' },
-  },
-
-  {
     name: 'create_ticket',
     scope: 'tickets:write',
-    description: 'Create a new helpdesk support ticket.',
-    inputSchema: createTicketSchema.shape,
+    description:
+      'Open a support ticket: it becomes a conversation in the WeldDesk inbox, where the team picks it up. ' +
+      'Pass externalId (e.g. an alert or order id) so a repeat lands on the same conversation instead of a new one. ' +
+      'Follow up with the conversation tools (search_conversations, add_conversation_message, update_conversation).',
+    inputSchema: {
+      ...createTicketSchema.shape,
+      externalId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(255)
+        .optional()
+        .describe('Your own key for what this is about; the same key adds to the same conversation'),
+    },
     method: 'POST',
     path: '/v1/tickets',
-  },
-
-  {
-    name: 'update_ticket_status',
-    scope: 'tickets:write',
-    description: 'Update the status, priority, or assignment of a helpdesk ticket.',
-    inputSchema: {
-      ticketId: z.string().describe('The ticket to update — its name, or the id from an earlier search'),
-      ...updateTicketSchema.shape,
-    },
-    method: 'PATCH',
-    path: '/v1/tickets/:id',
-    pathParams: { id: 'ticketId' },
-  },
-
-  {
-    name: 'add_ticket_reply',
-    scope: 'tickets:write',
-    description: 'Add a reply or internal note to a helpdesk ticket conversation.',
-    inputSchema: {
-      ticketId: z.string().describe('The ticket to reply to — its name, or the id from an earlier search'),
-      body: z.string().describe('The message body (plain text or HTML)'),
-      type: z.enum(['reply', 'note']).default('reply').optional().describe('Message type: reply (visible to customer) or note (internal only)'),
-      authorName: z.string().describe('Name of the message author'),
-      authorEmail: z.string().email().describe('Email address of the message author'),
-      authorId: z.string().optional().describe('ID of the message author'),
-    },
-    method: 'POST',
-    path: '/v1/tickets/:id/messages',
-    pathParams: { id: 'ticketId' },
-  },
-
-  {
-    name: 'update_ticket',
-    scope: 'tickets:write',
-    description: 'Update any field on an existing helpdesk ticket.',
-    inputSchema: {
-      ticketId: z.string().describe('The ticket — its name, or the id from an earlier search'),
-      ...updateTicketSchema.shape,
-    },
-    method: 'PATCH',
-    path: '/v1/tickets/:id',
-    pathParams: { id: 'ticketId' },
-  },
-
-  {
-    name: 'delete_ticket',
-    scope: 'tickets:write',
-    description: 'Delete a helpdesk ticket.',
-    inputSchema: {
-      ticketId: z.string().describe('The ticket — its name, or the id from an earlier search'),
-    },
-    method: 'DELETE',
-    path: '/v1/tickets/:id',
-    pathParams: { id: 'ticketId' },
   },
 
   // ---- Articles ---------------------------------------------------------------
@@ -170,15 +110,10 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'search_conversations',
     scope: 'conversations:read',
-    description: 'List/search helpdesk conversations. Cursor-paginated; filter by status, assignee, or department.',
-    inputSchema: {
-      cursor: z.string().optional().describe('Pagination cursor from a previous response'),
-      limit: z.coerce.number().min(1).max(200).optional().describe('Page size (1-200, default 25)'),
-      search: z.string().optional().describe('Match against subject, customer email, or customer name'),
-      status: z.string().optional().describe('Filter by conversation status'),
-      assigneeId: z.string().optional().describe('Filter by assignee ID'),
-      departmentId: z.string().optional().describe('Filter by department ID'),
-    },
+    description:
+      'Search the WeldDesk inbox: support conversations and tickets from chat, email, phone and integrations. ' +
+      'Filter by state, assignee, channel or customer email; q searches text and numbers (#42).',
+    inputSchema: listConversationsQuerySchema.shape,
     method: 'GET',
     path: '/v1/conversations',
   },
@@ -186,9 +121,10 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'get_conversation',
     scope: 'conversations:read',
-    description: 'Get full details of a helpdesk conversation.',
+    description: 'Get a WeldDesk inbox conversation, optionally with its whole timeline (messages, notes, events).',
     inputSchema: {
-      id: z.string().describe('The conversation — its name, or the id from an earlier search'),
+      id: z.string().describe('The conversation — its subject or number, or the id from an earlier search'),
+      include: z.enum(['messages']).optional().describe('messages: include the timeline'),
     },
     method: 'GET',
     path: '/v1/conversations/:id',
@@ -198,8 +134,10 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'create_conversation',
     scope: 'conversations:write',
-    description: 'Create a new helpdesk conversation.',
-    inputSchema: createConversationSchema.shape,
+    description:
+      'Open a conversation in the WeldDesk inbox for the team to handle (an alert, a request, a ticket). ' +
+      'Pass externalId so a repeat of the same alert adds to that conversation instead of opening another.',
+    inputSchema: openDeskConversationSchema.shape,
     method: 'POST',
     path: '/v1/conversations',
   },
@@ -207,10 +145,10 @@ export const helpdeskTools: ToolDefinition[] = [
   {
     name: 'update_conversation',
     scope: 'conversations:write',
-    description: 'Update an existing helpdesk conversation.',
+    description: 'Close or reopen a WeldDesk inbox conversation, or assign it to a teammate (null unassigns).',
     inputSchema: {
-      id: z.string().describe('The conversation — its name, or the id from an earlier search'),
-      ...updateConversationSchema.shape,
+      id: z.string().describe('The conversation — its subject or number, or the id from an earlier search'),
+      ...updateDeskConversationShape,
     },
     method: 'PATCH',
     path: '/v1/conversations/:id',
@@ -218,14 +156,19 @@ export const helpdeskTools: ToolDefinition[] = [
   },
 
   {
-    name: 'delete_conversation',
+    name: 'add_conversation_message',
     scope: 'conversations:write',
-    description: 'Delete a helpdesk conversation.',
+    description:
+      'Add an internal note to a WeldDesk inbox conversation, or reply to the customer (kind=message). ' +
+      'Replies work on API and chat conversations; email and phone replies are sent from the inbox.',
     inputSchema: {
-      id: z.string().describe('The conversation — its name, or the id from an earlier search'),
+      id: z.string().describe('The conversation — its subject or number, or the id from an earlier search'),
+      ...addDeskConversationMessageSchema.shape,
     },
-    method: 'DELETE',
-    path: '/v1/conversations/:id',
+    method: 'POST',
+    path: '/v1/conversations/:id/messages',
     pathParams: { id: 'id' },
+    // A reply reaches the customer: never land it on a near-match by name.
+    exactId: true,
   },
 ];

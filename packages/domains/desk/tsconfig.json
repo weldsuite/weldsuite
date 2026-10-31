@@ -9,6 +9,7 @@
     "declaration": false,
     "declarationMap": false,
     "noUncheckedIndexedAccess": false,
+    "jsx": "react-jsx",
     "types": ["@cloudflare/workers-types", "node"]
   },
   "include": ["src"],
