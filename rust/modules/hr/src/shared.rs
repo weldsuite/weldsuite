@@ -11,10 +11,66 @@ use weldsuite_kit::generate_id;
 
 use crate::HrError;
 
+pub(crate) use weldsuite_core_domain::js::number_text;
+
 /// `new Date()` as Drizzle writes it to a `timestamp` column: UTC with
 /// milliseconds. Bind it as text with `::timestamp` (or `::timestamptz`).
 pub(crate) fn now() -> String {
     iso_timestamp(OffsetDateTime::now_utc())
+}
+
+/// `Math.round(x)`: halves round up (towards +∞).
+pub(crate) fn js_round(x: f64) -> f64 {
+    (x + 0.5).floor()
+}
+
+/// `x.toFixed(digits)`: the exact binary value rounded half up (away from
+/// zero, the sign apart), as JavaScript does; `String(x)` from 1e21.
+pub(crate) fn js_to_fixed(x: f64, digits: usize) -> String {
+    if !x.is_finite() {
+        return number_text(x);
+    }
+    if x.abs() >= 1e21 {
+        return number_text(x);
+    }
+    let negative = x < 0.0;
+    // Every finite double has an exact decimal expansion of at most 1074
+    // fractional digits: print it whole, then round by hand.
+    let exact = format!("{:.1100}", x.abs());
+    let (whole, fraction) = exact.split_once('.').unwrap_or((exact.as_str(), ""));
+    let mut digits_out: Vec<u8> = whole.bytes().chain(fraction.bytes().take(digits)).collect();
+    let rest = &fraction.as_bytes()[digits.min(fraction.len())..];
+    if rest.first().is_some_and(|d| *d >= b'5') {
+        let mut i = digits_out.len();
+        loop {
+            if i == 0 {
+                digits_out.insert(0, b'1');
+                break;
+            }
+            i -= 1;
+            if digits_out[i] == b'9' {
+                digits_out[i] = b'0';
+            } else {
+                digits_out[i] += 1;
+                break;
+            }
+        }
+    }
+    let text = String::from_utf8(digits_out).unwrap_or_default();
+    let split = text.len() - digits;
+    let (int_part, frac_part) = text.split_at(split);
+    let int_part = if int_part.is_empty() { "0" } else { int_part };
+    let body = if digits == 0 {
+        int_part.to_owned()
+    } else {
+        format!("{int_part}.{frac_part}")
+    };
+    // `(-0.0001).toFixed(2)` is "-0.00": the sign of a negative number stays.
+    if negative && x != 0.0 {
+        format!("-{body}")
+    } else {
+        body
+    }
 }
 
 /// `todayIso()`: today as `YYYY-MM-DD` in UTC.
@@ -246,6 +302,17 @@ pub(crate) async fn record_hr_audit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numbers_like_javascript() {
+        assert_eq!(js_to_fixed(1.005, 2), "1.00");
+        assert_eq!(js_to_fixed(0.25, 1), "0.3");
+        assert_eq!(js_to_fixed(1.379, 1), "1.4");
+        assert_eq!(js_to_fixed(9.96, 1), "10.0");
+        assert_eq!(js_to_fixed(-1.5, 0), "-2");
+        assert_eq!(js_to_fixed(12.0, 2), "12.00");
+        assert!((js_round(-2.5) - -2.0).abs() < f64::EPSILON);
+    }
 
     #[test]
     fn dates_like_javascript() {

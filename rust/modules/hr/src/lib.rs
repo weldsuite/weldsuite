@@ -16,6 +16,7 @@
 //! the readable 400s of `hrJson` ([`validation`]).
 
 mod defaults;
+mod fields;
 mod shared;
 mod validation;
 
