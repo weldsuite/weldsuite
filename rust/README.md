@@ -27,7 +27,9 @@ modules, each with conformance suites that reach every route:
   CloudNativePG (`/api/onboarding`, `workspace.provision`)
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
-  **calendar**, **crm**, **flow**, **mail**, **chat** and **desk**
+  **calendar**, **crm**, **flow**, **mail**, **chat** and **desk** (with the
+  helpdesk widget API at `/public/helpdesk-widget`; not yet its workflow
+  engine, `helpdesk-workflow-worker`)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -79,7 +81,8 @@ rust/
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
-                        modules/mail, modules/chat, modules/desk; core is split over
+                        modules/mail, modules/chat, modules/desk, modules/desk-widget (the
+                        helpdesk widget API, at /public/helpdesk-widget); core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
                         modules/core-team (team, roles, settings, preferences, app catalog),
@@ -211,6 +214,7 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `REALTIME_PUBLIC_URL` | the gateway URL `/config.json` gives the frontends (default: the request's own origin with `/ws`) |
 | `REALTIME_MAX_CONNECTIONS`, `REALTIME_MAX_CONNECTIONS_PER_USER`, `REALTIME_MAX_SUBSCRIPTIONS`, `REALTIME_MAX_MESSAGE_BYTES`, `REALTIME_SEND_QUEUE` | gateway limits per pod (20,000 sockets, 100 per person, 2,000 topics per socket, 1 MiB messages, 1,024 queued messages before a slow client is dropped) |
 | `REALTIME_INTERNAL_SECRET` | `x-internal-secret` of `/publish/*` and `/internal/presence` (optional; unset refuses them) |
+| `WIDGET_TOKEN_SECRET` | WeldDesk: the helpdesk widget API (`/public/helpdesk-widget`) signs its visitors' conversation-room tokens with it and the gateway verifies them, the workers' value (optional; unset: `POST /api/realtime/token` answers 500 and visitors get no live updates) |
 | `NATS_URL`, `NATS_USER`/`NATS_PASSWORD` or `NATS_TOKEN`, `NATS_ENTITY_EVENTS_STREAM`, `NATS_ENTITY_EVENTS_SUBJECT`, `NATS_ENSURE_STREAMS` | entity events (optional) |
 | `SMTP_URL` | system mail: `smtp://user:password@relay:587?tls=required`, `smtps://…:465` or `smtp://mailpit:1025` (optional; unset skips mail, as the workers without `SEND_EMAIL`) |
 | `SYSTEM_EMAIL_FROM` | send from this address instead of `notifications@mail.weldsuite.org` (optional) |
@@ -231,6 +235,7 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `TEST_FIXTURES_TOKEN` | unlocks `X-Test-Flags` in `development`/`test` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME` | export traces over OTLP/HTTP (optional) |
 | `PORT`, `HOST` | listen address (default `0.0.0.0:8080`) |
+| `TRUSTED_PROXIES` | how many proxies in front of the server append to `X-Forwarded-For` (default 1, the ingress controller; 2 with a CDN the ingress trusts): the client's address, which the helpdesk widget's rate limit keys on, is that many entries from the right. `CF-Connecting-IP` is not trusted on Kubernetes |
 | `ENVIRONMENT`, `LOG_FORMAT` (`json`/`text`), `RUST_LOG` | reporting and logs |
 | `DATABASE_MASTER_MAX_CONNECTIONS`, `TENANT_POOL_MAX_CONNECTIONS`, `TENANT_POOLS_MAX`, `WORKSPACE_CACHE_TTL_SECONDS` | pools and the workspace cache |
 | `SHUTDOWN_DELAY_SECONDS` | how long `/readyz` fails after SIGTERM before connections stop |
@@ -248,9 +253,8 @@ Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
 Not there yet in the realtime gateway: the whiteboard and document rooms
-(Flow's REST routes are ported, its collaborative rooms are not),
-helpdesk-widget visitors on conversation rooms (their HS256 tokens come from
-`helpdesk-widget-api`, which is not ported), and the support side of support rooms
+(Flow's REST routes are ported, its collaborative rooms are not), and the
+support side of support rooms
 (WeldSuite staff on the admin console stay on Global; `crates/realtime`'s
 docs have the design).
 

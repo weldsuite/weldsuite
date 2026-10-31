@@ -56,6 +56,12 @@ pub(crate) struct AppState {
     pub(crate) sign_portal_secret: Option<Arc<str>>,
     /// `S3_PUBLIC_URL`, for Drive rows in the public bucket.
     pub(crate) files_public_url: Option<Arc<str>>,
+    /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
+    /// realtime tokens with it, and the gateway verifies them.
+    pub(crate) widget_token_secret: Option<Arc<str>>,
+    /// `TRUSTED_PROXIES`: where the client's address sits in
+    /// `X-Forwarded-For`, counted from the right.
+    pub(crate) trusted_proxies: usize,
     /// `STORAGE_SIGNING_KEY`, for private-object cookies and signed URLs.
     pub(crate) storage_signing_key: Option<Arc<str>>,
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
@@ -132,6 +138,10 @@ pub(crate) fn router(state: AppState) -> Router {
             "/__conformance/cron/calendar-replan",
             axum::routing::post(crate::conformance::calendar_replan_sweep),
         );
+    // The helpdesk widget answers CORS for any origin itself (a widget is
+    // embedded on customers' sites), so it goes in outside `api_cors()`.
+    let widget =
+        crate::routes::desk_widget(&state).layer(axum::middleware::from_fn(bundle_host_guard));
     root.route("/livez", get(livez))
         .route("/readyz", get(readyz))
         .route("/health", get(health))
@@ -144,6 +154,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(bundle_host_guard))
         .layer(axum::middleware::from_fn(app_context))
         .layer(api_cors())
+        .merge(widget)
         // One INFO span per request, so the default `info` filter keeps it
         // for the trace exporter.
         .layer(
@@ -431,6 +442,8 @@ mod tests {
             sign_portal_url: None,
             sign_portal_secret: None,
             files_public_url: None,
+            widget_token_secret: None,
+            trusted_proxies: 1,
             storage_signing_key: None,
             public_auth: None,
             realtime: crate::realtime::PublicRealtime::default(),
@@ -672,6 +685,31 @@ mod tests {
             headers["access-control-allow-origin"],
             "https://app.weldsuite.org"
         );
+    }
+
+    /// The helpdesk widget is embedded on customers' sites: its API answers
+    /// CORS for any origin, while the platform's API still does not.
+    #[tokio::test]
+    async fn the_helpdesk_widget_answers_any_origin() {
+        let preflight = |uri: &str| {
+            Request::builder()
+                .method("OPTIONS")
+                .uri(uri)
+                .header("Origin", "https://shop.example.com")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "content-type,x-widget-id")
+                .body(Body::empty())
+                .expect("request")
+        };
+        let (status, headers, _) = call(
+            state(),
+            preflight("/public/helpdesk-widget/api/conversations"),
+        )
+        .await;
+        assert!(status.is_success(), "{status}");
+        assert_eq!(headers["access-control-allow-origin"], "*");
+        let (_, headers, _) = call(state(), preflight("/api/me/permissions")).await;
+        assert!(!headers.contains_key("access-control-allow-origin"));
     }
 
     #[test]

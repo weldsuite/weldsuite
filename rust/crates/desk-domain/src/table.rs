@@ -4,11 +4,16 @@
 //! route's Zod schema let through (`.passthrough()` included: any key that is
 //! one of the table's properties reaches the statement).
 //!
-//! The tables (`crate::tables`, generated) carry the statements: the body
-//! becomes a `{ column: value }` JSON object, `jsonb_populate_record` turns it
-//! into the row, and a column the object leaves out gets its database default
+//! The tables (`weldsuite-desk`'s generated `tables`, and the webchat tables
+//! in [`crate::webchat`]) carry the statements: the body becomes a
+//! `{ column: value }` JSON object, `jsonb_populate_record` turns it into the
+//! row, and a column the object leaves out gets its database default
 //! (insert) or keeps its value (patch), as Drizzle leaves it out of the
 //! statement.
+//!
+//! Here rather than in the desk crate because the webchat inbox's writer
+//! ([`crate::webchat::append_desk_message`]) is shared with the helpdesk
+//! widget API.
 
 use serde_json::{Map, Value};
 use weldsuite_db::{PgPool, js_timestamp};
@@ -16,7 +21,7 @@ use weldsuite_db::{PgPool, js_timestamp};
 /// How Drizzle maps a property's value onto its column.
 #[allow(dead_code)] // every Drizzle kind the generator writes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Kind {
+pub enum Kind {
     Text,
     Number,
     Bool,
@@ -34,38 +39,38 @@ pub(crate) enum Kind {
 
 /// A table property.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Column {
+pub struct Column {
     /// The Drizzle property (`ticketTypeId`).
-    pub(crate) prop: &'static str,
+    pub prop: &'static str,
     /// The column (`ticket_type_id`).
-    pub(crate) name: &'static str,
-    pub(crate) kind: Kind,
+    pub name: &'static str,
+    pub kind: Kind,
     #[allow(dead_code)] // none of the tables has one yet
     /// A `$defaultFn` Drizzle runs when the insert leaves the property out.
-    pub(crate) default_fn: bool,
+    pub default_fn: bool,
 }
 
 /// A table desk-api writes from a request body.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Table {
-    pub(crate) name: &'static str,
-    pub(crate) columns: &'static [Column],
+pub struct Table {
+    pub name: &'static str,
+    pub columns: &'static [Column],
     /// The row as Drizzle returns it, before [`js_row`]: `to_jsonb(t)`, with
     /// `numeric` columns as text.
     #[allow(dead_code)]
-    pub(crate) row: &'static str,
+    pub row: &'static str,
     /// `$1`: the row as `{ column: value }`. Returns the row.
-    pub(crate) insert: &'static str,
+    pub insert: &'static str,
     /// `$1`: the changes as `{ column: value }`, `$2`: the id, `$3`: only a
     /// live row (`deleted_at is null`). Returns the row, if one was changed.
-    pub(crate) patch: &'static str,
+    pub patch: &'static str,
     /// `$1`: the id. The live row (`deleted_at is null` where the table has it).
-    pub(crate) select_live: &'static str,
+    pub select_live: &'static str,
 }
 
 /// A `timestamp` or `date` column read in `date` mode, as `toISOString()`:
 /// a `date` (`2026-10-29`) is midnight UTC.
-pub(crate) fn js_date(text: &str) -> String {
+pub fn js_date(text: &str) -> String {
     if text.len() == 10 {
         return format!("{text}T00:00:00.000Z");
     }
@@ -74,7 +79,7 @@ pub(crate) fn js_date(text: &str) -> String {
 
 /// Why a write could not run.
 #[derive(Debug)]
-pub(crate) enum WriteError {
+pub enum WriteError {
     /// A `date`-mode timestamp got a value that is not a `Date`: Drizzle's
     /// `toISOString` throws before the statement runs (the route's 500).
     NotADate(&'static str),
@@ -100,7 +105,7 @@ impl Table {
     /// A `row` (`to_jsonb(t)`) as Drizzle's `select()` returns it: the
     /// schema's property names (`relatedFAQs`, not `relatedFaqs`), `Date`s as
     /// `toISOString()`, and only the schema's columns.
-    pub(crate) fn js(&self, row: Value) -> Value {
+    pub fn js(&self, row: Value) -> Value {
         let Value::Object(mut row) = row else {
             return row;
         };
@@ -116,14 +121,14 @@ impl Table {
         Value::Object(out)
     }
 
-    pub(crate) fn column(&self, prop: &str) -> Option<&'static Column> {
+    pub fn column(&self, prop: &str) -> Option<&'static Column> {
         self.columns.iter().find(|c| c.prop == prop)
     }
 
     /// `{ ...data }` as `{ column: value }`: the properties of the table in
     /// `data`, in `data`'s order. Keys that are not properties are dropped,
     /// as Drizzle drops them.
-    pub(crate) fn values(&self, data: &Map<String, Value>) -> Map<String, Value> {
+    pub fn values(&self, data: &Map<String, Value>) -> Map<String, Value> {
         let mut out = Map::new();
         for (key, value) in data {
             if let Some(column) = self.column(key) {
@@ -136,7 +141,7 @@ impl Table {
     /// Set a property the route writes itself (`createdAt: now`). Values the
     /// route builds are what Drizzle got as JavaScript values (a `Date` for a
     /// timestamp), so they are not checked.
-    pub(crate) fn set(&self, values: &mut Map<String, Value>, prop: &str, value: Value) {
+    pub fn set(&self, values: &mut Map<String, Value>, prop: &str, value: Value) {
         if let Some(column) = self.column(prop) {
             values.insert(column.name.to_owned(), value);
         }
@@ -158,7 +163,7 @@ impl Table {
 
     /// Insert `values` (see [`Table::values`]); `trusted` names the
     /// properties the route set itself. The row as Drizzle returns it.
-    pub(crate) async fn insert<'e>(
+    pub async fn insert<'e>(
         &self,
         db: impl sqlx::PgExecutor<'e>,
         values: Map<String, Value>,
@@ -174,7 +179,7 @@ impl Table {
 
     /// Update the row `id` with `values`; `live_only` adds `deleted_at is
     /// null`. The changed row, or `None` when none matched.
-    pub(crate) async fn patch<'e>(
+    pub async fn patch<'e>(
         &self,
         db: impl sqlx::PgExecutor<'e>,
         id: &str,
@@ -193,11 +198,7 @@ impl Table {
     }
 
     /// The live row `id`, as Drizzle returns it.
-    pub(crate) async fn find_live(
-        &self,
-        db: &PgPool,
-        id: &str,
-    ) -> Result<Option<Value>, sqlx::Error> {
+    pub async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
         let row: Option<Value> = sqlx::query_scalar(self.select_live)
             .bind(id)
             .fetch_optional(db)
