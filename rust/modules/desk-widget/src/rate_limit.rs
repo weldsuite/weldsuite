@@ -1,6 +1,13 @@
 //! `middleware/rate-limit.ts`: requests per caller per minute, counted in
 //! the workspace cache (`WORKSPACE_CACHE`): 120 reads, 30 writes. Without a
 //! cache, or when it fails, nothing is limited.
+//!
+//! The caller is not read as the worker reads it. On Global, Cloudflare
+//! overwrites `CF-Connecting-IP`; on Kubernetes nothing in front of the
+//! server does, so the client could send a new one with every request and
+//! never be counted twice. Here the caller is the `X-Forwarded-For` entry the
+//! ingress appended (`TRUSTED_PROXIES` from the right, as the sign portal
+//! reads the signer's address), and `CF-Connecting-IP` is ignored.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,19 +30,28 @@ const WRITE_LIMIT: i64 = 30;
 /// How long a minute's counter is kept.
 const COUNTER_TTL: Duration = Duration::from_secs(120);
 
-/// The caller: `cf-connecting-ip`, else `x-forwarded-for` as it came, else
-/// `unknown`.
-fn caller(headers: &HeaderMap) -> String {
-    ["cf-connecting-ip", "x-forwarded-for"]
+/// The caller (`forwardedClientIp(forwardedFor, trustedProxies)`): the
+/// `X-Forwarded-For` entry `trusted_proxies` from the right, when it looks
+/// like an address; else `unknown`, one shared counter.
+fn caller(headers: &HeaderMap, trusted_proxies: usize) -> String {
+    let hops: Vec<&str> = headers
+        .get_all("x-forwarded-for")
         .iter()
-        .find_map(|name| {
-            headers
-                .get(*name)
-                .and_then(|value| value.to_str().ok())
-                .filter(|value| !value.is_empty())
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|hop| !hop.is_empty())
+        .collect();
+    hops.len()
+        .checked_sub(trusted_proxies.max(1))
+        .and_then(|at| hops.get(at))
+        .filter(|ip| {
+            (2..=45).contains(&ip.len())
+                && ip
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() || matches!(b, b'.' | b':'))
         })
-        .unwrap_or("unknown")
-        .to_owned()
+        .map_or_else(|| "unknown".to_owned(), |ip| (*ip).to_owned())
 }
 
 /// The counter's key and the limit for a request at `now` (Unix seconds).
@@ -57,7 +73,8 @@ pub(crate) async fn rate_limit(
         return next.run(request).await;
     };
     let now = OffsetDateTime::now_utc().unix_timestamp();
-    let (key, limit) = counter(request.method(), &caller(request.headers()), now);
+    let caller = caller(request.headers(), state.settings.trusted_proxies);
+    let (key, limit) = counter(request.method(), &caller, now);
     if let Some(refusal) = check(&kv, &key, limit, now).await {
         return refusal;
     }
@@ -117,16 +134,25 @@ mod tests {
     }
 
     #[test]
-    fn the_caller_is_the_first_header_present() {
+    fn the_caller_is_the_address_the_ingress_appended() {
         let mut headers = HeaderMap::new();
-        assert_eq!(caller(&headers), "unknown");
+        assert_eq!(caller(&headers, 1), "unknown");
+        // What the client sent sits to the left of the ingress's entry.
         headers.insert(
             "x-forwarded-for",
-            HeaderValue::from_static("5.6.7.8, 10.0.0.1"),
+            HeaderValue::from_static("6.6.6.6, 5.6.7.8"),
         );
-        assert_eq!(caller(&headers), "5.6.7.8, 10.0.0.1");
+        assert_eq!(caller(&headers, 1), "5.6.7.8");
+        assert_eq!(caller(&headers, 2), "6.6.6.6");
+        assert_eq!(caller(&headers, 3), "unknown");
+        // A CF-Connecting-IP the client made up counts for nothing.
         headers.insert("cf-connecting-ip", HeaderValue::from_static("1.2.3.4"));
-        assert_eq!(caller(&headers), "1.2.3.4");
+        assert_eq!(caller(&headers, 1), "5.6.7.8");
+        // Neither does an entry that is not an address.
+        headers.insert("x-forwarded-for", HeaderValue::from_static("not-an-ip"));
+        assert_eq!(caller(&headers, 1), "unknown");
+        headers.insert("x-forwarded-for", HeaderValue::from_static("2001:db8::1"));
+        assert_eq!(caller(&headers, 1), "2001:db8::1");
     }
 
     #[tokio::test]

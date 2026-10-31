@@ -59,6 +59,9 @@ pub(crate) struct AppState {
     /// `WIDGET_TOKEN_SECRET`: the helpdesk widget API signs its visitors'
     /// realtime tokens with it, and the gateway verifies them.
     pub(crate) widget_token_secret: Option<Arc<str>>,
+    /// `TRUSTED_PROXIES`: where the client's address sits in
+    /// `X-Forwarded-For`, counted from the right.
+    pub(crate) trusted_proxies: usize,
     /// `STORAGE_SIGNING_KEY`, for private-object cookies and signed URLs.
     pub(crate) storage_signing_key: Option<Arc<str>>,
     /// Sign-in settings for `/config.json`: the OIDC issuer and the
@@ -440,6 +443,7 @@ mod tests {
             sign_portal_secret: None,
             files_public_url: None,
             widget_token_secret: None,
+            trusted_proxies: 1,
             storage_signing_key: None,
             public_auth: None,
             realtime: crate::realtime::PublicRealtime::default(),

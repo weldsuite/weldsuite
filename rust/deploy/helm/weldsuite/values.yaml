@@ -22,6 +22,11 @@ config:
   logLevel: info
   # Refuse per-app permission denials instead of only logging them.
   permissionsAppEnforce: false
+  # How many proxies in front of the server append to X-Forwarded-For: 1 for
+  # the ingress controller, 2 with a CDN the ingress trusts. The client's
+  # address is that many entries from the right (the helpdesk widget's rate
+  # limit keys on it); the entries to its left are what the client sent.
+  trustedProxies: 1
   # Which edition this install is, told to the platform by /config.json:
   # self-hosted (a customer's own install) or eu (WeldSuite's EU edition).
   # The platform offers only the modules this release ports to Rust and hides

@@ -378,6 +378,7 @@ pub(crate) fn desk_widget(state: &AppState) -> Router {
             token_secret: state.widget_token_secret.as_deref().map(str::to_owned),
             public_storage_url: state.files_public_url.as_deref().map(str::to_owned),
             realtime_url: Arc::new(move |headers| realtime.url(headers)),
+            trusted_proxies: state.trusted_proxies,
         }),
     });
     // Layers, not route layers: the widget's own 404 runs its middleware too.

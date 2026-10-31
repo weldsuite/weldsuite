@@ -94,6 +94,9 @@ pub struct Settings {
     pub public_storage_url: Option<String>,
     /// `REALTIME_PUBLIC_URL`, handed to the widget in `/api/config`.
     pub realtime_url: RealtimeUrl,
+    /// `TRUSTED_PROXIES`: the rate limit keys on the `X-Forwarded-For`
+    /// entry this many from the right, the one the ingress appended.
+    pub trusted_proxies: usize,
 }
 
 impl std::fmt::Debug for Settings {
@@ -102,6 +105,7 @@ impl std::fmt::Debug for Settings {
             .field("environment", &self.environment)
             .field("token_secret", &self.token_secret.is_some())
             .field("public_storage_url", &self.public_storage_url)
+            .field("trusted_proxies", &self.trusted_proxies)
             .finish_non_exhaustive()
     }
 }

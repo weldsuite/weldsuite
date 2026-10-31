@@ -177,6 +177,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             .widget_token_secret
             .as_deref()
             .map(Arc::from),
+        trusted_proxies: config.trusted_proxies,
         storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
         public_auth,
         realtime: realtime::PublicRealtime::from_config(&config),
