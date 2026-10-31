@@ -37,8 +37,22 @@ impl DynOutboundHttp for ReqwestOutbound {
             }
             let response = call.send().await.map_err(PortError::backend)?;
             let status = response.status().as_u16();
+            let headers = response
+                .headers()
+                .iter()
+                .filter_map(|(name, value)| {
+                    value
+                        .to_str()
+                        .ok()
+                        .map(|value| (name.as_str().to_owned(), value.to_owned()))
+                })
+                .collect();
             let body = response.bytes().await.map_err(PortError::backend)?.to_vec();
-            Ok(HttpResponse { status, body })
+            Ok(HttpResponse {
+                status,
+                body,
+                headers,
+            })
         })
     }
 }

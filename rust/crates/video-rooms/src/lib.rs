@@ -150,6 +150,7 @@ mod tests {
         HttpResponse {
             status,
             body: body.to_string().into_bytes(),
+            ..HttpResponse::default()
         }
     }
 
