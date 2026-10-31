@@ -180,6 +180,11 @@ export const FORWARDED_ENV = [
   'POSTPEER_BASE_URL',
   'POSTPEER_APP_IDS',
   'POSTPEER_WEBHOOK_SECRET',
+  // WeldData: the Lemlist lead database, and the email finders an enrichment
+  // run calls.
+  'LEMLIST_API_KEY',
+  'FINDYMAIL_API_KEY',
+  'PROSPEO_API_KEY',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -199,6 +204,10 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const WRITING_READS: RegExp[] = [
   // WeldChat: the 1:1 DM with someone, created on first use.
   /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+  // WeldData: the Lemlist filter catalog, cached in KV on a miss.
+  /^\/api\/welddata\/filters(\?|$)/,
+  // WeldData: a list's cells, its stuck running ones timed out first.
+  /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
 ];
 
 interface ConformanceContext {

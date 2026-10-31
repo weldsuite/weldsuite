@@ -34,6 +34,31 @@ fn parsed_type(value: Option<&Value>) -> &'static str {
     }
 }
 
+/// `z.union([z.string(), z.number()])` failing on `value` at `path`: Zod's
+/// `invalid_union`, with one `invalid_type` per option.
+fn string_or_number_issue(path: &Value, value: Option<&Value>) -> Value {
+    let received = parsed_type(value);
+    let option = |expected: &str| {
+        json!({ "issues": [{
+            "code": "invalid_type",
+            "expected": expected,
+            "received": received,
+            "path": path,
+            "message": if received == "undefined" {
+                "Required".to_owned()
+            } else {
+                format!("Expected {expected}, received {received}")
+            },
+        }], "name": "ZodError" })
+    };
+    json!({
+        "code": "invalid_union",
+        "unionErrors": [option("string"), option("number")],
+        "path": path,
+        "message": "Invalid input",
+    })
+}
+
 /// How a field may be left out: Zod's `.optional()`, `.nullable()` and
 /// `.nullish()`, or none of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,6 +224,12 @@ impl Issues {
     /// [`Issues::custom_message`].
     pub fn count(&self) -> usize {
         self.issues.len()
+    }
+
+    /// The issues added since `from` (a [`Issues::count`]), for a
+    /// refinement that runs only when none of them failed a type check.
+    pub fn issues_since(&self, from: usize) -> &[Value] {
+        self.issues.get(from..).unwrap_or_default()
     }
 
     /// A check's custom message (`.min(1, 'Name is required')`): every issue
@@ -540,28 +571,20 @@ impl Issues {
             return Field::Set(value.cloned().unwrap_or(Value::Null));
         }
         let path = self.path(key);
-        let received = parsed_type(value);
-        let option = |expected: &str| {
-            json!({ "issues": [{
-                "code": "invalid_type",
-                "expected": expected,
-                "received": received,
-                "path": path,
-                "message": if received == "undefined" {
-                    "Required".to_owned()
-                } else {
-                    format!("Expected {expected}, received {received}")
-                },
-            }], "name": "ZodError" })
-        };
-        let union_errors = json!([option("string"), option("number")]);
-        self.issues.push(json!({
-            "code": "invalid_union",
-            "unionErrors": union_errors,
-            "path": path,
-            "message": "Invalid input",
-        }));
+        self.issues.push(string_or_number_issue(&path, value));
         Field::Absent
+    }
+
+    /// An array item as `z.union([z.string(), z.number()])`
+    /// (`z.array(z.union([z.string(), z.number()]))`), reported at the item's
+    /// own path; `None` when it is neither.
+    pub fn item_string_or_number(&mut self, item: &Value) -> Option<Value> {
+        if let Value::String(_) | Value::Number(_) = item {
+            return Some(item.clone());
+        }
+        let path = self.path_at(None);
+        self.issues.push(string_or_number_issue(&path, Some(item)));
+        None
     }
 
     /// A failed `.refine(check, { message })` on `key`. Zod runs a refinement
@@ -1454,6 +1477,39 @@ mod tests {
             read(Value::Null).1,
             json!([{"code":"invalid_union","unionErrors":[{"issues":[{"expected":"'low' | 'medium' | 'high' | 'urgent' | 'critical'","received":"null","code":"invalid_type","path":["priority"],"message":"Expected 'low' | 'medium' | 'high' | 'urgent' | 'critical', received null"}],"name":"ZodError"},{"issues":[{"received":null,"code":"invalid_literal","expected":"normal","path":["priority"],"message":"Invalid literal value, expected \"normal\""}],"name":"ZodError"}],"path":["priority"],"message":"Invalid input"}])
         );
+    }
+
+    /// Zod 3's output for `z.object({ values: z.array(z.union([z.string(),
+    /// z.number()])) })` with a boolean item.
+    #[test]
+    fn union_items_read_like_zod() {
+        let body = json!({ "values": ["x", 3, true] });
+        let mut issues = Issues::default();
+        let field = issues.list(
+            body.as_object().expect("object"),
+            "values",
+            Presence::Required,
+            None,
+            None,
+            Issues::item_string_or_number,
+        );
+        assert_eq!(field, Field::Absent);
+        assert_eq!(
+            issues.take(),
+            json!([{"code":"invalid_union","unionErrors":[{"issues":[{"code":"invalid_type","expected":"string","received":"boolean","path":["values",2],"message":"Expected string, received boolean"}],"name":"ZodError"},{"issues":[{"code":"invalid_type","expected":"number","received":"boolean","path":["values",2],"message":"Expected number, received boolean"}],"name":"ZodError"}],"path":["values",2],"message":"Invalid input"}])
+        );
+        let mut issues = Issues::default();
+        let body = json!({ "values": ["x", 3] });
+        let field = issues.list(
+            body.as_object().expect("object"),
+            "values",
+            Presence::Required,
+            None,
+            None,
+            Issues::item_string_or_number,
+        );
+        assert_eq!(field, Field::Set(vec![json!("x"), json!(3)]));
+        assert_eq!(issues.issues_since(0), &[] as &[Value]);
     }
 
     #[test]

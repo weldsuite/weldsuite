@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has twelve
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has thirteen
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -40,6 +40,13 @@ modules, each with conformance suites that reach every route:
   `/public/social/postpeer/webhook`; the publishing service is
   `crates/social-domain`, for external-api and mcp-server when they are
   ported)
+- **data** (WeldData: the Lemlist lead database search with its cache,
+  lists and saved leads, converting leads into CRM people and companies and
+  onto CRM lists, enrichment columns and cells, the enrich field definitions
+  and enrichment views; a column run is the `data.welddata-enrich` job,
+  the `WELDDATA_ENRICH` Workflow: Findymail or Prospeo for emails through
+  the outbound HTTP port, the company's own website for phone numbers, read
+  on public addresses only, and the AI action stubbed as on Global)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -48,7 +55,7 @@ desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls and help center custom domains.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books, commerce, stash,
-host, meet, call, connect, agent, data, hr, reach, sheets, docs and
+host, meet, call, connect, agent, hr, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
 
@@ -94,7 +101,8 @@ rust/
                         modules/mail, modules/chat, modules/desk, modules/desk-widget (the
                         helpdesk widget API, at /public/helpdesk-widget), modules/ads (with
                         crates/ads-domain: Meta's API, the campaign sync, the ad sync index),
-                        modules/social (with crates/social-domain: PostPeer publishing, credits);
+                        modules/social (with crates/social-domain: PostPeer publishing, credits),
+                        modules/data (WeldData, and the welddata-enrich job);
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
@@ -223,6 +231,8 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`; seal and open WeldAds' Meta tokens (`encryptField`) |
 | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | WeldAds: the Meta app ad connections authorize (unset: connecting answers 500 `Facebook OAuth is not configured`); the OAuth callback page is on `PUBLIC_APP_URL` (default `https://app.weldsuite.org`). The OAuth state lives in Valkey, or in this process without it |
 | `POSTPEER_API_KEY`, `POSTPEER_BASE_URL`, `POSTPEER_APP_IDS`, `POSTPEER_WEBHOOK_SECRET` | WeldSocial: PostPeer's API key (unset: connecting and publishing answer 400 `Social publishing is not configured`), its base URL (default `https://api.postpeer.dev/v1`), the BYOK OAuth apps as a JSON object of platform → app id, and the secret PostPeer signs its delivery webhooks with (unset: every delivery is refused). Publishing charges the workspace's prepaid credits (2 per platform) |
+| `LEMLIST_API_KEY` | WeldData: the shared Lemlist key for the lead database (unset: searches and the filter catalog answer 500 `Lead database is not configured`). Search pages and the catalog are cached in Valkey when it is set |
+| `FINDYMAIL_API_KEY`, `PROSPEO_API_KEY` | WeldData: the email finder's providers, read by the `data.welddata-enrich` job (unset: the cells of that provider fail with `… is not configured`) |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |

@@ -1737,6 +1737,27 @@
         "rust/modules/social/",
         "rust/crates/social-domain/"
       ]
+    },
+    {
+      "name": "data",
+      "module": "data",
+      "workspace": "apps/workers/data-api",
+      "tests": [
+        "src/routes/welddata/integration.test.ts",
+        "src/routes/enrich-fields/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/data-api/src/",
+        "packages/domains/data/src/",
+        "packages/domains/crm/src/companies.ts",
+        "packages/domains/crm/src/people.ts",
+        "packages/domains/crm/src/member-validation.ts",
+        "packages/clients/app-api-client/src/schemas/welddata.ts",
+        "packages/clients/app-api-client/src/schemas/enrich-fields.ts",
+        "packages/clients/app-api-client/src/schemas/welddata-responses.ts",
+        "rust/modules/data/",
+        "rust/crates/crm-domain/"
+      ]
     }
   ]
 }
