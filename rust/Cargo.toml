@@ -25,6 +25,8 @@ weldsuite-calendar-domain = { path = "crates/calendar-domain" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }
+weldsuite-commerce = { path = "modules/commerce" }
+weldsuite-commerce-domain = { path = "crates/commerce-domain" }
 weldsuite-core-apps = { path = "modules/core-apps" }
 weldsuite-core-domain = { path = "crates/core-domain" }
 weldsuite-core-objects = { path = "modules/core-objects" }
