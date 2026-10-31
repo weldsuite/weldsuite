@@ -4444,6 +4444,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-mail-inbound"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "encoding_rs",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-desk-domain",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-mail-domain",
+ "weldsuite-notifications",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-migrations"
 version = "0.0.0"
 dependencies = [

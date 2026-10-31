@@ -7,6 +7,8 @@
 //!   writer of a conversation's state, waiting time and last message.
 //! - [`assignment`] (`@weldsuite/db/lib/desk-assignment`): handing an open,
 //!   unowned conversation to a teammate when the workspace has it on.
+//! - [`email`] (`@weldsuite/db/lib/desk`, the email channel): a customer
+//!   email starts a conversation or continues the one it threads into.
 //! - [`table`]: writing a JSON object into a table the way Drizzle does,
 //!   for the webchat tables here and the desk crate's generated ones.
 //! - [`realtime`] (`desk-api/src/services/realtime/helpdesk-publisher.ts`
@@ -25,6 +27,7 @@
 //! function it mirrors named in its doc comment.
 
 pub mod assignment;
+pub mod email;
 pub mod http;
 pub mod notify;
 pub mod realtime;
