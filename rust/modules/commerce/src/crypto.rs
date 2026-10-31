@@ -24,7 +24,8 @@ fn is_v2(value: &str) -> bool {
 pub(crate) fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, String> {
     if is_v3(value) {
         return Err(
-            "decryptField: value is v3 (AAD-bound), open it with decryptWorkspaceDatabaseUrl()".to_owned(),
+            "decryptField: value is v3 (AAD-bound), open it with decryptWorkspaceDatabaseUrl()"
+                .to_owned(),
         );
     }
     if is_v2(value) {

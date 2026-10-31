@@ -75,11 +75,17 @@ where
     let update = || gate.require([perm::CATEGORIES_UPDATE]);
     Router::new()
         .route("/", get(list).route_layer(read()))
-        .route("/", post(create).route_layer(gate.require([perm::CATEGORIES_CREATE])))
+        .route(
+            "/",
+            post(create).route_layer(gate.require([perm::CATEGORIES_CREATE])),
+        )
         .route("/tree", get(tree).route_layer(read()))
         .route("/preview-members", post(preview).route_layer(read()))
         .route("/{id}", get(detail).route_layer(read()))
-        .route("/{id}", axum::routing::patch(update_category).route_layer(update()))
+        .route(
+            "/{id}",
+            axum::routing::patch(update_category).route_layer(update()),
+        )
         .route(
             "/{id}",
             delete(remove).route_layer(gate.require([perm::CATEGORIES_DELETE])),
@@ -151,22 +157,34 @@ fn slugify(input: &str, fallback: &str) -> String {
     let slug = slug.strip_prefix('-').unwrap_or(&slug);
     let slug = slug.strip_suffix('-').unwrap_or(slug);
     let slug: String = slug.chars().take(255).collect();
-    if slug.is_empty() { fallback.to_owned() } else { slug }
+    if slug.is_empty() {
+        fallback.to_owned()
+    } else {
+        slug
+    }
 }
 
 /// `uniqueSlug(db, desired, excludeId)`.
-async fn unique_slug(caller: &Caller, desired: &str, exclude: Option<&str>) -> Result<String, Failure> {
+async fn unique_slug(
+    caller: &Caller,
+    desired: &str,
+    exclude: Option<&str>,
+) -> Result<String, Failure> {
     for attempt in 0..50 {
         let candidate = if attempt == 0 {
             desired.to_owned()
         } else {
-            format!("{desired}-{}", attempt + 1).chars().take(255).collect()
+            format!("{desired}-{}", attempt + 1)
+                .chars()
+                .take(255)
+                .collect()
         };
-        let clash: Option<String> =
-            sqlx::query_scalar("select id from categories where slug = $1 and deleted_at is null limit 1")
-                .bind(&candidate)
-                .fetch_optional(&caller.db)
-                .await?;
+        let clash: Option<String> = sqlx::query_scalar(
+            "select id from categories where slug = $1 and deleted_at is null limit 1",
+        )
+        .bind(&candidate)
+        .fetch_optional(&caller.db)
+        .await?;
         match clash {
             None => return Ok(candidate),
             Some(id) if Some(id.as_str()) == exclude => return Ok(candidate),
@@ -180,7 +198,11 @@ async fn unique_slug(caller: &Caller, desired: &str, exclude: Option<&str>) -> R
 }
 
 /// `resolvePlacement(db, categoryId, parentId)`: `(path, depth)`.
-async fn placement(caller: &Caller, id: &str, parent_id: Option<&str>) -> Result<(String, i64), Failure> {
+async fn placement(
+    caller: &Caller,
+    id: &str,
+    parent_id: Option<&str>,
+) -> Result<(String, i64), Failure> {
     let Some(parent_id) = parent_id.filter(|p| !p.is_empty()) else {
         return Ok((format!("/{id}"), 0));
     };
@@ -204,7 +226,10 @@ async fn placement(caller: &Caller, id: &str, parent_id: Option<&str>) -> Result
         ));
     }
     if parent_id == id {
-        return Err(Failure::Category("CYCLE", "A category cannot be its own parent".to_owned()));
+        return Err(Failure::Category(
+            "CYCLE",
+            "A category cannot be its own parent".to_owned(),
+        ));
     }
     let depth = i64::from(depth.unwrap_or(0)) + 1;
     if depth >= MAX_CATEGORY_DEPTH {
@@ -427,7 +452,9 @@ async fn product_page(
         .fetch_one(&caller.db)
         .await?;
     Ok((
-        rows.into_iter().map(|row| tables::PRODUCTS.js(row)).collect(),
+        rows.into_iter()
+            .map(|row| tables::PRODUCTS.js(row))
+            .collect(),
         i64::from(total),
     ))
 }
@@ -458,16 +485,21 @@ async fn list_members(
     let sort = sort
         .or_else(|| category.get("sortOrder").and_then(Value::as_str))
         .unwrap_or("manual");
-    let manual = category.get("type").and_then(Value::as_str).unwrap_or("manual") != "automated";
+    let manual = category
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("manual")
+        != "automated";
     let mut member_ids: Option<Vec<String>> = None;
     let mut rules = json!([]);
     let mut any = false;
     if manual {
-        let members: Vec<(String, Option<i32>)> =
-            sqlx::query_as("select product_id, position from category_products where category_id = $1")
-                .bind(category["id"].as_str())
-                .fetch_all(&caller.db)
-                .await?;
+        let members: Vec<(String, Option<i32>)> = sqlx::query_as(
+            "select product_id, position from category_products where category_id = $1",
+        )
+        .bind(category["id"].as_str())
+        .fetch_all(&caller.db)
+        .await?;
         if members.is_empty() {
             return Ok(EMPTY);
         }
@@ -483,7 +515,11 @@ async fn list_members(
         rules = rules_param(stored);
         any = category.get("rulesMatch").and_then(Value::as_str) == Some("any");
     }
-    let effective = if sort == "manual" { "created-desc" } else { sort };
+    let effective = if sort == "manual" {
+        "created-desc"
+    } else {
+        sort
+    };
     let keys = match cursor.filter(|c| !c.is_empty()) {
         Some(cursor) => cursor_keys(caller, cursor).await?,
         None => None,
@@ -504,7 +540,9 @@ async fn list_members(
         .take(usize::try_from(limit).unwrap_or(0))
         .collect();
     let next = if has_more {
-        rows.last().and_then(|r| r["id"].as_str()).map(str::to_owned)
+        rows.last()
+            .and_then(|r| r["id"].as_str())
+            .map(str::to_owned)
     } else {
         None
     };
@@ -550,7 +588,10 @@ async fn page_manual(
         .fetch_all(&caller.db)
         .await?
     };
-    let rows: Vec<Value> = rows.into_iter().map(|row| tables::PRODUCTS.js(row)).collect();
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .map(|row| tables::PRODUCTS.js(row))
+        .collect();
     let ordered: Vec<Value> = page
         .iter()
         .filter_map(|id| rows.iter().find(|r| r["id"].as_str() == Some(id)).cloned())
@@ -586,7 +627,11 @@ const LIST_SQL: (&str, &str) = (
      and ($4::text is null or t.name like $4 or t.slug like $4)",
 );
 
-async fn list(State(_state): State<CommerceState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn list(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     const FAILED: &str = "Failed to list categories";
     let query = query.as_deref();
     // `?limit=abc` and `?limit=-5` are clamped, unlike the other lists.
@@ -635,7 +680,10 @@ async fn list(State(_state): State<CommerceState>, caller: Caller, RawQuery(quer
         (Ok(rows), Ok(total)) => (rows, total),
         (Err(error), _) | (_, Err(error)) => return Refusal::Database(error).respond(FAILED),
     };
-    let rows: Vec<Value> = rows.into_iter().map(|row| tables::CATEGORIES.js(row)).collect();
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .map(|row| tables::CATEGORIES.js(row))
+        .collect();
     #[allow(clippy::cast_precision_loss)]
     crate::crud::page_list(rows, limit as f64, total)
 }
@@ -644,7 +692,11 @@ async fn live_category(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx:
     tables::CATEGORIES.find_live(&caller.db, id).await
 }
 
-async fn detail(State(_state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn detail(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     match live_category(&caller, &id).await {
         Ok(Some(row)) => Data(row).into_response(),
         Ok(None) => Refusal::not_found("Category", &id).respond("Failed to fetch category"),
@@ -681,7 +733,12 @@ fn render(nodes: &[Node], index: usize) -> Value {
     let mut value = node.value.clone();
     value.insert(
         "children".to_owned(),
-        Value::Array(node.children.iter().map(|child| render(nodes, *child)).collect()),
+        Value::Array(
+            node.children
+                .iter()
+                .map(|child| render(nodes, *child))
+                .collect(),
+        ),
     );
     Value::Object(value)
 }
@@ -692,16 +749,29 @@ fn build_tree(rows: &[Value], root: Option<&str>) -> Value {
     let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for row in rows {
         let id = row["id"].as_str().unwrap_or_default().to_owned();
-        let parent = row.get("parentId").and_then(Value::as_str).map(str::to_owned);
+        let parent = row
+            .get("parentId")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         let depth = row.get("depth").and_then(Value::as_i64).unwrap_or(0);
         let position = row.get("position").and_then(Value::as_i64).unwrap_or(0);
-        let name = row.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+        let name = row
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
         let mut value = Map::new();
         value.insert("id".to_owned(), json!(id));
         value.insert("name".to_owned(), json!(name));
-        value.insert("slug".to_owned(), row.get("slug").cloned().unwrap_or(Value::Null));
+        value.insert(
+            "slug".to_owned(),
+            row.get("slug").cloned().unwrap_or(Value::Null),
+        );
         value.insert("parentId".to_owned(), json!(parent));
-        value.insert("path".to_owned(), row.get("path").cloned().unwrap_or(Value::Null));
+        value.insert(
+            "path".to_owned(),
+            row.get("path").cloned().unwrap_or(Value::Null),
+        );
         value.insert("depth".to_owned(), json!(depth));
         value.insert("position".to_owned(), json!(position));
         value.insert(
@@ -731,7 +801,11 @@ fn build_tree(rows: &[Value], root: Option<&str>) -> Value {
     }
     let mut roots = Vec::new();
     for at in 0..nodes.len() {
-        let parent = nodes[at].parent.as_ref().and_then(|p| index.get(p)).copied();
+        let parent = nodes[at]
+            .parent
+            .as_ref()
+            .and_then(|p| index.get(p))
+            .copied();
         match parent {
             Some(parent) => nodes[parent].children.push(at),
             None => roots.push(at),
@@ -744,19 +818,39 @@ fn build_tree(rows: &[Value], root: Option<&str>) -> Value {
     }
     sort_nodes(&nodes, &mut roots);
     if let Some(root) = root.filter(|r| !r.is_empty()) {
-        return Value::Array(index.get(root).map(|at| render(&nodes, *at)).into_iter().collect());
+        return Value::Array(
+            index
+                .get(root)
+                .map(|at| render(&nodes, *at))
+                .into_iter()
+                .collect(),
+        );
     }
     Value::Array(roots.into_iter().map(|at| render(&nodes, at)).collect())
 }
 
-async fn tree(State(_state): State<CommerceState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn tree(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     const FAILED: &str = "Failed to build category tree";
     let read = validate_query(query.as_deref(), |issues, fields| {
         let root = issues
-            .text_with(fields, "rootId", Presence::Optional, Text::length(None, Some(30)))
+            .text_with(
+                fields,
+                "rootId",
+                Presence::Optional,
+                Text::length(None, Some(30)),
+            )
             .into_option();
         let inactive = issues
-            .choice(fields, "includeInactive", Presence::Optional, &["true", "false", "1", "0"])
+            .choice(
+                fields,
+                "includeInactive",
+                Presence::Optional,
+                &["true", "false", "1", "0"],
+            )
             .into_option()
             .is_some_and(|v| v == "true" || v == "1");
         (root, inactive)
@@ -776,7 +870,10 @@ async fn tree(State(_state): State<CommerceState>, caller: Caller, RawQuery(quer
     .await;
     match rows {
         Ok(rows) => {
-            let rows: Vec<Value> = rows.into_iter().map(|row| tables::CATEGORIES.js(row)).collect();
+            let rows: Vec<Value> = rows
+                .into_iter()
+                .map(|row| tables::CATEGORIES.js(row))
+                .collect();
             Data(build_tree(&rows, root.as_deref())).into_response()
         }
         Err(error) => Refusal::Database(error).respond(FAILED),
@@ -793,24 +890,42 @@ fn read_rules(
     issues.list(fields, "rules", presence, min, Some(50), |issues, item| {
         let rule = issues.object(item)?;
         let before = issues.count();
-        let column = issues.choice(rule, "column", Presence::Required, RULE_COLUMNS).into_option();
-        let relation = issues.choice(rule, "relation", Presence::Required, RELATIONS).into_option();
+        let column = issues
+            .choice(rule, "column", Presence::Required, RULE_COLUMNS)
+            .into_option();
+        let relation = issues
+            .choice(rule, "relation", Presence::Required, RELATIONS)
+            .into_option();
         let condition = issues
-            .text_with(rule, "condition", Presence::Required, Text::length(Some(1), Some(255)))
+            .text_with(
+                rule,
+                "condition",
+                Presence::Required,
+                Text::length(Some(1), Some(255)),
+            )
             .into_option();
         (issues.count() == before)
             .then(|| json!({ "column": column, "relation": relation, "condition": condition }))
     })
 }
 
-async fn preview(State(_state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn preview(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to preview category members";
     let read = validate(&headers, &body, |issues, fields| {
-        let rules = read_rules(issues, fields, Presence::Required, Some(1)).into_option().unwrap_or_default();
+        let rules = read_rules(issues, fields, Presence::Required, Some(1))
+            .into_option()
+            .unwrap_or_default();
         let matching = issues
             .choice(fields, "rulesMatch", Presence::Optional, &["all", "any"])
             .into_option();
-        let sort = issues.choice(fields, "sortOrder", Presence::Optional, SORT_ORDERS).into_option();
+        let sort = issues
+            .choice(fields, "sortOrder", Presence::Optional, SORT_ORDERS)
+            .into_option();
         let limit = issues
             .whole_number(
                 fields,
@@ -835,8 +950,22 @@ async fn preview(State(_state): State<CommerceState>, caller: Caller, headers: H
     let any = matching.as_deref() == Some("any");
     let sort = sort.unwrap_or_else(|| "created-desc".to_owned());
     // `orderFor('manual')` is newest first.
-    let sort = if sort == "manual" { "created-desc".to_owned() } else { sort };
-    match product_page(&caller, &rules_param(&rules), any, None, &sort, None, limit.unwrap_or(25)).await {
+    let sort = if sort == "manual" {
+        "created-desc".to_owned()
+    } else {
+        sort
+    };
+    match product_page(
+        &caller,
+        &rules_param(&rules),
+        any,
+        None,
+        &sort,
+        None,
+        limit.unwrap_or(25),
+    )
+    .await
+    {
         Ok((rows, total)) => Data(json!({ "products": rows, "totalCount": total })).into_response(),
         Err(error) => Refusal::Database(error).respond(FAILED),
     }
@@ -866,7 +995,9 @@ async fn members(
                 },
             )
             .into_option();
-        let sort = issues.choice(fields, "sortOrder", Presence::Optional, SORT_ORDERS).into_option();
+        let sort = issues
+            .choice(fields, "sortOrder", Presence::Optional, SORT_ORDERS)
+            .into_option();
         (cursor, limit, sort)
     });
     let (cursor, limit, sort) = match read {
@@ -878,10 +1009,22 @@ async fn members(
         Ok(None) => return Refusal::not_found("Category", &id).respond(FAILED),
         Err(error) => return Refusal::Database(error).respond(FAILED),
     };
-    match list_members(&caller, &category, limit.unwrap_or(25), cursor.as_deref(), sort.as_deref()).await {
+    match list_members(
+        &caller,
+        &category,
+        limit.unwrap_or(25),
+        cursor.as_deref(),
+        sort.as_deref(),
+    )
+    .await
+    {
         Ok(page) => weldsuite_kit::List::new(
             page.rows,
-            weldsuite_kit::Pagination::new(u64::try_from(page.total).unwrap_or(0), page.has_more, page.next),
+            weldsuite_kit::Pagination::new(
+                u64::try_from(page.total).unwrap_or(0),
+                page.has_more,
+                page.next,
+            ),
         )
         .into_response(),
         Err(error) => Refusal::Database(error).respond(FAILED),
@@ -892,25 +1035,36 @@ async fn members(
 
 /// The category schema (`categoryBase`), read in its order; the parsed
 /// values by property.
-fn read_category(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
-    let required = if partial { Presence::Optional } else { Presence::Required };
-    let mut out = Map::new();
-    let mut text = |issues: &mut Issues, key: &str, presence: Presence, min: Option<usize>, max: usize| {
-        match issues.text_with(fields, key, presence, Text::length(min, Some(max))) {
-            Field::Set(text) => {
-                out.insert(key.to_owned(), json!(text));
-            }
-            Field::Null => {
-                out.insert(key.to_owned(), Value::Null);
-            }
-            Field::Absent => {}
-        }
+fn read_category(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
+    let required = if partial {
+        Presence::Optional
+    } else {
+        Presence::Required
     };
+    let mut out = Map::new();
+    let mut text =
+        |issues: &mut Issues, key: &str, presence: Presence, min: Option<usize>, max: usize| {
+            match issues.text_with(fields, key, presence, Text::length(min, Some(max))) {
+                Field::Set(text) => {
+                    out.insert(key.to_owned(), json!(text));
+                }
+                Field::Null => {
+                    out.insert(key.to_owned(), Value::Null);
+                }
+                Field::Absent => {}
+            }
+        };
     text(issues, "name", required, Some(1), 255);
     text(issues, "slug", Presence::Optional, None, 255);
     text(issues, "description", Presence::Nullish, None, 5000);
     text(issues, "parentId", Presence::Nullish, None, 30);
-    let position = issues.integer(fields, "position", Presence::Optional, None).into_option();
+    let position = issues
+        .integer(fields, "position", Presence::Optional, None)
+        .into_option();
     text(issues, "image", Presence::Nullish, None, 500);
     text(issues, "icon", Presence::Nullish, None, 100);
     text(issues, "color", Presence::Nullish, None, 20);
@@ -919,7 +1073,10 @@ fn read_category(issues: &mut Issues, fields: &Map<String, Value>, partial: bool
     if let Some(position) = position {
         out.insert("position".to_owned(), json!(position));
     }
-    if let Some(active) = issues.boolean(fields, "isActive", Presence::Optional).into_option() {
+    if let Some(active) = issues
+        .boolean(fields, "isActive", Presence::Optional)
+        .into_option()
+    {
         out.insert("isActive".to_owned(), json!(active));
     }
     // `.nullish()` answers null before the coercion runs.
@@ -952,11 +1109,16 @@ fn read_category(issues: &mut Issues, fields: &Map<String, Value>, partial: bool
     {
         out.insert("rulesMatch".to_owned(), json!(matching));
     }
-    if let Some(sort) = issues.choice(fields, "sortOrder", Presence::Optional, SORT_ORDERS).into_option() {
+    if let Some(sort) = issues
+        .choice(fields, "sortOrder", Presence::Optional, SORT_ORDERS)
+        .into_option()
+    {
         out.insert("sortOrder".to_owned(), json!(sort));
     }
     if let Some(custom) = issues
-        .nested(fields, "customFields", Presence::Optional, |_, inner| inner.clone())
+        .nested(fields, "customFields", Presence::Optional, |_, inner| {
+            inner.clone()
+        })
         .into_option()
     {
         out.insert("customFields".to_owned(), Value::Object(custom));
@@ -964,7 +1126,10 @@ fn read_category(issues: &mut Issues, fields: &Map<String, Value>, partial: bool
     if !partial && issues.count() == 0 {
         // `requireRulesWhenAutomated` (superRefine).
         let automated = out.get("type").and_then(Value::as_str) == Some("automated");
-        let empty = out.get("rules").and_then(Value::as_array).is_none_or(Vec::is_empty);
+        let empty = out
+            .get("rules")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty);
         if automated && empty {
             issues.custom("rules", "An automated category needs at least one rule");
         }
@@ -976,9 +1141,16 @@ fn value_or_null(data: &Map<String, Value>, key: &str) -> Value {
     data.get(key).cloned().unwrap_or(Value::Null)
 }
 
-async fn create(State(state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn create(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to create category";
-    let data = match validate(&headers, &body, |issues, fields| read_category(issues, fields, false)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_category(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
@@ -988,11 +1160,19 @@ async fn create(State(state): State<CommerceState>, caller: Caller, headers: Hea
     }
 }
 
-async fn create_category(state: &CommerceState, caller: &Caller, data: &Map<String, Value>) -> Result<Response, Failure> {
+async fn create_category(
+    state: &CommerceState,
+    caller: &Caller,
+    data: &Map<String, Value>,
+) -> Result<Response, Failure> {
     let id = generate_id("cat");
     let now = now();
     let name = data.get("name").and_then(Value::as_str).unwrap_or_default();
-    let desired = match data.get("slug").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+    let desired = match data
+        .get("slug")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    {
         Some(slug) => slugify(slug, &id),
         None => slugify(name, &id),
     };
@@ -1009,26 +1189,53 @@ async fn create_category(state: &CommerceState, caller: &Caller, data: &Map<Stri
     set("parentId", value_or_null(data, "parentId"));
     set("path", json!(path));
     set("depth", json!(depth));
-    set("position", data.get("position").cloned().unwrap_or_else(|| json!(0)));
-    for key in ["image", "icon", "color", "metaTitle", "metaDescription", "publishedAt"] {
+    set(
+        "position",
+        data.get("position").cloned().unwrap_or_else(|| json!(0)),
+    );
+    for key in [
+        "image",
+        "icon",
+        "color",
+        "metaTitle",
+        "metaDescription",
+        "publishedAt",
+    ] {
         set(key, value_or_null(data, key));
     }
     set(
         "isActive",
         json!(i32::from(data.get("isActive") != Some(&json!(false)))),
     );
-    set("type", data.get("type").cloned().unwrap_or_else(|| json!("manual")));
+    set(
+        "type",
+        data.get("type").cloned().unwrap_or_else(|| json!("manual")),
+    );
     set("rules", value_or_null(data, "rules"));
-    set("rulesMatch", data.get("rulesMatch").cloned().unwrap_or_else(|| json!("all")));
-    set("sortOrder", data.get("sortOrder").cloned().unwrap_or_else(|| json!("manual")));
+    set(
+        "rulesMatch",
+        data.get("rulesMatch")
+            .cloned()
+            .unwrap_or_else(|| json!("all")),
+    );
+    set(
+        "sortOrder",
+        data.get("sortOrder")
+            .cloned()
+            .unwrap_or_else(|| json!("manual")),
+    );
     if let Some(custom) = data.get("customFields") {
         set("customFields", custom.clone());
     }
     set("createdAt", json!(now));
     set("updatedAt", json!(now));
-    t.insert(&caller.db, values, &["createdAt", "updatedAt", "publishedAt"])
-        .await
-        .map_err(write_error)?;
+    t.insert(
+        &caller.db,
+        values,
+        &["createdAt", "updatedAt", "publishedAt"],
+    )
+    .await
+    .map_err(write_error)?;
     let mut event = Map::new();
     event.insert("id".to_owned(), json!(id));
     event.insert("name".to_owned(), json!(name));
@@ -1066,7 +1273,9 @@ async fn update_category(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to update category";
-    let data = match validate(&headers, &body, |issues, fields| read_category(issues, fields, true)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_category(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
@@ -1182,7 +1391,12 @@ async fn patch_category(
 }
 
 /// `reparentDescendants(db, id, oldPath, newPath)`.
-async fn reparent_descendants(caller: &Caller, id: &str, old: &str, new: &str) -> Result<(), sqlx::Error> {
+async fn reparent_descendants(
+    caller: &Caller,
+    id: &str,
+    old: &str,
+    new: &str,
+) -> Result<(), sqlx::Error> {
     if old == new {
         return Ok(());
     }
@@ -1204,7 +1418,11 @@ async fn reparent_descendants(caller: &Caller, id: &str, old: &str, new: &str) -
     Ok(())
 }
 
-async fn remove(State(state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to delete category";
     match delete_category(&caller, &id).await {
         Ok(None) => {
@@ -1227,7 +1445,11 @@ async fn delete_category(caller: &Caller, id: &str) -> Result<Option<Response>, 
     .fetch_one(&caller.db)
     .await?;
     if children > 0 {
-        let noun = if children == 1 { "category" } else { "categories" };
+        let noun = if children == 1 {
+            "category"
+        } else {
+            "categories"
+        };
         return Ok(Some(
             ApiError::conflict(format!(
                 "Category still has {children} child {noun} \u{2014} move or delete them first"
@@ -1263,7 +1485,8 @@ fn category_event(category: &Value) -> Value {
 fn not_manual() -> Failure {
     Failure::Category(
         "NOT_MANUAL",
-        "Members of an automated category come from its rules \u{2014} edit the rules instead".to_owned(),
+        "Members of an automated category come from its rules \u{2014} edit the rules instead"
+            .to_owned(),
     )
 }
 
@@ -1277,9 +1500,14 @@ async fn add_products(
     const FAILED: &str = "Failed to add products to category";
     let ids = validate(&headers, &body, |issues, fields| {
         issues
-            .list(fields, "productIds", Presence::Required, Some(1), Some(200), |issues, item| {
-                issues.item_text(item, Text::length(Some(1), Some(30)))
-            })
+            .list(
+                fields,
+                "productIds",
+                Presence::Required,
+                Some(1),
+                Some(200),
+                |issues, item| issues.item_text(item, Text::length(Some(1), Some(30))),
+            )
             .into_option()
             .unwrap_or_default()
     });
@@ -1293,7 +1521,12 @@ async fn add_products(
     }
 }
 
-async fn add_members(state: &CommerceState, caller: &Caller, id: &str, ids: Vec<String>) -> Result<Response, Failure> {
+async fn add_members(
+    state: &CommerceState,
+    caller: &Caller,
+    id: &str,
+    ids: Vec<String>,
+) -> Result<Response, Failure> {
     let Some(category) = live_category(caller, id).await? else {
         return Err(Refusal::not_found("Category", id).into());
     };
@@ -1329,7 +1562,9 @@ async fn add_members(state: &CommerceState, caller: &Caller, id: &str, ids: Vec<
     .fetch_one(&caller.db)
     .await?;
     let ids: Vec<String> = unique.iter().map(|_| generate_id("cprod")).collect();
-    let positions: Vec<i32> = (1..=i32::try_from(unique.len()).unwrap_or(0)).map(|n| max + n).collect();
+    let positions: Vec<i32> = (1..=i32::try_from(unique.len()).unwrap_or(0))
+        .map(|n| max + n)
+        .collect();
     let inserted: Vec<String> = sqlx::query_scalar(
         "insert into category_products (id, category_id, product_id, position, created_at) \
          select i, $2, p, n, $5::timestamp from unnest($1::varchar[], $3::varchar[], $4::int[]) as x(i, p, n) \
@@ -1343,7 +1578,10 @@ async fn add_members(state: &CommerceState, caller: &Caller, id: &str, ids: Vec<
     .fetch_all(&caller.db)
     .await?;
     caller.publish(state, ev::CATEGORY_UPDATED, id, &category_event(&category));
-    Ok(Data(json!({ "added": inserted.len(), "skipped": unique.len() - inserted.len() })).into_response())
+    Ok(
+        Data(json!({ "added": inserted.len(), "skipped": unique.len() - inserted.len() }))
+            .into_response(),
+    )
 }
 
 async fn remove_product(
@@ -1357,7 +1595,12 @@ async fn remove_product(
         Ok(None) => return Refusal::not_found("Category", &id).respond(FAILED),
         Err(error) => return Refusal::Database(error).respond(FAILED),
     };
-    if category.get("type").and_then(Value::as_str).unwrap_or("manual") == "automated" {
+    if category
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("manual")
+        == "automated"
+    {
         return not_manual().respond(FAILED);
     }
     let removed: Result<Vec<String>, sqlx::Error> = sqlx::query_scalar(
@@ -1368,9 +1611,16 @@ async fn remove_product(
     .fetch_all(&caller.db)
     .await;
     match removed {
-        Ok(rows) if rows.is_empty() => Refusal::not_found("Category product", &product_id).respond(FAILED),
+        Ok(rows) if rows.is_empty() => {
+            Refusal::not_found("Category product", &product_id).respond(FAILED)
+        }
         Ok(_) => {
-            caller.publish(&state, ev::CATEGORY_UPDATED, &id, &category_event(&category));
+            caller.publish(
+                &state,
+                ev::CATEGORY_UPDATED,
+                &id,
+                &category_event(&category),
+            );
             NoContent.into_response()
         }
         Err(error) => Refusal::Database(error).respond(FAILED),

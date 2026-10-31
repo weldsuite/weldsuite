@@ -1815,7 +1815,8 @@
       "workspace": "apps/workers/commerce-api",
       "tests": [
         "src/routes/orders/integration.test.ts",
-        "src/routes/orders/calculate-tax.integration.test.ts"
+        "src/routes/orders/calculate-tax.integration.test.ts",
+        "src/routes/orders/routes.test.ts"
       ],
       "paths": [
         "apps/workers/commerce-api/src/routes/orders/",

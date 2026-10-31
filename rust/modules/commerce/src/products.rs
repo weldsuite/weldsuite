@@ -46,17 +46,26 @@ where
     let update = || gate.require([perm::PRODUCTS_UPDATE]);
     Router::new()
         .route("/", get(list).route_layer(read()))
-        .route("/", post(create).route_layer(gate.require([perm::PRODUCTS_CREATE])))
+        .route(
+            "/",
+            post(create).route_layer(gate.require([perm::PRODUCTS_CREATE])),
+        )
         .route("/sales-channel-targets", get(targets).route_layer(read()))
         .route("/{id}", get(detail).route_layer(read()))
-        .route("/{id}", axum::routing::patch(update_product).route_layer(update()))
+        .route(
+            "/{id}",
+            axum::routing::patch(update_product).route_layer(update()),
+        )
         .route(
             "/{id}",
             axum::routing::delete(remove).route_layer(gate.require([perm::PRODUCTS_DELETE])),
         )
         .route("/{id}/categories", get(categories).route_layer(read()))
         .route("/{id}/sales-channels", get(channels).route_layer(read()))
-        .route("/{id}/sales-channels", post(add_channel).route_layer(update()))
+        .route(
+            "/{id}/sales-channels",
+            post(add_channel).route_layer(update()),
+        )
         .route(
             "/{id}/sales-channels/{channel_id}",
             axum::routing::patch(update_channel)
@@ -79,14 +88,21 @@ fn with_channels(mut product: Value, channels: &[Value]) -> Value {
     product
 }
 
-async fn list(State(_state): State<CommerceState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn list(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     const FAILED: &str = "Failed to list products";
     let fetched = match fetch(LISTING, &caller.db, query.as_deref()).await {
         Ok(fetched) => fetched,
         Err(error) => return error.respond(FAILED),
     };
     let (data, has_more, cursor) = page_of(fetched.rows, fetched.limit, |row| row["id"].as_str());
-    let ids: Vec<String> = data.iter().filter_map(|r| r["id"].as_str().map(str::to_owned)).collect();
+    let ids: Vec<String> = data
+        .iter()
+        .filter_map(|r| r["id"].as_str().map(str::to_owned))
+        .collect();
     let channels = if ids.is_empty() {
         Vec::new()
     } else {
@@ -95,7 +111,10 @@ async fn list(State(_state): State<CommerceState>, caller: Caller, RawQuery(quer
             Err(error) => return ListError::Database(error).respond(FAILED),
         }
     };
-    let data: Vec<Value> = data.into_iter().map(|p| with_channels(p, &channels)).collect();
+    let data: Vec<Value> = data
+        .into_iter()
+        .map(|p| with_channels(p, &channels))
+        .collect();
     weldsuite_kit::List::new(
         data,
         weldsuite_kit::Pagination::new(u64::try_from(fetched.total).unwrap_or(0), has_more, cursor),
@@ -110,7 +129,11 @@ async fn targets(State(_state): State<CommerceState>, caller: Caller) -> Respons
     }
 }
 
-async fn detail(State(_state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn detail(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to fetch product";
     let product = match sales_channels::load_product(&caller.db, &id).await {
         Ok(Some(product)) => product,
@@ -132,7 +155,11 @@ async fn live_id(caller: &Caller, id: &str) -> Result<bool, sqlx::Error> {
     Ok(found.is_some())
 }
 
-async fn categories(State(_state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn categories(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to list product categories";
     match live_id(&caller, &id).await {
         Ok(true) => {}
@@ -154,7 +181,11 @@ async fn categories(State(_state): State<CommerceState>, caller: Caller, Path(id
     }
 }
 
-async fn channels(State(_state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn channels(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to list product sales channels";
     match live_id(&caller, &id).await {
         Ok(true) => {}
@@ -176,10 +207,12 @@ fn channel_error(error: ChannelError) -> Response {
         )
             .into_response(),
         ChannelError::Conflict(message) => ApiError::conflict(message).into_response(),
-        ChannelError::ConnectionInactive(message) | ChannelError::Unsupported(message) | ChannelError::Invalid(message) => {
-            ApiError::bad_request(message).into_response()
+        ChannelError::ConnectionInactive(message)
+        | ChannelError::Unsupported(message)
+        | ChannelError::Invalid(message) => ApiError::bad_request(message).into_response(),
+        ChannelError::SyncFailed(message) => {
+            ApiError::internal().with_message(message).into_response()
         }
-        ChannelError::SyncFailed(message) => ApiError::internal().with_message(message).into_response(),
         ChannelError::Database(error) => {
             tracing::error!(%error, "[commerce-api/products] sales channel failed");
             ApiError::internal()
@@ -191,24 +224,39 @@ fn channel_error(error: ChannelError) -> Response {
 
 /// The product's name for the `product.updated` event (`existing?.name ?? ''`).
 async fn product_name(caller: &Caller, id: &str) -> Value {
-    let name: Option<Option<String>> = sqlx::query_scalar("select name from products where id = $1 limit 1")
-        .bind(id)
-        .fetch_optional(&caller.db)
-        .await
-        .unwrap_or(None);
+    let name: Option<Option<String>> =
+        sqlx::query_scalar("select name from products where id = $1 limit 1")
+            .bind(id)
+            .fetch_optional(&caller.db)
+            .await
+            .unwrap_or(None);
     json!(name.flatten().unwrap_or_default())
 }
 
-fn listing_fields(issues: &mut Issues, fields: &Map<String, Value>) -> (Option<Value>, Option<Value>) {
-    let price = issues.string_or_number(fields, "price", Presence::Optional).into_option();
+fn listing_fields(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+) -> (Option<Value>, Option<Value>) {
+    let price = issues
+        .string_or_number(fields, "price", Presence::Optional)
+        .into_option();
     let status = issues
-        .choice(fields, "listingStatus", Presence::Optional, &["active", "inactive", "draft"])
+        .choice(
+            fields,
+            "listingStatus",
+            Presence::Optional,
+            &["active", "inactive", "draft"],
+        )
         .into_option()
         .map(Value::String);
     (price, status)
 }
 
-fn channel_context<'a>(caller: &'a Caller, http: Option<&'a weldsuite_ports::OutboundHttp>, keyring: &'a weldsuite_db::Keyring) -> Context<'a> {
+fn channel_context<'a>(
+    caller: &'a Caller,
+    http: Option<&'a weldsuite_ports::OutboundHttp>,
+    keyring: &'a weldsuite_db::Keyring,
+) -> Context<'a> {
     Context {
         db: &caller.db,
         http,
@@ -225,7 +273,12 @@ async fn add_channel(
 ) -> Response {
     let read = validate(&headers, &body, |issues, fields| {
         let connection = issues
-            .text_with(fields, "connectionId", Presence::Required, Text::length(Some(1), Some(30)))
+            .text_with(
+                fields,
+                "connectionId",
+                Presence::Required,
+                Text::length(Some(1), Some(30)),
+            )
             .into_option();
         let (price, status) = listing_fields(issues, fields);
         (connection.unwrap_or_default(), price, status)
@@ -240,7 +293,12 @@ async fn add_channel(
     match sales_channels::publish(&ctx, &id, &connection, price.as_ref(), status.as_ref()).await {
         Ok(channel) => {
             let name = product_name(&caller, &id).await;
-            caller.publish(&state, ev::PRODUCT_UPDATED, &id, &json!({ "id": id, "name": name }));
+            caller.publish(
+                &state,
+                ev::PRODUCT_UPDATED,
+                &id,
+                &json!({ "id": id, "name": name }),
+            );
             Created(channel).into_response()
         }
         Err(error) => channel_error(error),
@@ -273,7 +331,12 @@ async fn update_channel(
     match sales_channels::update(&ctx, &id, &channel_id, price.as_ref(), status.as_ref()).await {
         Ok(channel) => {
             let name = product_name(&caller, &id).await;
-            caller.publish(&state, ev::PRODUCT_UPDATED, &id, &json!({ "id": id, "name": name }));
+            caller.publish(
+                &state,
+                ev::PRODUCT_UPDATED,
+                &id,
+                &json!({ "id": id, "name": name }),
+            );
             Data(channel).into_response()
         }
         Err(error) => channel_error(error),
@@ -291,7 +354,12 @@ async fn remove_channel(
     match sales_channels::unlink(&ctx, &id, &channel_id).await {
         Ok(()) => {
             let name = product_name(&caller, &id).await;
-            caller.publish(&state, ev::PRODUCT_UPDATED, &id, &json!({ "id": id, "name": name }));
+            caller.publish(
+                &state,
+                ev::PRODUCT_UPDATED,
+                &id,
+                &json!({ "id": id, "name": name }),
+            );
             NoContent.into_response()
         }
         Err(error) => channel_error(error),
@@ -300,13 +368,26 @@ async fn remove_channel(
 
 // ── CRUD ────────────────────────────────────────────────────────────────────
 
-const TAX_CLASS_MESSAGE: &str = "Unknown tax code: use a WeldBooks code, a Stripe txcd_ code or an Avalara code";
+const TAX_CLASS_MESSAGE: &str =
+    "Unknown tax code: use a WeldBooks code, a Stripe txcd_ code or an Avalara code";
 
 /// `createProductBodySchema` (`partial` for the PATCH): the body as Zod
 /// passes it on (passthrough), with `taxClass` trimmed and blank as null.
-fn read_product(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
-    let required = if partial { Presence::Optional } else { Presence::Required };
-    let text = |issues: &mut Issues, key: &str, presence: Presence, min: Option<usize>, max: Option<usize>| {
+fn read_product(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
+    let required = if partial {
+        Presence::Optional
+    } else {
+        Presence::Required
+    };
+    let text = |issues: &mut Issues,
+                key: &str,
+                presence: Presence,
+                min: Option<usize>,
+                max: Option<usize>| {
         issues.text_with(fields, key, presence, Text::length(min, max));
     };
     text(issues, "name", required, Some(1), Some(255));
@@ -324,7 +405,12 @@ fn read_product(issues: &mut Issues, fields: &Map<String, Value>, partial: bool)
     // `productTaxClassSchema`: `.max(50).nullish()`, trimmed, `''` as null,
     // then refined (a refinement settles after every other check).
     let before = issues.count();
-    let class = issues.text_with(fields, "taxClass", Presence::Nullish, Text::length(None, Some(50)));
+    let class = issues.text_with(
+        fields,
+        "taxClass",
+        Presence::Nullish,
+        Text::length(None, Some(50)),
+    );
     let refused = match class {
         Field::Set(raw) => {
             let trimmed = weldsuite_kit::validation::js_trim(&raw);
@@ -360,9 +446,16 @@ fn write_failed(error: &WriteError, message: &str) -> Response {
     ApiError::internal().with_message(message).into_response()
 }
 
-async fn create(State(state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn create(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to create product";
-    let data = match validate(&headers, &body, |issues, fields| read_product(issues, fields, false)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_product(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
@@ -385,7 +478,10 @@ async fn create(State(state): State<CommerceState>, caller: Caller, headers: Hea
     event.insert("id".to_owned(), json!(id));
     event.insert(
         "name".to_owned(),
-        data.get("name").filter(|n| !n.is_null()).cloned().unwrap_or_else(|| json!("")),
+        data.get("name")
+            .filter(|n| !n.is_null())
+            .cloned()
+            .unwrap_or_else(|| json!("")),
     );
     for key in ["sku", "status", "price", "currency"] {
         if let Some(value) = data.get(key) {
@@ -404,7 +500,9 @@ async fn update_product(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to update product";
-    let data = match validate(&headers, &body, |issues, fields| read_product(issues, fields, true)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        read_product(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
@@ -417,7 +515,11 @@ async fn update_product(
     let mut values = Map::new();
     t.set(&mut values, "updatedAt", json!(now()));
     values.extend(t.values(&data));
-    let trusted: &[&str] = if data.contains_key("updatedAt") { &[] } else { &["updatedAt"] };
+    let trusted: &[&str] = if data.contains_key("updatedAt") {
+        &[]
+    } else {
+        &["updatedAt"]
+    };
     if let Err(error) = t.patch(&caller.db, &id, values, true, trusted).await {
         return write_failed(&error, FAILED);
     }
@@ -448,7 +550,11 @@ async fn update_product(
     Data(json!({ "id": id })).into_response()
 }
 
-async fn remove(State(state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn remove(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to delete product";
     let existing = match sales_channels::load_product(&caller.db, &id).await {
         Ok(Some(existing)) => existing,
@@ -463,6 +569,11 @@ async fn remove(State(state): State<CommerceState>, caller: Caller, Path(id): Pa
         .filter(|n| !n.is_null())
         .cloned()
         .unwrap_or_else(|| json!(""));
-    caller.publish(&state, ev::PRODUCT_DELETED, &id, &json!({ "id": id, "name": name }));
+    caller.publish(
+        &state,
+        ev::PRODUCT_DELETED,
+        &id,
+        &json!({ "id": id, "name": name }),
+    );
     NoContent.into_response()
 }

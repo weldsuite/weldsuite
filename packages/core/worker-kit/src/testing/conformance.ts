@@ -302,6 +302,26 @@ export function createSideEffectRecorder() {
         },
       };
     },
+    /**
+     * A test's own `ENTITY_EVENTS` binding (one that keeps what was sent, for
+     * the test's assertions), recorded like the recorder's own: what the app
+     * sends is a side effect, and the events the stub keeps are Rust's,
+     * handed over after each request (`deliver`).
+     */
+    wrapEvents(binding: { send(message: unknown): Promise<unknown> }) {
+      return {
+        testOwned: true,
+        send: async (message: unknown) => {
+          effects.events.push(copy(message));
+        },
+        sendBatch: async (messages: Array<{ body: unknown }>) => {
+          for (const message of messages) effects.events.push(copy(message.body));
+        },
+        async deliver(events: unknown[]) {
+          for (const event of events) await binding.send(event);
+        },
+      };
+    },
     track(promise: Promise<unknown>) {
       pending.push(promise);
     },
@@ -1131,6 +1151,11 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     | { testOwned?: boolean; deliver?: (published: SideEffects['realtime']) => Promise<void> }
     | undefined;
   if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
+  // An ENTITY_EVENTS stub of its own keeps Rust's events.
+  const ownEvents = request.env.ENTITY_EVENTS as
+    | { testOwned?: boolean; deliver?: (events: unknown[]) => Promise<void> }
+    | undefined;
+  if (ownEvents?.testOwned && ownEvents.deliver) await ownEvents.deliver(runs.rustEffects.events);
   const route = ts.headers.get(ROUTE_HEADER);
   // A router Rust serves under a prefix registers its schemas and volatile
   // fields at the prefixed route, so they never meet a module's own route

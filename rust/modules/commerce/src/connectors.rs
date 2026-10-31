@@ -56,7 +56,11 @@ pub(crate) fn connector(provider: &str) -> Option<Connector> {
 
 /// `allowsOutboundSync(resolveConnectorObjectDirection({ direction,
 /// objectSyncDirections, settingKey }))`.
-pub(crate) fn allows_outbound(direction: Option<&str>, per_object: Option<&Value>, key: &str) -> bool {
+pub(crate) fn allows_outbound(
+    direction: Option<&str>,
+    per_object: Option<&Value>,
+    key: &str,
+) -> bool {
     let resolved = per_object
         .and_then(|o| o.get(key))
         .and_then(Value::as_str)
@@ -121,7 +125,8 @@ fn parse_retry_after(header: Option<&str>) -> Option<f64> {
     if number.is_finite() {
         return Some(number.max(0.0));
     }
-    let date = time::OffsetDateTime::parse(trimmed, &time::format_description::well_known::Rfc2822).ok()?;
+    let date = time::OffsetDateTime::parse(trimmed, &time::format_description::well_known::Rfc2822)
+        .ok()?;
     let seconds = (date - time::OffsetDateTime::now_utc()).as_seconds_f64();
     Some((seconds).ceil().max(0.0))
 }
@@ -140,7 +145,12 @@ fn slice500(text: &str) -> String {
     out
 }
 
-fn http_error(response: &HttpResponse, text: &str, auth_message: &str, provider: &str) -> ConnectorError {
+fn http_error(
+    response: &HttpResponse,
+    text: &str,
+    auth_message: &str,
+    provider: &str,
+) -> ConnectorError {
     let status = response.status;
     ConnectorError {
         message: if status == 401 || status == 403 {
@@ -186,7 +196,10 @@ async fn send(http: Option<&OutboundHttp>, request: HttpRequest) -> Result<HttpR
 }
 
 /// `runWithRetries` (Shopify, Picqer).
-async fn with_retries<F, Fut>(unreachable: &str, mut attempt_once: F) -> Result<HttpResponse, ConnectorError>
+async fn with_retries<F, Fut>(
+    unreachable: &str,
+    mut attempt_once: F,
+) -> Result<HttpResponse, ConnectorError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<HttpResponse, Attempt>>,
@@ -239,7 +252,9 @@ fn text_of<'a>(product: &'a Value, key: &str) -> Option<&'a str> {
 
 /// `x || undefined`.
 fn truthy_text(product: &Value, key: &str) -> Option<String> {
-    text_of(product, key).filter(|s| !s.is_empty()).map(str::to_owned)
+    text_of(product, key)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 fn images(product: &Value) -> Option<Value> {
@@ -249,11 +264,17 @@ fn images(product: &Value) -> Option<Value> {
         .map(|images| {
             images
                 .iter()
-                .filter(|img| img.get("url").is_some_and(|u| !u.is_null() && u != "" && u != &json!(false)))
+                .filter(|img| {
+                    img.get("url")
+                        .is_some_and(|u| !u.is_null() && u != "" && u != &json!(false))
+                })
                 .map(|img| {
                     let mut out = Map::new();
                     out.insert("src".to_owned(), img["url"].clone());
-                    if let Some(alt) = img.get("altText").filter(|a| a.as_str().is_some_and(|s| !s.is_empty())) {
+                    if let Some(alt) = img
+                        .get("altText")
+                        .filter(|a| a.as_str().is_some_and(|s| !s.is_empty()))
+                    {
                         out.insert("alt".to_owned(), alt.clone());
                     }
                     Value::Object(out)
@@ -287,7 +308,11 @@ pub(crate) struct Woo {
 fn normalize_store_url(url: &str) -> Result<String, ConnectorError> {
     let trimmed = weldsuite_kit::validation::js_trim(url);
     if trimmed.is_empty() {
-        return Err(ConnectorError::new("Store URL is required", 400, Kind::Permanent));
+        return Err(ConnectorError::new(
+            "Store URL is required",
+            400,
+            Kind::Permanent,
+        ));
     }
     let lower = trimmed.to_ascii_lowercase();
     let with_protocol = if lower.starts_with("http://") || lower.starts_with("https://") {
@@ -298,7 +323,11 @@ fn normalize_store_url(url: &str) -> Result<String, ConnectorError> {
     let mut parsed = url::Url::parse(&with_protocol)
         .map_err(|_| ConnectorError::new("Store URL is not a valid URL", 400, Kind::Permanent))?;
     if parsed.scheme() != "https" && parsed.scheme() != "http" {
-        return Err(ConnectorError::new("Store URL must be http or https", 400, Kind::Permanent));
+        return Err(ConnectorError::new(
+            "Store URL must be http or https",
+            400,
+            Kind::Permanent,
+        ));
     }
     let path = strip_trailing_slashes(parsed.path()).to_owned();
     parsed.set_path(&path);
@@ -326,7 +355,12 @@ enum Auth {
 }
 
 fn looks_like_html(body: &str) -> bool {
-    let head: String = body.trim_start().chars().take(32).collect::<String>().to_lowercase();
+    let head: String = body
+        .trim_start()
+        .chars()
+        .take(32)
+        .collect::<String>()
+        .to_lowercase();
     head.starts_with("<!doctype") || head.starts_with("<html") || head.starts_with("<head")
 }
 
@@ -339,7 +373,10 @@ fn parse_woo_json(body: &str) -> Option<Value> {
     if let Ok(value) = serde_json::from_str(trimmed) {
         return Some(value);
     }
-    let start = [trimmed.find('{'), trimmed.find('[')].into_iter().flatten().min()?;
+    let start = [trimmed.find('{'), trimmed.find('[')]
+        .into_iter()
+        .flatten()
+        .min()?;
     serde_json::from_str(&trimmed[start..]).ok()
 }
 
@@ -355,7 +392,9 @@ impl Woo {
             Style::RestRoute => url::Url::parse(&origin).map(|mut parsed| {
                 let base = strip_trailing_slashes(parsed.path()).to_owned();
                 parsed.set_path(if base.is_empty() { "/" } else { &base });
-                parsed.query_pairs_mut().append_pair("rest_route", &format!("/wc/v3/{resource}"));
+                parsed
+                    .query_pairs_mut()
+                    .append_pair("rest_route", &format!("/wc/v3/{resource}"));
                 parsed
             }),
         }
@@ -375,10 +414,14 @@ impl Woo {
     fn headers(&self, auth: Auth, body: bool) -> Vec<(String, String)> {
         let mut headers = vec![
             ("Accept".to_owned(), "application/json".to_owned()),
-            ("User-Agent".to_owned(), "WeldSuite-WooCommerce/1.0 (+https://weldsuite.org)".to_owned()),
+            (
+                "User-Agent".to_owned(),
+                "WeldSuite-WooCommerce/1.0 (+https://weldsuite.org)".to_owned(),
+            ),
         ];
         if auth == Auth::Basic {
-            let token = base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", self.key, self.secret));
+            let token = base64::engine::general_purpose::STANDARD
+                .encode(format!("{}:{}", self.key, self.secret));
             headers.push(("Authorization".to_owned(), format!("Basic {token}")));
         }
         if body {
@@ -388,7 +431,10 @@ impl Woo {
     }
 
     /// `fetchFollow`: redirects followed by hand, 303 as a GET.
-    async fn follow(http: Option<&OutboundHttp>, mut request: HttpRequest) -> Result<HttpResponse, Attempt> {
+    async fn follow(
+        http: Option<&OutboundHttp>,
+        mut request: HttpRequest,
+    ) -> Result<HttpResponse, Attempt> {
         for _ in 0..=5 {
             let response = send(http, request.clone()).await?;
             if !matches!(response.status, 301 | 302 | 303 | 307 | 308) {
@@ -511,10 +557,14 @@ impl Woo {
         match run(Style::Pretty, Auth::Basic).await {
             Ok(value) => Ok(value),
             Err(error) if error.kind == Kind::Auth => run(Style::Pretty, Auth::Query).await,
-            Err(error) if Self::should_try_rest_route(&error) => match run(Style::RestRoute, Auth::Basic).await {
-                Err(rest) if rest.kind == Kind::Auth => run(Style::RestRoute, Auth::Query).await,
-                other => other,
-            },
+            Err(error) if Self::should_try_rest_route(&error) => {
+                match run(Style::RestRoute, Auth::Basic).await {
+                    Err(rest) if rest.kind == Kind::Auth => {
+                        run(Style::RestRoute, Auth::Query).await
+                    }
+                    other => other,
+                }
+            }
             Err(error) => Err(error),
         }
     }
@@ -526,15 +576,24 @@ impl Woo {
             _ => "draft",
         };
         let mut body = Map::new();
-        body.insert("name".to_owned(), product.get("name").cloned().unwrap_or(Value::Null));
+        body.insert(
+            "name".to_owned(),
+            product.get("name").cloned().unwrap_or(Value::Null),
+        );
         body.insert("type".to_owned(), json!("simple"));
         body.insert("status".to_owned(), json!(status));
         body.insert("description".to_owned(), or_empty(product, "description"));
-        body.insert("short_description".to_owned(), or_empty(product, "shortDescription"));
+        body.insert(
+            "short_description".to_owned(),
+            or_empty(product, "shortDescription"),
+        );
         if let Some(sku) = trimmed_sku(product) {
             body.insert("sku".to_owned(), json!(sku));
         }
-        body.insert("regular_price".to_owned(), product.get("price").cloned().unwrap_or(Value::Null));
+        body.insert(
+            "regular_price".to_owned(),
+            product.get("price").cloned().unwrap_or(Value::Null),
+        );
         if let Some(slug) = truthy_text(product, "slug") {
             body.insert("slug".to_owned(), json!(slug));
         }
@@ -572,7 +631,11 @@ impl Woo {
     }
 
     fn product_ref(&self, data: &Value) -> ProductRef {
-        let id = data.get("id").filter(|v| !v.is_null()).map(as_text).unwrap_or_default();
+        let id = data
+            .get("id")
+            .filter(|v| !v.is_null())
+            .map(as_text)
+            .unwrap_or_default();
         let url = match data.get("permalink") {
             Some(Value::String(link)) => Some(link.clone()),
             _ if !id.is_empty() => Some(format!("{}/?p={id}", self.store_url)),
@@ -625,18 +688,34 @@ fn normalize_shop_domain(domain: &str) -> Result<String, ConnectorError> {
     };
     let without = strip_trailing_slashes(without);
     if without.is_empty() {
-        return Err(ConnectorError::new("Shop domain is required", 400, Kind::Permanent));
+        return Err(ConnectorError::new(
+            "Shop domain is required",
+            400,
+            Kind::Permanent,
+        ));
     }
     let host = without.split('/').next().unwrap_or_default().to_lowercase();
     if !host.contains('.') {
         return Ok(format!("{host}.myshopify.com"));
     }
     let valid = host.len() >= 2
-        && host.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
-        && host.bytes().next().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
-        && host.bytes().last().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'.' || b == b'-')
+        && host
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        && host
+            .bytes()
+            .last()
+            .is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
     if !valid {
-        return Err(ConnectorError::new("Shop domain is not valid", 400, Kind::Permanent));
+        return Err(ConnectorError::new(
+            "Shop domain is not valid",
+            400,
+            Kind::Permanent,
+        ));
     }
     Ok(host)
 }
@@ -653,7 +732,11 @@ impl Shopify {
         path: &str,
         body: Option<&Value>,
     ) -> Result<Value, ConnectorError> {
-        let url = format!("{}/admin/api/2024-10/{}", self.store_url(), path.trim_start_matches('/'));
+        let url = format!(
+            "{}/admin/api/2024-10/{}",
+            self.store_url(),
+            path.trim_start_matches('/')
+        );
         let mut headers = vec![
             ("X-Shopify-Access-Token".to_owned(), self.token.clone()),
             ("Accept".to_owned(), "application/json".to_owned()),
@@ -689,7 +772,8 @@ impl Shopify {
         if text.is_empty() {
             return Ok(Value::Null);
         }
-        serde_json::from_str(&text).map_err(|_| ConnectorError::new("Shopify request failed", 503, Kind::Transient))
+        serde_json::from_str(&text)
+            .map_err(|_| ConnectorError::new("Shopify request failed", 503, Kind::Transient))
     }
 
     fn body(product: &CatalogProduct) -> Value {
@@ -699,7 +783,10 @@ impl Shopify {
             _ => "draft",
         };
         let mut variant = Map::new();
-        variant.insert("price".to_owned(), product.get("price").cloned().unwrap_or(Value::Null));
+        variant.insert(
+            "price".to_owned(),
+            product.get("price").cloned().unwrap_or(Value::Null),
+        );
         if let Some(sku) = trimmed_sku(product) {
             variant.insert("sku".to_owned(), json!(sku));
         }
@@ -724,7 +811,10 @@ impl Shopify {
             None => {}
         }
         let mut body = Map::new();
-        body.insert("title".to_owned(), product.get("name").cloned().unwrap_or(Value::Null));
+        body.insert(
+            "title".to_owned(),
+            product.get("name").cloned().unwrap_or(Value::Null),
+        );
         body.insert("body_html".to_owned(), or_empty(product, "description"));
         if let Some(vendor) = truthy_text(product, "vendor") {
             body.insert("vendor".to_owned(), json!(vendor));
@@ -778,14 +868,21 @@ fn picqer_strip(text: &str) -> String {
     } else {
         trimmed
     };
-    let cut = without.to_ascii_lowercase().find(".picqer.com").map_or(without, |at| &without[..at]);
+    let cut = without
+        .to_ascii_lowercase()
+        .find(".picqer.com")
+        .map_or(without, |at| &without[..at]);
     strip_trailing_slashes(cut).to_owned()
 }
 
 fn normalize_picqer(subdomain: &str) -> Result<String, ConnectorError> {
     let trimmed = picqer_strip(subdomain).to_lowercase();
     if trimmed.is_empty() {
-        return Err(ConnectorError::new("Picqer subdomain is required", 400, Kind::Permanent));
+        return Err(ConnectorError::new(
+            "Picqer subdomain is required",
+            400,
+            Kind::Permanent,
+        ));
     }
     let alnum = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit();
     let bytes = trimmed.as_bytes();
@@ -793,7 +890,11 @@ fn normalize_picqer(subdomain: &str) -> Result<String, ConnectorError> {
         && bytes.first().is_some_and(|b| alnum(*b))
         && bytes.last().is_some_and(|b| alnum(*b));
     if !valid {
-        return Err(ConnectorError::new("Picqer subdomain is not valid", 400, Kind::Permanent));
+        return Err(ConnectorError::new(
+            "Picqer subdomain is not valid",
+            400,
+            Kind::Permanent,
+        ));
     }
     Ok(trimmed)
 }
@@ -822,7 +923,10 @@ impl Picqer {
         let mut headers = vec![
             ("Authorization".to_owned(), format!("Basic {token}")),
             ("Accept".to_owned(), "application/json".to_owned()),
-            ("User-Agent".to_owned(), "WeldSuite Picqer Connector (weldsuite.com)".to_owned()),
+            (
+                "User-Agent".to_owned(),
+                "WeldSuite Picqer Connector (weldsuite.com)".to_owned(),
+            ),
         ];
         if body.is_some() {
             headers.push(("Content-Type".to_owned(), "application/json".to_owned()));
@@ -841,7 +945,8 @@ impl Picqer {
                     return Ok(response);
                 }
                 let text = response.text();
-                let mut error = http_error(&response, &text, "Picqer rejected the API key", "Picqer");
+                let mut error =
+                    http_error(&response, &text, "Picqer rejected the API key", "Picqer");
                 if error.retry_after.is_none() && response.status == 429 {
                     error.retry_after = Some(20.0);
                 }
@@ -853,22 +958,32 @@ impl Picqer {
         if text.is_empty() {
             return Ok(Value::Null);
         }
-        serde_json::from_str(&text).map_err(|_| ConnectorError::new("Picqer request failed", 503, Kind::Transient))
+        serde_json::from_str(&text)
+            .map_err(|_| ConnectorError::new("Picqer request failed", 503, Kind::Transient))
     }
 
     fn body(product: &CatalogProduct) -> Value {
         let mut body = Map::new();
-        body.insert("name".to_owned(), product.get("name").cloned().unwrap_or(Value::Null));
+        body.insert(
+            "name".to_owned(),
+            product.get("name").cloned().unwrap_or(Value::Null),
+        );
         if let Some(sku) = trimmed_sku(product) {
             body.insert("productcode".to_owned(), json!(sku));
         }
         body.insert("description".to_owned(), or_empty(product, "description"));
         let price = weldsuite_kit::validation::js_number_of(product.get("price"));
-        body.insert("price".to_owned(), number_value(if price.is_nan() { 0.0 } else { price }));
+        body.insert(
+            "price".to_owned(),
+            number_value(if price.is_nan() { 0.0 } else { price }),
+        );
         if let Some(weight) = truthy_text(product, "weight") {
             body.insert("weight".to_owned(), number(&weight));
         }
-        body.insert("active".to_owned(), json!(text_of(product, "status") == Some("active")));
+        body.insert(
+            "active".to_owned(),
+            json!(text_of(product, "status") == Some("active")),
+        );
         Value::Object(body)
     }
 
@@ -889,7 +1004,10 @@ pub(crate) enum StoreClient {
 }
 
 fn credential<'a>(credentials: &'a Map<String, Value>, key: &str) -> &'a str {
-    credentials.get(key).and_then(Value::as_str).unwrap_or_default()
+    credentials
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
 }
 
 /// `createProductWriteClient(provider, credentials, fallbackAccountId)`.
@@ -900,20 +1018,28 @@ pub(crate) fn product_write_client(
 ) -> Result<StoreClient, ConnectorError> {
     let or = |key: &str| {
         let own = credential(credentials, key);
-        if own.is_empty() { fallback.unwrap_or_default().to_owned() } else { own.to_owned() }
+        if own.is_empty() {
+            fallback.unwrap_or_default().to_owned()
+        } else {
+            own.to_owned()
+        }
     };
     match provider {
         "woocommerce" => Ok(StoreClient::Woo(Woo {
             store_url: normalize_store_url(&or("storeUrl"))?,
-            key: weldsuite_kit::validation::js_trim(credential(credentials, "consumerKey")).to_owned(),
-            secret: weldsuite_kit::validation::js_trim(credential(credentials, "consumerSecret")).to_owned(),
+            key: weldsuite_kit::validation::js_trim(credential(credentials, "consumerKey"))
+                .to_owned(),
+            secret: weldsuite_kit::validation::js_trim(credential(credentials, "consumerSecret"))
+                .to_owned(),
         })),
         "shopify" => Ok(StoreClient::Shopify(Shopify {
             domain: normalize_shop_domain(&or("shopDomain"))?,
-            token: weldsuite_kit::validation::js_trim(credential(credentials, "accessToken")).to_owned(),
+            token: weldsuite_kit::validation::js_trim(credential(credentials, "accessToken"))
+                .to_owned(),
         })),
         "picqer" => {
-            let own = weldsuite_kit::validation::js_trim(credential(credentials, "subdomain")).to_owned();
+            let own =
+                weldsuite_kit::validation::js_trim(credential(credentials, "subdomain")).to_owned();
             let subdomain = if own.is_empty() {
                 picqer_strip(fallback.unwrap_or_default())
             } else {
@@ -921,7 +1047,8 @@ pub(crate) fn product_write_client(
             };
             Ok(StoreClient::Picqer(Picqer {
                 subdomain: normalize_picqer(&subdomain)?,
-                key: weldsuite_kit::validation::js_trim(credential(credentials, "apiKey")).to_owned(),
+                key: weldsuite_kit::validation::js_trim(credential(credentials, "apiKey"))
+                    .to_owned(),
             }))
         }
         // Moneybird and Stripe build their own clients, which push no products.
@@ -940,7 +1067,11 @@ pub(crate) fn product_write_client(
 
 impl StoreClient {
     /// `client.findProductBySku(sku)`.
-    pub(crate) async fn find_by_sku(&self, http: Option<&OutboundHttp>, sku: &str) -> Result<Option<ProductRef>, ConnectorError> {
+    pub(crate) async fn find_by_sku(
+        &self,
+        http: Option<&OutboundHttp>,
+        sku: &str,
+    ) -> Result<Option<ProductRef>, ConnectorError> {
         let sku = weldsuite_kit::validation::js_trim(sku);
         if sku.is_empty() {
             return Ok(None);
@@ -948,7 +1079,13 @@ impl StoreClient {
         match self {
             Self::Woo(woo) => {
                 let data = woo
-                    .request(http, "GET", "products", &[("sku", sku.to_owned()), ("per_page", "1".to_owned())], None)
+                    .request(
+                        http,
+                        "GET",
+                        "products",
+                        &[("sku", sku.to_owned()), ("per_page", "1".to_owned())],
+                        None,
+                    )
                     .await?;
                 let Some(found) = data.as_array().and_then(|a| a.first()) else {
                     return Ok(None);
@@ -958,7 +1095,10 @@ impl StoreClient {
                 };
                 Ok(Some(ProductRef {
                     id: as_text(id),
-                    url: found.get("permalink").and_then(Value::as_str).map(str::to_owned),
+                    url: found
+                        .get("permalink")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned),
                 }))
             }
             Self::Shopify(shop) => {
@@ -966,12 +1106,23 @@ impl StoreClient {
                     "query": "query($q: String!) { products(first: 1, query: $q) { edges { node { id handle onlineStoreUrl } } } }",
                     "variables": { "q": format!("sku:{sku}") },
                 });
-                let data = shop.request(http, "POST", "graphql.json", Some(&body)).await?;
+                let data = shop
+                    .request(http, "POST", "graphql.json", Some(&body))
+                    .await?;
                 let node = data.pointer("/data/products/edges/0/node");
-                let Some(gid) = node.and_then(|n| n.get("id")).and_then(Value::as_str).filter(|g| !g.is_empty()) else {
+                let Some(gid) = node
+                    .and_then(|n| n.get("id"))
+                    .and_then(Value::as_str)
+                    .filter(|g| !g.is_empty())
+                else {
                     return Ok(None);
                 };
-                let id = gid.rsplit('/').next().filter(|s| !s.is_empty()).unwrap_or(gid).to_owned();
+                let id = gid
+                    .rsplit('/')
+                    .next()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(gid)
+                    .to_owned();
                 let node = node.unwrap_or(&Value::Null);
                 let url = node
                     .get("onlineStoreUrl")
@@ -988,29 +1139,48 @@ impl StoreClient {
             }
             Self::Picqer(picqer) => {
                 let data = picqer
-                    .request(http, "GET", "products", &[("productcode", sku.to_owned())], None)
+                    .request(
+                        http,
+                        "GET",
+                        "products",
+                        &[("productcode", sku.to_owned())],
+                        None,
+                    )
                     .await?;
                 let Some(product) = data.as_array().and_then(|a| a.first()) else {
                     return Ok(None);
                 };
-                Ok(Picqer::id_of(product).map(|id| ProductRef { id: as_text(id), url: None }))
+                Ok(Picqer::id_of(product).map(|id| ProductRef {
+                    id: as_text(id),
+                    url: None,
+                }))
             }
         }
     }
 
     /// `client.createProduct(product)`.
-    pub(crate) async fn create(&self, http: Option<&OutboundHttp>, product: &CatalogProduct) -> Result<ProductRef, ConnectorError> {
+    pub(crate) async fn create(
+        &self,
+        http: Option<&OutboundHttp>,
+        product: &CatalogProduct,
+    ) -> Result<ProductRef, ConnectorError> {
         match self {
             Self::Woo(woo) => {
-                let data = woo.request(http, "POST", "products", &[], Some(&Woo::body(product))).await?;
+                let data = woo
+                    .request(http, "POST", "products", &[], Some(&Woo::body(product)))
+                    .await?;
                 Ok(woo.product_ref(&data))
             }
             Self::Shopify(shop) => {
-                let data = shop.request(http, "POST", "products.json", Some(&Shopify::body(product))).await?;
+                let data = shop
+                    .request(http, "POST", "products.json", Some(&Shopify::body(product)))
+                    .await?;
                 Ok(shop.product_ref(&data))
             }
             Self::Picqer(picqer) => {
-                let data = picqer.request(http, "POST", "products", &[], Some(&Picqer::body(product))).await?;
+                let data = picqer
+                    .request(http, "POST", "products", &[], Some(&Picqer::body(product)))
+                    .await?;
                 Ok(ProductRef {
                     id: Picqer::id_of(&data).map(as_text).unwrap_or_default(),
                     url: None,
@@ -1020,23 +1190,45 @@ impl StoreClient {
     }
 
     /// `client.updateProduct(id, product)`.
-    pub(crate) async fn update(&self, http: Option<&OutboundHttp>, id: &str, product: &CatalogProduct) -> Result<ProductRef, ConnectorError> {
+    pub(crate) async fn update(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+        product: &CatalogProduct,
+    ) -> Result<ProductRef, ConnectorError> {
         match self {
             Self::Woo(woo) => {
                 let data = woo
-                    .request(http, "PUT", &format!("products/{id}"), &[], Some(&Woo::body(product)))
+                    .request(
+                        http,
+                        "PUT",
+                        &format!("products/{id}"),
+                        &[],
+                        Some(&Woo::body(product)),
+                    )
                     .await?;
                 Ok(woo.product_ref(&data))
             }
             Self::Shopify(shop) => {
                 let data = shop
-                    .request(http, "PUT", &format!("products/{id}.json"), Some(&Shopify::body(product)))
+                    .request(
+                        http,
+                        "PUT",
+                        &format!("products/{id}.json"),
+                        Some(&Shopify::body(product)),
+                    )
                     .await?;
                 Ok(shop.product_ref(&data))
             }
             Self::Picqer(picqer) => {
                 let data = picqer
-                    .request(http, "PUT", &format!("products/{id}"), &[], Some(&Picqer::body(product)))
+                    .request(
+                        http,
+                        "PUT",
+                        &format!("products/{id}"),
+                        &[],
+                        Some(&Picqer::body(product)),
+                    )
                     .await?;
                 Ok(ProductRef {
                     id: Picqer::id_of(&data).map_or_else(|| id.to_owned(), as_text),
@@ -1047,10 +1239,20 @@ impl StoreClient {
     }
 
     /// `client.deleteProduct(id)`.
-    pub(crate) async fn delete(&self, http: Option<&OutboundHttp>, id: &str) -> Result<(), ConnectorError> {
+    pub(crate) async fn delete(
+        &self,
+        http: Option<&OutboundHttp>,
+        id: &str,
+    ) -> Result<(), ConnectorError> {
         match self {
             Self::Woo(woo) => woo
-                .request(http, "DELETE", &format!("products/{id}"), &[("force", "true".to_owned())], None)
+                .request(
+                    http,
+                    "DELETE",
+                    &format!("products/{id}"),
+                    &[("force", "true".to_owned())],
+                    None,
+                )
                 .await
                 .map(|_| ()),
             Self::Shopify(shop) => shop
@@ -1067,7 +1269,10 @@ impl StoreClient {
 
 /// `decryptCredentials(credentials, keyring)`: each truthy value opened
 /// with `maybeDecryptField`.
-pub(crate) fn decrypt_credentials(credentials: Option<&Value>, keyring: &Keyring) -> Map<String, Value> {
+pub(crate) fn decrypt_credentials(
+    credentials: Option<&Value>,
+    keyring: &Keyring,
+) -> Map<String, Value> {
     let mut out = Map::new();
     let Some(Value::Object(stored)) = credentials else {
         return out;
@@ -1079,7 +1284,10 @@ pub(crate) fn decrypt_credentials(credentials: Option<&Value>, keyring: &Keyring
             Value::Number(n) if n.as_f64() == Some(0.0) => continue,
             other => other.to_string(),
         };
-        out.insert(key.clone(), json!(crate::crypto::maybe_decrypt_field(&text, keyring)));
+        out.insert(
+            key.clone(),
+            json!(crate::crypto::maybe_decrypt_field(&text, keyring)),
+        );
     }
     out
 }
@@ -1090,14 +1298,26 @@ mod tests {
 
     #[test]
     fn normalises_store_urls_and_domains() {
-        assert_eq!(normalize_store_url("shop.example/").expect("url"), "https://shop.example");
-        assert_eq!(normalize_store_url("http://a.test/x//?q=1#h").expect("url"), "http://a.test/x");
+        assert_eq!(
+            normalize_store_url("shop.example/").expect("url"),
+            "https://shop.example"
+        );
+        assert_eq!(
+            normalize_store_url("http://a.test/x//?q=1#h").expect("url"),
+            "http://a.test/x"
+        );
         assert!(normalize_store_url("  ").is_err());
-        assert_eq!(normalize_shop_domain("Weld-Test").expect("domain"), "weld-test.myshopify.com");
+        assert_eq!(
+            normalize_shop_domain("Weld-Test").expect("domain"),
+            "weld-test.myshopify.com"
+        );
         assert_eq!(
             normalize_shop_domain("https://weld-test.myshopify.com/").expect("domain"),
             "weld-test.myshopify.com"
         );
-        assert_eq!(normalize_picqer(&picqer_strip("https://Acme.picqer.com/api")).expect("sub"), "acme");
+        assert_eq!(
+            normalize_picqer(&picqer_strip("https://Acme.picqer.com/api")).expect("sub"),
+            "acme"
+        );
     }
 }

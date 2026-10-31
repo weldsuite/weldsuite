@@ -24,7 +24,10 @@ where
     Q: PermissionQueries + 'static,
 {
     Router::new()
-        .route("/", get(read).route_layer(gate.require([perm::GENERAL_READ])))
+        .route(
+            "/",
+            get(read).route_layer(gate.require([perm::GENERAL_READ])),
+        )
         .route(
             "/",
             axum::routing::put(write).route_layer(gate.require([perm::GENERAL_UPDATE])),
@@ -33,9 +36,11 @@ where
 
 /// The first live settings row (no ORDER BY, as the route reads it).
 async fn settings_row(caller: &Caller) -> Result<Option<(String, Option<Value>)>, sqlx::Error> {
-    sqlx::query_as("select id, custom_settings from workspace_settings where deleted_at is null limit 1")
-        .fetch_optional(&caller.db)
-        .await
+    sqlx::query_as(
+        "select id, custom_settings from workspace_settings where deleted_at is null limit 1",
+    )
+    .fetch_optional(&caller.db)
+    .await
 }
 
 /// `(customSettings as Record | null) || {}`.
@@ -62,7 +67,12 @@ async fn read(State(_state): State<CommerceState>, caller: Caller) -> Response {
     Data(settings).into_response()
 }
 
-async fn write(State(_state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn write(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to update PrintNode settings";
     let settings = match validate(&headers, &body, |issues, fields| {
         issues.text_with(fields, "apiKey", Presence::Required, Text::default());
@@ -93,10 +103,17 @@ async fn write(State(_state): State<CommerceState>, caller: Caller, headers: Hea
             let t = &tables::WORKSPACE_SETTINGS;
             let mut values = Map::new();
             t.set(&mut values, "id", json!(generate_id("ws")));
-            t.set(&mut values, "customSettings", json!({ "printnode": settings }));
+            t.set(
+                &mut values,
+                "customSettings",
+                json!({ "printnode": settings }),
+            );
             t.set(&mut values, "createdAt", json!(now));
             t.set(&mut values, "updatedAt", json!(now));
-            if let Err(error) = t.insert(&caller.db, values, &["createdAt", "updatedAt"]).await {
+            if let Err(error) = t
+                .insert(&caller.db, values, &["createdAt", "updatedAt"])
+                .await
+            {
                 tracing::error!(%error, "[commerce-api/printnode] {FAILED}");
                 return ApiError::internal().with_message(FAILED).into_response();
             }
@@ -104,6 +121,10 @@ async fn write(State(_state): State<CommerceState>, caller: Caller, headers: Hea
         }
         Err(error) => return Refusal::Database(error).respond(FAILED),
     };
-    let status = if created { StatusCode::CREATED } else { StatusCode::OK };
+    let status = if created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
     (status, axum::Json(json!({ "data": settings }))).into_response()
 }

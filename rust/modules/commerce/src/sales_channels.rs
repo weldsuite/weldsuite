@@ -62,14 +62,19 @@ fn resolve_price(value: Option<&Value>, fallback: String) -> Result<String, Chan
         Some(other) => weldsuite_kit::validation::js_number(&other.to_string()),
     };
     if !n.is_finite() || n < 0.0 {
-        return Err(ChannelError::Invalid("Price must be a non-negative number".to_owned()));
+        return Err(ChannelError::Invalid(
+            "Price must be a non-negative number".to_owned(),
+        ));
     }
     Ok(to_fixed(n, 2))
 }
 
 /// `resolveListingStatus(value, fallback)`.
 fn resolve_listing_status(value: Option<&Value>, fallback: &str) -> Result<String, ChannelError> {
-    let raw = match value.and_then(Value::as_str).map(weldsuite_kit::validation::js_trim) {
+    let raw = match value
+        .and_then(Value::as_str)
+        .map(weldsuite_kit::validation::js_trim)
+    {
         Some(text) if !text.is_empty() => text,
         _ => fallback,
     };
@@ -93,7 +98,10 @@ fn outbound_product(product: &Value, price: &str, status: &str) -> Value {
         .and_then(Value::as_array)
         .map(|list| {
             list.iter()
-                .filter(|img| img.get("url").is_some_and(|u| u.as_str().is_some_and(|s| !s.is_empty())))
+                .filter(|img| {
+                    img.get("url")
+                        .is_some_and(|u| u.as_str().is_some_and(|s| !s.is_empty()))
+                })
                 .cloned()
                 .collect()
         })
@@ -110,12 +118,18 @@ fn outbound_product(product: &Value, price: &str, status: &str) -> Value {
     };
     let mut out = Map::new();
     for key in ["name", "description", "shortDescription", "sku", "slug"] {
-        out.insert(key.to_owned(), product.get(key).cloned().unwrap_or(Value::Null));
+        out.insert(
+            key.to_owned(),
+            product.get(key).cloned().unwrap_or(Value::Null),
+        );
     }
     out.insert("price".to_owned(), json!(price));
     out.insert("status".to_owned(), json!(status));
     for key in ["vendor", "productType"] {
-        out.insert(key.to_owned(), product.get(key).cloned().unwrap_or(Value::Null));
+        out.insert(
+            key.to_owned(),
+            product.get(key).cloned().unwrap_or(Value::Null),
+        );
     }
     out.insert("images".to_owned(), Value::Array(images));
     for key in ["weight", "length", "width", "height"] {
@@ -126,7 +140,10 @@ fn outbound_product(product: &Value, price: &str, status: &str) -> Value {
     }
     out.insert(
         "inventoryQuantity".to_owned(),
-        product.get("inventoryQuantity").cloned().unwrap_or(Value::Null),
+        product
+            .get("inventoryQuantity")
+            .cloned()
+            .unwrap_or(Value::Null),
     );
     Value::Object(out)
 }
@@ -147,8 +164,17 @@ async fn connection(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error>
     Ok(row.map(|row| tables::CONNECTOR_CONNECTIONS.js(row)))
 }
 
-async fn channel_where(db: &PgPool, sql: &'static str, a: &str, b: &str) -> Result<Option<Value>, sqlx::Error> {
-    let row: Option<Value> = sqlx::query_scalar(sql).bind(a).bind(b).fetch_optional(db).await?;
+async fn channel_where(
+    db: &PgPool,
+    sql: &'static str,
+    a: &str,
+    b: &str,
+) -> Result<Option<Value>, sqlx::Error> {
+    let row: Option<Value> = sqlx::query_scalar(sql)
+        .bind(a)
+        .bind(b)
+        .fetch_optional(db)
+        .await?;
     Ok(row.map(|row| tables::PRODUCT_SALES_CHANNELS.js(row)))
 }
 
@@ -177,7 +203,9 @@ const BY_ID: &str = concat!(
 fn assert_writable(connection: &Value) -> Result<(), ChannelError> {
     let provider = text(connection, "provider").unwrap_or_default();
     if connectors::connector(provider).is_none() {
-        return Err(ChannelError::Unsupported(format!("Unknown connector '{provider}'")));
+        return Err(ChannelError::Unsupported(format!(
+            "Unknown connector '{provider}'"
+        )));
     }
     let status = text(connection, "status").unwrap_or_default();
     if connection.get("deletedAt").is_some_and(|d| !d.is_null()) || !WRITABLE.contains(&status) {
@@ -212,7 +240,12 @@ fn sync_failed(error: ConnectorError) -> ChannelError {
 }
 
 /// `ensureMapping`.
-async fn ensure_mapping(db: &PgPool, connection: &Value, external_id: &str, product_id: &str) -> Result<(), ChannelError> {
+async fn ensure_mapping(
+    db: &PgPool,
+    connection: &Value,
+    external_id: &str,
+    product_id: &str,
+) -> Result<(), ChannelError> {
     let provider = text(connection, "provider").unwrap_or_default();
     let entity = connectors::connector(provider)
         .and_then(|c| c.product_entity)
@@ -252,10 +285,12 @@ async fn ensure_mapping(db: &PgPool, connection: &Value, external_id: &str, prod
     t.set(&mut values, "internalEntityType", json!("product"));
     t.set(&mut values, "internalEntityId", json!(product_id));
     t.set(&mut values, "lastSyncedAt", json!(now));
-    t.insert(db, values, &["lastSyncedAt"]).await.map_err(|error| match error {
-        crate::table::WriteError::Database(error) => ChannelError::Database(error),
-        crate::table::WriteError::NotADate(prop) => ChannelError::SyncFailed(prop.to_owned()),
-    })?;
+    t.insert(db, values, &["lastSyncedAt"])
+        .await
+        .map_err(|error| match error {
+            crate::table::WriteError::Database(error) => ChannelError::Database(error),
+            crate::table::WriteError::NotADate(prop) => ChannelError::SyncFailed(prop.to_owned()),
+        })?;
     Ok(())
 }
 
@@ -269,7 +304,8 @@ async fn write_channel(
     status: &str,
 ) -> Result<Value, ChannelError> {
     let connection_id = text(connection, "id").unwrap_or_default();
-    if let Some(stolen) = channel_where(db, BY_CONNECTION_EXTERNAL, connection_id, &remote.id).await?
+    if let Some(stolen) =
+        channel_where(db, BY_CONNECTION_EXTERNAL, connection_id, &remote.id).await?
         && text(&stolen, "productId") != Some(product_id)
     {
         return Err(ChannelError::Conflict(
@@ -281,8 +317,19 @@ async fn write_channel(
     let mut listing = Map::new();
     t.set(&mut listing, "externalId", json!(remote.id));
     t.set(&mut listing, "externalUrl", json!(remote.url));
-    t.set(&mut listing, "displayName", connection.get("displayName").cloned().unwrap_or(Value::Null));
-    t.set(&mut listing, "provider", connection.get("provider").cloned().unwrap_or(Value::Null));
+    t.set(
+        &mut listing,
+        "displayName",
+        connection
+            .get("displayName")
+            .cloned()
+            .unwrap_or(Value::Null),
+    );
+    t.set(
+        &mut listing,
+        "provider",
+        connection.get("provider").cloned().unwrap_or(Value::Null),
+    );
     t.set(&mut listing, "status", json!("active"));
     t.set(&mut listing, "price", json!(price));
     t.set(&mut listing, "listingStatus", json!(status));
@@ -293,10 +340,17 @@ async fn write_channel(
         crate::table::WriteError::Database(error) => ChannelError::Database(error),
         crate::table::WriteError::NotADate(prop) => ChannelError::SyncFailed(prop.to_owned()),
     };
-    if let Some(linked) = channel_where(db, BY_PRODUCT_CONNECTION, product_id, connection_id).await? {
+    if let Some(linked) =
+        channel_where(db, BY_PRODUCT_CONNECTION, product_id, connection_id).await?
+    {
         let id = text(&linked, "id").unwrap_or_default().to_owned();
-        t.patch(db, &id, listing, false, &trusted).await.map_err(map_write)?;
-        let row: Option<Value> = sqlx::query_scalar(BY_ID).bind(&id).fetch_optional(db).await?;
+        t.patch(db, &id, listing, false, &trusted)
+            .await
+            .map_err(map_write)?;
+        let row: Option<Value> = sqlx::query_scalar(BY_ID)
+            .bind(&id)
+            .fetch_optional(db)
+            .await?;
         return Ok(row.map_or(linked, |row| t.js(row)));
     }
     let id = generate_id("psch");
@@ -304,7 +358,10 @@ async fn write_channel(
     t.set(&mut listing, "productId", json!(product_id));
     t.set(&mut listing, "connectionId", json!(connection_id));
     t.insert(db, listing, &trusted).await.map_err(map_write)?;
-    let row: Option<Value> = sqlx::query_scalar(BY_ID).bind(&id).fetch_optional(db).await?;
+    let row: Option<Value> = sqlx::query_scalar(BY_ID)
+        .bind(&id)
+        .fetch_optional(db)
+        .await?;
     row.map(|row| t.js(row))
         .ok_or_else(|| ChannelError::SyncFailed("Failed to record the sales channel".to_owned()))
 }
@@ -326,7 +383,8 @@ pub(crate) async fn publish(
     assert_writable(&connection)?;
     let product_id = text(&product, "id").unwrap_or(product_id).to_owned();
     let connection_id = text(&connection, "id").unwrap_or(connection_id).to_owned();
-    if let Some(already) = channel_where(ctx.db, BY_PRODUCT_CONNECTION, &product_id, &connection_id).await?
+    if let Some(already) =
+        channel_where(ctx.db, BY_PRODUCT_CONNECTION, &product_id, &connection_id).await?
         && text(&already, "status") == Some("active")
     {
         return Err(ChannelError::Conflict(
@@ -337,12 +395,18 @@ pub(crate) async fn publish(
     let fallback = text(&product, "status").unwrap_or("draft").to_owned();
     let status = resolve_listing_status(listing_status, &fallback)?;
     let payload = outbound_product(&product, &price, &status);
-    let client = client_for(&connection, ctx.keyring).map_err(|e| ChannelError::Unsupported(e.message))?;
-    let sku = text(&product, "sku").map(weldsuite_kit::validation::js_trim).unwrap_or_default();
+    let client =
+        client_for(&connection, ctx.keyring).map_err(|e| ChannelError::Unsupported(e.message))?;
+    let sku = text(&product, "sku")
+        .map(weldsuite_kit::validation::js_trim)
+        .unwrap_or_default();
     let existing = if sku.is_empty() {
         None
     } else {
-        client.find_by_sku(ctx.http, sku).await.map_err(sync_failed)?
+        client
+            .find_by_sku(ctx.http, sku)
+            .await
+            .map_err(sync_failed)?
     };
     let remote = match existing {
         Some(existing) => client.update(ctx.http, &existing.id, &payload).await,
@@ -350,7 +414,9 @@ pub(crate) async fn publish(
     }
     .map_err(sync_failed)?;
     if remote.id.is_empty() {
-        return Err(ChannelError::SyncFailed("The store did not return a product id".to_owned()));
+        return Err(ChannelError::SyncFailed(
+            "The store did not return a product id".to_owned(),
+        ));
     }
     ensure_mapping(ctx.db, &connection, &remote.id, &product_id).await?;
     write_channel(ctx.db, &product_id, &connection, &remote, &price, &status).await
@@ -368,9 +434,13 @@ pub(crate) async fn update(
         return Err(ChannelError::NotFound("Product not found".to_owned()));
     };
     let Some(channel) = channel_where(ctx.db, BY_ID_PRODUCT, channel_id, product_id).await? else {
-        return Err(ChannelError::NotFound("Sales channel listing not found".to_owned()));
+        return Err(ChannelError::NotFound(
+            "Sales channel listing not found".to_owned(),
+        ));
     };
-    let Some(connection) = connection(ctx.db, text(&channel, "connectionId").unwrap_or_default()).await? else {
+    let Some(connection) =
+        connection(ctx.db, text(&channel, "connectionId").unwrap_or_default()).await?
+    else {
         return Err(ChannelError::NotFound("Sales channel not found".to_owned()));
     };
     assert_writable(&connection)?;
@@ -387,11 +457,19 @@ pub(crate) async fn update(
         .to_owned();
     let status = resolve_listing_status(listing_status, &fallback)?;
     let payload = outbound_product(&product, &price, &status);
-    let client = client_for(&connection, ctx.keyring).map_err(|e| ChannelError::Unsupported(e.message))?;
+    let client =
+        client_for(&connection, ctx.keyring).map_err(|e| ChannelError::Unsupported(e.message))?;
     let external_id = text(&channel, "externalId").unwrap_or_default().to_owned();
-    let remote = client.update(ctx.http, &external_id, &payload).await.map_err(sync_failed)?;
+    let remote = client
+        .update(ctx.http, &external_id, &payload)
+        .await
+        .map_err(sync_failed)?;
     let remote = ProductRef {
-        id: if remote.id.is_empty() { external_id } else { remote.id },
+        id: if remote.id.is_empty() {
+            external_id
+        } else {
+            remote.id
+        },
         url: remote
             .url
             .or_else(|| text(&channel, "externalUrl").map(str::to_owned)),
@@ -402,16 +480,26 @@ pub(crate) async fn update(
 
 /// `unlinkProductSalesChannel`: the remote listing first (a 404 is fine),
 /// then the local row.
-pub(crate) async fn unlink(ctx: &Context<'_>, product_id: &str, channel_id: &str) -> Result<(), ChannelError> {
+pub(crate) async fn unlink(
+    ctx: &Context<'_>,
+    product_id: &str,
+    channel_id: &str,
+) -> Result<(), ChannelError> {
     if load_product(ctx.db, product_id).await?.is_none() {
         return Err(ChannelError::NotFound("Product not found".to_owned()));
     }
     let Some(channel) = channel_where(ctx.db, BY_ID_PRODUCT, channel_id, product_id).await? else {
-        return Err(ChannelError::NotFound("Sales channel listing not found".to_owned()));
+        return Err(ChannelError::NotFound(
+            "Sales channel listing not found".to_owned(),
+        ));
     };
     if let Some(external_id) = text(&channel, "externalId").filter(|e| !e.is_empty()) {
-        let Some(connection) = connection(ctx.db, text(&channel, "connectionId").unwrap_or_default()).await? else {
-            return Err(ChannelError::NotFound("Sales channel connection not found".to_owned()));
+        let Some(connection) =
+            connection(ctx.db, text(&channel, "connectionId").unwrap_or_default()).await?
+        else {
+            return Err(ChannelError::NotFound(
+                "Sales channel connection not found".to_owned(),
+            ));
         };
         let deleted = match client_for(&connection, ctx.keyring) {
             Ok(client) => client.delete(ctx.http, external_id).await,
@@ -461,7 +549,10 @@ pub(crate) async fn targets(db: &PgPool) -> Result<Vec<Value>, sqlx::Error> {
 }
 
 /// A product's sales channel rows (no ORDER BY, as the worker reads them).
-pub(crate) async fn channels_of(db: &PgPool, product_ids: &[String]) -> Result<Vec<Value>, sqlx::Error> {
+pub(crate) async fn channels_of(
+    db: &PgPool,
+    product_ids: &[String],
+) -> Result<Vec<Value>, sqlx::Error> {
     let rows: Vec<Value> = sqlx::query_scalar(concat!(
         "select ",
         row_of!(product_sales_channels),
@@ -482,11 +573,20 @@ mod tests {
 
     #[test]
     fn prices_and_statuses_like_the_worker() {
-        assert_eq!(resolve_price(Some(&json!("29,95")), "0".into()).expect("price"), "29.95");
-        assert_eq!(resolve_price(Some(&json!(10)), "0".into()).expect("price"), "10.00");
+        assert_eq!(
+            resolve_price(Some(&json!("29,95")), "0".into()).expect("price"),
+            "29.95"
+        );
+        assert_eq!(
+            resolve_price(Some(&json!(10)), "0".into()).expect("price"),
+            "10.00"
+        );
         assert_eq!(resolve_price(None, "12.5".into()).expect("price"), "12.5");
         assert!(resolve_price(Some(&json!("-1")), "0".into()).is_err());
-        assert_eq!(resolve_listing_status(Some(&json!(" active ")), "draft").expect("status"), "active");
+        assert_eq!(
+            resolve_listing_status(Some(&json!(" active ")), "draft").expect("status"),
+            "active"
+        );
         assert!(resolve_listing_status(None, "archived").is_err());
     }
 }

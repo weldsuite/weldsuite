@@ -32,7 +32,10 @@ where
     let manage = || gate.require([perm::CARRIERS_MANAGE]);
     Router::new()
         .route("/", get(wallet).route_layer(read()))
-        .route("/with-transactions", get(with_transactions).route_layer(read()))
+        .route(
+            "/with-transactions",
+            get(with_transactions).route_layer(read()),
+        )
         .route("/transactions", get(transactions).route_layer(read()))
         .route("/credits", post(credits).route_layer(manage()))
         .route("/deduct", post(deduct).route_layer(manage()))
@@ -79,7 +82,9 @@ fn amount_of(value: Option<&Value>) -> f64 {
 /// `x ? Number(x) : undefined` for a numeric column.
 fn optional_amount(value: Option<&Value>) -> Option<Value> {
     match value {
-        Some(Value::String(text)) if !text.is_empty() => Some(number_value(numeric(&Value::String(text.clone())))),
+        Some(Value::String(text)) if !text.is_empty() => {
+            Some(number_value(numeric(&Value::String(text.clone()))))
+        }
         _ => None,
     }
 }
@@ -115,7 +120,8 @@ async fn new_wallet(caller: &Caller, user_id: &str, full: bool) -> Result<Value,
     }
     t.set(&mut values, "createdAt", json!(now));
     t.set(&mut values, "updatedAt", json!(now));
-    Ok(t.insert(&caller.db, values, &["createdAt", "updatedAt"]).await?)
+    Ok(t.insert(&caller.db, values, &["createdAt", "updatedAt"])
+        .await?)
 }
 
 fn user_query(query: Option<&str>) -> Result<Option<String>, Refusal> {
@@ -134,7 +140,10 @@ fn currency(row: &Value) -> Value {
 }
 
 fn or_default(row: &Value, key: &str, fallback: Value) -> Value {
-    row.get(key).filter(|v| !v.is_null()).cloned().unwrap_or(fallback)
+    row.get(key)
+        .filter(|v| !v.is_null())
+        .cloned()
+        .unwrap_or(fallback)
 }
 
 fn count_of(row: &Value) -> Value {
@@ -144,7 +153,11 @@ fn count_of(row: &Value) -> Value {
     }
 }
 
-async fn wallet(State(state): State<CommerceState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn wallet(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     const FAILED: &str = "Failed to get wallet";
     let target = match user_query(query.as_deref()) {
         Ok(user) => user.unwrap_or_else(|| caller.user_id.clone()),
@@ -178,10 +191,22 @@ async fn wallet(State(state): State<CommerceState>, caller: Caller, RawQuery(que
             out.insert(key.to_owned(), value);
         }
     }
-    out.insert("isActive".to_owned(), or_default(&wallet, "isActive", json!(true)));
-    out.insert("isFrozen".to_owned(), or_default(&wallet, "isFrozen", json!(false)));
-    out.insert("totalCredits".to_owned(), number_value(amount_of(wallet.get("totalCredits"))));
-    out.insert("totalDebits".to_owned(), number_value(amount_of(wallet.get("totalDebits"))));
+    out.insert(
+        "isActive".to_owned(),
+        or_default(&wallet, "isActive", json!(true)),
+    );
+    out.insert(
+        "isFrozen".to_owned(),
+        or_default(&wallet, "isFrozen", json!(false)),
+    );
+    out.insert(
+        "totalCredits".to_owned(),
+        number_value(amount_of(wallet.get("totalCredits"))),
+    );
+    out.insert(
+        "totalDebits".to_owned(),
+        number_value(amount_of(wallet.get("totalDebits"))),
+    );
     out.insert("transactionCount".to_owned(), count_of(&wallet));
     if let Some(at) = wallet.get("lastTransactionAt").filter(|v| !v.is_null()) {
         out.insert("lastTransactionAt".to_owned(), at.clone());
@@ -198,7 +223,10 @@ fn transaction(row: &Value, nested: bool) -> Value {
     out.insert("type".to_owned(), row["type"].clone());
     let amount = number_value(amount_of(row.get("amount")));
     if nested {
-        out.insert("amount".to_owned(), json!({ "amount": amount, "currency": currency(row) }));
+        out.insert(
+            "amount".to_owned(),
+            json!({ "amount": amount, "currency": currency(row) }),
+        );
     } else {
         out.insert("amount".to_owned(), amount);
         out.insert("currency".to_owned(), currency(row));
@@ -283,7 +311,12 @@ fn read_page(issues: &mut Issues, fields: &Map<String, Value>) -> Page {
         .into_option()
         .unwrap_or(1.0);
     let page_size = issues
-        .number(fields, "pageSize", Presence::Optional, coerce(Some(1.0), Some(100.0)))
+        .number(
+            fields,
+            "pageSize",
+            Presence::Optional,
+            coerce(Some(1.0), Some(100.0)),
+        )
         .into_option()
         .unwrap_or(20.0);
     let mut text = |key: &str| {
@@ -300,7 +333,11 @@ fn read_page(issues: &mut Issues, fields: &Map<String, Value>) -> Page {
     }
 }
 
-async fn transactions(State(_state): State<CommerceState>, caller: Caller, RawQuery(query): RawQuery) -> Response {
+async fn transactions(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    RawQuery(query): RawQuery,
+) -> Response {
     const FAILED: &str = "Failed to get transactions";
     let page = match validate_query(query.as_deref(), read_page) {
         Ok(page) => page,
@@ -326,9 +363,13 @@ async fn list_transactions(caller: &Caller, page: &Page) -> Result<Response, Ref
     let date = |text: Option<&str>| -> Result<Option<String>, Refusal> {
         match text.filter(|t| !t.is_empty()) {
             None => Ok(None),
-            Some(text) => js_date_iso(text)
-                .map(Some)
-                .ok_or_else(|| Refusal::Response(Box::new(ApiError::internal().with_message("Failed to get transactions").into_response()))),
+            Some(text) => js_date_iso(text).map(Some).ok_or_else(|| {
+                Refusal::Response(Box::new(
+                    ApiError::internal()
+                        .with_message("Failed to get transactions")
+                        .into_response(),
+                ))
+            }),
         }
     };
     let from = date(page.from.as_deref())?;
@@ -416,11 +457,12 @@ fn read_debit(issues: &mut Issues, fields: &Map<String, Value>) -> Movement {
     let reference_type = issues
         .text_with(fields, "referenceType", Presence::Optional, Text::default())
         .into_option();
-    let reference_id = match issues.text_with(fields, "referenceId", Presence::Nullish, Text::default()) {
-        weldsuite_kit::validation::Field::Set(id) => Some(json!(id)),
-        weldsuite_kit::validation::Field::Null => Some(Value::Null),
-        weldsuite_kit::validation::Field::Absent => None,
-    };
+    let reference_id =
+        match issues.text_with(fields, "referenceId", Presence::Nullish, Text::default()) {
+            weldsuite_kit::validation::Field::Set(id) => Some(json!(id)),
+            weldsuite_kit::validation::Field::Null => Some(Value::Null),
+            weldsuite_kit::validation::Field::Absent => None,
+        };
     let description = issues
         .text_with(fields, "description", Presence::Optional, Text::default())
         .into_option();
@@ -479,7 +521,9 @@ async fn apply(
         Some(wallet) => wallet,
         None if credit => new_wallet(caller, &caller.user_id, false).await?,
         None => {
-            return Err(Failure::Refusal(Refusal::bad_request("No wallet found for user")));
+            return Err(Failure::Refusal(Refusal::bad_request(
+                "No wallet found for user",
+            )));
         }
     };
     let amount = movement.amount;
@@ -491,7 +535,11 @@ async fn apply(
             number_text(amount)
         ))));
     }
-    let balance = if credit { current + amount } else { current - amount };
+    let balance = if credit {
+        current + amount
+    } else {
+        current - amount
+    };
     let transaction_id = generate_id("wtx");
     let wallet_id = wallet["id"].as_str().unwrap_or_default().to_owned();
     let t = &tables::WALLET_TRANSACTIONS;
@@ -499,7 +547,11 @@ async fn apply(
     t.set(&mut values, "id", json!(transaction_id));
     t.set(&mut values, "walletId", json!(wallet_id));
     t.set(&mut values, "userId", json!(caller.user_id));
-    t.set(&mut values, "type", json!(if credit { "credit" } else { "debit" }));
+    t.set(
+        &mut values,
+        "type",
+        json!(if credit { "credit" } else { "debit" }),
+    );
     t.set(&mut values, "amount", json!(number_text(amount)));
     t.set(&mut values, "currency", currency(&wallet));
     t.set(&mut values, "balanceBefore", json!(number_text(current)));
@@ -522,8 +574,16 @@ async fn apply(
         }
     });
     t.set(&mut values, "description", json!(description));
-    if let Some(reference) = movement.payment_reference.as_deref().filter(|r| !r.is_empty()) {
-        t.set(&mut values, "metadata", json!({ "paymentReference": reference }));
+    if let Some(reference) = movement
+        .payment_reference
+        .as_deref()
+        .filter(|r| !r.is_empty())
+    {
+        t.set(
+            &mut values,
+            "metadata",
+            json!({ "paymentReference": reference }),
+        );
     }
     t.insert(&caller.db, values, &[]).await?;
     let now = now();
@@ -556,7 +616,10 @@ async fn apply(
             "newBalance": number_value(balance),
         }),
     );
-    Ok(Created(json!({ "newBalance": number_value(balance), "transactionId": transaction_id })).into_response())
+    Ok(
+        Created(json!({ "newBalance": number_value(balance), "transactionId": transaction_id }))
+            .into_response(),
+    )
 }
 
 async fn check_balance(

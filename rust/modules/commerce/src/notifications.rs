@@ -46,16 +46,26 @@ macro_rules! template_sql {
     ($table:ident, $search:literal) => {
         (
             concat!(
-                "select ", row_of!($table), " from ", stringify!($table), " t where t.deleted_at is null",
-                " and ($1::text is null or ", $search, ")",
+                "select ",
+                row_of!($table),
+                " from ",
+                stringify!($table),
+                " t where t.deleted_at is null",
+                " and ($1::text is null or ",
+                $search,
+                ")",
                 " and ($2::boolean is null or t.is_active = $2)",
                 " and ($3::text is null or t.trigger_event = $3)",
                 " and ($4::text is null or t.approval_status = $4)",
                 " order by t.created_at desc limit $5 offset $6"
             ),
             concat!(
-                "select count(*)::int from ", stringify!($table), " t where t.deleted_at is null",
-                " and ($1::text is null or ", $search, ")",
+                "select count(*)::int from ",
+                stringify!($table),
+                " t where t.deleted_at is null",
+                " and ($1::text is null or ",
+                $search,
+                ")",
                 " and ($2::boolean is null or t.is_active = $2)",
                 " and ($3::text is null or t.trigger_event = $3)",
                 " and ($4::text is null or t.approval_status = $4)"
@@ -70,16 +80,26 @@ macro_rules! template_sql_plain {
     ($table:ident, $search:literal) => {
         (
             concat!(
-                "select ", row_of!($table), " from ", stringify!($table), " t where t.deleted_at is null",
-                " and ($1::text is null or ", $search, ")",
+                "select ",
+                row_of!($table),
+                " from ",
+                stringify!($table),
+                " t where t.deleted_at is null",
+                " and ($1::text is null or ",
+                $search,
+                ")",
                 " and ($2::boolean is null or t.is_active = $2)",
                 " and ($3::text is null or t.trigger_event = $3)",
                 " and $4::text is null",
                 " order by t.created_at desc limit $5 offset $6"
             ),
             concat!(
-                "select count(*)::int from ", stringify!($table), " t where t.deleted_at is null",
-                " and ($1::text is null or ", $search, ")",
+                "select count(*)::int from ",
+                stringify!($table),
+                " t where t.deleted_at is null",
+                " and ($1::text is null or ",
+                $search,
+                ")",
                 " and ($2::boolean is null or t.is_active = $2)",
                 " and ($3::text is null or t.trigger_event = $3)",
                 " and $4::text is null"
@@ -139,9 +159,14 @@ where
             .route(
                 &format!("/{path}"),
                 get(move |caller: Caller, query: RawQuery| list(kind, caller, query))
-                    .post(move |state: State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes| {
-                        create(kind, state, caller, headers, body)
-                    })
+                    .post(
+                        move |state: State<CommerceState>,
+                              caller: Caller,
+                              headers: HeaderMap,
+                              body: Bytes| {
+                            create(kind, state, caller, headers, body)
+                        },
+                    )
                     .route_layer(read()),
             )
             .route(
@@ -152,18 +177,24 @@ where
                               caller: Caller,
                               id: Path<String>,
                               headers: HeaderMap,
-                              body: Bytes| { update(kind, state, caller, id, headers, body) },
+                              body: Bytes| {
+                            update(kind, state, caller, id, headers, body)
+                        },
                     )
-                    .delete(move |state: State<CommerceState>, caller: Caller, id: Path<String>| {
-                        remove(kind, state, caller, id)
-                    })
+                    .delete(
+                        move |state: State<CommerceState>, caller: Caller, id: Path<String>| {
+                            remove(kind, state, caller, id)
+                        },
+                    )
                     .route_layer(read()),
             )
             .route(
                 &format!("/{path}/{{id}}/toggle"),
-                patch(move |state: State<CommerceState>, caller: Caller, id: Path<String>| {
-                    toggle(kind, state, caller, id)
-                })
+                patch(
+                    move |state: State<CommerceState>, caller: Caller, id: Path<String>| {
+                        toggle(kind, state, caller, id)
+                    },
+                )
                 .route_layer(read()),
             );
     }
@@ -181,19 +212,26 @@ where
         )
         .route(
             "/webhooks/{id}/enable",
-            patch(|state: State<CommerceState>, caller: Caller, id: Path<String>| {
-                set_status(state, caller, id, "active")
-            })
+            patch(
+                |state: State<CommerceState>, caller: Caller, id: Path<String>| {
+                    set_status(state, caller, id, "active")
+                },
+            )
             .route_layer(read()),
         )
         .route(
             "/webhooks/{id}/disable",
-            patch(|state: State<CommerceState>, caller: Caller, id: Path<String>| {
-                set_status(state, caller, id, "paused")
-            })
+            patch(
+                |state: State<CommerceState>, caller: Caller, id: Path<String>| {
+                    set_status(state, caller, id, "paused")
+                },
+            )
             .route_layer(read()),
         )
-        .route("/webhooks/{id}/test", post(test_webhook).route_layer(read()))
+        .route(
+            "/webhooks/{id}/test",
+            post(test_webhook).route_layer(read()),
+        )
         .route("/webhooks/{id}/logs", get(webhook_logs).route_layer(read()))
 }
 
@@ -226,7 +264,10 @@ impl<'a> Parsed<'a> {
     }
 
     fn text(&mut self, issues: &mut Issues, key: &str, presence: Presence, rules: Text) {
-        let set = issues.text_with(self.fields, key, presence, rules).as_set().is_some();
+        let set = issues
+            .text_with(self.fields, key, presence, rules)
+            .as_set()
+            .is_some();
         self.keep(key, set);
     }
 
@@ -254,10 +295,24 @@ impl<'a> Parsed<'a> {
     }
 }
 
-fn email_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn email_schema(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let mut p = Parsed::new(fields);
-    p.text(issues, "name", required(partial), Text::length(Some(1), None));
-    p.text(issues, "subject", required(partial), Text::length(Some(1), None));
+    p.text(
+        issues,
+        "name",
+        required(partial),
+        Text::length(Some(1), None),
+    );
+    p.text(
+        issues,
+        "subject",
+        required(partial),
+        Text::length(Some(1), None),
+    );
     p.text(issues, "body", OPT, Text::default());
     p.text(issues, "htmlBody", OPT, Text::default());
     p.strings(issues, "variables");
@@ -269,11 +324,28 @@ fn email_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bool)
     p.out
 }
 
-fn sms_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn sms_schema(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let mut p = Parsed::new(fields);
-    p.text(issues, "name", required(partial), Text::length(Some(1), None));
-    p.text(issues, "message", required(partial), Text::length(Some(1), None));
-    match issues.number(fields, "maxLength", OPT, Number::default()).into_option() {
+    p.text(
+        issues,
+        "name",
+        required(partial),
+        Text::length(Some(1), None),
+    );
+    p.text(
+        issues,
+        "message",
+        required(partial),
+        Text::length(Some(1), None),
+    );
+    match issues
+        .number(fields, "maxLength", OPT, Number::default())
+        .into_option()
+    {
         Some(n) => {
             p.out.insert("maxLength".to_owned(), number_value(n));
         }
@@ -291,10 +363,24 @@ fn sms_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -
     p.out
 }
 
-fn whatsapp_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn whatsapp_schema(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let mut p = Parsed::new(fields);
-    p.text(issues, "name", required(partial), Text::length(Some(1), None));
-    p.text(issues, "message", required(partial), Text::length(Some(1), None));
+    p.text(
+        issues,
+        "name",
+        required(partial),
+        Text::length(Some(1), None),
+    );
+    p.text(
+        issues,
+        "message",
+        required(partial),
+        Text::length(Some(1), None),
+    );
     p.text(issues, "headerText", OPT, Text::default());
     p.text(issues, "footerText", OPT, Text::default());
     p.strings(issues, "variables");
@@ -308,13 +394,25 @@ fn whatsapp_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bo
         let before = issues.count();
         let mut out = Map::new();
         if let Some(kind) = issues
-            .choice(button, "type", Presence::Required, &["quick_reply", "url", "phone"])
+            .choice(
+                button,
+                "type",
+                Presence::Required,
+                &["quick_reply", "url", "phone"],
+            )
             .into_option()
         {
             out.insert("type".to_owned(), json!(kind));
         }
-        for (key, presence) in [("text", Presence::Required), ("url", OPT), ("phoneNumber", OPT)] {
-            if let Some(text) = issues.text_with(button, key, presence, Text::default()).into_option() {
+        for (key, presence) in [
+            ("text", Presence::Required),
+            ("url", OPT),
+            ("phoneNumber", OPT),
+        ] {
+            if let Some(text) = issues
+                .text_with(button, key, presence, Text::default())
+                .into_option()
+            {
                 out.insert(key.to_owned(), json!(text));
             }
         }
@@ -330,7 +428,12 @@ fn whatsapp_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bo
     p.strings(issues, "tags");
     if partial
         && let Some(status) = issues
-            .choice(fields, "approvalStatus", OPT, &["pending", "approved", "rejected"])
+            .choice(
+                fields,
+                "approvalStatus",
+                OPT,
+                &["pending", "approved", "rejected"],
+            )
             .into_option()
     {
         p.out.insert("approvalStatus".to_owned(), json!(status));
@@ -427,7 +530,10 @@ async fn list(kind: &'static Kind, caller: Caller, RawQuery(query): RawQuery) ->
         .await;
     match rows {
         Ok(rows) => {
-            let templates: Vec<Value> = rows.into_iter().map(|row| template_row(kind, row)).collect();
+            let templates: Vec<Value> = rows
+                .into_iter()
+                .map(|row| template_row(kind, row))
+                .collect();
             axum::Json(json!({ "data": { "templates": templates, "pagination": pagination(page, size, total) } }))
                 .into_response()
         }
@@ -465,7 +571,9 @@ async fn create(
     body: Bytes,
 ) -> Response {
     let message = format!("Failed to create {}", kind.noun);
-    let data = match validate(&headers, &body, |issues, fields| (kind.schema)(issues, fields, false)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        (kind.schema)(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(&message),
     };
@@ -475,7 +583,8 @@ async fn create(
     kind.table.set(&mut values, "id", json!(id));
     values.extend(kind.table.values(&data));
     if kind.label == "whatsapp" {
-        kind.table.set(&mut values, "approvalStatus", json!("pending"));
+        kind.table
+            .set(&mut values, "approvalStatus", json!("pending"));
     }
     kind.table.set(&mut values, "createdAt", json!(now));
     kind.table.set(&mut values, "updatedAt", json!(now));
@@ -492,7 +601,12 @@ async fn create(
     if let Some(name) = data.get("name") {
         event.insert("name".to_owned(), name.clone());
     }
-    caller.publish(&state, ev::NOTIFICATION_TEMPLATE_CREATED, &id, &Value::Object(event));
+    caller.publish(
+        &state,
+        ev::NOTIFICATION_TEMPLATE_CREATED,
+        &id,
+        &Value::Object(event),
+    );
     Created(json!({ "id": id })).into_response()
 }
 
@@ -505,7 +619,9 @@ async fn update(
     body: Bytes,
 ) -> Response {
     let message = format!("Failed to update {}", kind.noun);
-    let data = match validate(&headers, &body, |issues, fields| (kind.schema)(issues, fields, true)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        (kind.schema)(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(&message),
     };
@@ -516,7 +632,11 @@ async fn update(
     }
     let mut values = kind.table.values(&data);
     kind.table.set(&mut values, "updatedAt", json!(now()));
-    if let Err(error) = kind.table.patch(&caller.db, &id, values, true, &["updatedAt"]).await {
+    if let Err(error) = kind
+        .table
+        .patch(&caller.db, &id, values, true, &["updatedAt"])
+        .await
+    {
         return write_failed(&error, &message);
     }
     caller.publish(
@@ -540,11 +660,18 @@ async fn toggle(
         Ok(None) => return Refusal::not_found(kind.resource, &id).respond(&message),
         Err(error) => return Refusal::Database(error).respond(&message),
     };
-    let active = !current.get("is_active").and_then(Value::as_bool).unwrap_or(false);
+    let active = !current
+        .get("is_active")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let mut values = Map::new();
     kind.table.set(&mut values, "isActive", json!(active));
     kind.table.set(&mut values, "updatedAt", json!(now()));
-    if let Err(error) = kind.table.patch(&caller.db, &id, values, true, &["updatedAt"]).await {
+    if let Err(error) = kind
+        .table
+        .patch(&caller.db, &id, values, true, &["updatedAt"])
+        .await
+    {
         return write_failed(&error, &message);
     }
     caller.publish(
@@ -563,18 +690,20 @@ async fn remove(
     Path(id): Path<String>,
 ) -> Response {
     let message = format!("Failed to delete {}", kind.noun);
-    soft_delete(kind.table, kind.resource, &message, &caller, &id).await.map_or_else(
-        |response| response,
-        |()| {
-            caller.publish(
-                &state,
-                ev::NOTIFICATION_TEMPLATE_DELETED,
-                &id,
-                &json!({ "id": id, "templateType": kind.label }),
-            );
-            NoContent.into_response()
-        },
-    )
+    soft_delete(kind.table, kind.resource, &message, &caller, &id)
+        .await
+        .map_or_else(
+            |response| response,
+            |()| {
+                caller.publish(
+                    &state,
+                    ev::NOTIFICATION_TEMPLATE_DELETED,
+                    &id,
+                    &json!({ "id": id, "templateType": kind.label }),
+                );
+                NoContent.into_response()
+            },
+        )
 }
 
 /// The live row exists, then `set({ deletedAt, updatedAt })` on it.
@@ -614,17 +743,28 @@ const WEBHOOK_COUNT: &str = "select count(*)::int from external_webhooks t \
 
 fn webhook_fields(w: &Value, full: bool) -> Value {
     let get = |key: &str| w.get(key).cloned().unwrap_or(Value::Null);
-    let or_zero = |key: &str| w.get(key).filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!(0));
+    let or_zero = |key: &str| {
+        w.get(key)
+            .filter(|v| !v.is_null())
+            .cloned()
+            .unwrap_or_else(|| json!(0))
+    };
     let mut out = Map::new();
     for key in ["id", "name", "description", "url"] {
         out.insert(key.to_owned(), get(key));
     }
     out.insert(
         "events".to_owned(),
-        w.get("events").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!([])),
+        w.get("events")
+            .filter(|v| !v.is_null())
+            .cloned()
+            .unwrap_or_else(|| json!([])),
     );
     out.insert("status".to_owned(), get("status"));
-    out.insert("isActive".to_owned(), json!(w.get("status") == Some(&json!("active"))));
+    out.insert(
+        "isActive".to_owned(),
+        json!(w.get("status") == Some(&json!("active"))),
+    );
     if full {
         out.insert("headers".to_owned(), get("headers"));
     } else {
@@ -632,7 +772,10 @@ fn webhook_fields(w: &Value, full: bool) -> Value {
     }
     out.insert("totalDeliveries".to_owned(), or_zero("totalDeliveries"));
     out.insert("totalFailures".to_owned(), or_zero("totalFailures"));
-    out.insert("consecutiveFailures".to_owned(), or_zero("consecutiveFailures"));
+    out.insert(
+        "consecutiveFailures".to_owned(),
+        or_zero("consecutiveFailures"),
+    );
     let date = |key: &str, out: &mut Map<String, Value>| {
         if let Some(value) = w.get(key).filter(|v| !v.is_null()) {
             out.insert(key.to_owned(), value.clone());
@@ -697,9 +840,18 @@ async fn webhook(caller: Caller, Path(id): Path<String>) -> Response {
 }
 
 /// `createWebhookSchema` (`partial` for the PUT).
-fn webhook_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: bool) -> Map<String, Value> {
+fn webhook_schema(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    partial: bool,
+) -> Map<String, Value> {
     let mut p = Parsed::new(fields);
-    p.text(issues, "name", required(partial), Text::length(Some(1), None));
+    p.text(
+        issues,
+        "name",
+        required(partial),
+        Text::length(Some(1), None),
+    );
     p.text(
         issues,
         "url",
@@ -710,9 +862,14 @@ fn webhook_schema(issues: &mut Issues, fields: &Map<String, Value>, partial: boo
         },
     );
     let events = issues
-        .list(fields, "events", required(partial), Some(1), None, |issues, item| {
-            issues.item_text(item, Text::default())
-        })
+        .list(
+            fields,
+            "events",
+            required(partial),
+            Some(1),
+            None,
+            |issues, item| issues.item_text(item, Text::default()),
+        )
         .as_set()
         .is_some();
     p.keep("events", events);
@@ -738,16 +895,23 @@ async fn create_webhook(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to create webhook";
-    let data = match validate(&headers, &body, |issues, fields| webhook_schema(issues, fields, false)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        webhook_schema(issues, fields, false)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
     let id = generate_id("whk");
     // HMAC signing key: generateId's 8 random characters are an id, not a secret.
-    let secret = data
-        .get("secret")
-        .and_then(Value::as_str)
-        .map_or_else(|| format!("whksec_{}", random_string(32, weldsuite_kit::id::ALPHANUMERIC)), str::to_owned);
+    let secret = data.get("secret").and_then(Value::as_str).map_or_else(
+        || {
+            format!(
+                "whksec_{}",
+                random_string(32, weldsuite_kit::id::ALPHANUMERIC)
+            )
+        },
+        str::to_owned,
+    );
     let now = now();
     let t = &tables::EXTERNAL_WEBHOOKS;
     let mut values = Map::new();
@@ -767,7 +931,10 @@ async fn create_webhook(
     t.set(&mut values, "status", json!("active"));
     t.set(&mut values, "createdAt", json!(now));
     t.set(&mut values, "updatedAt", json!(now));
-    if let Err(error) = t.insert(&caller.db, values, &["createdAt", "updatedAt"]).await {
+    if let Err(error) = t
+        .insert(&caller.db, values, &["createdAt", "updatedAt"])
+        .await
+    {
         return write_failed(&error, FAILED);
     }
     let mut event = Map::new();
@@ -776,7 +943,12 @@ async fn create_webhook(
     if let Some(name) = data.get("name") {
         event.insert("name".to_owned(), name.clone());
     }
-    caller.publish(&state, ev::NOTIFICATION_TEMPLATE_CREATED, &id, &Value::Object(event));
+    caller.publish(
+        &state,
+        ev::NOTIFICATION_TEMPLATE_CREATED,
+        &id,
+        &Value::Object(event),
+    );
     Created(json!({ "id": id, "secret": secret })).into_response()
 }
 
@@ -788,7 +960,9 @@ async fn update_webhook(
     body: Bytes,
 ) -> Response {
     const FAILED: &str = "Failed to update webhook";
-    let data = match validate(&headers, &body, |issues, fields| webhook_schema(issues, fields, true)) {
+    let data = match validate(&headers, &body, |issues, fields| {
+        webhook_schema(issues, fields, true)
+    }) {
         Ok(data) => data,
         Err(refusal) => return refusal.respond(FAILED),
     };
@@ -844,7 +1018,11 @@ async fn set_status(
     Data(json!({ "id": id, "status": status })).into_response()
 }
 
-async fn delete_webhook(State(state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn delete_webhook(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to delete webhook";
     match soft_delete(&tables::EXTERNAL_WEBHOOKS, "Webhook", FAILED, &caller, &id).await {
         Ok(()) => {
@@ -872,7 +1050,11 @@ enum Delivery {
 }
 
 #[allow(clippy::too_many_lines)]
-async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(id): Path<String>) -> Response {
+async fn test_webhook(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(id): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to test webhook";
     let webhook = match live_webhook(&caller, &id).await {
         Ok(Some(w)) => w,
@@ -902,7 +1084,10 @@ async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(i
         return Refusal::Database(error).respond(FAILED);
     }
     let started = Instant::now();
-    let secret = webhook.get("secret").and_then(Value::as_str).unwrap_or_default();
+    let secret = webhook
+        .get("secret")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let delivery = if secret.is_empty() {
         // WebCrypto refuses an empty HMAC key before anything is sent.
         Delivery::Failed("Zero-length key is not supported".to_owned())
@@ -911,7 +1096,10 @@ async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(i
             .expect("HMAC takes a key of any length");
         mac.update(payload.as_bytes());
         let signature = hex::encode(mac.finalize().into_bytes());
-        let url = webhook.get("url").and_then(Value::as_str).unwrap_or_default();
+        let url = webhook
+            .get("url")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
         let mut request = HttpRequest::empty("POST", url)
             .header("Content-Type", "application/json")
             .header("X-Webhook-Event", "test")
@@ -922,7 +1110,9 @@ async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(i
                     Value::String(text) => text.clone(),
                     other => other.to_string(),
                 };
-                request.headers.retain(|(n, _)| !n.eq_ignore_ascii_case(name));
+                request
+                    .headers
+                    .retain(|(n, _)| !n.eq_ignore_ascii_case(name));
                 request.headers.push((name.clone(), value));
             }
         }
@@ -944,7 +1134,11 @@ async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(i
     let count = |key: &str| webhook.get(key).and_then(Value::as_i64).unwrap_or(0);
     let now = now();
     let (written, response) = match delivery {
-        Delivery::Answered { status, body, ok: true } => {
+        Delivery::Answered {
+            status,
+            body,
+            ok: true,
+        } => {
             let delivery = sqlx::query(
                 "update webhook_deliveries set status = 'delivered', response_status = $1, response_body = $2, \
                  response_time_ms = $3, delivered_at = $4::timestamptz where id = $5",
@@ -970,7 +1164,11 @@ async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(i
                 json!({ "delivered": true, "status": status, "responseTimeMs": elapsed }),
             )
         }
-        Delivery::Answered { status, body, ok: false } => {
+        Delivery::Answered {
+            status,
+            body,
+            ok: false,
+        } => {
             let reason = format!("HTTP {status}");
             let delivery = sqlx::query(
                 "update webhook_deliveries set status = 'failed', response_status = $1, response_body = $2, \
@@ -983,7 +1181,15 @@ async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(i
             .bind(&delivery_id)
             .execute(&caller.db)
             .await;
-            let hook = failed_webhook(&caller, &id, &now, &reason, count("totalFailures"), count("consecutiveFailures")).await;
+            let hook = failed_webhook(
+                &caller,
+                &id,
+                &now,
+                &reason,
+                count("totalFailures"),
+                count("consecutiveFailures"),
+            )
+            .await;
             (
                 delivery.and(hook),
                 json!({ "delivered": false, "status": status, "error": body }),
@@ -997,8 +1203,19 @@ async fn test_webhook(State(state): State<CommerceState>, caller: Caller, Path(i
             .bind(&delivery_id)
             .execute(&caller.db)
             .await;
-            let hook = failed_webhook(&caller, &id, &now, &message, count("totalFailures"), count("consecutiveFailures")).await;
-            (delivery.and(hook), json!({ "delivered": false, "error": message }))
+            let hook = failed_webhook(
+                &caller,
+                &id,
+                &now,
+                &message,
+                count("totalFailures"),
+                count("consecutiveFailures"),
+            )
+            .await;
+            (
+                delivery.and(hook),
+                json!({ "delivered": false, "error": message }),
+            )
         }
     };
     match written {
@@ -1028,7 +1245,11 @@ async fn failed_webhook(
     .await
 }
 
-async fn webhook_logs(caller: Caller, Path(id): Path<String>, RawQuery(query): RawQuery) -> Response {
+async fn webhook_logs(
+    caller: Caller,
+    Path(id): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
     const FAILED: &str = "Failed to fetch webhook logs";
     let (page, size) = paging(query.as_deref());
     let total: Result<i32, sqlx::Error> =

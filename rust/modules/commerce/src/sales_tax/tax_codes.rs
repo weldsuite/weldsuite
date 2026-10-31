@@ -35,17 +35,20 @@ pub(crate) fn is_stripe_tax_code(value: &str) -> bool {
 
 /// `isAvalaraTaxCode(value)`: `/^[A-Z]{1,2}[A-Z0-9]{0,10}$/` with a digit,
 /// or `NT`.
-#[allow(dead_code)] // the order sales tax reads it
 pub(crate) fn is_avalara_tax_code(value: &str) -> bool {
     let bytes = value.as_bytes();
-    let letters = bytes.iter().take_while(|b| b.is_ascii_uppercase()).count();
-    // The pattern backtracks: one or two leading letters, then up to ten
-    // uppercase letters or digits.
-    let shaped = !bytes.is_empty()
-        && bytes[0].is_ascii_uppercase()
-        && bytes.iter().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
-        && bytes.len() <= 12
-        && letters >= 1;
+    // One or two leading letters, then up to ten uppercase letters or
+    // digits: twelve characters when the second is a letter, else eleven.
+    let longest = if bytes.get(1).is_some_and(u8::is_ascii_uppercase) {
+        12
+    } else {
+        11
+    };
+    let shaped = bytes.first().is_some_and(u8::is_ascii_uppercase)
+        && bytes
+            .iter()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+        && bytes.len() <= longest;
     shaped && (bytes.iter().any(u8::is_ascii_digit) || value == "NT")
 }
 
@@ -54,7 +57,9 @@ fn is_product_avalara_code(value: &str) -> bool {
     let bytes = value.as_bytes();
     let letters = bytes.iter().take_while(|b| b.is_ascii_uppercase()).count();
     let digits = bytes.len() - letters;
-    (1..=2).contains(&letters) && (6..=7).contains(&digits) && bytes[letters..].iter().all(u8::is_ascii_digit)
+    (1..=2).contains(&letters)
+        && (6..=7).contains(&digits)
+        && bytes[letters..].iter().all(u8::is_ascii_digit)
 }
 
 /// `isAcceptedProductTaxClass(value)` (products' `tax-schemas.ts`).

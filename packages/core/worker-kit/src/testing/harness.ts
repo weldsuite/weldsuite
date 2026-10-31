@@ -165,6 +165,13 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
   if (sideEffects && ownRealtime && typeof ownRealtime.fetch === 'function') {
     (env as unknown as Record<string, unknown>).REALTIME = sideEffects.wrapRealtime(ownRealtime);
   }
+  // So is a test's own ENTITY_EVENTS queue: its messages are side effects too.
+  const ownEvents = (options.env as Record<string, unknown> | undefined)?.ENTITY_EVENTS as
+    | { send(message: unknown): Promise<unknown> }
+    | undefined;
+  if (sideEffects && ownEvents && typeof ownEvents.send === 'function') {
+    (env as unknown as Record<string, unknown>).ENTITY_EVENTS = sideEffects.wrapEvents(ownEvents);
+  }
 
   const buildApp = (tenantDb: Database) => {
     const stubAuth = createMiddleware<{ Bindings: E; Variables: V }>(async (c, next) => {

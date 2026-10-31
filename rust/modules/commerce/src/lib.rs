@@ -65,6 +65,7 @@ mod crypto;
 mod invoice_html;
 mod js;
 mod notifications;
+mod order_tax;
 mod orders;
 mod parcel;
 mod printnode;
@@ -180,12 +181,21 @@ where
         .nest("/products", products::routes(gate))
         .nest("/sendcloud", sendcloud::routes(gate))
         .nest("/pickups", crud::routes(&simple::PICKUPS, gate))
-        .nest("/return-reasons", crud::routes(&simple::RETURN_REASONS, gate))
+        .nest(
+            "/return-reasons",
+            crud::routes(&simple::RETURN_REASONS, gate),
+        )
         .nest("/return-rules", crud::routes(&simple::RETURN_RULES, gate))
         .nest("/returns", crud::routes(&simple::RETURNS, gate))
         .nest("/shipments", crud::routes(&simple::SHIPMENTS, gate))
-        .nest("/shipping-prices", crud::routes(&simple::SHIPPING_PRICES, gate))
-        .nest("/shipping-rules", crud::routes(&simple::SHIPPING_RULES, gate))
+        .nest(
+            "/shipping-prices",
+            crud::routes(&simple::SHIPPING_PRICES, gate),
+        )
+        .nest(
+            "/shipping-rules",
+            crud::routes(&simple::SHIPPING_RULES, gate),
+        )
         .with_state(state)
 }
 
@@ -302,24 +312,25 @@ impl<S: Send + Sync> FromRequestParts<S> for Caller {
         let auth = parts.extensions.get::<AuthContext>();
         let tenant = parts.extensions.get::<Tenant>();
         let permissions = parts.extensions.get::<Permissions>();
-        let caller =
-            if let (Some(auth), Some(tenant), Some(permissions)) = (auth, tenant, permissions) {
-                Ok(Self {
-                    db: tenant.db.clone(),
-                    user_id: auth.user_id.clone(),
-                    workspace_id: tenant.workspace_id.clone(),
-                    clerk_org_id: tenant
-                        .clerk_org_id
-                        .clone()
-                        .unwrap_or_else(|| tenant.workspace_id.clone()),
-                    permissions: permissions.clone(),
-                    events: EventContext::for_request(auth, tenant),
-                    overrides: Overrides::from_parts(parts),
-                })
-            } else {
-                tracing::error!("commerce: a route without the session, tenant or permission layer");
-                Err(ApiError::internal())
-            };
+        let caller = if let (Some(auth), Some(tenant), Some(permissions)) =
+            (auth, tenant, permissions)
+        {
+            Ok(Self {
+                db: tenant.db.clone(),
+                user_id: auth.user_id.clone(),
+                workspace_id: tenant.workspace_id.clone(),
+                clerk_org_id: tenant
+                    .clerk_org_id
+                    .clone()
+                    .unwrap_or_else(|| tenant.workspace_id.clone()),
+                permissions: permissions.clone(),
+                events: EventContext::for_request(auth, tenant),
+                overrides: Overrides::from_parts(parts),
+            })
+        } else {
+            tracing::error!("commerce: a route without the session, tenant or permission layer");
+            Err(ApiError::internal())
+        };
         std::future::ready(caller)
     }
 }

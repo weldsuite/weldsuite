@@ -37,7 +37,12 @@ where
     let write = || gate.require([perm::INTEGRATIONS_CREATE, perm::INTEGRATIONS_UPDATE]);
     Router::new()
         .route("/", get(read_settings).route_layer(read()))
-        .route("/", axum::routing::patch(patch_settings).delete(disconnect).route_layer(write()))
+        .route(
+            "/",
+            axum::routing::patch(patch_settings)
+                .delete(disconnect)
+                .route_layer(write()),
+        )
         .route("/connect", put(connect).route_layer(write()))
         .route("/sync", post(sync).route_layer(write()))
         .route("/labels/{parcel_id}", get(label).route_layer(read()))
@@ -65,14 +70,21 @@ impl From<sqlx::Error> for SendcloudError {
 
 /// `mapSendcloudHttp(c, err, fallback)`.
 fn respond(error: SendcloudError, fallback: &str) -> Response {
-    let SendcloudError::Api { message, status, details } = error else {
+    let SendcloudError::Api {
+        message,
+        status,
+        details,
+    } = error
+    else {
         if let SendcloudError::Database(error) = &error {
             tracing::error!(%error, "[commerce-api/sendcloud] {fallback}");
         }
         return ApiError::internal().with_message(fallback).into_response();
     };
     match status {
-        401 | 403 => ApiError::unauthorized().with_message(message).into_response(),
+        401 | 403 => ApiError::unauthorized()
+            .with_message(message)
+            .into_response(),
         402 => {
             let mut error = Map::new();
             error.insert("code".to_owned(), json!("PAYMENT_REQUIRED"));
@@ -80,12 +92,18 @@ fn respond(error: SendcloudError, fallback: &str) -> Response {
             if let Some(details) = details {
                 error.insert("details".to_owned(), details);
             }
-            (http::StatusCode::PAYMENT_REQUIRED, axum::Json(json!({ "error": error }))).into_response()
+            (
+                http::StatusCode::PAYMENT_REQUIRED,
+                axum::Json(json!({ "error": error })),
+            )
+                .into_response()
         }
         404 => ApiError::not_found("Sendcloud resource", None).into_response(),
         429 => ApiError::internal().with_message(message).into_response(),
         s if (400..500).contains(&s) => match details {
-            Some(details) => ApiError::bad_request(message).with_details(details).into_response(),
+            Some(details) => ApiError::bad_request(message)
+                .with_details(details)
+                .into_response(),
             None => ApiError::bad_request(message).into_response(),
         },
         _ => ApiError::internal().with_message(message).into_response(),
@@ -124,14 +142,21 @@ struct Client {
 
 impl Client {
     fn new(public_key: &str, secret_key: &str, http: Option<OutboundHttp>) -> Self {
-        let token = base64::engine::general_purpose::STANDARD.encode(format!("{public_key}:{secret_key}"));
+        let token =
+            base64::engine::general_purpose::STANDARD.encode(format!("{public_key}:{secret_key}"));
         Self {
             auth: format!("Basic {token}"),
             http,
         }
     }
 
-    async fn request(&self, method: &str, path: &str, accept: &str, body: Option<&Value>) -> Result<HttpResponse, SendcloudError> {
+    async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        accept: &str,
+        body: Option<&Value>,
+    ) -> Result<HttpResponse, SendcloudError> {
         let mut request = HttpRequest::empty(method, format!("{BASE_URL}{path}"))
             .header("authorization", self.auth.clone())
             .header("accept", accept);
@@ -142,7 +167,10 @@ impl Client {
         let Some(http) = &self.http else {
             return Err(SendcloudError::Network);
         };
-        let response = http.send(request).await.map_err(|_| SendcloudError::Network)?;
+        let response = http
+            .send(request)
+            .await
+            .map_err(|_| SendcloudError::Network)?;
         if response.ok() {
             return Ok(response);
         }
@@ -157,7 +185,12 @@ impl Client {
         })
     }
 
-    async fn json(&self, method: &str, path: &str, body: Option<&Value>) -> Result<(Value, Option<String>), SendcloudError> {
+    async fn json(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<(Value, Option<String>), SendcloudError> {
         let response = self.request(method, path, "application/json", body).await?;
         let link = response.header("link").map(str::to_owned);
         let json = serde_json::from_slice(&response.body).map_err(|_| SendcloudError::Network)?;
@@ -206,7 +239,11 @@ fn next_path(link: Option<&str>, json: &Value) -> Option<String> {
     if let Some(next) = link.and_then(parse_link_next) {
         if next.starts_with("http") {
             let path = next.replacen(BASE_URL, "", 1);
-            return Some(if path.is_empty() { "/".to_owned() } else { path });
+            return Some(if path.is_empty() {
+                "/".to_owned()
+            } else {
+                path
+            });
         }
         return Some(next);
     }
@@ -214,7 +251,11 @@ fn next_path(link: Option<&str>, json: &Value) -> Option<String> {
         .get("next")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
-        .or_else(|| json.pointer("/pagination/next").and_then(Value::as_str).filter(|s| !s.is_empty()))?;
+        .or_else(|| {
+            json.pointer("/pagination/next")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+        })?;
     if cursor.starts_with("http") {
         return Some(cursor.replacen(BASE_URL, "", 1));
     }
@@ -222,21 +263,29 @@ fn next_path(link: Option<&str>, json: &Value) -> Option<String> {
         return Some(cursor.to_owned());
     }
     let encoded: String = url::form_urlencoded::byte_serialize(cursor.as_bytes()).collect();
-    Some(format!("/addresses/sender-addresses?cursor={encoded}&page_size=100"))
+    Some(format!(
+        "/addresses/sender-addresses?cursor={encoded}&page_size=100"
+    ))
 }
 
 /// `/<([^<>]+)>\s*;\s*rel="?next"?/i` on each part.
 fn parse_link_next(header: &str) -> Option<String> {
     for part in header.split(',') {
         let part = part.trim();
-        let Some(start) = part.find('<') else { continue };
-        let Some(end) = part[start + 1..].find('>') else { continue };
+        let Some(start) = part.find('<') else {
+            continue;
+        };
+        let Some(end) = part[start + 1..].find('>') else {
+            continue;
+        };
         let url = &part[start + 1..start + 1 + end];
         if url.is_empty() || url.contains('<') {
             continue;
         }
         let rest = part[start + 2 + end..].trim_start();
-        let Some(rest) = rest.strip_prefix(';') else { continue };
+        let Some(rest) = rest.strip_prefix(';') else {
+            continue;
+        };
         let rest = rest.trim_start().to_ascii_lowercase();
         if rest.starts_with("rel=\"next") || rest.starts_with("rel=next") {
             return Some(url.to_owned());
@@ -261,10 +310,16 @@ fn first_string(row: &Value, keys: &[&str]) -> Value {
 
 fn as_number(value: Option<&Value>) -> Value {
     match value {
-        Some(Value::Number(n)) if n.as_f64().is_some_and(f64::is_finite) => Value::Number(n.clone()),
+        Some(Value::Number(n)) if n.as_f64().is_some_and(f64::is_finite) => {
+            Value::Number(n.clone())
+        }
         Some(Value::String(s)) if !weldsuite_kit::validation::js_trim(s).is_empty() => {
             let n = weldsuite_kit::validation::js_number(s);
-            if n.is_finite() { number_value(n) } else { Value::Null }
+            if n.is_finite() {
+                number_value(n)
+            } else {
+                Value::Null
+            }
         }
         _ => Value::Null,
     }
@@ -284,7 +339,9 @@ fn truthy(value: Option<&Value>) -> bool {
 fn map_sender(row: &Value) -> Value {
     let country = first_string(row, &["country", "country_code"]);
     let country = match country.as_str() {
-        Some(c) if c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()) => json!(c.to_ascii_uppercase()),
+        Some(c) if c.len() == 2 && c.chars().all(|ch| ch.is_ascii_alphabetic()) => {
+            json!(c.to_ascii_uppercase())
+        }
         _ => country,
     };
     let is_default = match row.get("is_default").filter(|v| !v.is_null()) {
@@ -311,10 +368,13 @@ fn map_sender(row: &Value) -> Value {
 fn map_option(row: &Value) -> Value {
     let code = as_string(row.get("code"));
     let code = code.as_str().unwrap_or_default().to_owned();
-    let name = [as_string(row.pointer("/product/name")), as_string(row.get("name"))]
-        .into_iter()
-        .find(|v| !v.is_null())
-        .unwrap_or_else(|| json!(code));
+    let name = [
+        as_string(row.pointer("/product/name")),
+        as_string(row.get("name")),
+    ]
+    .into_iter()
+    .find(|v| !v.is_null())
+    .unwrap_or_else(|| json!(code));
     json!({
         "code": code,
         "name": name,
@@ -341,7 +401,11 @@ impl Stored {
     }
 
     fn list(&self, key: &str) -> Vec<Value> {
-        self.settings.get(key).and_then(Value::as_array).cloned().unwrap_or_default()
+        self.settings
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
     }
 }
 
@@ -356,7 +420,10 @@ async fn load(caller: &Caller) -> Result<Option<Value>, sqlx::Error> {
 
 async fn get_settings(caller: &Caller) -> Result<Stored, sqlx::Error> {
     let custom = load(caller).await?;
-    let raw = custom.as_ref().and_then(|c| c.get("sendcloud")).filter(|r| r.is_object() || r.is_array());
+    let raw = custom
+        .as_ref()
+        .and_then(|c| c.get("sendcloud"))
+        .filter(|r| r.is_object() || r.is_array());
     let mut settings = Map::new();
     if let Some(raw) = raw {
         for key in ["publicKey", "secretKey"] {
@@ -364,10 +431,20 @@ async fn get_settings(caller: &Caller) -> Result<Stored, sqlx::Error> {
                 settings.insert(key.to_owned(), json!(s));
             }
         }
-        settings.insert("accountName".to_owned(), raw.get("accountName").cloned().unwrap_or(Value::Null));
-        settings.insert("lastSyncedAt".to_owned(), raw.get("lastSyncedAt").cloned().unwrap_or(Value::Null));
+        settings.insert(
+            "accountName".to_owned(),
+            raw.get("accountName").cloned().unwrap_or(Value::Null),
+        );
+        settings.insert(
+            "lastSyncedAt".to_owned(),
+            raw.get("lastSyncedAt").cloned().unwrap_or(Value::Null),
+        );
         for key in ["senders", "methods"] {
-            let list = raw.get(key).filter(|v| v.is_array()).cloned().unwrap_or_else(|| json!([]));
+            let list = raw
+                .get(key)
+                .filter(|v| v.is_array())
+                .cloned()
+                .unwrap_or_else(|| json!([]));
             settings.insert(key.to_owned(), list);
         }
     } else {
@@ -420,7 +497,11 @@ fn mask(public_key: Option<&str>) -> Value {
     if units.len() <= 8 {
         return json!(format!("{}\u{2026}", text(&units[..2.min(units.len())])));
     }
-    json!(format!("{}\u{2026}{}", text(&units[..4]), text(&units[units.len() - 4..])))
+    json!(format!(
+        "{}\u{2026}{}",
+        text(&units[..4]),
+        text(&units[units.len() - 4..])
+    ))
 }
 
 /// `toPublicSettings(stored)`.
@@ -521,14 +602,30 @@ fn map_methods(incoming: &[Value], previous: &[Value]) -> Vec<Value> {
     let mut mapped: Vec<Map<String, Value>> = usable
         .enumerate()
         .map(|(index, row)| {
-            let prev = previous.iter().rev().find(|p| p.get("code") == row.get("code"));
+            let prev = previous
+                .iter()
+                .rev()
+                .find(|p| p.get("code") == row.get("code"));
             let mut out = Map::new();
-            for key in ["code", "name", "carrierCode", "carrierName", "minWeightKg", "maxWeightKg"] {
+            for key in [
+                "code",
+                "name",
+                "carrierCode",
+                "carrierName",
+                "minWeightKg",
+                "maxWeightKg",
+            ] {
                 out.insert(key.to_owned(), row.get(key).cloned().unwrap_or(Value::Null));
             }
             let pick = |key: &str| prev.and_then(|p| p.get(key).filter(|v| !v.is_null()).cloned());
-            out.insert("enabled".to_owned(), pick("enabled").unwrap_or_else(|| json!(!had_enabled && index == 0)));
-            out.insert("isDefault".to_owned(), pick("isDefault").unwrap_or_else(|| json!(!had_enabled && index == 0)));
+            out.insert(
+                "enabled".to_owned(),
+                pick("enabled").unwrap_or_else(|| json!(!had_enabled && index == 0)),
+            );
+            out.insert(
+                "isDefault".to_owned(),
+                pick("isDefault").unwrap_or_else(|| json!(!had_enabled && index == 0)),
+            );
             out
         })
         .collect();
@@ -541,9 +638,16 @@ fn map_methods(incoming: &[Value], previous: &[Value]) -> Vec<Value> {
 }
 
 /// `syncSendcloudCatalog(stored, client)`.
-async fn sync_catalog(mut settings: Map<String, Value>, client: &Client) -> Result<Map<String, Value>, SendcloudError> {
+async fn sync_catalog(
+    mut settings: Map<String, Value>,
+    client: &Client,
+) -> Result<Map<String, Value>, SendcloudError> {
     let previous = |key: &str, settings: &Map<String, Value>| {
-        settings.get(key).and_then(Value::as_array).cloned().unwrap_or_default()
+        settings
+            .get(key)
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
     };
     let incoming = client.senders().await?;
     let senders = map_senders(&incoming, &previous("senders", &settings));
@@ -552,9 +656,15 @@ async fn sync_catalog(mut settings: Map<String, Value>, client: &Client) -> Resu
         .find(|r| truthy(r.get("isDefault")))
         .or_else(|| senders.first())
         .cloned();
-    let mut methods = settings.get("methods").cloned().unwrap_or_else(|| json!([]));
+    let mut methods = settings
+        .get("methods")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
     if let Some(default) = &default
-        && let Some(country) = default.get("countryCode").and_then(Value::as_str).filter(|c| !c.is_empty())
+        && let Some(country) = default
+            .get("countryCode")
+            .and_then(Value::as_str)
+            .filter(|c| !c.is_empty())
     {
         let mut from = Map::new();
         from.insert("country_code".to_owned(), json!(country));
@@ -580,7 +690,12 @@ async fn sync_catalog(mut settings: Map<String, Value>, client: &Client) -> Resu
                 .find(|v| v.as_str().is_some_and(|s| !s.is_empty()))
                 .cloned()
         })
-        .or_else(|| settings.get("accountName").filter(|a| truthy(Some(a))).cloned())
+        .or_else(|| {
+            settings
+                .get("accountName")
+                .filter(|a| truthy(Some(a)))
+                .cloned()
+        })
         .unwrap_or(Value::Null);
     settings.insert("accountName".to_owned(), account);
     settings.insert("senders".to_owned(), Value::Array(senders));
@@ -617,14 +732,29 @@ async fn read_settings(State(_state): State<CommerceState>, caller: Caller) -> R
     }
 }
 
-async fn connect(State(state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn connect(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to connect Sendcloud";
     let keys = validate(&headers, &body, |issues, fields| {
         let public_key = issues
-            .text_with(fields, "publicKey", Presence::Required, Text::length(Some(1), None))
+            .text_with(
+                fields,
+                "publicKey",
+                Presence::Required,
+                Text::length(Some(1), None),
+            )
             .into_option();
         let secret = issues
-            .text_with(fields, "secretKey", Presence::Required, Text::length(Some(1), None))
+            .text_with(
+                fields,
+                "secretKey",
+                Presence::Required,
+                Text::length(Some(1), None),
+            )
             .into_option();
         (public_key.unwrap_or_default(), secret.unwrap_or_default())
     });
@@ -637,7 +767,10 @@ async fn connect(State(state): State<CommerceState>, caller: Caller, headers: He
     let result = async {
         let mut current = get_settings(&caller).await?.settings;
         current.insert("publicKey".to_owned(), json!(public_key));
-        current.insert("secretKey".to_owned(), json!(encrypt_secret(&secret, &keyring)));
+        current.insert(
+            "secretKey".to_owned(),
+            json!(encrypt_secret(&secret, &keyring)),
+        );
         let synced = sync_catalog(current, &client).await?;
         save(&caller, synced.clone()).await?;
         Ok::<_, SendcloudError>(Stored { settings: synced })
@@ -669,30 +802,45 @@ async fn sync(State(state): State<CommerceState>, caller: Caller) -> Response {
     }
 }
 
-fn read_patches(issues: &mut Issues, fields: &Map<String, Value>) -> (Option<Vec<Value>>, Option<Vec<Value>>) {
+fn read_patches(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+) -> (Option<Vec<Value>>, Option<Vec<Value>>) {
     let read = |issues: &mut Issues, key: &str, id: &str| {
         issues
-            .list(fields, key, Presence::Optional, None, None, |issues, item| {
-                let row = issues.object(item)?;
-                let before = issues.count();
-                let mut out = Map::new();
-                if id == "id" {
-                    if let Some(n) = issues.integer(row, "id", Presence::Required, None).into_option() {
-                        out.insert("id".to_owned(), json!(n));
+            .list(
+                fields,
+                key,
+                Presence::Optional,
+                None,
+                None,
+                |issues, item| {
+                    let row = issues.object(item)?;
+                    let before = issues.count();
+                    let mut out = Map::new();
+                    if id == "id" {
+                        if let Some(n) = issues
+                            .integer(row, "id", Presence::Required, None)
+                            .into_option()
+                        {
+                            out.insert("id".to_owned(), json!(n));
+                        }
+                    } else if let Some(code) = issues
+                        .text_with(row, "code", Presence::Required, Text::length(Some(1), None))
+                        .into_option()
+                    {
+                        out.insert("code".to_owned(), json!(code));
                     }
-                } else if let Some(code) = issues
-                    .text_with(row, "code", Presence::Required, Text::length(Some(1), None))
-                    .into_option()
-                {
-                    out.insert("code".to_owned(), json!(code));
-                }
-                for flag in ["enabled", "isDefault"] {
-                    if let Some(value) = issues.boolean(row, flag, Presence::Optional).into_option() {
-                        out.insert(flag.to_owned(), json!(value));
+                    for flag in ["enabled", "isDefault"] {
+                        if let Some(value) =
+                            issues.boolean(row, flag, Presence::Optional).into_option()
+                        {
+                            out.insert(flag.to_owned(), json!(value));
+                        }
                     }
-                }
-                (issues.count() == before).then_some(Value::Object(out))
-            })
+                    (issues.count() == before).then_some(Value::Object(out))
+                },
+            )
             .into_option()
     };
     let senders = read(issues, "senders", "id");
@@ -717,13 +865,17 @@ fn apply(list: &[Value], patch: &[Value], key: &str) -> Vec<Value> {
                     }
                 }
                 Some(next) => {
-                    let enabled = flag(next, "enabled")
-                        .map_or_else(|| row.get("enabled").cloned().unwrap_or(Value::Null), |b| json!(b));
+                    let enabled = flag(next, "enabled").map_or_else(
+                        || row.get("enabled").cloned().unwrap_or(Value::Null),
+                        |b| json!(b),
+                    );
                     out.insert("enabled".to_owned(), enabled);
                     let is = match &default {
                         Some(default) => json!(row.get(key) == Some(default)),
-                        None => flag(next, "isDefault")
-                            .map_or_else(|| row.get("isDefault").cloned().unwrap_or(Value::Null), |b| json!(b)),
+                        None => flag(next, "isDefault").map_or_else(
+                            || row.get("isDefault").cloned().unwrap_or(Value::Null),
+                            |b| json!(b),
+                        ),
                     };
                     out.insert("isDefault".to_owned(), is);
                 }
@@ -733,7 +885,12 @@ fn apply(list: &[Value], patch: &[Value], key: &str) -> Vec<Value> {
         .collect()
 }
 
-async fn patch_settings(State(_state): State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes) -> Response {
+async fn patch_settings(
+    State(_state): State<CommerceState>,
+    caller: Caller,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     const FAILED: &str = "Failed to update Sendcloud settings";
     let (senders, methods) = match validate(&headers, &body, read_patches) {
         Ok(patches) => patches,
@@ -748,11 +905,15 @@ async fn patch_settings(State(_state): State<CommerceState>, caller: Caller, hea
         }
         if let Some(senders) = &senders {
             let next = apply(&stored.list("senders"), senders, "id");
-            stored.settings.insert("senders".to_owned(), Value::Array(next));
+            stored
+                .settings
+                .insert("senders".to_owned(), Value::Array(next));
         }
         if let Some(methods) = &methods {
             let next = apply(&stored.list("methods"), methods, "code");
-            stored.settings.insert("methods".to_owned(), Value::Array(next));
+            stored
+                .settings
+                .insert("methods".to_owned(), Value::Array(next));
         }
         save(&caller, stored.settings.clone()).await?;
         Ok::<_, SendcloudError>(Some(stored))
@@ -775,7 +936,11 @@ async fn disconnect(State(_state): State<CommerceState>, caller: Caller) -> Resp
     }
 }
 
-async fn label(State(state): State<CommerceState>, caller: Caller, Path(raw): Path<String>) -> Response {
+async fn label(
+    State(state): State<CommerceState>,
+    caller: Caller,
+    Path(raw): Path<String>,
+) -> Response {
     const FAILED: &str = "Failed to fetch shipping label";
     let parcel = weldsuite_kit::validation::js_number(&raw);
     if !parcel.is_finite() {
@@ -789,7 +954,12 @@ async fn label(State(state): State<CommerceState>, caller: Caller, Path(raw): Pa
             return Ok(None);
         };
         let response = client
-            .request("GET", &format!("/parcels/{parcel}/documents/label"), "application/pdf", None)
+            .request(
+                "GET",
+                &format!("/parcels/{parcel}/documents/label"),
+                "application/pdf",
+                None,
+            )
             .await?;
         Ok::<_, SendcloudError>(Some(response))
     }
@@ -804,7 +974,10 @@ async fn label(State(state): State<CommerceState>, caller: Caller, Path(raw): Pa
             (
                 [
                     (CONTENT_TYPE, content_type),
-                    (CONTENT_DISPOSITION, format!("inline; filename=\"sendcloud-label-{parcel}.pdf\"")),
+                    (
+                        CONTENT_DISPOSITION,
+                        format!("inline; filename=\"sendcloud-label-{parcel}.pdf\""),
+                    ),
                 ],
                 document.body,
             )

@@ -153,9 +153,10 @@ where
         .route(
             "/",
             axum::routing::post(
-                move |state: State<CommerceState>, caller: Caller, headers: HeaderMap, body: Bytes| {
-                    create(crud, state, caller, headers, body)
-                },
+                move |state: State<CommerceState>,
+                      caller: Caller,
+                      headers: HeaderMap,
+                      body: Bytes| { create(crud, state, caller, headers, body) },
             )
             .route_layer(need(crud.gates.create)),
         )

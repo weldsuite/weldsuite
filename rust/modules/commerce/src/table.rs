@@ -199,7 +199,11 @@ impl Table {
     }
 
     /// The live row `id`, as Drizzle returns it.
-    pub(crate) async fn find_live(&self, db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+    pub(crate) async fn find_live(
+        &self,
+        db: &PgPool,
+        id: &str,
+    ) -> Result<Option<Value>, sqlx::Error> {
         let row: Option<Value> = sqlx::query_scalar(self.select_live)
             .bind(id)
             .fetch_optional(db)

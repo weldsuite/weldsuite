@@ -167,10 +167,7 @@ async fn overview_data(
     let mut counts: Map<String, Value> = Map::new();
     let mut total = 0i64;
     for (status, count) in statuses {
-        counts.insert(
-            status.unwrap_or_else(|| "unknown".to_owned()),
-            json!(count),
-        );
+        counts.insert(status.unwrap_or_else(|| "unknown".to_owned()), json!(count));
         total += i64::from(count);
     }
     let count = |key: &str| counts.get(key).and_then(Value::as_i64).unwrap_or(0);
@@ -422,7 +419,10 @@ async fn calculate(
     }
     // `rates.sort((a, b) => a.amount - b.amount)`: stable.
     rates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    Data(Value::Array(rates.into_iter().map(|(_, rate)| rate).collect())).into_response()
+    Data(Value::Array(
+        rates.into_iter().map(|(_, rate)| rate).collect(),
+    ))
+    .into_response()
 }
 
 async fn select(
@@ -469,10 +469,12 @@ async fn select_rate(caller: &Caller, rate_id: &str, parcel_id: &str) -> Result<
     };
     let carrier_id = price.get("carrierId").and_then(Value::as_str);
     let carrier_name: Option<String> = match carrier_id.filter(|c| !c.is_empty()) {
-        Some(id) => sqlx::query_scalar("select name from carriers where id = $1 limit 1")
-            .bind(id)
-            .fetch_optional(&caller.db)
-            .await?,
+        Some(id) => {
+            sqlx::query_scalar("select name from carriers where id = $1 limit 1")
+                .bind(id)
+                .fetch_optional(&caller.db)
+                .await?
+        }
         None => None,
     };
     let stored_service = price.get("serviceType").and_then(Value::as_str);
@@ -580,11 +582,21 @@ async fn get_settings(State(_state): State<CommerceState>, caller: Caller) -> Re
         "autoSendNotifications".to_owned(),
         or_default(&parcel, "autoSendNotifications", json!(true)),
     );
-    out.insert("labelFormat".to_owned(), or_default(&parcel, "labelFormat", json!("pdf")));
-    out.insert("labelSize".to_owned(), or_default(&parcel, "labelSize", json!("A6")));
+    out.insert(
+        "labelFormat".to_owned(),
+        or_default(&parcel, "labelFormat", json!("pdf")),
+    );
+    out.insert(
+        "labelSize".to_owned(),
+        or_default(&parcel, "labelSize", json!("A6")),
+    );
     out.insert(
         "defaultWeight".to_owned(),
-        or_default(&parcel, "defaultWeight", json!({ "value": 1, "unit": "kg" })),
+        or_default(
+            &parcel,
+            "defaultWeight",
+            json!({ "value": 1, "unit": "kg" }),
+        ),
     );
     out.insert(
         "defaultDimensions".to_owned(),
@@ -616,7 +628,10 @@ fn read_settings(issues: &mut Issues, fields: &Map<String, Value>) -> Map<String
     keep("defaultServiceType", text(issues, "defaultServiceType"));
     keep(
         "autoGenerateLabels",
-        issues.boolean(fields, "autoGenerateLabels", OPT).into_option().map(Value::Bool),
+        issues
+            .boolean(fields, "autoGenerateLabels", OPT)
+            .into_option()
+            .map(Value::Bool),
     );
     keep(
         "autoSendNotifications",
@@ -720,7 +735,10 @@ async fn put_settings(
         t.set(&mut values, "customSettings", Value::Object(custom));
         t.set(&mut values, "createdAt", json!(now));
         t.set(&mut values, "updatedAt", json!(now));
-        match t.insert(&caller.db, values, &["createdAt", "updatedAt"]).await {
+        match t
+            .insert(&caller.db, values, &["createdAt", "updatedAt"])
+            .await
+        {
             Ok(_) => Ok(Default::default()),
             Err(error) => {
                 tracing::error!(%error, "[commerce-api/parcel-settings] {FAILED}");
