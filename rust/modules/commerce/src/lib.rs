@@ -59,9 +59,11 @@ macro_rules! listing_as {
 #[rustfmt::skip]
 mod tables;
 mod crud;
+mod invoice_html;
 mod js;
 mod orders;
 mod products;
+mod sales_tax;
 mod sendcloud;
 mod simple;
 mod table;
