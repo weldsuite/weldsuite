@@ -1699,7 +1699,10 @@
       "module": "books",
       "workspace": "apps/workers/books-api",
       "tests": [
-        "src/routes/fx-rates/fx-rates.integration.test.ts"
+        "src/routes/fx-rates/fx-rates.integration.test.ts",
+        "src/routes/journal-entries/journal-entries.integration.test.ts",
+        "src/routes/accounting-dimensions/dimensions.integration.test.ts",
+        "src/routes/fiscal-periods/crud.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-entities/",

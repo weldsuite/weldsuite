@@ -7,7 +7,10 @@
 //! TypeScript worker's; its tests run against this crate in the `books:
 //! ledger` conformance suite (`rust/conformance/suites.json`).
 
+mod accounting_dimensions;
+mod fiscal_periods;
 mod fx_rates;
+mod journal_entries;
 
 use std::sync::Arc;
 
@@ -26,5 +29,19 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
-    vec![("/fx-rates", fx_rates::router(state.clone(), gate))]
+    vec![
+        (
+            "/accounting-dimensions",
+            accounting_dimensions::router(state.clone(), gate),
+        ),
+        (
+            "/fiscal-periods",
+            fiscal_periods::router(state.clone(), gate),
+        ),
+        ("/fx-rates", fx_rates::router(state.clone(), gate)),
+        (
+            "/journal-entries",
+            journal_entries::router(state.clone(), gate),
+        ),
+    ]
 }

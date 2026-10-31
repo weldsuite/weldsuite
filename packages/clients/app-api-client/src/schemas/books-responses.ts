@@ -75,6 +75,46 @@ export const fiscalPeriodSchema = z
   })
   .passthrough();
 
+/** `POST /api/fiscal-periods/:id/close` and `/reopen`. */
+export const fiscalPeriodStatusSchema = z.object({ id: z.string(), status: z.enum(['open', 'closed']) });
+
+/** One period of `GET /api/fiscal-periods/calendar`. */
+export const plannedFiscalPeriodSchema = z.object({
+  name: z.string(),
+  type: z.enum(['month', 'period', 'quarter', 'year']),
+  startDate: z.string(),
+  endDate: z.string(),
+  number: z.number().int().nullable(),
+  weeks: z.number().int().nullable(),
+  existingId: nullableString,
+  existingStatus: nullableString,
+  closedAt: nullableString,
+  locked: z.boolean(),
+});
+
+/** `GET /api/fiscal-periods/calendar`. */
+export const fiscalCalendarSchema = z.object({
+  fiscalYear: z.number().int(),
+  startDate: z.string(),
+  endDate: z.string(),
+  kind: z.enum(['month', 'fifty_two_fifty_three']),
+  weeks: z.number().int().nullable(),
+  entityId: z.string(),
+  periods: z.array(plannedFiscalPeriodSchema),
+});
+
+/** `POST /api/fiscal-periods/generate`. */
+export const fiscalPeriodsGeneratedSchema = z.object({
+  entityId: z.string(),
+  fiscalYear: z.number().int(),
+  startDate: z.string(),
+  endDate: z.string(),
+  kind: z.enum(['month', 'fifty_two_fifty_three']),
+  weeks: z.number().int().nullable(),
+  created: z.array(fiscalPeriodSchema.omit({ closedAt: true, closedBy: true })),
+  skipped: z.array(z.object({ name: z.string(), startDate: z.string(), endDate: z.string() })),
+});
+
 // ── GL accounts ─────────────────────────────────────────────────────────────
 
 /** An `accounts` row (the chart of accounts). */
