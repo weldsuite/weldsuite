@@ -136,13 +136,20 @@ describe('desk SLA engine', () => {
 
     expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 50), failing)).toBe(0);
     const [first] = (await clocksOf(conversation.id)).filter((c) => c.metric === 'first_response');
-    // Not marked as warned, and looked at again 30 minutes later.
-    expect(first).toMatchObject({ warnedAt: null, nextCheckAt: minutesFrom(start, 80) });
+    // Not marked as warned, and looked at again at the breach (sooner than the 30-minute backoff).
+    expect(first).toMatchObject({ warnedAt: null, nextCheckAt: minutesFrom(start, 60) });
     expect(await slaEvents(conversation.id)).toHaveLength(0);
 
-    // By then the clock has breached: the breach is announced, once.
-    expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 80))).toBe(1);
-    expect((await slaEvents(conversation.id)).map((e) => e.metadata?.eventType)).toEqual(['sla_breached']);
+    // Nothing is due before then. At the due time the retried warning goes
+    // out; the breach follows on the next tick, not 30 minutes later.
+    expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 55))).toBe(0);
+    expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 60))).toBe(1);
+    expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 61))).toBe(1);
+    expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 62))).toBe(0);
+    expect((await slaEvents(conversation.id)).map((e) => e.metadata?.eventType)).toEqual([
+      'sla_warning',
+      'sla_breached',
+    ]);
   });
 
   it('re-derives the policy when the conversation is assigned', async () => {
