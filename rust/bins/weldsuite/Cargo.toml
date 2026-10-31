@@ -29,6 +29,7 @@ weldsuite-crm = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-desk = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
+weldsuite-desk-widget = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-flow = { workspace = true }

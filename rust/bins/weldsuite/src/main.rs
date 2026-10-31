@@ -172,6 +172,11 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
         sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
+        widget_token_secret: config
+            .realtime
+            .widget_token_secret
+            .as_deref()
+            .map(Arc::from),
         storage_signing_key: config.storage_signing_key.as_deref().map(Arc::from),
         public_auth,
         realtime: realtime::PublicRealtime::from_config(&config),

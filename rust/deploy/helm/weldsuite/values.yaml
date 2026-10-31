@@ -182,6 +182,8 @@ config:
 #   VALKEY_URL                   redis://… cache, realtime publish and the WebSocket gateway (optional)
 #   REALTIME_INTERNAL_SECRET     what callers of /publish/* and /internal/presence send in
 #                                x-internal-secret (optional; unset refuses them all)
+#   WIDGET_TOKEN_SECRET          WeldDesk: signs and verifies the helpdesk widget visitors'
+#                                realtime tokens (optional; unset: visitors get no live updates)
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
