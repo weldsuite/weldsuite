@@ -137,6 +137,29 @@ pub fn decrypt_workspace_database_url(
     open(pair, key, &[])
 }
 
+/// Open a field sealed by [`encrypt_field`] (`decryptField`): `v2:iv:ciphertext`
+/// with the v2 key, `iv:ciphertext` with the v1 key. A v3 value is refused:
+/// without its additional data it could never authenticate.
+pub fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, DecryptError> {
+    if value.starts_with("v3:") {
+        return Err(DecryptError::UnknownFormat);
+    }
+    if let Some(rest) = value.strip_prefix("v2:") {
+        let pair = split_hex_pair(rest).ok_or(DecryptError::UnknownFormat)?;
+        let key = keyring
+            .v2
+            .as_deref()
+            .ok_or(DecryptError::MissingKey("v2"))?;
+        return open(pair, key, &[]);
+    }
+    let pair = split_hex_pair(value).ok_or(DecryptError::UnknownFormat)?;
+    let key = keyring
+        .v1
+        .as_deref()
+        .ok_or(DecryptError::MissingKey("v1"))?;
+    open(pair, key, &[])
+}
+
 /// Why a value could not be sealed. Never contains the value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EncryptError {
