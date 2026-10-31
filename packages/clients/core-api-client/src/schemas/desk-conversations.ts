@@ -94,6 +94,7 @@ export const deskConversationSchema = z
     rating: z.number().int().nullable(),
     ratingComment: z.string().nullable(),
     ratedAt: z.string().nullable(),
+    externalId: z.string().nullable(),
   })
   .passthrough();
 
