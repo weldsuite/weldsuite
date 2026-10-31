@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { maskVolatile } from './conformance-volatile';
+import { maskVolatile, maskVolatileEvents } from './conformance-volatile';
 
 describe('maskVolatile', () => {
   it("masks a route's per-run values and keeps their type", () => {
@@ -38,6 +38,24 @@ describe('maskVolatile', () => {
     expect(
       maskVolatile('GET', '/public/helpdesk-widget/health', { status: 'ok', environment: 'test', timestamp: '2026-01-01T00:00:00.000Z' }),
     ).toEqual({ status: 'ok', environment: 'test', timestamp: '<volatile:string>' });
+  });
+
+  it("masks a stopped timer's sub-minute duration in the answer and its event, keeping the minutes", () => {
+    const stopped = { data: { id: 'te_1', duration: '10.03', cost: null } };
+    expect(maskVolatile('POST', '/api/time-entries/timer/stop', stopped)).toEqual({
+      data: { id: 'te_1', duration: '10.<volatile>', cost: null },
+    });
+    const events = [{ entityType: 'project_time_entry', action: 'created', data: { duration: '10.04' } }];
+    expect(maskVolatileEvents('POST', '/api/time-entries/timer/stop', events)).toEqual([
+      { entityType: 'project_time_entry', action: 'created', data: { duration: '10.<volatile>' } },
+    ]);
+    // A different number of minutes still differs.
+    expect(maskVolatile('POST', '/api/time-entries/timer/stop', { data: { duration: '11.00' } })).toEqual({
+      data: { duration: '11.<volatile>' },
+    });
+    // Routes without event paths leave events as they are.
+    expect(maskVolatileEvents('POST', '/api/cli-auth/device', events)).toBe(events);
+    expect(maskVolatileEvents('POST', null, events)).toBe(events);
   });
 
   it('leaves other routes, methods and missing paths alone', () => {

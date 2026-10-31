@@ -52,7 +52,7 @@ import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
-import { maskVolatile } from './conformance-volatile';
+import { maskVolatile, maskVolatileEvents } from './conformance-volatile';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
 import {
@@ -1020,9 +1020,14 @@ function compareRuns(
   } else if (Buffer.compare(ts.bytes, rust.bytes) !== 0) {
     return 'response bodies differ';
   }
-  // New event ids and timestamps differ by construction, even on a read.
+  // New event ids and timestamps differ by construction, even on a read, and
+  // so does what a route draws per run where its events carry it.
   const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
-  const effects = firstDifference(normalizeForDiff(own(tsEffects), true), normalizeForDiff(own(rustEffects), true));
+  const prepare = (effects: SideEffects) => {
+    const normalized = own(effects);
+    return { ...normalized, events: maskVolatileEvents(method, route, normalized.events) };
+  };
+  const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;
 }
 

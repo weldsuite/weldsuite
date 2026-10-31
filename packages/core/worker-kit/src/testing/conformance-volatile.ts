@@ -25,6 +25,11 @@ interface VolatileRoute {
   method: string;
   route: string;
   fields: VolatileField[];
+  /**
+   * The same values where the request publishes them: dot paths into each
+   * `ENTITY_EVENTS` message it sends (`data.duration`).
+   */
+  events?: VolatileField[];
 }
 
 const ROUTES: VolatileRoute[] = [
@@ -69,6 +74,16 @@ const ROUTES: VolatileRoute[] = [
   { method: 'POST', route: '/public/helpdesk-widget/api/realtime/token', fields: [{ path: 'data.token' }] },
   // The widget worker's health check stamps the time it answered.
   { method: 'GET', route: '/public/helpdesk-widget/health', fields: [{ path: 'timestamp' }] },
+  // WeldFlow's timer: a stopped entry's duration is the minutes since it
+  // started, to two decimals (`minutesBetween`), so it ticks every 0.6 s and
+  // the two runs can straddle a tick. The whole minutes are still compared,
+  // in the answer and in the entry's `project_time_entry` event.
+  {
+    method: 'POST',
+    route: '/api/time-entries/timer/stop',
+    fields: [{ path: 'data.duration', pattern: /\.\d+$/, replacement: '.<volatile>' }],
+    events: [{ path: 'data.duration', pattern: /\.\d+$/, replacement: '.<volatile>' }],
+  },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {
@@ -92,10 +107,20 @@ function maskAt(value: unknown, segments: readonly string[], field: VolatileFiel
   return { ...record, [head]: maskAt(record[head], rest, field) };
 }
 
+function entryFor(method: string, route: string | null): VolatileRoute | undefined {
+  return route ? ROUTES.find((r) => r.method === method && r.route === route) : undefined;
+}
+
 /** `body` with the route's volatile values masked; unchanged for other routes. */
 export function maskVolatile(method: string, route: string | null, body: unknown): unknown {
-  if (!route) return body;
-  const entry = ROUTES.find((r) => r.method === method && r.route === route);
+  const entry = entryFor(method, route);
   if (!entry) return body;
   return entry.fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), body);
+}
+
+/** The request's entity events with the route's volatile values masked. */
+export function maskVolatileEvents(method: string, route: string | null, events: unknown[]): unknown[] {
+  const fields = entryFor(method, route)?.events;
+  if (!fields?.length) return events;
+  return events.map((event) => fields.reduce((masked, field) => maskAt(masked, field.path.split('.'), field), event));
 }
