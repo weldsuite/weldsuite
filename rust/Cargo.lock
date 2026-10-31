@@ -3799,6 +3799,7 @@ checksum = "d4ca08e5ef825b65b056d9efbd95c8750683f0a6d0466d02e96dc2e4e360f3d2"
 name = "weldsuite"
 version = "0.0.0"
 dependencies = [
+ "async-nats",
  "axum",
  "base64 0.22.1",
  "form_urlencoded",
@@ -3841,6 +3842,7 @@ dependencies = [
  "weldsuite-know",
  "weldsuite-mail",
  "weldsuite-mail-domain",
+ "weldsuite-mail-inbound",
  "weldsuite-migrations",
  "weldsuite-pass",
  "weldsuite-permissions",

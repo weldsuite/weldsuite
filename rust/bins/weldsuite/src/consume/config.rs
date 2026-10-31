@@ -16,6 +16,9 @@
 //! | `WEBHOOK_ALLOW_PRIVATE_NETWORKS` | `true` lets webhooks reach private addresses (refused by default) |
 //! | `WEBHOOK_RETRY_SWEEP` | `false` stops this role from retrying failed webhook deliveries every ten minutes |
 //! | `CONSUME_DRAIN_SECONDS` | how long batches in hand may take to finish after SIGTERM (default 25) |
+//! | `S3_BUCKET_MAIL` (+ `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`) | the mail bucket Haraka spools inbound mail to; set, the `mail-inbound` subscriber runs (MAIL-010) |
+//! | `S3_BUCKET_PUBLIC`, `R2_PUBLIC_URL` (else `S3_PUBLIC_URL`) | where inbound attachments and contact avatars go, and their public URL (optional; without them a message keeps no attachments, as the worker without `STORAGE`) |
+//! | `NATS_MAIL_INBOUND_STREAM`, `NATS_MAIL_INBOUND_SUBJECT`, `NATS_MAIL_INBOUND_DLQ_STREAM` | the inbound mail stream (default `MAIL_INBOUND` on `mail.inbound`) and its dead letters (`MAIL_INBOUND_DLQ`, `mail-inbound-dlq.>`) |
 //! | `PORT`, `HOST`, `ENVIRONMENT`, `LOG_FORMAT`, `RUST_LOG` | probes (`/livez`, `/readyz`, `/health`) and logs |
 
 use std::fmt;
@@ -28,6 +31,68 @@ use crate::config::LogFormat;
 
 /// The subscribers `weldsuite consume` can run.
 pub(crate) const PORTED: [&str; 4] = ["audit", "search-index", "webhooks", "realtime"];
+
+/// The inbound mail subscriber (MAIL-010): not on the hub but on its own
+/// stream, which Haraka publishes to.
+pub(crate) const MAIL_INBOUND: &str = "mail-inbound";
+
+/// Where the `mail-inbound` subscriber reads and writes.
+#[derive(Clone)]
+pub(crate) struct MailInboundConfig {
+    /// The mail bucket: Haraka's spool and the stored raw MIME.
+    pub(crate) mail: weldsuite_adapters_oss::S3Options,
+    /// `STORAGE`: attachments and avatars.
+    pub(crate) public: Option<weldsuite_adapters_oss::S3Options>,
+    /// `R2_PUBLIC_URL`.
+    pub(crate) public_url: Option<String>,
+    pub(crate) stream: String,
+    pub(crate) subject: String,
+    pub(crate) dead_letter_stream: String,
+}
+
+impl MailInboundConfig {
+    /// `S3_BUCKET_MAIL` set, the subscriber's settings (the S3 ones then
+    /// required).
+    fn from_lookup(
+        lookup: &impl Fn(&str) -> Option<String>,
+        problems: &mut Vec<String>,
+    ) -> Option<Self> {
+        let bucket = lookup("S3_BUCKET_MAIL")?;
+        let mut required = |name: &str| {
+            lookup(name).unwrap_or_else(|| {
+                problems.push(format!("{name} is required with S3_BUCKET_MAIL"));
+                String::new()
+            })
+        };
+        let endpoint = required("S3_ENDPOINT");
+        let access_key_id = required("S3_ACCESS_KEY_ID");
+        let secret_access_key = required("S3_SECRET_ACCESS_KEY");
+        let path_style = flag(lookup, "S3_FORCE_PATH_STYLE", false, problems);
+        let mail = weldsuite_adapters_oss::S3Options {
+            endpoint,
+            region: lookup("S3_REGION").unwrap_or_else(|| "us-east-1".to_owned()),
+            bucket,
+            access_key_id,
+            secret_access_key,
+            path_style,
+        };
+        let public = lookup("S3_BUCKET_PUBLIC").map(|bucket| weldsuite_adapters_oss::S3Options {
+            bucket,
+            ..mail.clone()
+        });
+        Some(Self {
+            public,
+            public_url: lookup("R2_PUBLIC_URL").or_else(|| lookup("S3_PUBLIC_URL")),
+            stream: lookup("NATS_MAIL_INBOUND_STREAM")
+                .unwrap_or_else(|| weldsuite_mail_inbound::consumer::DEFAULT_STREAM.to_owned()),
+            subject: lookup("NATS_MAIL_INBOUND_SUBJECT")
+                .unwrap_or_else(|| weldsuite_mail_inbound::consumer::DEFAULT_SUBJECT.to_owned()),
+            dead_letter_stream: lookup("NATS_MAIL_INBOUND_DLQ_STREAM")
+                .unwrap_or_else(|| "MAIL_INBOUND_DLQ".to_owned()),
+            mail,
+        })
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct EmbeddingsConfig {
@@ -64,6 +129,8 @@ pub(crate) struct ConsumeConfig {
     pub(crate) webhook_allow_private: bool,
     pub(crate) webhook_retry_sweep: bool,
     pub(crate) drain: Duration,
+    /// The `mail-inbound` subscriber's settings (`S3_BUCKET_MAIL` set).
+    pub(crate) mail_inbound: Option<MailInboundConfig>,
 }
 
 impl fmt::Debug for ConsumeConfig {
@@ -86,6 +153,10 @@ impl fmt::Debug for ConsumeConfig {
             )
             .field("webhook_allow_private", &self.webhook_allow_private)
             .field("webhook_retry_sweep", &self.webhook_retry_sweep)
+            .field(
+                "mail_inbound",
+                &self.mail_inbound.as_ref().map(|m| m.mail.bucket.as_str()),
+            )
             .field("drain", &self.drain)
             .finish_non_exhaustive()
     }
@@ -190,8 +261,14 @@ impl ConsumeConfig {
         };
         let subject_prefix = lookup("NATS_ENTITY_EVENTS_SUBJECT")
             .unwrap_or_else(|| weldsuite_events::DEFAULT_SUBJECT_PREFIX.to_owned());
+        let mail_inbound = MailInboundConfig::from_lookup(&lookup, &mut problems);
         let subscribers: Vec<String> = match lookup("CONSUME_SUBSCRIBERS") {
-            None => PORTED.iter().map(|id| (*id).to_owned()).collect(),
+            None => PORTED
+                .iter()
+                .copied()
+                .chain(mail_inbound.is_some().then_some(MAIL_INBOUND))
+                .map(str::to_owned)
+                .collect(),
             Some(list) => list
                 .split(',')
                 .map(str::trim)
@@ -200,6 +277,13 @@ impl ConsumeConfig {
                 .collect(),
         };
         for id in &subscribers {
+            if id == MAIL_INBOUND {
+                if mail_inbound.is_none() {
+                    problems
+                        .push("CONSUME_SUBSCRIBERS: mail-inbound needs S3_BUCKET_MAIL".to_owned());
+                }
+                continue;
+            }
             if !PORTED.contains(&id.as_str()) {
                 problems.push(format!(
                     "CONSUME_SUBSCRIBERS: {id} is not a ported subscriber ({})",
@@ -267,6 +351,7 @@ impl ConsumeConfig {
             webhook_allow_private,
             webhook_retry_sweep,
             drain: Duration::from_secs(drain),
+            mail_inbound,
         })
     }
 }
@@ -324,6 +409,36 @@ mod tests {
         .expect("valid");
         assert_eq!(config.stream_max_bytes, Some(12_884_901_888));
         assert_eq!(config.dead_letter_max_bytes, None);
+    }
+
+    #[test]
+    fn the_mail_bucket_turns_on_the_inbound_subscriber() {
+        let config = config(&[
+            ("DATABASE_URL_MASTER", "postgres://master"),
+            ("NATS_URL", "nats://nats:4222"),
+            ("S3_BUCKET_MAIL", "weldsuite-mail"),
+            ("S3_ENDPOINT", "http://s3:9000"),
+            ("S3_ACCESS_KEY_ID", "k"),
+            ("S3_SECRET_ACCESS_KEY", "s"),
+        ])
+        .expect("valid");
+        assert!(config.subscribers.iter().any(|s| s == MAIL_INBOUND));
+        let inbound = config.mail_inbound.expect("configured");
+        assert_eq!(inbound.stream, "MAIL_INBOUND");
+        assert_eq!(inbound.subject, "mail.inbound");
+        assert!(inbound.public.is_none());
+        let error = super::ConsumeConfig::from_lookup(|name| {
+            [
+                ("DATABASE_URL_MASTER", "postgres://master"),
+                ("NATS_URL", "nats://nats:4222"),
+                ("CONSUME_SUBSCRIBERS", "mail-inbound"),
+            ]
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| (*v).to_owned())
+        })
+        .expect_err("no mail bucket");
+        assert_eq!(error.0.len(), 1, "{error}");
     }
 
     #[test]

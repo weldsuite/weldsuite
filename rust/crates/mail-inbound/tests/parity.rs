@@ -34,9 +34,7 @@ use weldsuite_mail_inbound::thread_match::{
 };
 use weldsuite_mail_inbound::unsubscribe::parse_list_unsubscribe;
 use weldsuite_mail_inbound::{FanOut, InboundContext, StaticDbs};
-use weldsuite_ports::{
-    FileStore, ObjectInfo, PortError, PutOptions, Stored, StoredObject,
-};
+use weldsuite_ports::{FileStore, ObjectInfo, PortError, PutOptions, Stored, StoredObject};
 
 /// The receipt time the tests parse with: a message without a usable
 /// `Date` is "now", which the fixtures record as `<now>`.
@@ -210,7 +208,8 @@ fn spam_scores_match() {
                     .map(strings),
             },
         );
-        let actual = json!({ "score": result.score, "reasons": result.reasons, "isSpam": result.is_spam });
+        let actual =
+            json!({ "score": result.score, "reasons": result.reasons, "isSpam": result.is_spam });
         assert_eq!(actual, case["result"], "spam: {email}");
     }
 }
@@ -261,9 +260,17 @@ fn helpers_match() {
     );
     for case in h["subjects"].as_array().expect("cases") {
         let subject = case["subject"].as_str();
-        assert_eq!(bare_subject(subject), case["bare"].as_str().unwrap_or_default(), "{case}");
+        assert_eq!(
+            bare_subject(subject),
+            case["bare"].as_str().unwrap_or_default(),
+            "{case}"
+        );
         assert_eq!(has_reply_prefix(subject), case["reply"] == true, "{case}");
-        assert_eq!(json!(conversation_subjects(subject)), case["conversation"], "{case}");
+        assert_eq!(
+            json!(conversation_subjects(subject)),
+            case["conversation"],
+            "{case}"
+        );
     }
     let from = json!({ "email": "Me@Weldmail.example", "name": "Me" });
     let to = json!([{ "email": "support@helpdesk.example" }]);
@@ -288,7 +295,10 @@ fn helpers_match() {
     .map(|s| (*s).to_owned())
     .collect();
     assert_eq!(
-        json!(expand_catch_all_candidates(&recipients, &["hello@acme.example".to_owned()])),
+        json!(expand_catch_all_candidates(
+            &recipients,
+            &["hello@acme.example".to_owned()]
+        )),
         h["catchAll"]
     );
     let members: Vec<(String, Option<String>, Option<String>)> = [
@@ -303,10 +313,20 @@ fn helpers_match() {
     let ids = |list: Vec<&(String, Option<String>, Option<String>)>| -> Value {
         json!(list.iter().map(|m| m.0.clone()).collect::<Vec<_>>())
     };
-    assert_eq!(ids(select_notify_members(true, &[], &members)), h["notifyMembers"][0]);
-    assert_eq!(ids(select_notify_members(false, &[], &members)), h["notifyMembers"][1]);
     assert_eq!(
-        ids(select_notify_members(false, &["u4".to_owned(), "u9".to_owned()], &members)),
+        ids(select_notify_members(true, &[], &members)),
+        h["notifyMembers"][0]
+    );
+    assert_eq!(
+        ids(select_notify_members(false, &[], &members)),
+        h["notifyMembers"][1]
+    );
+    assert_eq!(
+        ids(select_notify_members(
+            false,
+            &["u4".to_owned(), "u9".to_owned()],
+            &members
+        )),
         h["notifyMembers"][2]
     );
     for case in h["accountingTypes"].as_array().expect("cases") {
@@ -375,11 +395,20 @@ fn helpers_match() {
             vec!["a.pdf".to_owned(), String::new(), "b.png".to_owned()],
         ),
         (false, "Bob", Some(""), Some(""), vec![]),
-        (true, "Al", Some("x".repeat(200).leak() as &str), None, vec![]),
+        (
+            true,
+            "Al",
+            Some("x".repeat(200).leak() as &str),
+            None,
+            vec![],
+        ),
     ];
     for (i, (is_new, name, body, subject, files)) in contents.iter().enumerate() {
         let (title, text) = notification_content(*is_new, name, *body, *subject, files);
-        assert_eq!(json!({ "title": title, "body": text }), h["notificationContent"][i]);
+        assert_eq!(
+            json!({ "title": title, "body": text }),
+            h["notificationContent"][i]
+        );
     }
     for case in h["normalizeEmailSubject"].as_array().expect("cases") {
         assert_eq!(
@@ -390,7 +419,9 @@ fn helpers_match() {
     }
     for case in h["normalizeRfcMessageId"].as_array().expect("cases") {
         assert_eq!(
-            json!(weldsuite_desk_domain::email::normalize_rfc_message_id(case[0].as_str())),
+            json!(weldsuite_desk_domain::email::normalize_rfc_message_id(
+                case[0].as_str()
+            )),
             case[1],
             "{case}"
         );
@@ -413,7 +444,10 @@ fn parsed_email(value: &Value) -> ParsedEmail {
         has_attachments: value["hasAttachments"] == true,
         attachment_count: 0,
         in_reply_to: text(&value["inReplyTo"]),
-        references: value.get("references").filter(|r| !r.is_null()).map(strings),
+        references: value
+            .get("references")
+            .filter(|r| !r.is_null())
+            .map(strings),
         spf_status: None,
         dkim_status: None,
         dmarc_status: None,
@@ -647,9 +681,15 @@ async fn storage_writes_the_rows_the_worker_writes() {
                 is_spam: stored.is_spam,
                 deleted: false,
             };
-            let spam = run_rules(&db, &account.account_id, &stored.message_id, &email, &initial)
-                .await
-                .expect("the rules run");
+            let spam = run_rules(
+                &db,
+                &account.account_id,
+                &stored.message_id,
+                &email,
+                &initial,
+            )
+            .await
+            .expect("the rules run");
             marked_spam = json!(spam);
         }
         let stored = stored.map(|s| {
