@@ -1,4 +1,4 @@
-# Porting WeldBooks to Rust
+partial: address, IBAN; `roles` (`promoteAccountingRole`) and the VAT-number formats of `identifiers` to do |partial: registry, summaries, seed charts and rates, identifier checks of the four countries, US entity kinds and tax lines; invoice formats, returns and tax engines are the areas'  |done |done |done |done |done |done |done |done |# Porting WeldBooks to Rust
 
 The plan for porting `apps/workers/books-api` (WeldBooks, module id `books`)
 and `packages/domains/books` (`@weldsuite/books-domain`) to the Rust backend,
@@ -79,6 +79,39 @@ Copy `rust/modules/books` as the template:
 `BooksState` (in `books_domain::http`) carries every port any area needs
 (events, files, master DB, outbound HTTP, cache, realtime, jobs). Take what
 you need from it; add a field only if no existing one fits.
+
+### What the foundation learned (read before porting a group)
+
+- Rows: select with `concat!("select ", books_row!(<table>), " from <table> t …")`
+  (sqlx takes literal SQL only) and pass them through `<TABLE>.js(row)`.
+  `numeric` comes back as text (`"121.00"`), `timestamp` as `toISOString()`,
+  `date` as `YYYY-MM-DD`, exactly as Drizzle hands them to the route.
+- Writes of a body: `<TABLE>.values(&data)` keeps the table's properties
+  (Drizzle drops the rest); `<TABLE>.insert(db, values, &["createdAt", …])`
+  makes a `Date` column the body set throw, as Drizzle's `toISOString` does;
+  `insert_raw` / `patch_raw` for values the route built itself.
+- Answer with what TypeScript answers: many routes return the object they
+  built (`{ id, ...data, createdAt }`, raw strings like `debit: "100"`), not
+  the stored row. A key the route leaves `undefined` is absent in the JSON.
+- `serde_json` sorts object keys; the conformance diff doesn't care, but a
+  route that compares `JSON.stringify` results does (a `jsonb` column comes
+  back shorter keys first): see `fiscal_year_changed` in
+  `books/src/accounting_entities/mod.rs`.
+- Zod details matter on a 400: issue order (refinements last, an object
+  refinement skipped when a field has a type error, see `tax_rates.rs`),
+  `.length(n)` is `Issues::string_length`, `.trim()` is `Text::trimmed`.
+- Money is JavaScript arithmetic: `js::round_money`, `js::to_fixed` (ties
+  away from zero, `-0.00` kept), `js::parse_float`, `js::number_text`.
+- Errors: `PostError::user_message()` is what the routes answer with a 400
+  (`ClosedPeriodError | LockedPeriodError | PostingError`); a database error
+  is the route's 500.
+- The harness records a test's own `ENTITY_EVENTS` binding (forwarding to it),
+  and forwards `DATABASE_ENCRYPTION_KEY(_V2)` to Rust (`caller.keyring`).
+- A quick loop: build `weldsuite` with `--features conformance`, start it
+  with the env of `D:/ws-rust-targets/tools/integ-conf.mjs`, and run the test
+  files with `CONFORMANCE_TARGET=rust CONFORMANCE_STRICT=0
+  CONFORMANCE_REPORT_DIR=<dir>`; the `.jsonl` lines in the report dir list
+  every difference.
 
 ## Areas
 
@@ -239,18 +272,18 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 
 | Module | From (TypeScript) | Used by | Owner | Status |
 |---|---|---|---|---|
-| `tables` (+ `tools/tables.mts`) | `@weldsuite/db/schema`, the books tables | all | foundation | |
-| `js` | JS semantics: `Number()`, `toFixed`, `parseInt`, `String(number)`, `Math.round` | all | foundation | |
-| `http` | `Caller`, `BooksState`, `Refusal`/`Reply`, `validate`, `Query`, paging | all | foundation | |
-| `entity_context` | `lib/entity-context` (resolve entity, base currency, number sequences) | all | foundation | |
-| `guards` | books-domain `accounting-guards` (closed periods, lock dates, KOR, audit trail) | all | foundation | |
-| `posting` | `accounting-posting` (post, reverse, post draft, entity accounts, roles) | all that post | foundation | |
-| `currency`, `fx` | `accounting-currency` (ECB feed, stored rates), `accounting-fx` | sales, purchases, banking, tax, reports | foundation | |
+| `tables` (+ `tools/tables.mts`) | `@weldsuite/db/schema`, the books tables | all | foundation | done |
+| `js` | JS semantics: `Number()`, `toFixed`, `parseInt`, `String(number)`, `Math.round` | all | foundation | done |
+| `http` | `Caller`, `BooksState`, `Refusal`/`Reply`, `validate`, `Query`, paging | all | foundation | done |
+| `entity_context` | `lib/entity-context` (resolve entity, base currency, number sequences) | all | foundation | done |
+| `guards` | books-domain `accounting-guards` (closed periods, lock dates, KOR, audit trail) | all | foundation | done |
+| `posting` | `accounting-posting` (post, reverse, post draft, entity accounts, roles) | all that post | foundation | done |
+| `currency`, `fx` | `accounting-currency` (ECB feed, stored rates), `accounting-fx` | sales, purchases, banking, tax, reports | foundation | done |
 | `document_posting` | `accounting-document-posting` (invoice, bill, payment, write-off postings) | sales, purchases, banking, tax | foundation | |
 | `payments`, `bad_debt` | `accounting-payments`, `accounting-bad-debt` | sales, banking, purchases, ledger (catch-up) | foundation | |
-| `jurisdictions` | `jurisdictions/{registry,types}` + the per-country data the entity setup seeds (charts, tax categories, identifiers, entity types, tax lines, states) | all | foundation | |
-| `address`, `roles`, `identifiers` | `accounting-address`, `accounting-roles`, `identifiers` | all, commerce, connect | foundation | |
-| `fiscal_year`, `dates` | `us-compliance/{fiscal-year,dates}` | ledger, reports, sales-tax | foundation | |
+| `jurisdictions` | `jurisdictions/{registry,types}` + the per-country data the entity setup seeds (charts, tax categories, identifiers, entity types, tax lines, states) | all | foundation | partial: registry, summaries, seed charts and rates, identifier checks of the four countries, US entity kinds and tax lines (invoice formats, returns and tax engines come with their areas) |
+| `address`, `roles`, `identifiers` | `accounting-address`, `accounting-roles`, `identifiers` | all, commerce, connect | foundation | partial: addresses, IBANs (`promoteAccountingRole` and the VAT-number formats of `identifiers` to do) |
+| `fiscal_year`, `dates` | `us-compliance/{fiscal-year,dates}` | ledger, reports, sales-tax | foundation | done |
 | `payroll` | `payroll/{imports,weldhr,mapping,journal}`: the internal import hr-api posts | reports (routes), **hr** | foundation | |
 | `tax` | `accounting-tax-resolve`, `-tax-totals`, `-gst` | sales, purchases, tax, sales-tax | sales | |
 | `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | |
@@ -359,7 +392,7 @@ Stripe Financial Connections, Ponto (mTLS), Enable Banking, Gusto, Digipoort
 | Piece | Status |
 |---|---|
 | Plan (this file) | done |
-| `books-domain` foundation modules | in progress |
-| `books` (ledger) and the `books: ledger` suite | in progress |
+| `books-domain` foundation modules | done: the rows marked done above; in progress: `document_posting`, `payments`, `bad_debt`, `payroll` |
+| `books` (ledger) and the `books: ledger` suite | 7 of 8 groups ported, 15 test files at zero differences; `/api/accounting-settings` in progress |
 | Areas 1–6 | not started |
 | Cron, `RUST_PORTED_MODULES` | not started |
