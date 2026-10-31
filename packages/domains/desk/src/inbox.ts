@@ -39,6 +39,8 @@ import {
 import type { DeskPriority } from '@weldsuite/db/schema/desk-conversations';
 import type { DeskAuthorType, DeskEventType } from '@weldsuite/db/schema/desk-messages';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
+import { syncWorkspaceDue } from '@weldsuite/worker-kit/due-index';
+import { nextDeskSlaCheckAt } from '@weldsuite/db/lib/desk-sla';
 
 export { DeskAttributeRejectedError, DeskConversationNotFoundError };
 
@@ -96,6 +98,8 @@ export type DeskInboxEvent =
 export interface DeskInboxEnv extends NotificationEnv {
   /** helpdesk-workflow-worker: the per-workspace AssignmentRouter. Without it the pick runs locally. */
   HELPDESK_WORKFLOW?: FetcherLike;
+  /** Schedule-index D1: writes mark when an SLA clock next comes due (kind `desk_sla`, ADR DESK-009). */
+  SCHEDULE_INDEX?: D1Database;
 }
 
 export interface DeskInboxDeps {
@@ -116,6 +120,15 @@ export interface DeskInboxActor {
   authorType: Extract<DeskAuthorType, 'agent' | 'bot' | 'system'>;
   /** The member's user id for `agent`; the key, agent or workflow id otherwise. */
   authorId: string | null;
+}
+
+/**
+ * Tell desk-api's SLA sweep when this workspace next has an SLA clock due.
+ * appendDeskMessage already re-derived the clocks; this copies the earliest
+ * check into the D1 due index. Best-effort, and skipped without the binding.
+ */
+async function markDeskSlaDue(deps: DeskInboxDeps): Promise<void> {
+  await syncWorkspaceDue(deps.env.SCHEDULE_INDEX, 'desk_sla', deps.clerkOrgId, () => nextDeskSlaCheckAt(deps.db));
 }
 
 const NOTIFY_BATCH = 10;
@@ -330,6 +343,7 @@ export async function openDeskApiConversation(
   const messages = set?.message ? [result.message, set.message] : [result.message];
 
   const { conversation, events: assignEvents } = await assignOpened(deps, opened, assigneeId, actor);
+  await markDeskSlaDue(deps);
   await emitAll(deps, [
     conversationEvent(openedAction(result, opened), opened),
     ...messages.map(messageEvent),
@@ -456,6 +470,7 @@ export async function updateDeskConversationFromApi(
   const messages = [...fields.messages, ...moves.messages];
   const { customFields } = fields;
 
+  await markDeskSlaDue(deps);
   await emitAll(deps, [...fields.events, ...moves.events]);
 
   if (conversation.assigneeId && conversation.assigneeId !== previousAssigneeId) {

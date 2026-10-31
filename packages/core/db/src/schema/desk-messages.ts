@@ -26,7 +26,19 @@ export type DeskMessageKind = 'message' | 'note' | 'event';
 
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
 
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated' | 'attributes_changed';
+/**
+ * sla_warning / sla_breached: an SLA clock came close to or passed its due
+ * time (metadata.metric, metadata.dueAt). Internal, like attributes_changed.
+ */
+export type DeskEventType =
+  | 'closed'
+  | 'reopened'
+  | 'assigned'
+  | 'unassigned'
+  | 'rated'
+  | 'attributes_changed'
+  | 'sla_warning'
+  | 'sla_breached';
 
 /**
  * One ticket field an `attributes_changed` event changed. `from` / `to` are

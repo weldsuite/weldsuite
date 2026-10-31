@@ -9,6 +9,7 @@ import type {
   DeskMessage,
   DeskMessageAttachment,
   DeskPriority,
+  DeskSlaMetric,
 } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
 import { formatFileSize } from './attachments';
@@ -149,6 +150,11 @@ function eventSentence(message: DeskMessage, members: DeskWorkspaceMember[], vis
   if (eventType === 'closed') return t.timeline.closed.replace('{actor}', actor);
   if (eventType === 'reopened') return t.timeline.opened.replace('{actor}', actor);
   if (eventType === 'unassigned') return t.timeline.assignmentUnassigned.replace('{actor}', actor);
+  if (eventType === 'sla_warning' || eventType === 'sla_breached') {
+    const metric = message.metadata?.metric as DeskSlaMetric | undefined;
+    const label = (metric && t.sla.metrics[metric]) || 'SLA';
+    return (eventType === 'sla_warning' ? t.timeline.slaWarning : t.timeline.slaBreached).replace('{metric}', label);
+  }
   if (eventType === 'assigned') {
     const target = memberLabel(members, message.metadata?.assigneeId ?? null) ?? message.metadata?.assigneeId ?? '';
     if (message.metadata?.auto) return t.timeline.autoAssigned.replace('{target}', target);
@@ -185,6 +191,22 @@ function EventRow({
           </p>
         ))}
       </div>
+    );
+  }
+  const slaEvent = message.metadata?.eventType;
+  if (slaEvent === 'sla_warning' || slaEvent === 'sla_breached') {
+    // Internal, like a note: only the team sees SLA warnings and breaches.
+    return (
+      <p
+        className={cn(
+          'text-xs text-center py-2 px-4 flex items-center justify-center gap-1',
+          slaEvent === 'sla_breached' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400',
+        )}
+        data-testid="desk-inbox-sla-event"
+      >
+        <Lock className="h-3 w-3 flex-shrink-0" />
+        {eventSentence(message, members, visitorLabel)} · {format(new Date(message.createdAt), 'HH:mm')}
+      </p>
     );
   }
   return (

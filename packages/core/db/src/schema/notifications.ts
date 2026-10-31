@@ -35,6 +35,9 @@ export type NotificationType =
   | 'ticket_updated'
   | 'ticket_resolved'
   | 'ticket_reply'
+  // WeldDesk SLA clocks (desk-api SLA sweep)
+  | 'sla_warning'
+  | 'sla_breached'
   | 'message_received'
   | 'email_received'
   | 'lead_created'

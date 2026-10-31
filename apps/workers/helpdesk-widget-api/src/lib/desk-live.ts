@@ -32,6 +32,7 @@ import {
 } from '@weldsuite/db/lib/desk';
 import { autoAssignDeskConversation, deskAssignmentRouterPicker } from '@weldsuite/db/lib/desk-assignment';
 import { generateId } from './id';
+import { markWorkspaceDue } from '@weldsuite/worker-kit/due-index';
 
 export type { PublicDeskMessage, PublicDeskConversation } from '@weldsuite/db/lib/desk';
 export {
@@ -216,6 +217,8 @@ export async function autoAssignConversation(
       pick: deskAssignmentRouterPicker(env.WORKFLOW_WORKER, orgId),
     });
     if (!result) return conversation;
+    // The owner can change which SLA policy applies.
+    if (result.slaCheckAt) await markWorkspaceDue(env.SCHEDULE_INDEX, 'desk_sla', orgId, result.slaCheckAt);
     const authors = await resolveAuthors(db, [result.conversation.assigneeId]);
     await publishVisitorEvent(env, orgId, result.conversation, result.message, authors, 'assigned');
     return result.conversation;
