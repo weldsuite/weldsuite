@@ -51,6 +51,8 @@ export interface DeskConversation {
   departmentId?: string | null;
   /** The type's custom field values by slug; only on the detail read. */
   customFields?: Record<string, unknown>;
+  /** The key an integration, the AI or a workflow opened it with; repeats land here. */
+  externalId?: string | null;
 }
 
 export interface DeskMessageAttachment {

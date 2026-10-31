@@ -52,6 +52,7 @@ export const WELDCONNECT_ACTION_TYPES = [
   'move_deal_stage',
   'log_activity',
   'create_task',
+  'create_conversation',
   'send_notification',
   'post_chat_message',
   'http_request',
@@ -198,6 +199,7 @@ const REQUIRED_ACTION_FIELDS: Record<(typeof WELDCONNECT_ACTION_TYPES)[number], 
   move_deal_stage: (c) => ['dealId', 'stageId'].filter((field) => isBlank(c[field])),
   log_activity: (c) => (isBlank(c.subject) ? ['subject'] : []),
   create_task: (c) => ['projectId', 'title'].filter((field) => isBlank(c[field])),
+  create_conversation: (c) => (isBlank(c.message) ? ['message'] : []),
   send_notification: (c) => (isBlank(c.title) ? ['title'] : []),
   post_chat_message: (c) => {
     const missing: string[] = [];

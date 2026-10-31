@@ -98,6 +98,11 @@ function conversationToItem(
     labels.push(t.channel.portal);
     labelColors[t.channel.portal] = '#b45309';
   }
+  // Opened by an integration, the AI or a workflow (public API, MCP, WeldConnect).
+  if (conversation.channel === 'api') {
+    labels.push('API');
+    labelColors.API = '#7c3aed';
+  }
   if (!conversation.assigneeId) {
     labels.push(t.list.unassignedBadge);
     labelColors[t.list.unassignedBadge] = '#6b7280';

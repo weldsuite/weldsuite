@@ -160,6 +160,7 @@ export const deskInbox2 = {
     otherConversations: 'Other conversations',
     noOtherConversations: 'No other conversations with this customer',
     rating: 'Rating',
+    externalId: 'External ID',
   },
   ticket: {
     title: 'Ticket',
