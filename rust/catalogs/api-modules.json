@@ -494,7 +494,7 @@
       "/api/enrichments",
       "/api/welddata"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "data-api"
   },
   {
@@ -541,7 +541,7 @@
       "/api/social-team-members",
       "/public/social/postpeer"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "social-api"
   },
   {
@@ -556,7 +556,7 @@
       "/api/ad-campaigns",
       "/api/ad-connections"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "ads-api"
   },
   {

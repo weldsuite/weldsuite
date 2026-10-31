@@ -1780,6 +1780,71 @@
         "packages/clients/app-api-client/src/schemas/stash-responses.ts",
         "rust/modules/stash/"
       ]
+    },
+    {
+      "name": "ads",
+      "module": "ads",
+      "workspace": "apps/workers/ads-api",
+      "tests": [
+        "src/routes/ad-accounts/integration.test.ts",
+        "src/routes/ad-campaigns/integration.test.ts",
+        "src/routes/ad-campaigns/routes.test.ts",
+        "src/routes/ad-connections/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/ads-api/src/",
+        "packages/domains/ads/src/",
+        "packages/core/meta-ads/src/",
+        "packages/clients/app-api-client/src/schemas/weldads.ts",
+        "rust/modules/ads/",
+        "rust/crates/ads-domain/"
+      ]
+    },
+    {
+      "name": "social",
+      "module": "social",
+      "workspace": "apps/workers/social-api",
+      "tests": [
+        "src/routes/social-crud.integration.test.ts",
+        "src/routes/social-publishing.integration.test.ts",
+        "src/routes/public-postpeer-webhook.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/social-api/src/",
+        "packages/core/social-publishing/src/",
+        "packages/core/credits/src/index.ts",
+        "packages/clients/core-api-client/src/schemas/social-accounts.ts",
+        "packages/clients/core-api-client/src/schemas/social-approvals.ts",
+        "packages/clients/core-api-client/src/schemas/social-campaigns.ts",
+        "packages/clients/core-api-client/src/schemas/social-media.ts",
+        "packages/clients/core-api-client/src/schemas/social-posts.ts",
+        "packages/clients/core-api-client/src/schemas/social-team-members.ts",
+        "packages/clients/app-api-client/src/schemas/social-settings.ts",
+        "packages/clients/app-api-client/src/schemas/social-responses.ts",
+        "rust/modules/social/",
+        "rust/crates/social-domain/"
+      ]
+    },
+    {
+      "name": "data",
+      "module": "data",
+      "workspace": "apps/workers/data-api",
+      "tests": [
+        "src/routes/welddata/integration.test.ts",
+        "src/routes/enrich-fields/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/data-api/src/",
+        "packages/domains/data/src/",
+        "packages/domains/crm/src/companies.ts",
+        "packages/domains/crm/src/people.ts",
+        "packages/domains/crm/src/member-validation.ts",
+        "packages/clients/app-api-client/src/schemas/welddata.ts",
+        "packages/clients/app-api-client/src/schemas/enrich-fields.ts",
+        "packages/clients/app-api-client/src/schemas/welddata-responses.ts",
+        "rust/modules/data/",
+        "rust/crates/crm-domain/"
+      ]
     }
   ]
 }

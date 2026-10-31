@@ -15,6 +15,7 @@ conformance = ["dep:base64", "dep:form_urlencoded", "dep:serde"]
 
 [dependencies]
 weldsuite-adapters-oss = { workspace = true }
+weldsuite-ads = { workspace = true }
 weldsuite-auth = { workspace = true }
 weldsuite-calendar = { workspace = true }
 weldsuite-catalogs = { workspace = true }
@@ -26,6 +27,7 @@ weldsuite-core-files = { workspace = true }
 weldsuite-core-platform = { workspace = true }
 weldsuite-core-team = { workspace = true }
 weldsuite-crm = { workspace = true }
+weldsuite-data = { workspace = true }
 weldsuite-db = { workspace = true }
 weldsuite-desk = { workspace = true }
 weldsuite-desk-domain = { workspace = true }
@@ -40,6 +42,7 @@ weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-sign = { workspace = true }
+weldsuite-social = { workspace = true }
 weldsuite-stash = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }

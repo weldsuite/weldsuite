@@ -19,6 +19,8 @@ publish = false
 # Shared dependency versions go here; crates use `dep = { workspace = true }`.
 [workspace.dependencies]
 weldsuite-adapters-oss = { path = "crates/adapters-oss" }
+weldsuite-ads = { path = "modules/ads" }
+weldsuite-ads-domain = { path = "crates/ads-domain" }
 weldsuite-auth = { path = "crates/auth" }
 weldsuite-calendar = { path = "modules/calendar" }
 weldsuite-calendar-domain = { path = "crates/calendar-domain" }
@@ -34,6 +36,7 @@ weldsuite-core-platform = { path = "modules/core-platform" }
 weldsuite-core-team = { path = "modules/core-team" }
 weldsuite-crm = { path = "modules/crm" }
 weldsuite-crm-domain = { path = "crates/crm-domain" }
+weldsuite-data = { path = "modules/data" }
 weldsuite-db = { path = "crates/db" }
 weldsuite-desk = { path = "modules/desk" }
 weldsuite-desk-domain = { path = "crates/desk-domain" }
@@ -49,6 +52,8 @@ weldsuite-mail-domain = { path = "crates/mail-domain" }
 weldsuite-pass = { path = "modules/pass" }
 weldsuite-migrations = { path = "crates/migrations" }
 weldsuite-sign = { path = "modules/sign" }
+weldsuite-social = { path = "modules/social" }
+weldsuite-social-domain = { path = "crates/social-domain" }
 weldsuite-stash = { path = "modules/stash" }
 weldsuite-notifications = { path = "crates/notifications" }
 weldsuite-subscribers = { path = "crates/subscribers" }

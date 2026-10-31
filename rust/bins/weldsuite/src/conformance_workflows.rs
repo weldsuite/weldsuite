@@ -1,5 +1,6 @@
-//! Conformance mode's Workflow bindings: the test's `EXECUTE_SEQUENCE` (a
-//! fake with `create` and `get`) over HTTP, served by
+//! Conformance mode's Workflow bindings: the test's `EXECUTE_SEQUENCE`,
+//! `SEND_SCHEDULED_EMAIL` and `WELDDATA_ENRICH` (fakes
+//! with `create` and `get`) over HTTP, served by
 //! `packages/core/worker-kit/src/testing/workflow-bridge.ts`
 //! (`POST /rpc { binding, method, id, args }`). The sequence routes then
 //! start and wake runs on the same fake as the TypeScript run, and both
@@ -24,6 +25,12 @@ struct BridgedWorkflow {
 impl BridgedWorkflow {
     /// One call; `Err` with the fake's message when it threw.
     async fn call(&self, method: &str, id: &str, args: Value) -> Result<(), String> {
+        self.call_as(method, Value::from(id), args).await
+    }
+
+    /// One call under `id` as recorded (`null` for an instance created
+    /// without one).
+    async fn call_as(&self, method: &str, id: Value, args: Value) -> Result<(), String> {
         let response = self
             .client
             .post(format!("{}/rpc", self.bridge))
@@ -80,6 +87,13 @@ impl SequenceRuns for BridgedWorkflow {
     }
 }
 
+impl weldsuite_data::EnrichRuns for BridgedWorkflow {
+    /// `binding.create(options)`, without an instance id.
+    fn create<'a>(&'a self, options: &'a Value) -> BoxFuture<'a, Result<(), String>> {
+        Box::pin(self.call_as("create", Value::Null, options.clone()))
+    }
+}
+
 impl weldsuite_mail::scheduled::ScheduledRuns for BridgedWorkflow {
     /// `binding.create({ id, params })`; the instance id is the one asked for.
     fn create<'a>(
@@ -122,6 +136,20 @@ impl WorkflowBridges {
                 binding: "SEND_SCHEDULED_EMAIL",
                 client: self.client.clone(),
             }) as Arc<dyn weldsuite_mail::scheduled::ScheduledRuns>
+        })
+    }
+
+    /// The test's `WELDDATA_ENRICH`, from `{ WELDDATA_ENRICH: url }`.
+    pub(crate) fn enrich_runs(
+        &self,
+        workflows: &HashMap<String, String>,
+    ) -> Option<Arc<dyn weldsuite_data::EnrichRuns>> {
+        workflows.get("WELDDATA_ENRICH").map(|bridge| {
+            Arc::new(BridgedWorkflow {
+                bridge: bridge.trim_end_matches('/').to_owned(),
+                binding: "WELDDATA_ENRICH",
+                client: self.client.clone(),
+            }) as Arc<dyn weldsuite_data::EnrichRuns>
         })
     }
 

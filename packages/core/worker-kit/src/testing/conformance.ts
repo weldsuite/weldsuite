@@ -168,10 +168,25 @@ export const FORWARDED_ENV = [
   'WIDGET_TOKEN_SECRET',
   'REALTIME_PUBLIC_URL',
   'REALTIME_INTERNAL_SECRET',
-  // WeldStash: the workspace keyring that opens the stored Sendcloud secret
-  // (the pick-list ship action).
+  // The workspace keyring: WeldStash opens the stored Sendcloud secret with it
+  // (the pick-list ship action), WeldAds seals its connections' OAuth tokens
+  // with it (`encryptField`).
   'DATABASE_ENCRYPTION_KEY',
   'DATABASE_ENCRYPTION_KEY_V2',
+  // WeldAds: the Meta app (OAuth and the Graph API).
+  'FACEBOOK_APP_ID',
+  'FACEBOOK_APP_SECRET',
+  // WeldSocial: PostPeer (the API key, base URL and BYOK app ids) and the
+  // secret its delivery webhooks are signed with.
+  'POSTPEER_API_KEY',
+  'POSTPEER_BASE_URL',
+  'POSTPEER_APP_IDS',
+  'POSTPEER_WEBHOOK_SECRET',
+  // WeldData: the Lemlist lead database, and the email finders an enrichment
+  // run calls.
+  'LEMLIST_API_KEY',
+  'FINDYMAIL_API_KEY',
+  'PROSPEO_API_KEY',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -191,6 +206,10 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const WRITING_READS: RegExp[] = [
   // WeldChat: the 1:1 DM with someone, created on first use.
   /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+  // WeldData: the Lemlist filter catalog, cached in KV on a miss.
+  /^\/api\/welddata\/filters(\?|$)/,
+  // WeldData: a list's cells, its stuck running ones timed out first.
+  /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
 ];
 
 interface ConformanceContext {

@@ -99,6 +99,9 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = crm(router, state);
+    let router = ads(router, state);
+    let router = social(router, state);
+    let router = data(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
     let router = desk(router, state);
@@ -189,6 +192,180 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         },
         &state.permissions,
     ))
+}
+
+/// WeldAds (`weldsuite-ads`): ads-api's `/api/ad-accounts`,
+/// `/api/ad-campaigns` and `/api/ad-connections`.
+fn ads(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("ads") {
+        return router;
+    }
+    router.merge(weldsuite_ads::router(ads_state(state), &state.permissions))
+}
+
+/// WeldAds' handle on the app: events, the cache its OAuth state lives in,
+/// the master database (the ad sync index) and Meta's API. Conformance
+/// builds take the test's KV, master database and fetch stub per request.
+fn ads_state(state: &AppState) -> weldsuite_ads::AdsState {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_ads::AdsState {
+        events: state.infra.events.clone(),
+        // Without Valkey the OAuth state lives in this process (one replica's worth).
+        cache: (!conformance).then(|| upload_token_cache(state)),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance {
+            None
+        } else {
+            HTTP.get_or_init(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))
+                    .ok()
+                    .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+            })
+            .clone()
+        },
+    }
+}
+
+/// WeldSocial (`weldsuite-social`): social-api's `/api/social-*`.
+fn social(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("social") {
+        return router;
+    }
+    router.merge(weldsuite_social::router(
+        social_state(state),
+        &state.permissions,
+    ))
+}
+
+/// WeldData (`weldsuite-data`): data-api's `/api/welddata`,
+/// `/api/enrich-fields` and `/api/enrichments`, and the
+/// `data.welddata-enrich` job its column runs start.
+fn data(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("data") {
+        return router;
+    }
+    let http = shared_outbound();
+    // Enrichment runs, where the jobs adapter calls them. The phone finder
+    // reads company websites on public addresses only.
+    match weldsuite_data::PublicPages::new() {
+        Ok(pages) => state
+            .infra
+            .job_registry
+            .register(weldsuite_data::WelddataEnrichJob {
+                tenants: tenant_databases(state),
+                http: http
+                    .clone()
+                    .unwrap_or_else(|| weldsuite_ports::OutboundHttp(Arc::new(NoOutbound))),
+                pages: Arc::new(pages),
+                keys: weldsuite_data::ActionKeys {
+                    findymail_api_key: std::env::var("FINDYMAIL_API_KEY").ok(),
+                    prospeo_api_key: std::env::var("PROSPEO_API_KEY").ok(),
+                },
+            }),
+        Err(error) => tracing::error!(%error, "welddata: no HTTP client for the phone finder"),
+    }
+    let conformance = cfg!(feature = "conformance");
+    let data = weldsuite_data::DataState {
+        events: state.infra.events.clone(),
+        cache: if conformance {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        http: if conformance { None } else { http },
+        jobs: if conformance {
+            None
+        } else {
+            Some(Arc::clone(&state.infra.jobs))
+        },
+    };
+    router.merge(weldsuite_data::router(data, &state.permissions))
+}
+
+/// The third-party HTTP client the ported modules share (30 s), or none
+/// when it cannot be built.
+fn shared_outbound() -> Option<weldsuite_ports::OutboundHttp> {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    HTTP.get_or_init(|| {
+        weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))
+            .ok()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+    })
+    .clone()
+}
+
+/// No HTTP client: every call fails like a `fetch` that can't connect.
+struct NoOutbound;
+
+impl weldsuite_ports::DynOutboundHttp for NoOutbound {
+    fn send(
+        &self,
+        _request: weldsuite_ports::HttpRequest,
+    ) -> weldsuite_ports::BoxFuture<
+        '_,
+        Result<weldsuite_ports::HttpResponse, weldsuite_ports::PortError>,
+    > {
+        Box::pin(std::future::ready(Err(
+            weldsuite_ports::PortError::backend("no outbound HTTP client"),
+        )))
+    }
+}
+
+/// PostPeer's delivery webhook (`/public/social/postpeer/webhook`), ahead of
+/// the session; served with the social module. Conformance builds open the
+/// test's tenant database for every workspace.
+fn social_public(state: &AppState) -> Router<AppState> {
+    if !mounts("social") {
+        return Router::new();
+    }
+    let router = weldsuite_social::public_router(social_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// WeldSocial's handle on the app: events, the cache (the webhook's legacy
+/// post mapping), the master database (credits and the PostPeer post
+/// index), PostPeer's API and the workspaces' tenant databases. Conformance
+/// builds take the test's KV, master database and fetch stub per request.
+fn social_state(state: &AppState) -> weldsuite_social::SocialState {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    let workspaces = Arc::clone(&state.workspaces);
+    let tenants: weldsuite_social::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    weldsuite_social::SocialState {
+        events: state.infra.events.clone(),
+        cache: if conformance {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance {
+            None
+        } else {
+            HTTP.get_or_init(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))
+                    .ok()
+                    .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+            })
+            .clone()
+        },
+        tenants: Some(tenants),
+    }
 }
 
 /// WeldMail's handle on the app: databases, cache, files, jobs, system mail,
@@ -556,7 +733,9 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// WeldApps bundle host (`/public/user-apps/*`). Empty where core is not
 /// mounted.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
-    let router = public_core(state).merge(desk_public(state));
+    let router = public_core(state)
+        .merge(desk_public(state))
+        .merge(social_public(state));
     if mounts("mail") {
         router.nest(
             "/internal/outbound",

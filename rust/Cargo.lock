@@ -3819,6 +3819,7 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "weldsuite-adapters-oss",
+ "weldsuite-ads",
  "weldsuite-auth",
  "weldsuite-calendar",
  "weldsuite-catalogs",
@@ -3830,6 +3831,7 @@ dependencies = [
  "weldsuite-core-platform",
  "weldsuite-core-team",
  "weldsuite-crm",
+ "weldsuite-data",
  "weldsuite-db",
  "weldsuite-desk",
  "weldsuite-desk-domain",
@@ -3848,6 +3850,7 @@ dependencies = [
  "weldsuite-ports",
  "weldsuite-realtime",
  "weldsuite-sign",
+ "weldsuite-social",
  "weldsuite-stash",
  "weldsuite-subscribers",
 ]
@@ -3880,6 +3883,43 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-migrations",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-ads"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde_json",
+ "sqlx",
+ "tracing",
+ "uuid",
+ "weldsuite-ads-domain",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-ads-domain"
+version = "0.0.0"
+dependencies = [
+ "form_urlencoded",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 
@@ -4191,6 +4231,34 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-mail-domain",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-data"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "futures-util",
+ "http",
+ "regex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-crm-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
  "weldsuite-ports",
 ]
 
@@ -4606,6 +4674,45 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-social"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-social-domain",
+]
+
+[[package]]
+name = "weldsuite-social-domain"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "form_urlencoded",
+ "hex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 
