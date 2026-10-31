@@ -13,8 +13,8 @@
 //! | `/ws/personal` | `WorkspaceHub` `personal:<user>` | the same, no presence |
 //! | `/ws/chat/:id` | `ChatRoom` | [`room`], `seq` from Valkey |
 //! | `/ws/support/:workspaceId` | `SupportRoom` | [`room`], members of the workspace only (see below) |
-//! | `/ws/conversation/:id` | `ConversationRoom` | [`room`], agents only (widget visitors come with WeldDesk) |
-//! | `/ws/whiteboard/:id`, `/ws/document/:id` | `WhiteboardRoom`, `DocumentRoom` | not served yet (Flow is not ported) |
+//! | `/ws/conversation/:id` | `ConversationRoom` | [`room`], agents only (widget visitors come with `helpdesk-widget-api`, not ported) |
+//! | `/ws/whiteboard/:id`, `/ws/document/:id` | `WhiteboardRoom`, `DocumentRoom` | not served yet (Flow's collaborative rooms are not ported) |
 //! | `POST /publish/*`, `GET /internal/presence` | the worker's internal routes | the same, behind `REALTIME_INTERNAL_SECRET`; ported Rust code uses the realtime port in process instead |
 //!
 //! Every pod subscribes to the Valkey channel of each hub and room it holds a

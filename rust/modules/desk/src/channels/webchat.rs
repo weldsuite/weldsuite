@@ -250,6 +250,8 @@ pub(crate) struct ListQuery {
     pub(crate) department_id: Option<String>,
     /// Conversations carrying this tag (exact match).
     pub(crate) tag: Option<String>,
+    /// The key an outside writer opened the conversation with.
+    pub(crate) external_id: Option<String>,
     pub(crate) sort: Option<String>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<f64>,
@@ -291,7 +293,8 @@ const FILTERS: &str = "($1::text is null or t.state = $1)
       and ($9::text is null or (case when $9 = 'none' then t.priority is null else t.priority = $9 end))
       and ($10::text is null or t.ticket_type_id = $10)
       and ($11::text is null or t.department_id = $11)
-      and ($12::text is null or t.tags @> jsonb_build_array($12::text))";
+      and ($12::text is null or t.tags @> jsonb_build_array($12::text))
+      and ($13::text is null or t.external_id = $13)";
 
 /// `listDeskConversations(db, query)`.
 pub(crate) async fn list(
@@ -312,6 +315,11 @@ pub(crate) async fn list(
         .filter(|e| !e.is_empty())
         .map(|e| weldsuite_kit::validation::js_trim(e).to_lowercase());
     let empty = |v: &Option<String>| v.clone().filter(|v| !v.is_empty());
+    let external_id = query
+        .external_id
+        .as_deref()
+        .filter(|e| !e.is_empty())
+        .map(|e| weldsuite_kit::validation::js_trim(e).to_owned());
     let order = match query.sort.as_deref() {
         Some("oldest") => "t.created_at, t.id",
         Some("waiting_longest") => "t.waiting_since ASC NULLS LAST, t.id",
@@ -343,6 +351,7 @@ pub(crate) async fn list(
                 .bind(empty(&query.ticket_type_id))
                 .bind(empty(&query.department_id))
                 .bind(empty(&query.tag))
+                .bind(external_id.clone())
         };
     }
     let count: i64 = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
@@ -351,7 +360,7 @@ pub(crate) async fn list(
     .fetch_one(db)
     .await?;
     let rows: Vec<Value> = bind!(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "select to_jsonb(t) from desk_conversations t where {FILTERS} order by {order} limit $13 offset $14"
+        "select to_jsonb(t) from desk_conversations t where {FILTERS} order by {order} limit $14 offset $15"
     ))))
     .bind(page + 1)
     .bind(offset)

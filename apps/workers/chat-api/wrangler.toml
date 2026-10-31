@@ -114,6 +114,12 @@ class_name = "UnpinExpiredMessageWorkflow"
 # WeldAgent runtime's waitUntil fallback) and @weldsuite/notifications sends
 # the email without the defer window.
 
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 logpush = true
@@ -203,6 +209,12 @@ script_name = "weldsuite-app-api-test"
 enabled = true
 head_sampling_rate = 1
 
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.test.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
+
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
 logpush = true
@@ -288,3 +300,9 @@ script_name = "weldsuite-app-api"
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.production.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker"

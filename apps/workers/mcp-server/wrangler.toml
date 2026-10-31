@@ -46,7 +46,8 @@ CLERK_PUBLISHABLE_KEY = "pk_test_ZGVmaW5pdGUtZWFnbGUtMy5jbGVyay5hY2NvdW50cy5kZXY
 "@clerk/nextjs/server" = "./src/lib/clerk-shim.ts"
 "@clerk/nextjs" = "./src/lib/clerk-shim.ts"
 "next/server" = "./src/lib/next-shim.ts"
-"react" = "./src/lib/react-shim.ts"
+# No shim for react: WeldDesk notifications (@weldsuite/desk-domain/inbox)
+# render React email templates.
 
 # Durable Objects for distributed rate limiting
 [[durable_objects.bindings]]
@@ -105,6 +106,12 @@ bucket_name = "weldsuite-storage-test"
 binding = "PRIVATE_STORAGE"
 bucket_name = "weldsuite-private-test"
 
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-dev"
+
 # ============ TEST ENVIRONMENT ============
 [env.test]
 name = "weldsuite-mcp-server-test"
@@ -159,6 +166,12 @@ bucket_name = "weldsuite-private-test"
 [env.test.observability]
 enabled = true
 head_sampling_rate = 1
+
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.test.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
 
 # ============ PRODUCTION ENVIRONMENT ============
 [env.production]
@@ -233,3 +246,9 @@ head_sampling_rate = 1
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.production.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker"

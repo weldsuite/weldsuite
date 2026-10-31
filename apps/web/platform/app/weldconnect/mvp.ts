@@ -30,6 +30,8 @@ export const WELDCONNECT_ACTION_TYPES = [
   'move_deal_stage',
   'log_activity',
   'create_task',
+  // WeldDesk inbox: open (or add to) a conversation, deduplicated by external id.
+  'create_conversation',
   'send_notification',
   'post_chat_message',
   'http_request',

@@ -160,6 +160,7 @@ const BUILTIN_ACTION_CONFIG_FIELDS: Record<string, string[]> = {
   change_priority: ['priority'],
   send_reply: ['message'],
   add_internal_note: ['note'],
+  create_conversation: ['title', 'message', 'name', 'email', 'externalId'],
   send_message: ['message'],
   send_choices: ['question', 'choices'],
   collect_input: ['question', 'variableName'],

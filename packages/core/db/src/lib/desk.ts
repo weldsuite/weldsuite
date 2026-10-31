@@ -71,14 +71,42 @@ export function isDeskSchemaMissing(err: unknown): boolean {
   return /column .+ does not exist/i.test(msg) || /relation .+ does not exist/i.test(msg);
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const code =
-    typeof err === 'object' && err !== null && 'code' in err
-      ? asText((err as { code: unknown }).code)
-      : '';
-  if (code === '23505') return true;
-  const msg = err instanceof Error ? err.message : asText(err);
-  return /duplicate key value/i.test(msg);
+/**
+ * The driver errors in `err`'s cause chain. Drizzle wraps them in a
+ * `DrizzleQueryError` whose message is the SQL and its params, so the wrapper
+ * itself is skipped: request text must not read as a Postgres error.
+ */
+function driverErrors(err: unknown): Array<Record<string, unknown>> {
+  const found: Array<Record<string, unknown>> = [];
+  let current: unknown = err;
+  for (let depth = 0; current && typeof current === 'object' && depth < 5; depth++) {
+    const e = current as Record<string, unknown>;
+    const isWrapper =
+      e.name === 'DrizzleQueryError' || (typeof e.message === 'string' && e.message.startsWith('Failed query:'));
+    if (!isWrapper) found.push(e);
+    current = e.cause;
+  }
+  return found;
+}
+
+/** A unique index rejected the write; with `constraint`, that index in particular. */
+function isUniqueViolation(err: unknown, constraint?: string): boolean {
+  return driverErrors(err).some((e) => {
+    const message = asText(e.message);
+    if (asText(e.code) !== '23505' && !/duplicate key value/i.test(message)) return false;
+    if (!constraint) return true;
+    return e.constraint === constraint || e.constraint_name === constraint || message.includes(constraint);
+  });
+}
+
+const EXTERNAL_ID_INDEX = 'desk_conversations_external_id_uidx';
+
+/** Another conversation already carries this external id (two deliveries raced). */
+export class DeskExternalIdTakenError extends Error {
+  constructor(readonly externalId: string) {
+    super(`A conversation with external id '${externalId}' already exists`);
+    this.name = 'DeskExternalIdTakenError';
+  }
 }
 
 function previewOf(body: string | null | undefined): string | null {
@@ -151,13 +179,15 @@ export async function upsertDeskVisitor(
       widgetId: input.widgetId ?? null,
     })
     .returning();
+  if (!created) throw new Error(`Desk visitor '${input.id}' was not created`);
   return created;
 }
 
 export interface CreateDeskConversationInput {
   generateId: IdGenerator;
   channel?: DeskChannel;
-  visitorId: string;
+  /** Null for a conversation nobody can answer in the widget (API, workflow, agent). */
+  visitorId: string | null;
   name?: string | null;
   email?: string | null;
   contactId?: string | null;
@@ -167,6 +197,8 @@ export interface CreateDeskConversationInput {
   authorType?: DeskAuthorType;
   authorId?: string | null;
   metadata?: DeskMessageMetadata;
+  /** Throws DeskExternalIdTakenError when another conversation has it. */
+  externalId?: string | null;
 }
 
 export async function createDeskConversation(
@@ -200,9 +232,13 @@ export async function createDeskConversation(
         waitingSince: authorType === 'visitor' ? now : null,
         lastMessageAt: now,
         lastMessagePreview: previewOf(input.body),
+        externalId: input.externalId ?? null,
       });
       break;
     } catch (err) {
+      if (input.externalId && isUniqueViolation(err, EXTERNAL_ID_INDEX)) {
+        throw new DeskExternalIdTakenError(input.externalId);
+      }
       if (attempt >= 4 || !isUniqueViolation(err)) throw err;
     }
   }
@@ -378,7 +414,8 @@ export async function appendDeskMessage(
     .where(eq(conversations.id, input.conversationId))
     .returning();
 
-  const sla = updated && movesDeskSla(input) ? await refreshDeskSlaQuietly(db, updated, input.generateId) : null;
+  if (!message || !updated) throw new DeskConversationNotFoundError(input.conversationId);
+  const sla = movesDeskSla(input) ? await refreshDeskSlaQuietly(db, updated, input.generateId) : null;
   return { conversation: sla?.conversation ?? updated, message, slaCheckAt: sla?.nextCheckAt ?? null };
 }
 
@@ -834,6 +871,8 @@ export interface ListDeskConversationsQuery {
   visitorId?: string;
   /** Exact (case-insensitive) customer email, for "other conversations". */
   email?: string;
+  /** The caller's own key (`ingestDeskApi`): at most one conversation. */
+  externalId?: string;
   /** Free text over customer, subject, number and message text. */
   q?: string;
   /** A priority, or `none` for conversations without one. */
@@ -892,6 +931,7 @@ function stateFilters(query: ListDeskConversationsQuery): SQL[] {
   if (query.channel) filters.push(eq(conversations.channel, query.channel));
   if (query.visitorId) filters.push(eq(conversations.visitorId, query.visitorId));
   if (query.email) filters.push(sql`lower(${conversations.email}) = ${query.email.trim().toLowerCase()}`);
+  if (query.externalId) filters.push(eq(conversations.externalId, query.externalId.trim()));
   return filters;
 }
 
@@ -921,12 +961,12 @@ export async function listDeskConversations(
 
   const offset = query.cursor ? Number.parseInt(query.cursor, 10) || 0 : 0;
 
-  const [{ count }] = await db
+  const [counted] = await db
     .select({ count: sql<number>`count(*)` })
     .from(conversations)
     .where(where);
 
-  const totalCount = Number(count ?? 0);
+  const totalCount = Number(counted?.count ?? 0);
 
   const data = await db
     .select()
@@ -1312,6 +1352,119 @@ export async function ingestDeskEmail(
     metadata: emailMeta,
   });
   return { ...result, created: true };
+}
+
+// ---------------------------------------------------------------------------
+// API channel: the public API, MCP, WeldAgent tools and workflows
+// ---------------------------------------------------------------------------
+
+/** What opened or added to an API conversation; kept on each message as `metadata.via`. */
+export type DeskApiSource = 'api' | 'mcp' | 'agent' | 'workflow';
+
+export async function findDeskConversationByExternalId(
+  db: AnyDb,
+  externalId: string,
+): Promise<DeskConversation | null> {
+  const [row] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.externalId, externalId))
+    .limit(1);
+  return row ?? null;
+}
+
+export interface IngestDeskApiInput {
+  generateId: IdGenerator;
+  via: DeskApiSource;
+  /**
+   * The caller's own key for what this is about (an alert id, an order
+   * number). A second delivery with the same key lands on the same
+   * conversation, reopening it if the team had closed it.
+   */
+  externalId?: string | null;
+  title?: string | null;
+  body: string;
+  /** The customer, or the system the message comes from ("Datadog"). */
+  name?: string | null;
+  email?: string | null;
+  contactId?: string | null;
+  metadata?: DeskMessageMetadata;
+}
+
+export interface IngestDeskApiResult {
+  conversation: DeskConversation;
+  message: DeskMessage;
+  created: boolean;
+  /** The conversation before this message landed; null when it is new. */
+  prior: Pick<DeskConversation, 'state' | 'waitingSince' | 'assigneeId'> | null;
+}
+
+/**
+ * Put a message from outside the inbox (an integration, an alert, the AI) in
+ * front of the team as a customer message on an `api` conversation: a new one,
+ * or the one that already carries `externalId`. With an email the sender is
+ * the same desk visitor their emails come from, so the inbox shows their other
+ * conversations.
+ */
+export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promise<IngestDeskApiResult> {
+  const externalId = input.externalId?.trim() || null;
+  const email = input.email?.trim().toLowerCase() || null;
+  const name = input.name?.trim() || null;
+  const metadata: DeskMessageMetadata = { ...input.metadata, via: input.via };
+
+  let visitorId: string | null = null;
+  if (email) {
+    const known = await findDeskVisitorByEmail(db, email);
+    const visitor = await upsertDeskVisitor(db, {
+      id: known?.id ?? input.generateId('dvis'),
+      name: name ?? known?.name ?? email,
+      email,
+    });
+    visitorId = visitor.id;
+  }
+
+  const addTo = async (conversation: DeskConversation): Promise<IngestDeskApiResult> => {
+    const result = await appendDeskMessage(db, {
+      generateId: input.generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      authorId: visitorId,
+      body: input.body,
+      metadata,
+    });
+    const { state, waitingSince, assigneeId } = conversation;
+    return { ...result, created: false, prior: { state, waitingSince, assigneeId } };
+  };
+
+  if (externalId) {
+    const existing = await findDeskConversationByExternalId(db, externalId);
+    if (existing) return addTo(existing);
+  }
+
+  try {
+    const result = await createDeskConversation(db, {
+      generateId: input.generateId,
+      channel: 'api',
+      visitorId,
+      name,
+      email,
+      contactId: input.contactId ?? null,
+      title: input.title?.trim() || null,
+      body: input.body,
+      authorType: 'visitor',
+      authorId: visitorId,
+      metadata,
+      externalId,
+    });
+    return { ...result, created: true, prior: null };
+  } catch (err) {
+    // The same alert delivered twice at once: the other delivery created it.
+    if (!(err instanceof DeskExternalIdTakenError)) throw err;
+    const existing = await findDeskConversationByExternalId(db, err.externalId);
+    if (!existing) throw err;
+    return addTo(existing);
+  }
 }
 
 // ---------------------------------------------------------------------------

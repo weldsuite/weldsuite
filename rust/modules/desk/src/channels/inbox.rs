@@ -109,6 +109,7 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
             .into_option();
         let visitor_id = text(issues, "visitorId", Text::length(None, Some(64)));
         let email = text(issues, "email", Text::trimmed(None, Some(255)));
+        let external_id = text(issues, "externalId", Text::trimmed(None, Some(255)));
         let q = text(issues, "q", Text::trimmed(None, Some(200)));
         let priority = issues
             .choice(
@@ -159,6 +160,7 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
             ticket_type_id,
             department_id,
             tag,
+            external_id,
             sort,
             cursor,
             limit,

@@ -152,6 +152,7 @@ export const deskInbox2 = {
     otherConversations: 'Andere gesprekken',
     noOtherConversations: 'Geen andere gesprekken met deze klant',
     rating: 'Beoordeling',
+    externalId: 'Extern ID',
   },
   ticket: {
     title: 'Ticket',

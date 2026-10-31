@@ -13,6 +13,8 @@ import { schema } from '@weldsuite/worker-kit/db';
 import { generateId } from '@weldsuite/worker-kit/id';
 import { publishEntityEventRaw, type EntityType } from '@weldsuite/entity-events';
 import { listPeople, createPerson, getPerson, isValidWorkspaceMember } from '@weldsuite/crm-domain/people';
+import { listDeskConversations } from '@weldsuite/db/lib/desk';
+import { openDeskApiConversation, type DeskInboxEvent } from '@weldsuite/desk-domain/inbox';
 import { allocateTaskNumber } from '@weldsuite/flow-domain/task-numbering';
 import { getWorkspaceTimezone } from '@weldsuite/flow-domain/day-boundaries';
 import { ASK_USER_TOOL_NAME, agentQuestionSchema } from '@weldsuite/app-api-client/schemas/weldagent-questions';
@@ -128,6 +130,20 @@ async function emitAgentEntityEvent(
   }
 }
 
+/** Publish one of the inbox's own events (`desk_conversation` / `desk_message`) as the agent's actor. */
+async function emitAgentInboxEvent(ctx: ToolContext, event: DeskInboxEvent): Promise<void> {
+  if (!ctx.env) return;
+  await publishEntityEventRaw({
+    env: ctx.env as never,
+    workspaceId: ctx.workspaceId,
+    userId: ctx.actorUserId,
+    entityType: event.entityType,
+    action: event.action,
+    entityId: event.entityId,
+    data: { ...event.data, triggeredByAgentId: ctx.agentId },
+  });
+}
+
 /** The owner a people read is limited to: the person the tools act for, unless they may see everyone's. */
 function peopleOwnerScope(ctx: ToolContext): string | undefined {
   return ctx.rowScope && !ctx.rowScope.allPeople ? ctx.rowScope.userId : undefined;
@@ -153,13 +169,6 @@ async function taskRowScope(ctx: ToolContext): Promise<SQL | undefined> {
   const own: SQL[] = [assignedTo(userId), and(isNull(t.projectId), eq(t.reporterId, userId))!];
   if (projectIds.length > 0) own.unshift(inArray(t.projectId, projectIds));
   return or(...own);
-}
-
-/** `length` random base36 characters from the Web Crypto RNG. */
-function randomBase36(length: number): string {
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => (b % 36).toString(36)).join('');
 }
 
 /**
@@ -195,18 +204,24 @@ const createPersonParams = z.object({
 });
 
 const listTicketsParams = z.object({
-  search: z.string().max(200).optional(),
-  status: z.string().max(30).optional(),
+  search: z.string().max(200).optional().describe('Customer, subject, message text, or a number like #42'),
+  state: z.enum(['open', 'closed']).optional(),
   limit: z.number().int().min(1).max(50).optional(),
 });
 
 const createTicketParams = z.object({
   subject: z.string().min(1).max(500),
-  description: z.string().max(10000).optional(),
-  customerName: z.string().min(1).max(255),
-  customerEmail: z.string().email(),
+  description: z.string().max(10000).optional().describe('What the customer needs, in full'),
+  customerName: z.string().min(1).max(255).optional(),
+  customerEmail: z.string().email().optional(),
   priority: z.enum(['low', 'medium', 'high', 'urgent', 'critical']).optional(),
-  status: z.enum(['new', 'open', 'pending', 'on_hold', 'in_progress', 'resolved', 'closed']).optional(),
+  externalId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .optional()
+    .describe('A key for what this is about (alert id, order number): the same key adds to the same ticket'),
 });
 
 const listTasksParams = z.object({
@@ -702,76 +717,73 @@ export const PLATFORM_TOOLS: PlatformToolDefinition[] = [
       };
     },
   },
+  // Tickets are conversations in the WeldDesk inbox, where the team works;
+  // `helpdesk_tickets` has no screen, so a ticket written there reached nobody.
   {
     id: 'tickets.list',
     name: 'list_tickets',
-    description: 'List helpdesk tickets, optionally filtered by status or search.',
+    description: 'List helpdesk tickets (WeldDesk inbox conversations), newest activity first.',
     requiredPermissions: ['tickets:read'],
     parameters: listTicketsParams,
     async execute(ctx, raw) {
       const args = listTicketsParams.parse(raw);
-      const { helpdeskTickets: t } = schema;
-      const limit = args.limit ?? 20;
-      const conditions = [isNull(t.deletedAt)];
-      if (args.status) conditions.push(eq(t.status, args.status));
-      if (args.search) {
-        const q = `%${args.search}%`;
-        conditions.push(
-          or(ilike(t.subject, q), ilike(t.customerName, q), ilike(t.customerEmail, q))!,
-        );
-      }
-      const rows = await ctx.db
-        .select({
-          id: t.id,
-          ticketNumber: t.ticketNumber,
-          subject: t.subject,
-          status: t.status,
-          priority: t.priority,
-          customerName: t.customerName,
-          customerEmail: t.customerEmail,
-        })
-        .from(t)
-        .where(and(...conditions))
-        .orderBy(desc(t.createdAt))
-        .limit(limit);
-      return { tickets: rows };
+      const { data } = await listDeskConversations(ctx.db, {
+        q: args.search,
+        state: args.state,
+        limit: args.limit ?? 20,
+      });
+      return {
+        tickets: data.map((c) => ({
+          id: c.id,
+          number: c.conversationNumber,
+          subject: c.title,
+          state: c.state,
+          channel: c.channel,
+          customerName: c.name,
+          customerEmail: c.email,
+          assigneeId: c.assigneeId,
+        })),
+      };
     },
   },
   {
     id: 'tickets.create',
     name: 'create_ticket',
-    description: 'Create a new helpdesk ticket.',
+    description:
+      'Open a helpdesk ticket in the WeldDesk inbox for the team. With externalId, a repeat adds to the same ticket.',
     requiredPermissions: ['tickets:create'],
     parameters: createTicketParams,
     async execute(ctx, raw) {
       const args = createTicketParams.parse(raw);
-      const { helpdeskTickets: t } = schema;
-      const id = generateId('tkt');
-      const now = new Date();
-      const ticketNumber = `TKT-${Date.now().toString(36).toUpperCase()}-${randomBase36(4).toUpperCase()}`;
-      await ctx.db.insert(t).values({
-        id,
-        ticketNumber,
-        subject: args.subject,
-        description: args.description ?? null,
-        customerName: args.customerName,
-        customerEmail: args.customerEmail,
-        status: args.status ?? 'new',
-        priority: args.priority ?? 'medium',
-        category: 'general_inquiry',
-        channel: 'api',
-        type: 'question',
-        createdAt: now,
-        updatedAt: now,
-      });
-      await emitAgentEntityEvent(ctx, 'ticket', id, {
-        id,
-        ticketNumber,
-        subject: args.subject,
-        status: args.status ?? 'new',
-        priority: args.priority ?? 'medium',
-      });
-      return { id, ticketNumber, subject: args.subject, status: args.status ?? 'new' };
+      const result = await openDeskApiConversation(
+        {
+          db: ctx.db,
+          env: ctx.env ?? {},
+          clerkOrgId: ctx.workspaceId,
+          generateId,
+          emit: (event) => emitAgentInboxEvent(ctx, event),
+        },
+        {
+          via: 'agent',
+          externalId: args.externalId,
+          title: args.subject,
+          body: args.description?.trim() || args.subject,
+          name: args.customerName,
+          email: args.customerEmail,
+          metadata: { agentId: ctx.agentId },
+          // The inbox's top priority is urgent.
+          fields: args.priority ? { priority: args.priority === 'critical' ? 'urgent' : args.priority } : undefined,
+          actor: { authorType: 'bot', authorId: ctx.agentId },
+        },
+      );
+      const { conversation } = result;
+      return {
+        id: conversation.id,
+        number: conversation.conversationNumber,
+        subject: conversation.title,
+        state: conversation.state,
+        created: result.created,
+      };
     },
   },
   {
