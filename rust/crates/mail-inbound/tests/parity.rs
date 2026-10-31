@@ -234,6 +234,7 @@ fn promotions_match() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)] // one fixture, many helpers
 fn helpers_match() {
     let h = fixture("helpers");
     for pair in h["bareMessageId"].as_array().expect("cases") {
@@ -582,6 +583,7 @@ impl Recording {
     }
 }
 
+#[allow(clippy::unused_async_trait_impl)] // the trait's shape
 impl FileStore for Recording {
     async fn put(
         &self,
@@ -614,6 +616,7 @@ impl FileStore for Recording {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)] // the steps, then every table
 async fn storage_writes_the_rows_the_worker_writes() {
     let Some(db) = tenant_db().await else {
         eprintln!("skipped: WELDSUITE_TEST_TENANT_URL is not set");

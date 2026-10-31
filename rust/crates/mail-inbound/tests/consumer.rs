@@ -68,6 +68,7 @@ async fn seed(master: &PgPool, tenant: &PgPool) {
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)] // one delivery's whole story
 async fn a_spooled_message_is_stored_once() {
     let (Some(master), Some(tenant)) = (
         pool("WELDSUITE_TEST_MASTER_URL").await,
