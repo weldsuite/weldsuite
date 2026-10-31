@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has ten
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has eleven
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -27,9 +27,10 @@ modules, each with conformance suites that reach every route:
   CloudNativePG (`/api/onboarding`, `workspace.provision`)
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
-  **calendar**, **crm**, **flow**, **mail**, **chat** and **desk** (with the
+  **calendar**, **crm**, **flow**, **mail**, **chat**, **desk** (with the
   helpdesk widget API at `/public/helpdesk-widget`; not yet its workflow
-  engine, `helpdesk-workflow-worker`)
+  engine, `helpdesk-workflow-worker`) and **stash** (the WMS, with the
+  pick-list ship action's Sendcloud announcement over outbound HTTP)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -37,7 +38,7 @@ the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls and help center custom domains.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
-reason. Not ported yet (P8): books, commerce, stash,
+reason. Not ported yet (P8): books, commerce,
 host, meet, call, connect, agent, data, hr, social, ads, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
@@ -82,7 +83,8 @@ rust/
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
                         modules/mail, modules/chat, modules/desk, modules/desk-widget (the
-                        helpdesk widget API, at /public/helpdesk-widget); core is split over
+                        helpdesk widget API, at /public/helpdesk-widget), modules/stash (the WMS);
+                        core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
                         modules/core-team (team, roles, settings, preferences, app catalog),
@@ -207,7 +209,7 @@ changes into the databases, what Clerk's webhooks do on Global),
 | `OIDC_ISSUER`, `OIDC_AUDIENCE` | with `oidc` (both required): the issuer (`iss`, and where discovery reads `/.well-known/openid-configuration`) and the accepted audiences, comma separated (Zitadel: the project id) |
 | `OIDC_ORG_CLAIM` | the claim naming the session's organization (default `urn:zitadel:iam:org:id`; Zitadel's project-roles claim works too). Its value is matched against `workspaces.clerk_org_id`, which holds the provider's organization id on Kubernetes, or `workspaces.id` |
 | `OIDC_JWKS_URL`, `OIDC_WEB_CLIENT_ID` | fetch the keys here instead of through discovery; the platform's PKCE client id for `/config.json` (both optional) |
-| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url` |
+| `DATABASE_ENCRYPTION_KEY`, `DATABASE_ENCRYPTION_KEY_V2` | open encrypted `workspaces.database_url`, and the Sendcloud secret a workspace stored for WeldStash's ship action |
 | `CLERK_AUTHORIZED_PARTIES` | extra origins allowed as `azp` |
 | `PERMISSIONS_APP_ENFORCE` | `true` refuses per-app denials instead of logging them |
 | `VALKEY_URL`, `VALKEY_CACHE_PREFIX`, `VALKEY_REALTIME_PREFIX` | cache, realtime publish and the WebSocket gateway (optional; without it, upload tokens live in the server process, enough for one replica only, and the gateway is off) |
