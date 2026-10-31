@@ -168,6 +168,13 @@ export const FORWARDED_ENV = [
   'WIDGET_TOKEN_SECRET',
   'REALTIME_PUBLIC_URL',
   'REALTIME_INTERNAL_SECRET',
+  // WeldHR: the keyring that seals an employee's sensitive block and payroll
+  // bank details, WeldSuite's ODB number in a loonaangifte, and the platform
+  // origin payroll mail links to.
+  'DATABASE_ENCRYPTION_KEY',
+  'DATABASE_ENCRYPTION_KEY_V2',
+  'NL_SOFTWARE_RELATION_NUMBER',
+  'APP_URL',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -790,18 +797,22 @@ export async function recordOnlyRequest(
   const response = await run();
   if (target.reportDir) {
     const { file, test } = await currentTest();
+    const route = response.headers.get(ROUTE_HEADER);
+    // TypeScript's own answer against the route's registered schema, so a
+    // schema written for a module being ported is checked before Rust runs.
+    const { schema, schemaError } = checkSchema(method.toUpperCase(), route, await capture(response.clone()));
     await record(target.reportDir, {
       file,
       test,
       method: method.toUpperCase(),
       path: pathOf(input),
-      route: response.headers.get(ROUTE_HEADER),
+      route,
       tsStatus: response.status,
       rustStatus: null,
       match: true,
       difference: null,
-      schema: 'none',
-      schemaError: null,
+      schema,
+      schemaError,
     });
   }
   return response;
