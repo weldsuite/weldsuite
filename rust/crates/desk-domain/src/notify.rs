@@ -180,6 +180,59 @@ pub async fn ticket_assigned(
     }))
 }
 
+/// `PREVIEW_MAX`: the default length of `helpdeskPreview`.
+pub const PREVIEW_MAX: usize = 180;
+
+/// `sendTicketReplyNotification`, up to the delivery: the notification for
+/// the assignee when a customer replied, or `None` (no assignee, the
+/// workspace turned `notifyOnCustomerReply` off).
+#[allow(clippy::too_many_arguments)]
+pub async fn customer_reply(
+    db: &PgPool,
+    assignee_id: Option<&str>,
+    kind: EntityKind,
+    entity_id: &str,
+    customer_name: &str,
+    customer_contact_id: Option<&str>,
+    message_body: Option<&str>,
+    subject: Option<&str>,
+) -> Result<Option<HelpdeskNotification>, sqlx::Error> {
+    let Some(assignee) = assignee_id.filter(|a| !a.is_empty()) else {
+        return Ok(None);
+    };
+    if !enabled(db, "notifyOnCustomerReply").await? {
+        return Ok(None);
+    }
+    let who = weldsuite_kit::validation::js_trim(customer_name);
+    let who = if who.is_empty() { "A customer" } else { who };
+    let body = [
+        preview(message_body, PREVIEW_MAX),
+        preview(subject, PREVIEW_MAX),
+    ]
+    .into_iter()
+    .find(|p| !p.is_empty())
+    .unwrap_or_else(|| "New reply".to_owned());
+    let contact = customer_contact_id.filter(|c| !c.is_empty());
+    Ok(Some(HelpdeskNotification {
+        user_id: assignee.to_owned(),
+        title: format!("{who} replied"),
+        body,
+        category: "helpdesk",
+        notification_type: "ticket_reply",
+        entity_type: kind.entity_type(),
+        entity_id: entity_id.to_owned(),
+        action_url: kind.action_url(entity_id),
+        severity: "info",
+        actor_type: if contact.is_some() {
+            "contact"
+        } else {
+            "system"
+        },
+        actor_id: contact.map(str::to_owned),
+        data: kind.data(entity_id),
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

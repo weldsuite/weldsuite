@@ -25,7 +25,7 @@ them. Groups outside `/api` (`/internal/*`) have their own router.
 | `/api/mailboxes` | | not started (cross-workspace, org-less) |
 | `/api/mail-domains`, `/api/mail-weldmail`, `/api/mail-ai`, `/internal/mail-store` | | not ported; proposed exclusions (MAIL-010, the AI port, the object store) |
 | `mail-sending-events`, `mail-outbound-review` consumers | `consumers` | handlers ported |
-| inbound (mail-inbound-worker) | | not started |
+| inbound (mail-inbound-worker) | `crates/mail-inbound` (the `RCPT TO` check in `serve`, the `mail.inbound` subscriber in `consume`, Haraka in `deploy/haraka`) | ported (MAIL-010) |
 
 The routes run the `postgres` mailbox store only (MAIL-010); the shared
 message, thread and label logic is in `weldsuite_mail_domain::{messages,

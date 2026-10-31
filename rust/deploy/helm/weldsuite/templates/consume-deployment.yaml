@@ -74,7 +74,8 @@ spec:
               value: {{ .deadLetterStream | quote }}
             {{- with .subscribers }}
             - name: CONSUME_SUBSCRIBERS
-              value: {{ join "," . | quote }}
+              {{- /* The inbound mail subscriber runs with mailInbound. */}}
+              value: {{ join "," (ternary (append . "mail-inbound" | uniq) . $.Values.mailInbound.enabled) | quote }}
             {{- end }}
             {{- if .embeddings.url }}
             - name: EMBEDDINGS_URL
@@ -88,6 +89,9 @@ spec:
               value: {{ .webhooks.retrySweep | toString | quote }}
             - name: CONSUME_DRAIN_SECONDS
               value: {{ .drainSeconds | quote }}
+            {{- end }}
+            {{- if .Values.mailInbound.enabled }}
+            {{- include "weldsuite.mailInbound.consumeEnv" . | nindent 12 }}
             {{- end }}
           envFrom:
             - secretRef:

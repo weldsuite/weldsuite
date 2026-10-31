@@ -740,10 +740,20 @@ pub(crate) fn public(state: &AppState) -> Router<AppState> {
         .merge(social_public(state))
         .merge(books::public(state));
     if mounts("mail") {
-        router.nest(
-            "/internal/outbound",
-            weldsuite_mail::internal_outbound_router(mail_state(state)),
-        )
+        router
+            .nest(
+                "/internal/outbound",
+                weldsuite_mail::internal_outbound_router(mail_state(state)),
+            )
+            // Haraka's `RCPT TO` check (MAIL-010): the master registry,
+            // behind `MAIL_INBOUND_SECRET`.
+            .nest(
+                "/internal/mail-inbound",
+                weldsuite_mail_inbound::rcpt::router(
+                    state.workspaces.master().clone(),
+                    state.mail_inbound_secret.as_deref().map(str::to_owned),
+                ),
+            )
     } else {
         router
     }

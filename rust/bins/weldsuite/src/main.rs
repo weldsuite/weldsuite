@@ -171,6 +171,7 @@ async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         sign_session_secret: config.sign_session_secret.as_deref().map(Arc::from),
         sign_portal_url: config.sign_portal_url.as_deref().map(Arc::from),
         sign_portal_secret: config.sign_portal_secret.as_deref().map(Arc::from),
+        mail_inbound_secret: config.mail_inbound_secret.as_deref().map(Arc::from),
         files_public_url: config.files_public_url.as_deref().map(Arc::from),
         widget_token_secret: config
             .realtime

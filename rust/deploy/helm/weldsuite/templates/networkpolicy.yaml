@@ -17,6 +17,12 @@ spec:
       {{- with .Values.networkPolicy.ingressFrom }}
       from:
         {{- toYaml . | nindent 8 }}
+        {{- if $.Values.mailInbound.enabled }}
+        # Haraka asks /internal/mail-inbound/recipients at RCPT TO (MAIL-010).
+        - podSelector:
+            matchLabels:
+              {{- include "weldsuite.mx.selectorLabels" $ | nindent 14 }}
+        {{- end }}
         {{- if $.Values.signPortal.enabled }}
         # The sign portal calls /public/sign-portal/* (ADR FE-017).
         - podSelector:

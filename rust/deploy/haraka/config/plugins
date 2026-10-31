@@ -1,0 +1,15 @@
+# Plugins, in order (ADR MAIL-010). The chart mounts its own copy of this
+# list (tls only with a certificate) and of connection.ini and me.
+
+# STARTTLS with the certificate in /tls (cert-manager, the chart).
+tls
+# SPF for HELO and MAIL FROM, DKIM verification: results only, nothing
+# rejected here (the spam scorer weighs them, as on Global).
+spf
+dkim
+# RCPT TO: the master registry through weldsuite serve.
+weldsuite_rcpt
+# DMARC and the Authentication-Results header in Cloudflare's form.
+weldsuite_auth_results
+# The raw message to the mail bucket, its key and envelope to mail.inbound.
+weldsuite_queue
