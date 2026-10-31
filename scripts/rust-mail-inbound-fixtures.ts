@@ -39,8 +39,7 @@ process.env.TZ = 'UTC';
 
 // The Workers-only modules the worker's imports reach (send bindings, the
 // mailbox Durable Object): stubs, as the worker's vitest config has.
-register(
-  `data:text/javascript,${encodeURIComponent(`
+const workerStubs = `
 export async function resolve(specifier, context, next) {
   if (specifier === 'cloudflare:email') {
     return { shortCircuit: true, url: 'data:text/javascript,' + encodeURIComponent('export class EmailMessage { constructor(f, t, r) { this.from = f; this.to = t; this.raw = r; } }') };
@@ -49,9 +48,8 @@ export async function resolve(specifier, context, next) {
     return { shortCircuit: true, url: 'data:text/javascript,' + encodeURIComponent('export class DurableObject { constructor(c, e) { this.ctx = c; this.env = e; } } export class WorkflowEntrypoint { constructor(c, e) { this.ctx = c; this.env = e; } } export class WorkerEntrypoint {} export const env = {};') };
   }
   return next(specifier, context);
-}`)}`,
-  import.meta.url,
-);
+}`;
+register(`data:text/javascript,${encodeURIComponent(workerStubs)}`, import.meta.url);
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = path.join(repo, 'rust', 'crates', 'mail-inbound', 'tests', 'fixtures');
@@ -485,6 +483,8 @@ async function spamFixture(): Promise<Json> {
         spfStatus: 'fail',
         dkimStatus: 'none',
         dmarcStatus: 'none',
+        // The scorer's link-count input: plain-text links, not requests.
+        // eslint-disable-next-line sonarjs/no-clear-text-protocols
         textBody: 'http://a.com http://b.com http://c.com http://d.com http://e.com click',
       }),
       { attachmentNames: ['update.js'] },
@@ -917,6 +917,46 @@ const STORE_SEED = [
             ('rule_fx_never', '${ACCOUNT}', 'Never', '[{"field":"from","operator":"contains","value":"bad@"}]', '[{"type":"delete"}]', 1, false)`,
 ];
 
+interface StoredResult {
+  messageId: string;
+  isSpam: boolean;
+  isPromotion?: boolean;
+}
+
+interface RuleState {
+  labels: string[];
+  isRead: boolean;
+  isFlagged: boolean;
+  isSpam: boolean;
+  deleted: boolean;
+}
+
+interface RulesStorage {
+  applyMailRules: (db: never, rules: never, email: unknown, messageId: string, initial: RuleState) => Promise<{ state: RuleState; markedSpam: Json }>;
+  finalizeOpFromStates: (messageId: string, initial: RuleState, state: RuleState) => unknown;
+}
+
+function initialLabel(result: StoredResult): string {
+  if (result.isSpam) return 'SPAM';
+  return result.isPromotion ? 'PROMOTIONS' : 'INBOX';
+}
+
+// The worker's rules step after a store: the account's active rules, highest
+// priority first, then the state change applied to the mailbox.
+async function runRules(storage: RulesStorage, mailbox: { apply: (op: never) => Promise<unknown> }, db: never, email: unknown, result: StoredResult): Promise<Json> {
+  const initial: RuleState = { labels: [initialLabel(result)], isRead: false, isFlagged: false, isSpam: result.isSpam, deleted: false };
+  const { schema } = await import('../packages/core/worker-kit/src/db');
+  const { and, desc, eq, isNull } = await import('drizzle-orm');
+  const ruleRows = await (db as { select: () => { from: (t: unknown) => { where: (c: unknown) => { orderBy: (o: unknown) => Promise<unknown[]> } } } })
+    .select()
+    .from(schema.mailRules)
+    .where(and(eq(schema.mailRules.accountId, ACCOUNT), eq(schema.mailRules.isActive, true), isNull(schema.mailRules.deletedAt)))
+    .orderBy(desc(schema.mailRules.priority));
+  const outcome = await quietly(() => storage.applyMailRules(db, ruleRows as never, email, result.messageId, initial));
+  if (outcome.state !== initial) await mailbox.apply(storage.finalizeOpFromStates(result.messageId, initial, outcome.state) as never);
+  return outcome.markedSpam;
+}
+
 async function storeFixture(rows: (sql: string) => Promise<Json[]>, exec: (sql: string[]) => Promise<void>, db: never): Promise<Json> {
   const storage = await import(worker('email-storage'));
   const { adaptCloudflareEmail } = await import(worker('cf-email-adapter'));
@@ -943,20 +983,7 @@ async function storeFixture(rows: (sql: string) => Promise<Json[]>, exec: (sql: 
     const { email, attachments } = await adaptCloudflareEmail(message);
     const names = attachments.map((a: { fileName: string }) => a.fileName).filter(Boolean);
     const result = await quietly(() => storage.storeEmail(env as never, account as never, email, names, attachments, mailbox));
-    let markedSpam: Json = null;
-    if (result && step.rules) {
-      const initial = { labels: [result.isSpam ? 'SPAM' : result.isPromotion ? 'PROMOTIONS' : 'INBOX'], isRead: false, isFlagged: false, isSpam: result.isSpam, deleted: false };
-      const { schema } = await import('../packages/core/worker-kit/src/db');
-      const { and, desc, eq, isNull } = await import('drizzle-orm');
-      const ruleRows = await (db as { select: () => { from: (t: unknown) => { where: (c: unknown) => { orderBy: (o: unknown) => Promise<unknown[]> } } } })
-        .select()
-        .from(schema.mailRules)
-        .where(and(eq(schema.mailRules.accountId, ACCOUNT), eq(schema.mailRules.isActive, true), isNull(schema.mailRules.deletedAt)))
-        .orderBy(desc(schema.mailRules.priority));
-      const outcome = await quietly(() => storage.applyMailRules(db, ruleRows as never, email, result.messageId, initial));
-      if (outcome.state !== initial) await mailbox.apply(storage.finalizeOpFromStates(result.messageId, initial, outcome.state));
-      markedSpam = outcome.markedSpam;
-    }
+    const markedSpam = result && step.rules ? await runRules(storage, mailbox, db, email, result) : null;
     steps.push({
       name: step.name,
       raw: b64(step.raw.raw),
