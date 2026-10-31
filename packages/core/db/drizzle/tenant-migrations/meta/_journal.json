@@ -1653,6 +1653,13 @@
       "when": 1793387107360,
       "tag": "0235_desk_conversation_external_id",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1793459601224,
+      "tag": "0236_desk_portal_identity",
+      "breakpoints": true
     }
   ]
 }
