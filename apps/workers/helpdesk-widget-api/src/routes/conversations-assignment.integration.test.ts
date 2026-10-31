@@ -26,7 +26,18 @@ import * as tenantSchema from '@weldsuite/db/schema';
 import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { WIDGET, addWidget, at, get, json, member, seedWorkspaces, widgetEnv } from '../test/widget-fixtures';
+import {
+  WIDGET,
+  addWidget,
+  at,
+  getAs,
+  json,
+  member,
+  seedWorkspaces,
+  visitorRow,
+  visitorToken,
+  widgetEnv,
+} from '../test/widget-fixtures';
 
 // Conformance mode runs every write on both backends, each on a fresh copy.
 vi.setConfig({ testTimeout: 120_000 });
@@ -42,7 +53,7 @@ vi.mock('../db', async (importOriginal) => ({
 
 import worker from '../index';
 
-const { deskConversations, deskMessages, helpdeskSettings, notifications, workspaceMembers } = tenantSchema;
+const { deskConversations, deskMessages, deskVisitors, helpdeskSettings, notifications, workspaceMembers } = tenantSchema;
 
 const BASE = '/api/conversations';
 const ROSTER = ['user_ann', 'user_bob', 'user_cy'];
@@ -134,7 +145,7 @@ async function waiting(id: string, values: Partial<typeof deskConversations.$inf
 }
 
 async function visitorWrites(id: string, visitorId = 'vis_assign') {
-  const res = await call(`${BASE}/${id}/messages`, json({ visitorId, body: 'Hello again' }));
+  const res = await call(`${BASE}/${id}/messages`, json({ body: 'Hello again' }, { token: await visitorToken(visitorId) }));
   expect(res.status).toBe(201);
   return res;
 }
@@ -190,6 +201,7 @@ beforeAll(async () => {
   holder.tenant = tenantDb;
   await seedWorkspaces(masterDb);
   await addWidget(masterDb, tenantDb, WIDGET);
+  await tenantDb.insert(deskVisitors).values([visitorRow('vis_assign'), visitorRow('vis_assign_new')]);
 
   await tenantDb.insert(workspaceMembers).values([
     member('user_ann', { name: 'Ann Agent', picture: AVATAR('ann') }),
@@ -332,7 +344,8 @@ describe('auto-assignment: what it leaves behind', () => {
     expect(((await res.json()) as { data: { conversation: { assignee: unknown } } }).data.conversation.assignee).toBeNull();
     await assignedTo('dconv_a_visible', 'user_ann');
 
-    const thread = await call(`${BASE}/dconv_a_visible?visitorId=vis_assign`, get());
+    const token = await visitorToken('vis_assign');
+    const thread = await call(`${BASE}/dconv_a_visible`, getAs(token));
     expect(thread.status).toBe(200);
     const body = (await thread.json()) as {
       data: { conversation: { assignee: unknown; state: string }; messages: Array<Record<string, unknown>> };
@@ -344,7 +357,7 @@ describe('auto-assignment: what it leaves behind', () => {
     ]);
 
     // The listing carries the assignee too.
-    const list = await call(`${BASE}?visitorId=vis_assign`, get());
+    const list = await call(BASE, getAs(token));
     const found = ((await list.json()) as { data: Array<{ id: string; assignee: unknown }> }).data.find(
       (c) => c.id === 'dconv_a_visible',
     );
@@ -386,7 +399,10 @@ describe('auto-assignment: what it leaves behind', () => {
 
   it('assigns a new conversation and tells the new assignee alone', async () => {
     await arrange({ mode: 'balanced', memberIds: ROSTER }, { user_ann: 1, user_bob: 1 });
-    const res = await call(BASE, json({ visitorId: 'vis_assign_new', name: 'Nora', body: 'Hello, new here' }));
+    const res = await call(
+      BASE,
+      json({ name: 'Nora', body: 'Hello, new here' }, { token: await visitorToken('vis_assign_new') }),
+    );
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: { conversation: { id: string; assignee: unknown } } };
     // The answer is the conversation as it was created.

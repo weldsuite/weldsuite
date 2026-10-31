@@ -22,6 +22,7 @@ use weldsuite_ports::{PutOptions, RealtimeMessage};
 
 use crate::auth::Widget;
 use crate::conversations::ClaimedAttachment;
+use crate::visitor_auth::Visitor;
 use crate::{Ctx, WidgetState, bad_request, internal, not_found_error, success};
 
 /// `MAX_MESSAGE_ATTACHMENTS`.
@@ -234,6 +235,7 @@ pub(crate) async fn upload(
     State(state): State<WidgetState>,
     ctx: Ctx,
     Extension(widget): Extension<Widget>,
+    Extension(caller): Extension<Visitor>,
     request: Request,
 ) -> Response {
     let unavailable = || internal("File upload not available");
@@ -268,12 +270,18 @@ pub(crate) async fn upload(
     let Some(conversation_id) = text_field(&fields, "conversationId").filter(|id| is_id(id)) else {
         return bad_request("conversationId is required");
     };
-    let Some(visitor_id) = text_field(&fields, "visitorId").filter(|id| is_id(id)) else {
-        return bad_request("visitorId is required");
+    // The visitor comes from the visitor token and must be allowed into the conversation.
+    let conversation = match webchat::get(&widget.db, conversation_id, false).await {
+        Ok(Some((conversation, _))) => conversation,
+        Ok(None) => return not_found_error("Conversation", conversation_id),
+        Err(error) => {
+            tracing::error!(%error, "[Widget] Failed to upload attachment");
+            return failed();
+        }
     };
-    match webchat::get(&widget.db, conversation_id, false).await {
-        Ok(Some((conversation, _))) if conversation["visitorId"].as_str() == Some(visitor_id) => {}
-        Ok(_) => return not_found_error("Conversation", conversation_id),
+    match webchat::can_access(&widget.db, &conversation, &caller.principal).await {
+        Ok(true) => {}
+        Ok(false) => return not_found_error("Conversation", conversation_id),
         Err(error) => {
             tracing::error!(%error, "[Widget] Failed to upload attachment");
             return failed();

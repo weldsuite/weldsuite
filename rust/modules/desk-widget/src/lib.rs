@@ -1,9 +1,11 @@
 //! WeldDesk's helpdesk widget API (`apps/workers/helpdesk-widget-api`): the
 //! public webchat API a website's widget calls, authenticated by its widget
-//! id (`x-widget-id`) instead of a session. The Global worker answers at its
-//! own host (`/api/config`); the Rust server serves it under
-//! `/public/helpdesk-widget` (`/public/helpdesk-widget/api/config`), and the
-//! widget finds it there through its API URL.
+//! id (`x-widget-id`) instead of a session, and the visitor by the visitor
+//! token `POST /api/visitor` issues (`Authorization: Bearer`, ADR DESK-010).
+//! The Global worker answers at its own host (`/api/config`); the Rust
+//! server serves it under `/public/helpdesk-widget`
+//! (`/public/helpdesk-widget/api/config`), and the widget finds it there
+//! through its API URL.
 //!
 //! One module per TypeScript source, named in each module's docs. Paths,
 //! bodies, status codes, messages and side effects are the worker's; its
@@ -14,6 +16,9 @@
 //!
 //! The Discord bot ingest (`/webhook/discord/*`) is not here: only
 //! `discord-bot-worker` calls it, and that worker runs on Global only.
+//! Neither is the signed-in help center (`/api/portal/*`): only the help
+//! center's server calls it, over a service binding, and the help center
+//! has no Kubernetes deployment.
 
 mod attachments;
 mod auth;
@@ -23,6 +28,10 @@ mod live;
 mod office_hours;
 mod rate_limit;
 mod realtime_token;
+mod tokens;
+mod visitor;
+mod visitor_auth;
+mod visitor_identity;
 
 use std::sync::Arc;
 
@@ -87,8 +96,9 @@ impl std::fmt::Debug for WidgetState {
 pub struct Settings {
     /// `ENVIRONMENT`: `production` leaves error messages out of a 500.
     pub environment: String,
-    /// `WIDGET_TOKEN_SECRET`: signs the visitor's realtime token. The
-    /// realtime gateway verifies it with the same value.
+    /// `WIDGET_TOKEN_SECRET`: signs the visitor's realtime token (the
+    /// realtime gateway verifies it with the same value), and, under a key
+    /// derived from it, the visitor tokens (`POST /api/visitor`).
     pub token_secret: Option<String>,
     /// `R2_PUBLIC_URL`: the public bucket's own URL (`S3_PUBLIC_URL`).
     pub public_storage_url: Option<String>,
@@ -117,6 +127,7 @@ impl std::fmt::Debug for Settings {
 pub fn router(state: WidgetState) -> Router {
     let api = Router::new()
         .route("/config", get(config::get_config))
+        .route("/visitor", post(visitor::session))
         .nest("/conversations", conversations::routes())
         .route("/realtime/token", post(realtime_token::token))
         .route(
@@ -124,6 +135,11 @@ pub fn router(state: WidgetState) -> Router {
             post(attachments::upload).layer(attachments::body_limit()),
         )
         .fallback(api_not_found)
+        // Innermost: the visitor routes need the widget the auth found.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            visitor_auth::visitor_auth,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::widget_auth,
@@ -142,7 +158,7 @@ pub fn router(state: WidgetState) -> Router {
         .layer(middleware::from_fn(cors))
 }
 
-/// `cors({ origin: '*', allowMethods, allowHeaders: ['Content-Type', 'x-widget-id'], credentials: false })`,
+/// `cors({ origin: '*', allowMethods, allowHeaders: ['Content-Type', 'x-widget-id', 'Authorization'], credentials: false })`,
 /// as Hono answers it: every `OPTIONS` request is a preflight, answered 204
 /// before any other middleware, and every other response gets
 /// `Access-Control-Allow-Origin: *`, refusals included.
@@ -158,7 +174,7 @@ async fn cors(request: Request, next: Next) -> Response {
         );
         headers.insert(
             header::ACCESS_CONTROL_ALLOW_HEADERS,
-            HeaderValue::from_static("Content-Type,x-widget-id"),
+            HeaderValue::from_static("Content-Type,x-widget-id,Authorization"),
         );
         return response;
     }

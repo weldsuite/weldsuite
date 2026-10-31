@@ -16,6 +16,9 @@ use crate::{Ctx, WidgetState, failure};
 pub(crate) struct Widget {
     /// `c.get('widgetId')`.
     pub(crate) id: String,
+    /// `c.get('workspaceId')`: `workspaces.id` of the widget's workspace
+    /// (ADR SEC-011); visitor tokens are bound to it.
+    pub(crate) workspace_id: String,
     /// `c.get('clerkOrgId')`: events, attachment keys and realtime use it.
     pub(crate) clerk_org_id: String,
     /// `c.get('widgetConfig')`: the `desk_widget_settings` row as
@@ -153,6 +156,7 @@ async fn authenticate(
     }
     Ok(Ok(Widget {
         id: widget_id,
+        workspace_id,
         clerk_org_id,
         config,
         db,

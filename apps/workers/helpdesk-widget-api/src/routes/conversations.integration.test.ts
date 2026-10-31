@@ -4,9 +4,13 @@
  * (public messages only), send a message (text and files from the bucket) and
  * rate a closed conversation.
  *
- * Every route checks the conversation belongs to the calling visitor; another
- * visitor's conversation is a 404, never a 403. Visitors never see notes or
- * ticket-field changes.
+ * The visitor is the one the visitor token names (`Authorization: Bearer`,
+ * from `POST /api/visitor`), never a field of the request: without a token a
+ * route is a 401. Every route checks the conversation belongs to that visitor;
+ * another visitor's conversation is a 404, never a 403. Visitors never see
+ * notes or ticket-field changes. Tests that need a particular seeded visitor
+ * sign its token as the route would (`visitorToken`); the others start a
+ * session through the route.
  *
  * A visitor message tells the team in the background (`waitUntil`): in-app
  * notifications go to the assignee, or to every active internal teammate who
@@ -34,10 +38,16 @@ import {
   addWidget,
   at,
   get,
+  getAs,
   json,
   member,
   seedWorkspaces,
-  widgetEnv } from '../test/widget-fixtures';
+  startSession,
+  visitorRow,
+  visitorToken,
+  widgetEnv,
+  type VisitorSession,
+} from '../test/widget-fixtures';
 
 // Conformance mode runs every write on both backends, each on a fresh copy.
 vi.setConfig({ testTimeout: 120_000 });
@@ -74,10 +84,22 @@ function app(env: Record<string, unknown> = {}) {
 }
 
 const call = (path: string, init?: RequestInit, env?: Record<string, unknown>) => app(env).request(path, init);
-const read = (id: string, visitorId: string) => call(`${BASE}/${id}?visitorId=${visitorId}`, get());
-const send = (id: string, body: Record<string, unknown>, env?: Record<string, unknown>) =>
-  call(`${BASE}/${id}/messages`, json(body), env);
-const rate = (id: string, body: Record<string, unknown>) => call(`${BASE}/${id}/rating`, json(body));
+
+/** The seeded visitors' tokens, by visitor id (signed in `beforeAll`). */
+const tokens: Record<string, string> = {};
+const tokenOf = (visitorId: string) => {
+  const token = tokens[visitorId];
+  if (!token) throw new Error(`no token for ${visitorId}`);
+  return token;
+};
+/** A request as the seeded visitor `visitorId`. */
+const as = (visitorId: string, body: unknown) => json(body, { token: tokenOf(visitorId) });
+const session = () => startSession(call);
+
+const read = (id: string, visitorId: string) => call(`${BASE}/${id}`, getAs(tokenOf(visitorId)));
+const send = (id: string, visitorId: string, body: Record<string, unknown>, env?: Record<string, unknown>) =>
+  call(`${BASE}/${id}/messages`, as(visitorId, body), env);
+const rate = (id: string, visitorId: string, body: Record<string, unknown>) => call(`${BASE}/${id}/rating`, as(visitorId, body));
 
 const notFound = (id: string) => ({
   success: false,
@@ -85,6 +107,8 @@ const notFound = (id: string) => ({
 });
 const badRequest = (message: string) => ({ success: false, error: { code: 'BAD_REQUEST', message } });
 const conflict = (message: string) => ({ success: false, error: { code: 'CONFLICT', message } });
+const tokenRequired = { success: false, error: { code: 'VISITOR_TOKEN_REQUIRED', message: 'Missing visitor token' } };
+const tokenInvalid = { success: false, error: { code: 'VISITOR_TOKEN_INVALID', message: 'Invalid visitor token' } };
 
 /** The zod issue a refused body answers with, wrapped as `@hono/zod-validator` does. */
 const zodRefusal = (...issues: Array<Record<string, unknown>>) => ({
@@ -210,6 +234,11 @@ beforeAll(async () => {
   await seedWorkspaces(masterDb);
   await addWidget(masterDb, tenantDb, WIDGET);
 
+  // The visitors the seeded conversations belong to, and their tokens.
+  const seeded = ['vis_owner', 'vis_writer', 'vis_other', 'vis_sort', 'vis_many', 'vis_attach', 'vis_nobody'];
+  await tenantDb.insert(deskVisitors).values(seeded.map((id) => visitorRow(id)));
+  for (const id of seeded) tokens[id] = await visitorToken(id);
+
   // Ann is the one teammate the team is told through: the others cannot be
   // notified (a viewer, a guest, a member who has not accepted).
   await tenantDb.insert(workspaceMembers).values([
@@ -321,45 +350,68 @@ beforeAll(async () => {
 }, 120_000);
 
 describe('POST /api/conversations/identify', () => {
-  it('registers a new visitor', async () => {
-    const res = await call(`${BASE}/identify`, json({ visitorId: 'vis_new', name: '  Nina  ', email: ' Nina@Example.TEST ' }));
+  /** The visitor these tests register: a session the route started. */
+  let nina: VisitorSession;
+
+  it('stores what a visitor typed on the visitor the token names', async () => {
+    nina = await session();
+    expect(nina.visitor).toEqual({ id: expect.stringMatching(/^dvis_/), name: null, email: null, verified: false });
+    const res = await call(
+      `${BASE}/identify`,
+      json({ name: '  Nina  ', email: ' Nina@Example.TEST ' }, { token: nina.visitorToken }),
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       success: true,
-      data: { visitor: { id: 'vis_new', name: 'Nina', email: 'nina@example.test' } },
+      data: { visitor: { id: nina.visitor.id, name: 'Nina', email: 'nina@example.test', verified: false } },
     });
-    const [row] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_new'));
-    expect(row).toMatchObject({ id: 'vis_new', name: 'Nina', email: 'nina@example.test', phone: null, widgetId: WIDGET });
+    const [row] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, nina.visitor.id));
+    expect(row).toMatchObject({ name: 'Nina', email: 'nina@example.test', phone: null, widgetId: WIDGET, verifiedEmail: null });
   });
 
-  it('registers a visitor that gave nothing but its id', async () => {
-    const res = await call(`${BASE}/identify`, json({ visitorId: 'vis_blank' }));
+  it('answers a visitor that typed nothing as it is', async () => {
+    const { visitor, visitorToken: token } = await session();
+    const res = await call(`${BASE}/identify`, json({}, { token }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ success: true, data: { visitor: { id: 'vis_blank', name: null, email: null } } });
+    expect(await res.json()).toEqual({
+      success: true,
+      data: { visitor: { id: visitor.id, name: null, email: null, verified: false } },
+    });
   });
 
   it('updates a known visitor and keeps what it was not given', async () => {
-    const before = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_new'));
-    const res = await call(`${BASE}/identify`, json({ visitorId: 'vis_new', name: 'Nina B.' }));
+    const before = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, nina.visitor.id));
+    const res = await call(`${BASE}/identify`, json({ name: 'Nina B.' }, { token: nina.visitorToken }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       success: true,
-      data: { visitor: { id: 'vis_new', name: 'Nina B.', email: 'nina@example.test' } },
+      data: { visitor: { id: nina.visitor.id, name: 'Nina B.', email: 'nina@example.test', verified: false } },
     });
-    const [row] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_new'));
+    const [row] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, nina.visitor.id));
     expect(row!.name).toBe('Nina B.');
     expect(row!.lastSeenAt.getTime()).toBeGreaterThanOrEqual(before[0]!.lastSeenAt.getTime());
 
     // A blank name is no name: the stored one stays.
-    const blank = await call(`${BASE}/identify`, json({ visitorId: 'vis_new', name: '   ', email: 'NINA@other.test' }));
+    const blank = await call(
+      `${BASE}/identify`,
+      json({ name: '   ', email: 'NINA@other.test' }, { token: nina.visitorToken }),
+    );
     expect(await blank.json()).toEqual({
       success: true,
-      data: { visitor: { id: 'vis_new', name: 'Nina B.', email: 'nina@other.test' } },
+      data: { visitor: { id: nina.visitor.id, name: 'Nina B.', email: 'nina@other.test', verified: false } },
     });
   });
 
+  it('ignores a visitor id in the body: the visitor is the token’s', async () => {
+    const res = await call(`${BASE}/identify`, as('vis_nobody', { visitorId: 'vis_owner', name: 'Not Olivia' }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { data: { visitor: { id: string } } }).data.visitor.id).toBe('vis_nobody');
+    const [owner] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_owner'));
+    expect(owner!.name).toBeNull();
+  });
+
   it('puts the contact details on the visitor’s conversations that lack them, never over existing ones', async () => {
-    const res = await call(`${BASE}/identify`, json({ visitorId: 'vis_attach', name: 'Anna', email: 'Anna@Example.TEST' }));
+    const res = await call(`${BASE}/identify`, as('vis_attach', { name: 'Anna', email: 'Anna@Example.TEST' }));
     expect(res.status).toBe(200);
 
     const rows = await tenantDb
@@ -374,24 +426,27 @@ describe('POST /api/conversations/identify', () => {
     ]);
   });
 
-  it('refuses a body without a visitor id, or with an address that is no address', async () => {
-    const missing = await call(`${BASE}/identify`, json({ name: 'Nobody' }));
-    expect(missing.status).toBe(400);
-    expect(await missing.json()).toEqual(zodRefusal(required(['visitorId'])));
+  it('refuses a request without a visitor token, or with an address that is no address', async () => {
+    const missing = await call(`${BASE}/identify`, json({ visitorId: 'vis_owner', name: 'Nobody' }));
+    expect(missing.status).toBe(401);
+    expect(await missing.json()).toEqual(tokenRequired);
 
-    const badEmail = await call(`${BASE}/identify`, json({ visitorId: 'vis_bad', email: 'not-an-email' }));
+    const { visitor, visitorToken: token } = await session();
+    const badEmail = await call(`${BASE}/identify`, json({ email: 'not-an-email' }, { token }));
     expect(badEmail.status).toBe(400);
     expect(await badEmail.json()).toEqual(
       zodRefusal({ validation: 'email', code: 'invalid_string', message: 'Invalid email', path: ['email'] }),
     );
-    const rows = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_bad'));
-    expect(rows).toEqual([]);
+    const [row] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, visitor.id));
+    expect(row).toMatchObject({ name: null, email: null });
+    const [owner] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_owner'));
+    expect(owner!.name).toBeNull();
   });
 });
 
 describe('GET /api/conversations', () => {
   it('lists the visitor’s conversations by last activity, and nobody else’s', async () => {
-    const res = await call(`${BASE}?visitorId=vis_owner`, get());
+    const res = await call(BASE, getAs(tokenOf('vis_owner')));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: true; data: Array<Record<string, unknown>> };
     expect(body.data).toEqual([
@@ -428,38 +483,48 @@ describe('GET /api/conversations', () => {
     ]);
   });
 
-  it('answers an empty list for a visitor with no conversations', async () => {
-    const res = await call(`${BASE}?visitorId=vis_nobody`, get());
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ success: true, data: [] });
+  it('answers an empty list for a visitor with no conversations, whatever the query asks for', async () => {
+    for (const path of [BASE, `${BASE}?visitorId=vis_owner`]) {
+      const res = await call(path, getAs(tokenOf('vis_nobody')));
+      expect(res.status, path).toBe(200);
+      expect(await res.json(), path).toEqual({ success: true, data: [] });
+    }
   });
 
   it('orders by the last message, or by creation for a conversation with none', async () => {
-    const res = await call(`${BASE}?visitorId=vis_sort`, get());
+    const res = await call(BASE, getAs(tokenOf('vis_sort')));
     const body = (await res.json()) as { data: Array<{ id: string }> };
     expect(body.data.map((c) => c.id)).toEqual(['dconv_s_a', 'dconv_s_b', 'dconv_s_c']);
   });
 
   it('caps the history at the 25 most recent', async () => {
-    const res = await call(`${BASE}?visitorId=vis_many`, get());
+    const res = await call(BASE, getAs(tokenOf('vis_many')));
     const body = (await res.json()) as { data: Array<{ id: string }> };
     expect(body.data).toHaveLength(25);
     expect(body.data[0]!.id).toBe('dconv_m27');
     expect(body.data[24]!.id).toBe('dconv_m03');
   });
 
-  it('needs a visitor id', async () => {
-    const res = await call(BASE, get());
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual(zodRefusal(required(['visitorId'])));
+  it('needs a visitor token, and one of ours', async () => {
+    const res = await call(`${BASE}?visitorId=vis_owner`, get());
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual(tokenRequired);
+
+    const forged = await call(BASE, getAs(await visitorToken('vis_owner', { secret: 'not-the-worker-secret' })));
+    expect(forged.status).toBe(401);
+    expect(await forged.json()).toEqual(tokenInvalid);
   });
 });
 
 describe('POST /api/conversations', () => {
   it('starts a conversation with the visitor’s first message and tells the team', async () => {
+    const sam = await session();
     const res = await call(
       BASE,
-      json({ visitorId: 'vis_start', name: '  Sam Starter ', email: 'Sam@Example.TEST', body: '  Hello   there  ', clientId: 'c-1' }),
+      json(
+        { name: '  Sam Starter ', email: 'Sam@Example.TEST', body: '  Hello   there  ', clientId: 'c-1' },
+        { token: sam.visitorToken },
+      ),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
@@ -491,7 +556,7 @@ describe('POST /api/conversations', () => {
     const id = body.data.conversation.id;
 
     // The visitor is registered with what they gave, and the conversation says so too.
-    const [visitor] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_start'));
+    const [visitor] = await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, sam.visitor.id));
     expect(visitor).toMatchObject({ name: 'Sam Starter', email: 'sam@example.test', widgetId: WIDGET });
     const [conversation] = await tenantDb.select().from(deskConversations).where(eq(deskConversations.id, id));
     expect(conversation).toMatchObject({
@@ -499,7 +564,7 @@ describe('POST /api/conversations', () => {
       title: 'Hello there',
       state: 'open',
       channel: 'messenger',
-      visitorId: 'vis_start',
+      visitorId: sam.visitor.id,
       name: 'Sam Starter',
       email: 'sam@example.test',
       contactId: null,
@@ -517,7 +582,7 @@ describe('POST /api/conversations', () => {
       kind: 'message',
       body: 'Hello   there',
       authorType: 'visitor',
-      authorId: 'vis_start',
+      authorId: sam.visitor.id,
       attachments: null,
       metadata: { clientId: 'c-1' },
     });
@@ -545,21 +610,22 @@ describe('POST /api/conversations', () => {
     const [{ max }] = await tenantDb
       .select({ max: sql<number>`max(${deskConversations.conversationNumber})` })
       .from(deskConversations);
-    const res = await call(BASE, json({ visitorId: 'vis_num', body: 'Numbered' }));
+    const res = await call(BASE, json({ body: 'Numbered' }, { token: (await session()).visitorToken }));
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: { conversation: { conversationNumber: number } } };
     expect(body.data.conversation.conversationNumber).toBe(Number(max) + 1);
   });
 
   it('names an anonymous visitor "Visitor" in the notification, and a known one by what the visitor row says', async () => {
-    const anonymous = await call(BASE, json({ visitorId: 'vis_anon', body: 'Anyone there?' }));
+    const { visitorToken: token } = await session();
+    const anonymous = await call(BASE, json({ body: 'Anyone there?' }, { token }));
     const anonymousId = ((await anonymous.json()) as { data: { conversation: { id: string } } }).data.conversation.id;
     const [first] = await notificationsFor(anonymousId, 1);
     expect(first!.title).toBe('New conversation from Visitor');
 
     // The visitor row has a name by now: the next conversation carries it.
-    await call(`${BASE}/identify`, json({ visitorId: 'vis_anon', email: 'anon@example.test' }));
-    const known = await call(BASE, json({ visitorId: 'vis_anon', body: 'Again' }));
+    await call(`${BASE}/identify`, json({ email: 'anon@example.test' }, { token }));
+    const known = await call(BASE, json({ body: 'Again' }, { token }));
     const knownId = ((await known.json()) as { data: { conversation: { id: string } } }).data.conversation.id;
     const [second] = await notificationsFor(knownId, 1);
     expect(second!.title).toBe('New conversation from anon@example.test');
@@ -569,7 +635,7 @@ describe('POST /api/conversations', () => {
 
   it('titles the conversation with a preview of the message: whitespace collapsed, cut at 200 characters', async () => {
     const long = `${'word '.repeat(60)}end`;
-    const res = await call(BASE, json({ visitorId: 'vis_long', body: long }));
+    const res = await call(BASE, json({ body: long }, { token: (await session()).visitorToken }));
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: { conversation: { id: string; title: string; lastMessagePreview: string } } };
     const preview = `${long.slice(0, 197)}…`;
@@ -582,14 +648,15 @@ describe('POST /api/conversations', () => {
   });
 
   it('takes a message of 10 000 characters and refuses one of 10 001', async () => {
-    const ok = await call(BASE, json({ visitorId: 'vis_big', body: 'a'.repeat(10_000) }));
+    const { visitorToken: token } = await session();
+    const ok = await call(BASE, json({ body: 'a'.repeat(10_000) }, { token }));
     expect(ok.status).toBe(201);
     const { data } = (await ok.json()) as { data: { message: { body: string }; conversation: { id: string; title: string } } };
     expect(data.message.body).toHaveLength(10_000);
     expect(data.conversation.title).toBe(`${'a'.repeat(197)}…`);
     await notificationsFor(data.conversation.id, 1);
 
-    const tooBig = await call(BASE, json({ visitorId: 'vis_big', body: 'a'.repeat(10_001) }));
+    const tooBig = await call(BASE, json({ body: 'a'.repeat(10_001) }, { token }));
     expect(tooBig.status).toBe(400);
     expect(await tooBig.json()).toEqual(
       zodRefusal({
@@ -604,19 +671,23 @@ describe('POST /api/conversations', () => {
     );
   });
 
-  it('refuses a body that is missing, empty or only spaces, and a missing visitor id', async () => {
+  it('refuses a body that is missing, empty or only spaces, and a request without a visitor token', async () => {
+    const { visitor, visitorToken: token } = await session();
     const cases: Array<[Record<string, unknown>, Record<string, unknown>]> = [
-      [{ visitorId: 'vis_x' }, required(['body'])],
-      [{ visitorId: 'vis_x', body: '' }, tooSmallString(['body'])],
-      [{ visitorId: 'vis_x', body: '   ' }, tooSmallString(['body'])],
-      [{ body: 'Hello' }, required(['visitorId'])],
+      [{}, required(['body'])],
+      [{ body: '' }, tooSmallString(['body'])],
+      [{ body: '   ' }, tooSmallString(['body'])],
     ];
     for (const [payload, issue] of cases) {
-      const res = await call(BASE, json(payload));
+      const res = await call(BASE, json(payload, { token }));
       expect(res.status, JSON.stringify(payload)).toBe(400);
       expect(await res.json(), JSON.stringify(payload)).toEqual(zodRefusal(issue));
     }
-    expect(await tenantDb.select().from(deskVisitors).where(eq(deskVisitors.id, 'vis_x'))).toEqual([]);
+    // The token is checked first: without one even a good body is refused.
+    const anonymous = await call(BASE, json({ visitorId: visitor.id, body: 'Hello' }));
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual(tokenRequired);
+    expect(await tenantDb.select().from(deskConversations).where(eq(deskConversations.visitorId, visitor.id))).toEqual([]);
   });
 });
 
@@ -734,16 +805,20 @@ describe('GET /api/conversations/:id', () => {
     }
   });
 
-  it('needs a visitor id', async () => {
-    const res = await call(`${BASE}/dconv_thread`, get());
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual(zodRefusal(required(['visitorId'])));
+  it('needs a visitor token: a visitor id in the query counts for nothing', async () => {
+    const res = await call(`${BASE}/dconv_thread?visitorId=vis_owner`, get());
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual(tokenRequired);
+
+    const other = await call(`${BASE}/dconv_thread?visitorId=vis_owner`, getAs(tokenOf('vis_other')));
+    expect(other.status).toBe(404);
+    expect(await other.json()).toEqual(notFound('dconv_thread'));
   });
 });
 
 describe('POST /api/conversations/:id/messages', () => {
   it('stores the message, answers the conversation as it now stands and tells the assignee', async () => {
-    const res = await send('dconv_msg_text', { visitorId: 'vis_writer', body: '  Any news?  ', clientId: 'cid-2' });
+    const res = await send('dconv_msg_text', 'vis_writer', { body: '  Any news?  ', clientId: 'cid-2' });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: { message: { id: string } } };
     expect(body).toEqual({
@@ -796,7 +871,7 @@ describe('POST /api/conversations/:id/messages', () => {
   it('does not tell the team again while it is already waiting for an answer', async () => {
     // Team already waiting (dconv_msg_wait) and the thread just written to (dconv_msg_text).
     for (const id of ['dconv_msg_wait', 'dconv_msg_text']) {
-      const res = await send(id, { visitorId: 'vis_writer', body: 'Hello? Anyone?' });
+      const res = await send(id, 'vis_writer', { body: 'Hello? Anyone?' });
       expect(res.status, id).toBe(201);
     }
     await settle();
@@ -805,7 +880,7 @@ describe('POST /api/conversations/:id/messages', () => {
   });
 
   it('reopens a closed conversation and tells the team', async () => {
-    const res = await send('dconv_msg_closed', { visitorId: 'vis_writer', body: 'One more thing' });
+    const res = await send('dconv_msg_closed', 'vis_writer', { body: 'One more thing' });
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: { conversation: Record<string, unknown> } };
     expect(data.conversation).toMatchObject({ id: 'dconv_msg_closed', state: 'open', lastMessageFromTeam: false });
@@ -820,7 +895,7 @@ describe('POST /api/conversations/:id/messages', () => {
   it('tells every active internal teammate but the viewers when nobody has the conversation', async () => {
     await tenantDb.insert(workspaceMembers).values(member('user_bob', { name: 'Bob Builder', role: 'ADMIN' }));
     try {
-      const res = await send('dconv_msg_all', { visitorId: 'vis_writer', body: 'Is anyone free?' });
+      const res = await send('dconv_msg_all', 'vis_writer', { body: 'Is anyone free?' });
       expect(res.status).toBe(201);
       const notes = await notificationsFor('dconv_msg_all', 2);
       expect(notes.map((n: { userId: string }) => n.userId)).toEqual(['user_ann', 'user_bob']);
@@ -835,12 +910,8 @@ describe('POST /api/conversations/:id/messages', () => {
       message: 'A message needs text or at least one attachment',
       path: ['body'],
     };
-    for (const payload of [
-      { visitorId: 'vis_writer' },
-      { visitorId: 'vis_writer', body: '   ' },
-      { visitorId: 'vis_writer', body: '', attachments: [] },
-    ]) {
-      const res = await send('dconv_msg_all', payload);
+    for (const payload of [{}, { body: '   ' }, { body: '', attachments: [] }]) {
+      const res = await send('dconv_msg_all', 'vis_writer', payload);
       expect(res.status, JSON.stringify(payload)).toBe(400);
       expect(await res.json(), JSON.stringify(payload)).toEqual(zodRefusal(issue));
     }
@@ -852,14 +923,23 @@ describe('POST /api/conversations/:id/messages', () => {
       ['dconv_other', 'vis_writer'],
       ['dconv_nowhere', 'vis_writer'],
     ] as const) {
-      const res = await send(id, {
-        visitorId,
+      const res = await send(id, visitorId, {
         body: 'Hello',
         attachments: [{ name: 'x.png', url: 'https://elsewhere.test/x.png', contentType: 'image/png', filesize: 1 }],
       });
       expect(res.status, `${id} ${visitorId}`).toBe(404);
       expect(await res.json(), `${id} ${visitorId}`).toEqual(notFound(id));
     }
+  });
+
+  it('needs a visitor token: the visitor id the widget used to send counts for nothing', async () => {
+    const res = await call(`${BASE}/dconv_msg_all/messages`, json({ visitorId: 'vis_writer', body: 'Hello' }));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual(tokenRequired);
+
+    const other = await call(`${BASE}/dconv_msg_all/messages`, as('vis_other', { visitorId: 'vis_writer', body: 'Hello' }));
+    expect(other.status).toBe(404);
+    expect(await other.json()).toEqual(notFound('dconv_msg_all'));
   });
 });
 
@@ -885,8 +965,7 @@ describe('POST /api/conversations/:id/messages: attachments', () => {
   });
 
   it('takes files uploaded for the conversation and trusts the bucket for their size and type', async () => {
-    const res = await send('dconv_att', {
-      visitorId: 'vis_writer',
+    const res = await send('dconv_att', 'vis_writer', {
       attachments: [
         claim('1700000000001_att_aaa111_photo.png', 'My photo.png', { width: 640, height: 480 }),
         claim('1700000000002_att_bbb222_report.pdf', 'report.pdf'),
@@ -926,8 +1005,7 @@ describe('POST /api/conversations/:id/messages: attachments', () => {
   });
 
   it('keeps the text of a message that has files too', async () => {
-    const res = await send('dconv_att', {
-      visitorId: 'vis_writer',
+    const res = await send('dconv_att', 'vis_writer', {
       body: 'See attached',
       attachments: [claim('1700000000002_att_bbb222_report.pdf', 'report.pdf')],
     });
@@ -953,13 +1031,12 @@ describe('POST /api/conversations/:id/messages: attachments', () => {
       { ...claim('x', 'a.png'), url: '' },
     ];
     for (const attachment of foreign) {
-      const res = await send('dconv_att', { visitorId: 'vis_writer', attachments: [attachment] });
+      const res = await send('dconv_att', 'vis_writer', { attachments: [attachment] });
       expect(res.status, attachment.url).toBe(400);
       expect(await res.json(), attachment.url).toEqual(refused('Attachment was not uploaded to this conversation'));
     }
     // One bad file refuses the whole message.
-    const mixed = await send('dconv_att', {
-      visitorId: 'vis_writer',
+    const mixed = await send('dconv_att', 'vis_writer', {
       body: 'Two files',
       attachments: [claim('1700000000001_att_aaa111_photo.png', 'photo.png'), foreign[0]],
     });
@@ -968,8 +1045,7 @@ describe('POST /api/conversations/:id/messages: attachments', () => {
   });
 
   it('refuses a file whose object is not in the bucket', async () => {
-    const res = await send('dconv_att', {
-      visitorId: 'vis_writer',
+    const res = await send('dconv_att', 'vis_writer', {
       attachments: [claim('1700000000009_att_zzz999_missing.png', 'missing.png')],
     });
     expect(res.status).toBe(400);
@@ -979,7 +1055,8 @@ describe('POST /api/conversations/:id/messages: attachments', () => {
   it('refuses files when the worker has no public bucket URL', async () => {
     const res = await send(
       'dconv_att',
-      { visitorId: 'vis_writer', attachments: [claim('1700000000001_att_aaa111_photo.png', 'photo.png')] },
+      'vis_writer',
+      { attachments: [claim('1700000000001_att_aaa111_photo.png', 'photo.png')] },
       { R2_PUBLIC_URL: undefined },
     );
     expect(res.status).toBe(400);
@@ -998,7 +1075,7 @@ describe('POST /api/conversations/:id/messages: attachments', () => {
 
 describe('POST /api/conversations/:id/rating', () => {
   it('rates a closed conversation, puts the rating on the timeline and answers both', async () => {
-    const res = await rate('dconv_rate_1', { visitorId: 'vis_writer', rating: 5, comment: '  Great help!  ' });
+    const res = await rate('dconv_rate_1', 'vis_writer', { rating: 5, comment: '  Great help!  ' });
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: { message: { id: string } } };
     expect(body).toEqual({
@@ -1040,9 +1117,9 @@ describe('POST /api/conversations/:id/rating', () => {
   });
 
   it('takes a rating without a comment, or with a blank one', async () => {
-    const plain = await rate('dconv_rate_2', { visitorId: 'vis_writer', rating: 1 });
+    const plain = await rate('dconv_rate_2', 'vis_writer', { rating: 1 });
     expect(plain.status).toBe(201);
-    const blank = await rate('dconv_rate_3', { visitorId: 'vis_writer', rating: 3, comment: '   ' });
+    const blank = await rate('dconv_rate_3', 'vis_writer', { rating: 3, comment: '   ' });
     expect(blank.status).toBe(201);
     for (const [id, rating] of [
       ['dconv_rate_2', 1],
@@ -1059,11 +1136,11 @@ describe('POST /api/conversations/:id/rating', () => {
   });
 
   it('is a 409 for a conversation still open, or one that was rated already', async () => {
-    const open = await rate('dconv_rate_open', { visitorId: 'vis_writer', rating: 4 });
+    const open = await rate('dconv_rate_open', 'vis_writer', { rating: 4 });
     expect(open.status).toBe(409);
     expect(await open.json()).toEqual(conflict('Only a closed conversation can be rated'));
 
-    const done = await rate('dconv_rate_done', { visitorId: 'vis_writer', rating: 5 });
+    const done = await rate('dconv_rate_done', 'vis_writer', { rating: 5 });
     expect(done.status).toBe(409);
     expect(await done.json()).toEqual(conflict('This conversation was already rated'));
     const [row] = await tenantDb.select().from(deskConversations).where(eq(deskConversations.id, 'dconv_rate_done'));
@@ -1076,12 +1153,18 @@ describe('POST /api/conversations/:id/rating', () => {
       ['dconv_other', 'vis_writer'],
       ['dconv_nowhere', 'vis_writer'],
     ] as const) {
-      const res = await rate(id, { visitorId, rating: 5 });
+      const res = await rate(id, visitorId, { rating: 5 });
       expect(res.status, `${id} ${visitorId}`).toBe(404);
       expect(await res.json(), `${id} ${visitorId}`).toEqual(notFound(id));
     }
     const [row] = await tenantDb.select().from(deskConversations).where(eq(deskConversations.id, 'dconv_rate_bad'));
     expect(row!.rating).toBeNull();
+  });
+
+  it('needs a visitor token', async () => {
+    const res = await call(`${BASE}/dconv_rate_bad/rating`, json({ visitorId: 'vis_writer', rating: 5 }));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual(tokenRequired);
   });
 
   it('refuses a rating outside 1 to 5, or not a whole number', async () => {
@@ -1116,7 +1199,7 @@ describe('POST /api/conversations/:id/rating', () => {
       ],
     ];
     for (const [rating, issue] of cases) {
-      const res = await rate('dconv_rate_bad', { visitorId: 'vis_writer', rating });
+      const res = await rate('dconv_rate_bad', 'vis_writer', { rating });
       expect(res.status, String(rating)).toBe(400);
       expect(await res.json(), String(rating)).toEqual(zodRefusal(issue));
     }

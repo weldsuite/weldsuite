@@ -97,7 +97,10 @@ export const widgetIdentifiedSchema = z.object({
   visitor: z.object({
     id: z.string(),
     name: z.string().nullable(),
+    /** The proven email of a verified visitor, else the one they typed. */
     email: z.string().nullable(),
+    /** True when the email was proven (identity token or help center sign-in). */
+    verified: z.boolean(),
   }),
 });
 

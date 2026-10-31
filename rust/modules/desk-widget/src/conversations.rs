@@ -1,22 +1,26 @@
 //! `routes/conversations.ts`: the visitor's conversations and messages at
-//! `/api/conversations`. Every route that touches a conversation checks that
-//! it belongs to the calling visitor. Visitors never see internal notes, and
-//! messages carry the teammate's display name and avatar.
+//! `/api/conversations`. The visitor comes from their visitor token
+//! ([`crate::visitor_auth`]), never from the request. Every route that
+//! touches a conversation checks that it belongs to them: their own, or, for
+//! a verified visitor, any of that email's ([`webchat::can_access`]).
+//! Visitors never see internal notes, and messages carry the teammate's
+//! display name and avatar.
 
 use std::collections::HashMap;
 
 use axum::body::Bytes;
-use axum::extract::{Path, RawQuery, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Router};
 use serde_json::{Map, Value, json};
+use weldsuite_db::PgPool;
 use weldsuite_desk_domain::webchat::{
-    self, Append, AppendError, Author, NewConversation, RateError, VisitorInput,
+    self, Append, AppendError, Author, NewConversation, Principal, RateError, VisitorInput,
     public_conversation, public_message, resolve_authors,
 };
-use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, json_body, query_values};
+use weldsuite_kit::validation::{Format, Issues, Number, Presence, Text, json_body};
 
 use crate::attachments::{MAX_MESSAGE_ATTACHMENTS, resolve_visitor_attachments};
 use crate::auth::Widget;
@@ -24,6 +28,7 @@ use crate::live::{
     auto_assign, notify_team, publish_conversation_updated, publish_visitor_event,
     publish_visitor_message, visitor_display_name,
 };
+use crate::visitor_auth::Visitor;
 use crate::{Ctx, WidgetState, bad_request, internal, not_found_error, success, uncaught};
 
 pub(crate) fn routes() -> Router<WidgetState> {
@@ -39,18 +44,6 @@ pub(crate) fn routes() -> Router<WidgetState> {
 
 /// A 400 from the validator, or the request's own answer.
 type Read<T> = Result<T, Response>;
-
-/// `visitorIdSchema`: `z.string().min(1).max(64)`.
-fn visitor_id(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
-    issues
-        .text_with(
-            body,
-            "visitorId",
-            Presence::Required,
-            Text::length(Some(1), Some(64)),
-        )
-        .into_option()
-}
 
 /// `z.string().trim().max(255).optional()`.
 fn optional_name(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
@@ -92,7 +85,7 @@ fn client_id(issues: &mut Issues, body: &Map<String, Value>) -> Option<String> {
 /// `zValidator('json', schema)`: the fields `read` takes from the body. Bad
 /// JSON throws in the worker, and its `onError` answers 500.
 #[allow(clippy::result_large_err)] // the response is the route's answer
-fn json<T>(
+pub(crate) fn json<T>(
     ctx: &Ctx,
     state: &WidgetState,
     headers: &HeaderMap,
@@ -110,23 +103,66 @@ fn json<T>(
     value.ok_or_else(|| internal("Internal server error"))
 }
 
-/// `zValidator('query', visitorQuerySchema)`: the `visitorId`.
-#[allow(clippy::result_large_err)] // the response is the route's answer
-fn visitor_query(query: Option<&str>) -> Read<String> {
-    let values = query_values(query);
-    let mut issues = Issues::default();
-    let id = visitor_id(&mut issues, &values);
-    issues.finish().map_err(IntoResponse::into_response)?;
-    id.ok_or_else(|| internal("Internal server error"))
-}
-
 /// `data.x || undefined`: an empty string counts as left out.
 fn non_empty(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.is_empty())
 }
 
-fn owned_by(conversation: &Value, visitor_id: &str) -> bool {
-    conversation["visitorId"].as_str() == Some(visitor_id)
+/// A string column that is set (`visitor.verifiedEmail`).
+fn set(row: &Value, prop: &str) -> bool {
+    row[prop].as_str().is_some_and(|value| !value.is_empty())
+}
+
+/// `visitor.verifiedEmail ?? visitor.email`.
+fn contact_email(visitor: &Value) -> Value {
+    if visitor["verifiedEmail"].is_null() {
+        visitor["email"].clone()
+    } else {
+        visitor["verifiedEmail"].clone()
+    }
+}
+
+/// `saveTypedContact(db, visitor, typed)`: store the name and email a
+/// visitor typed. A verified visitor's email is the one that was proven, so
+/// a typed one never replaces it.
+async fn save_typed_contact(
+    db: &PgPool,
+    visitor: &Visitor,
+    name: Option<String>,
+    email: Option<&str>,
+) -> Result<Value, weldsuite_desk_domain::table::WriteError> {
+    let email = if set(&visitor.row, "verifiedEmail") {
+        None
+    } else {
+        non_empty(email.map(str::to_lowercase))
+    };
+    webchat::upsert_visitor(
+        db,
+        VisitorInput {
+            id: visitor.id(),
+            name: non_empty(name),
+            email,
+            phone: None,
+            widget_id: None,
+        },
+    )
+    .await
+}
+
+/// `accessibleConversation(db, principal, id, includeMessages)`: a
+/// conversation the calling visitor may see (with its messages when asked).
+async fn accessible(
+    db: &PgPool,
+    principal: &Principal,
+    id: &str,
+    include_messages: bool,
+) -> Result<Option<(Value, Vec<Value>)>, sqlx::Error> {
+    let Some((conversation, messages)) = webchat::get(db, id, include_messages).await? else {
+        return Ok(None);
+    };
+    Ok(webchat::can_access(db, &conversation, principal)
+        .await?
+        .then_some((conversation, messages)))
 }
 
 fn metadata_with_client_id(client_id: Option<String>) -> Option<Map<String, Value>> {
@@ -145,33 +181,18 @@ async fn identify(
     State(state): State<WidgetState>,
     ctx: Ctx,
     Extension(widget): Extension<Widget>,
+    Extension(caller): Extension<Visitor>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let (id, name, email) = match json(&ctx, &state, &headers, &body, |issues, body| {
-        (
-            visitor_id(issues, body),
-            optional_name(issues, body),
-            optional_email(issues, body),
-        )
+    let (name, email) = match json(&ctx, &state, &headers, &body, |issues, body| {
+        (optional_name(issues, body), optional_email(issues, body))
     }) {
-        Ok((Some(id), name, email)) => (id, name, email),
-        Ok(_) => return internal("Failed to identify visitor"),
+        Ok(read) => read,
         Err(refusal) => return refusal,
     };
     let db = &widget.db;
-    let visitor = match webchat::upsert_visitor(
-        db,
-        VisitorInput {
-            id: &id,
-            name: non_empty(name.clone()),
-            email: non_empty(email.as_deref().map(str::to_lowercase)),
-            phone: None,
-            widget_id: Some(widget.id.clone()),
-        },
-    )
-    .await
-    {
+    let visitor = match save_typed_contact(db, &caller, name.clone(), email.as_deref()).await {
         Ok(visitor) => visitor,
         Err(error) => {
             tracing::error!(%error, "[widget-api] identify failed");
@@ -179,16 +200,25 @@ async fn identify(
         }
     };
     let visitor_id = visitor["id"].as_str().unwrap_or_default().to_owned();
-    let updated =
-        match webchat::attach_visitor_contact(db, &visitor_id, name.as_deref(), email.as_deref())
-            .await
-        {
-            Ok(updated) => updated,
-            Err(error) => {
-                tracing::error!(%error, "[widget-api] identify failed");
-                return internal("Failed to identify visitor");
-            }
-        };
+    // `visitor.verifiedEmail ?? data.email`.
+    let attach_email = visitor["verifiedEmail"]
+        .as_str()
+        .map(str::to_owned)
+        .or(email);
+    let updated = match webchat::attach_visitor_contact(
+        db,
+        &visitor_id,
+        name.as_deref(),
+        attach_email.as_deref(),
+    )
+    .await
+    {
+        Ok(updated) => updated,
+        Err(error) => {
+            tracing::error!(%error, "[widget-api] identify failed");
+            return internal("Failed to identify visitor");
+        }
+    };
     let background = state.clone();
     let org = widget.clerk_org_id.clone();
     state.events.tracker().spawn(async move {
@@ -198,21 +228,27 @@ async fn identify(
     });
     success(
         StatusCode::OK,
-        json!({ "visitor": { "id": visitor["id"], "name": visitor["name"], "email": visitor["email"] } }),
+        json!({
+            "visitor": {
+                "id": visitor["id"],
+                "name": visitor["name"],
+                "email": contact_email(&visitor),
+                "verified": set(&visitor, "verifiedEmail"),
+            },
+        }),
     )
 }
 
 // ── GET / ────────────────────────────────────────────────────────────────────
 
-/// `GET /api/conversations`: the visitor's history.
-async fn list(Extension(widget): Extension<Widget>, RawQuery(query): RawQuery) -> Response {
-    let visitor_id = match visitor_query(query.as_deref()) {
-        Ok(id) => id,
-        Err(refusal) => return refusal,
-    };
+/// `GET /api/conversations`: the visitor's history, 25 at most.
+async fn list(
+    Extension(widget): Extension<Widget>,
+    Extension(caller): Extension<Visitor>,
+) -> Response {
     let db = &widget.db;
     let listed = async {
-        let rows = webchat::list_for_visitor(db, &visitor_id).await?;
+        let rows = webchat::list_for_principal(db, &caller.principal, 25).await?;
         let assignees: Vec<Option<&str>> =
             rows.iter().map(|row| row["assigneeId"].as_str()).collect();
         let authors = resolve_authors(db, &assignees).await?;
@@ -239,11 +275,11 @@ async fn start(
     State(state): State<WidgetState>,
     ctx: Ctx,
     Extension(widget): Extension<Widget>,
+    Extension(caller): Extension<Visitor>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let read = json(&ctx, &state, &headers, &body, |issues, body| {
-        let id = visitor_id(issues, body);
         let name = optional_name(issues, body);
         let email = optional_email(issues, body);
         let text = issues
@@ -255,34 +291,25 @@ async fn start(
             )
             .into_option();
         let client = client_id(issues, body);
-        (id, name, email, text, client)
+        (name, email, text, client)
     });
-    let (id, name, email, text, client) = match read {
-        Ok((Some(id), name, email, Some(text), client)) => (id, name, email, text, client),
+    let (name, email, text, client) = match read {
+        Ok((name, email, Some(text), client)) => (name, email, text, client),
         Ok(_) => return internal("Failed to start conversation"),
         Err(refusal) => return refusal,
     };
     let db = &widget.db;
     let started = async {
-        let visitor = webchat::upsert_visitor(
-            db,
-            VisitorInput {
-                id: &id,
-                name: non_empty(name),
-                email: non_empty(email.as_deref().map(str::to_lowercase)),
-                phone: None,
-                widget_id: Some(widget.id.clone()),
-            },
-        )
-        .await
-        .map_err(|error| error.to_string())?;
+        let visitor = save_typed_contact(db, &caller, name, email.as_deref())
+            .await
+            .map_err(|error| error.to_string())?;
         let visitor_id = visitor["id"].as_str().unwrap_or_default().to_owned();
         let (conversation, message) = webchat::create_conversation(
             db,
             NewConversation {
                 visitor_id: &visitor_id,
                 name: visitor["name"].clone(),
-                email: visitor["email"].clone(),
+                email: contact_email(&visitor),
                 body: text,
                 author_type: "visitor",
                 author_id: Some(&visitor_id),
@@ -381,21 +408,15 @@ fn spawn_visitor_message(
 /// `GET /api/conversations/:id`: the conversation and its public messages.
 async fn conversation(
     Extension(widget): Extension<Widget>,
+    Extension(caller): Extension<Visitor>,
     Path(id): Path<String>,
-    RawQuery(query): RawQuery,
 ) -> Response {
-    let visitor_id = match visitor_query(query.as_deref()) {
-        Ok(id) => id,
-        Err(refusal) => return refusal,
-    };
     let db = &widget.db;
     let found = async {
-        let Some((conversation, messages)) = webchat::get(db, &id, true).await? else {
+        let Some((conversation, messages)) = accessible(db, &caller.principal, &id, true).await?
+        else {
             return Ok(None);
         };
-        if !owned_by(&conversation, &visitor_id) {
-            return Ok(None);
-        }
         let visible: Vec<Value> = messages.into_iter().filter(webchat::is_public).collect();
         let mut ids: Vec<Option<&str>> = vec![conversation["assigneeId"].as_str()];
         ids.extend(
@@ -453,10 +474,7 @@ fn types_ok(body: &Map<String, Value>) -> bool {
         }),
         Some(_) => false,
     };
-    string("visitorId", true)
-        && string("body", false)
-        && string("clientId", false)
-        && attachments_ok
+    string("body", false) && string("clientId", false) && attachments_ok
 }
 
 /// `z.number().int().positive().optional()`.
@@ -538,12 +556,12 @@ async fn send(
     State(state): State<WidgetState>,
     ctx: Ctx,
     Extension(widget): Extension<Widget>,
+    Extension(caller): Extension<Visitor>,
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let read = json(&ctx, &state, &headers, &body, |issues, body| {
-        let visitor = visitor_id(issues, body);
         let text = issues
             .text_with(
                 body,
@@ -574,17 +592,17 @@ async fn send(
         if types_ok(body) && !has_text && files == 0 {
             issues.custom("body", "A message needs text or at least one attachment");
         }
-        (visitor, text, attachments.into_option(), client)
+        (text, attachments.into_option(), client)
     });
-    let (visitor_id, text, claimed, client) = match read {
-        Ok((Some(visitor), text, claimed, client)) => (visitor, text, claimed, client),
-        Ok(_) => return internal("Failed to send message"),
+    let (text, claimed, client) = match read {
+        Ok(read) => read,
         Err(refusal) => return refusal,
     };
+    let visitor_id = caller.id().to_owned();
     let db = &widget.db;
-    let existing = match webchat::get(db, &id, false).await {
-        Ok(Some((conversation, _))) if owned_by(&conversation, &visitor_id) => conversation,
-        Ok(_) => return not_found_error("Conversation", &id),
+    let existing = match accessible(db, &caller.principal, &id, false).await {
+        Ok(Some((conversation, _))) => conversation,
+        Ok(None) => return not_found_error("Conversation", &id),
         Err(error) => {
             tracing::error!(%error, "[widget-api] send message failed");
             return internal("Failed to send message");
@@ -659,12 +677,12 @@ async fn rate(
     State(state): State<WidgetState>,
     ctx: Ctx,
     Extension(widget): Extension<Widget>,
+    Extension(caller): Extension<Visitor>,
     Path(id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     let read = json(&ctx, &state, &headers, &body, |issues, body| {
-        let visitor = visitor_id(issues, body);
         let rating = issues
             .whole_number(
                 body,
@@ -687,17 +705,18 @@ async fn rate(
                 Text::trimmed(None, Some(2000)),
             )
             .into_option();
-        (visitor, rating, comment)
+        (rating, comment)
     });
-    let (visitor_id, rating, comment) = match read {
-        Ok((Some(visitor), Some(rating), comment)) => (visitor, rating, comment),
+    let (rating, comment) = match read {
+        Ok((Some(rating), comment)) => (rating, comment),
         Ok(_) => return internal("Failed to save rating"),
         Err(refusal) => return refusal,
     };
+    let visitor_id = caller.id().to_owned();
     let db = &widget.db;
-    match webchat::get(db, &id, false).await {
-        Ok(Some((conversation, _))) if owned_by(&conversation, &visitor_id) => {}
-        Ok(_) => return not_found_error("Conversation", &id),
+    match accessible(db, &caller.principal, &id, false).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return not_found_error("Conversation", &id),
         Err(error) => {
             tracing::error!(%error, "[widget-api] rate conversation failed");
             return internal("Failed to save rating");

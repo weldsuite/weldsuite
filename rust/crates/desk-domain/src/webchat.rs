@@ -4,7 +4,10 @@
 //! `appendDeskMessage` is the only writer of a conversation's state, its
 //! waiting time and its last message; the desk API, the widget API and the
 //! phone transcript writer all go through it. The desk API keeps its inbox
-//! list and email threading; what the widget API also needs is here.
+//! list and email threading; what the widget API also needs is here, with
+//! the end-user identity rules of `@weldsuite/db/lib/desk-portal`
+//! (`packages/core/db/src/lib/desk-portal.ts`): who may see which
+//! conversation, and the visitor rows behind a visitor token.
 
 #[rustfmt::skip]
 #[path = "webchat_tables.rs"]
@@ -427,20 +430,223 @@ pub async fn create_conversation(
     .await
 }
 
-/// `listDeskConversationsForVisitor(db, visitorId)`: most recent activity
-/// first, 25 at most.
-pub async fn list_for_visitor(db: &PgPool, visitor_id: &str) -> Result<Vec<Value>, sqlx::Error> {
+// ── who is asking (`@weldsuite/db/lib/desk-portal`) ──────────────────────────
+
+/// `DeskPrincipal`: the visitor row the caller's token names, and the email
+/// they proved. A conversation is theirs when it is on their own visitor
+/// row, or, once they have a verified email, when it is on any visitor
+/// verified for that email or came in by email from it. An email a visitor
+/// merely typed is never a key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Principal {
+    pub visitor_id: String,
+    /// Lower-cased proven email; `None` for an anonymous visitor.
+    pub verified_email: Option<String>,
+}
+
+/// `normalizeDeskEmail(email)`.
+pub fn normalize_email(email: &str) -> String {
+    js_trim(email).to_lowercase()
+}
+
+/// `deskPrincipalOf(visitor)`, for a `desk_visitors` row as
+/// [`DESK_VISITORS`] reads it.
+pub fn principal_of(visitor: &Value) -> Principal {
+    Principal {
+        visitor_id: visitor["id"].as_str().unwrap_or_default().to_owned(),
+        verified_email: visitor["verifiedEmail"]
+            .as_str()
+            .filter(|email| !email.is_empty())
+            .map(normalize_email),
+    }
+}
+
+/// `canAccessDeskConversation(db, conversation, principal)`: whether the
+/// principal may read and write this conversation.
+pub async fn can_access(
+    db: &PgPool,
+    conversation: &Value,
+    principal: &Principal,
+) -> Result<bool, sqlx::Error> {
+    let visitor_id = conversation["visitorId"].as_str();
+    if visitor_id == Some(principal.visitor_id.as_str()) {
+        return Ok(true);
+    }
+    let Some(email) = &principal.verified_email else {
+        return Ok(false);
+    };
+    if conversation["channel"] == "email"
+        && conversation["email"]
+            .as_str()
+            .is_some_and(|from| !from.is_empty() && normalize_email(from) == *email)
+    {
+        return Ok(true);
+    }
+    let Some(visitor_id) = visitor_id.filter(|id| !id.is_empty()) else {
+        return Ok(false);
+    };
+    let owner: Option<Option<String>> =
+        sqlx::query_scalar("select verified_email from desk_visitors where id = $1 limit 1")
+            .bind(visitor_id)
+            .fetch_optional(db)
+            .await?;
+    Ok(owner
+        .flatten()
+        .is_some_and(|owner| !owner.is_empty() && normalize_email(&owner) == *email))
+}
+
+/// `listDeskConversationsForPrincipal(db, principal, { limit })`'s rows:
+/// the principal's conversations (`deskConversationsOwnedBy`), most recent
+/// activity first, `limit` at most.
+pub async fn list_for_principal(
+    db: &PgPool,
+    principal: &Principal,
+    limit: i64,
+) -> Result<Vec<Value>, sqlx::Error> {
     let rows: Vec<Value> = sqlx::query_scalar(
-        "select to_jsonb(t) from desk_conversations t where t.visitor_id = $1
-         order by coalesce(t.last_message_at, t.created_at) desc limit 25",
+        "select to_jsonb(t) from desk_conversations t
+         where t.visitor_id = $1
+            or ($2::text is not null and (
+                 t.visitor_id in (select v.id from desk_visitors v where v.verified_email = $2)
+                 or (t.channel = 'email' and lower(t.email) = $2)))
+         order by coalesce(t.last_message_at, t.created_at) desc, t.id desc
+         limit $3",
     )
-    .bind(visitor_id)
+    .bind(&principal.visitor_id)
+    .bind(principal.verified_email.as_deref())
+    .bind(limit)
     .fetch_all(db)
     .await?;
     Ok(rows
         .into_iter()
         .map(|row| DESK_CONVERSATIONS.js(row))
         .collect())
+}
+
+/// A visitor row by id, as Drizzle's `select()` returns it.
+pub async fn find_visitor(db: &PgPool, id: &str) -> Result<Option<Value>, sqlx::Error> {
+    DESK_VISITORS.find_live(db, id).await
+}
+
+/// `createAnonymousDeskVisitor(db, generateId, widgetId)`: a fresh
+/// anonymous visitor (the widget's first visit).
+pub async fn create_anonymous_visitor(
+    db: &PgPool,
+    widget_id: Option<&str>,
+) -> Result<Value, WriteError> {
+    let now = now();
+    let mut values = Map::new();
+    values.insert("id".to_owned(), json!(generate_id("dvis")));
+    values.insert("created_at".to_owned(), json!(now));
+    values.insert("updated_at".to_owned(), json!(now));
+    values.insert("last_seen_at".to_owned(), json!(now));
+    values.insert("widget_id".to_owned(), json!(widget_id));
+    DESK_VISITORS
+        .insert(db, values, &["createdAt", "updatedAt", "lastSeenAt"])
+        .await
+}
+
+/// `upsertIdentifiedDeskVisitor`'s input: a person the customer's site
+/// vouched for (identity token).
+#[derive(Debug, Clone, Copy)]
+pub struct IdentifiedVisitor<'a> {
+    pub widget_id: &'a str,
+    pub external_id: &'a str,
+    pub email: Option<&'a str>,
+    pub name: Option<&'a str>,
+}
+
+/// The visitor of `(widget_id, external_id)`, if any.
+async fn identified_visitor(
+    db: &PgPool,
+    widget_id: &str,
+    external_id: &str,
+) -> Result<Option<Value>, sqlx::Error> {
+    let row: Option<Value> = sqlx::query_scalar(
+        "select to_jsonb(t) from desk_visitors t where t.widget_id = $1 and t.external_id = $2 limit 1",
+    )
+    .bind(widget_id)
+    .bind(external_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(row.map(|row| DESK_VISITORS.js(row)))
+}
+
+/// `upsertIdentifiedDeskVisitor(db, generateId, input)`: one row per
+/// (widget, external user id). The token's email becomes the verified email,
+/// so a changed address on the customer's side follows here.
+pub async fn upsert_identified_visitor(
+    db: &PgPool,
+    input: IdentifiedVisitor<'_>,
+) -> Result<Value, WriteError> {
+    let now = now();
+    let email = input
+        .email
+        .filter(|email| !email.is_empty())
+        .map(normalize_email);
+    let name = input.name.map(js_trim).filter(|name| !name.is_empty());
+    if let Some(existing) = identified_visitor(db, input.widget_id, input.external_id).await? {
+        let mut changes = Map::new();
+        changes.insert("last_seen_at".to_owned(), json!(now));
+        changes.insert("updated_at".to_owned(), json!(now));
+        changes.insert(
+            "name".to_owned(),
+            name.map_or_else(|| existing["name"].clone(), |name| json!(name)),
+        );
+        changes.insert(
+            "email".to_owned(),
+            email
+                .as_ref()
+                .map_or_else(|| existing["email"].clone(), |email| json!(email)),
+        );
+        changes.insert("verified_email".to_owned(), json!(email));
+        let newly_verified = email
+            .as_deref()
+            .is_some_and(|email| existing["verifiedEmail"].as_str() != Some(email));
+        changes.insert(
+            "verified_at".to_owned(),
+            if newly_verified {
+                json!(now)
+            } else {
+                existing["verifiedAt"].clone()
+            },
+        );
+        let id = existing["id"].as_str().unwrap_or_default().to_owned();
+        let trusted = ["lastSeenAt", "updatedAt", "verifiedAt"];
+        let updated = DESK_VISITORS
+            .patch(db, &id, changes, false, &trusted)
+            .await?;
+        return Ok(updated.unwrap_or(existing));
+    }
+    let mut values = Map::new();
+    values.insert("id".to_owned(), json!(generate_id("dvis")));
+    values.insert("created_at".to_owned(), json!(now));
+    values.insert("updated_at".to_owned(), json!(now));
+    values.insert("last_seen_at".to_owned(), json!(now));
+    values.insert("widget_id".to_owned(), json!(input.widget_id));
+    values.insert("external_id".to_owned(), json!(input.external_id));
+    values.insert("name".to_owned(), json!(name));
+    values.insert("email".to_owned(), json!(email));
+    values.insert("verified_email".to_owned(), json!(email));
+    values.insert(
+        "verified_at".to_owned(),
+        if email.is_some() {
+            json!(now)
+        } else {
+            Value::Null
+        },
+    );
+    let trusted = ["createdAt", "updatedAt", "lastSeenAt", "verifiedAt"];
+    match DESK_VISITORS.insert(db, values, &trusted).await {
+        Ok(created) => Ok(created),
+        Err(error) => {
+            // Two first visits at once: the unique (widget, external id) index let one in.
+            match identified_visitor(db, input.widget_id, input.external_id).await? {
+                Some(raced) => Ok(raced),
+                None => Err(error),
+            }
+        }
+    }
 }
 
 /// `attachDeskVisitorContact(db, visitorId, contact)`: copy the name and

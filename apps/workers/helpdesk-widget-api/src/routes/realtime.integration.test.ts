@@ -1,7 +1,8 @@
 /**
  * POST /api/realtime/token on pglite: the short-lived HS256 token a visitor
  * opens its ConversationRoom WebSocket with. It is minted only for a
- * conversation the visitor owns, signed with `WIDGET_TOKEN_SECRET`, and
+ * conversation the visitor owns (the visitor its visitor token names, never
+ * a field of the body), signed with `WIDGET_TOKEN_SECRET`, and
  * carries who the visitor is (by name), which workspace (its Clerk org id),
  * widget and conversation it is for, and an hour of validity.
  *
@@ -16,7 +17,18 @@ import * as tenantSchema from '@weldsuite/db/schema';
 import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsuite/worker-kit/testing';
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit/db';
-import { ORG, TOKEN_SECRET, WIDGET, addWidget, at, json, seedWorkspaces, widgetEnv } from '../test/widget-fixtures';
+import {
+  ORG,
+  TOKEN_SECRET,
+  WIDGET,
+  addWidget,
+  at,
+  json,
+  seedWorkspaces,
+  visitorRow,
+  visitorToken,
+  widgetEnv,
+} from '../test/widget-fixtures';
 
 // Conformance mode runs every write on both backends, each on a fresh copy.
 vi.setConfig({ testTimeout: 120_000 });
@@ -47,8 +59,19 @@ function app(env: Record<string, unknown> = {}) {
   });
 }
 
-const mint = (body: Record<string, unknown>, options: { widgetId?: string } = {}, env?: Record<string, unknown>) =>
-  app(env).request(TOKEN, json(body, options));
+/** Ask for a room token as `visitorId` (a seeded visitor), with a visitor token for `widgetId` signed with `secret`. */
+async function mint(
+  visitorId: string | null,
+  body: Record<string, unknown>,
+  options: { widgetId?: string; workspaceId?: string; secret?: string } = {},
+  env?: Record<string, unknown>,
+) {
+  const token =
+    visitorId === null
+      ? undefined
+      : await visitorToken(visitorId, { widgetId: options.widgetId, workspaceId: options.workspaceId, secret: options.secret });
+  return app(env).request(TOKEN, json(body, { widgetId: options.widgetId, token }));
+}
 
 const notFound = (id: string) => ({
   success: false,
@@ -105,15 +128,16 @@ beforeAll(async () => {
   await seedConversation('dconv_rt_5', 'vis_spacey', { name: '  Spacey  ', email: null });
   await seedConversation('dconv_rt_6', 'vis_blank', { name: '   ', email: '   ' });
   await tenantDb.insert(deskVisitors).values([
-    { id: 'vis_row', name: 'Row Name', email: 'row@example.test', createdAt: at(0), updatedAt: at(0), lastSeenAt: at(0) },
-    { id: 'vis_blank', name: null, email: 'visitor@example.test', createdAt: at(0), updatedAt: at(0), lastSeenAt: at(0) },
+    visitorRow('vis_row', { name: 'Row Name', email: 'row@example.test' }),
+    visitorRow('vis_blank', { name: null, email: 'visitor@example.test' }),
+    ...['vis_named', 'vis_email', 'vis_none', 'vis_spacey', 'vis_stranger'].map((id) => visitorRow(id)),
   ]);
 }, 120_000);
 
 describe('POST /api/realtime/token', () => {
   it('mints a token for the visitor’s conversation, signed with the widget token secret', async () => {
     const before = Math.floor(Date.now() / 1000);
-    const token = await tokenOf(await mint({ visitorId: 'vis_named', conversationId: 'dconv_rt_1' }));
+    const token = await tokenOf(await mint('vis_named', { conversationId: 'dconv_rt_1' }));
     const after = Math.floor(Date.now() / 1000);
 
     const { valid, header, claims } = verify(token, TOKEN_SECRET);
@@ -138,18 +162,27 @@ describe('POST /api/realtime/token', () => {
   });
 
   it('carries the Clerk org and widget of the workspace the widget belongs to', async () => {
-    const token = await tokenOf(await mint({ visitorId: 'vis_named', conversationId: 'dconv_rt_1' }, { widgetId: 'wdg_white' }));
+    const token = await tokenOf(
+      await mint('vis_named', { conversationId: 'dconv_rt_1' }, { widgetId: 'wdg_white', workspaceId: 'ws_white' }),
+    );
     const { valid, claims } = verify(token, TOKEN_SECRET);
     expect(valid).toBe(true);
     expect(claims).toMatchObject({ workspaceId: 'org_white', widgetId: 'wdg_white', conversationId: 'dconv_rt_1' });
   });
 
   it('signs with whatever secret the worker holds', async () => {
-    const token = await tokenOf(
-      await mint({ visitorId: 'vis_named', conversationId: 'dconv_rt_1' }, {}, { WIDGET_TOKEN_SECRET: 'rotated-secret' }),
-    );
+    const env = { WIDGET_TOKEN_SECRET: 'rotated-secret' };
+    const token = await tokenOf(await mint('vis_named', { conversationId: 'dconv_rt_1' }, { secret: 'rotated-secret' }, env));
     expect(verify(token, 'rotated-secret').valid).toBe(true);
     expect(verify(token, TOKEN_SECRET).valid).toBe(false);
+
+    // The visitor token is under that secret too: one issued before the rotation no longer counts.
+    const stale = await mint('vis_named', { conversationId: 'dconv_rt_1' }, {}, env);
+    expect(stale.status).toBe(401);
+    expect(await stale.json()).toEqual({
+      success: false,
+      error: { code: 'VISITOR_TOKEN_INVALID', message: 'Invalid visitor token' },
+    });
   });
 
   it('names the visitor by the conversation’s name, then its email, then the visitor row, else "Visitor"', async () => {
@@ -163,19 +196,20 @@ describe('POST /api/realtime/token', () => {
       ['vis_blank', 'dconv_rt_6', 'visitor@example.test'],
     ];
     for (const [visitorId, conversationId, name] of names) {
-      const token = await tokenOf(await mint({ visitorId, conversationId }));
+      const token = await tokenOf(await mint(visitorId, { conversationId }));
       const { claims } = verify(token, TOKEN_SECRET);
       expect(claims, conversationId).toMatchObject({ sub: visitorId, customerId: visitorId, customerName: name });
     }
   });
 
   it('is a 500 when the worker has no token secret, before anything else is looked at', async () => {
-    for (const body of [
-      { visitorId: 'vis_named', conversationId: 'dconv_rt_1' },
-      { visitorId: 'vis_stranger', conversationId: 'dconv_rt_1' },
-      { visitorId: 'vis_named', conversationId: 'dconv_nowhere' },
-    ]) {
-      const res = await mint(body, {}, { WIDGET_TOKEN_SECRET: undefined });
+    for (const [visitorId, body] of [
+      ['vis_named', { conversationId: 'dconv_rt_1' }],
+      ['vis_stranger', { conversationId: 'dconv_rt_1' }],
+      ['vis_named', { conversationId: 'dconv_nowhere' }],
+      [null, {}],
+    ] as const) {
+      const res = await mint(visitorId, body, {}, { WIDGET_TOKEN_SECRET: undefined });
       expect(res.status, JSON.stringify(body)).toBe(500);
       expect(await res.json(), JSON.stringify(body)).toEqual({
         success: false,
@@ -190,14 +224,31 @@ describe('POST /api/realtime/token', () => {
       ['vis_named', 'dconv_rt_2'],
       ['vis_named', 'dconv_nowhere'],
     ] as const) {
-      const res = await mint({ visitorId, conversationId });
+      const res = await mint(visitorId, { conversationId });
       expect(res.status, `${visitorId} ${conversationId}`).toBe(404);
       expect(await res.json(), `${visitorId} ${conversationId}`).toEqual(notFound(conversationId));
     }
   });
 
-  it('refuses a body without a visitor or a conversation', async () => {
-    const missing = await mint({ visitorId: 'vis_named' });
+  it('takes the visitor from the visitor token, never from the body', async () => {
+    const res = await mint('vis_stranger', { visitorId: 'vis_named', conversationId: 'dconv_rt_1' });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual(notFound('dconv_rt_1'));
+  });
+
+  it('needs a visitor token, before the body is looked at', async () => {
+    for (const body of [{ visitorId: 'vis_named', conversationId: 'dconv_rt_1' }, {}]) {
+      const res = await mint(null, body);
+      expect(res.status, JSON.stringify(body)).toBe(401);
+      expect(await res.json(), JSON.stringify(body)).toEqual({
+        success: false,
+        error: { code: 'VISITOR_TOKEN_REQUIRED', message: 'Missing visitor token' },
+      });
+    }
+  });
+
+  it('refuses a body without a conversation', async () => {
+    const missing = await mint('vis_named', { visitorId: 'vis_named' });
     expect(missing.status).toBe(400);
     expect(await missing.json()).toEqual({
       success: false,
@@ -207,7 +258,7 @@ describe('POST /api/realtime/token', () => {
       },
     });
 
-    const empty = await mint({ visitorId: '', conversationId: 'dconv_rt_1' });
+    const empty = await mint('vis_named', { conversationId: '' });
     expect(empty.status).toBe(400);
     expect(await empty.json()).toEqual({
       success: false,
@@ -220,7 +271,7 @@ describe('POST /api/realtime/token', () => {
             inclusive: true,
             exact: false,
             message: 'String must contain at least 1 character(s)',
-            path: ['visitorId'],
+            path: ['conversationId'],
           },
         ],
         name: 'ZodError',

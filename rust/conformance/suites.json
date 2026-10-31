@@ -1239,12 +1239,14 @@
         "src/routes/conversations.integration.test.ts",
         "src/routes/conversations-assignment.integration.test.ts",
         "src/routes/realtime.integration.test.ts",
-        "src/routes/attachments.integration.test.ts"
+        "src/routes/attachments.integration.test.ts",
+        "src/routes/visitor.integration.test.ts"
       ],
       "paths": [
         "apps/workers/helpdesk-widget-api/src/",
         "packages/core/db/src/lib/desk.ts",
         "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/core/db/src/lib/desk-portal.ts",
         "rust/modules/desk-widget/",
         "rust/crates/desk-domain/"
       ],
@@ -1276,6 +1278,46 @@
         {
           "route": "POST /webhook/discord/workflow-respond",
           "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        },
+        {
+          "route": "GET /api/portal/config",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "POST /api/portal/auth/request",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "POST /api/portal/auth/verify",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "POST /api/portal/auth/sign-out",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/me",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/request-types",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/requests",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "POST /api/portal/requests",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "GET /api/portal/requests/:id",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
+        },
+        {
+          "route": "POST /api/portal/requests/:id/messages",
+          "reason": "The signed-in help center (ADR DESK-010): only the help center's server (apps/web/helpcenter) calls it, over its WIDGET_API service binding, and the routes refuse a request that reached the public host. The help center has no Kubernetes deployment (only the sign portal has an image in rust/deploy/helm), so nothing on the Kubernetes editions calls these routes; they are ported with the help center. Tested on TypeScript in routes/portal.test.ts."
         }
       ]
     },

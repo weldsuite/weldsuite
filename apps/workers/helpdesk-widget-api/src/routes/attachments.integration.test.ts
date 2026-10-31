@@ -1,7 +1,8 @@
 /**
  * POST /api/attachments/upload on pglite: a visitor's file goes into the
  * `STORAGE` bucket under `widgets/<clerk org id>/<conversation id>/…`, tied to
- * a conversation the visitor owns, and the answer carries the public URL a
+ * a conversation the visitor owns (the visitor its visitor token names), and
+ * the answer carries the public URL a
  * message can then point at. Only passive file types up to 10 MB are taken:
  * the bucket is served from a public domain, so a stored SVG or HTML file would
  * run script on it.
@@ -19,7 +20,20 @@ import { conformanceMasterDb, conformanceTenantDb, createTestApp } from '@weldsu
 import { createMasterPgliteDb, createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import type { Database } from '@weldsuite/worker-kit/db';
 import { createMemoryR2 } from '@weldsuite/worker-kit/testing/r2';
-import { FILES_ORIGIN, ORG, WIDGET, addWidget, at, json, seedWorkspaces, widgetEnv, widgetHeaders } from '../test/widget-fixtures';
+import {
+  FILES_ORIGIN,
+  ORG,
+  WIDGET,
+  addWidget,
+  at,
+  bearer,
+  json,
+  seedWorkspaces,
+  visitorRow,
+  visitorToken,
+  widgetEnv,
+  widgetHeaders,
+} from '../test/widget-fixtures';
 
 // Conformance mode runs every write on both backends, each on a fresh copy.
 vi.setConfig({ testTimeout: 120_000 });
@@ -35,7 +49,7 @@ vi.mock('../db', async (importOriginal) => ({
 
 import worker from '../index';
 
-const { deskConversations, deskMessages } = tenantSchema;
+const { deskConversations, deskMessages, deskVisitors } = tenantSchema;
 
 const UPLOAD = '/api/attachments/upload';
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -59,22 +73,34 @@ interface UploadFields {
   /** A file, a plain field instead of one (`string`), or none (`null`). */
   file?: File | string | null;
   conversationId?: string | null;
-  visitorId?: string | null;
+  /** A `visitorId` field, as the widget sent before visitor tokens: the route ignores it. */
+  visitorId?: string;
+}
+
+interface UploadOptions {
+  widgetId?: string;
+  workspaceId?: string;
+  env?: Record<string, unknown>;
+  /** Whose visitor token the upload carries (default the owner's); `null` for none. */
+  as?: string | null;
 }
 
 /** A multipart upload as the widget sends it; fields default to the owner's, `null` leaves one out. */
-function upload(fields: UploadFields = {}, options: { widgetId?: string; env?: Record<string, unknown> } = {}) {
+async function upload(fields: UploadFields = {}, options: UploadOptions = {}) {
   const form = new FormData();
   const file = fields.file === undefined ? new File(['hello'], 'hello.txt', { type: 'text/plain' }) : fields.file;
   if (typeof file === 'string') form.append('file', file);
   else if (file !== null) form.append('file', file);
   const conversationId = fields.conversationId === undefined ? CONVERSATION : fields.conversationId;
   if (conversationId !== null) form.append('conversationId', conversationId);
-  const visitorId = fields.visitorId === undefined ? VISITOR : fields.visitorId;
-  if (visitorId !== null) form.append('visitorId', visitorId);
+  if (fields.visitorId !== undefined) form.append('visitorId', fields.visitorId);
+  const widgetId = options.widgetId ?? WIDGET;
+  const visitor = options.as === undefined ? VISITOR : options.as;
+  const token =
+    visitor === null ? null : await visitorToken(visitor, { widgetId, workspaceId: options.workspaceId });
   return app(options.env).request(UPLOAD, {
     method: 'POST',
-    headers: widgetHeaders(options.widgetId ?? WIDGET),
+    headers: widgetHeaders(widgetId, token === null ? {} : bearer(token)),
     body: form,
   });
 }
@@ -115,6 +141,7 @@ beforeAll(async () => {
     });
   await conversation(CONVERSATION, 1, VISITOR);
   await conversation('dconv_up_other', 2, 'vis_other');
+  await tenantDb.insert(deskVisitors).values([visitorRow(VISITOR), visitorRow('vis_other')]);
 }, 120_000);
 
 describe('POST /api/attachments/upload', () => {
@@ -159,7 +186,7 @@ describe('POST /api/attachments/upload', () => {
   });
 
   it('keys the object by the Clerk org of the widget’s workspace', async () => {
-    const res = await upload({ file: png('other.png') }, { widgetId: 'wdg_white' });
+    const res = await upload({ file: png('other.png') }, { widgetId: 'wdg_white', workspaceId: 'ws_white' });
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: { fileKey: string; url: string } };
     expect(data.fileKey).toMatch(new RegExp(`^widgets/org_white/${CONVERSATION}/\\d{13}_att_[0-9a-z]+_other\\.png$`));
@@ -201,10 +228,10 @@ describe('POST /api/attachments/upload', () => {
     const { data } = (await up.json()) as { data: { url: string; fileName: string; fileSize: number; mimeType: string } };
     const res = await app().request(
       `/api/conversations/${CONVERSATION}/messages`,
-      json({
-        visitorId: VISITOR,
-        attachments: [{ name: data.fileName, url: data.url, contentType: data.mimeType, filesize: data.fileSize }],
-      }),
+      json(
+        { attachments: [{ name: data.fileName, url: data.url, contentType: data.mimeType, filesize: data.fileSize }] },
+        { token: await visitorToken(VISITOR) },
+      ),
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as { data: { message: { id: string; attachments: unknown[] } } };
@@ -247,18 +274,21 @@ describe('POST /api/attachments/upload: refusals', () => {
     }
   });
 
-  it('needs a visitor id of the same kind', async () => {
-    for (const visitorId of [null, '', 'has space', 'vis/up', 'a'.repeat(65)]) {
-      const res = await upload({ file: png(), visitorId });
-      expect(res.status, String(visitorId)).toBe(400);
-      expect(await res.json(), String(visitorId)).toEqual(badRequest('visitorId is required'));
+  it('needs a visitor token, before the form is read', async () => {
+    for (const fields of [{ file: png() }, { file: null, conversationId: null }, { file: png(), visitorId: VISITOR }]) {
+      const res = await upload(fields, { as: null });
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({
+        success: false,
+        error: { code: 'VISITOR_TOKEN_REQUIRED', message: 'Missing visitor token' },
+      });
     }
   });
 
-  it('asks for the file first, then the conversation, then the visitor', async () => {
-    const noFile = await upload({ file: null, conversationId: null, visitorId: null });
+  it('asks for the file first, then the conversation', async () => {
+    const noFile = await upload({ file: null, conversationId: null });
     expect(await noFile.json()).toEqual(badRequest('No file provided'));
-    const noConversation = await upload({ file: png(), conversationId: null, visitorId: null });
+    const noConversation = await upload({ file: png(), conversationId: null });
     expect(await noConversation.json()).toEqual(badRequest('conversationId is required'));
   });
 
@@ -269,7 +299,8 @@ describe('POST /api/attachments/upload: refusals', () => {
       ['dconv_up_other', VISITOR],
       ['dconv_nowhere', VISITOR],
     ] as const) {
-      const res = await upload({ file: hugeSvg, conversationId, visitorId });
+      // The owner's id in the form counts for nothing: the visitor is the token's.
+      const res = await upload({ file: hugeSvg, conversationId, visitorId: VISITOR }, { as: visitorId });
       expect(res.status, `${conversationId} ${visitorId}`).toBe(404);
       expect(await res.json(), `${conversationId} ${visitorId}`).toEqual({
         success: false,
