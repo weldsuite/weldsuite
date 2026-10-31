@@ -524,6 +524,7 @@ import { DESK_SETTINGS_ROUTES } from './conformance-schemas-desk-settings';
 import { DESK_CHANNEL_ROUTES } from './conformance-schemas-desk-channels';
 import { DESK_WIDGET_ROUTES } from './conformance-schemas-desk-widget';
 import { STASH_ROUTES } from './conformance-schemas-stash';
+import { BOOKS_ROUTES } from './conformance-schemas-books';
 
 /** The parts of a Zod schema this file needs, so worker-kit doesn't depend on zod. */
 interface ResponseSchema {
@@ -1375,6 +1376,7 @@ const ROUTES: RouteSchema[] = [
   ...DESK_CHANNEL_ROUTES,
   ...DESK_WIDGET_ROUTES,
   ...STASH_ROUTES,
+  ...BOOKS_ROUTES,
   // pass: WeldPass secret vaults and the password manager
   { method: 'GET', route: '/api/weldpass/providers', envelope: 'array', data: weldpassProviderSchema },
   { method: 'GET', route: '/api/weldpass/projects', envelope: 'array', data: weldpassProjectSchema },

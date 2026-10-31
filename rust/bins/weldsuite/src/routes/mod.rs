@@ -6,6 +6,7 @@
 //! under `rust/modules/` and is mounted at its path prefix.
 
 mod access_requests;
+mod books;
 mod feature_flags;
 mod me;
 
@@ -107,6 +108,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = desk(router, state);
     let router = flow(router, state);
     let router = stash(router, state);
+    let router = books::api(router, state);
     let router = if mounts("pass") {
         router.nest(
             "/weldpass",
@@ -735,7 +737,8 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
     let router = public_core(state)
         .merge(desk_public(state))
-        .merge(social_public(state));
+        .merge(social_public(state))
+        .merge(books::public(state));
     if mounts("mail") {
         router.nest(
             "/internal/outbound",

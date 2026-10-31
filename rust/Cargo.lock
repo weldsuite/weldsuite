@@ -3821,6 +3821,8 @@ dependencies = [
  "weldsuite-adapters-oss",
  "weldsuite-ads",
  "weldsuite-auth",
+ "weldsuite-books",
+ "weldsuite-books-domain",
  "weldsuite-calendar",
  "weldsuite-catalogs",
  "weldsuite-chat",
@@ -3937,6 +3939,52 @@ dependencies = [
  "tower",
  "tracing",
  "weldsuite-kit",
+]
+
+[[package]]
+name = "weldsuite-books"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "jiff",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-books-domain"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "icu_collator",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-pipeline",
+ "weldsuite-ports",
 ]
 
 [[package]]
