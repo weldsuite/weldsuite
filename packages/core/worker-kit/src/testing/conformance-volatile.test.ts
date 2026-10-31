@@ -49,6 +49,11 @@ describe('maskVolatile', () => {
     expect(maskVolatileEvents('POST', '/api/time-entries/timer/stop', events)).toEqual([
       { entityType: 'project_time_entry', action: 'created', data: { duration: '10.<volatile>' } },
     ]);
+    // The same duration in seconds and hours ticks too, and keeps its type.
+    const analytics = [{ entityType: 'project_time_entry', data: { durationSeconds: 302, actualHours: 0.08 } }];
+    expect(maskVolatileEvents('POST', '/api/time-entries/timer/stop', analytics)).toEqual([
+      { entityType: 'project_time_entry', data: { durationSeconds: '<volatile:number>', actualHours: '<volatile:number>' } },
+    ]);
     // A different number of minutes still differs.
     expect(maskVolatile('POST', '/api/time-entries/timer/stop', { data: { duration: '11.00' } })).toEqual({
       data: { duration: '11.<volatile>' },
