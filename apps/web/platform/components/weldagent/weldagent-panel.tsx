@@ -187,9 +187,6 @@ export function WeldAgentPanel({
   // shows the same ones right next to the panel.
   const onHome = pathname === '/' || pathname === '';
   const showSuggestions = isEmpty && !input.trim() && !selectedAgent && !onHome;
-  const emptyBody = selectedAgent
-    ? selectedAgent.description?.trim() || t.agentEmptyBody.replace('{name}', selectedAgent.name)
-    : t.emptyBody;
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant')?.id;
 
   return (
@@ -266,12 +263,7 @@ export function WeldAgentPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        {isEmpty ? (
-          <div className="flex h-full flex-col justify-end pb-2">
-            <p className="text-base font-medium">{t.emptyTitle}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{emptyBody}</p>
-          </div>
-        ) : (
+        {!isEmpty && (
           <div className="flex flex-col gap-5">
             {messages.map((m, index) => (
               <PanelMessage
@@ -319,6 +311,7 @@ export function WeldAgentPanel({
           onSubmit={submit}
           placeholder={selectedAgent ? t.messageAgent.replace('{name}', selectedAgent.name) : t.placeholder}
           isSending={isSending}
+          variant="stacked"
         />
       </div>
     </FloatingDrawer>

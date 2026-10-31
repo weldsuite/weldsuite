@@ -956,7 +956,6 @@ export const common = {
         generalAgent: 'WeldAgent',
         chooseAgent: 'Choose an agent',
         messageAgent: 'Message {name}…',
-        agentEmptyBody: 'Ask {name} anything, or give it a job.',
         close: 'Close',
         openSheet: 'Working in {name}',
         mentions: {
@@ -1088,8 +1087,6 @@ export const common = {
         agentNotFound: 'Agent not found',
         header: {
           history: 'Earlier chats',
-          settingUp: 'Setting up — answer a few questions in the chat',
-          notActive: 'Not active — only replies in chat',
           activateHint: 'Let this agent run its routines and react to events',
           pauseHint: 'Stop routines and event triggers; chat keeps working',
           scheduled: '{count} scheduled',
@@ -1141,20 +1138,13 @@ export const common = {
           composerPlaceholder: 'Describe the job in your own words…',
           starters: {
             triageTickets: {
-              label: 'Triage support',
-              prompt: 'Go through new helpdesk tickets, flag the urgent ones and suggest a reply.',
+              prompt: 'Triage new helpdesk tickets',
             },
             followUpLeads: {
-              label: 'Follow up on leads',
-              prompt: 'Spot leads and contacts that have gone quiet and create follow-up tasks.',
+              prompt: 'Follow up on quiet leads',
             },
             taskDigest: {
-              label: 'Daily task digest',
-              prompt: 'Send me a morning digest of overdue and due-today tasks per project.',
-            },
-            chatHelper: {
-              label: 'Workspace assistant',
-              prompt: 'Answer questions about our customers, tickets and projects when I ask in chat.',
+              prompt: 'Send me a daily task digest',
             },
           },
         },
