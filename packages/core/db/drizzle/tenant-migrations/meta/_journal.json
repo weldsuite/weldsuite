@@ -1653,6 +1653,13 @@
       "when": 1793387107360,
       "tag": "0235_desk_conversation_external_id",
       "breakpoints": true
+    },
+    {
+      "idx": 236,
+      "version": "7",
+      "when": 1793456638439,
+      "tag": "0236_desk_sla_clocks",
+      "breakpoints": true
     }
   ]
 }

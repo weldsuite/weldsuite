@@ -4,8 +4,10 @@
  * appendDeskMessage is the only writer for desk_messages and for
  * desk_conversations.state / waitingSince / lastMessage*.
  * updateDeskConversationAttributes is the only writer of the ticket fields
- * (type, priority, tags, team, custom fields). Callers inject generateId so
- * workers keep their own id format.
+ * (type, priority, tags, team, custom fields). The SLA clocks and the sla*
+ * summary columns are written by refreshDeskSla (./desk-sla), which
+ * appendDeskMessage calls. Callers inject generateId so workers keep their
+ * own id format.
  */
 
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
@@ -41,6 +43,7 @@ import type {
 } from '../schema/desk-messages';
 import type { DeskVisitor } from '../schema/desk-visitors';
 import { asText } from '@weldsuite/text';
+import { refreshDeskSla, type DeskSlaRefreshResult } from './desk-sla';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
@@ -201,7 +204,7 @@ export interface CreateDeskConversationInput {
 export async function createDeskConversation(
   db: AnyDb,
   input: CreateDeskConversationInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+): Promise<AppendDeskMessageResult> {
   const id = input.generateId('dconv');
   const now = new Date();
   const authorType: DeskAuthorType = input.authorType ?? 'visitor';
@@ -339,10 +342,25 @@ function nextConversationProgress(
   return progressOf(current);
 }
 
+export interface AppendDeskMessageResult {
+  conversation: DeskConversation;
+  message: DeskMessage;
+  /**
+   * When an SLA clock of this conversation next needs the sweep (a warning or
+   * breach coming due), or null. Callers copy it into the D1 due index
+   * (`markWorkspaceDue(…, 'desk_sla', …)`).
+   */
+  slaCheckAt: Date | null;
+}
+
+/**
+ * Append to the timeline and move the conversation's state with it. Also
+ * re-derives the SLA clocks (refreshDeskSla) when the append can move one.
+ */
 export async function appendDeskMessage(
   db: AnyDb,
   input: AppendDeskMessageInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+): Promise<AppendDeskMessageResult> {
   const [current] = await db
     .select()
     .from(conversations)
@@ -383,7 +401,7 @@ export async function appendDeskMessage(
     })
     .returning();
 
-  const [conversation] = await db
+  const [updated] = await db
     .update(conversations)
     .set({
       updatedAt: now,
@@ -396,8 +414,34 @@ export async function appendDeskMessage(
     .where(eq(conversations.id, input.conversationId))
     .returning();
 
-  if (!message || !conversation) throw new DeskConversationNotFoundError(input.conversationId);
-  return { conversation, message };
+  if (!message || !updated) throw new DeskConversationNotFoundError(input.conversationId);
+  const sla = movesDeskSla(input) ? await refreshDeskSlaQuietly(db, updated, input.generateId) : null;
+  return { conversation: sla?.conversation ?? updated, message, slaCheckAt: sla?.nextCheckAt ?? null };
+}
+
+/**
+ * Appends that can start, stop, pause or retarget an SLA clock. Assignment
+ * counts: a policy can have a condition on the assignee.
+ */
+const SLA_EVENTS = new Set<string>(['closed', 'reopened', 'attributes_changed', 'assigned', 'unassigned']);
+
+function movesDeskSla(input: AppendDeskMessageInput): boolean {
+  if (input.kind === 'message') return input.authorType === 'visitor' || input.authorType === 'agent';
+  return input.kind === 'event' && SLA_EVENTS.has(input.metadata?.eventType ?? '');
+}
+
+/** SLA bookkeeping never fails the message it follows (e.g. migration not applied yet). */
+async function refreshDeskSlaQuietly(
+  db: AnyDb,
+  conversation: DeskConversation,
+  generateId: IdGenerator,
+): Promise<DeskSlaRefreshResult | null> {
+  try {
+    return await refreshDeskSla(db, conversation, { generateId });
+  } catch (err) {
+    console.warn(`[desk-sla] refresh of ${conversation.id} failed:`, err);
+    return null;
+  }
 }
 
 export const DESK_RATING_MIN = 1;
@@ -428,7 +472,7 @@ export interface RateDeskConversationInput {
 export async function rateDeskConversation(
   db: AnyDb,
   input: RateDeskConversationInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+): Promise<AppendDeskMessageResult> {
   if (!Number.isInteger(input.rating) || input.rating < DESK_RATING_MIN || input.rating > DESK_RATING_MAX) {
     throw new RangeError(`Rating must be a whole number from ${DESK_RATING_MIN} to ${DESK_RATING_MAX}`);
   }
@@ -507,6 +551,8 @@ export interface DeskConversationAttributesResult {
   /** The `attributes_changed` event, or null when nothing changed. */
   message: DeskMessage | null;
   customFields: CustomFieldMap;
+  /** See AppendDeskMessageResult.slaCheckAt; null when nothing changed. */
+  slaCheckAt: Date | null;
 }
 
 /** Trim, collapse spaces, drop empties and case-insensitive duplicates. */
@@ -724,7 +770,7 @@ export async function updateDeskConversationAttributes(
 
   if (changes.length === 0) {
     const customFields = await readDeskCustomFields(db, current.id, definitions);
-    return { conversation: current, message: null, customFields };
+    return { conversation: current, message: null, customFields, slaCheckAt: null };
   }
 
   await writeDeskCustomFields(db, input.generateId, current.id, definitions, fields.writes);
@@ -735,7 +781,7 @@ export async function updateDeskConversationAttributes(
       .where(eq(conversations.id, current.id));
   }
 
-  const { conversation, message } = await appendDeskMessage(db, {
+  const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
     generateId: input.generateId,
     conversationId: current.id,
     kind: 'event',
@@ -744,7 +790,7 @@ export async function updateDeskConversationAttributes(
     metadata: { eventType: 'attributes_changed', changes },
   });
   const customFields = await readDeskCustomFields(db, current.id, definitions);
-  return { conversation, message, customFields };
+  return { conversation, message, customFields, slaCheckAt };
 }
 
 export async function findOpenConversationForVisitor(
@@ -835,7 +881,7 @@ export interface ListDeskConversationsQuery {
   departmentId?: string;
   /** Conversations carrying this tag (exact match). */
   tag?: string;
-  sort?: 'newest' | 'oldest' | 'waiting_longest';
+  sort?: 'newest' | 'oldest' | 'waiting_longest' | 'sla_due';
   cursor?: string;
   limit?: number;
 }
@@ -869,6 +915,7 @@ function searchCondition(q: string | undefined): SQL | undefined {
 function conversationOrderBy(sort: ListDeskConversationsQuery['sort']) {
   if (sort === 'oldest') return [conversations.createdAt, conversations.id];
   if (sort === 'waiting_longest') return [sql`${conversations.waitingSince} ASC NULLS LAST`, conversations.id];
+  if (sort === 'sla_due') return [sql`${conversations.slaDueAt} ASC NULLS LAST`, conversations.id];
   return [
     sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`,
     desc(conversations.id),
@@ -1052,7 +1099,7 @@ export interface IngestDeskPhoneInput {
 export async function ingestDeskPhone(
   db: AnyDb,
   input: IngestDeskPhoneInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage; created: boolean }> {
+): Promise<AppendDeskMessageResult & { created: boolean }> {
   const fromNumber = input.fromNumber.trim();
   const displayName = input.name?.trim() || fromNumber;
   const title = input.title?.trim() || `Call from ${displayName}`;
@@ -1247,7 +1294,7 @@ export interface IngestDeskEmailInput {
 export async function ingestDeskEmail(
   db: AnyDb,
   input: IngestDeskEmailInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage; created: boolean }> {
+): Promise<AppendDeskMessageResult & { created: boolean }> {
   const fromEmail = input.fromEmail.toLowerCase();
   const rfcMessageId = normalizeRfcMessageId(input.rfcMessageId) ?? input.rfcMessageId;
   const title = normalizeEmailSubject(input.subject) || input.subject || previewOf(input.body) || fromEmail;
@@ -1477,10 +1524,13 @@ export function deskAuthorFromMember(member: {
   return { name: firstName || 'Support', avatar: member.picture ?? null };
 }
 
-/** Notes and ticket-field changes stay with the team. */
+/** Events only the team sees: ticket-field changes and SLA warnings / breaches. */
+const INTERNAL_DESK_EVENTS = new Set<string>(['attributes_changed', 'sla_warning', 'sla_breached']);
+
+/** Notes, ticket-field changes and SLA events stay with the team. */
 export function isPublicDeskMessage(message: DeskMessage): boolean {
   if (message.kind === 'note') return false;
-  return !(message.kind === 'event' && message.metadata?.eventType === 'attributes_changed');
+  return !(message.kind === 'event' && INTERNAL_DESK_EVENTS.has(message.metadata?.eventType ?? ''));
 }
 
 export function toPublicDeskMessage(

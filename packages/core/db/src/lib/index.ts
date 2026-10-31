@@ -133,6 +133,7 @@ export {
   DeskExternalIdTakenError,
   isDeskSchemaMissing,
   type AppendDeskMessageInput,
+  type AppendDeskMessageResult,
   type CreateDeskConversationInput,
   type DeskApiSource,
   type DeskEmailReplyContext,

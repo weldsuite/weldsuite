@@ -7,10 +7,21 @@ import { useAppApiClient } from '@/lib/api/use-app-api';
 
 export type DeskConversationState = 'open' | 'closed';
 export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api';
-export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest';
+export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest' | 'sla_due';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated' | 'attributes_changed';
+export type DeskEventType =
+  | 'closed'
+  | 'reopened'
+  | 'assigned'
+  | 'unassigned'
+  | 'rated'
+  | 'attributes_changed'
+  | 'sla_warning'
+  | 'sla_breached';
+export type DeskSlaMetric = 'first_response' | 'next_response' | 'resolution';
+/** What the inbox shows for a conversation's SLA clocks; null when no policy applies. */
+export type DeskSlaStatus = 'active' | 'warning' | 'breached' | 'paused' | 'achieved';
 export type DeskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export const DESK_PRIORITIES: DeskPriority[] = ['urgent', 'high', 'medium', 'low'];
 
@@ -53,6 +64,11 @@ export interface DeskConversation {
   customFields?: Record<string, unknown>;
   /** The key an integration, the AI or a workflow opened it with; repeats land here. */
   externalId?: string | null;
+  /** SLA summary: the running clock that comes due first (desk_sla_clocks). */
+  slaPolicyId?: string | null;
+  slaStatus?: DeskSlaStatus | null;
+  slaDueAt?: string | null;
+  slaMetric?: DeskSlaMetric | null;
 }
 
 export interface DeskMessageAttachment {

@@ -8,11 +8,17 @@
 import { describe, expect, it } from 'vitest';
 import { appendDeskMessage, type DeskConversation } from './desk';
 
-/** Just enough of the query builder: one stored conversation, and the columns each update sets. */
+/**
+ * Just enough of the query builder: one stored conversation, and the columns
+ * each update sets. An unlimited select (the SLA engine's policy lookup) finds
+ * no rows, so no SLA applies.
+ */
 function fakeDb(current: Partial<DeskConversation>) {
   const updates: Array<Record<string, unknown>> = [];
   const db = {
-    select: () => ({ from: () => ({ where: () => ({ limit: async () => [current] }) }) }),
+    select: () => ({
+      from: () => ({ where: () => Object.assign(Promise.resolve([]), { limit: async () => [current] }) }),
+    }),
     insert: () => ({ values: (row: Record<string, unknown>) => ({ returning: async () => [row] }) }),
     update: () => ({
       set: (values: Record<string, unknown>) => {
