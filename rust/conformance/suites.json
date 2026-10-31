@@ -1230,6 +1230,56 @@
       ]
     },
     {
+      "name": "desk: helpdesk widget",
+      "module": "desk",
+      "workspace": "apps/workers/helpdesk-widget-api",
+      "tests": [
+        "src/index.integration.test.ts",
+        "src/routes/config.integration.test.ts",
+        "src/routes/conversations.integration.test.ts",
+        "src/routes/conversations-assignment.integration.test.ts",
+        "src/routes/realtime.integration.test.ts",
+        "src/routes/attachments.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/helpdesk-widget-api/src/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/desk-assignment.ts",
+        "rust/modules/desk-widget/",
+        "rust/crates/desk-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /webhook/discord/ping",
+          "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        },
+        {
+          "route": "POST /webhook/discord/ticket",
+          "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        },
+        {
+          "route": "POST /webhook/discord/ticket-close",
+          "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        },
+        {
+          "route": "POST /webhook/discord/message",
+          "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        },
+        {
+          "route": "POST /webhook/discord/form-fields",
+          "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        },
+        {
+          "route": "POST /webhook/discord/resolve-guild",
+          "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        },
+        {
+          "route": "POST /webhook/discord/workflow-respond",
+          "reason": "Discord bot ingest: only discord-bot-worker calls it (X-Bot-Secret, a KV guild map, the Discord Gateway Durable Object), and that worker runs on Global only. A Discord bot for the Kubernetes editions is its own port; until then nothing there calls these routes."
+        }
+      ]
+    },
+    {
       "name": "flow: projects",
       "module": "flow",
       "workspace": "apps/workers/flow-api",

@@ -84,7 +84,8 @@ mod link;
 mod notify;
 mod settings;
 mod simple;
-mod table;
+// Shared with the helpdesk widget API, with the webchat tables.
+use weldsuite_desk_domain::table;
 #[rustfmt::skip]
 mod tables;
 mod team;
