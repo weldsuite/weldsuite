@@ -44,7 +44,7 @@ describe('/api/stock-adjustments · list', () => {
     const res = await app('inventory:read').request(base);
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Array<{ id: string }>; pagination: { totalCount: number } };
-    expect(body.data.length).toBe(body.pagination.totalCount);
+    expect(body.data).toHaveLength(body.pagination.totalCount);
   });
 
   it('filters', async () => {
