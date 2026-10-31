@@ -633,7 +633,7 @@ fn webhook_fields(w: &Value, full: bool) -> Value {
     out.insert("totalDeliveries".to_owned(), or_zero("totalDeliveries"));
     out.insert("totalFailures".to_owned(), or_zero("totalFailures"));
     out.insert("consecutiveFailures".to_owned(), or_zero("consecutiveFailures"));
-    let mut date = |key: &str, out: &mut Map<String, Value>| {
+    let date = |key: &str, out: &mut Map<String, Value>| {
         if let Some(value) = w.get(key).filter(|v| !v.is_null()) {
             out.insert(key.to_owned(), value.clone());
         }

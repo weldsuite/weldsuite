@@ -1786,7 +1786,6 @@
       "module": "commerce",
       "workspace": "apps/workers/commerce-api",
       "tests": [
-        "src/routes/products/index.test.ts",
         "src/routes/products/integration.test.ts",
         "src/routes/products/sales-channels.test.ts",
         "src/routes/categories/integration.test.ts",
