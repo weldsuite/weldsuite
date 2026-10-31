@@ -192,7 +192,7 @@ describe('POST /seed-workflows', () => {
     expect(res.data).toEqual({ templatesCreated: 7 });
     const rows = await db.select().from(schema.workflowTemplates).where(eq(schema.workflowTemplates.category, 'finance'));
     expect(rows.map((r) => r.name)).toContain('Betalingsherinnering');
-    expect(rows.find((r) => r.name === 'BTW deadline herinnering')?.triggers[0]?.type).toBe('schedule');
+    expect(rows.find((r) => r.name === 'BTW deadline herinnering')?.triggers?.[0]?.type).toBe('schedule');
     const again = await call('/seed-workflows', { method: 'POST' });
     expect(again.status).toBe(409);
     expect(again.error?.message).toBe('Accounting workflow templates already seeded.');

@@ -83,7 +83,7 @@ fn aborts(body: &Map<String, Value>) -> bool {
         || not("isActive", Value::is_boolean)
         || not("description", string)
         || not("ledgerAccountId", string)
-        || not("jurisdictionMetadata", |v| v.is_object())
+        || not("jurisdictionMetadata", Value::is_object)
 }
 
 /// `taxRateBaseSchema` (`.partial()` for an update; the create adds a
@@ -200,6 +200,7 @@ async fn find(caller: &Caller, id: &str) -> Result<Option<Value>, sqlx::Error> {
 /// `ensureStandardTaxRates(db, entityId)`: a Dutch entity seeded before the
 /// current template gets its new rates (ICL goederen), the renamed services
 /// rate, box 1b for the reduced rate and 21% on the domestic reverse charge.
+#[allow(clippy::too_many_lines)] // the worker's steps, in its order
 pub(crate) async fn ensure_standard_tax_rates(
     db: &PgPool,
     entity_id: &str,

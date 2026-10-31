@@ -12313,6 +12313,965 @@
    "WI",
    "WY"
   ],
+  "states": [
+   {
+    "code": "AL",
+    "name": "Alabama",
+    "fips": "01",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Alabama Department of Revenue",
+    "portalUrl": "https://myalabamataxes.alabama.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "specialPrograms": [
+     "al_simplified_sellers_use_tax",
+     "home_rule_local_agencies"
+    ]
+   },
+   {
+    "code": "AK",
+    "name": "Alaska",
+    "fips": "02",
+    "hasStateSalesTax": false,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Alaska Remote Seller Sales Tax Commission",
+    "portalUrl": "https://arsstc.org",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last",
+    "specialPrograms": [
+     "ak_arsstc",
+     "home_rule_local_agencies"
+    ]
+   },
+   {
+    "code": "AZ",
+    "name": "Arizona",
+    "fips": "04",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "none",
+    "agencyName": "Arizona Department of Revenue",
+    "portalUrl": "https://azdor.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": true,
+    "defaultDueDay": 20,
+    "taxName": "Transaction privilege tax"
+   },
+   {
+    "code": "AR",
+    "name": "Arkansas",
+    "fips": "05",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Arkansas Department of Finance and Administration",
+    "portalUrl": "https://atap.arkansas.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "CA",
+    "name": "California",
+    "fips": "06",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "modified_origin",
+    "sst": "none",
+    "agencyName": "California Department of Tax and Fee Administration",
+    "portalUrl": "https://onlineservices.cdtfa.ca.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   },
+   {
+    "code": "CO",
+    "name": "Colorado",
+    "fips": "08",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Colorado Department of Revenue",
+    "portalUrl": "https://mytaxes.colorado.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "specialPrograms": [
+     "co_suts",
+     "home_rule_local_agencies"
+    ]
+   },
+   {
+    "code": "CT",
+    "name": "Connecticut",
+    "fips": "09",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Connecticut Department of Revenue Services",
+    "portalUrl": "https://drs.ct.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   },
+   {
+    "code": "DE",
+    "name": "Delaware",
+    "fips": "10",
+    "hasStateSalesTax": false,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": null,
+    "portalUrl": null,
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "DC",
+    "name": "District of Columbia",
+    "fips": "11",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "DC Office of Tax and Revenue",
+    "portalUrl": "https://mytax.dc.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "FL",
+    "name": "Florida",
+    "fips": "12",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Florida Department of Revenue",
+    "portalUrl": "https://floridarevenue.com",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "vendorDiscount": {
+     "percent": 2.5,
+     "capPerReturn": 30,
+     "note": "2.5% of the first $1,200 of tax per return; e-filed and paid on time"
+    },
+    "certificateRules": [
+     {
+      "reasons": [
+       "resale"
+      ],
+      "forms": [
+       "state_form",
+       "other"
+      ],
+      "expiry": {
+       "kind": "calendar_year_end"
+      },
+      "note": "The annual resale certificate (DR-13) expires every 31 December"
+     }
+    ]
+   },
+   {
+    "code": "GA",
+    "name": "Georgia",
+    "fips": "13",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Georgia Department of Revenue",
+    "portalUrl": "https://gtc.dor.ga.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": true,
+    "defaultDueDay": 20,
+    "vendorDiscount": {
+     "percent": 3,
+     "tiers": [
+      {
+       "upTo": 3000,
+       "percent": 3
+      },
+      {
+       "upTo": null,
+       "percent": 0.5
+      }
+     ],
+     "note": "3% of the first $3,000 of tax, 0.5% above; filed and paid on time"
+    }
+   },
+   {
+    "code": "HI",
+    "name": "Hawaii",
+    "fips": "15",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Hawaii Department of Taxation",
+    "portalUrl": "https://hitax.hawaii.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": true,
+    "defaultDueDay": 20,
+    "taxName": "General excise tax"
+   },
+   {
+    "code": "ID",
+    "name": "Idaho",
+    "fips": "16",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Idaho State Tax Commission",
+    "portalUrl": "https://tap.tax.idaho.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "IL",
+    "name": "Illinois",
+    "fips": "17",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "none",
+    "agencyName": "Illinois Department of Revenue",
+    "portalUrl": "https://mytax.illinois.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "vendorDiscount": {
+     "percent": 1.75,
+     "note": "1.75% of tax due, capped monthly since 2025"
+    }
+   },
+   {
+    "code": "IN",
+    "name": "Indiana",
+    "fips": "18",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Indiana Department of Revenue",
+    "portalUrl": "https://intime.dor.in.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "IA",
+    "name": "Iowa",
+    "fips": "19",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Iowa Department of Revenue",
+    "portalUrl": "https://govconnect.iowa.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   },
+   {
+    "code": "KS",
+    "name": "Kansas",
+    "fips": "20",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Kansas Department of Revenue",
+    "portalUrl": "https://www.kdor.ks.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 25
+   },
+   {
+    "code": "KY",
+    "name": "Kentucky",
+    "fips": "21",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Kentucky Department of Revenue",
+    "portalUrl": "https://revenue.ky.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "LA",
+    "name": "Louisiana",
+    "fips": "22",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Louisiana Department of Revenue",
+    "portalUrl": "https://latap.revenue.louisiana.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "specialPrograms": [
+     "la_remote_sellers_commission",
+     "home_rule_local_agencies"
+    ]
+   },
+   {
+    "code": "ME",
+    "name": "Maine",
+    "fips": "23",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Maine Revenue Services",
+    "portalUrl": "https://revenue.maine.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 15
+   },
+   {
+    "code": "MD",
+    "name": "Maryland",
+    "fips": "24",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Comptroller of Maryland",
+    "portalUrl": "https://interactive.marylandtaxes.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "MA",
+    "name": "Massachusetts",
+    "fips": "25",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Massachusetts Department of Revenue",
+    "portalUrl": "https://mtc.dor.state.ma.us",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "MI",
+    "name": "Michigan",
+    "fips": "26",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Michigan Department of Treasury",
+    "portalUrl": "https://mto.treasury.michigan.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "MN",
+    "name": "Minnesota",
+    "fips": "27",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Minnesota Department of Revenue",
+    "portalUrl": "https://www.mndor.state.mn.us/tp/eservices",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "MS",
+    "name": "Mississippi",
+    "fips": "28",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "none",
+    "agencyName": "Mississippi Department of Revenue",
+    "portalUrl": "https://tap.dor.ms.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "MO",
+    "name": "Missouri",
+    "fips": "29",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "none",
+    "agencyName": "Missouri Department of Revenue",
+    "portalUrl": "https://mytax.mo.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "MT",
+    "name": "Montana",
+    "fips": "30",
+    "hasStateSalesTax": false,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": null,
+    "portalUrl": null,
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "NE",
+    "name": "Nebraska",
+    "fips": "31",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Nebraska Department of Revenue",
+    "portalUrl": "https://revenue.nebraska.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "NV",
+    "name": "Nevada",
+    "fips": "32",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Nevada Department of Taxation",
+    "portalUrl": "https://www.nevadatax.nv.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   },
+   {
+    "code": "NH",
+    "name": "New Hampshire",
+    "fips": "33",
+    "hasStateSalesTax": false,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": null,
+    "portalUrl": null,
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "NJ",
+    "name": "New Jersey",
+    "fips": "34",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "New Jersey Division of Taxation",
+    "portalUrl": "https://www.njportal.com/taxation",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "NM",
+    "name": "New Mexico",
+    "fips": "35",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "New Mexico Taxation and Revenue Department",
+    "portalUrl": "https://tap.state.nm.us",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": true,
+    "defaultDueDay": 25,
+    "taxName": "Gross receipts tax"
+   },
+   {
+    "code": "NY",
+    "name": "New York",
+    "fips": "36",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "New York State Department of Taxation and Finance",
+    "portalUrl": "https://www.tax.ny.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "vendorDiscount": {
+     "percent": 5,
+     "capPerReturn": 200,
+     "note": "5% vendor collection credit, capped per quarterly return"
+    }
+   },
+   {
+    "code": "NC",
+    "name": "North Carolina",
+    "fips": "37",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "North Carolina Department of Revenue",
+    "portalUrl": "https://www.ncdor.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "ND",
+    "name": "North Dakota",
+    "fips": "38",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "North Dakota Office of State Tax Commissioner",
+    "portalUrl": "https://apps.nd.gov/tax/tap",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   },
+   {
+    "code": "OH",
+    "name": "Ohio",
+    "fips": "39",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "full",
+    "agencyName": "Ohio Department of Taxation",
+    "portalUrl": "https://tax.ohio.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 23
+   },
+   {
+    "code": "OK",
+    "name": "Oklahoma",
+    "fips": "40",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Oklahoma Tax Commission",
+    "portalUrl": "https://oktap.tax.ok.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "OR",
+    "name": "Oregon",
+    "fips": "41",
+    "hasStateSalesTax": false,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": null,
+    "portalUrl": null,
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "PA",
+    "name": "Pennsylvania",
+    "fips": "42",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "Pennsylvania Department of Revenue",
+    "portalUrl": "https://mypath.pa.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "vendorDiscount": {
+     "percent": 1,
+     "capPerReturn": 25,
+     "note": "1% of tax, capped at $25 per monthly return"
+    }
+   },
+   {
+    "code": "RI",
+    "name": "Rhode Island",
+    "fips": "44",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": false,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Rhode Island Division of Taxation",
+    "portalUrl": "https://taxportal.ri.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "SC",
+    "name": "South Carolina",
+    "fips": "45",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "none",
+    "agencyName": "South Carolina Department of Revenue",
+    "portalUrl": "https://mydorway.dor.sc.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "SD",
+    "name": "South Dakota",
+    "fips": "46",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "South Dakota Department of Revenue",
+    "portalUrl": "https://apps.sd.gov/rv23epath",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "TN",
+    "name": "Tennessee",
+    "fips": "47",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "associate",
+    "agencyName": "Tennessee Department of Revenue",
+    "portalUrl": "https://tntap.tn.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "TX",
+    "name": "Texas",
+    "fips": "48",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "none",
+    "agencyName": "Texas Comptroller of Public Accounts",
+    "portalUrl": "https://comptroller.texas.gov/taxes/sales",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20,
+    "vendorDiscount": {
+     "percent": 0.5,
+     "note": "0.5% for timely filing, plus 1.25% for prepayment"
+    },
+    "specialPrograms": [
+     "tx_single_local_use_rate"
+    ]
+   },
+   {
+    "code": "UT",
+    "name": "Utah",
+    "fips": "49",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "full",
+    "agencyName": "Utah State Tax Commission",
+    "portalUrl": "https://tap.tax.utah.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   },
+   {
+    "code": "VT",
+    "name": "Vermont",
+    "fips": "50",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Vermont Department of Taxes",
+    "portalUrl": "https://myvtax.vermont.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 25
+   },
+   {
+    "code": "VA",
+    "name": "Virginia",
+    "fips": "51",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "origin",
+    "sst": "none",
+    "agencyName": "Virginia Department of Taxation",
+    "portalUrl": "https://www.tax.virginia.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "WA",
+    "name": "Washington",
+    "fips": "53",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Washington State Department of Revenue",
+    "portalUrl": "https://secure.dor.wa.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": true,
+    "defaultDueDay": 25,
+    "certificateRules": [
+     {
+      "reasons": [
+       "resale"
+      ],
+      "forms": [
+       "state_form",
+       "other"
+      ],
+      "expiry": {
+       "kind": "months_from_issue",
+       "months": 48
+      },
+      "note": "A reseller permit is valid 48 months (24 for contractors and new businesses; enter the expiry date for those)"
+     }
+    ]
+   },
+   {
+    "code": "WV",
+    "name": "West Virginia",
+    "fips": "54",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "West Virginia Tax Division",
+    "portalUrl": "https://mytaxes.wvtax.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": 20
+   },
+   {
+    "code": "WI",
+    "name": "Wisconsin",
+    "fips": "55",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Wisconsin Department of Revenue",
+    "portalUrl": "https://tap.revenue.wi.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   },
+   {
+    "code": "WY",
+    "name": "Wyoming",
+    "fips": "56",
+    "hasStateSalesTax": true,
+    "hasLocalSalesTax": true,
+    "intrastateSourcing": "destination",
+    "sst": "full",
+    "agencyName": "Wyoming Department of Revenue",
+    "portalUrl": "https://excise-wyifs.wy.gov",
+    "rounding": {
+     "level": "invoice",
+     "scope": "per_jurisdiction"
+    },
+    "cashBasisAllowed": false,
+    "defaultDueDay": "last"
+   }
+  ],
   "territoryCodes": [
    "AS",
    "GU",

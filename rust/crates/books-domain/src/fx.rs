@@ -167,16 +167,15 @@ pub async fn require_booking_rate(
         },
     )
     .await?;
-    match resolved {
-        Some(resolved) => Ok(resolved.rate),
-        None => {
-            let iso = crate::js::iso_from_millis(at_millis).unwrap_or_default();
-            Err(PostError::Posting(missing_rate_message(
-                currency,
-                base_currency,
-                &iso,
-            )))
-        }
+    if let Some(resolved) = resolved {
+        Ok(resolved.rate)
+    } else {
+        let iso = crate::js::iso_from_millis(at_millis).unwrap_or_default();
+        Err(PostError::Posting(missing_rate_message(
+            currency,
+            base_currency,
+            &iso,
+        )))
     }
 }
 

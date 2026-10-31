@@ -12,9 +12,11 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use http::HeaderMap;
 use serde_json::{Map, Value, json};
+use weldsuite_books_domain::catch_up::run_posting_catch_up;
 use weldsuite_books_domain::currency::{
     get_exchange_rate, get_exchange_rates, rates_json, supported_currencies,
 };
+use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
     BooksState, Caller, Refusal, Reply, created, now, ok, reply, validate,
@@ -52,7 +54,71 @@ where
             "/seed-workflows",
             post(seed_workflows).route_layer(need("accounts:create")),
         )
+        .route(
+            "/posting-catch-up",
+            post(posting_catch_up).route_layer(need("accounts:update")),
+        )
         .with_state(state)
+}
+
+// ── POST /posting-catch-up ──────────────────────────────────────────────────
+
+/// Book documents from before automatic posting; `dryRun` (the default)
+/// only reports what would be booked and what would be skipped.
+async fn posting_catch_up(
+    caller: Caller,
+    State(state): State<BooksState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    const FAILED: &str = "Failed to bring the ledger up to date";
+    // `z.object({ dryRun: z.boolean().default(true) })`
+    let dry_run = match validate(&headers, &body, |issues, fields| {
+        issues.boolean(fields, "dryRun", Presence::Optional)
+    }) {
+        Ok(Field::Set(dry_run)) => dry_run,
+        Ok(_) => true,
+        Err(refusal) => return refusal.respond(FAILED),
+    };
+    let result = async {
+        let Some(entity_id) = resolve_entity_id(&caller).await? else {
+            return Err(Refusal::bad_request("No accounting entity resolved"));
+        };
+        let http = caller.http(&state);
+        let user_id = Some(caller.user_id.clone()).filter(|id| !id.is_empty());
+        let result = run_posting_catch_up(&caller.db, http.as_ref(), &entity_id, dry_run, user_id)
+            .await
+            .map_err(|error| Refusal::Internal(error.to_string()))?;
+        if !dry_run {
+            let mut changes = Map::new();
+            for (key, count) in [
+                ("invoices", result.invoices),
+                ("creditNotesCorrected", result.credit_notes_corrected),
+                ("bills", result.bills),
+                ("payments", result.payments),
+                ("bankTransactions", result.bank_transactions),
+                ("taxLines", result.tax_lines),
+                ("skipped", i64::try_from(result.skipped.len()).unwrap_or(0)),
+            ] {
+                changes.insert(key.to_owned(), change(Value::Null, json!(count)));
+            }
+            write_accounting_audit(
+                &caller,
+                &caller.db,
+                AuditInput {
+                    accounting_entity_id: Some(&entity_id),
+                    entity_type: "accounting_settings",
+                    entity_id: &entity_id,
+                    action: "posting_catch_up",
+                    changes: Some(changes),
+                },
+            )
+            .await;
+        }
+        Ok(ok(result.to_json()))
+    }
+    .await;
+    reply(result, FAILED)
 }
 
 async fn find(caller: &Caller) -> Result<Option<Map<String, Value>>, sqlx::Error> {

@@ -455,6 +455,20 @@ pub fn mask_tin(value: &str, tin_type: Option<&str>) -> String {
     }
 }
 
+/// `US_STATES`: the states (and DC) as sales tax jurisdictions, as
+/// `UsStateInfo` objects (`code`, `name`, `fips`, sourcing, rounding, ...).
+pub fn states() -> &'static [Value] {
+    DATA["us"]["states"].as_array().map_or(&[], Vec::as_slice)
+}
+
+/// `getUsState(code)`: by USPS code, trimmed, in any case.
+pub fn state(code: Option<&str>) -> Option<&'static Value> {
+    let upper = js_trim(code.filter(|c| !c.is_empty())?).to_uppercase();
+    states()
+        .iter()
+        .find(|s| s["code"].as_str() == Some(upper.as_str()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

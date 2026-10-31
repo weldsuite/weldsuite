@@ -1,4 +1,4 @@
-//! The Netherlands (`jurisdictions/nl`): BTW and KvK numbers, the names of
+//! The Netherlands (`jurisdictions/nl`): BTW and `KvK` numbers, the names of
 //! the seeded rates the lazy rate update renames or adds.
 
 use super::{DATA, TaxIdValidation, strip};

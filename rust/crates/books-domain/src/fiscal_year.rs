@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn month_years_are_named_for_their_end() {
         let config = FiscalYearConfig::Month { start_month: 7.0 };
-        let year = fiscal_year_for(&config, 2026).unwrap();
+        let year = fiscal_year_for(&config, 2026).expect("a fiscal year");
         assert_eq!(
             (year.start.as_str(), year.end.as_str()),
             ("2025-07-01", "2026-06-30")
@@ -227,7 +227,7 @@ mod tests {
             weekday: 6.0,
             rule: "last".to_owned(),
         };
-        let periods = fiscal_periods(&config, 2026).unwrap();
+        let periods = fiscal_periods(&config, 2026).expect("periods");
         assert_eq!(periods.len(), 12);
         assert_eq!(periods[2].weeks, Some(5));
     }

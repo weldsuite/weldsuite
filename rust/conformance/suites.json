@@ -1714,7 +1714,8 @@
         "src/routes/fx-rates/fx-rates.integration.test.ts",
         "src/routes/journal-entries/journal-entries.integration.test.ts",
         "src/routes/accounting-dimensions/dimensions.integration.test.ts",
-        "src/routes/accounting-settings/settings.integration.test.ts"
+        "src/routes/accounting-settings/settings.integration.test.ts",
+        "src/routes/accounting-settings/catch-up.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-entities/",

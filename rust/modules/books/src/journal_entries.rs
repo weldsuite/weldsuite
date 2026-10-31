@@ -308,6 +308,7 @@ async fn create(
     )
 }
 
+#[allow(clippy::too_many_lines)] // the worker's steps, in its order
 async fn create_entry(
     caller: &Caller,
     state: &BooksState,
@@ -350,7 +351,7 @@ async fn create_entry(
     let at = now();
     let currency = resolve_entity_base_currency(db, &entity_id).await?;
     // `new Date(data.date)`: Drizzle's `toISOString()` throws on an invalid date.
-    let date = weldsuite_books_domain::js::js_date(&data.date)
+    let entry_date = weldsuite_books_domain::js::js_date(&data.date)
         .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?;
 
     let mut entry = Map::new();
@@ -358,7 +359,7 @@ async fn create_entry(
         ("id", json!(entry_id)),
         ("entityId", json!(entity_id)),
         ("entryNumber", json!(entry_number)),
-        ("date", json!(date)),
+        ("date", json!(entry_date)),
         ("status", json!("draft")),
         ("description", or_null(data.description.as_ref())),
         ("reference", or_null(data.reference.as_ref())),
@@ -519,10 +520,10 @@ async fn update_entry(
     }
     let mut values = Map::new();
     JOURNAL_ENTRIES.set(&mut values, "updatedAt", json!(now()));
-    if let Some(date) = data.get("date").and_then(Value::as_str) {
-        let date = weldsuite_books_domain::js::js_date(date)
+    if let Some(given) = data.get("date").and_then(Value::as_str) {
+        let entry_date = weldsuite_books_domain::js::js_date(given)
             .ok_or_else(|| Refusal::Internal("Invalid time value".to_owned()))?;
-        JOURNAL_ENTRIES.set(&mut values, "date", json!(date));
+        JOURNAL_ENTRIES.set(&mut values, "date", json!(entry_date));
     }
     for key in ["description", "reference"] {
         if let Some(value) = data.get(key) {

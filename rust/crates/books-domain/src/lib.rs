@@ -11,11 +11,18 @@
 //! - [`entity_context`]: which accounting entity a request is about, numbering.
 //! - [`guards`]: closed periods, lock dates, the audit trail.
 //! - [`posting`]: the ledger's one way in.
+//! - [`document_posting`], [`payments`], [`bad_debt`], [`catch_up`]: what
+//!   invoices, bills, payments and write-offs post, and the ledger catch-up.
 //! - [`currency`], [`fx`]: exchange rates.
+//! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`]: the
+//!   per-country rules and data.
 
 pub mod address;
+pub mod bad_debt;
+pub mod catch_up;
 pub mod currency;
 pub mod dates;
+pub mod document_posting;
 pub mod entity_context;
 pub mod fiscal_year;
 pub mod fx;
@@ -24,6 +31,8 @@ pub mod http;
 pub mod identifiers;
 pub mod js;
 pub mod jurisdictions;
+pub mod payments;
 pub mod posting;
+pub mod sales_tax;
 pub mod table;
 pub mod tables;

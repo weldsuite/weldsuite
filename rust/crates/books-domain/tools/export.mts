@@ -162,6 +162,7 @@ const out = {
     form1099Omit: FORM_1099_OMIT,
     form1099Boxes: FORM_1099_BOXES.map((box) => box.code),
     stateCodes: US_STATES.map((s) => s.code),
+    states: US_STATES,
     territoryCodes: US_TERRITORIES.map((t) => t.code),
   },
   br: {

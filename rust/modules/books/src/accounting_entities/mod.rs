@@ -258,15 +258,12 @@ fn validate_with_adapter(
         if given.len() == 2 && given[0] != given[1] {
             return Err("vatNumber and einOrSsn hold the same EIN for a US entity".to_owned());
         }
-        match given.first() {
-            Some(ein) => {
-                next.insert("einOrSsn".to_owned(), json!(ein));
-                next.insert("vatNumber".to_owned(), json!(ein));
-            }
-            None => {
-                next.remove("einOrSsn");
-                next.remove("vatNumber");
-            }
+        if let Some(ein) = given.first() {
+            next.insert("einOrSsn".to_owned(), json!(ein));
+            next.insert("vatNumber".to_owned(), json!(ein));
+        } else {
+            next.remove("einOrSsn");
+            next.remove("vatNumber");
         }
     }
     Ok(Some(next))
@@ -501,9 +498,10 @@ async fn create_entity(caller: &Caller, state: &BooksState, data: &EntityBody) -
         None => india.settings.clone(),
     };
     let mut timezone = if is_us {
-        Some(data.text("timezone").map(str::to_owned).unwrap_or_else(|| {
-            us::default_time_zone(address.as_ref().and_then(|a| a["state"].as_str())).to_owned()
-        }))
+        Some(data.text("timezone").map_or_else(
+            || us::default_time_zone(address.as_ref().and_then(|a| a["state"].as_str())).to_owned(),
+            str::to_owned,
+        ))
     } else {
         india.timezone.clone()
     };
@@ -766,27 +764,26 @@ async fn make_default_entity(
     let existing: Option<String> = sqlx::query_scalar("select id from settings limit 1")
         .fetch_optional(db)
         .await?;
-    match existing {
-        Some(id) => {
-            sqlx::query("update settings set default_entity_id = $1, updated_at = $2::timestamp where id = $3")
-                .bind(entity_id)
-                .bind(at)
-                .bind(id)
-                .execute(db)
-                .await?;
+    if let Some(id) = existing {
+        sqlx::query(
+            "update settings set default_entity_id = $1, updated_at = $2::timestamp where id = $3",
+        )
+        .bind(entity_id)
+        .bind(at)
+        .bind(id)
+        .execute(db)
+        .await?;
+    } else {
+        let mut row = Map::new();
+        for (key, value) in [
+            ("id", json!(generate_id("acs"))),
+            ("defaultEntityId", json!(entity_id)),
+            ("createdAt", json!(at)),
+            ("updatedAt", json!(at)),
+        ] {
+            row.insert(key.to_owned(), value);
         }
-        None => {
-            let mut row = Map::new();
-            for (key, value) in [
-                ("id", json!(generate_id("acs"))),
-                ("defaultEntityId", json!(entity_id)),
-                ("createdAt", json!(at)),
-                ("updatedAt", json!(at)),
-            ] {
-                row.insert(key.to_owned(), value);
-            }
-            SETTINGS.insert_raw(db, SETTINGS.values(&row)).await?;
-        }
+        SETTINGS.insert_raw(db, SETTINGS.values(&row)).await?;
     }
     Ok(())
 }

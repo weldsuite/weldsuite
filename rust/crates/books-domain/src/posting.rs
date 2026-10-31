@@ -688,6 +688,7 @@ pub struct ReverseArgs {
 /// `reverseJournalEntry(db, args)`: post the mirror image of a posted entry
 /// dated `date` and mark the original `reversed`. Lines swap debit and
 /// credit; tax-ledger rows are negated and count in the reversal's period.
+#[allow(clippy::too_many_lines)] // one statement per step, as the worker's
 pub async fn reverse_journal_entry(
     db: &PgPool,
     args: ReverseArgs,

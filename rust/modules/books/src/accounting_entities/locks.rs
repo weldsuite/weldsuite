@@ -42,8 +42,8 @@ fn iso_shaped(value: &str) -> bool {
             .all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit())
 }
 
-/// The `isoDate` refinement: `new Date(\`${value}T00:00:00Z\`)` is a real day
-/// whose ISO string starts with the value.
+/// The `isoDate` refinement: the value at UTC midnight is a real day whose
+/// ISO string starts with the value.
 fn real_date(value: &str) -> bool {
     weldsuite_books_domain::js::js_date(&format!("{value}T00:00:00Z"))
         .is_some_and(|iso| iso.starts_with(value))
@@ -89,6 +89,7 @@ fn read_lock_dates(issues: &mut Issues, body: &Map<String, Value>) -> Map<String
     out
 }
 
+#[allow(clippy::too_many_lines)] // the worker's steps, in its order
 pub(crate) async fn lock_dates(
     caller: Caller,
     State(state): State<BooksState>,

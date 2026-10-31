@@ -323,6 +323,7 @@ fn digits_only(value: &str, len: usize) -> bool {
 
 /// `brSettingsSchema.safeParse(present)`: the parsed settings (passthrough,
 /// trimmed), or the first issue as `path: message`.
+#[allow(clippy::too_many_lines)] // one check per field, in the schema's order
 fn parse_settings(present: &Map<String, Value>) -> Result<Map<String, Value>, String> {
     let mut out = present.clone();
     let mut issues = Issues::default();

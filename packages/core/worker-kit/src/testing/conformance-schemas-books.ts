@@ -99,10 +99,8 @@ const BOOKS_LEDGER_ROUTES: RouteSchema[] = [
   { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', envelope: 'single', data: exchangeRateSchema },
   { method: 'POST', route: '/api/accounting-settings/inbox', envelope: 'single', data: accountingInboxSchema },
   { method: 'POST', route: '/api/accounting-settings/seed-workflows', envelope: 'single', data: seededWorkflowTemplatesSchema },
+  { method: 'POST', route: '/api/accounting-settings/posting-catch-up', envelope: 'single', data: postingCatchUpSchema },
 ];
-
-// Referenced by the routes added as their groups are ported.
-void [postingCatchUpSchema];
 
 export const BOOKS_ROUTES: RouteSchema[] = [
   ...BOOKS_LEDGER_ROUTES,

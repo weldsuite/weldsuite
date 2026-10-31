@@ -216,7 +216,7 @@ pub(crate) fn check_us_address(address: Option<Value>) -> Result<Option<Value>, 
         }
         next["postalCode"] = json!(checked.formatted);
     }
-    if !address["country"].as_str().is_some_and(|c| !c.is_empty()) {
+    if address["country"].as_str().is_none_or(str::is_empty) {
         next["country"] = json!("US");
     }
     Ok(Some(next))
@@ -411,6 +411,7 @@ fn category_of_line(code: &str, tax_year: i64) -> Option<&'static str> {
 
 /// `applyTaxLines(db, entity, adapter, opts)`: every account on the line
 /// of the entity's current return; the `TaxLineRemapResult`.
+#[allow(clippy::too_many_lines)] // the worker's steps, in its order
 pub(crate) async fn apply_tax_lines(
     db: &PgPool,
     entity: &Value,
@@ -443,7 +444,7 @@ pub(crate) async fn apply_tax_lines(
     let (mut updated, mut unchanged, mut kept) = (0_i64, 0_i64, 0_i64);
     let mut changes: Vec<Value> = Vec::new();
     let mut unmapped: Vec<Value> = Vec::new();
-    let mut updates: Vec<(String, Option<String>)> = Vec::new();
+    let mut remaps: Vec<(String, Option<String>)> = Vec::new();
     for account in &accounts {
         let current = account["taxLine"]
             .as_str()
@@ -483,7 +484,7 @@ pub(crate) async fn apply_tax_lines(
         if next == raw_current {
             unchanged += 1;
             let kind = account["type"].as_str().unwrap_or_default();
-            if !next.as_deref().is_some_and(|n| !n.is_empty())
+            if next.as_deref().is_none_or(str::is_empty)
                 && kind != "asset"
                 && kind != "liability"
                 && kind != "equity"
@@ -492,7 +493,7 @@ pub(crate) async fn apply_tax_lines(
             }
             continue;
         }
-        updates.push((
+        remaps.push((
             account["id"].as_str().unwrap_or_default().to_owned(),
             next.clone(),
         ));
@@ -504,12 +505,12 @@ pub(crate) async fn apply_tax_lines(
             "from": raw_current,
             "to": next,
         }));
-        if !next.as_deref().is_some_and(|n| !n.is_empty()) {
+        if next.as_deref().is_none_or(str::is_empty) {
             unmapped.push(reference);
         }
     }
     let at = weldsuite_books_domain::http::now();
-    for batch in updates.chunks(100) {
+    for batch in remaps.chunks(100) {
         let batch = batch.to_vec();
         let at = at.clone();
         weldsuite_db::atomically_with(db, move |conn| {

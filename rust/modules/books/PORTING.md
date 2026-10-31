@@ -107,6 +107,22 @@ you need from it; add a field only if no existing one fits.
   is the route's 500.
 - The harness records a test's own `ENTITY_EVENTS` binding (forwarding to it),
   and forwards `DATABASE_ENCRYPTION_KEY(_V2)` to Rust (`caller.keyring`).
+- Documents post through `books_domain::document_posting` (`build_*_posting`,
+  `post_invoice`, `post_bill`, `build_payment_posting`, `settle`),
+  `payments::{record_payment, void_payment}` and
+  `bad_debt::{write_off_invoice, post_bad_debt_recovery}`. They take rows as
+  `Value`s from `<TABLE>.js(row)`, and an `Option<&OutboundHttp>`
+  (`caller.http(&state)`) for the ECB feed a foreign document may need.
+  `alsoWrite` is a `Vec<AlsoWrite>`; `document_posting::update_with_entry`
+  writes a row with the new entry's id.
+- The ECB rates are cached per `caller.rate_scope()`: one cache for the app,
+  one per test file under conformance (as the worker's module variable).
+- A `GET` that writes (the settings row on first read) goes in
+  `WRITING_READS` in `worker-kit/src/testing/conformance.ts`; a value stamped
+  with the time (`fetchedAt`) in `conformance-volatile.ts`.
+- Workspace clippy is pedantic with `-D warnings`: a function that mirrors a
+  long TypeScript one carries `#[allow(clippy::too_many_lines)]` with a reason;
+  tests use `expect`, not `unwrap`.
 - A quick loop: build `weldsuite` with `--features conformance`, start it
   with the env of `D:/ws-rust-targets/tools/integ-conf.mjs`, and run the test
   files with `CONFORMANCE_TARGET=rust CONFORMANCE_STRICT=0
@@ -279,8 +295,10 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 | `guards` | books-domain `accounting-guards` (closed periods, lock dates, KOR, audit trail) | all | foundation | done |
 | `posting` | `accounting-posting` (post, reverse, post draft, entity accounts, roles) | all that post | foundation | done |
 | `currency`, `fx` | `accounting-currency` (ECB feed, stored rates), `accounting-fx` | sales, purchases, banking, tax, reports | foundation | done |
-| `document_posting` | `accounting-document-posting` (invoice, bill, payment, write-off postings) | sales, purchases, banking, tax | foundation | |
-| `payments`, `bad_debt` | `accounting-payments`, `accounting-bad-debt` | sales, banking, purchases, ledger (catch-up) | foundation | |
+| `document_posting` | `accounting-document-posting` (invoice, bill, payment, write-off postings, settlement) | sales, purchases, banking, tax | foundation | done |
+| `payments`, `bad_debt` | `accounting-payments` (record, void, FX differences, deposit target), `accounting-bad-debt` (write-off with VAT relief, recovery) | sales, banking, purchases, ledger (catch-up) | foundation | done |
+| `catch_up` | `accounting-catch-up` | ledger (`/api/accounting-settings/posting-catch-up`) | foundation | done |
+| `sales_tax` (posting part) | books-domain `sales-tax/{rounding,sourcing,to-tax-lines}` (the helpers posting needs), `pickShipTo` | posting; the sales-tax area extends it | foundation | done: `to_cents`, `allocate_cents`, `round_half_up`, `state_code_of`, `zip5_of`, `pick_ship_to`, `breakdown_to_tax_line_fields`; `jurisdictions::us::{states, state}` carry the full `US_STATES` data |
 | `jurisdictions` | `jurisdictions/{registry,types}` + the per-country data the entity setup seeds (charts, tax categories, identifiers, entity types, tax lines, states) | all | foundation | partial: registry, summaries, seed charts and rates, identifier checks of the four countries, US entity kinds and tax lines (invoice formats, returns and tax engines come with their areas) |
 | `address`, `roles`, `identifiers` | `accounting-address`, `accounting-roles`, `identifiers` | all, commerce, connect | foundation | partial: addresses, IBANs (`promoteAccountingRole` and the VAT-number formats of `identifiers` to do) |
 | `fiscal_year`, `dates` | `us-compliance/{fiscal-year,dates}` | ledger, reports, sales-tax | foundation | done |
@@ -392,7 +410,7 @@ Stripe Financial Connections, Ponto (mTLS), Enable Banking, Gusto, Digipoort
 | Piece | Status |
 |---|---|
 | Plan (this file) | done |
-| `books-domain` foundation modules | done: the rows marked done above; in progress: `document_posting`, `payments`, `bad_debt`, `payroll` |
-| `books` (ledger) and the `books: ledger` suite | 7 of 8 groups ported, 15 test files at zero differences; `/api/accounting-settings` in progress |
+| `books-domain` foundation modules | done: the rows marked done above (posting engine, documents, payments, bad debt, catch-up included); still to do: `payroll` (hr's in-process import), `roles::promote_accounting_role` (connect) |
+| `books` (ledger) and the `books: ledger` suite | all 8 groups ported; 17 test files, 395 requests at zero differences and zero schema failures, every ledger route reached |
 | Areas 1–6 | not started |
 | Cron, `RUST_PORTED_MODULES` | not started |

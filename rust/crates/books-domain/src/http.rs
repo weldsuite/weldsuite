@@ -389,7 +389,7 @@ impl From<crate::table::WriteError> for Refusal {
     fn from(error: crate::table::WriteError) -> Self {
         match error {
             crate::table::WriteError::Database(error) => Self::Database(error),
-            other => Self::Internal(other.to_string()),
+            other @ crate::table::WriteError::NotADate(_) => Self::Internal(other.to_string()),
         }
     }
 }

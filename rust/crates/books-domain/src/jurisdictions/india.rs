@@ -72,7 +72,7 @@ pub fn validate_gstin(value: &str, pan: Option<&str>) -> TaxIdValidation {
             "GSTIN has an invalid state code '{state}' (valid codes are 01-38 and 97)"
         ));
     }
-    if normalized[14..].chars().next() != Some(gstin_check_character(&normalized[..14])) {
+    if !normalized[14..].starts_with(gstin_check_character(&normalized[..14])) {
         return TaxIdValidation::fail("GSTIN check digit is wrong: check the number for a typo");
     }
     let pan = pan

@@ -156,6 +156,20 @@ pub struct PostingCheck<'a> {
     pub user_id: Option<&'a str>,
 }
 
+/// The entity's lock dates: sales, purchase, tax, period, hard.
+type Locks = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+/// A lock date that covers `iso` (a posting on or before it).
+fn locked<'a>(lock: Option<&'a str>, iso: &str) -> Option<&'a str> {
+    lock.filter(|d| !d.is_empty() && iso <= *d)
+}
+
 /// `assertPostingAllowed(db, args)`: refuse a posting inside a closed period
 /// or on or before one of the entity's lock dates (hard: always; period:
 /// everything; sales/purchase: postings of that kind; tax: postings that
@@ -167,13 +181,6 @@ pub async fn assert_posting_allowed(
 ) -> Result<(), GuardError> {
     assert_period_open(db, check.entity_id, check.date).await?;
     let iso = iso_date(check.date);
-    type Locks = (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    );
     let locks: Option<Locks> = sqlx::query_as(
         "select sales_lock_date::text, purchase_lock_date::text, tax_lock_date::text, \
          period_lock_date::text, hard_lock_date::text from entities where id = $1 limit 1",
@@ -184,25 +191,22 @@ pub async fn assert_posting_allowed(
     let Some((sales, purchase, tax, period, hard)) = locks else {
         return Ok(());
     };
-    fn locked<'a>(lock: &'a Option<String>, iso: &str) -> Option<&'a str> {
-        lock.as_deref().filter(|d| !d.is_empty() && iso <= *d)
-    }
-    if let Some(hard) = locked(&hard, iso) {
+    if let Some(hard) = locked(hard.as_deref(), iso) {
         return Err(GuardError::Locked(LockedPeriodError {
             lock_type: LockType::Hard,
             lock_date: hard.to_owned(),
             date: iso.to_owned(),
         }));
     }
-    let mut candidates = vec![(LockType::Period, &period)];
+    let mut candidates = vec![(LockType::Period, period.as_deref())];
     if check.kind == PostingLockKind::Sales {
-        candidates.push((LockType::Sales, &sales));
+        candidates.push((LockType::Sales, sales.as_deref()));
     }
     if check.kind == PostingLockKind::Purchase {
-        candidates.push((LockType::Purchase, &purchase));
+        candidates.push((LockType::Purchase, purchase.as_deref()));
     }
     if check.affects_tax {
-        candidates.push((LockType::Tax, &tax));
+        candidates.push((LockType::Tax, tax.as_deref()));
     }
     let hits: Vec<(LockType, String)> = candidates
         .into_iter()
