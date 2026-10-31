@@ -10,8 +10,9 @@ publish.workspace = true
 
 [dependencies]
 serde = { workspace = true }
-serde_json = { workspace = true }
-time = { workspace = true, features = ["parsing", "formatting", "macros"] }
+# JSON.parse rounds every number correctly; serde_json does only with this.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+unicode-normalization = { workspace = true }
 
 [lints]
 workspace = true

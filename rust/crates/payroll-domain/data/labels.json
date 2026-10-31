@@ -1,0 +1,940 @@
+{
+ "payslip": {
+  "us.state_income_tax.AZ": {
+   "en": "Arizona income tax",
+   "nl": "Inkomstenbelasting Arizona"
+  },
+  "us.state_income_tax.CA": {
+   "en": "California income tax",
+   "nl": "Inkomstenbelasting Californië"
+  },
+  "us.state_income_tax.CO": {
+   "en": "Colorado income tax",
+   "nl": "Inkomstenbelasting Colorado"
+  },
+  "us.state_income_tax.GA": {
+   "en": "Georgia income tax",
+   "nl": "Inkomstenbelasting Georgia"
+  },
+  "us.state_income_tax.IL": {
+   "en": "Illinois income tax",
+   "nl": "Inkomstenbelasting Illinois"
+  },
+  "us.state_income_tax.MA": {
+   "en": "Massachusetts income tax",
+   "nl": "Inkomstenbelasting Massachusetts"
+  },
+  "us.state_income_tax.NC": {
+   "en": "North Carolina income tax",
+   "nl": "Inkomstenbelasting Noord-Carolina"
+  },
+  "us.state_income_tax.NJ": {
+   "en": "New Jersey income tax",
+   "nl": "Inkomstenbelasting New Jersey"
+  },
+  "us.state_income_tax.NY": {
+   "en": "New York income tax",
+   "nl": "Inkomstenbelasting New York"
+  },
+  "us.state_income_tax.PA": {
+   "en": "Pennsylvania income tax",
+   "nl": "Inkomstenbelasting Pennsylvania"
+  },
+  "us.state_sui_employer.AK": {
+   "en": "Alaska unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Alaska (werkgever)"
+  },
+  "us.state_sui_employer.AZ": {
+   "en": "Arizona unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Arizona (werkgever)"
+  },
+  "us.state_sui_employer.CA": {
+   "en": "California unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Californië (werkgever)"
+  },
+  "us.state_sui_employer.CO": {
+   "en": "Colorado unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Colorado (werkgever)"
+  },
+  "us.state_sui_employer.FL": {
+   "en": "Florida unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Florida (werkgever)"
+  },
+  "us.state_sui_employer.GA": {
+   "en": "Georgia unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Georgia (werkgever)"
+  },
+  "us.state_sui_employer.IL": {
+   "en": "Illinois unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Illinois (werkgever)"
+  },
+  "us.state_sui_employer.MA": {
+   "en": "Massachusetts unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Massachusetts (werkgever)"
+  },
+  "us.state_sui_employer.NC": {
+   "en": "North Carolina unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Noord-Carolina (werkgever)"
+  },
+  "us.state_sui_employer.NH": {
+   "en": "New Hampshire unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering New Hampshire (werkgever)"
+  },
+  "us.state_sui_employer.NJ": {
+   "en": "New Jersey unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering New Jersey (werkgever)"
+  },
+  "us.state_sui_employer.NV": {
+   "en": "Nevada unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Nevada (werkgever)"
+  },
+  "us.state_sui_employer.NY": {
+   "en": "New York unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering New York (werkgever)"
+  },
+  "us.state_sui_employer.PA": {
+   "en": "Pennsylvania unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Pennsylvania (werkgever)"
+  },
+  "us.state_sui_employer.SD": {
+   "en": "South Dakota unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Zuid-Dakota (werkgever)"
+  },
+  "us.state_sui_employer.TN": {
+   "en": "Tennessee unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Tennessee (werkgever)"
+  },
+  "us.state_sui_employer.TX": {
+   "en": "Texas unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Texas (werkgever)"
+  },
+  "us.state_sui_employer.WA": {
+   "en": "Washington unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Washington (werkgever)"
+  },
+  "us.state_sui_employer.WY": {
+   "en": "Wyoming unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering Wyoming (werkgever)"
+  },
+  "us.state_sui_employee.AK": {
+   "en": "Alaska unemployment insurance (employee)",
+   "nl": "Werkloosheidsverzekering Alaska (werknemer)"
+  },
+  "us.state_sui_employee.NJ": {
+   "en": "NJ unemployment and workforce funds (UI/WF/SWF)",
+   "nl": "NJ werkloosheids- en arbeidsmarktfondsen (UI/WF/SWF)"
+  },
+  "us.state_sui_employee.PA": {
+   "en": "PA unemployment compensation (employee)",
+   "nl": "Werkloosheidsverzekering Pennsylvania (werknemer)"
+  },
+  "us.state_program.ca_sdi": {
+   "en": "CA SDI (disability insurance and paid family leave)",
+   "nl": "CA SDI (arbeidsongeschiktheid en betaald familieverlof)"
+  },
+  "us.state_program.ca_ett": {
+   "en": "CA Employment Training Tax",
+   "nl": "CA opleidingsheffing (ETT)"
+  },
+  "us.state_program.ny_pfl": {
+   "en": "NY Paid Family Leave",
+   "nl": "NY betaald familieverlof (PFL)"
+  },
+  "us.state_program.ny_dbl": {
+   "en": "NY disability benefits (DBL)",
+   "nl": "NY arbeidsongeschiktheidsuitkering (DBL)"
+  },
+  "us.state_program.ny_rsf": {
+   "en": "NY Re-employment Service Fund",
+   "nl": "NY re-integratiefonds (RSF)"
+  },
+  "us.state_program.nj_tdi": {
+   "en": "NJ temporary disability insurance (TDI)",
+   "nl": "NJ tijdelijke arbeidsongeschiktheidsverzekering (TDI)"
+  },
+  "us.state_program.nj_tdi_employer": {
+   "en": "NJ temporary disability insurance (employer)",
+   "nl": "NJ tijdelijke arbeidsongeschiktheidsverzekering (werkgever)"
+  },
+  "us.state_program.nj_fli": {
+   "en": "NJ family leave insurance (FLI)",
+   "nl": "NJ familieverlofverzekering (FLI)"
+  },
+  "us.state_program.nj_wf_swf": {
+   "en": "NJ Workforce Development and Supplemental Workforce Fund (employer)",
+   "nl": "NJ arbeidsmarktfondsen WF/SWF (werkgever)"
+  },
+  "us.state_program.ga_admin_assessment": {
+   "en": "GA UI administrative assessment",
+   "nl": "GA administratieve heffing werkloosheidsverzekering"
+  },
+  "us.state_program.nv_cep": {
+   "en": "NV Career Enhancement Program",
+   "nl": "NV loopbaanprogramma (CEP)"
+  },
+  "us.state_program.sd_investment_fee": {
+   "en": "SD investment fee",
+   "nl": "SD investeringsheffing"
+  },
+  "us.state_program.sd_admin_fee": {
+   "en": "SD administrative fee",
+   "nl": "SD administratieve heffing"
+  },
+  "us.state_program.ma_pfml": {
+   "en": "MA paid family and medical leave (PFML)",
+   "nl": "MA betaald familie- en ziekteverlof (PFML)"
+  },
+  "us.state_program.ma_covid_recovery": {
+   "en": "MA COVID-19 recovery assessment",
+   "nl": "MA COVID-19-herstelheffing"
+  },
+  "us.state_program.ma_wtf": {
+   "en": "MA Workforce Training Fund",
+   "nl": "MA opleidingsfonds (WTFP)"
+  },
+  "us.state_program.ma_emac": {
+   "en": "MA employer medical assistance contribution (EMAC)",
+   "nl": "MA werkgeversbijdrage zorg (EMAC)"
+  },
+  "us.state_program.co_famli": {
+   "en": "CO FAMLI (paid family and medical leave)",
+   "nl": "CO FAMLI (betaald familie- en ziekteverlof)"
+  },
+  "us.state_program.wa_pfml": {
+   "en": "WA paid family and medical leave",
+   "nl": "WA betaald familie- en ziekteverlof"
+  },
+  "us.state_program.wa_cares": {
+   "en": "WA Cares Fund (long-term care)",
+   "nl": "WA Cares Fund (langdurige zorg)"
+  },
+  "us.state_program.wa_eaf": {
+   "en": "WA employment administration fund",
+   "nl": "WA administratiefonds werkloosheidsverzekering (EAF)"
+  },
+  "us.salary": {
+   "en": "Salary",
+   "nl": "Salaris"
+  },
+  "us.regular_hours": {
+   "en": "Regular hours",
+   "nl": "Gewerkte uren"
+  },
+  "us.overtime_premium": {
+   "en": "Overtime premium (half-time)",
+   "nl": "Overwerktoeslag (half uurloon)"
+  },
+  "us.double_time_premium": {
+   "en": "Double-time premium",
+   "nl": "Toeslag dubbel uurloon"
+  },
+  "us.overtime": {
+   "en": "Overtime (1.5×)",
+   "nl": "Overwerk (1,5×)"
+  },
+  "us.double_time": {
+   "en": "Double time (2×)",
+   "nl": "Dubbel uurloon (2×)"
+  },
+  "us.overtime_manual": {
+   "en": "Overtime",
+   "nl": "Overwerk"
+  },
+  "us.paid_leave": {
+   "en": "Paid leave",
+   "nl": "Betaald verlof"
+  },
+  "us.unpaid_leave": {
+   "en": "Unpaid leave",
+   "nl": "Onbetaald verlof"
+  },
+  "us.bonus": {
+   "en": "Bonus",
+   "nl": "Bonus"
+  },
+  "us.commission": {
+   "en": "Commission",
+   "nl": "Commissie"
+  },
+  "us.allowance_taxable": {
+   "en": "Taxable allowance",
+   "nl": "Belaste vergoeding"
+  },
+  "us.tips_cash": {
+   "en": "Cash tips reported",
+   "nl": "Opgegeven contante fooien"
+  },
+  "us.tips_received": {
+   "en": "Cash tips already received",
+   "nl": "Al ontvangen contante fooien"
+  },
+  "us.federal_income_tax": {
+   "en": "Federal income tax",
+   "nl": "Federale inkomstenbelasting"
+  },
+  "us.social_security": {
+   "en": "Social Security",
+   "nl": "Social Security"
+  },
+  "us.medicare": {
+   "en": "Medicare",
+   "nl": "Medicare"
+  },
+  "us.additional_medicare": {
+   "en": "Additional Medicare tax",
+   "nl": "Aanvullende Medicare-belasting"
+  },
+  "us.state_income_tax": {
+   "en": "State income tax",
+   "nl": "Inkomstenbelasting van de staat"
+  },
+  "us.sui_employee": {
+   "en": "State unemployment insurance",
+   "nl": "Werkloosheidsverzekering van de staat"
+  },
+  "us.401k": {
+   "en": "401(k) deferral (pre-tax)",
+   "nl": "401(k)-inleg (voor belasting)"
+  },
+  "us.roth_401k": {
+   "en": "Roth 401(k) deferral",
+   "nl": "Roth 401(k)-inleg"
+  },
+  "us.section125_health": {
+   "en": "Health insurance premium (pre-tax)",
+   "nl": "Premie zorgverzekering (voor belasting)"
+  },
+  "us.hsa": {
+   "en": "HSA contribution (pre-tax)",
+   "nl": "HSA-inleg (voor belasting)"
+  },
+  "us.dependent_care": {
+   "en": "Dependent care FSA (pre-tax)",
+   "nl": "Kinderopvang-FSA (voor belasting)"
+  },
+  "us.deduction_net": {
+   "en": "Deduction",
+   "nl": "Inhouding"
+  },
+  "us.reimbursement": {
+   "en": "Expense reimbursement",
+   "nl": "Onkostenvergoeding"
+  },
+  "us.advance": {
+   "en": "Advance",
+   "nl": "Voorschot"
+  },
+  "us.social_security_employer": {
+   "en": "Social Security (employer)",
+   "nl": "Social Security (werkgever)"
+  },
+  "us.medicare_employer": {
+   "en": "Medicare (employer)",
+   "nl": "Medicare (werkgever)"
+  },
+  "us.futa": {
+   "en": "Federal unemployment tax (FUTA)",
+   "nl": "Federale werkloosheidsbelasting (FUTA)"
+  },
+  "us.sui_employer": {
+   "en": "State unemployment insurance (employer)",
+   "nl": "Werkloosheidsverzekering van de staat (werkgever)"
+  },
+  "us.401k_employer_match": {
+   "en": "401(k) employer match",
+   "nl": "401(k)-bijdrage werkgever"
+  },
+  "us.employer_health": {
+   "en": "Health insurance (employer share)",
+   "nl": "Zorgverzekering (deel werkgever)"
+  },
+  "us.qualified_overtime": {
+   "en": "Qualified overtime compensation (W-2 box 12, code TT)",
+   "nl": "Gekwalificeerde overwerkvergoeding (W-2 box 12, code TT)"
+  },
+  "nl.salary": {
+   "en": "Salary",
+   "nl": "Salaris"
+  },
+  "nl.hours_regular": {
+   "en": "Hours worked",
+   "nl": "Gewerkte uren"
+  },
+  "nl.overtime": {
+   "en": "Overtime",
+   "nl": "Overwerk"
+  },
+  "nl.unpaid_leave": {
+   "en": "Unpaid leave",
+   "nl": "Onbetaald verlof"
+  },
+  "nl.sick_pay_reduction": {
+   "en": "Sick pay reduction",
+   "nl": "Korting loondoorbetaling bij ziekte"
+  },
+  "nl.allowance_taxable": {
+   "en": "Allowance",
+   "nl": "Toeslag"
+  },
+  "nl.bonus": {
+   "en": "Bonus",
+   "nl": "Bonus"
+  },
+  "nl.commission": {
+   "en": "Commission",
+   "nl": "Provisie"
+  },
+  "nl.thirteenth_month": {
+   "en": "13th month",
+   "nl": "Dertiende maand"
+  },
+  "nl.leave_payout": {
+   "en": "Payout of untaken leave",
+   "nl": "Uitbetaling vakantie-uren"
+  },
+  "nl.holiday_allowance": {
+   "en": "Holiday allowance",
+   "nl": "Vakantiegeld"
+  },
+  "nl.transition_payment": {
+   "en": "Transition payment",
+   "nl": "Transitievergoeding"
+  },
+  "nl.travel_allowance_taxable": {
+   "en": "Travel allowance (taxable part)",
+   "nl": "Reiskostenvergoeding (belast deel)"
+  },
+  "nl.home_working_allowance_taxable": {
+   "en": "Home-working allowance (taxable part)",
+   "nl": "Thuiswerkvergoeding (belast deel)"
+  },
+  "nl.company_car": {
+   "en": "Company car private use (taxable benefit)",
+   "nl": "Bijtelling auto van de zaak"
+  },
+  "nl.expat_allowance": {
+   "en": "30% ruling allowance (tax-free)",
+   "nl": "Vergoeding extraterritoriale kosten (30%-regeling)"
+  },
+  "nl.pension_employee": {
+   "en": "Pension contribution",
+   "nl": "Pensioenpremie werknemer"
+  },
+  "nl.company_car_contribution": {
+   "en": "Own contribution company car",
+   "nl": "Eigen bijdrage auto van de zaak"
+  },
+  "nl.deduction_net": {
+   "en": "Net deduction",
+   "nl": "Netto inhouding"
+  },
+  "nl.wage_tax": {
+   "en": "Wage tax and national insurance",
+   "nl": "Loonheffing"
+  },
+  "nl.wage_tax_special": {
+   "en": "Wage tax on special payments",
+   "nl": "Loonheffing bijzondere beloningen"
+  },
+  "nl.zvw_contribution": {
+   "en": "Health insurance contribution (Zvw)",
+   "nl": "Bijdrage Zvw"
+  },
+  "nl.travel_allowance": {
+   "en": "Travel allowance",
+   "nl": "Reiskostenvergoeding"
+  },
+  "nl.home_working_allowance": {
+   "en": "Home-working allowance",
+   "nl": "Thuiswerkvergoeding"
+  },
+  "nl.reimbursement": {
+   "en": "Expense reimbursement",
+   "nl": "Onkostenvergoeding"
+  },
+  "nl.advance": {
+   "en": "Advance",
+   "nl": "Voorschot"
+  },
+  "nl.awf_premium": {
+   "en": "Unemployment insurance premium (AWf)",
+   "nl": "Premie AWf"
+  },
+  "nl.aof_premium": {
+   "en": "Disability insurance premium (Aof)",
+   "nl": "Premie Aof"
+  },
+  "nl.wko_premium": {
+   "en": "Childcare surcharge (Wko)",
+   "nl": "Opslag Wko"
+  },
+  "nl.whk_premium": {
+   "en": "Return-to-work fund premium (Whk)",
+   "nl": "Premie Whk"
+  },
+  "nl.zvw_employer_levy": {
+   "en": "Employer health insurance levy (Zvw)",
+   "nl": "Werkgeversheffing Zvw"
+  },
+  "nl.pension_employer": {
+   "en": "Employer pension contribution",
+   "nl": "Pensioenpremie werkgever"
+  },
+  "nl.labour_credit": {
+   "en": "Labour tax credit applied",
+   "nl": "Verrekende arbeidskorting"
+  },
+  "nl.holiday_allowance_accrued": {
+   "en": "Holiday allowance reserved",
+   "nl": "Reservering vakantiegeld"
+  },
+  "nl.minimum_wage": {
+   "en": "Statutory minimum hourly wage",
+   "nl": "Wettelijk minimumuurloon"
+  },
+  "nl.loon_lb": {
+   "en": "Wage for wage tax",
+   "nl": "Loon voor de loonheffing"
+  },
+  "nl.loon_sv": {
+   "en": "Wage for employee insurances",
+   "nl": "Loon werknemersverzekeringen (SV-loon)"
+  },
+  "nl.loon_zvw": {
+   "en": "Wage for the Zvw",
+   "nl": "Loon Zvw"
+  },
+  "nl.loon_bb": {
+   "en": "Taxed with the special-payments table",
+   "nl": "Loon tabel bijzondere beloningen"
+  }
+ },
+ "stateNames": {
+  "AK": {
+   "en": "Alaska",
+   "nl": "Alaska"
+  },
+  "AZ": {
+   "en": "Arizona",
+   "nl": "Arizona"
+  },
+  "CA": {
+   "en": "California",
+   "nl": "Californië"
+  },
+  "CO": {
+   "en": "Colorado",
+   "nl": "Colorado"
+  },
+  "FL": {
+   "en": "Florida",
+   "nl": "Florida"
+  },
+  "GA": {
+   "en": "Georgia",
+   "nl": "Georgia"
+  },
+  "IL": {
+   "en": "Illinois",
+   "nl": "Illinois"
+  },
+  "MA": {
+   "en": "Massachusetts",
+   "nl": "Massachusetts"
+  },
+  "NC": {
+   "en": "North Carolina",
+   "nl": "Noord-Carolina"
+  },
+  "NH": {
+   "en": "New Hampshire",
+   "nl": "New Hampshire"
+  },
+  "NJ": {
+   "en": "New Jersey",
+   "nl": "New Jersey"
+  },
+  "NV": {
+   "en": "Nevada",
+   "nl": "Nevada"
+  },
+  "NY": {
+   "en": "New York",
+   "nl": "New York"
+  },
+  "PA": {
+   "en": "Pennsylvania",
+   "nl": "Pennsylvania"
+  },
+  "SD": {
+   "en": "South Dakota",
+   "nl": "Zuid-Dakota"
+  },
+  "TN": {
+   "en": "Tennessee",
+   "nl": "Tennessee"
+  },
+  "TX": {
+   "en": "Texas",
+   "nl": "Texas"
+  },
+  "WA": {
+   "en": "Washington",
+   "nl": "Washington"
+  },
+  "WY": {
+   "en": "Wyoming",
+   "nl": "Wyoming"
+  }
+ },
+ "stateCertificates": {
+  "CA.form": {
+   "en": "DE 4 — Employee's Withholding Allowance Certificate",
+   "nl": "DE 4 — loonheffingsverklaring Californië"
+  },
+  "CA.filingStatus": {
+   "en": "Filing status",
+   "nl": "Aangiftestatus"
+  },
+  "CA.filingStatus.single": {
+   "en": "Single or Married (with two or more incomes)",
+   "nl": "Alleenstaand of gehuwd (twee of meer inkomens)"
+  },
+  "CA.filingStatus.married": {
+   "en": "Married (one income)",
+   "nl": "Gehuwd (één inkomen)"
+  },
+  "CA.filingStatus.head_of_household": {
+   "en": "Head of Household",
+   "nl": "Hoofd van het huishouden"
+  },
+  "CA.allowances": {
+   "en": "Line 1a — Number of regular withholding allowances (Worksheet A)",
+   "nl": "Regel 1a — aantal reguliere heffingskortingen (werkblad A)"
+  },
+  "CA.estimated_deduction_allowances": {
+   "en": "Line 1b — Number of allowances from the estimated deductions (Worksheet B)",
+   "nl": "Regel 1b — aantal extra kortingen voor geschatte aftrekposten (werkblad B)"
+  },
+  "CA.extraWithholding": {
+   "en": "Line 2 — Additional amount withheld each pay period (Worksheet C)",
+   "nl": "Regel 2 — extra in te houden bedrag per betaalperiode (werkblad C)"
+  },
+  "CA.exempt": {
+   "en": "Line 3 — I claim exemption from withholding for 2026",
+   "nl": "Regel 3 — ik vraag vrijstelling van inhouding aan voor 2026"
+  },
+  "CA.military_spouse_exempt": {
+   "en": "Line 4 — Not subject to California withholding (Servicemember Civil Relief Act)",
+   "nl": "Regel 4 — geen inhouding in Californië (Servicemember Civil Relief Act)"
+  },
+  "NY.form": {
+   "en": "IT-2104 — Employee's Withholding Allowance Certificate",
+   "nl": "IT-2104 — loonheffingsverklaring New York"
+  },
+  "NY.filingStatus": {
+   "en": "Filing status",
+   "nl": "Aangiftestatus"
+  },
+  "NY.filingStatus.single": {
+   "en": "Single or Head of household",
+   "nl": "Alleenstaand of hoofd van het huishouden"
+  },
+  "NY.filingStatus.married": {
+   "en": "Married",
+   "nl": "Gehuwd"
+  },
+  "NY.filingStatus.married_higher_single": {
+   "en": "Married, but withhold at higher single rate",
+   "nl": "Gehuwd, maar inhouden tegen het hogere tarief voor alleenstaanden"
+  },
+  "NY.allowances": {
+   "en": "Line 1 — Total number of allowances for New York State",
+   "nl": "Regel 1 — totaal aantal kortingen voor de staat New York"
+  },
+  "NY.extraWithholding": {
+   "en": "Line 3 — New York State additional amount per pay period",
+   "nl": "Regel 3 — extra bedrag staat New York per betaalperiode"
+  },
+  "NY.nyc_resident": {
+   "en": "Resident of New York City (city tax is not withheld by WeldSuite)",
+   "nl": "Inwoner van New York City (stadsbelasting wordt niet door WeldSuite ingehouden)"
+  },
+  "NY.yonkers_resident": {
+   "en": "Resident of Yonkers (Yonkers tax is not withheld by WeldSuite)",
+   "nl": "Inwoner van Yonkers (Yonkers-belasting wordt niet door WeldSuite ingehouden)"
+  },
+  "NY.exempt": {
+   "en": "Exempt from withholding (Form IT-2104-E)",
+   "nl": "Vrijgesteld van inhouding (formulier IT-2104-E)"
+  },
+  "IL.form": {
+   "en": "IL-W-4 — Employee's Illinois Withholding Allowance Certificate",
+   "nl": "IL-W-4 — loonheffingsverklaring Illinois"
+  },
+  "IL.allowances": {
+   "en": "Line 1 — Total number of basic allowances",
+   "nl": "Regel 1 — totaal aantal basiskortingen"
+  },
+  "IL.additional_allowances": {
+   "en": "Line 2 — Total number of additional allowances",
+   "nl": "Regel 2 — totaal aantal aanvullende kortingen"
+  },
+  "IL.extraWithholding": {
+   "en": "Line 3 — Additional amount withheld from each pay",
+   "nl": "Regel 3 — extra in te houden bedrag per betaling"
+  },
+  "PA.form": {
+   "en": "REV-419 — Employee's Nonwithholding Application Certificate",
+   "nl": "REV-419 — verzoek om geen inhouding Pennsylvania"
+  },
+  "PA.exempt": {
+   "en": "No Pennsylvania withholding (REV-419: resident of a reciprocal state such as New Jersey, or eligible for Tax Forgiveness)",
+   "nl": "Geen inhouding in Pennsylvania (REV-419: inwoner van een verdragsstaat zoals New Jersey, of recht op Tax Forgiveness)"
+  },
+  "GA.form": {
+   "en": "G-4 — Employee's Withholding Allowance Certificate",
+   "nl": "G-4 — loonheffingsverklaring Georgia"
+  },
+  "GA.filingStatus": {
+   "en": "Line 3 — Marital status",
+   "nl": "Regel 3 — burgerlijke staat"
+  },
+  "GA.filingStatus.single": {
+   "en": "A. Single",
+   "nl": "A. Alleenstaand"
+  },
+  "GA.filingStatus.married_both_working": {
+   "en": "B. Married Filing Separate or Married Filing Joint, both spouses working",
+   "nl": "B. Gehuwd, aparte aangifte, of gezamenlijke aangifte met twee werkende partners"
+  },
+  "GA.filingStatus.married_one_working": {
+   "en": "C. Married Filing Joint, one spouse working",
+   "nl": "C. Gehuwd, gezamenlijke aangifte, één werkende partner"
+  },
+  "GA.filingStatus.head_of_household": {
+   "en": "D. Head of Household",
+   "nl": "D. Hoofd van het huishouden"
+  },
+  "GA.dependent_allowances": {
+   "en": "Line 4 — Dependent allowances",
+   "nl": "Regel 4 — kortingen voor ten laste komende personen"
+  },
+  "GA.adjustment_allowances": {
+   "en": "Line 5 — Georgia adjustments allowance (worksheet required)",
+   "nl": "Regel 5 — Georgia-correctiekortingen (werkblad verplicht)"
+  },
+  "GA.extraWithholding": {
+   "en": "Line 6 — Additional withholding per pay period",
+   "nl": "Regel 6 — extra inhouding per betaalperiode"
+  },
+  "GA.exempt": {
+   "en": "Line 8a — Exempt: no Georgia income tax liability last year and none expected this year",
+   "nl": "Regel 8a — vrijgesteld: vorig jaar geen inkomstenbelasting in Georgia verschuldigd en dit jaar ook niet verwacht"
+  },
+  "GA.military_spouse_exempt": {
+   "en": "Line 8b — Not subject to Georgia withholding (Servicemembers Civil Relief Act)",
+   "nl": "Regel 8b — geen inhouding in Georgia (Servicemembers Civil Relief Act)"
+  },
+  "NC.form": {
+   "en": "NC-4 — Employee's Withholding Allowance Certificate",
+   "nl": "NC-4 — loonheffingsverklaring Noord-Carolina"
+  },
+  "NC.filingStatus": {
+   "en": "Filing status",
+   "nl": "Aangiftestatus"
+  },
+  "NC.filingStatus.single": {
+   "en": "Single or Married Filing Separately",
+   "nl": "Alleenstaand of gehuwd met aparte aangifte"
+  },
+  "NC.filingStatus.married": {
+   "en": "Married Filing Jointly or Surviving Spouse",
+   "nl": "Gehuwd met gezamenlijke aangifte of nabestaande partner"
+  },
+  "NC.filingStatus.head_of_household": {
+   "en": "Head of Household",
+   "nl": "Hoofd van het huishouden"
+  },
+  "NC.allowances": {
+   "en": "Line 1 — Total number of allowances",
+   "nl": "Regel 1 — totaal aantal kortingen"
+  },
+  "NC.extraWithholding": {
+   "en": "Line 2 — Additional amount withheld each pay period (whole dollars)",
+   "nl": "Regel 2 — extra in te houden bedrag per betaalperiode (hele dollars)"
+  },
+  "NC.exempt": {
+   "en": "NC-4 EZ line 3 — Exempt: no North Carolina tax liability last year and none expected this year",
+   "nl": "NC-4 EZ regel 3 — vrijgesteld: vorig jaar geen belasting in Noord-Carolina verschuldigd en dit jaar ook niet verwacht"
+  },
+  "NC.military_spouse_exempt": {
+   "en": "NC-4 EZ line 4 — Exempt under the Servicemembers Civil Relief Act",
+   "nl": "NC-4 EZ regel 4 — vrijgesteld op grond van de Servicemembers Civil Relief Act"
+  },
+  "NJ.form": {
+   "en": "NJ-W4 — Employee's Withholding Allowance Certificate",
+   "nl": "NJ-W4 — loonheffingsverklaring New Jersey"
+  },
+  "NJ.filingStatus": {
+   "en": "Line 2 — Filing status",
+   "nl": "Regel 2 — aangiftestatus"
+  },
+  "NJ.filingStatus.single": {
+   "en": "1. Single",
+   "nl": "1. Alleenstaand"
+  },
+  "NJ.filingStatus.married_joint": {
+   "en": "2. Married/Civil Union Couple Joint",
+   "nl": "2. Gehuwd/geregistreerd partnerschap, gezamenlijke aangifte"
+  },
+  "NJ.filingStatus.married_separate": {
+   "en": "3. Married/Civil Union Partner Separate",
+   "nl": "3. Gehuwd/geregistreerd partnerschap, aparte aangifte"
+  },
+  "NJ.filingStatus.head_of_household": {
+   "en": "4. Head of Household",
+   "nl": "4. Hoofd van het huishouden"
+  },
+  "NJ.filingStatus.qualifying_widow": {
+   "en": "5. Qualifying Widow(er)/Surviving Civil Union Partner",
+   "nl": "5. Weduwe/weduwnaar of nabestaande geregistreerd partner"
+  },
+  "NJ.rate_table": {
+   "en": "Line 3 — Rate table letter from the wage chart (instruction A)",
+   "nl": "Regel 3 — letter van de tarieftabel uit de loontabel (instructie A)"
+  },
+  "NJ.rate_table.A": {
+   "en": "Rate A",
+   "nl": "Tarief A"
+  },
+  "NJ.rate_table.B": {
+   "en": "Rate B",
+   "nl": "Tarief B"
+  },
+  "NJ.rate_table.C": {
+   "en": "Rate C",
+   "nl": "Tarief C"
+  },
+  "NJ.rate_table.D": {
+   "en": "Rate D",
+   "nl": "Tarief D"
+  },
+  "NJ.rate_table.E": {
+   "en": "Rate E",
+   "nl": "Tarief E"
+  },
+  "NJ.allowances": {
+   "en": "Line 4 — Total number of allowances",
+   "nl": "Regel 4 — totaal aantal kortingen"
+  },
+  "NJ.extraWithholding": {
+   "en": "Line 5 — Additional amount deducted from each pay",
+   "nl": "Regel 5 — extra in te houden bedrag per betaling"
+  },
+  "NJ.exempt": {
+   "en": "Line 6 — EXEMPT from New Jersey Gross Income Tax withholding",
+   "nl": "Regel 6 — VRIJGESTELD van inhouding New Jersey Gross Income Tax"
+  },
+  "NJ.nj165_pa_resident": {
+   "en": "Pennsylvania resident with Form NJ-165 (Employee's Certificate of Nonresidence in New Jersey)",
+   "nl": "Inwoner van Pennsylvania met formulier NJ-165 (verklaring van niet-ingezetenschap New Jersey)"
+  },
+  "AZ.form": {
+   "en": "A-4 — Employee's Arizona Withholding Election",
+   "nl": "A-4 — keuze inhoudingspercentage Arizona"
+  },
+  "AZ.withholding_percent": {
+   "en": "Box 1 — Percentage of gross taxable wages to withhold",
+   "nl": "Vak 1 — in te houden percentage van het belastbare brutoloon"
+  },
+  "AZ.withholding_percent.0.5": {
+   "en": "0.5%",
+   "nl": "0,5%"
+  },
+  "AZ.withholding_percent.1.0": {
+   "en": "1.0%",
+   "nl": "1,0%"
+  },
+  "AZ.withholding_percent.1.5": {
+   "en": "1.5%",
+   "nl": "1,5%"
+  },
+  "AZ.withholding_percent.2.0": {
+   "en": "2.0%",
+   "nl": "2,0%"
+  },
+  "AZ.withholding_percent.2.5": {
+   "en": "2.5%",
+   "nl": "2,5%"
+  },
+  "AZ.withholding_percent.3.0": {
+   "en": "3.0%",
+   "nl": "3,0%"
+  },
+  "AZ.withholding_percent.3.5": {
+   "en": "3.5%",
+   "nl": "3,5%"
+  },
+  "AZ.extraWithholding": {
+   "en": "Box 1 — Extra amount withheld from each paycheck",
+   "nl": "Vak 1 — extra in te houden bedrag per salarisbetaling"
+  },
+  "AZ.exempt": {
+   "en": "Box 2 — Arizona withholding percentage of zero (no Arizona tax liability expected)",
+   "nl": "Vak 2 — inhoudingspercentage nul (geen belasting in Arizona verwacht)"
+  },
+  "CO.form": {
+   "en": "DR 0004 — Colorado Employee Withholding Certificate",
+   "nl": "DR 0004 — loonheffingsverklaring Colorado"
+  },
+  "CO.withholding_allowance": {
+   "en": "Line 2 — Annual withholding allowance (leave empty to use the federal W-4 filing status)",
+   "nl": "Regel 2 — jaarlijkse heffingskorting (leeg laten om de aangiftestatus van de federale W-4 te gebruiken)"
+  },
+  "CO.extraWithholding": {
+   "en": "Line 3 — Additional withholding per pay period",
+   "nl": "Regel 3 — extra inhouding per betaalperiode"
+  },
+  "MA.form": {
+   "en": "M-4 — Massachusetts Employee's Withholding Exemption Certificate",
+   "nl": "M-4 — verklaring vrijstellingen loonheffing Massachusetts"
+  },
+  "MA.allowances": {
+   "en": "Line 4 — Total number of withholding exemptions (a claimed spouse counts as 4)",
+   "nl": "Regel 4 — totaal aantal vrijstellingen (een opgegeven partner telt als 4)"
+  },
+  "MA.extraWithholding": {
+   "en": "Line 5 — Additional withholding per pay period",
+   "nl": "Regel 5 — extra inhouding per betaalperiode"
+  },
+  "MA.head_of_household": {
+   "en": "A — You will file as head of household",
+   "nl": "A — u doet aangifte als hoofd van het huishouden"
+  },
+  "MA.blind": {
+   "en": "B — You are blind",
+   "nl": "B — u bent blind"
+  },
+  "MA.spouse_blind": {
+   "en": "C — Your spouse is blind and not subject to withholding",
+   "nl": "C — uw partner is blind en heeft geen inhouding"
+  },
+  "MA.full_time_student": {
+   "en": "D — Full-time student in seasonal, part-time or temporary work earning no more than $8,000 a year",
+   "nl": "D — voltijdstudent met seizoens-, deeltijd- of tijdelijk werk en hoogstens $8.000 inkomen per jaar"
+  },
+  "MA.military_spouse_exempt": {
+   "en": "Exempt under MSRRA (Form M-4-MS)",
+   "nl": "Vrijgesteld op grond van MSRRA (formulier M-4-MS)"
+  },
+  "WA.form": {
+   "en": "WA Cares Fund exemption",
+   "nl": "Vrijstelling WA Cares Fund"
+  },
+  "WA.wa_cares_exempt": {
+   "en": "Approved WA Cares exemption (ESD exemption approval letter given to the employer)",
+   "nl": "Goedgekeurde vrijstelling WA Cares (goedkeuringsbrief van ESD aan de werkgever gegeven)"
+  }
+ }
+}
