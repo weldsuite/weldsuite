@@ -1,5 +1,5 @@
 /**
- * The review step's "Signed copy": where the signed PDF will be saved in
+ * A request's "Signed copy": where the signed PDF will be saved in
  * WeldDrive once everyone has signed (the default place, or a folder the sender
  * chose), and, for a request that started from a CRM record, that a copy also
  * goes on the record. The source of the request is shown with it.

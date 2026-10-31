@@ -16,7 +16,8 @@
  * of its own and TypeScript another, and asserts on the one Rust used.
  */
 
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { serveOnLoopback } from './bucket-bridge';
 
 /** The Workflow binding methods the bridge calls. */
 export interface WorkflowLike {
@@ -68,21 +69,7 @@ const bridges = new WeakMap<object, Promise<string>>();
 export function workflowBridgeUrl(workflow: WorkflowLike): Promise<string> {
   let url = bridges.get(workflow);
   if (!url) {
-    url = new Promise<string>((resolve, reject) => {
-      const server: Server = createServer((req, res) => {
-        handle(workflow, req, res).catch((error: unknown) => {
-          res.writeHead(500).end(String(error));
-        });
-      });
-      server.unref();
-      server.on('error', reject);
-      server.listen(0, '127.0.0.1', () => {
-        const address = server.address();
-        const port = typeof address === 'object' && address ? address.port : 0;
-        process.once('beforeExit', () => server.close());
-        resolve(`http://127.0.0.1:${port}`);
-      });
-    });
+    url = serveOnLoopback((req, res) => handle(workflow, req, res));
     bridges.set(workflow, url);
   }
   return url;

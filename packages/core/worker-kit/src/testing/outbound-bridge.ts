@@ -22,7 +22,8 @@
  * (`mockImplementation`), not by call order (`mockResolvedValueOnce`).
  */
 
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { serveOnLoopback } from './bucket-bridge';
 
 /** One outbound call, as compared between the backends. */
 export interface OutboundCall {
@@ -127,21 +128,7 @@ let bridge: Promise<string> | undefined;
 
 /** The bridge's URL, starting its server once per test process. */
 export function outboundBridgeUrl(): Promise<string> {
-  bridge ??= new Promise<string>((resolve, reject) => {
-    const server: Server = createServer((req, res) => {
-      handle(req, res).catch((error: unknown) => {
-        res.writeHead(500).end(String(error));
-      });
-    });
-    server.unref();
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : 0;
-      process.once('beforeExit', () => server.close());
-      resolve(`http://127.0.0.1:${port}`);
-    });
-  });
+  bridge ??= serveOnLoopback(handle);
   return bridge;
 }
 

@@ -1,10 +1,10 @@
 /**
- * What still stands between a draft and sending it. Shown on the review step;
+ * What still stands between a draft and sending it. Shown in the request editor;
  * sending itself runs the same checks on the server. A template is checked the
  * same way, with its roles in place of people.
  */
 
-import type { SignEnvelopeDetail, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
+import type { SignEnvelopeDetail, SignFieldInput, SignRecipientDto } from '@weldsuite/app-api-client/schemas/weldsign';
 
 export type ReadinessProblem =
   | { kind: 'no_documents' }
@@ -15,7 +15,8 @@ export type ReadinessProblem =
 const personLabel = (recipient: SignRecipientDto): string => recipient.name || recipient.email || '';
 
 export function readinessProblems(
-  envelope: Pick<SignEnvelopeDetail, 'documents' | 'recipientList' | 'fields'>,
+  // The fields may be saved or still being placed.
+  envelope: Pick<SignEnvelopeDetail, 'documents' | 'recipientList'> & { fields: readonly Pick<SignFieldInput, 'recipientId' | 'type'>[] },
   label: (recipient: SignRecipientDto) => string = personLabel,
 ): ReadinessProblem[] {
   const problems: ReadinessProblem[] = [];

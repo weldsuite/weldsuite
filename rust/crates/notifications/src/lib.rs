@@ -27,7 +27,9 @@ use weldsuite_ports::{
     RealtimePublisher,
 };
 
-pub use push::{ApnsConfig, CallCancelReason, cancel_incoming_call_push};
+pub use push::{
+    ApnsConfig, CallCancelReason, ExpoResult, cancel_incoming_call_push, send_expo_push,
+};
 
 /// Where notifications go out (`NotificationEnv`): the realtime port (in-app;
 /// `REALTIME`), live presence for the email gate, system mail

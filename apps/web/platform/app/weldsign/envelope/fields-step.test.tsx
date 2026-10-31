@@ -190,4 +190,39 @@ describe('fields step on a request', () => {
     expect(api.weldsign.replaceFields.mock.calls[0]![0]).toBe('sgn_1');
     expect(api.weldsign.templates.replaceFields).not.toHaveBeenCalled();
   });
+
+  describe('when the request changes elsewhere', () => {
+    const view = (step: SignEnvelopeDetail, client: QueryClient) => (
+      <QueryClientProvider client={client}>
+        <I18nProvider initialLanguage="en">
+          <FieldsStep envelope={step} editable />
+        </I18nProvider>
+      </QueryClientProvider>
+    );
+    const onPage = () => within(screen.getByTestId('page')).queryAllByRole('button', { name: tf.types.signature });
+
+    it('drops an unsaved field whose signer was removed', async () => {
+      const client = new QueryClient();
+      const user = userEvent.setup();
+      const { rerender } = render(view(detail({ recipientList: [ann, bob] }), client));
+
+      await user.click(screen.getByRole('button', { name: 'bob@example.com' }));
+      await user.click(screen.getByRole('button', { name: tf.types.signature }));
+      fireEvent(screen.getByTestId('page').firstElementChild!, new MouseEvent('pointerdown', { bubbles: true, clientX: 120, clientY: 160 }));
+      expect(onPage()).toHaveLength(1);
+
+      rerender(view(detail({ recipientList: [ann] }), client));
+      expect(onPage()).toHaveLength(0);
+    });
+
+    it('takes over the fields saved elsewhere when nothing here is unsaved', () => {
+      const client = new QueryClient();
+      const field = { id: 'sgf_1', documentId: 'sgd_1', recipientId: 'rcp_ann', type: 'signature', page: 0, x: 10, y: 10, width: 160, height: 48, required: true, label: null } as SignFieldDto;
+      const { rerender } = render(view(detail({ recipientList: [ann] }), client));
+      expect(onPage()).toHaveLength(0);
+
+      rerender(view(detail({ recipientList: [ann], fields: [field] }), client));
+      expect(onPage()).toHaveLength(1);
+    });
+  });
 });

@@ -90,7 +90,7 @@
       "/api/pipelines",
       "/api/sequences"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "crm-api"
   },
   {
@@ -134,7 +134,7 @@
       "/api/tickets",
       "/public/helpcenter"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "desk-api"
   },
   {
@@ -166,7 +166,7 @@
       "/api/mail-weldmail",
       "/api/mailboxes"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "mail-api"
   },
   {
@@ -203,7 +203,7 @@
       "/api/time-entries",
       "/api/whiteboards"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "flow-api"
   },
   {
@@ -407,7 +407,7 @@
       "/api/chat-status",
       "/public/chat-calls"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "chat-api"
   },
   {

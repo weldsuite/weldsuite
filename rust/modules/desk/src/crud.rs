@@ -121,6 +121,17 @@ pub(crate) struct Crud {
     pub(crate) updated: EventName,
     pub(crate) updated_fields: &'static [Changed],
     pub(crate) deleted: EventName,
+    /// What else a write does once the row is stored.
+    pub(crate) hook: Hook,
+}
+
+/// A route file's extra step after a create or an update.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Hook {
+    None,
+    /// ticket-types: `syncTicketTypeDefinitions` with the body's `fields`
+    /// (after a create; after an update only when the body has them).
+    TicketTypeFields,
 }
 
 type Handler = &'static Crud;
@@ -130,17 +141,25 @@ pub(crate) fn routes<Q>(crud: Handler, gate: &Arc<PermissionGate<Q>>) -> Router<
 where
     Q: PermissionQueries + 'static,
 {
+    item_routes(crud, gate).route(
+        "/",
+        get(
+            move |state: State<DeskState>, caller: Caller, query: RawQuery| {
+                list(crud, state, caller, query)
+            },
+        )
+        .route_layer(gate.require([crud.gates.read.to_owned()])),
+    )
+}
+
+/// Every route but the list (`POST /` and `/:id`), for a route file that
+/// lists its own way.
+pub(crate) fn item_routes<Q>(crud: Handler, gate: &Arc<PermissionGate<Q>>) -> Router<DeskState>
+where
+    Q: PermissionQueries + 'static,
+{
     let need = |key: &str| gate.require([key.to_owned()]);
     Router::new()
-        .route(
-            "/",
-            get(
-                move |state: State<DeskState>, caller: Caller, query: RawQuery| {
-                    list(crud, state, caller, query)
-                },
-            )
-            .route_layer(need(crud.gates.read)),
-        )
         .route(
             "/",
             axum::routing::post(
@@ -482,6 +501,9 @@ async fn create(
     if let Err(error) = table.insert(&caller.db, values, &trusted).await {
         return write_failed(&error, crud.messages.create);
     }
+    if crud.hook == Hook::TicketTypeFields {
+        crate::ticket_types::sync_definitions(&caller.db, &id, data.get("fields")).await;
+    }
     let mut event = Map::new();
     event.insert("id".to_owned(), json!(id));
     for field in crud.created_fields {
@@ -527,6 +549,11 @@ async fn update(
     };
     if let Err(error) = table.patch(&caller.db, &id, values, true, trusted).await {
         return write_failed(&error, crud.messages.update);
+    }
+    if crud.hook == Hook::TicketTypeFields
+        && let Some(fields) = data.get("fields")
+    {
+        crate::ticket_types::sync_definitions(&caller.db, &id, Some(fields)).await;
     }
     let mut event = Map::new();
     event.insert("id".to_owned(), json!(id));

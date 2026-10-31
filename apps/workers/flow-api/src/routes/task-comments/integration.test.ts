@@ -119,3 +119,94 @@ describe('GET /api/task-comments', () => {
     expect((await caller.request('/api/task-comments?taskId=task_tc_live')).status).toBe(200);
   });
 });
+
+describe('POST, GET /:id and PATCH /api/task-comments', () => {
+  beforeAll(async () => {
+    await db.insert(schema.projects).values([
+      { id: 'proj_tc_rw', name: 'RW', createdAt: new Date(), updatedAt: new Date() },
+    ] as (typeof schema.projects.$inferInsert)[]);
+    await db.insert(schema.projectMembers).values([
+      { id: 'pm_tc_rw_writer', projectId: 'proj_tc_rw', userId: 'user_writer', role: 'member', isActive: true },
+      { id: 'pm_tc_rw_watcher', projectId: 'proj_tc_rw', userId: 'user_watcher', role: 'member', isActive: true },
+    ] as (typeof schema.projectMembers.$inferInsert)[]);
+    await db.insert(schema.workspaceMembers).values([
+      { id: 'wm_tc_writer', userId: 'user_writer', email: 'writer@example.com', name: 'Wendy Writer', status: 'active' },
+      { id: 'wm_tc_watcher', userId: 'user_watcher', email: 'watcher@example.com', name: 'Walt Watcher', status: 'active' },
+    ] as (typeof schema.workspaceMembers.$inferInsert)[]);
+    await db.insert(schema.tasks).values([
+      {
+        id: 'task_tc_rw',
+        title: 'Write the brief',
+        projectId: 'proj_tc_rw',
+        assigneeId: 'user_watcher',
+        reporterId: 'user_writer',
+      },
+    ] as (typeof schema.tasks.$inferInsert)[]);
+  });
+
+  const asWriter = (userId = 'user_writer') =>
+    createTestApp('/api/task-comments', taskCommentsRoutes, {
+      context: { userId, permissions: permissions('tasks:read', 'tasks:create', 'tasks:update'), tenantDb: db },
+    });
+  const post = (userId: string, body: unknown) =>
+    asWriter(userId).request('/api/task-comments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const patch = (userId: string, id: string, body: unknown) =>
+    asWriter(userId).request(`/api/task-comments/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('creates a comment as the caller, reads it back and lists it with the author', async () => {
+    const res = await post('user_writer', { taskId: 'task_tc_rw', content: 'Draft is up, <@user_watcher>' });
+    expect(res.status).toBe(201);
+    const { data } = (await res.json()) as { data: { id: string; authorId: string; taskId: string } };
+    expect(data.id).toMatch(/^tcmt_/);
+    expect(data.authorId).toBe('user_writer');
+
+    const read = await asWriter().request(`/api/task-comments/${data.id}`);
+    expect(read.status).toBe(200);
+    const { data: row } = (await read.json()) as { data: { taskType: string; content: string } };
+    expect(row.taskType).toBe('project');
+    expect(row.content).toBe('Draft is up, <@user_watcher>');
+
+    const list = await asWriter().request('/api/task-comments?taskId=task_tc_rw&page=1&limit=10');
+    expect(list.status).toBe(200);
+    const listed = (await list.json()) as { data: { id: string; authorName: string }[] };
+    expect(listed.data.find((comment) => comment.id === data.id)?.authorName).toBe('Wendy Writer');
+  });
+
+  it('validates the body and refuses tasks it cannot write to or that do not exist', async () => {
+    expect((await post('user_writer', { taskId: 'task_tc_rw', content: '' })).status).toBe(400);
+    expect((await post('user_writer', { content: 'No task' })).status).toBe(400);
+    expect((await post('user_writer', { taskId: 'task_tc_missing', content: 'Hi' })).status).toBe(404);
+    expect((await post('user_stranger', { taskId: 'task_tc_rw', content: 'Hi' })).status).toBe(403);
+    expect((await asWriter().request('/api/task-comments?limit=0')).status).toBe(400);
+  });
+
+  it('answers 404 for an unknown comment and 403 for one on a project the caller is not in', async () => {
+    const res = await post('user_writer', { taskId: 'task_tc_rw', content: 'Members only' });
+    const { data } = (await res.json()) as { data: { id: string } };
+    expect((await asWriter().request('/api/task-comments/tcmt_missing')).status).toBe(404);
+    expect((await asWriter('user_stranger').request(`/api/task-comments/${data.id}`)).status).toBe(403);
+  });
+
+  it('lets only the author edit a comment', async () => {
+    const res = await post('user_writer', { taskId: 'task_tc_rw', content: 'Typo hree' });
+    const { data } = (await res.json()) as { data: { id: string } };
+
+    expect((await patch('user_watcher', data.id, { content: 'Hijacked' })).status).toBe(403);
+    expect((await patch('user_writer', data.id, { content: '' })).status).toBe(400);
+    expect((await patch('user_writer', 'tcmt_missing', { content: 'Nope' })).status).toBe(404);
+
+    const edited = await patch('user_writer', data.id, { content: 'Typo here' });
+    expect(edited.status).toBe(200);
+    expect(await edited.json()).toEqual({ data: { id: data.id, content: 'Typo here' } });
+    const [stored] = await db.select().from(schema.taskComments).where(eq(schema.taskComments.id, data.id));
+    expect(stored?.content).toBe('Typo here');
+  });
+});

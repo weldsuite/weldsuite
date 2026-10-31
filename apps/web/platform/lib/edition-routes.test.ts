@@ -6,7 +6,7 @@ const EU_CONFIG = {
   backend: 'rust',
   edition: 'eu',
   modules: ['core', 'know', 'sign', 'pass', 'calendar'],
-  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex'],
+  unavailableFeatures: ['sso-connections', 'billing', 'credit-top-up', 'paid-apps', 'desktop-sign-in', 'analytics', 'search-reindex', 'helpcenter-custom-domains'],
 };
 
 afterEach(() => setRuntimeConfig(null));
@@ -25,6 +25,16 @@ describe('route availability', () => {
     expect(routeRequirement('/settings/apps/weldmail/signatures')).toEqual({ modules: ['mail'] });
     expect(routeRequirement('/agents/abc')).toEqual({ modules: ['agent'] });
     expect(routeRequirement('/settings/billing')).toEqual({ feature: 'billing' });
+  });
+
+  it('hides the WeldMail pages of a feature the backend lacks, and only those', () => {
+    expect(routeRequirement('/weldmail/ai/summary')).toEqual({ modules: ['mail'], feature: 'mail-ai' });
+    expect(routeRequirement('/weldmail/domains')).toEqual({ modules: ['mail'], feature: 'mail-domains' });
+    setRuntimeConfig({ backend: 'rust', modules: ['mail'], unavailableFeatures: ['mail-ai', 'mail-domains'] });
+    expect(isRouteOffered('/weldmail/ai/smart-reply')).toBe(false);
+    expect(isRouteOffered('/weldmail/domains')).toBe(false);
+    expect(isRouteOffered('/weldmail/setup')).toBe(true);
+    expect(isRouteOffered('/weldmail/settings/labels')).toBe(true);
   });
 
   it('needs only core for platform pages', () => {

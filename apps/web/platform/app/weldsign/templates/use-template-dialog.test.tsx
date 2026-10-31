@@ -163,7 +163,7 @@ describe('UseTemplateDialog', () => {
     expect(api.weldsign.templates.use).not.toHaveBeenCalled();
   });
 
-  it('creates the draft, closes, and opens it on its Review step', async () => {
+  it('creates the draft, closes, and opens it', async () => {
     const user = userEvent.setup();
     const { onClose } = renderDialog();
     await loaded();
@@ -175,7 +175,7 @@ describe('UseTemplateDialog', () => {
 
     await user.click(screen.getByRole('button', { name: tu.submit }));
 
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/weldsign/sgn_new?step=review'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/weldsign/sgn_new'));
     expect(onClose).toHaveBeenCalled();
     // Roles go out in routing order; title and message are left to the template; a code goes with the protected role only.
     expect(api.weldsign.templates.use).toHaveBeenCalledWith('sgt_1', {

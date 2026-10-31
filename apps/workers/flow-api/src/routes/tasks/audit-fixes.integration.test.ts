@@ -11,6 +11,7 @@ import { reorderedPositions, reorderedPositionsByProject, tasksRoutes } from './
 import { myTasksRoutes } from '../my-tasks';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 
 vi.mock('@weldsuite/entity-events', async () => {
@@ -271,8 +272,11 @@ describe('completion: events and recurrence (TASK-774, TASK-775, TASK-788)', () 
     expect(next?.customerId).toBe('cust_rec');
     expect(next?.dueDate?.toISOString()).toBe('2031-03-17T00:00:00.000Z');
 
-    // The new occurrence is announced like any created task.
-    expect(published('created').map((call) => call.entityId)).toEqual([next?.id]);
+    // The new occurrence is announced like any created task. In conformance mode
+    // the spy sees the TypeScript run's event, whose new id is its own; the
+    // harness compares both runs' events itself.
+    expect(published('created')).toHaveLength(1);
+    if (!conformanceTarget()) expect(published('created').map((call) => call.entityId)).toEqual([next?.id]);
   });
 
   it('does not spawn again when done is sent twice, or from a reorder inside Done', async () => {
@@ -661,5 +665,53 @@ describe('task attachments keep to this workspace (TASK-620)', () => {
     expect(res.status).toBe(400);
     const rows = await db.select().from(schema.files).where(eq(schema.files.fileKey, fileKey));
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe('task attachments: removal', () => {
+  it('soft-deletes an attachment of the task, and nothing of another task', async () => {
+    await seedProject('proj_att_rm');
+    await seedTask({ id: 'task_att_rm', projectId: 'proj_att_rm' });
+    await seedTask({ id: 'task_att_rm_other', projectId: 'proj_att_rm' });
+    const key = 'workspaces/org_test_default/tasks/task_att_rm/1_abc/a.pdf';
+    const created = await send('POST', '/task_att_rm/attachments', {
+      fileName: 'a.pdf',
+      fileKey: key,
+      fileSize: 1,
+      mimeType: 'application/pdf',
+    });
+    const { data } = (await created.json()) as { data: { id: string } };
+
+    expect((await send('DELETE', `/task_att_rm_other/attachments/${data.id}`)).status).toBe(404);
+    expect((await send('DELETE', `/task_att_missing/attachments/${data.id}`)).status).toBe(404);
+    expect((await send('DELETE', `/task_att_rm/attachments/${data.id}`)).status).toBe(204);
+    const [file] = await db.select().from(schema.files).where(eq(schema.files.id, data.id));
+    expect(file?.deletedAt).not.toBeNull();
+    expect((await send('DELETE', `/task_att_rm/attachments/${data.id}`)).status).toBe(404);
+  });
+});
+
+describe('GET /api/tasks/:id/subtasks', () => {
+  it('lists the direct subtasks in position order with their own subtask counts', async () => {
+    await seedProject('proj_sub_list');
+    await seedTask({ id: 'task_sub_parent', projectId: 'proj_sub_list' });
+    await seedTask({ id: 'task_sub_b', projectId: 'proj_sub_list', parentTaskId: 'task_sub_parent', position: 2 });
+    await seedTask({ id: 'task_sub_a', projectId: 'proj_sub_list', parentTaskId: 'task_sub_parent', position: 1 });
+    await seedTask({ id: 'task_sub_a1', projectId: 'proj_sub_list', parentTaskId: 'task_sub_a', status: 'done' });
+    await seedTask({ id: 'task_sub_a2', projectId: 'proj_sub_list', parentTaskId: 'task_sub_a' });
+    await seedTask({ id: 'task_sub_gone', projectId: 'proj_sub_list', parentTaskId: 'task_sub_parent', deletedAt: now });
+
+    const res = await send('GET', '/task_sub_parent/subtasks');
+    expect(res.status).toBe(200);
+    const { data } = (await res.json()) as {
+      data: { id: string; subtaskCount: number; completedSubtaskCount: number }[];
+    };
+    expect(data.map((task) => task.id)).toEqual(['task_sub_a', 'task_sub_b']);
+    expect(data[0]).toMatchObject({ subtaskCount: 2, completedSubtaskCount: 1 });
+    expect(data[1]).toMatchObject({ subtaskCount: 0, completedSubtaskCount: 0 });
+
+    expect((await send('GET', '/task_sub_missing/subtasks')).status).toBe(404);
+    const empty = await send('GET', '/task_sub_b/subtasks');
+    expect(((await empty.json()) as { data: unknown[] }).data).toEqual([]);
   });
 });

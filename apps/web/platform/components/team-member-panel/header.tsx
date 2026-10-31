@@ -6,7 +6,7 @@ import { StatusDot, STATUS_LABELS, type PresenceStatus } from '@weldsuite/ui/com
 import { usePresence } from '@/contexts/presence-context';
 import { useWeldChatCall } from '@/contexts/weldchat-call-context';
 import { useDmByUser } from '@/hooks/queries/use-weldchat-queries';
-import { isModuleOffered } from '@/lib/edition';
+import { isFeatureAvailable, isModuleOffered } from '@/lib/edition';
 import { toast } from 'sonner';
 import { useNavigate } from '@tanstack/react-router';
 import { useNow, formatLocalTime, formatTimezoneOffset } from './use-now';
@@ -114,24 +114,28 @@ export function TeamMemberPanelHeader({ profile, onClose, isSelf }: Readonly<Tea
             >
               <MessageSquare className="h-4 w-4" />
             </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              onClick={() => handleCall('voice')}
-              disabled={!dmChannelId}
-              title={t('sweep.shared.voiceCall')}
-            >
-              <Phone className="h-4 w-4" />
-            </Button>
-            <Button
-              size="icon"
-              variant="outline"
-              onClick={() => handleCall('video')}
-              disabled={!dmChannelId}
-              title={t('sweep.shared.videoCall')}
-            >
-              <Video className="h-[18px] w-[18px]" />
-            </Button>
+            {isFeatureAvailable('chat-calls') && (
+              <>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => handleCall('voice')}
+                  disabled={!dmChannelId}
+                  title={t('sweep.shared.voiceCall')}
+                >
+                  <Phone className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => handleCall('video')}
+                  disabled={!dmChannelId}
+                  title={t('sweep.shared.videoCall')}
+                >
+                  <Video className="h-[18px] w-[18px]" />
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>

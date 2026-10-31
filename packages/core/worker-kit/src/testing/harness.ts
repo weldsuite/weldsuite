@@ -64,6 +64,13 @@ export interface TestContext {
    */
   masterDb?: Database;
   /**
+   * Other workspaces' tenant databases, by the reference the routes resolve
+   * them with (the Clerk org id), for a route that reads across workspaces
+   * (the test mocks its tenant lookup to return them). Only conformance mode
+   * reads it here: each is served to the Rust server like `tenantDb`.
+   */
+  tenantDbs?: Record<string, Database>;
+  /**
    * Pre-resolved permissions cached on the context. When set, the
    * `requirePermission` middleware short-circuits its DB query and uses
    * this value directly. Use `permissions('*')` to grant everything.

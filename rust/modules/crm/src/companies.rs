@@ -490,10 +490,13 @@ fn bulk_body(issues: &mut Issues, body: &Map<String, Value>) -> (Vec<String>, Ma
                 Spec::new("status", s(None, None), OPT),
                 Spec::new("lifecycleStage", Kind::Enum(LIFECYCLE_STAGES), OPT),
             ];
+            let before = issues.count();
             let out = schema::read(issues, fields, &specs);
-            refine_failed = ["ownerId", "accountManagerId", "status", "lifecycleStage"]
-                .iter()
-                .all(|key| !out.contains_key(*key));
+            // A field that failed aborts the object, so its `.refine()` never runs.
+            refine_failed = issues.count() == before
+                && ["ownerId", "accountManagerId", "status", "lifecycleStage"]
+                    .iter()
+                    .all(|key| !out.contains_key(*key));
             out
         })
         .into_option()

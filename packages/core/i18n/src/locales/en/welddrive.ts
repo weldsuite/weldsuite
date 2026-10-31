@@ -230,13 +230,39 @@ export const welddrive = {
   /** The pickers other modules open to choose files or a folder from WeldDrive. */
   picker: {
     files: {
-      searchPlaceholder: 'Search files',
+      searchPlaceholder: 'Search in WeldDrive',
       loading: 'Loading files…',
       loadFailed: 'The files could not be loaded.',
-      empty: 'No files found.',
+      empty: 'No files found',
+      emptyHint: 'Upload one, or look in another folder',
+      emptySearchHint: 'Try another name',
       limited: 'Showing the first {count} files. Search to find others.',
       selected: '{count} selected',
       selectedOf: '{count} of {max} selected',
+      tabs: {
+        recent: 'Recent',
+        myDrive: 'My Drive',
+        shared: 'Shared with me',
+        upload: 'Upload',
+      },
+      groups: {
+        today: 'Today',
+        yesterday: 'Yesterday',
+        thisWeek: 'Earlier this week',
+        thisMonth: 'Earlier this month',
+        thisYear: 'Earlier this year',
+        older: 'Older',
+      },
+      columns: {
+        name: 'Name',
+        modified: 'Last modified',
+        size: 'Size',
+      },
+      upload: {
+        drop: 'Drag files here',
+        hint: 'Or choose them from your computer',
+        browse: 'Browse',
+      },
     },
     folders: {
       loading: 'Loading folders…',

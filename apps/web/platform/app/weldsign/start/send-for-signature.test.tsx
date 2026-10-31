@@ -79,13 +79,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('Send for signature on a WeldDrive file', () => {
-  it('makes a draft from the PDF, copies it in and opens the Recipients step', async () => {
+  it('makes a draft from the PDF, copies it in and opens it', async () => {
     const user = userEvent.setup();
     renderMenu(<SendFileForSignatureItem file={pdf} />);
 
     await user.click(menuItem()!);
 
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/weldsign/sgn_new?step=recipients'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/weldsign/sgn_new'));
     // The title is the file name without .pdf, and the draft remembers the file it came from.
     expect(api.weldsign.create).toHaveBeenCalledWith({ title: 'Service agreement', source: { entityType: 'file', entityId: 'fil_1' } });
     expect(api.weldsign.addDocumentFromDrive).toHaveBeenCalledWith('sgn_new', { fileId: 'fil_1' });
@@ -102,7 +102,7 @@ describe('Send for signature on a WeldDrive file', () => {
     expect(toast.loading).toHaveBeenCalledWith('Preparing "Service agreement.pdf" for signature…');
   });
 
-  it('still opens the draft, on Documents, and says why when the PDF is refused', async () => {
+  it('still opens the draft, and says why when the PDF is refused', async () => {
     api.weldsign.addDocumentFromDrive.mockRejectedValue(new ApiError('This PDF is password protected', 400));
     const user = userEvent.setup();
     renderMenu(<SendFileForSignatureItem file={pdf} />);
@@ -167,7 +167,7 @@ describe('Send for signature on a CRM record', () => {
     { source: { entityType: 'opportunity', id: 'opp_1', name: 'Website rebuild' }, title: 'Document for Website rebuild' },
   ];
 
-  it.each(records)('makes a draft for the $source.entityType and opens it on Documents', async ({ source, title }) => {
+  it.each(records)('makes a draft for the $source.entityType and opens it', async ({ source, title }) => {
     const user = userEvent.setup();
     renderMenu(<SendForSignatureItem source={source} />);
 

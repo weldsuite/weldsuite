@@ -16,6 +16,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import type { ChatCall } from '@weldsuite/db/schema/chat-calls';
 import { ACTIVE_CALLS_KEY, withChannelCall, type ActiveCallEntry } from '../lib/active-calls';
 import { getRecordChatTypeInfo, openRecordPanel } from '../lib/record-chat-types';
+import { isFeatureAvailable } from '@/lib/edition';
 import { RecordChatFollowButton } from './record-chat-follow-button';
 
 function VideoCameraIcon({ className, strokeWidth = 1.5 }: Readonly<{ className?: string; strokeWidth?: number }>) {
@@ -123,6 +124,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
     openObjectPanel({ type: 'channel', id: channel.id, initialTab: 'people' });
   };
 
+  const callsAvailable = isFeatureAvailable('chat-calls');
   const { data: activeCallData } = useQuery({
     queryKey: weldchatKeys.activeCall(channel.id),
     queryFn: async () => {
@@ -130,6 +132,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
       return client.get<{ data: ChatCall | null }>(`/chat-calls/active/${channel.id}`);
     },
     refetchInterval: 10000,
+    enabled: callsAvailable,
   });
   const hasActiveCall = !!activeCallData?.data;
 
@@ -192,7 +195,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
         </div>
         <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
           {isRecordChat && <RecordChatActions channel={channel} />}
-          {channel.videoCallsEnabled !== false && (
+          {callsAvailable && channel.videoCallsEnabled !== false && (
             <Button
               variant="ghost"
               size="icon"
@@ -205,7 +208,7 @@ export function ChannelHeader({ channel, onOpenMemberPanel }: Readonly<ChannelHe
               <VideoCameraIcon className="!h-[21px] !w-[21px]" strokeWidth={1.8} />
             </Button>
           )}
-          {channel.voiceCallsEnabled !== false && (
+          {callsAvailable && channel.voiceCallsEnabled !== false && (
             <Button
               variant="ghost"
               size="icon"

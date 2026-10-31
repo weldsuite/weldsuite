@@ -247,14 +247,16 @@ async fn deactivate_device_tokens(db: &PgPool, tokens: &[String]) -> Result<(), 
     Ok(())
 }
 
-#[derive(Default)]
-struct ExpoResult {
-    tickets: Vec<Value>,
-    invalid_tokens: Vec<String>,
+/// What `sendExpoPush` answers: the tickets, and the tokens Expo refused as
+/// not registered (to deactivate).
+#[derive(Debug, Default)]
+pub struct ExpoResult {
+    pub tickets: Vec<Value>,
+    pub invalid_tokens: Vec<String>,
 }
 
-/// `sendExpoPush(messages)`.
-async fn send_expo_push(http: Option<&OutboundHttp>, messages: Vec<Value>) -> ExpoResult {
+/// `sendExpoPush(messages)` (`@weldsuite/notifications/push`).
+pub async fn send_expo_push(http: Option<&OutboundHttp>, messages: Vec<Value>) -> ExpoResult {
     let mut result = ExpoResult::default();
     let mut eligible = Vec::new();
     for message in messages {

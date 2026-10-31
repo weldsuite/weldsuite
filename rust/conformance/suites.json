@@ -583,6 +583,12 @@
         "src/routes/companies/integration.test.ts",
         "src/routes/companies/routes.integration.test.ts"
       ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/company-logos/resolve",
+          "reason": "Fetches each company's own website and stores the logo in R2 under the request's public origin; not served on the Kubernetes editions, /config.json lists company-logos as unavailable and the platform asks nothing there (initials)."
+        }
+      ],
       "paths": [
         "apps/workers/crm-api/src/routes/companies/",
         "apps/workers/crm-api/src/lib/record-chat-forward.ts",
@@ -603,8 +609,7 @@
       "workspace": "apps/workers/mail-api",
       "tests": [
         "src/routes/mail-sending/index.test.ts",
-        "src/routes/internal-outbound/index.test.ts",
-        "src/routes/mail-accounts/send.test.ts"
+        "src/routes/internal-outbound/index.test.ts"
       ],
       "paths": [
         "apps/workers/mail-api/src/routes/mail-sending/",
@@ -614,6 +619,208 @@
         "packages/clients/app-api-client/src/schemas/outbound-mail.ts",
         "rust/crates/mail-domain/src/outbound/",
         "rust/modules/mail/"
+      ]
+    },
+    {
+      "name": "mail: accounts and messages",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-accounts/send.test.ts",
+        "src/routes/mail-accounts/routes.test.ts",
+        "src/routes/mail-messages/routes.test.ts",
+        "src/routes/mail-messages/access.test.ts",
+        "src/routes/mail-messages/stats-access.test.ts",
+        "src/routes/mail-attachments/access.test.ts",
+        "src/routes/mail-attachments/routes.test.ts",
+        "src/routes/mailboxes/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "DELETE /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "DELETE /api/mail-weldmail/:id",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "GET /api/mail-domains",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "GET /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "GET /api/mail-domains/by-name/:domainName",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "GET /api/mail-weldmail",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "GET /api/mail-weldmail/domain",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "GET /internal/mail-store/backfill",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "GET /internal/mail-store/export",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "GET /internal/mail-store/status",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "GET /internal/mail-store/status/all",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "PATCH /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/auto-draft",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/draft",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/improve-text",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/inbox-summary",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/label",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/label/batch",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/reply",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-ai/smart-replies",
+          "reason": "Needs an AI port the Rust backend does not have yet; not served on the Kubernetes editions, and /config.json lists mail-ai as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains/:id/generate-dkim",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains/:id/sync",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-domains/:id/verify",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        },
+        {
+          "route": "POST /api/mail-weldmail/check",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "POST /api/mail-weldmail/reserve",
+          "reason": "Free {slug}.weldmail.com addresses belong to Global (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-free-addresses as unavailable."
+        },
+        {
+          "route": "POST /internal/mail-store/backfill",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "POST /internal/mail-store/parity",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "POST /internal/mail-store/rebuild",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "POST /internal/mail-store/reverse-sync",
+          "reason": "Staff API of the Durable Object mailbox store (backfill, parity, reverse sync, rebuild, export, status); the Kubernetes editions keep mailbox contents in Postgres only (ADR MAIL-010), so there is no object store to manage. Not platform-facing."
+        },
+        {
+          "route": "PUT /api/mail-domains/:id",
+          "reason": "WeldMail custom domains are Cloudflare Email Routing and DNS on Global and differ by edition (ADR MAIL-010); not served on the Kubernetes editions, and /config.json lists mail-domains as unavailable."
+        }
+      ]
+    },
+    {
+      "name": "mail: labels, folders, signatures",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-labels/routes.test.ts",
+        "src/routes/mail-labels/access.test.ts",
+        "src/routes/mail-folders/routes.test.ts",
+        "src/routes/mail-signatures/index.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
+      "name": "mail: drafts, threads, snooze, scheduled",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-drafts/routes.test.ts",
+        "src/routes/mail-threads/read-all.test.ts",
+        "src/routes/mail-threads/routes.test.ts",
+        "src/routes/mail-snooze/access.test.ts",
+        "src/routes/mail-snooze/routes.test.ts",
+        "src/routes/mail-scheduled/routes.test.ts",
+        "src/routes/mail-scheduled/access.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
+      ]
+    },
+    {
+      "name": "mail: templates, rules, campaigns, sync, subscriptions",
+      "module": "mail",
+      "workspace": "apps/workers/mail-api",
+      "tests": [
+        "src/routes/mail-templates/routes.test.ts",
+        "src/routes/mail-rules/routes.test.ts",
+        "src/routes/mail-campaigns/routes.test.ts",
+        "src/routes/mail-sync/routes.test.ts",
+        "src/routes/mail-subscriptions/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/mail-api/src/",
+        "packages/domains/mail/src/",
+        "rust/modules/mail/",
+        "rust/crates/mail-domain/"
       ]
     },
     {
@@ -631,6 +838,42 @@
         "rust/modules/crm/",
         "rust/crates/crm-domain/",
         "rust/bins/weldsuite/src/conformance_workflows.rs"
+      ]
+    },
+    {
+      "name": "crm: people",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/people/integration.test.ts",
+        "src/routes/people/routes.integration.test.ts",
+        "src/routes/people/recent-correspondents.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/people/",
+        "packages/domains/crm/src/people.ts",
+        "packages/domains/crm/src/member-validation.ts",
+        "packages/domains/crm/src/list-query.ts",
+        "packages/domains/mail/src/access.ts",
+        "packages/clients/core-api-client/src/schemas/people.ts",
+        "rust/modules/crm/",
+        "rust/crates/crm-domain/",
+        "rust/crates/mail-domain/src/access.rs",
+        "rust/crates/mail-domain/src/store.rs"
+      ]
+    },
+    {
+      "name": "crm: analytics",
+      "module": "crm",
+      "workspace": "apps/workers/crm-api",
+      "tests": [
+        "src/routes/crm-analytics/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/crm-api/src/routes/crm-analytics/",
+        "packages/domains/core/src/analytics-query.ts",
+        "packages/clients/core-api-client/src/schemas/project-analytics.ts",
+        "rust/modules/crm/src/crm_analytics.rs"
       ]
     },
     {
@@ -668,7 +911,8 @@
         "src/routes/channels/integration.test.ts",
         "src/routes/channels/names.integration.test.ts",
         "src/routes/channels/routes.integration.test.ts",
-        "src/routes/channel-members/integration.test.ts"
+        "src/routes/channel-members/integration.test.ts",
+        "src/routes/chat-entity-channels/access.integration.test.ts"
       ],
       "paths": [
         "apps/workers/chat-api/src/",
@@ -677,6 +921,56 @@
         "rust/modules/chat/",
         "rust/crates/chat-domain/",
         "rust/crates/notifications/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "GET /api/chat-calls/:callId",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "GET /api/chat-calls/active",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "GET /api/chat-calls/active/:channelId",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "GET /api/chat-calls/history",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/decline",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/end",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/join",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/leave",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/:callId/prepare",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /api/chat-calls/start-and-join",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        },
+        {
+          "route": "POST /public/chat-calls/decline",
+          "reason": "WeldChat calls run on Cloudflare RealtimeKit (its API and the platform call UI's client SDK), which the Kubernetes editions lack; not served there, /config.json lists chat-calls as unavailable and the platform hides calls (isFeatureAvailable('chat-calls') in apps/web/platform/lib/edition.ts). Comes with LiveKit in the call UI (P6)."
+        }
       ]
     },
     {
@@ -741,7 +1035,6 @@
       "workspace": "apps/workers/chat-api",
       "tests": [
         "src/routes/chat-entity-channels/integration.test.ts",
-        "src/routes/chat-entity-channels/access.integration.test.ts",
         "src/routes/chat-entity-channels/drive-files.integration.test.ts",
         "src/routes/chat-entity-channels/detail.integration.test.ts"
       ],
@@ -818,6 +1111,122 @@
         "packages/clients/core-api-client/src/schemas/conversations.ts",
         "rust/modules/desk/",
         "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: knowledge base",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/articles/routes.test.ts",
+        "src/routes/article-folders/routes.test.ts",
+        "src/routes/ticket-types/routes.test.ts",
+        "src/routes/canned-responses/routes.test.ts",
+        "src/routes/helpdesk-changelog/routes.test.ts",
+        "src/routes/helpdesk-stats/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/articles/",
+        "apps/workers/desk-api/src/routes/article-folders/",
+        "apps/workers/desk-api/src/routes/ticket-types/",
+        "apps/workers/desk-api/src/routes/canned-responses/",
+        "apps/workers/desk-api/src/routes/helpdesk-changelog/",
+        "apps/workers/desk-api/src/routes/helpdesk-stats/",
+        "packages/core/db/src/lib/custom-field-ticket-types.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: team and workflows",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/helpdesk-agents/routes.test.ts",
+        "src/routes/helpdesk-departments/routes.test.ts",
+        "src/routes/helpdesk-contacts/routes.test.ts",
+        "src/routes/helpdesk-weldagent/routes.test.ts",
+        "src/routes/helpdesk-workflows/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/helpdesk-agents/",
+        "apps/workers/desk-api/src/routes/helpdesk-departments/",
+        "apps/workers/desk-api/src/routes/helpdesk-contacts/",
+        "apps/workers/desk-api/src/routes/helpdesk-weldagent/",
+        "apps/workers/desk-api/src/routes/helpdesk-workflows/",
+        "apps/workers/desk-api/src/lib/notify.ts",
+        "apps/workers/desk-api/src/test/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ]
+    },
+    {
+      "name": "desk: settings",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/helpdesk-settings/routes.test.ts",
+        "src/routes/helpcenter-settings/routes.test.ts",
+        "src/routes/desk-widget/routes.test.ts",
+        "src/routes/desk-assignment/integration.test.ts",
+        "src/routes/helpdesk-email/routes.test.ts",
+        "src/routes/helpdesk-analytics/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/helpdesk-settings/",
+        "apps/workers/desk-api/src/routes/helpcenter-settings/",
+        "apps/workers/desk-api/src/routes/desk-widget/",
+        "apps/workers/desk-api/src/routes/desk-assignment/",
+        "apps/workers/desk-api/src/routes/helpdesk-email/",
+        "apps/workers/desk-api/src/routes/helpdesk-analytics/",
+        "packages/core/db/src/lib/desk-assignment.ts",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/"
+      ],
+      "excludedRoutes": [
+        {
+          "route": "POST /api/helpcenter-settings/domains",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        },
+        {
+          "route": "POST /api/helpcenter-settings/domains/:id/verify",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        },
+        {
+          "route": "DELETE /api/helpcenter-settings/domains/:id",
+          "reason": "Help center custom domains write a CNAME into a Cloudflare zone and register the host on the Vercel-hosted help center; not served on the Kubernetes editions, and /config.json lists helpcenter-custom-domains as unavailable (the platform hides the custom-domain UI there). Tested on TypeScript in helpcenter-settings/domains.test.ts."
+        }
+      ]
+    },
+    {
+      "name": "desk: webchat and channels",
+      "module": "desk",
+      "workspace": "apps/workers/desk-api",
+      "tests": [
+        "src/routes/desk-conversations/routes.test.ts",
+        "src/routes/desk-conversations/attributes.integration.test.ts",
+        "src/routes/helpdesk-integrations/routes.test.ts",
+        "src/routes/integrations/helpdesk-oauth.test.ts",
+        "src/routes/public-helpcenter/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/desk-api/src/routes/desk-conversations/",
+        "apps/workers/desk-api/src/routes/helpdesk-integrations/",
+        "apps/workers/desk-api/src/routes/integrations/",
+        "apps/workers/desk-api/src/routes/public-helpcenter/",
+        "packages/core/db/src/lib/desk.ts",
+        "packages/core/db/src/lib/custom-field-values.ts",
+        "packages/domains/desk/src/",
+        "apps/workers/desk-api/src/lib/",
+        "apps/workers/desk-api/src/services/",
+        "packages/clients/core-api-client/src/schemas/",
+        "rust/modules/desk/",
+        "rust/crates/desk-domain/",
+        "rust/crates/core-domain/src/custom_field_values.rs"
       ]
     },
     {
@@ -900,11 +1309,85 @@
       ]
     },
     {
+      "name": "flow: tasks",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/tasks/integration.test.ts",
+        "src/routes/tasks/audit-fixes.integration.test.ts",
+        "src/routes/tasks/web-contract.integration.test.ts",
+        "src/routes/my-tasks/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/tasks/",
+        "apps/workers/flow-api/src/routes/my-tasks/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: time and comments",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/time-entries/integration.test.ts",
+        "src/routes/time-entries/guards.integration.test.ts",
+        "src/routes/task-comments/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/time-entries/",
+        "apps/workers/flow-api/src/routes/task-comments/",
+        "apps/workers/flow-api/src/services/task-comment-notifications.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: analytics",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/project-analytics/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/project-analytics/",
+        "apps/workers/flow-api/src/services/project-kpi-summary.ts",
+        "packages/clients/core-api-client/src/schemas/project-analytics.ts",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
       "name": "flow: cross-cutting",
       "module": "flow",
       "workspace": "apps/workers/flow-api",
       "tests": [
         "src/routes/project-hardening.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/flow-api/src/routes/",
+        "apps/workers/flow-api/src/lib/",
+        "packages/domains/flow/src/",
+        "packages/clients/app-api-client/src/schemas/flow-responses.ts",
+        "rust/modules/flow/",
+        "rust/crates/flow-domain/"
+      ]
+    },
+    {
+      "name": "flow: viewer writes",
+      "module": "flow",
+      "workspace": "apps/workers/flow-api",
+      "tests": [
+        "src/routes/viewer-writes.integration.test.ts"
       ],
       "paths": [
         "apps/workers/flow-api/src/routes/",

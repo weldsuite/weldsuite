@@ -10,7 +10,7 @@ import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/welds
 const api = vi.hoisted(() => ({ weldsign: { templates: { get: vi.fn(), update: vi.fn() } } }));
 const state = vi.hoisted(() => ({ permissions: new Set<string>(['sign_templates:read']) }));
 vi.mock('@/lib/api/use-app-api', () => ({ useAppApi: () => api }));
-vi.mock('@tanstack/react-router', () => ({ useParams: () => ({ templateId: 'sgt_1' }) }));
+vi.mock('@tanstack/react-router', () => ({ useParams: () => ({ templateId: 'sgt_1' }), useNavigate: () => () => Promise.resolve() }));
 vi.mock('@weldsuite/permissions/react', () => ({ useCan: (permission: string) => state.permissions.has(permission) }));
 vi.mock('@/contexts/breadcrumb-context', () => ({ useBreadcrumbs: () => undefined }));
 
@@ -82,7 +82,7 @@ describe('template editor', () => {
   it('opens on Documents with the template steps: documents, roles, fields, settings', async () => {
     renderPage();
     expect(await screen.findByTestId('documents-step')).toHaveAttribute('data-kind', 'template');
-    expect(screen.getByLabelText(tt.editor.titleLabel)).toHaveValue('Service agreement');
+    expect(screen.getByRole('button', { name: 'Service agreement' })).toBeInTheDocument();
     expect(screen.getByText(tt.editor.badge)).toBeInTheDocument();
 
     const labels = stepButtons().map((button) => button.textContent?.replace(/^\d+/, ''));
@@ -113,7 +113,9 @@ describe('template editor', () => {
   it('saves the title through the template API', async () => {
     const user = userEvent.setup();
     renderPage();
-    const input = await screen.findByLabelText(tt.editor.titleLabel);
+    // The title is edited as a task title is: click it, then type.
+    await user.click(await screen.findByRole('button', { name: 'Service agreement' }));
+    const input = screen.getByLabelText(tt.editor.titleLabel);
     await user.clear(input);
     await user.type(input, 'NDA');
     await user.tab();
@@ -123,18 +125,19 @@ describe('template editor', () => {
   it('puts the old title back when it is emptied', async () => {
     const user = userEvent.setup();
     renderPage();
-    const input = await screen.findByLabelText(tt.editor.titleLabel);
-    await user.clear(input);
+    await user.click(await screen.findByRole('button', { name: 'Service agreement' }));
+    await user.clear(screen.getByLabelText(tt.editor.titleLabel));
     await user.tab();
     expect(api.weldsign.templates.update).not.toHaveBeenCalled();
-    expect(input).toHaveValue('Service agreement');
+    expect(screen.getByRole('button', { name: 'Service agreement' })).toBeInTheDocument();
   });
 
   it('is read-only, and says so, without sign_templates:update', async () => {
     api.weldsign.templates.get.mockResolvedValue({ data: template({ canEdit: false }) });
     renderPage();
     expect(await screen.findByText(tt.editor.readOnly)).toBeInTheDocument();
-    expect(screen.getByLabelText(tt.editor.titleLabel)).toBeDisabled();
+    expect(screen.getByRole('heading', { name: 'Service agreement' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Service agreement' })).toBeNull();
     expect(screen.getByTestId('documents-step')).toHaveAttribute('data-editable', 'false');
   });
 
