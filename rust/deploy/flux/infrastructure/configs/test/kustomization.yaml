@@ -70,3 +70,94 @@ patches:
       - op: replace
         path: /spec/instances
         value: 1
+  # The test cluster moved to new servers (TEST-CLUSTER.md, "Moving the
+  # cluster"): each Postgres cluster was restored from the old servers'
+  # backups (serverName <name>) and archives under <name>-2, because barman
+  # refuses to archive into a path that already holds another server's WAL.
+  # Bootstrap only matters when a Postgres cluster is created; the next move
+  # restores from <name>-2 and archives under <name>-3.
+  - target:
+      kind: Cluster
+      name: master
+    patch: |-
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: master
+      spec:
+        bootstrap:
+          initdb: null
+          recovery:
+            source: previous
+            database: weldsuite_master
+            owner: weldsuite
+            secret:
+              name: master-db-owner
+        externalClusters:
+          - name: previous
+            plugin:
+              name: barman-cloud.cloudnative-pg.io
+              parameters:
+                barmanObjectName: master-backups
+                serverName: master
+        plugins:
+          - name: barman-cloud.cloudnative-pg.io
+            isWALArchiver: true
+            parameters:
+              barmanObjectName: master-backups
+              serverName: master-2
+  - target:
+      kind: Cluster
+      name: tenants-1
+    patch: |-
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: tenants-1
+      spec:
+        bootstrap:
+          initdb: null
+          recovery:
+            source: previous
+            database: tenants
+            owner: tenant
+            secret:
+              name: tenants-1-owner
+        externalClusters:
+          - name: previous
+            plugin:
+              name: barman-cloud.cloudnative-pg.io
+              parameters:
+                barmanObjectName: tenants-1-backups
+                serverName: tenants-1
+        plugins:
+          - name: barman-cloud.cloudnative-pg.io
+            isWALArchiver: true
+            parameters:
+              barmanObjectName: tenants-1-backups
+              serverName: tenants-1-2
+  - target:
+      kind: Cluster
+      name: zitadel-db
+    patch: |-
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: zitadel-db
+      spec:
+        bootstrap:
+          recovery:
+            source: previous
+        externalClusters:
+          - name: previous
+            plugin:
+              name: barman-cloud.cloudnative-pg.io
+              parameters:
+                barmanObjectName: zitadel-backups
+                serverName: zitadel-db
+        plugins:
+          - name: barman-cloud.cloudnative-pg.io
+            isWALArchiver: true
+            parameters:
+              barmanObjectName: zitadel-backups
+              serverName: zitadel-db-2
