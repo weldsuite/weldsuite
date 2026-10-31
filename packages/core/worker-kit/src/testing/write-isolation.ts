@@ -14,6 +14,7 @@
 
 import { BUCKET_BINDINGS, isBucketLike, type BucketLike } from './bucket-bridge';
 import { KV_BINDINGS, isKvLike, kvText, type KvLike } from './kv-bridge';
+import { LEDGER_BINDINGS } from './ledger-bridge';
 
 interface ScratchObject {
   key: string;
@@ -138,6 +139,12 @@ export function isolatedEnv(env: Record<string, unknown>): Record<string, unknow
   }
   for (const name of KV_BINDINGS) {
     if (isKvLike(env[name])) isolated[name] = isolatedKv(env[name] as KvLike);
+  }
+  // A Durable Object namespace stub that can copy its state (the portal's
+  // rate-limit counters) counts the TypeScript run on the copy.
+  for (const name of LEDGER_BINDINGS) {
+    const ns = env[name] as { fork?: () => unknown } | undefined;
+    if (ns && typeof ns.fork === 'function') isolated[name] = ns.fork();
   }
   return isolated;
 }

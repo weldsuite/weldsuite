@@ -49,15 +49,29 @@ export interface MemoryRateLimitNamespace extends RateLimitNamespace {
   peek(name: string): RateLimitState | undefined;
   /** Every limiter key that has a counter. */
   names(): string[];
+  /**
+   * A namespace that starts from copies of these counters (conformance mode
+   * counts the TypeScript run of a write on a copy, as it runs on a copy of
+   * the database).
+   */
+  fork(): MemoryRateLimitNamespace;
 }
 
-export function createMemoryRateLimitNamespace(now: () => number = Date.now): MemoryRateLimitNamespace {
+export function createMemoryRateLimitNamespace(
+  now: () => number = Date.now,
+  seed: Map<string, { state: RateLimitState | undefined; alarmAt: number | null }> = new Map(),
+): MemoryRateLimitNamespace {
   const counters = new Map<string, { store: MemoryCounterStore; counter: RateLimitCounter; ready: Promise<void> }>();
 
   const entry = (name: string) => {
     let existing = counters.get(name);
     if (!existing) {
       const store = new MemoryCounterStore();
+      const seeded = seed.get(name);
+      if (seeded) {
+        store.state = seeded.state && { ...seeded.state };
+        store.alarmAt = seeded.alarmAt;
+      }
       const counter = new RateLimitCounter(store, now);
       existing = { store, counter, ready: counter.load() };
       counters.set(name, existing);
@@ -82,6 +96,11 @@ export function createMemoryRateLimitNamespace(now: () => number = Date.now): Me
     },
     peek: (name) => counters.get(name)?.store.state,
     names: () => [...counters.keys()],
+    fork: () => {
+      const copy = new Map(seed);
+      for (const [name, { store }] of counters) copy.set(name, { state: store.state, alarmAt: store.alarmAt });
+      return createMemoryRateLimitNamespace(now, copy);
+    },
   };
 }
 

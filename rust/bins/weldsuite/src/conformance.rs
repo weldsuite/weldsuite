@@ -329,6 +329,8 @@ impl Pools {
             self.mail
                 .bindings(context.send_email.as_deref(), &context.ledgers),
         ));
+        // WeldCommerce's portal rate limits: the test's namespace, or none.
+        extensions.insert(self.mail.portal_rate_limiter(&context.ledgers));
         // Sequence runs start on the test's `EXECUTE_SEQUENCE`, or nowhere.
         extensions.insert(weldsuite_crm::RequestSequenceRuns(
             self.workflows.sequence_runs(&context.workflows),

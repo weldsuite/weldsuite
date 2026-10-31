@@ -19,7 +19,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { serveOnLoopback } from './bucket-bridge';
 
 /** The namespaces the bridge serves. */
-export const LEDGER_BINDINGS = ['OUTBOUND_LEDGER', 'OUTBOUND_PLATFORM'] as const;
+export const LEDGER_BINDINGS = ['OUTBOUND_LEDGER', 'OUTBOUND_PLATFORM', 'PORTAL_RATE_LIMITER'] as const;
 type LedgerBinding = (typeof LEDGER_BINDINGS)[number];
 
 interface NamespaceLike {

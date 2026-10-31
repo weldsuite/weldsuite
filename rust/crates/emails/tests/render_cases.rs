@@ -6,8 +6,9 @@
 use serde::Deserialize;
 use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
+use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
-use weldsuite_emails::{EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, sign};
+use weldsuite_emails::{EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, portal, sign};
 
 #[derive(Deserialize)]
 struct Case {
@@ -123,6 +124,18 @@ fn render(case: &Case) -> RenderedEmail {
             &s(p, "url"),
         ),
         "calendar.event" => calendar::event(locale, &brand, &calendar_props(p)),
+        "portal.sign-in" => portal::sign_in(
+            locale,
+            &brand,
+            &PortalSignIn {
+                portal_name: s(p, "portalName"),
+                code: s(p, "code"),
+                url: opt("url"),
+                expires_in_minutes: p["expiresInMinutes"]
+                    .as_u64()
+                    .and_then(|m| u32::try_from(m).ok()),
+            },
+        ),
         other => panic!("no Rust renderer for {other}"),
     };
     result.unwrap_or_else(|error| panic!("{} {}: {error}", case.template, case.preview))
