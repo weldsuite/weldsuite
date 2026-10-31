@@ -162,6 +162,7 @@ export const DEFAULT_CANVAS_LABELS: Required<WorkflowCanvasLabels> = {
     move_deal_stage: 'Move Deal Stage',
     log_activity: 'Log Activity',
     create_task: 'Create Task',
+    create_conversation: 'Open Inbox Conversation',
     update_record: 'Update Record',
     delete_record: 'Delete Record',
     query_data: 'Query Data',

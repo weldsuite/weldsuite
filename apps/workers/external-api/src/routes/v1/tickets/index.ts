@@ -6,7 +6,7 @@ import { publishEntityEvent } from '@weldsuite/entity-events';
 import { schema } from '../../../db';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId, randomSuffix } from '../../../lib/id';
+import { generateId } from '../../../lib/id';
 import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
 import { listWithCursor } from '../../../lib/list-helpers';
 import {
@@ -21,9 +21,16 @@ import {
   listTicketsQuery,
 } from '@weldsuite/app-api-client/schemas/tickets';
 import { createTicketMessageSchema } from '@weldsuite/core-api-client/schemas/ticket-messages';
+import { openDeskApiConversation, DeskAttributeRejectedError } from '@weldsuite/desk-domain/inbox';
+import { deskInboxActor, deskInboxDeps } from '../conversations';
 
 // Nested message create takes ticketId from the URL, not the body.
 const createMessageBody = createTicketMessageSchema.omit({ ticketId: true });
+
+/** A new ticket opens an inbox conversation; `externalId` keeps repeats on it. */
+const openTicketSchema = createTicketSchema.extend({
+  externalId: z.string().trim().min(1).max(255).optional(),
+});
 
 const listMessagesQuery = z.object({
   cursor: z.string().optional(),
@@ -34,6 +41,14 @@ const ticketTable = schema.helpdeskTickets;
 const msgTable = schema.helpdeskTicketMessages;
 
 const app = new Hono<HonoEnv>();
+
+// helpdesk_tickets has no screen: agents work the inbox. Reads stay for the
+// published app-sdk; everything new belongs on /v1/conversations.
+app.use('*', async (c, next) => {
+  await next();
+  c.header('Deprecation', 'true');
+  c.header('Link', '</v1/conversations>; rel="successor-version"');
+});
 
 // ---- Tickets ----------------------------------------------------------------
 
@@ -77,40 +92,68 @@ app.get('/:id', requireScope('tickets:read'), async (c) => {
   return success(c, await hydrateCustomFieldsOne(db, 'ticket', row));
 });
 
-app.post('/', requireScope('tickets:write'), zValidator('json', createTicketSchema), async (c) => {
-  const db = c.get('tenantDb');
-  const body = c.req.valid('json');
-  const now = new Date();
-  const id = generateId('tkt');
-  // ticketNumber is NOT NULL with no DB default — generate when absent.
-  const ticketNumber =
-    body.ticketNumber ?? `TKT-${Date.now().toString(36).toUpperCase()}-${randomSuffix(4).toUpperCase()}`;
-  const [row] = await db
-    .insert(ticketTable)
-    .values({ id, createdAt: now, updatedAt: now, ...(body as Record<string, unknown>), ticketNumber } as typeof ticketTable.$inferInsert)
-    .returning();
-  if (!row) return error.internal(c, 'Failed to create ticket');
-  // Pile B dual-write, scoped to the ticket's type.
-  const ticketDefs = await getDefinitionsForTicket(db, row.ticketTypeId);
-  await syncValuesForEntity(db, 'ticket', id, body.customFields as Record<string, unknown> | null | undefined, generateId, ticketDefs);
-  publishEntityEvent({
-    c,
-    entityType: 'ticket',
-    entityId: id,
-    action: 'created',
-    data: {
-      id,
-      ticketNumber: row.ticketNumber,
-      subject: row.subject,
-      status: row.status,
-      priority: row.priority,
-      channel: row.channel,
-      assigneeId: row.assigneeId,
-      contactId: row.contactId,
-      departmentId: row.departmentId,
-    },
-  });
-  return success(c, row, 201);
+function isEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return typeof value === 'object' && Object.keys(value).length === 0;
+}
+
+/**
+ * A ticket from an integration opens a conversation in the WeldDesk inbox,
+ * where an agent sees it; a `helpdesk_tickets` row would reach nobody. Answers
+ * with the conversation (see `/v1/conversations`): 201 when new, 200 when
+ * `externalId` matched an existing one. Type, team, priority and tags become
+ * the conversation's ticket fields (ADR DESK-007) and `assigneeId` its owner
+ * instead of auto-assignment. Custom fields are refused: they are set on the
+ * open conversation, where a refused value writes nothing. Every other ticket
+ * field travels on the opening message's metadata, so nothing sent is lost.
+ */
+app.post('/', requireScope('tickets:write'), zValidator('json', openTicketSchema), async (c) => {
+  const {
+    externalId,
+    subject,
+    description,
+    customerName,
+    customerEmail,
+    contactId,
+    ticketTypeId,
+    departmentId,
+    priority,
+    tags,
+    assigneeId,
+    customFields,
+    ...rest
+  } = c.req.valid('json');
+  if (!isEmptyValue(customFields)) {
+    return error.badRequest(c, 'Set custom fields with PATCH /v1/conversations/:id once the conversation is open', {
+      field: 'customFields',
+    });
+  }
+  const ticket = Object.fromEntries(Object.entries(rest).filter(([, value]) => !isEmptyValue(value)));
+  try {
+    const result = await openDeskApiConversation(deskInboxDeps(c), {
+      via: 'api',
+      externalId,
+      title: subject,
+      body: description?.trim() || subject,
+      name: customerName,
+      email: customerEmail,
+      contactId: contactId ?? null,
+      metadata: Object.keys(ticket).length > 0 ? { ticket } : undefined,
+      fields: {
+        ticketTypeId: ticketTypeId ?? undefined,
+        departmentId: departmentId ?? undefined,
+        // The inbox's top priority is urgent.
+        priority: priority === 'critical' ? 'urgent' : priority,
+        tags,
+      },
+      assigneeId,
+      actor: deskInboxActor(c),
+    });
+    return success(c, result.conversation, result.created ? 201 : 200);
+  } catch (err) {
+    if (err instanceof DeskAttributeRejectedError) return error.badRequest(c, err.message, { field: err.field });
+    throw err;
+  }
 });
 
 app.patch('/:id', requireScope('tickets:write'), zValidator('json', updateTicketSchema), async (c) => {

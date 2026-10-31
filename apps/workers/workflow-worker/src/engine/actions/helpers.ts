@@ -171,7 +171,9 @@ export function resolveConversationId(
 ): string | null {
   if (inputs.conversationId) return asText(inputs.conversationId);
   const td = context.triggerData as Record<string, unknown> | undefined;
-  if (td?.entityType === 'helpdesk_conversation') return String(td.entityId);
+  if (td?.entityType === 'helpdesk_conversation' || td?.entityType === 'desk_conversation') {
+    return String(td.entityId);
+  }
   if (td?.data && typeof td.data === 'object' && 'conversationId' in (td.data as object)) {
     return String((td.data as Record<string, unknown>).conversationId);
   }

@@ -16,15 +16,16 @@ function stripCodeFences(text: string): string {
   const parts = text.split('```');
   // An odd count of fences leaves the last one unclosed: keep it as written.
   const closed = parts.length % 2 === 1 ? parts.length : parts.length - 1;
-  let out = parts[0];
+  let out = parts[0] ?? '';
   for (let i = 1; i < parts.length; i++) {
+    const part = parts[i] ?? '';
     if (i >= closed) {
-      out += '```' + parts[i];
+      out += '```' + part;
       continue;
     }
     // Inside a fence the first line is its language tag, when a line break follows it.
-    const newline = parts[i].indexOf('\n');
-    out += i % 2 === 1 && newline !== -1 ? parts[i].slice(newline + 1) : parts[i];
+    const newline = part.indexOf('\n');
+    out += i % 2 === 1 && newline !== -1 ? part.slice(newline + 1) : part;
   }
   return out;
 }

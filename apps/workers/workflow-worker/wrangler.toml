@@ -147,6 +147,12 @@ dead_letter_queue = "entity-workflows-dlq-dev"
 # src/cron/schedule-sweep.ts and the `scheduled` handler in src/index.ts).
 crons = ["* * * * *"]
 
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-dev"
+
 # ============ TEST ============
 [env.test]
 name = "weldsuite-workflow-test"
@@ -216,6 +222,12 @@ crons = ["* * * * *"]
 enabled = true
 head_sampling_rate = 1
 
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.test.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker-test"
+
 # ============ PRODUCTION ============
 [env.production]
 name = "weldsuite-workflow"
@@ -284,3 +296,9 @@ crons = ["* * * * *"]
 [env.production.observability]
 enabled = true
 head_sampling_rate = 1
+
+# WeldDesk auto-assignment: the per-workspace AssignmentRouter picks who owns
+# a conversation this worker opens (ADR DESK-005). Without it the pick runs locally.
+[[env.production.services]]
+binding = "HELPDESK_WORKFLOW"
+service = "helpdesk-workflow-worker"

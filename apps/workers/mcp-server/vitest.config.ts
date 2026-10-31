@@ -13,6 +13,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Workers-only module; WeldDesk inbox writes notify the team through
+      // @weldsuite/notifications, whose email channel imports @weldsuite/emails.
+      'cloudflare:email': path.resolve(
+        __dirname,
+        '../../../packages/core/worker-email/src/testing/cloudflare-email-stub.ts',
+      ),
       // The WeldReach inbox module (read here, sent from the public API) imports
       // @weldsuite/smtp, which connects through `cloudflare:sockets`, a Workers-only
       // module. Nothing in this worker ever connects; the stub only lets it load.

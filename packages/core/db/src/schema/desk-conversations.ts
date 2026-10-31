@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   varchar,
@@ -26,6 +27,11 @@ import {
  * ticket fields, and the type's custom fields live in custom_field_values
  * under entity type `desk_conversation`. They are written only by
  * updateDeskConversationAttributes, which puts the change on the timeline.
+ *
+ * externalId: the caller's own key for what an API, MCP, agent or workflow
+ * conversation is about (an alert id, an order number). Unique, so a repeat
+ * lands on the same conversation (reopening it if it was closed) instead of
+ * starting another (`ingestDeskApi`).
  */
 
 export type DeskConversationState = 'open' | 'closed';
@@ -67,9 +73,14 @@ export const deskConversations = pgTable(
     rating: integer('rating'),
     ratingComment: text('rating_comment'),
     ratedAt: timestamp('rated_at'),
+
+    externalId: varchar('external_id', { length: 255 }),
   },
   (table) => [
     uniqueIndex('desk_conversations_number_uidx').on(table.conversationNumber),
+    uniqueIndex('desk_conversations_external_id_uidx')
+      .on(table.externalId)
+      .where(sql`${table.externalId} IS NOT NULL`),
     index('desk_conversations_state_waiting_idx').on(table.state, table.waitingSince),
     index('desk_conversations_state_last_msg_idx').on(table.state, table.lastMessageAt),
     index('desk_conversations_assignee_idx').on(table.assigneeId, table.state),

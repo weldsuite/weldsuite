@@ -185,6 +185,7 @@ export const ACTION_REQUIRED_FIELDS: Record<string, RequiredRule[]> = {
   send_reply: [{ labelKey: 'message', isMissing: (c) => isBlank(c.message) }],
   add_internal_note: [{ labelKey: 'noteContent', isMissing: (c) => isBlank(c.content) }],
   apply_sla: [{ labelKey: 'slaPolicyId', isMissing: (c) => isBlank(c.slaId) }],
+  create_conversation: [{ labelKey: 'message', isMissing: (c) => isBlank(c.message) }],
 
   // --- Chat widget ---------------------------------------------------------
   send_message: [{ labelKey: 'message', isMissing: (c) => isBlank(c.message) }],
