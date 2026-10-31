@@ -168,6 +168,11 @@ export const FORWARDED_ENV = [
   'WIDGET_TOKEN_SECRET',
   'REALTIME_PUBLIC_URL',
   'REALTIME_INTERNAL_SECRET',
+  // WeldCommerce: the keys that open stored credentials (sales tax engines,
+  // Sendcloud, store connections), and the B2B portal's origin.
+  'DATABASE_ENCRYPTION_KEY',
+  'DATABASE_ENCRYPTION_KEY_V2',
+  'COMMERCE_PORTAL_URL',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */

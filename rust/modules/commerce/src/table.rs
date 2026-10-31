@@ -100,7 +100,7 @@ impl std::fmt::Display for WriteError {
 impl Table {
     /// A `row` (`to_jsonb(t)`) as Drizzle's `select()` returns it: the
     /// schema's property names (`relatedFAQs`, not `relatedFaqs`), `Date`s as
-    /// `toISOString()`, and only the schema's columns.
+    /// `toISOString()`, json strings re-parsed, and only the schema's columns.
     pub(crate) fn js(&self, row: Value) -> Value {
         let Value::Object(mut row) = row else {
             return row;
@@ -110,6 +110,11 @@ impl Table {
             let value = row.remove(column.name).unwrap_or(Value::Null);
             let value = match (column.kind, value) {
                 (Kind::Date, Value::String(text)) => Value::String(js_date(&text)),
+                // Drizzle's json/jsonb `mapFromDriverValue`: a string is
+                // `JSON.parse`d when it parses (`"19.99"` reads back as 19.99).
+                (Kind::Json, Value::String(text)) => {
+                    serde_json::from_str(&text).unwrap_or(Value::String(text))
+                }
                 (_, value) => value,
             };
             out.insert(column.prop.to_owned(), value);
