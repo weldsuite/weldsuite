@@ -1,10 +1,11 @@
 /**
  * WeldDesk notification helpers — a conversation/ticket was assigned to a
- * teammate, and a customer replied on a conversation assigned to a teammate.
+ * teammate, a customer replied on a conversation assigned to a teammate, and
+ * an inbox conversation's SLA is about to breach or has.
  *
- * Both honour the workspace's helpdesk notification settings
+ * All honour the workspace's helpdesk notification settings
  * (`helpdesk_settings.notifications.notifyOnAssignment` /
- * `notifyOnCustomerReply`, edited in WeldDesk settings). A missing settings
+ * `notifyOnCustomerReply` / `notifyOnSLABreach`, edited in WeldDesk settings). A missing settings
  * row, or a missing key, counts as enabled — that is what the settings screen
  * shows for a workspace that never saved them.
  *
@@ -15,7 +16,7 @@
  * the conversation.
  */
 
-import { eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import * as schema from '@weldsuite/db/schema';
 import { createAndDeliverNotification } from '../orchestrator';
 import type { Database, NotificationEnv } from '../types';
@@ -26,7 +27,7 @@ const PREVIEW_MAX = 180;
 /** What the notification points at: the inbox conversation or a ticket. */
 export type HelpdeskEntityKind = 'conversation' | 'ticket';
 
-type HelpdeskNotifyKey = 'notifyOnAssignment' | 'notifyOnCustomerReply';
+type HelpdeskNotifyKey = 'notifyOnAssignment' | 'notifyOnCustomerReply' | 'notifyOnSLABreach';
 
 /** Collapse whitespace and cut to `max` characters (ellipsis when cut). */
 export function helpdeskPreview(text: string | null | undefined, max = PREVIEW_MAX): string {
@@ -193,4 +194,103 @@ export async function sendTicketReplyNotification<Env extends NotificationEnv>(
     actorId: customerContactId ?? null,
     data: kind === 'ticket' ? { ticketId: entityId } : { conversationId: entityId },
   });
+}
+
+/** The SLA metrics a conversation is measured on (desk_sla_clocks.metric). */
+export type DeskSlaNotificationMetric = 'first_response' | 'next_response' | 'resolution';
+
+const SLA_METRIC_LABELS: Record<DeskSlaNotificationMetric, string> = {
+  first_response: 'First response',
+  next_response: 'Next response',
+  resolution: 'Resolution',
+};
+
+/** Cap on the team-wide fallback, same as the widget's visitor-message fan-out. */
+const MAX_SLA_RECIPIENTS = 200;
+const SLA_NOTIFY_BATCH = 10;
+
+/** The assignee, else every active internal teammate who can work the inbox. */
+async function slaRecipients(db: Database, assigneeId: string | null | undefined): Promise<string[]> {
+  if (assigneeId) return [assigneeId];
+  const { workspaceMembers } = schema;
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(
+      and(
+        sql`upper(${workspaceMembers.status}) = 'ACTIVE'`,
+        sql`upper(${workspaceMembers.memberType}) = 'INTERNAL'`,
+        sql`upper(${workspaceMembers.role}) <> 'VIEWER'`,
+      ),
+    )
+    .limit(MAX_SLA_RECIPIENTS);
+  return Array.from(new Set(rows.map((r) => r.userId)));
+}
+
+interface DeskSlaNotificationParams<Env extends NotificationEnv> {
+  db: Database;
+  env: Env;
+  /** Clerk org id. */
+  workspaceId: string;
+  type: 'warning' | 'breach';
+  metric: DeskSlaNotificationMetric;
+  conversationId: string;
+  /** Who hears about it; unassigned conversations go to the whole team. */
+  assigneeId: string | null | undefined;
+  subject?: string | null;
+  /** Human reference, e.g. `#318`. */
+  reference?: string | null;
+  dueAt: Date | null;
+}
+
+/**
+ * Tell the team an inbox conversation's SLA clock is about to breach, or has.
+ * Honours `notifyOnSLABreach` (both kinds). Returns how many notifications went out.
+ */
+export async function sendDeskSlaNotification<Env extends NotificationEnv>(
+  params: DeskSlaNotificationParams<Env>,
+): Promise<number> {
+  const { db, env, workspaceId, type, metric, conversationId, assigneeId, subject, reference, dueAt } = params;
+
+  const settings = await loadHelpdeskNotificationSettings(db);
+  if (!isHelpdeskNotificationEnabled(settings, 'notifyOnSLABreach')) return 0;
+
+  const recipients = await slaRecipients(db, assigneeId);
+  const label = helpdeskPreview(subject, 120) || reference?.trim() || 'a conversation';
+  const metricLabel = SLA_METRIC_LABELS[metric];
+  const title = type === 'breach' ? `SLA breached: ${metricLabel}` : `SLA due soon: ${metricLabel}`;
+  const body =
+    type === 'breach'
+      ? `"${label}" missed its ${metricLabel.toLowerCase()} target`
+      : `"${label}" reaches its ${metricLabel.toLowerCase()} target soon`;
+
+  let sent = 0;
+  for (let i = 0; i < recipients.length; i += SLA_NOTIFY_BATCH) {
+    const results = await Promise.allSettled(
+      recipients.slice(i, i + SLA_NOTIFY_BATCH).map((userId) =>
+        createAndDeliverNotification({
+          db,
+          env,
+          workspaceId,
+          userId,
+          title,
+          body,
+          category: 'helpdesk',
+          notificationType: type === 'breach' ? 'sla_breached' : 'sla_warning',
+          entityType: 'desk_conversation',
+          entityId: conversationId,
+          actionUrl: actionUrlFor('conversation', conversationId),
+          severity: type === 'breach' ? 'error' : 'warning',
+          actorType: 'system',
+          actorId: null,
+          data: { conversationId, metric, ...(dueAt ? { dueAt: dueAt.toISOString() } : {}) },
+        }),
+      ),
+    );
+    for (const result of results) {
+      if (result.status === 'fulfilled') sent += 1;
+      else console.error('[Notifications] SLA notification failed:', result.reason);
+    }
+  }
+  return sent;
 }

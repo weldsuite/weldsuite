@@ -6,6 +6,8 @@
  * satisfaction surveys, canned responses, knowledge-base articles, the help
  * center settings and the public help-center feed.
  *
+ * A cron runs the SLA sweep (warnings and breaches): src/cron/sla-sweep.ts.
+ *
  * Split out of app-api (docs/plans/app-api-module-split.md). It serves the
  * same /api/<object> paths app-api served for this module; the prefixes it
  * owns are listed in @weldsuite/api-modules and checked by its ownership test.
@@ -13,6 +15,7 @@
 
 import { apiAuth, createModuleApi } from '@weldsuite/worker-kit';
 import { configureZonesSandbox } from '@weldsuite/cloudflare-zones/sandbox';
+import { isSlaSweepCron, runSlaSweep } from './cron/sla-sweep';
 import { articleFoldersRoutes } from './routes/article-folders';
 import { articlesRoutes } from './routes/articles';
 import { cannedResponsesRoutes } from './routes/canned-responses';
@@ -105,5 +108,16 @@ export default {
   fetch: (request: Request, env: Env, ctx?: ExecutionContext) => {
     configureZonesSandbox(env);
     return app.fetch(request, env, ctx);
+  },
+
+  scheduled: async (event: ScheduledController, env: Env, ctx: ExecutionContext) => {
+    // SLA warnings and breaches that came due (see wrangler.toml).
+    if (isSlaSweepCron(event.cron)) {
+      ctx.waitUntil(
+        runSlaSweep(env).catch((err) => {
+          console.error('[DeskSla] Failed:', err);
+        }),
+      );
+    }
   },
 };

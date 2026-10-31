@@ -32,6 +32,7 @@ import type { Database } from '../db';
 import type { Env, Variables } from '../index';
 import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
+import { markDeskSlaDue } from '../lib/sla-due';
 import {
   autoAssignConversation,
   isPublicMessage,
@@ -163,7 +164,7 @@ conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
   try {
     const visitor = await saveTypedContact(db, c.get('visitor'), data);
 
-    const { conversation, message } = await createDeskConversation(db, {
+    const { conversation, message, slaCheckAt } = await createDeskConversation(db, {
       generateId,
       visitorId: visitor.id,
       name: visitor.name,
@@ -174,6 +175,7 @@ conversationsRoutes.post('/', zValidator('json', startSchema), async (c) => {
       metadata: data.clientId ? { clientId: data.clientId } : undefined,
     });
 
+    markDeskSlaDue(c.env, (p) => c.executionCtx.waitUntil(p), orgId, slaCheckAt);
     const visitorName = await visitorDisplayName(db, visitor.id, visitor);
     c.executionCtx.waitUntil(
       Promise.all([
@@ -248,7 +250,7 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
       attachments = resolved.attachments;
     }
 
-    const { conversation, message } = await appendDeskMessage(db, {
+    const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: 'message',
@@ -259,6 +261,7 @@ conversationsRoutes.post('/:id/messages', zValidator('json', sendSchema), async 
       metadata: data.clientId ? { clientId: data.clientId } : undefined,
     });
 
+    markDeskSlaDue(c.env, (p) => c.executionCtx.waitUntil(p), orgId, slaCheckAt);
     const visitorName = await visitorDisplayName(db, visitorId, existing.conversation);
     // The ball was already in the team's court → they've been told.
     const teamAlreadyWaiting =

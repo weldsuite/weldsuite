@@ -219,6 +219,22 @@ export const deskInbox2 = {
     tagsRemoved: '{actor} heeft {value} verwijderd',
     fieldSet: '{actor} heeft {field} op {value} gezet',
     fieldCleared: '{actor} heeft {field} gewist',
+    slaWarning: '{metric}: het doel verloopt bijna',
+    slaBreached: '{metric}: het doel is niet gehaald',
+  },
+  sla: {
+    metrics: {
+      first_response: 'Eerste reactie',
+      next_response: 'Volgende reactie',
+      resolution: 'Oplossing',
+    },
+    dueIn: '{metric} over {time}',
+    overdue: '{metric} {time} te laat',
+    breached: 'SLA overschreden',
+    paused: 'SLA gepauzeerd',
+    pausedTitle: 'Wacht op de klant: de SLA-klok staat stil',
+    achieved: 'SLA gehaald',
+    dueAtTitle: '{metric} verloopt {date}',
   },
   details: {
     title: 'Details',

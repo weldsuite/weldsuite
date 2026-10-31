@@ -75,6 +75,7 @@ import {
   visitorDisplayName,
 } from '../lib/desk-live';
 import { helpcenterDomainMiddleware } from '../middleware/helpcenter-domain';
+import { markDeskSlaDue } from '../lib/sla-due';
 import {
   checkChallenge,
   createSession,
@@ -383,7 +384,7 @@ signedIn.post('/requests', zValidator('json', deskPortalCreateRequestSchema), as
   const db = c.get('tenantDb');
   const data = c.req.valid('json');
   try {
-    const { conversation, message } = await createDeskPortalRequest(db, {
+    const { conversation, message, slaCheckAt } = await createDeskPortalRequest(db, {
       generateId,
       visitor: c.get('visitor'),
       ticketTypeId: data.ticketTypeId,
@@ -391,6 +392,7 @@ signedIn.post('/requests', zValidator('json', deskPortalCreateRequestSchema), as
       description: data.description,
       fields: data.fields,
     });
+    markDeskSlaDue(c.env, (p) => c.executionCtx.waitUntil(p), c.get('clerkOrgId'), slaCheckAt);
     announceVisitorMessage(c, conversation, message, { isNew: true, teamAlreadyWaiting: false });
     return success(c, await requestDetail(db, conversation, [message]), 201);
   } catch (err) {
@@ -428,7 +430,7 @@ signedIn.post('/requests/:id/messages', zValidator('json', deskPortalReplySchema
   try {
     const existing = await accessible(c, id, false);
     if (!existing) return error.notFound(c, 'Request', id);
-    const { conversation, message } = await appendDeskMessage(db, {
+    const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: 'message',
@@ -436,6 +438,7 @@ signedIn.post('/requests/:id/messages', zValidator('json', deskPortalReplySchema
       authorId: c.get('visitor').id,
       body,
     });
+    markDeskSlaDue(c.env, (p) => c.executionCtx.waitUntil(p), c.get('clerkOrgId'), slaCheckAt);
     const before = existing.conversation;
     announceVisitorMessage(c, conversation, message, {
       isNew: false,

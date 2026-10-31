@@ -226,6 +226,22 @@ export const deskInbox2 = {
     tagsRemoved: '{actor} removed {value}',
     fieldSet: '{actor} set {field} to {value}',
     fieldCleared: '{actor} cleared {field}',
+    slaWarning: '{metric} target is due soon',
+    slaBreached: '{metric} target was missed',
+  },
+  sla: {
+    metrics: {
+      first_response: 'First response',
+      next_response: 'Next response',
+      resolution: 'Resolution',
+    },
+    dueIn: '{metric} in {time}',
+    overdue: '{metric} overdue {time}',
+    breached: 'SLA breached',
+    paused: 'SLA paused',
+    pausedTitle: 'Waiting on the customer: the SLA clock is paused',
+    achieved: 'SLA met',
+    dueAtTitle: '{metric} due {date}',
   },
   details: {
     title: 'Details',

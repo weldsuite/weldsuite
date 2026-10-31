@@ -56,6 +56,9 @@ export interface Env extends SystemEmailEnv {
   PUBLIC_APP_URL?: string;
   /** Atomic counters behind the help-center sign-in limits (PortalRateLimiter). */
   PORTAL_RATE_LIMITER?: RateLimitNamespace;
+  /** Schedule-index D1 (`workspace_due_index`, kind `desk_sla`): visitor messages
+   *  mark when the conversation's SLA clock next comes due (lib/sla-due.ts). */
+  SCHEDULE_INDEX?: D1Database;
 }
 
 export type Variables = {

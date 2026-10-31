@@ -103,6 +103,7 @@ pub(crate) async fn list(
     let order = match query.sort.as_deref() {
         Some("oldest") => "t.created_at, t.id",
         Some("waiting_longest") => "t.waiting_since ASC NULLS LAST, t.id",
+        Some("sla_due") => "t.sla_due_at ASC NULLS LAST, t.id",
         _ => "COALESCE(t.last_message_at, t.created_at) DESC, t.id desc",
     };
     let offset = query

@@ -1036,7 +1036,6 @@ export const common = {
         generalAgent: 'WeldAgent',
         chooseAgent: 'Kies een agent',
         messageAgent: 'Bericht aan {name}…',
-        agentEmptyBody: 'Vraag {name} iets, of geef een opdracht.',
         close: 'Sluiten',
         openSheet: 'Werkt in {name}',
         mentions: {
@@ -1168,8 +1167,6 @@ export const common = {
         agentNotFound: 'Agent niet gevonden',
         header: {
           history: 'Eerdere chats',
-          settingUp: 'Wordt ingesteld — beantwoord een paar vragen in de chat',
-          notActive: 'Niet actief — reageert alleen in de chat',
           activateHint: 'Laat deze agent zijn routines uitvoeren en op gebeurtenissen reageren',
           pauseHint: 'Routines en triggers stoppen; de chat blijft werken',
           scheduled: '{count} gepland',
@@ -1221,20 +1218,13 @@ export const common = {
           composerPlaceholder: 'Beschrijf de taak in je eigen woorden…',
           starters: {
             triageTickets: {
-              label: 'Support triëren',
-              prompt: 'Ga nieuwe helpdesktickets langs, markeer de dringende en stel een antwoord voor.',
+              prompt: 'Nieuwe helpdesktickets triëren',
             },
             followUpLeads: {
-              label: 'Leads opvolgen',
-              prompt: 'Signaleer leads en contacten die stil zijn gevallen en maak opvolgtaken aan.',
+              prompt: 'Stille leads opvolgen',
             },
             taskDigest: {
-              label: 'Dagelijks takenoverzicht',
-              prompt: "Stuur me elke ochtend een overzicht van achterstallige taken en taken van vandaag per project.",
-            },
-            chatHelper: {
-              label: 'Werkruimte-assistent',
-              prompt: 'Beantwoord vragen over onze klanten, tickets en projecten als ik het in de chat vraag.',
+              prompt: 'Stuur me een dagelijks takenoverzicht',
             },
           },
         },

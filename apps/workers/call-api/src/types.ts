@@ -12,6 +12,9 @@ export interface Env extends KitEnv {
   REALTIME?: Fetcher;
   /** Secret the realtime-worker requires on every /publish/* request (service-binding callers included). */
   REALTIME_INTERNAL_SECRET?: string;
+  /** Schedule-index D1 (`workspace_due_index`, kind `desk_sla`): an inbound call
+   *  marks when its desk conversation's SLA clock next comes due (desk-api's SLA sweep). */
+  SCHEDULE_INDEX?: D1Database;
 
   /** R2 bucket for files and documents (number-porting documents, r2-port-docs.ts). */
   STORAGE?: R2Bucket;

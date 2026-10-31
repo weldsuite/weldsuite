@@ -139,7 +139,7 @@ async fn list(ctx: Ctx, RawQuery(query): RawQuery) -> Response {
                 values,
                 "sort",
                 Presence::Optional,
-                &["newest", "oldest", "waiting_longest"],
+                &["newest", "oldest", "waiting_longest", "sla_due"],
             )
             .into_option();
         let cursor = text(issues, "cursor", Text::default());

@@ -844,12 +844,16 @@ pub async fn resolve_authors(
     Ok(authors)
 }
 
-/// `isPublicDeskMessage`: notes and ticket-field changes stay with the team.
+/// `isPublicDeskMessage`: notes, ticket-field changes and SLA events stay with the team.
 pub fn is_public(message: &Value) -> bool {
     if message["kind"] == "note" {
         return false;
     }
-    !(message["kind"] == "event" && message["metadata"]["eventType"] == "attributes_changed")
+    let internal = matches!(
+        message["metadata"]["eventType"].as_str(),
+        Some("attributes_changed" | "sla_warning" | "sla_breached")
+    );
+    !(message["kind"] == "event" && internal)
 }
 
 /// `toPublicDeskMessage(message, authors)`.

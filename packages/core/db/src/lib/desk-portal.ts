@@ -468,7 +468,7 @@ export interface CreateDeskPortalRequestInput {
 export async function createDeskPortalRequest(
   db: AnyDb,
   input: CreateDeskPortalRequestInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage; type: HelpdeskTicketType }> {
+): Promise<{ conversation: DeskConversation; message: DeskMessage; type: HelpdeskTicketType; slaCheckAt: Date | null }> {
   const [type] = await db.select().from(ticketTypes).where(eq(ticketTypes.id, input.ticketTypeId)).limit(1);
   if (!type || !isCustomerType(type)) {
     throw new DeskPortalRequestRejectedError('ticketTypeId', 'This request type is not available');
@@ -482,7 +482,7 @@ export async function createDeskPortalRequest(
     : null;
   const email = input.visitor.verifiedEmail ?? input.visitor.email ?? null;
 
-  const { conversation, message } = await createDeskConversation(db, {
+  const { conversation, message, slaCheckAt } = await createDeskConversation(db, {
     generateId: input.generateId,
     channel: 'portal',
     visitorId: input.visitor.id,
@@ -513,7 +513,7 @@ export async function createDeskPortalRequest(
       });
     }
   }
-  return { conversation, message, type };
+  return { conversation, message, type, slaCheckAt };
 }
 
 async function activeDepartment(db: AnyDb, id: string): Promise<string | null> {
