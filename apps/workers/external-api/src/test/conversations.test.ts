@@ -225,4 +225,26 @@ describe('POST /v1/tickets · opens an inbox conversation', () => {
     expect(legacy.status).toBe(200);
     expect(legacy.headers.get('Link')).toContain('/v1/conversations');
   });
+
+  it('hands the ticket to its assignee, keeps unmapped fields and refuses custom fields', async () => {
+    const request = api();
+    const ticket = { subject: 'Invoice wrong', customerName: 'Jo', customerEmail: 'jo@example.com' };
+
+    const assigned = await request(
+      '/v1/tickets',
+      post({ ...ticket, assigneeId: 'user_ann', customerPhone: '+31 20 123', severity: 'sev2', status: 'open' }),
+    );
+    expect(assigned.status).toBe(201);
+    const conversation = ((await assigned.json()) as { data: Conversation }).data;
+    expect(conversation.assigneeId).toBe('user_ann');
+    const [opening] = (await db.select().from(schema.deskMessages)).filter((m) => m.kind === 'message');
+    expect(opening?.metadata).toMatchObject({
+      via: 'api',
+      ticket: { customerPhone: '+31 20 123', severity: 'sev2', status: 'open' },
+    });
+
+    const refused = await request('/v1/tickets', post({ ...ticket, externalId: 'x:1', customFields: { plan: 'pro' } }));
+    expect(refused.status).toBe(400);
+    expect(await db.select().from(schema.deskConversations)).toHaveLength(1);
+  });
 });

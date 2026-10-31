@@ -34,7 +34,7 @@ function inboxDeps(ctx: ActionContext): DeskInboxDeps {
     : null;
   return {
     db: ctx.db,
-    env: ctx.env as DeskInboxEnv,
+    env: ctx.env satisfies DeskInboxEnv,
     clerkOrgId: ctx.tenant.workspaceId,
     generateId,
     emit: async (event) => {
@@ -121,13 +121,13 @@ export async function assignDeskConversation(
     return { success: true, conversationId, assigneeId: conversation.assigneeId };
   }
   // Any other strategy hands it out by the inbox's own assignment rules.
+  const deps = inboxDeps(ctx);
   const assigned = await autoAssignDeskConversation(ctx.db, {
     generateId,
     conversationId,
-    pick: deskAssignmentRouterPicker(undefined, ctx.tenant.workspaceId),
+    pick: deskAssignmentRouterPicker(deps.env.HELPDESK_WORKFLOW, deps.clerkOrgId),
   });
   if (!assigned) return { success: false, error: 'No available teammate (or it is already assigned)' };
-  const deps = inboxDeps(ctx);
   await deps.emit({
     entityType: 'desk_conversation',
     action: 'assigned',

@@ -92,40 +92,61 @@ app.get('/:id', requireScope('tickets:read'), async (c) => {
   return success(c, await hydrateCustomFieldsOne(db, 'ticket', row));
 });
 
+function isEmptyValue(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return typeof value === 'object' && Object.keys(value).length === 0;
+}
+
 /**
  * A ticket from an integration opens a conversation in the WeldDesk inbox,
  * where an agent sees it; a `helpdesk_tickets` row would reach nobody. Answers
  * with the conversation (see `/v1/conversations`): 201 when new, 200 when
  * `externalId` matched an existing one. Type, team, priority and tags become
- * the conversation's ticket fields (ADR DESK-007); the other ticket fields
- * the inbox has no column for travel on the opening message's metadata.
+ * the conversation's ticket fields (ADR DESK-007) and `assigneeId` its owner
+ * instead of auto-assignment. Custom fields are refused: they are set on the
+ * open conversation, where a refused value writes nothing. Every other ticket
+ * field travels on the opening message's metadata, so nothing sent is lost.
  */
 app.post('/', requireScope('tickets:write'), zValidator('json', openTicketSchema), async (c) => {
-  const body = c.req.valid('json');
-  const ticket = Object.fromEntries(
-    Object.entries({
-      reference: body.reference,
-      category: body.category,
-      sourceUrl: body.sourceUrl,
-    }).filter(([, value]) => value !== undefined),
-  );
+  const {
+    externalId,
+    subject,
+    description,
+    customerName,
+    customerEmail,
+    contactId,
+    ticketTypeId,
+    departmentId,
+    priority,
+    tags,
+    assigneeId,
+    customFields,
+    ...rest
+  } = c.req.valid('json');
+  if (!isEmptyValue(customFields)) {
+    return error.badRequest(c, 'Set custom fields with PATCH /v1/conversations/:id once the conversation is open', {
+      field: 'customFields',
+    });
+  }
+  const ticket = Object.fromEntries(Object.entries(rest).filter(([, value]) => !isEmptyValue(value)));
   try {
     const result = await openDeskApiConversation(deskInboxDeps(c), {
       via: 'api',
-      externalId: body.externalId,
-      title: body.subject,
-      body: body.description?.trim() || body.subject,
-      name: body.customerName,
-      email: body.customerEmail,
-      contactId: body.contactId ?? null,
+      externalId,
+      title: subject,
+      body: description?.trim() || subject,
+      name: customerName,
+      email: customerEmail,
+      contactId: contactId ?? null,
       metadata: Object.keys(ticket).length > 0 ? { ticket } : undefined,
       fields: {
-        ticketTypeId: body.ticketTypeId ?? undefined,
-        departmentId: body.departmentId ?? undefined,
+        ticketTypeId: ticketTypeId ?? undefined,
+        departmentId: departmentId ?? undefined,
         // The inbox's top priority is urgent.
-        priority: body.priority === 'critical' ? 'urgent' : body.priority,
-        tags: body.tags,
+        priority: priority === 'critical' ? 'urgent' : priority,
+        tags,
       },
+      assigneeId,
       actor: deskInboxActor(c),
     });
     return success(c, result.conversation, result.created ? 201 : 200);

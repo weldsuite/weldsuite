@@ -178,6 +178,37 @@ describe('openDeskApiConversation', () => {
     ]);
     expect(notifications.team.mock.calls.map(([p]) => p.userId)).toEqual(['user_ann']);
   });
+
+  it('asks the AssignmentRouter when the worker has it (ADR DESK-005)', async () => {
+    await saveDeskAssignmentSettings(db, generateId, { mode: 'round_robin', memberIds: ['user_ann'] });
+    const router = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ userId: 'user_ann' }));
+
+    const result = await openDeskApiConversation(
+      { ...deps(), env: { HELPDESK_WORKFLOW: { fetch: router } } },
+      { via: 'api', body: 'Disk full' },
+    );
+
+    expect(result.conversation.assigneeId).toBe('user_ann');
+    expect(router).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(router.mock.calls[0]![1]?.body))).toMatchObject({ workspaceId: 'org_test' });
+  });
+
+  it('hands the conversation to the named teammate instead of auto-assignment, and tells them', async () => {
+    await saveDeskAssignmentSettings(db, generateId, { mode: 'round_robin', memberIds: ['user_ann'] });
+
+    const result = await openDeskApiConversation(deps(), {
+      via: 'api',
+      body: 'Invoice wrong',
+      assigneeId: 'user_bob',
+      actor: bot,
+    });
+
+    expect(result.conversation.assigneeId).toBe('user_bob');
+    expect(kinds().slice(2)).toEqual(['desk_conversation.assigned', 'desk_message.created']);
+    const assigned = events[3]!.data as { authorType: string; authorId: string };
+    expect(assigned).toMatchObject({ authorType: 'bot', authorId: 'wsk_key' });
+    expect(notifications.team.mock.calls.map(([p]) => p.userId)).toEqual(['user_bob']);
+  });
 });
 
 describe('shouldNotifyDeskTeam', () => {

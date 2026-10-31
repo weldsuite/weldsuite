@@ -28,8 +28,23 @@ export const helpdeskTools: ToolDefinition[] = [
       'Open a support ticket: it becomes a conversation in the WeldDesk inbox, where the team picks it up. ' +
       'Pass externalId (e.g. an alert or order id) so a repeat lands on the same conversation instead of a new one. ' +
       'Follow up with the conversation tools (search_conversations, add_conversation_message, update_conversation).',
+    // Only what the conversation uses; custom fields go on with update_conversation.
     inputSchema: {
-      ...createTicketSchema.shape,
+      ...createTicketSchema.pick({
+        subject: true,
+        description: true,
+        customerName: true,
+        customerEmail: true,
+        contactId: true,
+        priority: true,
+        ticketTypeId: true,
+        departmentId: true,
+        tags: true,
+        assigneeId: true,
+        reference: true,
+        category: true,
+        sourceUrl: true,
+      }).shape,
       externalId: z
         .string()
         .trim()

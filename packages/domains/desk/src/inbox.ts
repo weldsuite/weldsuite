@@ -125,6 +125,34 @@ function asRecord(row: DeskConversation | DeskMessage): Record<string, unknown> 
   return row as unknown as Record<string, unknown>;
 }
 
+function conversationEvent(
+  action: Extract<DeskInboxEvent, { entityType: 'desk_conversation' }>['action'],
+  conversation: DeskConversation,
+  extra?: Record<string, unknown>,
+): DeskInboxEvent {
+  return { entityType: 'desk_conversation', action, entityId: conversation.id, data: { ...asRecord(conversation), ...extra } };
+}
+
+function messageEvent(message: DeskMessage): DeskInboxEvent {
+  return { entityType: 'desk_message', action: 'created', entityId: message.id, data: asRecord(message) };
+}
+
+/** Set ticket fields as `actor` (the system when absent): one `attributes_changed` event when anything changed. */
+function setTicketFields(
+  deps: DeskInboxDeps,
+  conversationId: string,
+  fields: DeskTicketFields,
+  actor: DeskInboxActor | undefined,
+) {
+  return updateDeskConversationAttributes(deps.db, {
+    generateId: deps.generateId,
+    conversationId,
+    authorType: actor?.authorType ?? 'system',
+    authorId: actor?.authorId ?? null,
+    ...fields,
+  });
+}
+
 async function emitAll(deps: DeskInboxDeps, events: DeskInboxEvent[]): Promise<void> {
   for (const event of events) {
     try {
@@ -210,83 +238,108 @@ export function shouldNotifyDeskTeam(result: Pick<IngestDeskApiResult, 'created'
 export interface OpenDeskApiConversationInput extends Omit<IngestDeskApiInput, 'generateId'> {
   /** Type, team, priority and tags; applied on a repeat too, so an alert can escalate. */
   fields?: Omit<DeskTicketFields, 'customFields'>;
-  /** Who set the fields; defaults to the system. */
+  /** A member to hand it to instead of auto-assignment (on a repeat too). */
+  assigneeId?: string | null;
+  /** Who set the fields and the assignee; defaults to the system. */
   actor?: DeskInboxActor;
+}
+
+/** A new conversation is `created`; a closed one the message reopened changed state; any other was `updated`. */
+function openedAction(result: IngestDeskApiResult, conversation: DeskConversation): 'created' | 'updated' | 'state_changed' {
+  if (result.created) return 'created';
+  return result.prior?.state === 'closed' && conversation.state === 'open' ? 'state_changed' : 'updated';
+}
+
+/**
+ * Hand an open, unowned conversation out by the workspace's assignment rules,
+ * through the AssignmentRouter when the worker has it (ADR DESK-005). A failed
+ * pick leaves it unassigned for the team.
+ */
+async function autoAssignOpened(
+  deps: DeskInboxDeps,
+  conversation: DeskConversation,
+): Promise<{ conversation: DeskConversation; events: DeskInboxEvent[] }> {
+  if (conversation.assigneeId || conversation.state !== 'open') return { conversation, events: [] };
+  try {
+    const assigned = await autoAssignDeskConversation(deps.db, {
+      generateId: deps.generateId,
+      conversationId: conversation.id,
+      pick: deskAssignmentRouterPicker(deps.env.HELPDESK_WORKFLOW, deps.clerkOrgId),
+    });
+    if (!assigned) return { conversation, events: [] };
+    return {
+      conversation: assigned.conversation,
+      events: [conversationEvent('assigned', assigned.conversation), messageEvent(assigned.message)],
+    };
+  } catch (err) {
+    console.error(`[desk-inbox] auto-assignment failed for ${conversation.id}:`, err);
+    return { conversation, events: [] };
+  }
+}
+
+/** The member the caller named, or else the workspace's assignment rules. */
+async function assignOpened(
+  deps: DeskInboxDeps,
+  conversation: DeskConversation,
+  assigneeId: string | null | undefined,
+  actor: DeskInboxActor | undefined,
+): Promise<{ conversation: DeskConversation; events: DeskInboxEvent[] }> {
+  if (!assigneeId) return autoAssignOpened(deps, conversation);
+  if (conversation.assigneeId === assigneeId) return { conversation, events: [] };
+  const result = await appendDeskMessage(deps.db, {
+    generateId: deps.generateId,
+    conversationId: conversation.id,
+    kind: 'event',
+    authorType: actor?.authorType ?? 'system',
+    authorId: actor?.authorId ?? null,
+    metadata: { eventType: 'assigned', assigneeId },
+    assigneeId,
+  });
+  return {
+    conversation: result.conversation,
+    events: [conversationEvent('assigned', result.conversation), messageEvent(result.message)],
+  };
+}
+
+function openedNotice(created: boolean, conversation: DeskConversation, body: string): { title: string; body: string } {
+  const who = conversation.name?.trim() || conversation.email?.trim() || 'An integration';
+  return {
+    title: created ? `New conversation from ${who}` : `${who} replied`,
+    body: helpdeskPreview(body) || helpdeskPreview(conversation.title) || `#${conversation.conversationNumber}`,
+  };
 }
 
 /**
  * Open a conversation in the live inbox, or add to the one that already
  * carries `externalId` (reopening it when closed), and set its ticket fields.
- * Then auto-assign it when the workspace has that on, notify, and emit the
- * entity events. A bad ticket type or team is refused before anything is
+ * Then assign it to `assigneeId`, or auto-assign it when the workspace has
+ * that on, notify, and emit the entity events. A bad ticket type or team is refused before anything is
  * written (DeskAttributeRejectedError).
  */
 export async function openDeskApiConversation(
   deps: DeskInboxDeps,
   input: OpenDeskApiConversationInput,
 ): Promise<IngestDeskApiResult> {
-  const { fields, actor, ...ingest } = input;
-  if (hasTicketFields(fields)) await assertUsableReferences(deps.db, fields);
+  const { fields, assigneeId, actor, ...ingest } = input;
+  const withFields = hasTicketFields(fields);
+  if (withFields) await assertUsableReferences(deps.db, fields);
 
   const result = await ingestDeskApi(deps.db, { ...ingest, generateId: deps.generateId });
-  let { conversation } = result;
-  const messages: DeskMessage[] = [result.message];
-  if (hasTicketFields(fields)) {
-    const set = await updateDeskConversationAttributes(deps.db, {
-      generateId: deps.generateId,
-      conversationId: conversation.id,
-      authorType: actor?.authorType ?? 'system',
-      authorId: actor?.authorId ?? null,
-      ...fields,
-    });
-    conversation = set.conversation;
-    if (set.message) messages.push(set.message);
-  }
+  const set = withFields ? await setTicketFields(deps, result.conversation.id, fields, actor) : null;
+  const opened = set?.conversation ?? result.conversation;
+  const messages = set?.message ? [result.message, set.message] : [result.message];
 
-  const reopened = result.prior?.state === 'closed' && conversation.state === 'open';
-  let conversationAction: 'created' | 'updated' | 'state_changed' = 'updated';
-  if (result.created) conversationAction = 'created';
-  else if (reopened) conversationAction = 'state_changed';
+  const { conversation, events: assignEvents } = await assignOpened(deps, opened, assigneeId, actor);
+  await emitAll(deps, [
+    conversationEvent(openedAction(result, opened), opened),
+    ...messages.map(messageEvent),
+    ...assignEvents,
+  ]);
 
-  const events: DeskInboxEvent[] = [
-    { entityType: 'desk_conversation', action: conversationAction, entityId: conversation.id, data: asRecord(conversation) },
-    ...messages.map(
-      (message): DeskInboxEvent => ({
-        entityType: 'desk_message',
-        action: 'created',
-        entityId: message.id,
-        data: asRecord(message),
-      }),
-    ),
-  ];
-
-  if (!conversation.assigneeId && conversation.state === 'open') {
-    try {
-      const assigned = await autoAssignDeskConversation(deps.db, {
-        generateId: deps.generateId,
-        conversationId: conversation.id,
-        pick: deskAssignmentRouterPicker(deps.env.HELPDESK_WORKFLOW, deps.clerkOrgId),
-      });
-      if (assigned) {
-        conversation = assigned.conversation;
-        events.push(
-          { entityType: 'desk_conversation', action: 'assigned', entityId: conversation.id, data: asRecord(conversation) },
-          { entityType: 'desk_message', action: 'created', entityId: assigned.message.id, data: asRecord(assigned.message) },
-        );
-      }
-    } catch (err) {
-      console.error(`[desk-inbox] auto-assignment failed for ${conversation.id}:`, err);
-    }
-  }
-
-  await emitAll(deps, events);
-
-  if (shouldNotifyDeskTeam(result)) {
-    const who = conversation.name?.trim() || conversation.email?.trim() || 'An integration';
-    const body =
-      helpdeskPreview(input.body) || helpdeskPreview(conversation.title) || `#${conversation.conversationNumber}`;
-    const title = result.created ? `New conversation from ${who}` : `${who} replied`;
-    await inBackground(deps, notifyTeam(deps, conversation, { title, body }));
+  // A repeat that hands the conversation to someone new tells them, even when
+  // the team already had it.
+  if (shouldNotifyDeskTeam(result) || conversation.assigneeId !== opened.assigneeId) {
+    await inBackground(deps, notifyTeam(deps, conversation, openedNotice(result.created, conversation, input.body)));
   }
 
   return { ...result, conversation };
@@ -326,6 +379,63 @@ async function loadConversation(db: Database, id: string): Promise<DeskConversat
   return row;
 }
 
+interface Applied {
+  conversation: DeskConversation;
+  messages: DeskMessage[];
+  events: DeskInboxEvent[];
+}
+
+/** Ticket fields first, so a refused one (DeskAttributeRejectedError) writes nothing at all. */
+async function applyTicketFields(
+  deps: DeskInboxDeps,
+  conversation: DeskConversation,
+  input: UpdateDeskConversationInput,
+): Promise<Applied & { customFields?: Record<string, unknown> }> {
+  if (!hasTicketFields(input.fields)) return { conversation, messages: [], events: [] };
+  const set = await setTicketFields(deps, conversation.id, input.fields, input.actor);
+  if (!set.message) return { conversation: set.conversation, customFields: set.customFields, messages: [], events: [] };
+  return {
+    conversation: set.conversation,
+    customFields: set.customFields,
+    messages: [set.message],
+    events: [
+      conversationEvent('updated', set.conversation, { customFields: set.customFields }),
+      messageEvent(set.message),
+    ],
+  };
+}
+
+/** Assign or unassign, then close or reopen, each as the timeline event the inbox itself writes. */
+async function applyTransitions(
+  deps: DeskInboxDeps,
+  start: DeskConversation,
+  input: UpdateDeskConversationInput,
+): Promise<Applied> {
+  const applied: Applied = { conversation: start, messages: [], events: [] };
+  const append = async (eventType: DeskEventType, assigneeId?: string | null) => {
+    const result = await appendDeskMessage(deps.db, {
+      generateId: deps.generateId,
+      conversationId: applied.conversation.id,
+      kind: 'event',
+      authorType: input.actor.authorType,
+      authorId: input.actor.authorId,
+      metadata: { eventType, assigneeId: assigneeId ?? null },
+      assigneeId,
+    });
+    applied.conversation = result.conversation;
+    applied.messages.push(result.message);
+    const action = eventType === 'assigned' || eventType === 'unassigned' ? 'assigned' : 'state_changed';
+    applied.events.push(conversationEvent(action, result.conversation), messageEvent(result.message));
+  };
+
+  if (input.assigneeId !== undefined && input.assigneeId !== applied.conversation.assigneeId) {
+    await (input.assigneeId ? append('assigned', input.assigneeId) : append('unassigned', null));
+  }
+  if (input.state === 'closed' && applied.conversation.state !== 'closed') await append('closed');
+  if (input.state === 'open' && applied.conversation.state !== 'open') await append('reopened');
+  return applied;
+}
+
 /**
  * Set ticket fields, then close, reopen, assign or unassign, each as the
  * timeline event the inbox itself writes. A change to what already holds
@@ -336,59 +446,17 @@ export async function updateDeskConversationFromApi(
   deps: DeskInboxDeps,
   input: UpdateDeskConversationInput,
 ): Promise<{ conversation: DeskConversation; messages: DeskMessage[]; customFields?: Record<string, unknown> }> {
-  const withFields = hasTicketFields(input.fields);
-  if (input.state === undefined && input.assigneeId === undefined && !withFields) throw new DeskEmptyUpdateError();
-  let conversation = await loadConversation(deps.db, input.conversationId);
-  let customFields: Record<string, unknown> | undefined;
-  const messages: DeskMessage[] = [];
-  const fieldEvents: DeskInboxEvent[] = [];
-  if (input.fields && withFields) {
-    const set = await updateDeskConversationAttributes(deps.db, {
-      generateId: deps.generateId,
-      conversationId: conversation.id,
-      authorType: input.actor.authorType,
-      authorId: input.actor.authorId,
-      ...input.fields,
-    });
-    conversation = set.conversation;
-    customFields = set.customFields;
-    if (set.message) {
-      messages.push(set.message);
-      fieldEvents.push(
-        { entityType: 'desk_conversation', action: 'updated', entityId: conversation.id, data: { ...asRecord(conversation), customFields } },
-        { entityType: 'desk_message', action: 'created', entityId: set.message.id, data: asRecord(set.message) },
-      );
-    }
+  if (input.state === undefined && input.assigneeId === undefined && !hasTicketFields(input.fields)) {
+    throw new DeskEmptyUpdateError();
   }
-  const previousAssigneeId = conversation.assigneeId;
-  const events: DeskInboxEvent[] = [...fieldEvents];
+  const fields = await applyTicketFields(deps, await loadConversation(deps.db, input.conversationId), input);
+  const previousAssigneeId = fields.conversation.assigneeId;
+  const moves = await applyTransitions(deps, fields.conversation, input);
+  const { conversation } = moves;
+  const messages = [...fields.messages, ...moves.messages];
+  const { customFields } = fields;
 
-  const append = async (eventType: DeskEventType, assigneeId?: string | null) => {
-    const result = await appendDeskMessage(deps.db, {
-      generateId: deps.generateId,
-      conversationId: conversation.id,
-      kind: 'event',
-      authorType: input.actor.authorType,
-      authorId: input.actor.authorId,
-      metadata: { eventType, assigneeId: assigneeId ?? null },
-      assigneeId,
-    });
-    conversation = result.conversation;
-    messages.push(result.message);
-    const action = eventType === 'assigned' || eventType === 'unassigned' ? 'assigned' : 'state_changed';
-    events.push(
-      { entityType: 'desk_conversation', action, entityId: conversation.id, data: asRecord(conversation) },
-      { entityType: 'desk_message', action: 'created', entityId: result.message.id, data: asRecord(result.message) },
-    );
-  };
-
-  if (input.assigneeId !== undefined && input.assigneeId !== conversation.assigneeId) {
-    await (input.assigneeId ? append('assigned', input.assigneeId) : append('unassigned', null));
-  }
-  if (input.state === 'closed' && conversation.state !== 'closed') await append('closed');
-  if (input.state === 'open' && conversation.state !== 'open') await append('reopened');
-
-  await emitAll(deps, events);
+  await emitAll(deps, [...fields.events, ...moves.events]);
 
   if (conversation.assigneeId && conversation.assigneeId !== previousAssigneeId) {
     await inBackground(
@@ -439,9 +507,6 @@ export async function addDeskConversationMessageFromApi(
     authorId: input.actor.authorId,
     body: input.body,
   });
-  await emitAll(deps, [
-    { entityType: 'desk_conversation', action: 'updated', entityId: result.conversation.id, data: asRecord(result.conversation) },
-    { entityType: 'desk_message', action: 'created', entityId: result.message.id, data: asRecord(result.message) },
-  ]);
+  await emitAll(deps, [conversationEvent('updated', result.conversation), messageEvent(result.message)]);
   return result;
 }
