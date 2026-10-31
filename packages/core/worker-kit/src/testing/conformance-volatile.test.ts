@@ -27,6 +27,19 @@ describe('maskVolatile', () => {
     ).toEqual({ data: { bundleKey: 'user-apps/uapp_x/<id>' } });
   });
 
+  it("masks the widget worker's realtime token and health timestamp at the prefixed routes", () => {
+    const token = { success: true, data: { token: 'a.b.c', expiresIn: 3600 } };
+    expect(maskVolatile('POST', '/public/helpdesk-widget/api/realtime/token', token)).toEqual({
+      success: true,
+      data: { token: '<volatile:string>', expiresIn: 3600 },
+    });
+    // desk-api has no such route: the unprefixed path is never masked.
+    expect(maskVolatile('POST', '/api/realtime/token', token)).toBe(token);
+    expect(
+      maskVolatile('GET', '/public/helpdesk-widget/health', { status: 'ok', environment: 'test', timestamp: '2026-01-01T00:00:00.000Z' }),
+    ).toEqual({ status: 'ok', environment: 'test', timestamp: '<volatile:string>' });
+  });
+
   it('leaves other routes, methods and missing paths alone', () => {
     const body = { data: { deviceCode: 'ab12' } };
     expect(maskVolatile('GET', '/api/cli-auth/device', body)).toBe(body);

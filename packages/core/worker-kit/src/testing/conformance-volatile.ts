@@ -63,6 +63,12 @@ const ROUTES: VolatileRoute[] = [
     route: `/api/helpdesk-integrations/${provider}/connect`,
     fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
   })),
+  // The widget's realtime token: an HS256 JWT whose `iat` is the second it was
+  // minted, so its payload and signature differ per run. Its content is checked
+  // by the test itself. The route is the prefixed one Rust serves the worker at.
+  { method: 'POST', route: '/public/helpdesk-widget/api/realtime/token', fields: [{ path: 'data.token' }] },
+  // The widget worker's health check stamps the time it answered.
+  { method: 'GET', route: '/public/helpdesk-widget/health', fields: [{ path: 'timestamp' }] },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

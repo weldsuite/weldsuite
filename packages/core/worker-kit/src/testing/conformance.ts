@@ -162,6 +162,12 @@ export const FORWARDED_ENV = [
   'DISCORD_CLIENT_SECRET',
   'SLACK_CLIENT_ID',
   'SLACK_CLIENT_SECRET',
+  // WeldDesk's public webchat API (helpdesk-widget-api): the secret its realtime
+  // tokens are signed with, the realtime origin it advertises to the widget, and
+  // the secret its realtime publishes carry.
+  'WIDGET_TOKEN_SECRET',
+  'REALTIME_PUBLIC_URL',
+  'REALTIME_INTERNAL_SECRET',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */
@@ -394,6 +400,11 @@ export interface ConformanceRequest {
    * construction for this caller only (a generated PDF's size).
    */
   normalizeEffects?: (effects: SideEffects) => SideEffects;
+  /**
+   * Where the Rust server serves the router under test, in front of the
+   * test's path (`createTestApp`'s `rustBasePath`).
+   */
+  rustBasePath?: string;
 }
 
 // ── the shared database ─────────────────────────────────────────────────────
@@ -1091,7 +1102,14 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     client,
     isWrite,
     // A redirect is the answer, as `app.request` gives TypeScript's: never followed.
-    () => fetch(`${target.url}${input}`, { ...init, method, headers: rustHeaders, body, redirect: 'manual' }).then(capture),
+    () =>
+      fetch(`${target.url}${request.rustBasePath ?? ''}${input}`, {
+        ...init,
+        method,
+        headers: rustHeaders,
+        body,
+        redirect: 'manual',
+      }).then(capture),
     (db, runEnv) => request.runTypeScript(db, tsInput, { ...init, method, headers, body }, runEnv).then(capture),
   );
   const { ts, rust } = runs;
@@ -1103,8 +1121,12 @@ async function runConformanceRequest(request: ConformanceRequest): Promise<Respo
     | undefined;
   if (ownRealtime?.testOwned && ownRealtime.deliver) await ownRealtime.deliver(runs.rustEffects.realtime);
   const route = ts.headers.get(ROUTE_HEADER);
-  const difference = compareRuns(runs, isWrite, method, route, request);
-  const { schema, schemaError } = checkSchema(method, route, rust);
+  // A router Rust serves under a prefix registers its schemas and volatile
+  // fields at the prefixed route, so they never meet a module's own route
+  // of the same path (the widget's `/api/conversations` vs desk-api's).
+  const registered = route && request.rustBasePath ? `${request.rustBasePath}${route}` : route;
+  const difference = compareRuns(runs, isWrite, method, registered, request);
+  const { schema, schemaError } = checkSchema(method, registered, rust);
 
   if (target.reportDir) {
     const { file, test } = await currentTest();
