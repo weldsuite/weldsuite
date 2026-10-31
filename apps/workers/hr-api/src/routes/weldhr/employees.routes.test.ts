@@ -244,6 +244,11 @@ describe('GET /employees/:employeeId', () => {
     expect((await errorOf(unknown)).code).toBe('NOT_FOUND');
     expect((await admin().get('/employees/hremp_gone')).status).toBe(404);
   });
+
+  it('needs employees:read', async () => {
+    await seedEmployee(db, { id: 'hremp_ann', userId: 'user_alice', email: 'alice@example.com' });
+    expect((await as('employees:update').get('/employees/hremp_ann')).status).toBe(403);
+  });
 });
 
 describe('POST /employees', () => {
@@ -606,6 +611,7 @@ describe('/departments', () => {
     expect((await errorOf(under)).message).toBe('A department cannot be moved under one of its own sub-departments');
     expect((await admin().send('PATCH', '/departments/hrdep_nope', { name: 'X' })).status).toBe(404);
     expect((await admin().send('PATCH', '/departments/hrdep_mid', { name: 'top' })).status).toBe(409);
+    expect((await as('employees:update').send('PATCH', '/departments/hrdep_mid', { name: 'Mid' })).status).toBe(403);
   });
 
   it('deletes a department: its people lose it and its children move up', async () => {
@@ -784,5 +790,6 @@ describe('/clients', () => {
     const gone = await admin().get('/clients/co_gone');
     expect(gone.status).toBe(404);
     expect(await errorOf(gone)).toEqual({ code: 'NOT_FOUND', message: 'Gone Ltd was deleted in WeldCRM' });
+    expect((await as('leave:read').get('/clients/co_acme')).status).toBe(403);
   });
 });

@@ -10,7 +10,9 @@
  *   - one pglite database per test file (`createPgliteDb` is cached per
  *     process), emptied between tests with `resetHr`. The starter templates,
  *     leave types, scorecard and KPIs the first request seeds stay; only rows
- *     the tests add go.
+ *     the tests add go. Each table is seeded only while it is empty, so a file
+ *     that inserts its own templates, leave types, forms or KPIs sends one
+ *     request first (in `beforeAll`) to let the defaults in.
  *   - a GET that writes (it links an accepted invite) is sent with
  *     `CONFORMANCE_WRITE_HEADER` (`get(path, { write: true })`).
  *   - fixed ids and dates for everything seeded here.
@@ -116,10 +118,12 @@ export function hrCaller(db: Database, opts: HrCallerOptions = {}) {
         method,
         ...(body === undefined ? {} : { headers: JSON_HEADERS, body: JSON.stringify(body) }),
       }),
-    /** A multipart upload of `file` as the `file` field. */
+    /** A multipart upload of `file` as the `file` field (a string sends a plain text field). */
     upload: (path: string, file: File | string) => {
       const form = new FormData();
-      form.append('file', file);
+      // Two calls: `append` has one overload for text and one for a Blob.
+      if (typeof file === 'string') form.set('file', file);
+      else form.append('file', file);
       return request(`${HR}${path}`, { method: 'POST', body: form });
     },
   };
