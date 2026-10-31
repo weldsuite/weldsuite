@@ -32,11 +32,9 @@ mod departments;
 mod employees;
 mod lifecycle;
 mod me;
-mod self_service;
 mod settings;
 
-// Time and performance, and their My HR routes.
-mod me_time;
+// Time and performance.
 mod open_shifts;
 mod performance;
 mod shift_requests;
@@ -119,7 +117,6 @@ where
     // `meRoutes.use('*', requirePermission('employees:self'))`: ahead of
     // every /me route's own middleware (the payroll flag).
     let me = me::routes(gate)
-        .merge(me_time::routes(gate))
         .merge(payroll::me_routes(gate))
         .layer(gate.require([EMPLOYEES_SELF]));
     Router::new()

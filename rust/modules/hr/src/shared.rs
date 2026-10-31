@@ -388,3 +388,17 @@ pub(crate) fn js_number(x: f64) -> Value {
     }
     serde_json::Number::from_f64(x).map_or(Value::Null, Value::Number)
 }
+
+/// `Number(text)`.
+pub(crate) fn js_number_of(text: &str) -> f64 {
+    weldsuite_kit::validation::js_number(text)
+}
+
+/// A `to_jsonb` timestamp as Drizzle hands a `Date` to `JSON.stringify`;
+/// `null` for none.
+pub(crate) fn js_time(value: &Value) -> Value {
+    value
+        .as_str()
+        .and_then(weldsuite_db::js_timestamp)
+        .map_or(Value::Null, Value::String)
+}
