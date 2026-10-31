@@ -114,10 +114,12 @@ where
     S: Clone + Send + Sync + 'static,
     Q: PermissionQueries + 'static,
 {
+    // `meRoutes.use('*', requirePermission('employees:self'))`: ahead of
+    // every /me route's own middleware (the payroll flag).
     let me = me::routes(gate)
         .merge(me_time::routes(gate))
         .merge(payroll::me_routes(gate))
-        .route_layer(gate.require([EMPLOYEES_SELF]));
+        .layer(gate.require([EMPLOYEES_SELF]));
     Router::new()
         .merge(dashboard::routes(gate))
         .merge(employees::routes(gate))
