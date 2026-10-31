@@ -27,7 +27,9 @@ modules, each with conformance suites that reach every route:
   CloudNativePG (`/api/onboarding`, `workspace.provision`)
 - **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
   portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
-  **calendar**, **crm**, **flow**, **mail**, **chat** and **desk**
+  **calendar**, **crm**, **flow**, **mail**, **chat** and **desk** (with the
+  helpdesk widget API at `/public/helpdesk-widget`; not yet its workflow
+  engine, `helpdesk-workflow-worker`)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
@@ -79,7 +81,8 @@ rust/
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
                         modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
-                        modules/mail, modules/chat, modules/desk; core is split over
+                        modules/mail, modules/chat, modules/desk, modules/desk-widget (the
+                        helpdesk widget API, at /public/helpdesk-widget); core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
                         modules/core-team (team, roles, settings, preferences, app catalog),
@@ -249,9 +252,8 @@ Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
 Not there yet in the realtime gateway: the whiteboard and document rooms
-(Flow's REST routes are ported, its collaborative rooms are not),
-helpdesk-widget visitors on conversation rooms (their HS256 tokens come from
-`helpdesk-widget-api`, which is not ported), and the support side of support rooms
+(Flow's REST routes are ported, its collaborative rooms are not), and the
+support side of support rooms
 (WeldSuite staff on the admin console stay on Global; `crates/realtime`'s
 docs have the design).
 
