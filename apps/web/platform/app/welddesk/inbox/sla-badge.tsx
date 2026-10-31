@@ -3,7 +3,7 @@ import { format } from 'date-fns';
 import { Clock } from 'lucide-react';
 import { getTranslations } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import type { DeskConversation } from '@/hooks/queries/use-desk-queries';
+import type { DeskConversation, DeskSlaStatus } from '@/hooks/queries/use-desk-queries';
 
 /**
  * The SLA chip for an inbox conversation, from the summary desk-api keeps on
@@ -35,6 +35,9 @@ const TONE_CLASSES: Record<Tone, string> = {
   muted: 'bg-muted text-muted-foreground',
 };
 
+/** Tone of a clock that is still before its due time. */
+const RUNNING_TONES: Partial<Record<DeskSlaStatus, Tone>> = { warning: 'warning', breached: 'breached' };
+
 /** "45m", "3h 5m", "2d 4h". */
 export function formatSlaDuration(ms: number): string {
   const minutes = Math.max(1, Math.round(Math.abs(ms) / 60_000));
@@ -63,8 +66,11 @@ export function deskSlaDisplay(
     if (remaining <= 0) {
       return { label: t.overdue.replace('{metric}', metric).replace('{time}', formatSlaDuration(remaining)), title, tone: 'breached' };
     }
-    const tone: Tone = slaStatus === 'warning' ? 'warning' : slaStatus === 'breached' ? 'breached' : 'ok';
-    return { label: t.dueIn.replace('{metric}', metric).replace('{time}', formatSlaDuration(remaining)), title, tone };
+    return {
+      label: t.dueIn.replace('{metric}', metric).replace('{time}', formatSlaDuration(remaining)),
+      title,
+      tone: RUNNING_TONES[slaStatus] ?? 'ok',
+    };
   }
   if (slaStatus === 'paused' && options.showPaused) return { label: t.paused, title: t.pausedTitle, tone: 'muted' };
   if (slaStatus === 'breached') return { label: t.breached, title: t.breached, tone: 'breached' };

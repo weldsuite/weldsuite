@@ -217,17 +217,181 @@ export interface DerivedDeskSlaClock {
   completedAt: Date | null;
 }
 
-interface Running {
-  metric: DeskSlaMetric;
-  target: DeskSlaTarget;
-  status: DeskSlaClockStatus;
-  startedAt: Date;
+/** One clock while the timeline is replayed. */
+class ReplayClock {
+  status: DeskSlaClockStatus = 'running';
   /** Business milliseconds counted so far. */
-  elapsed: number;
+  elapsed = 0;
   runningSince: Date | null;
-  warnReachedAt: Date | null;
-  breachedAt: Date | null;
-  completedAt: Date | null;
+  warnReachedAt: Date | null = null;
+  breachedAt: Date | null = null;
+  completedAt: Date | null = null;
+
+  constructor(
+    readonly metric: DeskSlaMetric,
+    readonly target: DeskSlaTarget,
+    readonly startedAt: Date,
+    private readonly calendar: DeskSlaCalendar | null,
+  ) {
+    this.runningSince = startedAt;
+  }
+
+  private get targetMs(): number {
+    return this.target.targetMinutes * MINUTE_MS;
+  }
+
+  /** Elapsed time at which the warning comes due; null when the target has none. */
+  private get warnAfterMs(): number | null {
+    const before = this.target.warnBeforeMinutes;
+    return before == null ? null : this.targetMs - before * MINUTE_MS;
+  }
+
+  get running(): boolean {
+    return this.status === 'running';
+  }
+
+  /** Count the business time up to `at`, noting when the warning and breach points were passed. */
+  advance(at: Date): void {
+    const since = this.runningSince;
+    if (!this.running || !since) return;
+    const segment = businessMsBetween(this.calendar, since, at);
+    const warnAfter = this.warnAfterMs;
+    if (warnAfter != null && !this.warnReachedAt && this.elapsed + segment >= warnAfter) {
+      this.warnReachedAt = addBusinessMs(this.calendar, since, warnAfter - this.elapsed);
+    }
+    if (!this.breachedAt && this.elapsed + segment > this.targetMs) {
+      this.breachedAt = addBusinessMs(this.calendar, since, this.targetMs - this.elapsed);
+    }
+    this.elapsed += segment;
+    this.runningSince = at;
+  }
+
+  stop(at: Date, status: 'paused' | 'completed' | 'cancelled'): void {
+    if (!this.running) return;
+    this.advance(at);
+    this.status = status;
+    this.runningSince = null;
+    if (status !== 'paused') this.completedAt = at;
+  }
+
+  resume(at: Date): void {
+    if (this.running) return;
+    this.status = 'running';
+    this.runningSince = at;
+    this.completedAt = null;
+  }
+
+  /** Close: a clock waiting on the customer is done as it stands. */
+  finish(at: Date): void {
+    if (this.status === 'paused') {
+      this.status = 'completed';
+      this.completedAt = at;
+    } else {
+      this.stop(at, 'completed');
+    }
+  }
+
+  /** Reopened by the team: waiting on the customer until they write. */
+  reopen(): void {
+    if (this.status !== 'completed') return;
+    this.status = 'paused';
+    this.completedAt = null;
+  }
+
+  toDerived(now: Date): DerivedDeskSlaClock {
+    const running = this.running;
+    if (running) this.advance(now);
+    const warnAfter = this.warnAfterMs;
+    let dueAt: Date | null = null;
+    let warnAt: Date | null = null;
+    if (running) {
+      dueAt = this.breachedAt ?? addBusinessMs(this.calendar, now, this.targetMs - this.elapsed);
+      if (warnAfter != null) warnAt = this.warnReachedAt ?? addBusinessMs(this.calendar, now, warnAfter - this.elapsed);
+    }
+    return {
+      metric: this.metric,
+      status: this.status,
+      targetMinutes: this.target.targetMinutes,
+      warnBeforeMinutes: this.target.warnBeforeMinutes,
+      startedAt: this.startedAt,
+      elapsedSeconds: Math.floor(this.elapsed / 1000),
+      dueAt,
+      warnAt,
+      breachedAt: this.breachedAt,
+      completedAt: this.completedAt,
+    };
+  }
+}
+
+/** The conversation as the replay walks its timeline: the clocks and who has the ball. */
+class SlaReplay {
+  private readonly clocks = new Map<DeskSlaMetric, ReplayClock>();
+  private open = true;
+  private firstResponseStarted = false;
+  private agentReplied = false;
+
+  constructor(
+    private readonly targets: Partial<Record<DeskSlaMetric, DeskSlaTarget>>,
+    private readonly calendar: DeskSlaCalendar | null,
+  ) {}
+
+  private start(metric: DeskSlaMetric, at: Date): ReplayClock | undefined {
+    const target = this.targets[metric];
+    if (!target) return undefined;
+    const clock = new ReplayClock(metric, target, at, this.calendar);
+    this.clocks.set(metric, clock);
+    return clock;
+  }
+
+  /** The running reply clock (first or next response), if any. */
+  private replyClock(): ReplayClock | undefined {
+    return [this.clocks.get('first_response'), this.clocks.get('next_response')].find((c) => c?.running);
+  }
+
+  apply(entry: DeskSlaTimelineEntry): void {
+    if (entry.kind === 'message' && entry.authorType === 'visitor') this.visitorMessage(entry.at);
+    else if (entry.kind === 'message' && entry.authorType === 'agent') this.agentMessage(entry.at);
+    else if (entry.kind === 'event' && entry.eventType === 'closed') this.closed(entry.at);
+    else if (entry.kind === 'event' && entry.eventType === 'reopened') this.reopened();
+  }
+
+  private visitorMessage(at: Date): void {
+    this.open = true;
+    if (!this.replyClock()) {
+      const first = !this.firstResponseStarted && !this.agentReplied;
+      this.firstResponseStarted = true;
+      this.start(first ? 'first_response' : 'next_response', at);
+    }
+    const resolution = this.clocks.get('resolution');
+    if (resolution) resolution.resume(at);
+    else this.start('resolution', at);
+  }
+
+  private agentMessage(at: Date): void {
+    this.agentReplied = true;
+    this.firstResponseStarted = true;
+    this.replyClock()?.stop(at, 'completed');
+    if (!this.open) return;
+    const resolution = this.clocks.get('resolution') ?? this.start('resolution', at);
+    resolution?.stop(at, 'paused');
+  }
+
+  private closed(at: Date): void {
+    this.open = false;
+    this.replyClock()?.stop(at, 'cancelled');
+    this.clocks.get('resolution')?.finish(at);
+  }
+
+  private reopened(): void {
+    this.open = true;
+    this.clocks.get('resolution')?.reopen();
+  }
+
+  result(now: Date): DerivedDeskSlaClock[] {
+    return [...this.clocks.values()]
+      .map((clock) => clock.toDerived(now))
+      .sort((a, b) => DESK_SLA_METRICS.indexOf(a.metric) - DESK_SLA_METRICS.indexOf(b.metric));
+  }
 }
 
 /**
@@ -241,127 +405,9 @@ export function deriveDeskSlaClocks(input: {
   calendar: DeskSlaCalendar | null;
   now: Date;
 }): DerivedDeskSlaClock[] {
-  const { timeline, targets, calendar, now } = input;
-  const live = new Map<DeskSlaMetric, Running>();
-
-  const advance = (clock: Running, at: Date) => {
-    if (clock.status !== 'running' || !clock.runningSince) return;
-    const segment = businessMsBetween(calendar, clock.runningSince, at);
-    const target = clock.target.targetMinutes * MINUTE_MS;
-    const warnAfter = clock.target.warnBeforeMinutes == null ? null : target - clock.target.warnBeforeMinutes * MINUTE_MS;
-    if (warnAfter != null && !clock.warnReachedAt && clock.elapsed + segment >= warnAfter) {
-      clock.warnReachedAt = addBusinessMs(calendar, clock.runningSince, warnAfter - clock.elapsed);
-    }
-    if (!clock.breachedAt && clock.elapsed + segment > target) {
-      clock.breachedAt = addBusinessMs(calendar, clock.runningSince, target - clock.elapsed);
-    }
-    clock.elapsed += segment;
-    clock.runningSince = at;
-  };
-  const start = (metric: DeskSlaMetric, at: Date) => {
-    const target = targets[metric];
-    if (!target) return;
-    live.set(metric, {
-      metric,
-      target,
-      status: 'running',
-      startedAt: at,
-      elapsed: 0,
-      runningSince: at,
-      warnReachedAt: null,
-      breachedAt: null,
-      completedAt: null,
-    });
-  };
-  const stop = (clock: Running | undefined, at: Date, status: 'paused' | 'completed' | 'cancelled') => {
-    if (!clock || clock.status !== 'running') return;
-    advance(clock, at);
-    clock.status = status;
-    clock.runningSince = null;
-    if (status !== 'paused') clock.completedAt = at;
-  };
-  const resume = (clock: Running | undefined, at: Date) => {
-    if (!clock || clock.status === 'running') return;
-    clock.status = 'running';
-    clock.runningSince = at;
-    clock.completedAt = null;
-  };
-  const replyClock = () =>
-    [live.get('first_response'), live.get('next_response')].find((c) => c?.status === 'running');
-
-  let open = true;
-  let firstResponseStarted = false;
-  let agentReplied = false;
-
-  for (const entry of timeline) {
-    const at = entry.at;
-    if (entry.kind === 'message' && entry.authorType === 'visitor') {
-      open = true;
-      if (!replyClock()) {
-        if (!firstResponseStarted && !agentReplied) {
-          firstResponseStarted = true;
-          start('first_response', at);
-        } else {
-          start('next_response', at);
-        }
-      }
-      if (live.has('resolution')) resume(live.get('resolution'), at);
-      else start('resolution', at);
-    } else if (entry.kind === 'message' && entry.authorType === 'agent') {
-      agentReplied = true;
-      firstResponseStarted = true;
-      stop(replyClock(), at, 'completed');
-      if (!open) continue;
-      if (live.has('resolution')) {
-        stop(live.get('resolution'), at, 'paused');
-      } else {
-        start('resolution', at);
-        stop(live.get('resolution'), at, 'paused');
-      }
-    } else if (entry.kind === 'event' && entry.eventType === 'closed') {
-      open = false;
-      stop(replyClock(), at, 'cancelled');
-      const resolution = live.get('resolution');
-      if (resolution?.status === 'paused') {
-        resolution.status = 'completed';
-        resolution.completedAt = at;
-      } else {
-        stop(resolution, at, 'completed');
-      }
-    } else if (entry.kind === 'event' && entry.eventType === 'reopened') {
-      open = true;
-      const resolution = live.get('resolution');
-      if (resolution && resolution.status === 'completed') {
-        // Reopened by the team: waiting on the customer until they write.
-        resolution.status = 'paused';
-        resolution.completedAt = null;
-      }
-    }
-  }
-
-  const derived: DerivedDeskSlaClock[] = [];
-  for (const clock of live.values()) {
-    const running = clock.status === 'running';
-    if (running) advance(clock, now);
-    const target = clock.target.targetMinutes * MINUTE_MS;
-    const warnAfter = clock.target.warnBeforeMinutes == null ? null : target - clock.target.warnBeforeMinutes * MINUTE_MS;
-    derived.push({
-      metric: clock.metric,
-      status: clock.status,
-      targetMinutes: clock.target.targetMinutes,
-      warnBeforeMinutes: clock.target.warnBeforeMinutes,
-      startedAt: clock.startedAt,
-      elapsedSeconds: Math.floor(clock.elapsed / 1000),
-      dueAt: running ? clock.breachedAt ?? addBusinessMs(calendar, now, target - clock.elapsed) : null,
-      warnAt:
-        running && warnAfter != null
-          ? clock.warnReachedAt ?? addBusinessMs(calendar, now, warnAfter - clock.elapsed)
-          : null,
-      breachedAt: clock.breachedAt,
-      completedAt: clock.completedAt,
-    });
-  }
-  return derived.sort((a, b) => DESK_SLA_METRICS.indexOf(a.metric) - DESK_SLA_METRICS.indexOf(b.metric));
+  const replay = new SlaReplay(input.targets, input.calendar);
+  for (const entry of input.timeline) replay.apply(entry);
+  return replay.result(input.now);
 }
 
 // ── Summary + scheduling ────────────────────────────────────────────────────
@@ -395,11 +441,9 @@ export function summarizeDeskSla(rows: ClockTimes[], now: Date): DeskSlaSummary 
   const [soonest] = running;
   if (soonest) {
     const nowMs = now.getTime();
-    const status: DeskSlaStatus = running.some((c) => c.breachedAt && c.breachedAt.getTime() <= nowMs)
-      ? 'breached'
-      : running.some((c) => c.warnAt && c.warnAt.getTime() <= nowMs)
-        ? 'warning'
-        : 'active';
+    let status: DeskSlaStatus = 'active';
+    if (running.some((c) => c.breachedAt && c.breachedAt.getTime() <= nowMs)) status = 'breached';
+    else if (running.some((c) => c.warnAt && c.warnAt.getTime() <= nowMs)) status = 'warning';
     return { slaStatus: status, slaDueAt: soonest.dueAt, slaMetric: soonest.metric };
   }
   if (rows.some((c) => c.status === 'paused')) return { slaStatus: 'paused', slaDueAt: null, slaMetric: null };
