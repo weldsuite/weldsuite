@@ -197,6 +197,8 @@ config:
 #                                the relay system mail goes through (optional; unset skips mail)
 #   SIGN_SESSION_SECRET          WeldSign: keys signer sessions and access-code hashes (the workers' value)
 #   SIGN_PORTAL_SECRET           shared by the server and the sign portal (required with signPortal.enabled)
+#   MAIL_INBOUND_SECRET          shared by the server and Haraka for the RCPT TO check
+#                                (required with mailInbound.enabled)
 #   TEST_FIXTURES_TOKEN          enables X-Test-Flags outside production (test clusters only)
 #   ZITADEL_SERVICE_TOKEN        the identity provider's service user token (with config.identity.zitadel.apiUrl)
 #   TENANT_SHARDS                JSON list of tenant shards: name, adminUrl (the shard's primary,
@@ -437,6 +439,72 @@ consume:
       httpGet: { path: /readyz, port: probes }
       periodSeconds: 10
       failureThreshold: 3
+
+# WeldMail's inbound path (ADR MAIL-010), off by default: Haraka as the MX
+# (its own image, rust/deploy/haraka) behind a LoadBalancer on port 25. At
+# RCPT TO it asks the server whether the master registry knows the address
+# (250, 550 5.1.1, or 451 when it cannot tell); it verifies SPF, DKIM and
+# DMARC into an Authentication-Results header in Cloudflare's form, puts the
+# raw message in the mail bucket and publishes its key and envelope on NATS
+# (250 only when both succeeded, else 451). `weldsuite consume` (needs
+# consume.enabled) then runs mail-inbound-worker's storage pipeline. Needs
+# config.files.endpoint (the mail bucket lives on that store; create it),
+# NATS_URL and the S3 keys in the Secret, and MAIL_INBOUND_SECRET. Haraka gets
+# only those: no database credentials.
+mailInbound:
+  enabled: false
+  # The mail bucket: Haraka's spool (inbound/…) and each stored message's
+  # raw MIME (mail/<workspace>/<mailbox>/<message>/raw.eml). An EU bucket on
+  # the EU edition.
+  bucket: weldsuite-mail
+  # Inbound attachments and new contacts' avatars go to config.files'
+  # publicBucket, served at this URL (the workers' R2_PUBLIC_URL). Empty: a
+  # message keeps no attachments, as the worker without STORAGE.
+  publicUrl: ""
+  # The largest message accepted, in bytes (Cloudflare Email Routing's 25 MiB).
+  maxMessageBytes: 26214400
+  # The JetStream stream, subject and dead-letter stream (created by consume
+  # with config.nats.ensureStreams).
+  stream: MAIL_INBOUND
+  subject: mail.inbound
+  deadLetterStream: MAIL_INBOUND_DLQ
+  haraka:
+    image:
+      repository: ghcr.io/weldsuite/weldsuite-haraka
+      # Defaults to the chart's appVersion.
+      tag: ""
+      pullPolicy: IfNotPresent
+    replicaCount: 2
+    # The MX's name (mx.<domain>): the 220 greeting, Received and
+    # Authentication-Results, and the certificate's name. Required.
+    hostname: ""
+    # The addresses (or CIDRs) the PROXY protocol comes from: the load
+    # balancer's. Empty: none (a direct connection, kind or a test).
+    proxyProtocolHosts: []
+    service:
+      type: LoadBalancer
+      port: 25
+      # Keep the client's address (SPF needs it) and pass TCP through.
+      externalTrafficPolicy: Local
+      # Hetzner: load-balancer.hetzner.cloud/uses-proxyprotocol: "true",
+      # load-balancer.hetzner.cloud/name, …/location.
+      annotations: {}
+    # STARTTLS with a certificate for hostname: a cert-manager Certificate
+    # from issuerRef, or a kubernetes.io/tls Secret you manage.
+    tls:
+      enabled: true
+      existingSecret: ""
+      issuerRef:
+        name: letsencrypt
+        kind: ClusterIssuer
+    # How long the RCPT TO check may take before Haraka answers 451.
+    rcptTimeoutMs: 5000
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
 
 # Spread pods over nodes and zones when the cluster has them.
 topologySpread:

@@ -175,6 +175,15 @@ jobs:
           load: true
           tags: weldsuite-sign-portal:dev
           cache-from: type=gha,scope=rust-image
+      # Haraka, WeldMail's MX on Kubernetes (MAIL-010).
+      - name: Build the MX image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust/deploy/haraka
+          load: true
+          tags: weldsuite-haraka:dev
+          cache-from: type=gha,scope=rust-haraka
+          cache-to: type=gha,mode=max,scope=rust-haraka
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail
