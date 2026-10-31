@@ -126,6 +126,54 @@ describe('desk SLA engine', () => {
     expect(after.resolution).toMatchObject({ status: 'paused', dueAt: null, nextCheckAt: null });
   });
 
+  it('retries an alert whose announcement failed instead of losing it', async () => {
+    await addPolicy();
+    const { conversation, message } = await createDeskConversation(db, { generateId, visitorId: 'v_flaky', body: 'Hi' });
+    const start = message.createdAt;
+    const failing = async () => {
+      throw new Error('neon hiccup');
+    };
+
+    expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 50), failing)).toBe(0);
+    const [first] = (await clocksOf(conversation.id)).filter((c) => c.metric === 'first_response');
+    // Not marked as warned, and looked at again 30 minutes later.
+    expect(first).toMatchObject({ warnedAt: null, nextCheckAt: minutesFrom(start, 80) });
+    expect(await slaEvents(conversation.id)).toHaveLength(0);
+
+    // By then the clock has breached: the breach is announced, once.
+    expect(await sweepWorkspaceSla(env, db, ORG, minutesFrom(start, 80))).toBe(1);
+    expect((await slaEvents(conversation.id)).map((e) => e.metadata?.eventType)).toEqual(['sla_breached']);
+  });
+
+  it('re-derives the policy when the conversation is assigned', async () => {
+    await addPolicy();
+    const now = new Date('2026-01-01T00:00:00Z');
+    await db.insert(schema.helpdeskSlas).values({
+      id: 'sla_owned',
+      name: 'Owned by Ann',
+      createdAt: now,
+      updatedAt: now,
+      isActive: true,
+      operationalHours: '24x7',
+      conditions: [{ field: 'assigneeId', operator: 'equals', value: 'user_ann' }],
+      firstResponseTime: [{ priority: 'medium', time: 10 }],
+    });
+    const { conversation, message } = await createDeskConversation(db, { generateId, visitorId: 'v_owned', body: 'Hi' });
+    expect(conversation.slaPolicyId).toBe('sla_standard');
+
+    const assigned = await appendDeskMessage(db, {
+      generateId,
+      conversationId: conversation.id,
+      kind: 'event',
+      authorType: 'agent',
+      metadata: { eventType: 'assigned', assigneeId: 'user_ann' },
+      assigneeId: 'user_ann',
+    });
+    expect(assigned.conversation).toMatchObject({ slaPolicyId: 'sla_owned', slaMetric: 'first_response' });
+    expect(assigned.conversation.slaDueAt).toEqual(minutesFrom(message.createdAt, 10));
+    expect(assigned.slaCheckAt).not.toBeNull();
+  });
+
   it('starts a next-response cycle when the customer writes again', async () => {
     await addPolicy();
     const { conversation } = await createDeskConversation(db, { generateId, visitorId: 'v_cycle', body: 'Hi' });

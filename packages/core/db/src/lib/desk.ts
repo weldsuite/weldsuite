@@ -382,12 +382,15 @@ export async function appendDeskMessage(
   return { conversation: sla?.conversation ?? updated, message, slaCheckAt: sla?.nextCheckAt ?? null };
 }
 
-/** Appends that can start, stop, pause or retarget an SLA clock. */
+/**
+ * Appends that can start, stop, pause or retarget an SLA clock. Assignment
+ * counts: a policy can have a condition on the assignee.
+ */
+const SLA_EVENTS = new Set<string>(['closed', 'reopened', 'attributes_changed', 'assigned', 'unassigned']);
+
 function movesDeskSla(input: AppendDeskMessageInput): boolean {
   if (input.kind === 'message') return input.authorType === 'visitor' || input.authorType === 'agent';
-  if (input.kind !== 'event') return false;
-  const eventType = input.metadata?.eventType;
-  return eventType === 'closed' || eventType === 'reopened' || eventType === 'attributes_changed';
+  return input.kind === 'event' && SLA_EVENTS.has(input.metadata?.eventType ?? '');
 }
 
 /** SLA bookkeeping never fails the message it follows (e.g. migration not applied yet). */

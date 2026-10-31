@@ -695,3 +695,16 @@ export async function nextDeskSlaCheckAt(db: AnyDb): Promise<Date | null> {
   if (next == null) return null;
   return next instanceof Date ? next : new Date(next);
 }
+
+/**
+ * Undo an `acknowledge` whose announcement failed: clear the clock's warning
+ * or breach mark for this cycle and look at it again at `retryAt`, so the
+ * next sweep announces it instead of it being lost.
+ */
+export async function releaseDeskSlaAlert(db: AnyDb, alert: DeskSlaAlert, retryAt: Date): Promise<void> {
+  const mark = alert.type === 'warning' ? { warnedAt: null } : { breachNotifiedAt: null };
+  await db
+    .update(clocks)
+    .set({ ...mark, nextCheckAt: retryAt })
+    .where(and(eq(clocks.id, alert.clock.id), eq(clocks.startedAt, alert.clock.startedAt)));
+}

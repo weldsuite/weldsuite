@@ -30,6 +30,7 @@ import {
   listDueDeskSlaConversations,
   nextDeskSlaCheckAt,
   refreshDeskSla,
+  releaseDeskSlaAlert,
   type DeskSlaAlert,
 } from '@weldsuite/db/lib/desk-sla';
 import { getTenantDbForWorkspace, schema } from '@weldsuite/worker-kit/db';
@@ -51,13 +52,17 @@ export const SLA_INDEX_SEED_KEY = 'desk:sla-index:seed:v1';
 
 /** A workspace that failed (Neon hiccup, broken tenant) is retried after this. */
 const RETRY_AFTER_MS = 10 * 60_000;
-/** A conversation whose clocks fail to refresh is looked at again after this. */
+/** A conversation whose clocks fail to refresh, or whose alert fails to post, is looked at again after this. */
 const CONVERSATION_RETRY_MS = 30 * 60_000;
 /** Conversations per workspace per tick; the rest stay due for the next tick. */
 const CONVERSATIONS_PER_TICK = 100;
 
 const EVENT_TYPE = { warning: 'sla_warning', breach: 'sla_breached' } as const;
 
+/**
+ * Post one warning or breach. Only the timeline event can throw; notification,
+ * entity event and live update are best-effort after it.
+ */
 async function announce(
   env: Env,
   db: TenantDb,
@@ -108,24 +113,41 @@ async function announce(
   }
 }
 
-/** Re-derive one workspace's due clocks, announce what came due; returns how many alerts went out. */
-export async function sweepWorkspaceSla(env: Env, db: TenantDb, orgId: string, now: Date): Promise<number> {
+/**
+ * Re-derive one workspace's due clocks, announce what came due; returns how
+ * many alerts went out. `announceAlert` is replaceable for tests.
+ */
+export async function sweepWorkspaceSla(
+  env: Env,
+  db: TenantDb,
+  orgId: string,
+  now: Date,
+  announceAlert: typeof announce = announce,
+): Promise<number> {
   let announced = 0;
+  const retryAt = new Date(now.getTime() + CONVERSATION_RETRY_MS);
   const ids = await listDueDeskSlaConversations(db, now, CONVERSATIONS_PER_TICK);
   for (const id of ids) {
     try {
       const result = await refreshDeskSla(db, id, { generateId, now, acknowledge: true });
       if (!result.conversation) continue;
       for (const alert of result.alerts) {
-        await announce(env, db, orgId, result.conversation, alert);
-        announced += 1;
+        try {
+          await announceAlert(env, db, orgId, result.conversation, alert);
+          announced += 1;
+        } catch (err) {
+          // refreshDeskSla already marked it announced: undo that, or the retry
+          // finds nothing to say and the warning or breach is lost.
+          console.error(`[DeskSla] announcing ${alert.type} on ${id} in ${orgId} failed:`, err);
+          await releaseDeskSlaAlert(db, alert, retryAt);
+        }
       }
     } catch (err) {
       console.error(`[DeskSla] conversation ${id} in ${orgId} failed:`, err);
       // Don't let one broken conversation keep its workspace due every tick.
       await db
         .update(schema.deskSlaClocks)
-        .set({ nextCheckAt: new Date(now.getTime() + CONVERSATION_RETRY_MS) })
+        .set({ nextCheckAt: retryAt })
         .where(eq(schema.deskSlaClocks.conversationId, id))
         .catch((retryErr: unknown) => console.warn(`[DeskSla] could not back off ${id}:`, retryErr));
     }
