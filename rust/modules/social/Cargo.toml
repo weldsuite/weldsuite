@@ -1,0 +1,29 @@
+[package]
+name = "weldsuite-social"
+description = "WeldSocial (accounts, posts, campaigns, media, approvals, team, settings, analytics, PostPeer publishing): social-api's /api/social-* and its PostPeer webhook"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-core-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+weldsuite-social-domain = { workspace = true }
+axum = { workspace = true, features = ["json", "query"] }
+http = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

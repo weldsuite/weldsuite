@@ -1712,6 +1712,31 @@
         "rust/modules/ads/",
         "rust/crates/ads-domain/"
       ]
+    },
+    {
+      "name": "social",
+      "module": "social",
+      "workspace": "apps/workers/social-api",
+      "tests": [
+        "src/routes/social-crud.integration.test.ts",
+        "src/routes/social-publishing.integration.test.ts",
+        "src/routes/public-postpeer-webhook.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/social-api/src/",
+        "packages/core/social-publishing/src/",
+        "packages/core/credits/src/index.ts",
+        "packages/clients/core-api-client/src/schemas/social-accounts.ts",
+        "packages/clients/core-api-client/src/schemas/social-approvals.ts",
+        "packages/clients/core-api-client/src/schemas/social-campaigns.ts",
+        "packages/clients/core-api-client/src/schemas/social-media.ts",
+        "packages/clients/core-api-client/src/schemas/social-posts.ts",
+        "packages/clients/core-api-client/src/schemas/social-team-members.ts",
+        "packages/clients/app-api-client/src/schemas/social-settings.ts",
+        "packages/clients/app-api-client/src/schemas/social-responses.ts",
+        "rust/modules/social/",
+        "rust/crates/social-domain/"
+      ]
     }
   ]
 }

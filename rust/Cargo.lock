@@ -3849,6 +3849,7 @@ dependencies = [
  "weldsuite-ports",
  "weldsuite-realtime",
  "weldsuite-sign",
+ "weldsuite-social",
  "weldsuite-subscribers",
 ]
 
@@ -4643,6 +4644,45 @@ dependencies = [
  "weldsuite-events",
  "weldsuite-kit",
  "weldsuite-permissions",
+ "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-social"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "http",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-permissions",
+ "weldsuite-ports",
+ "weldsuite-social-domain",
+]
+
+[[package]]
+name = "weldsuite-social-domain"
+version = "0.0.0"
+dependencies = [
+ "aws-lc-rs",
+ "form_urlencoded",
+ "hex",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tracing",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-events",
+ "weldsuite-kit",
  "weldsuite-ports",
 ]
 

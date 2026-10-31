@@ -100,6 +100,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     };
     let router = crm(router, state);
     let router = ads(router, state);
+    let router = social(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
     let router = desk(router, state);
@@ -200,6 +201,73 @@ fn ads_state(state: &AppState) -> weldsuite_ads::AdsState {
             })
             .clone()
         },
+    }
+}
+
+/// WeldSocial (`weldsuite-social`): social-api's `/api/social-*`.
+fn social(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("social") {
+        return router;
+    }
+    router.merge(weldsuite_social::router(
+        social_state(state),
+        &state.permissions,
+    ))
+}
+
+/// PostPeer's delivery webhook (`/public/social/postpeer/webhook`), ahead of
+/// the session; served with the social module. Conformance builds open the
+/// test's tenant database for every workspace.
+fn social_public(state: &AppState) -> Router<AppState> {
+    if !mounts("social") {
+        return Router::new();
+    }
+    let router = weldsuite_social::public_router(social_state(state));
+    #[cfg(feature = "conformance")]
+    let router = router.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(&state.conformance_pools),
+        crate::conformance::public_tenant,
+    ));
+    router
+}
+
+/// WeldSocial's handle on the app: events, the cache (the webhook's legacy
+/// post mapping), the master database (credits and the PostPeer post
+/// index), PostPeer's API and the workspaces' tenant databases. Conformance
+/// builds take the test's KV, master database and fetch stub per request.
+fn social_state(state: &AppState) -> weldsuite_social::SocialState {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    let workspaces = Arc::clone(&state.workspaces);
+    let tenants: weldsuite_social::TenantDatabases = Arc::new(move |reference: String| {
+        let workspaces = Arc::clone(&workspaces);
+        Box::pin(async move {
+            workspaces
+                .tenant(&reference)
+                .await
+                .map(|tenant| tenant.db)
+                .map_err(|error| error.to_string())
+        })
+    });
+    weldsuite_social::SocialState {
+        events: state.infra.events.clone(),
+        cache: if conformance {
+            None
+        } else {
+            state.infra.cache.clone()
+        },
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance {
+            None
+        } else {
+            HTTP.get_or_init(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))
+                    .ok()
+                    .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+            })
+            .clone()
+        },
+        tenants: Some(tenants),
     }
 }
 
@@ -568,7 +636,9 @@ fn core_files(router: Router<AppState>, state: &AppState) -> Router<AppState> {
 /// WeldApps bundle host (`/public/user-apps/*`). Empty where core is not
 /// mounted.
 pub(crate) fn public(state: &AppState) -> Router<AppState> {
-    let router = public_core(state).merge(desk_public(state));
+    let router = public_core(state)
+        .merge(desk_public(state))
+        .merge(social_public(state));
     if mounts("mail") {
         router.nest(
             "/internal/outbound",

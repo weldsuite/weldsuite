@@ -174,6 +174,12 @@ export const FORWARDED_ENV = [
   'FACEBOOK_APP_SECRET',
   'DATABASE_ENCRYPTION_KEY',
   'DATABASE_ENCRYPTION_KEY_V2',
+  // WeldSocial: PostPeer (the API key, base URL and BYOK app ids) and the
+  // secret its delivery webhooks are signed with.
+  'POSTPEER_API_KEY',
+  'POSTPEER_BASE_URL',
+  'POSTPEER_APP_IDS',
+  'POSTPEER_WEBHOOK_SECRET',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */

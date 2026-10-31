@@ -41,6 +41,7 @@ weldsuite-mail = { workspace = true }
 weldsuite-mail-domain = { workspace = true }
 weldsuite-migrations = { workspace = true }
 weldsuite-sign = { workspace = true }
+weldsuite-social = { workspace = true }
 weldsuite-permissions = { workspace = true }
 weldsuite-pipeline = { workspace = true }
 weldsuite-realtime = { workspace = true }

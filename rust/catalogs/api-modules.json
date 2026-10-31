@@ -541,7 +541,7 @@
       "/api/social-team-members",
       "/public/social/postpeer"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "social-api"
   },
   {
