@@ -28,6 +28,7 @@ mod announcements;
 mod assignments;
 mod dashboard;
 mod declarations;
+mod departments;
 mod employees;
 mod lifecycle;
 mod me;

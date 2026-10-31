@@ -12,6 +12,7 @@ use weldsuite_kit::generate_id;
 use crate::HrError;
 
 pub(crate) use weldsuite_core_domain::js::number_text;
+pub(crate) use weldsuite_kit::validation::js_trim;
 
 /// `new Date()` as Drizzle writes it to a `timestamp` column: UTC with
 /// milliseconds. Bind it as text with `::timestamp` (or `::timestamptz`).
@@ -326,4 +327,64 @@ mod tests {
         assert!(is_iso_date_shape("2026-13-45"));
         assert!(parse_date("2026-13-45").is_none());
     }
+}
+
+/// `a.localeCompare(b)`: ICU's root collation, as Node's default locale sorts.
+static COLLATOR: std::sync::LazyLock<Option<icu_collator::CollatorBorrowed<'static>>> =
+    std::sync::LazyLock::new(|| {
+        icu_collator::CollatorBorrowed::try_new(
+            icu_collator::CollatorPreferences::default(),
+            icu_collator::options::CollatorOptions::default(),
+        )
+        .ok()
+    });
+
+/// `a.localeCompare(b)`.
+pub(crate) fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    COLLATOR
+        .as_ref()
+        .map_or_else(|| a.cmp(b), |collator| collator.compare(a, b))
+}
+
+/// A text field of a Drizzle row, `""` when missing or null.
+pub(crate) fn text<'a>(row: &'a Value, key: &str) -> &'a str {
+    row[key].as_str().unwrap_or_default()
+}
+
+/// A text field of a Drizzle row, `None` when missing, null or empty
+/// (`row.x || undefined`).
+pub(crate) fn non_empty<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
+    row[key].as_str().filter(|value| !value.is_empty())
+}
+
+/// One query string value (`c.req.query(name)`): the first when repeated.
+pub(crate) fn query_param(query: &serde_json::Map<String, Value>, name: &str) -> Option<String> {
+    match query.get(name) {
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(Value::Array(values)) => values.first().and_then(Value::as_str).map(str::to_owned),
+        _ => None,
+    }
+}
+
+/// `q.x || undefined`: the query value, `None` when absent or empty.
+pub(crate) fn query_text(query: &serde_json::Map<String, Value>, name: &str) -> Option<String> {
+    query_param(query, name).filter(|value| !value.is_empty())
+}
+
+/// `q.x && isoDate.test(q.x) ? q.x : undefined`.
+pub(crate) fn query_date(query: &serde_json::Map<String, Value>, name: &str) -> Option<String> {
+    query_text(query, name).filter(|value| is_iso_date_shape(value))
+}
+
+/// A JavaScript number as `JSON.stringify` writes it: integral values
+/// without a fraction, `NaN` and infinities as `null`.
+#[allow(clippy::cast_possible_truncation)]
+pub(crate) fn js_number(x: f64) -> Value {
+    if !x.is_finite() {
+        return Value::Null;
+    }
+    if x.fract() == 0.0 && x.abs() < 9_007_199_254_740_992.0 {
+        return Value::from(x as i64);
+    }
+    serde_json::Number::from_f64(x).map_or(Value::Null, Value::Number)
 }
