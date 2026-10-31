@@ -327,6 +327,7 @@ const CONFIG_SUMMARIZERS = new Map<string, ConfigSummarizer>([
   ['log_activity', summarizeSubject],
   ['post_chat_message', summarizePostChatMessage],
   ['create_task', summarizeTitle],
+  ['create_conversation', summarizeTitle],
   ['manual_step', summarizeTitle],
   ['ai_generate', summarizePrompt],
   ['slack.post_message', summarizeSlackPostMessage],
