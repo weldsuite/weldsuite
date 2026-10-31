@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers'
+import { getRequest } from '@tanstack/react-start/server'
 import type { DeskPortalConfig } from '@weldsuite/app-api-client/schemas/desk-portal'
 import { cached } from '@/lib/server/cache'
 
@@ -11,10 +12,22 @@ import { cached } from '@/lib/server/cache'
  * WIDGET_API_URL: `wrangler dev` of helpdesk-widget-api.
  *
  * Everything except `/config` is per reader, so it never goes through the
- * edge cache.
+ * edge cache. The reader's address goes along in `x-portal-client-ip`: the
+ * worker only trusts it because it only takes /api/portal over the binding,
+ * and keeps its sign-in limits per reader with it.
  */
 const BINDING_ORIGIN = 'https://helpdesk-widget-api.internal'
 const SESSION_HEADER = 'x-portal-session'
+const CLIENT_IP_HEADER = 'x-portal-client-ip'
+
+/** The reader's address, as Cloudflare saw it; empty outside a request. */
+function clientIp(): string {
+  try {
+    return getRequest().headers.get('cf-connecting-ip') ?? ''
+  } catch {
+    return ''
+  }
+}
 /** Whether sign-in is on changes rarely; a minute of lag is fine. */
 const CONFIG_TTL = 60
 
@@ -83,6 +96,8 @@ export async function portalApi<T>(
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   if (opts.session) headers[SESSION_HEADER] = opts.session
+  const ip = clientIp()
+  if (ip) headers[CLIENT_IP_HEADER] = ip
 
   try {
     const res = await send(portalUrl(path, domain, opts.params), {

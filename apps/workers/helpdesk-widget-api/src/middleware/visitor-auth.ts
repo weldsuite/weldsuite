@@ -5,7 +5,9 @@
  *
  * Runs after widgetAuthMiddleware: a token only counts for the workspace and
  * widget it was issued for. With identity verification required, a visitor
- * the customer's site never vouched for is refused here too.
+ * the customer's site never vouched for is refused here too, and an
+ * identified visitor's token stops counting once the widget's identity
+ * secret is rotated or removed.
  */
 
 import { createMiddleware } from 'hono/factory';
@@ -14,7 +16,7 @@ import { deskPrincipalOf } from '@weldsuite/db/lib/desk-portal';
 import type { Env, Variables } from '../index';
 import { schema } from '../db';
 import { error } from '../lib/response';
-import { readVisitorToken, requiresIdentity } from '../lib/visitor-identity';
+import { identitySecretFingerprint, readVisitorToken, requiresIdentity } from '../lib/visitor-identity';
 
 export function bearerToken(header: string | undefined): string | null {
   const match = /^Bearer\s+(\S+)$/i.exec(header?.trim() ?? '');
@@ -42,8 +44,17 @@ export function visitorAuthMiddleware() {
       .limit(1);
     if (!visitor) return error.unauthorized(c, 'Invalid visitor token', 'VISITOR_TOKEN_INVALID');
 
-    if (requiresIdentity(c.get('widgetConfig')) && !visitor.externalId) {
+    const config = c.get('widgetConfig');
+    if (requiresIdentity(config) && !visitor.externalId) {
       return error.unauthorized(c, 'This chat is only open to signed-in users', 'IDENTITY_REQUIRED');
+    }
+    // An identified visitor's token holds only while the identity secret it was
+    // issued under is still the widget's: rotating or removing it ends the session.
+    if (visitor.externalId) {
+      const current = config.identitySecret ? await identitySecretFingerprint(config.identitySecret) : null;
+      if (!current || claims.secretFingerprint !== current) {
+        return error.unauthorized(c, 'Invalid visitor token', 'VISITOR_TOKEN_INVALID');
+      }
     }
 
     c.set('visitor', visitor);

@@ -28,6 +28,7 @@ import { error, success } from '../lib/response';
 import { generateId } from '../lib/id';
 import { publishConversationUpdated } from '../lib/desk-live';
 import {
+  identitySecretFingerprint,
   issueVisitorToken,
   readVisitorToken,
   requiresIdentity,
@@ -97,13 +98,17 @@ visitorRoutes.post('/', zValidator('json', deskVisitorSessionRequestSchema), asy
 
   try {
     let visitor: DeskVisitor | null = null;
+    // Identified sessions end with their identity token and with the secret it was signed under.
+    let identified: { expiresAt: number; secretFingerprint: string } | null = null;
     if (data.identityToken) {
       if (!config.identitySecret) {
         return error.badRequest(c, 'Identity verification is not set up for this widget');
       }
       const result = await verifyIdentityToken(config.identitySecret, data.identityToken);
       if (!result.ok) return error.unauthorized(c, `Identity token refused (${result.reason})`, 'IDENTITY_INVALID');
-      visitor = await upsertIdentifiedDeskVisitor(db, generateId, { widgetId: scope.widgetId, ...result.identity });
+      const { expiresAt, ...identity } = result.identity;
+      visitor = await upsertIdentifiedDeskVisitor(db, generateId, { widgetId: scope.widgetId, ...identity });
+      identified = { expiresAt, secretFingerprint: await identitySecretFingerprint(config.identitySecret) };
       const updated = await attachDeskVisitorContact(db, visitor.id, { name: visitor.name, email: visitor.verifiedEmail });
       const orgId = c.get('clerkOrgId');
       c.executionCtx.waitUntil(
@@ -121,7 +126,7 @@ visitorRoutes.post('/', zValidator('json', deskVisitorSessionRequestSchema), asy
         : await createAnonymousDeskVisitor(db, generateId, scope.widgetId);
     }
 
-    const visitorToken = await issueVisitorToken(secret, { visitorId: visitor.id, ...scope });
+    const visitorToken = await issueVisitorToken(secret, { visitorId: visitor.id, ...scope, ...identified });
     return success(c, {
       visitorToken,
       visitor: {

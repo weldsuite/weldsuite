@@ -61,7 +61,7 @@ export function deskConversationsOwnedBy(principal: DeskPrincipal): SQL {
     own,
     inArray(
       conversations.visitorId,
-      sql`(SELECT ${visitors.id} FROM ${visitors} WHERE lower(${visitors.verifiedEmail}) = ${email})`,
+      sql`(SELECT ${visitors.id} FROM ${visitors} WHERE ${visitors.verifiedEmail} = ${email})`,
     ),
     and(eq(conversations.channel, 'email'), sql`lower(${conversations.email}) = ${email}`),
   ) as SQL;
@@ -220,7 +220,7 @@ export async function findOrCreateVerifiedDeskVisitor(
   const [existing] = await db
     .select()
     .from(visitors)
-    .where(and(sql`lower(${visitors.verifiedEmail}) = ${email}`, isNull(visitors.externalId)))
+    .where(and(eq(visitors.verifiedEmail, email), isNull(visitors.externalId)))
     .orderBy(desc(visitors.lastSeenAt))
     .limit(1);
   if (existing) {

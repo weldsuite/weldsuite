@@ -1,10 +1,14 @@
 /**
  * The signed-in help center: /api/portal/*
  *
- * Called by the help center's server (apps/web/helpcenter), never by a
- * browser directly. Tenant from `?domain=` (helpcenterDomainMiddleware); the
- * reader's session, after sign-in, in `x-portal-session`. Only served while
- * the help center and its "sign-in and requests" switch are on.
+ * Called by the help center's server (apps/web/helpcenter) over its
+ * WIDGET_API service binding, never by a browser: a request that reached the
+ * public hostname (Cloudflare stamps those with `cf-connecting-ip`) is refused,
+ * outside local development. Tenant from `?domain=`
+ * (helpcenterDomainMiddleware); the reader's session, after sign-in, in
+ * `x-portal-session`; the reader's address in `x-portal-client-ip`, for the
+ * per-reader sign-in limits. Only served while the help center and its
+ * "sign-in and requests" switch are on.
  *
  *   GET  /config                      is sign-in on here?
  *   POST /auth/request                email a sign-in code
@@ -75,13 +79,16 @@ import {
   checkChallenge,
   createSession,
   endSession,
+  hasChallenge,
   hitLimit,
   issueChallenge,
   readSession,
   releaseLimit,
   REQUEST_LIMIT_EMAIL,
+  REQUEST_LIMIT_IP,
   REQUEST_LIMIT_WORKSPACE,
   VERIFY_LIMIT_EMAIL,
+  VERIFY_LIMIT_IP,
   VERIFY_LIMIT_WORKSPACE,
 } from '../lib/portal-auth';
 import { sendPortalCodeEmail } from '../lib/portal-mail';
@@ -89,9 +96,25 @@ import { sendPortalCodeEmail } from '../lib/portal-mail';
 type PortalContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 export const PORTAL_SESSION_HEADER = 'x-portal-session';
+export const PORTAL_CLIENT_IP_HEADER = 'x-portal-client-ip';
 
 export const portalRoutes = new Hono<{ Bindings: Env; Variables: Variables }>();
+
+// Service binding only. Without this gate anyone could call the sign-in routes
+// on the public host, spend a help center's workspace-wide budgets and pass a
+// made-up x-portal-client-ip.
+portalRoutes.use('*', async (c, next) => {
+  if (c.req.header('cf-connecting-ip') && c.env.ENVIRONMENT !== 'development') {
+    return error.forbidden(c, 'Not available on this host');
+  }
+  await next();
+});
 portalRoutes.use('*', helpcenterDomainMiddleware());
+
+/** The reader's address the help center passed on, if any (only trusted behind the gate above). */
+function clientIp(c: PortalContext): string | null {
+  return c.req.header(PORTAL_CLIENT_IP_HEADER)?.trim().slice(0, 64) || null;
+}
 
 async function loadHelpcenter(db: Database) {
   const s = schema.helpcenterSettings;
@@ -149,6 +172,11 @@ portalRoutes.post('/auth/request', zValidator('json', authRequestBody), async (c
     // through the help center's server.
     const perEmail = limitRefusal(c, await hitLimit(c.env, workspaceId, `request:e:${email}`, REQUEST_LIMIT_EMAIL));
     if (perEmail) return perEmail;
+    const ip = clientIp(c);
+    if (ip) {
+      const perIp = limitRefusal(c, await hitLimit(c.env, workspaceId, `request:ip:${ip}`, REQUEST_LIMIT_IP));
+      if (perIp) return perIp;
+    }
     const perWorkspace = limitRefusal(c, await hitLimit(c.env, workspaceId, 'request:ws', REQUEST_LIMIT_WORKSPACE));
     if (perWorkspace) return perWorkspace;
 
@@ -177,10 +205,21 @@ portalRoutes.post('/auth/verify', zValidator('json', deskPortalAuthVerifySchema)
     const emailKey = `verify:e:${email}`;
     const perEmail = limitRefusal(c, await hitLimit(c.env, workspaceId, emailKey, VERIFY_LIMIT_EMAIL));
     if (perEmail) return perEmail;
-    const perWorkspace = limitRefusal(c, await hitLimit(c.env, workspaceId, 'verify:ws', VERIFY_LIMIT_WORKSPACE));
-    if (perWorkspace) return perWorkspace;
+    const ip = clientIp(c);
+    const ipKey = ip ? `verify:ip:${ip}` : null;
+    if (ipKey) {
+      const perIp = limitRefusal(c, await hitLimit(c.env, workspaceId, ipKey, VERIFY_LIMIT_IP));
+      if (perIp) return perIp;
+    }
+    // An address without a live code has nothing to guess: answer before the
+    // workspace budget, so made-up addresses cannot use it up.
+    const live = await hasChallenge(c.env, workspaceId, email);
+    if (live) {
+      const perWorkspace = limitRefusal(c, await hitLimit(c.env, workspaceId, 'verify:ws', VERIFY_LIMIT_WORKSPACE));
+      if (perWorkspace) return perWorkspace;
+    }
 
-    const check = await checkChallenge(c.env, workspaceId, email, data.code);
+    const check = live ? await checkChallenge(c.env, workspaceId, email, data.code) : 'expired';
     if (check !== 'ok') {
       return c.json(
         {
@@ -193,7 +232,11 @@ portalRoutes.post('/auth/verify', zValidator('json', deskPortalAuthVerifySchema)
         400,
       );
     }
-    await Promise.all([releaseLimit(c.env, workspaceId, emailKey), releaseLimit(c.env, workspaceId, 'verify:ws')]);
+    await Promise.all([
+      releaseLimit(c.env, workspaceId, emailKey),
+      releaseLimit(c.env, workspaceId, 'verify:ws'),
+      ...(ipKey ? [releaseLimit(c.env, workspaceId, ipKey)] : []),
+    ]);
 
     const visitor = await findOrCreateVerifiedDeskVisitor(db, generateId, email);
     const { token, session } = await createSession(c.env, { workspaceId, visitorId: visitor.id, email });

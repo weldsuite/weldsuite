@@ -102,6 +102,28 @@ describe('POST /api/visitor', () => {
     expect(principal.body).toEqual({ visitorId: first.body.data.visitor.id, verifiedEmail: 'ada@site.test' });
   });
 
+  it("ends an identified visitor's token with its identity token", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 600;
+    const result = await session({ identityToken: await identity({ sub: 'u-exp', email: 'exp@site.test', exp }) });
+    const [, body = ''] = result.body.data.visitorToken.split('.');
+    const claims = JSON.parse(atob(body.replaceAll('-', '+').replaceAll('_', '/'))) as { exp: number };
+    expect(claims.exp).toBe(exp);
+  });
+
+  it('stops trusting identified sessions once the identity secret is rotated or removed', async () => {
+    const signedIn = await session({ identityToken: await identity({ sub: 'u-rotate', email: 'rot@site.test' }) });
+    const token = signedIn.body.data.visitorToken as string;
+    expect((await whoami(token)).status).toBe(200);
+    for (const config of [{ identitySecret: 'rotated-secret' }, { identitySecret: null }]) {
+      const res = await whoami(token, config);
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('VISITOR_TOKEN_INVALID');
+    }
+    // Anonymous visitors are not tied to the secret.
+    const anonymous = await session({});
+    expect((await whoami(anonymous.body.data.visitorToken, { identitySecret: 'rotated-secret' })).status).toBe(200);
+  });
+
   it('refuses a forged identity token', async () => {
     const forged = await signJwt('guessed-secret', { sub: 'u-1', email: 'ada@site.test', exp: Math.floor(Date.now() / 1000) + 60 });
     const result = await session({ identityToken: forged });

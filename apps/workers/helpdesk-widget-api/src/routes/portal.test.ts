@@ -219,6 +219,31 @@ describe('sign-in', () => {
     expect(statuses).toEqual([200, 200, 200, 200, 200, 429]);
   });
 
+  it('only answers the help center, not the public host', async () => {
+    const direct = await call('/config', { headers: { 'cf-connecting-ip': '203.0.113.9' } });
+    expect(direct.status).toBe(403);
+  });
+
+  it('limits code emails per reader address too', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 11; i++) {
+      statuses.push(
+        (await call('/auth/request', {
+          method: 'POST',
+          body: JSON.stringify({ email: `ip${i}@acme.test` }),
+          headers: { 'x-portal-client-ip': '198.51.100.7' },
+        })).status,
+      );
+    }
+    expect(statuses.at(-1)).toBe(429);
+    expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
+  });
+
+  it('answers a made-up address without a code as expired', async () => {
+    const res = await post('/auth/verify', { email: 'nobody@acme.test', code: '123456' });
+    expect(res.body?.error.code).toBe('CODE_EXPIRED');
+  });
+
   it('refuses the signed-in routes without a live session', async () => {
     expect((await call('/requests')).status).toBe(401);
     expect((await call('/requests', { session: 'f'.repeat(64) })).status).toBe(401);

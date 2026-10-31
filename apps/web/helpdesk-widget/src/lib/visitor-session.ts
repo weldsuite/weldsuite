@@ -30,6 +30,7 @@ import {
   type VisitorAuth,
   type VisitorSessionRequest,
 } from './api/client';
+import type { DeskVisitorSession } from '@weldsuite/app-api-client/schemas/desk-portal';
 import {
   clearCustomerProfile,
   clearLegacyVisitorId,
@@ -145,59 +146,75 @@ export class VisitorSession implements VisitorAuth {
     void this.open().catch(() => {});
   }
 
+  /** Take what the host page passed with `weld:init`: an identity token, or unverified name / email. */
+  private readHostAuth(): void {
+    const host = getHostAuth();
+    this.identityToken = host?.identityToken ?? null;
+    // Name / email the page passed without a token (SDK auth config, an early identify()).
+    if (!this.identityToken && (host?.name || host?.email)) this.hostTyped = { name: host.name, email: host.email };
+  }
+
+  /** The proof to open the session with: identity token, else this browser's token, else (once) the legacy id. */
+  private sessionRequest(): { body: VisitorSessionRequest; legacyId: string | null } {
+    if (this.identityToken) return { body: { identityToken: this.identityToken }, legacyId: null };
+    if (this.token) return { body: { visitorToken: this.token }, legacyId: null };
+    const legacyId = getLegacyVisitorId();
+    return { body: legacyId ? { legacyVisitorId: legacyId } : {}, legacyId };
+  }
+
+  /**
+   * A failed session start. True when it is worth one more try as a guest
+   * (the identity token was refused); throws otherwise.
+   */
+  private retryAfter(err: unknown, body: VisitorSessionRequest): boolean {
+    const tokenRefused = isIdentityInvalidError(err) || (err instanceof WidgetApiError && err.status === 400);
+    if (body.identityToken && tokenRefused) {
+      // Expired, not signed with this widget's secret, or the widget has no
+      // identity verification set up: carry on as a guest.
+      console.warn('[WeldDesk] The identity token was refused; continuing as an anonymous visitor.');
+      this.identityToken = null;
+      return true;
+    }
+    if (isIdentityRequiredError(err)) {
+      this.markIdentityRequired();
+      throw new IdentityRequiredError();
+    }
+    throw err;
+  }
+
+  private accept(session: DeskVisitorSession, legacyId: string | null): string {
+    this.token = session.visitorToken;
+    saveVisitorToken(this.widgetId, session.visitorToken);
+    // Swapped (or refused for good): the old id never goes out again.
+    if (legacyId) clearLegacyVisitorId();
+    this.update({ status: 'ready', visitor: session.visitor });
+    const typed = this.hostTyped;
+    this.hostTyped = null;
+    if (typed) void this.identifyTyped(typed).catch(() => {});
+    return session.visitorToken;
+  }
+
   private async runOpen(): Promise<string> {
     const generation = this.generation;
     if (!this.hostRead) {
       await waitForHostInit();
       if (generation !== this.generation) return this.open();
       this.hostRead = true;
-      const host = getHostAuth();
-      this.identityToken = host?.identityToken ?? null;
-      // Name / email the page passed without a token (SDK auth config, an early identify()).
-      if (!this.identityToken && (host?.name || host?.email)) this.hostTyped = { name: host.name, email: host.email };
+      this.readHostAuth();
     }
 
     for (;;) {
-      const body: VisitorSessionRequest = {};
-      let legacyId: string | null = null;
-      if (this.identityToken) body.identityToken = this.identityToken;
-      else if (this.token) body.visitorToken = this.token;
-      else {
-        legacyId = getLegacyVisitorId();
-        if (legacyId) body.legacyVisitorId = legacyId;
-      }
-
-      let session;
+      const { body, legacyId } = this.sessionRequest();
+      let session: DeskVisitorSession;
       try {
         session = await widgetApi.startSession(this.widgetId, body);
       } catch (err) {
         if (generation !== this.generation) return this.open();
-        const tokenRefused =
-          isIdentityInvalidError(err) || (err instanceof WidgetApiError && err.status === 400);
-        if (body.identityToken && tokenRefused) {
-          // Expired, not signed with this widget's secret, or the widget has no
-          // identity verification set up: carry on as a guest.
-          console.warn('[WeldDesk] The identity token was refused; continuing as an anonymous visitor.');
-          this.identityToken = null;
-          continue;
-        }
-        if (isIdentityRequiredError(err)) {
-          this.markIdentityRequired();
-          throw new IdentityRequiredError();
-        }
+        if (this.retryAfter(err, body)) continue;
         throw err;
       }
-
       if (generation !== this.generation) return this.open();
-      this.token = session.visitorToken;
-      saveVisitorToken(this.widgetId, session.visitorToken);
-      // Swapped (or refused for good): the old id never goes out again.
-      if (legacyId) clearLegacyVisitorId();
-      this.update({ status: 'ready', visitor: session.visitor });
-      const typed = this.hostTyped;
-      this.hostTyped = null;
-      if (typed) void this.identifyTyped(typed).catch(() => {});
-      return session.visitorToken;
+      return this.accept(session, legacyId);
     }
   }
 

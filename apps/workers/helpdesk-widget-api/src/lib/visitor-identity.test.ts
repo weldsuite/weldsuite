@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { signJwt, verifyJwt, base64Url } from './tokens';
 import {
+  identitySecretFingerprint,
   IDENTITY_TOKEN_MAX_TTL_SECONDS,
   issueVisitorToken,
   readVisitorToken,
@@ -50,17 +51,19 @@ describe('visitor tokens', () => {
 
 describe('identity tokens', () => {
   it('accepts sub, email and name, and lower-cases the email', async () => {
-    const token = await signJwt(WIDGET_SECRET, { sub: 'user-42', email: ' Ada@Example.com ', name: 'Ada', exp: now() + 3600 });
+    const exp = now() + 3600;
+    const token = await signJwt(WIDGET_SECRET, { sub: 'user-42', email: ' Ada@Example.com ', name: 'Ada', exp });
     expect(await verifyIdentityToken(WIDGET_SECRET, token)).toEqual({
       ok: true,
-      identity: { externalId: 'user-42', email: 'ada@example.com', name: 'Ada' },
+      identity: { externalId: 'user-42', email: 'ada@example.com', name: 'Ada', expiresAt: exp },
     });
   });
 
   it('takes a numeric user id', async () => {
-    const token = await signJwt(WIDGET_SECRET, { sub: 42, exp: now() + 60 });
+    const exp = now() + 60;
+    const token = await signJwt(WIDGET_SECRET, { sub: 42, exp });
     const result = await verifyIdentityToken(WIDGET_SECRET, token);
-    expect(result.ok && result.identity).toEqual({ externalId: '42', email: null, name: null });
+    expect(result.ok && result.identity).toEqual({ externalId: '42', email: null, name: null, expiresAt: exp });
   });
 
   it('refuses a token signed with another secret', async () => {
@@ -90,6 +93,23 @@ describe('identity tokens', () => {
     expect(await verifyIdentityToken(WIDGET_SECRET, expired)).toEqual({ ok: false, reason: 'expired' });
     const badEmail = await signJwt(WIDGET_SECRET, { sub: 'u', email: 'not-an-email', exp: now() + 60 });
     expect(await verifyIdentityToken(WIDGET_SECRET, badEmail)).toEqual({ ok: false, reason: 'claims' });
+  });
+});
+
+describe('visitor tokens for identified visitors', () => {
+  const scope = { visitorId: 'dvis_2', workspaceId: 'ws_1', widgetId: 'widget_1' };
+
+  it('carry the secret fingerprint and expire no later than asked', async () => {
+    const expiresAt = now() + 120;
+    const token = await issueVisitorToken(WORKER_SECRET, { ...scope, secretFingerprint: 'fp_1', expiresAt });
+    expect(await readVisitorToken(WORKER_SECRET, token)).toEqual({ ...scope, secretFingerprint: 'fp_1' });
+    const expired = await issueVisitorToken(WORKER_SECRET, { ...scope, expiresAt: now() - 3600 });
+    expect(await readVisitorToken(WORKER_SECRET, expired)).toBeNull();
+  });
+
+  it('fingerprint a secret stably, and differently per secret', async () => {
+    expect(await identitySecretFingerprint('a')).toBe(await identitySecretFingerprint('a'));
+    expect(await identitySecretFingerprint('a')).not.toBe(await identitySecretFingerprint('b'));
   });
 });
 

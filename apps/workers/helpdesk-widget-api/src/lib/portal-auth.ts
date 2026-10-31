@@ -38,6 +38,12 @@ export const REQUEST_LIMIT_WORKSPACE = 300;
  */
 export const VERIFY_LIMIT_EMAIL = 10;
 export const VERIFY_LIMIT_WORKSPACE = 300;
+/**
+ * Per reader address (`x-portal-client-ip`, set by the help center's server),
+ * so one client cannot spend a workspace's budget across many addresses.
+ */
+export const REQUEST_LIMIT_IP = 10;
+export const VERIFY_LIMIT_IP = 30;
 const LIMIT_WINDOW_SECONDS = 15 * 60;
 
 export interface PortalChallenge {
@@ -72,6 +78,12 @@ export async function issueChallenge(env: Env, workspaceId: string, email: strin
   const challenge: PortalChallenge = { codeHash: await sha256Hex(code), email, workspaceId, attempts: 0 };
   await kvPutJson(env, challengeKey(workspaceId, email), challenge, CODE_TTL_SECONDS);
   return code;
+}
+
+/** Whether this address has a live code to check. */
+export async function hasChallenge(env: Env, workspaceId: string, email: string): Promise<boolean> {
+  const challenge = await kvGetJson<PortalChallenge>(env, challengeKey(workspaceId, email));
+  return Boolean(challenge && challenge.workspaceId === workspaceId && challenge.attempts < MAX_CODE_ATTEMPTS);
 }
 
 export type CodeCheck = 'ok' | 'wrong' | 'expired';

@@ -33,8 +33,9 @@ type WidgetRow = typeof widgets.$inferSelect;
 
 /** A settings row as the API shows it: everything but the identity secret. */
 function publicWidget(row: WidgetRow): Omit<WidgetRow, 'identitySecret'> {
-  const { identitySecret: _secret, ...rest } = row;
-  return rest;
+  const shown: Partial<WidgetRow> = { ...row };
+  delete shown.identitySecret;
+  return shown as Omit<WidgetRow, 'identitySecret'>;
 }
 
 /** 256 random bits, base64url: the HS256 key customers sign identity tokens with. */
