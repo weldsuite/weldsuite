@@ -253,7 +253,9 @@ mod tests {
         assert_eq!(add_days("2026-02-30", 0), "2026-03-02");
         assert_eq!(add_days("2026-12-31", 1), "2027-01-01");
         assert_eq!(working_days_between("2026-10-30", "2026-11-02"), 2);
-        assert!((employed_share_of_year(2026, Some("2026-07-01"), None) - 184.0 / 365.0).abs() < 1e-12);
+        assert!(
+            (employed_share_of_year(2026, Some("2026-07-01"), None) - 184.0 / 365.0).abs() < 1e-12
+        );
         assert!(is_iso_date_shape("2026-13-45"));
         assert!(parse_date("2026-13-45").is_none());
     }

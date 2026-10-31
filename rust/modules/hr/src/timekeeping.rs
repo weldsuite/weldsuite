@@ -16,6 +16,8 @@ where
 }
 
 /// `ensureDefaultLeaveTypes(db)`.
-pub(crate) async fn ensure_default_leave_types(_db: &weldsuite_db::PgPool) -> Result<(), crate::HrError> {
+pub(crate) async fn ensure_default_leave_types(
+    _db: &weldsuite_db::PgPool,
+) -> Result<(), crate::HrError> {
     Ok(())
 }

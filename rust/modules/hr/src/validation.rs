@@ -239,8 +239,14 @@ mod tests {
     #[test]
     fn labels_like_field_label() {
         assert_eq!(field_label(&[json!("breakMinutes")]), "Break minutes");
-        assert_eq!(field_label(&[json!("scores"), json!(1), json!("score")]), "Scores #2 score");
-        assert_eq!(field_label(&[json!("allocationPercent")]), "Allocation percent");
+        assert_eq!(
+            field_label(&[json!("scores"), json!(1), json!("score")]),
+            "Scores #2 score"
+        );
+        assert_eq!(
+            field_label(&[json!("allocationPercent")]),
+            "Allocation percent"
+        );
         assert_eq!(field_label(&[json!("end_date")]), "End date");
         assert_eq!(words("aBC"), "a bc");
     }

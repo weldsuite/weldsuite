@@ -16,7 +16,9 @@ where
 }
 
 /// `ensureDefaultEvaluationForm(db)`.
-pub(crate) async fn ensure_default_evaluation_form(_db: &weldsuite_db::PgPool) -> Result<(), crate::HrError> {
+pub(crate) async fn ensure_default_evaluation_form(
+    _db: &weldsuite_db::PgPool,
+) -> Result<(), crate::HrError> {
     Ok(())
 }
 
