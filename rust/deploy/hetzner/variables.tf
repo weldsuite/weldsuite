@@ -137,6 +137,21 @@ variable "api_lb_type" {
   default = "lb11"
 }
 
+# A load balancer's address is in DNS and every kubeconfig and talosconfig, and
+# changing its location replaces it. These keep one where it is when the nodes
+# move to another location.
+variable "api_lb_location" {
+  description = "Location of the API load balancer. Empty: the first control-plane location."
+  type        = string
+  default     = ""
+}
+
+variable "ingress_lb_location" {
+  description = "Location of the ingress load balancer. Empty: the first worker location."
+  type        = string
+  default     = ""
+}
+
 variable "ingress_node_ports" {
   description = "NodePorts of the ingress controller's HTTP and HTTPS ports (Traefik in rust/deploy/flux)."
   type = object({

@@ -1,7 +1,8 @@
-# Two load balancers in the first location, both reaching nodes over the
-# private network: one for the Kubernetes and Talos APIs (control plane), one
-# for HTTP(S) to the ingress controller on every general worker (on the
-# control plane when there are none). A location outage takes a load balancer
+# Two load balancers in the first location (unless api_lb_location and
+# ingress_lb_location say otherwise), both reaching nodes over the private
+# network: one for the Kubernetes and Talos APIs (control plane), one for
+# HTTP(S) to the ingress controller on every general worker (on the control
+# plane when there are none). A location outage takes a load balancer
 # with it; DNS failover to the second location (design doc, "Edge") is the
 # documented next step, not built here.
 
@@ -14,7 +15,7 @@ locals {
 resource "hcloud_load_balancer" "api" {
   name               = "${var.cluster_name}-api"
   load_balancer_type = var.api_lb_type
-  location           = var.control_plane_locations[0]
+  location           = var.api_lb_location != "" ? var.api_lb_location : var.control_plane_locations[0]
   labels             = local.labels
 }
 
@@ -70,7 +71,7 @@ resource "hcloud_load_balancer_service" "talos" {
 resource "hcloud_load_balancer" "ingress" {
   name               = "${var.cluster_name}-ingress"
   load_balancer_type = var.ingress_lb_type
-  location           = var.worker_locations[0]
+  location           = var.ingress_lb_location != "" ? var.ingress_lb_location : var.worker_locations[0]
   labels             = local.labels
 }
 

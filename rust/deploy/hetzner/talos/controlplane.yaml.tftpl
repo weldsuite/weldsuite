@@ -18,6 +18,16 @@ certExtraSANs:
 %{ for san in cert_sans ~}
   - ${san}
 %{ endfor ~}
+---
+# Flannel tunnels pod traffic between nodes over the private network. Left
+# alone it picks the interface of the default route, the public one, where the
+# Hetzner firewall drops the VXLAN packets: pods on different nodes can't reach
+# each other (the ingress load balancer's health checks fail first). The
+# control plane renders the flannel manifest, so this only goes here.
+apiVersion: v1alpha1
+kind: KubeFlannelCNIConfig
+extraArgs:
+  - --iface-can-reach=${private_gateway}
 %{ if allow_scheduling ~}
 ---
 # Workloads on the control plane: drop the taint the generated config sets.
