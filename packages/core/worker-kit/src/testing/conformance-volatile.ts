@@ -68,6 +68,15 @@ const ROUTES: VolatileRoute[] = [
     route: `/api/helpdesk-integrations/${provider}/connect`,
     fields: [{ path: 'data.authUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' }],
   })),
+  // WeldAds' Facebook OAuth start: a fresh state (`crypto.randomUUID()`) per run.
+  {
+    method: 'POST',
+    route: '/api/ad-connections/facebook/authorize',
+    fields: [
+      { path: 'data.state' },
+      { path: 'data.authorizeUrl', pattern: /state=[0-9a-f-]{36}/g, replacement: 'state=<volatile>' },
+    ],
+  },
   // A widget's new identity secret: 32 random bytes per run.
   { method: 'POST', route: '/api/desk/widget/:widgetId/identity', fields: [{ path: 'data.secret' }] },
   // The widget's realtime token: an HS256 JWT whose `iat` is the second it was

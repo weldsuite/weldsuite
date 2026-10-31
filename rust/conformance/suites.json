@@ -1693,6 +1693,25 @@
         "rust/modules/core-onboarding/",
         "rust/crates/ports/src/identity.rs"
       ]
+    },
+    {
+      "name": "ads",
+      "module": "ads",
+      "workspace": "apps/workers/ads-api",
+      "tests": [
+        "src/routes/ad-accounts/integration.test.ts",
+        "src/routes/ad-campaigns/integration.test.ts",
+        "src/routes/ad-campaigns/routes.test.ts",
+        "src/routes/ad-connections/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/ads-api/src/",
+        "packages/domains/ads/src/",
+        "packages/core/meta-ads/src/",
+        "packages/clients/app-api-client/src/schemas/weldads.ts",
+        "rust/modules/ads/",
+        "rust/crates/ads-domain/"
+      ]
     }
   ]
 }

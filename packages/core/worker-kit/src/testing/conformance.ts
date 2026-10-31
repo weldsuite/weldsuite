@@ -168,6 +168,12 @@ export const FORWARDED_ENV = [
   'WIDGET_TOKEN_SECRET',
   'REALTIME_PUBLIC_URL',
   'REALTIME_INTERNAL_SECRET',
+  // WeldAds: the Meta app (OAuth and the Graph API), and the keyring the
+  // connections' OAuth tokens are sealed with (`encryptField`).
+  'FACEBOOK_APP_ID',
+  'FACEBOOK_APP_SECRET',
+  'DATABASE_ENCRYPTION_KEY',
+  'DATABASE_ENCRYPTION_KEY_V2',
 ] as const;
 
 /** The test's env values the Rust server reads, as strings. */

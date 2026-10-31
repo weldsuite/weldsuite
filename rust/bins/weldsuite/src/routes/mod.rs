@@ -99,6 +99,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
         router
     };
     let router = crm(router, state);
+    let router = ads(router, state);
     let router = calendar(router, state);
     let router = chat(router, state);
     let router = desk(router, state);
@@ -167,6 +168,39 @@ fn crm(router: Router<AppState>, state: &AppState) -> Router<AppState> {
         },
         &state.permissions,
     ))
+}
+
+/// WeldAds (`weldsuite-ads`): ads-api's `/api/ad-accounts`,
+/// `/api/ad-campaigns` and `/api/ad-connections`.
+fn ads(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("ads") {
+        return router;
+    }
+    router.merge(weldsuite_ads::router(ads_state(state), &state.permissions))
+}
+
+/// WeldAds' handle on the app: events, the cache its OAuth state lives in,
+/// the master database (the ad sync index) and Meta's API. Conformance
+/// builds take the test's KV, master database and fetch stub per request.
+fn ads_state(state: &AppState) -> weldsuite_ads::AdsState {
+    static HTTP: OnceLock<Option<weldsuite_ports::OutboundHttp>> = OnceLock::new();
+    let conformance = cfg!(feature = "conformance");
+    weldsuite_ads::AdsState {
+        events: state.infra.events.clone(),
+        // Without Valkey the OAuth state lives in this process (one replica's worth).
+        cache: (!conformance).then(|| upload_token_cache(state)),
+        master: (!conformance).then(|| state.workspaces.master().clone()),
+        http: if conformance {
+            None
+        } else {
+            HTTP.get_or_init(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(30))
+                    .ok()
+                    .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client)))
+            })
+            .clone()
+        },
+    }
 }
 
 /// WeldMail's handle on the app: databases, cache, files, jobs, system mail,

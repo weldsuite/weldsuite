@@ -556,7 +556,7 @@
       "/api/ad-campaigns",
       "/api/ad-connections"
     ],
-    "rust": false,
+    "rust": true,
     "worker": "ads-api"
   },
   {
