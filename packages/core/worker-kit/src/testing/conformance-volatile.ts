@@ -83,12 +83,19 @@ const ROUTES: VolatileRoute[] = [
   // WeldFlow's timer: a stopped entry's duration is the minutes since it
   // started, to two decimals (`minutesBetween`), so it ticks every 0.6 s and
   // the two runs can straddle a tick. The whole minutes are still compared,
-  // in the answer and in the entry's `project_time_entry` event.
+  // in the answer and in the entry's `project_time_entry` event. The event
+  // also carries the same duration as whole seconds and as hours to two
+  // decimals (`timeEntryAnalyticsPayload`), which tick every second and every
+  // 36 s.
   {
     method: 'POST',
     route: '/api/time-entries/timer/stop',
     fields: [{ path: 'data.duration', pattern: /\.\d+$/, replacement: '.<volatile>' }],
-    events: [{ path: 'data.duration', pattern: /\.\d+$/, replacement: '.<volatile>' }],
+    events: [
+      { path: 'data.duration', pattern: /\.\d+$/, replacement: '.<volatile>' },
+      { path: 'data.durationSeconds' },
+      { path: 'data.actualHours' },
+    ],
   },
 ];
 
