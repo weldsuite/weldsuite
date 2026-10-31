@@ -185,6 +185,11 @@ pub(crate) struct Config {
     pub(crate) storage_signing_key: Option<String>,
     /// `REALTIME_*`: the WebSocket gateway (`realtime.rs`).
     pub(crate) realtime: weldsuite_realtime::GatewayConfig,
+    /// `TRUSTED_PROXIES`: how many proxies in front of the server append
+    /// to `X-Forwarded-For` (1, the ingress controller; 2 with a CDN the
+    /// ingress trusts). The client's address is that many entries from the
+    /// right; anything to its left came from the client.
+    pub(crate) trusted_proxies: usize,
 }
 
 /// Where feature flag values come from (`FEATURE_FLAGS`).
@@ -540,6 +545,10 @@ impl Config {
         let cache_ttl = number(&mut problems, "WORKSPACE_CACHE_TTL_SECONDS", 300);
         let shutdown_delay = number(&mut problems, "SHUTDOWN_DELAY_SECONDS", 5);
         let flags_refresh = number(&mut problems, "FEATURE_FLAGS_REFRESH_SECONDS", 30);
+        let trusted_proxies = number(&mut problems, "TRUSTED_PROXIES", 1);
+        if trusted_proxies == 0 {
+            problems.push("TRUSTED_PROXIES must be at least 1".to_owned());
+        }
         let infra = InfraConfig::from_lookup(&lookup, &mut problems, flags_refresh);
         let realtime = weldsuite_realtime::GatewayConfig::from_lookup(&lookup, &mut problems);
 
@@ -606,6 +615,7 @@ impl Config {
             files_public_url: lookup("S3_PUBLIC_URL").filter(|s| !s.is_empty()),
             storage_signing_key: lookup("STORAGE_SIGNING_KEY").filter(|s| !s.is_empty()),
             realtime,
+            trusted_proxies: usize::try_from(trusted_proxies.max(1)).unwrap_or(usize::MAX),
         })
     }
 }
@@ -645,6 +655,7 @@ mod tests {
         assert_eq!(config.listen.to_string(), "0.0.0.0:8080");
         assert_eq!(config.log_format, LogFormat::Json);
         assert!(!config.permissions_app_enforce);
+        assert_eq!(config.trusted_proxies, 1);
         assert!(matches!(
             &config.auth,
             AuthConfig::Clerk { key: ClerkKey::Pem(pem), .. } if pem.contains('\n')

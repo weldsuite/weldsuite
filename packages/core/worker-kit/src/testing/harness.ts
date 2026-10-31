@@ -91,6 +91,15 @@ export interface CreateTestAppOptions<E extends KitEnv = KitEnv> {
   context?: Partial<TestContext>;
   /** Override individual env bindings. */
   env?: Partial<E>;
+  /**
+   * Where the Rust server serves this router, when that differs from the
+   * worker's own paths. A worker on a host of its own answers at the root
+   * (`helpdesk-widget-api`'s `/api/config`), but the one Rust server mounts
+   * it under a prefix (`/public/helpdesk-widget/api/config`). Conformance
+   * mode sends Rust this prefix plus the test's path; the test and the Hono
+   * app keep the worker's paths.
+   */
+  rustBasePath?: string;
 }
 
 /**
@@ -234,6 +243,7 @@ export function createTestApp<E extends KitEnv, V extends KitVariables>(
               executionCtx,
             ),
           sideEffects: sideEffects!,
+          rustBasePath: options.rustBasePath,
         });
       }
       if (recorder) {

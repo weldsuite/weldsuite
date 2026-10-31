@@ -22,6 +22,11 @@ config:
   logLevel: info
   # Refuse per-app permission denials instead of only logging them.
   permissionsAppEnforce: false
+  # How many proxies in front of the server append to X-Forwarded-For: 1 for
+  # the ingress controller, 2 with a CDN the ingress trusts. The client's
+  # address is that many entries from the right (the helpdesk widget's rate
+  # limit keys on it); the entries to its left are what the client sent.
+  trustedProxies: 1
   # Which edition this install is, told to the platform by /config.json:
   # self-hosted (a customer's own install) or eu (WeldSuite's EU edition).
   # The platform offers only the modules this release ports to Rust and hides
@@ -182,6 +187,8 @@ config:
 #   VALKEY_URL                   redis://… cache, realtime publish and the WebSocket gateway (optional)
 #   REALTIME_INTERNAL_SECRET     what callers of /publish/* and /internal/presence send in
 #                                x-internal-secret (optional; unset refuses them all)
+#   WIDGET_TOKEN_SECRET          WeldDesk: signs and verifies the helpdesk widget visitors'
+#                                realtime tokens (optional; unset: visitors get no live updates)
 #   NATS_URL                     nats://… entity events (optional)
 #   NATS_USER / NATS_PASSWORD, or NATS_TOKEN (optional)
 #   S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY  object storage keys (with config.files.endpoint)
