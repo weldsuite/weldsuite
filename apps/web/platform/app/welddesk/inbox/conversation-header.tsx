@@ -16,6 +16,7 @@ import {
 } from '@weldsuite/ui/components/command';
 import { useManageDeskConversation, type DeskConversation } from '@/hooks/queries/use-desk-queries';
 import { useDeskWorkspaceMembers } from '@/hooks/queries/use-desk-workspace-members';
+import { DeskSlaBadge } from './sla-badge';
 
 interface ConversationHeaderProps {
   conversation: DeskConversation;
@@ -99,6 +100,7 @@ export function ConversationHeader({ conversation, liveCall = false, visitorOnli
         <h1 className="text-sm md:text-lg font-semibold text-gray-900 dark:text-foreground md:ml-2 truncate">
           {displayTitle}
         </h1>
+        <DeskSlaBadge conversation={conversation} />
         {visitorOnline && (
           <span
             className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 flex-shrink-0"

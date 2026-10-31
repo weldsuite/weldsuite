@@ -41,6 +41,9 @@ export interface Env {
   REALTIME_PUBLIC_URL?: string;
   /** Platform origin used for absolute links in push notifications. */
   PUBLIC_APP_URL?: string;
+  /** Schedule-index D1 (`workspace_due_index`, kind `desk_sla`): visitor messages
+   *  mark when the conversation's SLA clock next comes due (lib/sla-due.ts). */
+  SCHEDULE_INDEX?: D1Database;
 }
 
 export type Variables = {

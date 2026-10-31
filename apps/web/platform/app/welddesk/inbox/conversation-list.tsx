@@ -32,6 +32,7 @@ import {
   type DeskConversationSort,
   type DeskConversationState,
 } from '@/hooks/queries/use-desk-queries';
+import { deskSlaDisplay, SLA_TONE_COLORS, useNow } from './sla-badge';
 
 export type InboxAssigneeFilter = 'all' | 'mine' | 'unassigned';
 
@@ -63,6 +64,7 @@ function conversationToItem(
   conversation: DeskConversation,
   t: ReturnType<typeof getTranslations<'deskInbox2'>>,
   typeNames: Map<string, string>,
+  now: number,
 ): ConversationItem {
   const waiting = Boolean(conversation.waitingSince);
   const name = conversation.name || conversation.email || t.list.noSubject;
@@ -70,6 +72,13 @@ function conversationToItem(
   const preview = conversation.lastMessagePreview || conversation.title || conversation.email || '';
   const labels: string[] = [];
   const labelColors: Record<string, string> = {};
+
+  // The SLA comes first: it is the one label that tells an agent what to answer next.
+  const sla = deskSlaDisplay(conversation, now);
+  if (sla) {
+    labels.push(sla.label);
+    labelColors[sla.label] = SLA_TONE_COLORS[sla.tone];
+  }
 
   // Only the priorities that should catch the eye get a badge.
   if (conversation.priority === 'urgent' || conversation.priority === 'high') {
@@ -178,6 +187,7 @@ export function ConversationList({
     sort,
   );
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const now = useNow();
 
   useEffect(() => {
     const node = sentinelRef.current;
@@ -200,8 +210,8 @@ export function ConversationList({
     [options?.ticketTypes],
   );
   const items = useMemo(
-    () => conversations.map((conversation) => conversationToItem(conversation, t, typeNames)),
-    [conversations, t, typeNames],
+    () => conversations.map((conversation) => conversationToItem(conversation, t, typeNames, now)),
+    [conversations, t, typeNames, now],
   );
 
   const activeFilterCount =
@@ -286,6 +296,7 @@ export function ConversationList({
               { value: 'newest' as const, label: t.sort.newest },
               { value: 'oldest' as const, label: t.sort.oldest },
               { value: 'waiting_longest' as const, label: t.sort.waitingLongest },
+              { value: 'sla_due' as const, label: t.sort.nextSlaTarget },
             ]).map(({ value, label }) => (
               <Toggle
                 key={value}

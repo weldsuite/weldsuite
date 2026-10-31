@@ -315,6 +315,7 @@ pub(crate) async fn list(
     let order = match query.sort.as_deref() {
         Some("oldest") => "t.created_at, t.id",
         Some("waiting_longest") => "t.waiting_since ASC NULLS LAST, t.id",
+        Some("sla_due") => "t.sla_due_at ASC NULLS LAST, t.id",
         _ => "COALESCE(t.last_message_at, t.created_at) DESC, t.id desc",
     };
     let offset = query
@@ -418,12 +419,16 @@ pub(crate) fn author_from_member(name: Option<&str>, picture: Option<&str>) -> A
     }
 }
 
-/// `isPublicDeskMessage`: notes and ticket-field changes stay with the team.
+/// `isPublicDeskMessage`: notes, ticket-field changes and SLA events stay with the team.
 pub(crate) fn is_public(message: &Value) -> bool {
     if message["kind"] == "note" {
         return false;
     }
-    !(message["kind"] == "event" && message["metadata"]["eventType"] == "attributes_changed")
+    let internal = matches!(
+        message["metadata"]["eventType"].as_str(),
+        Some("attributes_changed" | "sla_warning" | "sla_breached")
+    );
+    !(message["kind"] == "event" && internal)
 }
 
 /// `toPublicDeskMessage(message, authors)`.

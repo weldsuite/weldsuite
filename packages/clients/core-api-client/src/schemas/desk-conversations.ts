@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const DESK_CHANNELS = ['messenger', 'email', 'phone', 'whatsapp', 'sms', 'api'] as const;
 export const DESK_CONVERSATION_STATES = ['open', 'closed'] as const;
-export const DESK_CONVERSATION_SORTS = ['newest', 'oldest', 'waiting_longest'] as const;
+export const DESK_CONVERSATION_SORTS = ['newest', 'oldest', 'waiting_longest', 'sla_due'] as const;
 export const DESK_MESSAGE_KINDS = ['message', 'note', 'event'] as const;
 export const DESK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 /** Mirrors DESK_MAX_TAGS / DESK_MAX_TAG_LENGTH in @weldsuite/db/lib/desk. */

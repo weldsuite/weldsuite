@@ -178,6 +178,7 @@ export * from './helpdesk-analytics-views';
 // WeldDesk — webchat-first conversation model.
 export * from './desk-conversations';
 export * from './desk-messages';
+export * from './desk-sla-clocks';
 export * from './desk-visitors';
 export * from './desk-widget-settings';
 export * from './desk-voice-agents';

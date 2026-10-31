@@ -86,6 +86,9 @@ export interface Env {
   AI_GATEWAY_API_TOKEN?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CF_API_TOKEN?: string;
+  // Schedule-index D1 (workspace_due_index, kind desk_sla): a desk email marks
+  // when the conversation's SLA clock next comes due, for desk-api's SLA sweep.
+  SCHEDULE_INDEX?: D1Database;
 }
 
 const app = new Hono<{ Bindings: Env }>();

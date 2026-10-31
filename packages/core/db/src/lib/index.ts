@@ -130,6 +130,7 @@ export {
   DeskConversationNotFoundError,
   isDeskSchemaMissing,
   type AppendDeskMessageInput,
+  type AppendDeskMessageResult,
   type CreateDeskConversationInput,
   type DeskEmailReplyContext,
   type IngestDeskEmailInput,

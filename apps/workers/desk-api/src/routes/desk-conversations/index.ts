@@ -42,6 +42,7 @@ import { generateId } from '@weldsuite/worker-kit/id';
 import { sendDeskEmailReply } from '../../lib/desk-email';
 import { withoutTrailingSlash } from '../../lib/url';
 import { notifyAssigned } from '../../lib/notify';
+import { markDeskSlaDue } from '../../lib/sla-due';
 import { getDeskAttributeOptions } from '../../services/desk-attributes';
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -264,7 +265,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
     }
   }
   try {
-    const { conversation, message } = await appendDeskMessage(db, {
+    const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: data.kind,
@@ -287,6 +288,7 @@ app.post('/:id/reply', requirePermission('conversations:update'), zValidator('js
       entityId: message.id,
       data: message as unknown as Record<string, unknown>,
     });
+    markDeskSlaDue(c, slaCheckAt);
     const authors = await loadAuthor(db, userId);
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (conversation.channel === 'email' && data.kind === 'message') {
@@ -332,7 +334,7 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
       assigneeId = null;
     }
 
-    const { conversation, message } = await appendDeskMessage(db, {
+    const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
       generateId,
       conversationId: id,
       kind: 'event',
@@ -357,6 +359,7 @@ app.post('/:id/manage', requirePermission('conversations:update'), zValidator('j
       entityId: message.id,
       data: message as unknown as Record<string, unknown>,
     });
+    markDeskSlaDue(c, slaCheckAt);
     const authors = await loadAuthor(db, conversation.assigneeId);
     c.executionCtx.waitUntil(publishDeskChange(c, conversation, message, authors));
     if (eventType === 'assigned') {
@@ -389,7 +392,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
   const id = c.req.param('id');
   const data = c.req.valid('json');
   try {
-    const { conversation, message, customFields } = await updateDeskConversationAttributes(db, {
+    const { conversation, message, customFields, slaCheckAt } = await updateDeskConversationAttributes(db, {
       generateId,
       conversationId: id,
       authorType: 'agent',
@@ -414,6 +417,7 @@ app.patch('/:id', requirePermission('conversations:update'), zValidator('json', 
         data: message as unknown as Record<string, unknown>,
       });
       c.executionCtx.waitUntil(publishDeskChange(c, withFields, message, new Map()));
+      markDeskSlaDue(c, slaCheckAt);
     }
     return success(c, { conversation: withFields, message });
   } catch (err) {

@@ -1646,6 +1646,13 @@
       "when": 1793382534580,
       "tag": "0234_desk_conversation_ticket_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 235,
+      "version": "7",
+      "when": 1793452254618,
+      "tag": "0235_desk_sla_clocks",
+      "breakpoints": true
     }
   ]
 }
