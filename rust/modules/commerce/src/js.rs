@@ -1,6 +1,8 @@
+#![allow(dead_code)] // helpers the route groups pick from
+
 //! JavaScript semantics the routes depend on.
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use weldsuite_kit::validation::query_values;
 
 /// `c.req.query(name)` (and `c.req.query()[name]`): the first value of a
@@ -99,6 +101,120 @@ pub(crate) fn js_date_iso(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// `String(number)`.
+pub(crate) fn number_text(number: f64) -> String {
+    if number.is_nan() {
+        return "NaN".to_owned();
+    }
+    if number.is_infinite() {
+        return if number > 0.0 {
+            "Infinity"
+        } else {
+            "-Infinity"
+        }
+        .to_owned();
+    }
+    if number == 0.0 {
+        return "0".to_owned();
+    }
+    let abs = number.abs();
+    if (1e-6..1e21).contains(&abs) {
+        return format!("{number}");
+    }
+    let text = format!("{number:e}");
+    match text.split_once('e') {
+        Some((mantissa, exponent)) if !exponent.starts_with('-') => {
+            format!("{mantissa}e+{exponent}")
+        }
+        _ => text,
+    }
+}
+
+/// A number as `JSON.stringify` writes it: whole numbers as integers,
+/// non-finite as `null`.
+pub(crate) fn number_value(number: f64) -> Value {
+    #[allow(clippy::cast_possible_truncation)]
+    if number.fract() == 0.0 && number.abs() < 9_007_199_254_740_992.0 {
+        json!(number as i64)
+    } else if number.is_finite() {
+        json!(number)
+    } else {
+        Value::Null
+    }
+}
+
+/// `Math.round(number)`: halves go up.
+pub(crate) fn math_round(number: f64) -> f64 {
+    (number + 0.5).floor()
+}
+
+/// `number.toFixed(digits)`: the exact decimal value rounded half away
+/// from zero (JavaScript picks the larger `n` on a tie), unlike Rust's
+/// formatter, which rounds a tie to even.
+pub(crate) fn to_fixed(number: f64, digits: usize) -> String {
+    if !number.is_finite() {
+        return number_text(number);
+    }
+    if number.abs() >= 1e21 {
+        return number_text(number);
+    }
+    let negative = number < 0.0;
+    // The exact decimal expansion: a double below 1e21 has at most 1074
+    // fractional binary digits, but anything this API rounds is far larger
+    // than 2^-60, so 80 decimal places hold it exactly.
+    let exact = format!("{:.80}", number.abs());
+    let (whole, fraction) = exact.split_once('.').unwrap_or((exact.as_str(), ""));
+    let kept = &fraction[..digits.min(fraction.len())];
+    let rest = &fraction[digits.min(fraction.len())..];
+    let round_up = rest.as_bytes().first().is_some_and(|d| *d >= b'5');
+    let mut digits_vec: Vec<u8> = whole.bytes().chain(kept.bytes()).collect();
+    if round_up {
+        let mut i = digits_vec.len();
+        loop {
+            if i == 0 {
+                digits_vec.insert(0, b'1');
+                break;
+            }
+            i -= 1;
+            if digits_vec[i] == b'9' {
+                digits_vec[i] = b'0';
+            } else {
+                digits_vec[i] += 1;
+                break;
+            }
+        }
+    }
+    let split = digits_vec.len() - digits;
+    let int_part = String::from_utf8_lossy(&digits_vec[..split]).into_owned();
+    let frac_part = String::from_utf8_lossy(&digits_vec[split..]).into_owned();
+    let mut out = String::new();
+    let is_zero = digits_vec.iter().all(|d| *d == b'0');
+    if negative && !is_zero {
+        out.push('-');
+    }
+    out.push_str(&int_part);
+    if digits > 0 {
+        out.push('.');
+        out.push_str(&frac_part);
+    }
+    out
+}
+
+/// `Number(text)` for a numeric column's text (`"12.50"`), `0` when null.
+pub(crate) fn numeric(value: &Value) -> f64 {
+    match value {
+        Value::Number(n) => n.as_f64().unwrap_or(0.0),
+        Value::String(text) => weldsuite_kit::validation::js_number(text),
+        Value::Bool(flag) => f64::from(u8::from(*flag)),
+        _ => 0.0,
+    }
+}
+
+/// `Number(value)` as JavaScript reads any JSON value (`null` is 0, absent NaN).
+pub(crate) fn js_number_value(value: Option<&Value>) -> f64 {
+    weldsuite_kit::validation::js_number_of(value)
 }
 
 #[cfg(test)]

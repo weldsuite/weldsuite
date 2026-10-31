@@ -58,15 +58,23 @@ macro_rules! listing_as {
 #[macro_use]
 #[rustfmt::skip]
 mod tables;
+mod categories;
+mod connectors;
 mod crud;
+mod crypto;
 mod invoice_html;
 mod js;
+mod notifications;
 mod orders;
+mod parcel;
+mod printnode;
 mod products;
+mod sales_channels;
 mod sales_tax;
 mod sendcloud;
 mod simple;
 mod table;
+mod wallet;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -160,8 +168,15 @@ where
 {
     Router::new()
         .nest("/carriers", crud::routes(&simple::CARRIERS, gate))
+        .nest("/categories", categories::routes(gate))
         .nest("/orders", orders::routes(gate))
         .nest("/parcels", crud::routes(&simple::PARCELS, gate))
+        .nest("/parcel-analytics", parcel::analytics_routes(gate))
+        .nest("/parcel-notifications", notifications::routes(gate))
+        .nest("/parcel-rates", parcel::rates_routes(gate))
+        .nest("/parcel-settings", parcel::settings_routes(gate))
+        .nest("/parcel-wallet", wallet::routes(gate))
+        .nest("/printnode", printnode::routes(gate))
         .nest("/products", products::routes(gate))
         .nest("/sendcloud", sendcloud::routes(gate))
         .nest("/pickups", crud::routes(&simple::PICKUPS, gate))
@@ -391,4 +406,62 @@ pub(crate) fn all(rows: Vec<Value>) -> Response {
     let total = u64::try_from(rows.len()).unwrap_or(u64::MAX);
     weldsuite_kit::List::new(rows, weldsuite_kit::Pagination::new(total, false, None))
         .into_response()
+}
+
+/// `zValidator('query', schema)`: the query string (repeated keys as
+/// arrays) read by `read`, or the 400 with the schema's issues.
+pub(crate) fn validate_query<T>(
+    query: Option<&str>,
+    read: impl FnOnce(&mut Issues, &Map<String, Value>) -> T,
+) -> Result<T, Refusal> {
+    let fields = weldsuite_kit::validation::query_values(query);
+    let mut issues = Issues::default();
+    let value = read(&mut issues, &fields);
+    issues
+        .finish()
+        .map_err(|invalid| Refusal::Response(Box::new(invalid.into_response())))?;
+    Ok(value)
+}
+
+/// `z.number().positive()` (`z.coerce.number()` when `coerce`) with
+/// `presence`: the number when valid.
+pub(crate) fn positive(
+    issues: &mut Issues,
+    fields: &Map<String, Value>,
+    key: &str,
+    presence: weldsuite_kit::validation::Presence,
+    coerce: bool,
+) -> Option<f64> {
+    let before = issues.count();
+    let number = issues
+        .number(
+            fields,
+            key,
+            presence,
+            weldsuite_kit::validation::Number {
+                coerce,
+                ..weldsuite_kit::validation::Number::default()
+            },
+        )
+        .into_option();
+    if issues.count() > before {
+        return None;
+    }
+    match number {
+        Some(number) if number <= 0.0 => {
+            issues.issue_at(
+                key,
+                serde_json::json!({
+                    "code": "too_small",
+                    "minimum": 0,
+                    "type": "number",
+                    "inclusive": false,
+                    "exact": false,
+                    "message": "Number must be greater than 0",
+                }),
+            );
+            None
+        }
+        other => other,
+    }
 }
