@@ -9,6 +9,7 @@ import {
   accountingEntityCreatedSchema,
   accountingEntityDetailSchema,
   accountingEntitySchema,
+  accountingEntityUpdatedSchema,
   accountingInboxSchema,
   accountingSettingsSchema,
   booksIdResultSchema,
@@ -28,7 +29,10 @@ import {
   jurisdictionSummarySchema,
   lockDateExceptionSchema,
   postingCatchUpSchema,
+  revealedSsnSchema,
   seededWorkflowTemplatesSchema,
+  taxLineCatalogSchema,
+  taxLineRemapSchema,
   taxRateSchema,
 } from '@weldsuite/app-api-client/schemas/books-responses';
 import type { RouteSchema } from './conformance-schemas';
@@ -61,24 +65,42 @@ const BOOKS_LEDGER_ROUTES: RouteSchema[] = [
   { method: 'PATCH', route: '/api/fiscal-periods/:id', envelope: 'single', data: booksIdResultSchema },
   { method: 'POST', route: '/api/fiscal-periods/:id/close', envelope: 'single', data: fiscalPeriodStatusSchema },
   { method: 'POST', route: '/api/fiscal-periods/:id/reopen', envelope: 'single', data: fiscalPeriodStatusSchema },
+  // accounting-entities
+  { method: 'GET', route: '/api/accounting-entities', envelope: 'array', data: accountingEntitySchema },
+  { method: 'GET', route: '/api/accounting-entities/jurisdictions', envelope: 'array', data: jurisdictionSummarySchema },
+  { method: 'GET', route: '/api/accounting-entities/:id', envelope: 'single', data: accountingEntityDetailSchema },
+  { method: 'POST', route: '/api/accounting-entities', envelope: 'single', data: accountingEntityCreatedSchema },
+  { method: 'PATCH', route: '/api/accounting-entities/:id', envelope: 'single', data: accountingEntityUpdatedSchema },
+  { method: 'POST', route: '/api/accounting-entities/:id/apply-tax-lines', envelope: 'single', data: taxLineRemapSchema },
+  { method: 'POST', route: '/api/accounting-entities/:id/reveal-ssn', envelope: 'single', data: revealedSsnSchema },
+  { method: 'PATCH', route: '/api/accounting-entities/:id/lock-dates', envelope: 'single', data: accountingEntitySchema },
+  { method: 'GET', route: '/api/accounting-entities/:id/lock-exceptions', envelope: 'array', data: lockDateExceptionSchema },
+  { method: 'POST', route: '/api/accounting-entities/:id/lock-exceptions', envelope: 'single', data: lockDateExceptionSchema },
+  { method: 'POST', route: '/api/accounting-entities/:id/lock-exceptions/:exceptionId/revoke', envelope: 'single', data: lockDateExceptionSchema },
+  // gl-accounts
+  { method: 'GET', route: '/api/gl-accounts/tax-lines', envelope: 'single', data: taxLineCatalogSchema },
+  { method: 'GET', route: '/api/gl-accounts', envelope: 'array', data: glAccountSchema },
+  { method: 'GET', route: '/api/gl-accounts/:id', envelope: 'single', data: glAccountSchema },
+  { method: 'GET', route: '/api/gl-accounts/:id/transactions', envelope: 'list', data: glAccountTransactionSchema },
+  { method: 'POST', route: '/api/gl-accounts', envelope: 'single', data: glAccountSchema },
+  { method: 'PATCH', route: '/api/gl-accounts/:id', envelope: 'single', data: glAccountSchema },
+  { method: 'PUT', route: '/api/gl-accounts/:id', envelope: 'single', data: glAccountSchema },
+  // tax-rates
+  { method: 'GET', route: '/api/tax-rates', envelope: 'array', data: taxRateSchema },
+  { method: 'GET', route: '/api/tax-rates/:id', envelope: 'single', data: taxRateSchema },
+  { method: 'POST', route: '/api/tax-rates', envelope: 'single', data: taxRateSchema },
+  { method: 'PATCH', route: '/api/tax-rates/:id', envelope: 'single', data: taxRateSchema },
+  { method: 'PUT', route: '/api/tax-rates/:id', envelope: 'single', data: taxRateSchema },
 ];
 
 // Referenced by the routes added as their groups are ported.
 void [
-  accountingEntityCreatedSchema,
-  accountingEntityDetailSchema,
-  accountingEntitySchema,
   accountingInboxSchema,
   accountingSettingsSchema,
   exchangeRateSchema,
   exchangeRatesSchema,
-  glAccountSchema,
-  glAccountTransactionSchema,
-  jurisdictionSummarySchema,
-  lockDateExceptionSchema,
   postingCatchUpSchema,
   seededWorkflowTemplatesSchema,
-  taxRateSchema,
 ];
 
 export const BOOKS_ROUTES: RouteSchema[] = [

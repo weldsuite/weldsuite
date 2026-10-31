@@ -151,6 +151,9 @@ export const FORWARDED_ENV = [
   // WeldPass: the root keys that wrap every vault's key.
   'WELDPASS_ROOT_KEY',
   'WELDPASS_ROOT_KEY_V2',
+  // WeldBooks: the field encryption keys of sealed SSNs, TINs and bank numbers.
+  'DATABASE_ENCRYPTION_KEY',
+  'DATABASE_ENCRYPTION_KEY_V2',
   // WeldMail: the outbound guard's staff API secret, and whether the worker
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
@@ -267,6 +270,27 @@ export function createSideEffectRecorder() {
           return new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } });
         },
       },
+    },
+    /**
+     * A test's own `ENTITY_EVENTS` binding (one that keeps what was sent, to
+     * assert on), recorded the same way: what the Hono app sends is a side
+     * effect Rust's events are compared with, and it still reaches the test's
+     * binding.
+     */
+    wrapEvents(binding: {
+      send?(message: unknown): Promise<unknown> | unknown;
+      sendBatch?(messages: Array<{ body: unknown }>): Promise<unknown> | unknown;
+    }) {
+      return {
+        send: async (message: unknown) => {
+          effects.events.push(copy(message));
+          return binding.send?.(message);
+        },
+        sendBatch: async (messages: Array<{ body: unknown }>) => {
+          for (const message of messages) effects.events.push(copy(message.body));
+          return binding.sendBatch?.(messages);
+        },
+      };
     },
     /**
      * A test's own `REALTIME` binding (one that answers presence reads or keeps

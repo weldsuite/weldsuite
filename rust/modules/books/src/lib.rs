@@ -8,9 +8,13 @@
 //! ledger` conformance suite (`rust/conformance/suites.json`).
 
 mod accounting_dimensions;
+mod accounting_entities;
+mod entity_setup;
 mod fiscal_periods;
 mod fx_rates;
+mod gl_accounts;
 mod journal_entries;
+mod tax_rates;
 
 use std::sync::Arc;
 
@@ -31,6 +35,10 @@ where
 {
     vec![
         (
+            "/accounting-entities",
+            accounting_entities::router(state.clone(), gate),
+        ),
+        (
             "/accounting-dimensions",
             accounting_dimensions::router(state.clone(), gate),
         ),
@@ -39,9 +47,11 @@ where
             fiscal_periods::router(state.clone(), gate),
         ),
         ("/fx-rates", fx_rates::router(state.clone(), gate)),
+        ("/gl-accounts", gl_accounts::router(state.clone(), gate)),
         (
             "/journal-entries",
             journal_entries::router(state.clone(), gate),
         ),
+        ("/tax-rates", tax_rates::router(state.clone(), gate)),
     ]
 }

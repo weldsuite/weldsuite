@@ -207,6 +207,32 @@ pub fn encrypt_field(plaintext: &str, keyring: &Keyring) -> Result<String, Encry
     Err(EncryptError::NoKey)
 }
 
+/// Open a sealed field (`decryptField`): `v2:iv:ciphertext` with the v2 key,
+/// `iv:ciphertext` with the v1 key. A v3 value is refused: without its
+/// additional data it never authenticates.
+pub fn decrypt_field(value: &str, keyring: &Keyring) -> Result<String, DecryptError> {
+    if let Some(rest) = value.strip_prefix("v3:")
+        && split_hex_pair(rest).is_some()
+    {
+        return Err(DecryptError::UnknownFormat);
+    }
+    if let Some(rest) = value.strip_prefix("v2:")
+        && let Some(pair) = split_hex_pair(rest)
+    {
+        let key = keyring
+            .v2
+            .as_deref()
+            .ok_or(DecryptError::MissingKey("v2"))?;
+        return open(pair, key, &[]);
+    }
+    let pair = split_hex_pair(value).ok_or(DecryptError::UnknownFormat)?;
+    let key = keyring
+        .v1
+        .as_deref()
+        .ok_or(DecryptError::MissingKey("v1"))?;
+    open(pair, key, &[])
+}
+
 /// Seal a workspace's tenant connection string
 /// (`encryptWorkspaceDatabaseUrl`). With `aad_writes`
 /// (`FIELD_ENCRYPTION_AAD_WRITES` on) and a v2 key: `v3:iv:ciphertext`,

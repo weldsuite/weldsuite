@@ -13,6 +13,7 @@
 //! - [`posting`]: the ledger's one way in.
 //! - [`currency`], [`fx`]: exchange rates.
 
+pub mod address;
 pub mod currency;
 pub mod dates;
 pub mod entity_context;
@@ -20,7 +21,9 @@ pub mod fiscal_year;
 pub mod fx;
 pub mod guards;
 pub mod http;
+pub mod identifiers;
 pub mod js;
+pub mod jurisdictions;
 pub mod posting;
 pub mod table;
 pub mod tables;

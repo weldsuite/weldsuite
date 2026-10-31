@@ -26,6 +26,7 @@ sqlx = { workspace = true }
 time = { workspace = true, features = ["parsing", "macros", "formatting"] }
 tokio = { workspace = true, features = ["sync"] }
 tracing = { workspace = true }
+unicode-normalization = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

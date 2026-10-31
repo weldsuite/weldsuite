@@ -46,10 +46,10 @@ export const taxRateSchema = z
     entityId: z.string(),
     name: z.string(),
     rate: numericText,
-    type: z.string().nullable(),
-    jurisdictionCode: z.string().nullable(),
-    taxCategoryCode: nullableString,
-    isDefault: z.boolean().nullable(),
+    type: z.string(),
+    jurisdictionCode: z.string(),
+    taxCategoryCode: nullableString.optional(),
+    isDefault: z.boolean().nullable().optional(),
     isActive: z.boolean().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
@@ -125,16 +125,28 @@ export const glAccountSchema = z
     code: z.string(),
     name: z.string(),
     type: z.string(),
-    subtype: nullableString,
-    parentAccountId: nullableString,
-    normalSide: z.string().nullable(),
+    subtype: nullableString.optional(),
+    parentAccountId: nullableString.optional(),
+    normalSide: z.string(),
+    currency: nullableString.optional(),
     currentBalance: nullableNumericText,
     isActive: z.boolean().nullable(),
     isSystemAccount: z.boolean().nullable(),
+    taxLine: nullableString.optional(),
+    form1099Box: nullableString.optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
   .passthrough();
+
+/** `GET /api/gl-accounts/tax-lines`: the lines of the entity's income-tax return. */
+export const taxLineCatalogSchema = z.object({
+  form: z.string(),
+  formLabel: z.string(),
+  taxYear: z.number().int(),
+  sections: z.array(z.object({ key: z.string(), label: z.string() })),
+  lines: z.array(z.object({ code: z.string(), form: z.string(), line: z.string(), label: z.string(), section: z.string() })),
+});
 
 /** A posted journal line on an account (`GET /api/gl-accounts/:id/transactions`). */
 export const glAccountTransactionSchema = z
@@ -268,7 +280,8 @@ export const accountingEntitySchema = z
     id: z.string(),
     name: z.string(),
     jurisdictionCode: z.string(),
-    baseCurrency: z.string(),
+    baseCurrency: z.string().nullable(),
+    taxIdentifiers: z.record(z.unknown()).nullable().optional(),
     hasSsn: z.boolean(),
     hasSalesTaxCredentials: z.boolean(),
     hasFiscalCredentials: z.boolean(),
@@ -301,6 +314,26 @@ export const jurisdictionSummarySchema = z
     invoiceRequiredFields: z.array(z.string()),
   })
   .passthrough();
+
+/** `PATCH /api/accounting-entities/:id`: the entity, its lock state, and whether the accounts' tax lines need a remap. */
+export const accountingEntityUpdatedSchema = accountingEntityDetailSchema.extend({ taxLineRemapNeeded: z.boolean() });
+
+/** `POST /api/accounting-entities/:id/apply-tax-lines`. */
+export const taxLineRemapSchema = z.object({
+  form: z.string(),
+  formLabel: z.string(),
+  taxYear: z.number().int(),
+  updated: z.number().int(),
+  unchanged: z.number().int(),
+  keptOverrides: z.number().int(),
+  changes: z.array(
+    z.object({ accountId: z.string(), code: z.string(), name: z.string(), from: z.string().nullable(), to: z.string().nullable() }),
+  ),
+  unmapped: z.array(z.object({ accountId: z.string(), code: z.string(), name: z.string() })),
+});
+
+/** `POST /api/accounting-entities/:id/reveal-ssn`. */
+export const revealedSsnSchema = z.object({ ssn: z.string() });
 
 /** A `lock_date_exceptions` row. */
 export const lockDateExceptionSchema = z

@@ -1699,10 +1699,21 @@
       "module": "books",
       "workspace": "apps/workers/books-api",
       "tests": [
+        "src/routes/accounting-entities/integration.test.ts",
+        "src/routes/accounting-entities/entity-lock.integration.test.ts",
+        "src/routes/accounting-entities/lock-dates.integration.test.ts",
+        "src/routes/accounting-entities/us-setup.integration.test.ts",
+        "src/routes/accounting-entities/delete.integration.test.ts",
+        "src/routes/gl-accounts/deactivate.integration.test.ts",
+        "src/routes/gl-accounts/crud.integration.test.ts",
+        "src/routes/tax-rates/integration.test.ts",
+        "src/routes/tax-rates/crud.integration.test.ts",
+        "src/routes/fiscal-periods/fiscal-periods.integration.test.ts",
+        "src/routes/fiscal-periods/status.integration.test.ts",
+        "src/routes/fiscal-periods/crud.integration.test.ts",
         "src/routes/fx-rates/fx-rates.integration.test.ts",
         "src/routes/journal-entries/journal-entries.integration.test.ts",
-        "src/routes/accounting-dimensions/dimensions.integration.test.ts",
-        "src/routes/fiscal-periods/crud.integration.test.ts"
+        "src/routes/accounting-dimensions/dimensions.integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/accounting-entities/",
