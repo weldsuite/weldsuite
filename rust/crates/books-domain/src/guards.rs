@@ -281,6 +281,23 @@ const PLAIN_SECRET_KEYS: [&str; 4] = ["tin", "ssn", "accountNumber", "achAccount
 /// `writeAccountingAudit(c, db, input)`: append a row to `audit_log`.
 /// Failures are logged, never returned (the mutation stands).
 pub async fn write_accounting_audit(caller: &Caller, db: &PgPool, input: AuditInput<'_>) {
+    write_audit(
+        db,
+        input,
+        Some(&caller.user_id),
+        caller.ip_address().as_deref(),
+    )
+    .await;
+}
+
+/// [`write_accounting_audit`] for a caller without a request (an in-process
+/// call from another module): the user and client address it records.
+pub async fn write_audit(
+    db: &PgPool,
+    input: AuditInput<'_>,
+    user_id: Option<&str>,
+    ip_address: Option<&str>,
+) {
     let changes = input.changes.map(|changes| {
         let scrubbed = weldsuite_events::scrub_sensitive_keys(Value::Object(changes));
         match scrubbed {
@@ -303,8 +320,8 @@ pub async fn write_accounting_audit(caller: &Caller, db: &PgPool, input: AuditIn
     .bind(input.entity_id)
     .bind(input.action)
     .bind(changes)
-    .bind(&caller.user_id)
-    .bind(caller.ip_address())
+    .bind(user_id)
+    .bind(ip_address)
     .execute(db)
     .await;
     if let Err(error) = result {

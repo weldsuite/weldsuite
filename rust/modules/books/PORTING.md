@@ -300,9 +300,9 @@ by one agent only. Status: **done** (ported and used by a passing suite),
 | `catch_up` | `accounting-catch-up` | ledger (`/api/accounting-settings/posting-catch-up`) | foundation | done |
 | `sales_tax` (posting part) | books-domain `sales-tax/{rounding,sourcing,to-tax-lines}` (the helpers posting needs), `pickShipTo` | posting; the sales-tax area extends it | foundation | done: `to_cents`, `allocate_cents`, `round_half_up`, `state_code_of`, `zip5_of`, `pick_ship_to`, `breakdown_to_tax_line_fields`; `jurisdictions::us::{states, state}` carry the full `US_STATES` data |
 | `jurisdictions` | `jurisdictions/{registry,types}` + the per-country data the entity setup seeds (charts, tax categories, identifiers, entity types, tax lines, states) | all | foundation | partial: registry, summaries, seed charts and rates, identifier checks of the four countries, US entity kinds and tax lines (invoice formats, returns and tax engines come with their areas) |
-| `address`, `roles`, `identifiers` | `accounting-address`, `accounting-roles`, `identifiers` | all, commerce, connect | foundation | partial: addresses, IBANs (`promoteAccountingRole` and the VAT-number formats of `identifiers` to do) |
+| `address`, `roles`, `identifiers` | `accounting-address`, `accounting-roles`, `identifiers` | all, commerce, connect | foundation | done: addresses, `roles::promote_accounting_role`, IBANs; the VAT-number formats of `identifiers` come with the purchases area (VIES) |
 | `fiscal_year`, `dates` | `us-compliance/{fiscal-year,dates}` | ledger, reports, sales-tax | foundation | done |
-| `payroll` | `payroll/{imports,weldhr,mapping,journal}`: the internal import hr-api posts | reports (routes), **hr** | foundation | |
+| `payroll` | `payroll/{imports,weldhr,mapping,journal}`: the internal import hr-api posts | reports (routes), **hr** | foundation | done: `post_weldhr_import` (hr), `post_payroll_import`, `reverse_payroll_import`, `Resolver`; the CSV and Gusto line builders come with the reports area |
 | `tax` | `accounting-tax-resolve`, `-tax-totals`, `-gst` | sales, purchases, tax, sales-tax | sales | |
 | `sales_tax` | books-domain `sales-tax/*`, `services/sales-tax/{document-tax,errors,runtime,route-helpers}` | sales-tax, sales, purchases, **commerce** | sales-tax | |
 | `contacts` | `billing-contact`, `lib/contact-snapshot` | purchases, sales, reports | purchases | |
@@ -363,12 +363,16 @@ Rust unit tests, or add a `createTestApp`/`conformanceSweep` test.
 
 - `/internal/payroll/imports` (hr-api, `BOOKS_INTERNAL`): on Kubernetes hr
   and books run in one process, so the Rust hr module calls
-  `weldsuite_books_domain::payroll::post_weldhr_import(&tenant_db, input)`
-  directly (the route's input, `BooksPayrollPost` in hr-api's
-  `services/weldhr/payroll/deps.ts`, and its answer, `{ importId,
-  journalEntryId, entryNumber, payDate, duplicate, status }` or the
-  refusal), and the route itself is a thin wrapper over it. No service
-  binding and no `X-Workspace-Id`: hr passes its own tenant database.
+  `weldsuite_books_domain::payroll::post_weldhr_import(&tenant_db, input,
+  Some("system"))` directly. Its input, `payroll::WeldHrImport`, is hr-api's
+  `BooksPayrollPost` (`services/weldhr/payroll/deps.ts`) after the route's
+  validation; its answer, `payroll::WeldHrReply`, is the route's by status:
+  `Created { body, event }` (201; hr publishes `PAYROLL_IMPORT_CREATED`
+  with `event`, source `system`, in its workspace), `Duplicate(body)` (200),
+  `Reversed` (409), `EntityNotFound` (404), `BadRequest(message)` (400), and
+  `Err` for the 500. No service binding and no `X-Workspace-Id`: hr passes
+  its own tenant database. Done, with a test on the real schema
+  (`crates/books-domain/tests/payroll_import.rs`).
 - `/internal/bank-connections/{events,:id/sync}` (integration workers): the
   same idea when those workers are ported (P8 wave C):
   `books_domain::bank_feeds` functions.
@@ -410,7 +414,7 @@ Stripe Financial Connections, Ponto (mTLS), Enable Banking, Gusto, Digipoort
 | Piece | Status |
 |---|---|
 | Plan (this file) | done |
-| `books-domain` foundation modules | done: the rows marked done above (posting engine, documents, payments, bad debt, catch-up included); still to do: `payroll` (hr's in-process import), `roles::promote_accounting_role` (connect) |
+| `books-domain` foundation modules | done: the rows marked done above (posting engine, documents, payments, bad debt, catch-up included); payroll (hr's in-process import) and `roles::promote_accounting_role` (connect) included |
 | `books` (ledger) and the `books: ledger` suite | all 8 groups ported; 17 test files, 395 requests at zero differences and zero schema failures, every ledger route reached |
 | Areas 1–6 | not started |
 | Cron, `RUST_PORTED_MODULES` | not started |

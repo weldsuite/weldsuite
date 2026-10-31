@@ -13,8 +13,9 @@
 //! - [`posting`]: the ledger's one way in.
 //! - [`document_posting`], [`payments`], [`bad_debt`], [`catch_up`]: what
 //!   invoices, bills, payments and write-offs post, and the ledger catch-up.
+//! - [`payroll`]: imported payrolls, the WeldHR pay run hr posts in process.
 //! - [`currency`], [`fx`]: exchange rates.
-//! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`]: the
+//! - [`jurisdictions`], [`sales_tax`], [`address`], [`identifiers`], [`roles`]: the
 //!   per-country rules and data.
 
 pub mod address;
@@ -32,7 +33,9 @@ pub mod identifiers;
 pub mod js;
 pub mod jurisdictions;
 pub mod payments;
+pub mod payroll;
 pub mod posting;
+pub mod roles;
 pub mod sales_tax;
 pub mod table;
 pub mod tables;
