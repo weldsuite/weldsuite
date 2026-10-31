@@ -1,5 +1,5 @@
 //! The webchat tables, moved here from `weldsuite-desk`'s generated `tables` (`tools/tables.mts`,
-//! from the Drizzle schema and tenant snapshot 0236_snapshot.json) with their writer. Keep them
+//! from the Drizzle schema and tenant snapshot 0237_snapshot.json) with their writer. Keep them
 //! as the generator writes them: insert and patch statements that write a `{ column: value }`
 //! object as Drizzle would (see [`crate::table`]).
 
