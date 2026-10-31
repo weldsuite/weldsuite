@@ -10,16 +10,35 @@ design, the decisions and the phase plan live in the private docs repo:
 `design/platform/editions-and-self-hosting.md` and
 `editions-and-self-hosting-phases.md` in `weldsuite/weldsuite-documentation`.
 
-Status: **P1 (foundations) and P2 (conformance suite) done; P3 (pilot
-modules) in progress.** `weldsuite serve` runs the full request pipeline
-(session token → workspace → tenant database → licence and read-only → feature
-flags → permission → envelope) with entity events, realtime and cache behind
-ports. Ported: the core routes `GET /api/me/permissions`, `GET /api/feature-flags`
-and `/api/access-requests`, the first module, **know** (`/api/knowledge`, all
-27 routes), and **sign**'s member side (`/api/sign`: drafts, templates, sending
-and a sent request's lifecycle, the `sign.finalize` job that builds the signed
-PDF, `weldsuite cron sign-lifecycle`, and the signer portal's operations at
-`/public/sign-portal`, ADR FE-017).
+Status (2026-10-31): **P1 (foundations), P2 (conformance suite), P3 (pilot
+modules) and P4's backend (core platform) done, and P6's EU launch set
+ported; P5 (infrastructure) is being proven on the EU test cluster.**
+`weldsuite serve` runs the full request pipeline (session token → workspace →
+tenant database → licence and read-only → feature flags → permission →
+envelope) with entity events, realtime and cache behind ports;
+`weldsuite consume` runs the event subscribers on NATS JetStream, and
+`weldsuite migrate` and `weldsuite cron <job>` the migrations and the
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has ten
+modules, each with conformance suites that reach every route:
+
+- **core**: everything app-api serves except `/api/billing` (Stripe stays
+  Global-only), `/api/partner` and `/public/partner-territories` (the partner
+  portal) and `/api/internal` (staff); signup and provisioning on Zitadel and
+  CloudNativePG (`/api/onboarding`, `workspace.provision`)
+- **know**, **sign** (member side, lifecycle, `sign.finalize`, the signer
+  portal's operations at `/public/sign-portal`, ADR FE-017), **pass**,
+  **calendar**, **crm**, **flow**, **mail**, **chat** and **desk**
+
+Features this backend lacks inside the modules it serves are listed in
+`/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
+the platform hides them: SSO connections, billing, credit top-up, paid apps,
+desktop sign-in, analytics, search reindex, company logos, mail domains, free
+`weldmail.com` addresses, mail AI, chat calls and help center custom domains.
+Routes left out on purpose are in their suite's `excludedRoutes`, with the
+reason. Not ported yet (P8): books, commerce, stash,
+host, meet, call, connect, agent, data, hr, social, ads, reach, sheets, docs and
+panel, and the edge workers (`external-api`, `mcp-server`, the integration
+workers).
 
 ## Layout
 
@@ -59,12 +78,15 @@ rust/
   crates/emails/        @weldsuite/emails: the exported templates rendered with minijinja, sendSystemEmail
   modules/<module>/     one crate per ported weld* module, mounted at its path prefix once
                         `RUST_PORTED_MODULES` has it (conformance builds mount all): modules/know,
-                        modules/sign, modules/core-files (app-api files, folders, drive, search, storage),
+                        modules/sign, modules/pass, modules/calendar, modules/crm, modules/flow,
+                        modules/mail, modules/chat, modules/desk; core is split over
+                        modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
                         modules/core-team (team, roles, settings, preferences, app catalog),
-                        modules/core-onboarding (signup: /api/onboarding, the workspace.provision job,
-                        the identity sync, the deletion sweeps);
-                        core areas are mounted in conformance builds only until complete
+                        modules/core-platform (notifications, audit logs, appstore, API keys, credits,
+                        dashboard, support, SSO, auth sessions), modules/core-apps (WeldApps and its
+                        gateway, the CLI and desktop sign-in routes), modules/core-onboarding (signup:
+                        /api/onboarding, the workspace.provision job, the identity sync, the deletion sweeps)
   deploy/helm/weldsuite the Helm chart
   deploy/kind/          the kind smoke test: Postgres (migrated by the chart's Job), Valkey, NATS, RustFS (S3), Restate, the chart, a signed request, a job
   deploy/hetzner/       OpenTofu for the EU cluster on Hetzner (Talos), the runbook and the monthly drill
@@ -227,8 +249,9 @@ Probes: `/livez` (the process answers), `/readyz` (the master database answers
 and the pod is not draining). `/health` keeps the workers' JSON.
 
 Not there yet in the realtime gateway: the whiteboard and document rooms
-(Flow is not ported), helpdesk-widget visitors on conversation rooms (their
-HS256 tokens come with WeldDesk), and the support side of support rooms
+(Flow's REST routes are ported, its collaborative rooms are not),
+helpdesk-widget visitors on conversation rooms (their HS256 tokens come from
+`helpdesk-widget-api`, which is not ported), and the support side of support rooms
 (WeldSuite staff on the admin console stay on Global; `crates/realtime`'s
 docs have the design).
 
