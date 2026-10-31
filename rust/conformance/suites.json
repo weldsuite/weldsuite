@@ -1693,6 +1693,31 @@
         "rust/modules/core-onboarding/",
         "rust/crates/ports/src/identity.rs"
       ]
+    },
+    {
+      "name": "books: ledger",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/fx-rates/fx-rates.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/accounting-entities/",
+        "apps/workers/books-api/src/routes/accounting-settings/",
+        "apps/workers/books-api/src/routes/gl-accounts/",
+        "apps/workers/books-api/src/routes/journal-entries/",
+        "apps/workers/books-api/src/routes/fiscal-periods/",
+        "apps/workers/books-api/src/routes/tax-rates/",
+        "apps/workers/books-api/src/routes/fx-rates/",
+        "apps/workers/books-api/src/routes/accounting-dimensions/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books.ts",
+        "rust/modules/books/",
+        "rust/crates/books-domain/"
+      ]
     }
   ]
 }

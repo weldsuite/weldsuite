@@ -12,6 +12,7 @@
     "./schemas/tasks": "./src/schemas/tasks.ts",
     "./schemas/projects": "./src/schemas/projects.ts",
     "./schemas/flow-responses": "./src/schemas/flow-responses.ts",
+    "./schemas/books-responses": "./src/schemas/books-responses.ts",
     "./schemas/mail-responses": "./src/schemas/mail-responses.ts",
     "./schemas/tickets": "./src/schemas/tickets.ts",
     "./schemas/companies": "./src/schemas/companies.ts",

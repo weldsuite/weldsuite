@@ -32,6 +32,8 @@ weldsuite-desk-domain = { workspace = true }
 weldsuite-desk-widget = { workspace = true }
 weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
+weldsuite-books = { workspace = true }
+weldsuite-books-domain = { workspace = true }
 weldsuite-flow = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-know = { workspace = true }
