@@ -269,6 +269,24 @@ impl Caller {
         self.http.clone().or_else(|| state.http.clone())
     }
 
+    /// Which exchange-rate cache this request reads ([`crate::currency::RateCache`]).
+    /// books-api keeps the ECB rates in a module variable, one per Worker
+    /// isolate: the app shares one cache. Under conformance (the request
+    /// brings the test's `fetch`) each test file is its own module, so its
+    /// tenant database names the cache.
+    pub fn rate_scope(&self) -> String {
+        if self.http.is_none() {
+            return String::new();
+        }
+        let options = self.db.connect_options();
+        format!(
+            "{}:{}/{}",
+            options.get_host(),
+            options.get_port(),
+            options.get_database().unwrap_or_default()
+        )
+    }
+
     /// The request's workspace cache (conformance: the test's KV), else the
     /// app's.
     pub fn cache(&self, state: &BooksState) -> Option<Arc<dyn DynCache>> {

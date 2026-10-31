@@ -91,17 +91,18 @@ const BOOKS_LEDGER_ROUTES: RouteSchema[] = [
   { method: 'POST', route: '/api/tax-rates', envelope: 'single', data: taxRateSchema },
   { method: 'PATCH', route: '/api/tax-rates/:id', envelope: 'single', data: taxRateSchema },
   { method: 'PUT', route: '/api/tax-rates/:id', envelope: 'single', data: taxRateSchema },
+  // accounting-settings
+  { method: 'GET', route: '/api/accounting-settings', envelope: 'single', data: accountingSettingsSchema },
+  { method: 'PUT', route: '/api/accounting-settings', envelope: 'single', data: accountingSettingsSchema },
+  { method: 'PATCH', route: '/api/accounting-settings', envelope: 'single', data: accountingSettingsSchema },
+  { method: 'GET', route: '/api/accounting-settings/exchange-rates', envelope: 'single', data: exchangeRatesSchema },
+  { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', envelope: 'single', data: exchangeRateSchema },
+  { method: 'POST', route: '/api/accounting-settings/inbox', envelope: 'single', data: accountingInboxSchema },
+  { method: 'POST', route: '/api/accounting-settings/seed-workflows', envelope: 'single', data: seededWorkflowTemplatesSchema },
 ];
 
 // Referenced by the routes added as their groups are ported.
-void [
-  accountingInboxSchema,
-  accountingSettingsSchema,
-  exchangeRateSchema,
-  exchangeRatesSchema,
-  postingCatchUpSchema,
-  seededWorkflowTemplatesSchema,
-];
+void [postingCatchUpSchema];
 
 export const BOOKS_ROUTES: RouteSchema[] = [
   ...BOOKS_LEDGER_ROUTES,

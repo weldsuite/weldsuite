@@ -97,6 +97,9 @@ const ROUTES: VolatileRoute[] = [
       { path: 'data.actualHours' },
     ],
   },
+  // WeldBooks: the exchange rates are stamped with the moment they were answered.
+  { method: 'GET', route: '/api/accounting-settings/exchange-rates', fields: [{ path: 'data.fetchedAt' }] },
+  { method: 'GET', route: '/api/accounting-settings/exchange-rate/:from/:to', fields: [{ path: 'data.fetchedAt' }] },
 ];
 
 function mask(value: unknown, field: VolatileField): unknown {

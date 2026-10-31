@@ -9,6 +9,7 @@
 
 mod accounting_dimensions;
 mod accounting_entities;
+mod accounting_settings;
 mod entity_setup;
 mod fiscal_periods;
 mod fx_rates;
@@ -37,6 +38,10 @@ where
         (
             "/accounting-entities",
             accounting_entities::router(state.clone(), gate),
+        ),
+        (
+            "/accounting-settings",
+            accounting_settings::router(state.clone(), gate),
         ),
         (
             "/accounting-dimensions",

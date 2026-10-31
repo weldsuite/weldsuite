@@ -44,10 +44,6 @@ impl<T: Clone> Given<T> {
             Self::Set(value) => Some(value.clone()),
         }
     }
-
-    pub(crate) fn is_absent(&self) -> bool {
-        matches!(self, Self::Absent)
-    }
 }
 
 /// `resolveEntityKind(jurisdictionCode, input, existing)`.

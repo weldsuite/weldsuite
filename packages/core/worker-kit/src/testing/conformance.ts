@@ -190,6 +190,8 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const WRITING_READS: RegExp[] = [
   // WeldChat: the 1:1 DM with someone, created on first use.
   /^\/api\/chat-dm\/[^/?]+(\?|$)/,
+  // WeldBooks: the workspace's accounting settings row, created on first read.
+  /^\/api\/accounting-settings(\?|$)/,
 ];
 
 interface ConformanceContext {
