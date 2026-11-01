@@ -18,7 +18,7 @@ use axum::response::Response;
 use axum::routing::get;
 use serde_json::{Value, json};
 use weldsuite_books_domain::entity_context::resolve_entity_id;
-use weldsuite_books_domain::http::{BooksState, Caller, Query, Refusal, now_ms, ok};
+use weldsuite_books_domain::http::{BooksState, Caller, Query, Refusal, ok};
 use weldsuite_books_domain::js::{parse_float, parse_int};
 use weldsuite_books_domain::jurisdictions::us;
 use weldsuite_books_domain::reports_basis::{
@@ -125,6 +125,8 @@ struct Context {
     format: Format,
     filters: LedgerFilters,
     query: Query,
+    /// `Date.now()` of the request (the test's faked clock in conformance).
+    now: i64,
 }
 
 impl Context {
@@ -141,7 +143,7 @@ impl Context {
     }
 
     fn today(&self) -> String {
-        today_for(self.timezone(), now_ms())
+        today_for(self.timezone(), self.now)
     }
 }
 
@@ -189,6 +191,7 @@ async fn report_context(caller: &Caller, with_basis: bool) -> Result<Context, Fa
         location_id: query.present("locationId").map(str::to_owned),
     };
     Ok(Context {
+        now: caller.now_ms(),
         entity,
         entity_id,
         basis,

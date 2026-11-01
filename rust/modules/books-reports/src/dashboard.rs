@@ -12,7 +12,7 @@ use axum::routing::get;
 use serde_json::{Value, json};
 use weldsuite_books_domain::dates::last_day_of_month;
 use weldsuite_books_domain::entity_context::resolve_entity_id;
-use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, now_ms, reply};
+use weldsuite_books_domain::http::{BooksState, Caller, Refusal, Reply, reply};
 use weldsuite_books_domain::js::{days_from_civil, parse_float};
 use weldsuite_books_domain::reports_basis::{
     DateRange, LedgerFilters, ReportColumn, create_ledger, iso, money, resolve_basis, today_for,
@@ -104,7 +104,7 @@ async fn build_dashboard(caller: &Caller) -> Reply {
         .unwrap_or_default()
         .to_owned();
 
-    let now = now_ms();
+    let now = caller.now_ms();
     let today = today_for(entity.get("timezone").and_then(Value::as_str), now);
     let year: i64 = today.get(0..4).and_then(|y| y.parse().ok()).unwrap_or(1970);
     let month: i64 = today.get(5..7).and_then(|m| m.parse().ok()).unwrap_or(1);

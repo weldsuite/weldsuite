@@ -30,7 +30,7 @@ use weldsuite_books_domain::entity_context::resolve_entity_id;
 use weldsuite_books_domain::fiscal_year::fiscal_year_range;
 use weldsuite_books_domain::guards::{AuditInput, change, write_accounting_audit};
 use weldsuite_books_domain::http::{
-    BooksState, Caller, Refusal, created, no_content, now_ms, ok, paged, validate,
+    BooksState, Caller, Refusal, created, no_content, ok, paged, validate,
 };
 use weldsuite_books_domain::js::{math_round, parse_int};
 use weldsuite_books_domain::reports_basis::periods::fiscal_config_of;
@@ -726,7 +726,7 @@ async fn tax_year_of(caller: &Caller, entity: &Value) -> Result<i64, Fail> {
     let year = match q.present("taxYear") {
         Some(raw) => parse_int(raw),
         None => {
-            let today = today_for(opt(entity, "timezone"), now_ms());
+            let today = today_for(opt(entity, "timezone"), caller.now_ms());
             fiscal_year_range(&fiscal_config_of(entity), &today).map(|y| y.year)
         }
     };
@@ -744,7 +744,7 @@ async fn register(caller: Caller) -> Response {
         let entity = assets::load_entity(&caller.db, &entity_id).await?;
         let q = caller.query();
         let as_of = q.present("asOf").map_or_else(
-            || today_for(opt(&entity, "timezone"), now_ms()),
+            || today_for(opt(&entity, "timezone"), caller.now_ms()),
             str::to_owned,
         );
         if !is_iso_date(&as_of) {
@@ -838,7 +838,10 @@ async fn de_minimis(caller: Caller, headers: HeaderMap, body: Bytes) -> Response
             None => None,
         };
         let date = date.unwrap_or_else(|| {
-            today_for(entity.as_ref().and_then(|e| opt(e, "timezone")), now_ms())
+            today_for(
+                entity.as_ref().and_then(|e| opt(e, "timezone")),
+                caller.now_ms(),
+            )
         });
         Ok(ok(reports::de_minimis_check(amount, has_afs, &date)))
     }

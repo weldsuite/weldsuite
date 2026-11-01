@@ -28,7 +28,6 @@
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq, inArray } from 'drizzle-orm';
 import type { Hono } from 'hono';
-import { authGateStatuses } from '@weldsuite/worker-kit/testing/sweeps';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
@@ -854,8 +853,17 @@ describe('dimensions', () => {
   });
 
   it('refuses callers without the accounts permissions', async () => {
-    for (const r of await authGateStatuses({ mount: '/api/accounting-dimensions', router: accountingDimensionsRoutes, prefix: 'accounts' })) {
-      expect(r.status, r.label).toBe(403);
+    // authGateStatuses' gates, on the pglite database so the conformance run can replay them.
+    const mount = '/api/accounting-dimensions';
+    const gates = [
+      { label: 'GET without accounts:read', path: mount, method: 'GET', perms: [] },
+      { label: 'POST without accounts:create', path: mount, method: 'POST', perms: ['accounts:read'], body: {} },
+      { label: 'PATCH without accounts:update', path: `${mount}/some_id`, method: 'PATCH', perms: ['accounts:read'], body: {} },
+      { label: 'DELETE without accounts:delete', path: `${mount}/some_id`, method: 'DELETE', perms: ['accounts:read'] },
+    ];
+    for (const gate of gates) {
+      const res = await call(mount, accountingDimensionsRoutes, gate.path, { method: gate.method, perms: gate.perms, body: gate.body });
+      expect(res.status, gate.label).toBe(403);
     }
   });
 });
