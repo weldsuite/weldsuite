@@ -9,6 +9,8 @@
 //! tax` conformance suite (`rust/conformance/suites.json`).
 
 mod apuracao;
+mod brazil;
+mod ecd;
 mod filing;
 mod gst;
 mod icp_declarations;
@@ -37,5 +39,6 @@ where
             "/icp-declarations",
             icp_declarations::router(state.clone(), gate),
         ),
+        ("/br-tax", brazil::router(state.clone(), gate)),
     ]
 }
