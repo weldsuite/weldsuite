@@ -55,7 +55,7 @@ import {
 import { STATE_NAMES } from '../packages/domains/payroll/src/us/states/labels';
 import { STATE_CERTIFICATE_LABELS } from '../packages/domains/payroll/src/us/states/certificate-labels';
 import type { NlFilingData, NlPayslipInput, PayFrequency, UsPayslipInput, UsW4Input } from '../packages/domains/payroll/src/types';
-import { PDFArray, PDFDocument, PDFRawStream, StandardFonts, decodePDFRawStream } from 'pdf-lib';
+import { PDFArray, PDFDocument, PDFRawStream, StandardFonts, decodePDFRawStream, type PDFObject } from 'pdf-lib';
 import { buildSepaSalaryBatch } from '../packages/domains/payroll/src/sepa';
 import { buildNachaFile } from '../packages/domains/payroll/src/nacha';
 import { renderDocumentPdf, renderPayslipPdf } from '../packages/domains/payroll/src/payslip-pdf';
@@ -249,12 +249,16 @@ const NL_COMPONENT_CODES = [
   'us.401k',
 ];
 
-function nlParams(g: Gen, code: string): Record<string, number | string | boolean | null> {
+/** A component's or input's params. */
+type Params = Record<string, number | string | boolean | null>;
+
+function nlParams(g: Gen, code: string): Params {
   switch (code) {
     case 'nl.travel_allowance':
       return g.bool(0.8) ? { km_per_day: g.pick([g.int(1, 60), String(g.int(1, 40)), '', null]), days_per_month: g.maybe(g.int(1, 22), 0.7) } : {};
     case 'nl.home_working_allowance':
-      return g.bool(0.5) ? { days_per_month: g.int(0, 20) } : g.bool(0.5) ? { days: String(g.int(1, 10)) } : {};
+      if (g.bool(0.5)) return { days_per_month: g.int(0, 20) };
+      return g.bool(0.5) ? { days: String(g.int(1, 10)) } : {};
     case 'nl.company_car':
       return {
         list_price: g.int(15_000, 90_000),
@@ -284,6 +288,15 @@ function nlPeriod(g: Gen, year: number, month: number) {
   };
 }
 
+/** No pay, a salary or an hourly wage (the draws in the same order as inline). */
+function nlCompensation(g: Gen) {
+  if (g.bool(0.07)) return null;
+  if (g.bool(0.6)) {
+    return { payType: 'salary' as const, amount: g.money(9000), period: g.pick(['month', 'year', 'week', 'hour'] as const), hoursPerWeek: g.pick([40, 36, 32, 24, 0, null]) };
+  }
+  return { payType: 'hourly' as const, amount: g.money(45), period: g.pick(['hour', 'hour', 'week', 'month', 'year'] as const), hoursPerWeek: g.pick([40, 36, 20, null]) };
+}
+
 function randomNlInput(g: Gen): NlPayslipInput {
   const year = g.bool(0.95) ? g.pick([2026, 2027]) : 2025;
   const month = g.int(1, 12);
@@ -291,11 +304,7 @@ function randomNlInput(g: Gen): NlPayslipInput {
   const dob = g.bool(0.95) ? g.pick([g.date(1940, 1962), g.date(1958, 1961), g.date(1963, 2012)]) : null;
   const startDate = g.pick([null, g.date(2015, 2025), `${period.start.slice(0, 8)}${String(g.int(1, 28)).padStart(2, '0')}`, g.date(2026, 2028)]);
   const endDate = g.bool(0.75) ? null : g.pick([`${period.start.slice(0, 8)}${String(g.int(1, 28)).padStart(2, '0')}`, g.date(2025, 2028)]);
-  const compensation = g.bool(0.07)
-    ? null
-    : g.bool(0.6)
-      ? { payType: 'salary' as const, amount: g.money(9000), period: g.pick(['month', 'year', 'week', 'hour'] as const), hoursPerWeek: g.pick([40, 36, 32, 24, 0, null]) }
-      : { payType: 'hourly' as const, amount: g.money(45), period: g.pick(['hour', 'hour', 'week', 'month', 'year'] as const), hoursPerWeek: g.pick([40, 36, 20, null]) };
+  const compensation = nlCompensation(g);
   const components = Array.from({ length: g.int(0, 4) }, () => {
     const code = g.pick(NL_COMPONENT_CODES);
     return {
@@ -560,7 +569,45 @@ function usPeriod(g: Gen, frequency: PayFrequency, start: string, index: number)
   const first = !half || g.bool(0.5);
   const s = half && !first ? `${start.slice(0, 8)}16` : `${start.slice(0, 8)}01`;
   const e = half && first ? `${start.slice(0, 8)}15` : `${start.slice(0, 8)}${last}`;
-  return { start: s, end: e, payDate: e, frequency, taxYear: y, periodNumber: index, periodsPerYear: half ? 24 : frequency === 'four_weekly' ? 13 : 12 };
+  return { start: s, end: e, payDate: e, frequency, taxYear: y, periodNumber: index, periodsPerYear: periodsPerYearOf(frequency) };
+}
+
+function periodsPerYearOf(frequency: string): number {
+  if (frequency === 'semimonthly') return 24;
+  return frequency === 'four_weekly' ? 13 : 12;
+}
+
+/** No pay, a salary or an hourly wage (the draws in the same order as inline). */
+function usCompensation(g: Gen) {
+  if (g.bool(0.07)) return null;
+  if (g.bool(0.5)) {
+    return { payType: 'salary' as const, amount: g.pick([g.money(250000), g.money(9000), g.money(2000)]), period: g.pick(['year', 'month', 'week', 'hour'] as const), hoursPerWeek: g.pick([40, 37.5, 0, null]) };
+  }
+  return { payType: 'hourly' as const, amount: g.money(80), period: g.pick(['hour', 'hour', 'week', 'year'] as const), hoursPerWeek: g.pick([40, 20, null]) };
+}
+
+function usComponent(g: Gen) {
+  const code = g.pick(US_CODES);
+  const params: Params = {};
+  if (code === 'us.401k' || code === 'us.roth_401k') params.percent = g.pick([0, 3, 6, '10', true]);
+  if (code === 'us.401k_employer_match') Object.assign(params, { match_percent: g.pick([50, 100, null]), match_limit_percent: g.pick([6, '4', null]) });
+  return { code, ...(g.bool(0.3) ? { label: g.pick(['Custom', null]) } : {}), amountCents: g.maybe(g.int(0, 80_000), 0.5), params };
+}
+
+function usYtd(g: Gen, state: string | null, periodStart: string): Record<string, number> {
+  const ytd: Record<string, number> = {};
+  if (!g.bool(0.6)) return ytd;
+  for (const key of ['us.ss_wages', 'us.medicare_wages', 'us.futa_wages', 'us.401k', 'us.supplemental_wages', 'us.fit_regular', 'us.dependent_care', 'us.ss_employee', 'us.medicare_employee']) {
+    if (g.bool(0.5)) ytd[key] = g.int(0, 20_000_000);
+  }
+  if (state && g.bool(0.5)) ytd[`us.state.${state}.sui_wages`] = g.int(0, 5_000_000);
+  if (g.bool(0.2)) ytd[`us.ot_carry.${periodStart}.d1`] = g.int(100, 1200);
+  return ytd;
+}
+
+function workStateOf(g: Gen, state: string | null): string | null {
+  if (state === null) return null;
+  return g.bool(0.1) ? state.toLowerCase() : state;
 }
 
 function randomUsInput(g: Gen): UsPayslipInput {
@@ -569,18 +616,8 @@ function randomUsInput(g: Gen): UsPayslipInput {
   const period = usPeriod(g, frequency, frequency === 'weekly' || frequency === 'biweekly' ? start : `${start.slice(0, 8)}01`, g.int(1, 26));
   if (g.bool(0.03)) period.taxYear = 2025;
   const state = g.bool(0.04) ? null : g.pick(US_STATES);
-  const compensation = g.bool(0.07)
-    ? null
-    : g.bool(0.5)
-      ? { payType: 'salary' as const, amount: g.pick([g.money(250000), g.money(9000), g.money(2000)]), period: g.pick(['year', 'month', 'week', 'hour'] as const), hoursPerWeek: g.pick([40, 37.5, 0, null]) }
-      : { payType: 'hourly' as const, amount: g.money(80), period: g.pick(['hour', 'hour', 'week', 'year'] as const), hoursPerWeek: g.pick([40, 20, null]) };
-  const components = Array.from({ length: g.int(0, 4) }, () => {
-    const code = g.pick(US_CODES);
-    const params: Record<string, number | string | boolean | null> = {};
-    if (code === 'us.401k' || code === 'us.roth_401k') params.percent = g.pick([0, 3, 6, '10', true]);
-    if (code === 'us.401k_employer_match') Object.assign(params, { match_percent: g.pick([50, 100, null]), match_limit_percent: g.pick([6, '4', null]) });
-    return { code, ...(g.bool(0.3) ? { label: g.pick(['Custom', null]) } : {}), amountCents: g.maybe(g.int(0, 80_000), 0.5), params };
-  });
+  const compensation = usCompensation(g);
+  const components = Array.from({ length: g.int(0, 4) }, () => usComponent(g));
   const inputs = Array.from({ length: g.int(0, 6) }, () => ({
     code: g.pick(US_CODES),
     label: g.maybe('Line', 0.3),
@@ -589,14 +626,7 @@ function randomUsInput(g: Gen): UsPayslipInput {
     amountCents: g.maybe(g.int(-10_000, 400_000), 0.3),
     workDate: g.pick([null, period.start, period.end, `${period.start.slice(0, 8)}${String(g.int(1, 28)).padStart(2, '0')}`]),
   }));
-  const ytd: Record<string, number> = {};
-  if (g.bool(0.6)) {
-    for (const key of ['us.ss_wages', 'us.medicare_wages', 'us.futa_wages', 'us.401k', 'us.supplemental_wages', 'us.fit_regular', 'us.dependent_care', 'us.ss_employee', 'us.medicare_employee']) {
-      if (g.bool(0.5)) ytd[key] = g.int(0, 20_000_000);
-    }
-    if (state && g.bool(0.5)) ytd[`us.state.${state}.sui_wages`] = g.int(0, 5_000_000);
-    if (g.bool(0.2)) ytd[`us.ot_carry.${period.start}.d1`] = g.int(100, 1200);
-  }
+  const ytd = usYtd(g, state, period.start);
   const certificates: Record<string, ReturnType<typeof certificate>> = {};
   if (state && g.bool(0.7)) certificates[state] = randomCertificate(g, state);
   const sui: Record<string, number | null> = {};
@@ -619,7 +649,7 @@ function randomUsInput(g: Gen): UsPayslipInput {
     ytd,
     employer: { workweekStartDay: g.int(0, 6), suiRatePercent: sui, extraRates: extra, employeeCountEstimate: g.maybe(g.pick([3, 12, 30, 80]), 0.8) },
     us: {
-      workState: state === null ? null : g.bool(0.1) ? state.toLowerCase() : state,
+      workState: workStateOf(g, state),
       residenceState: g.maybe(g.pick([state ?? 'NY', 'NJ', 'pa']), 0.3),
       flsaStatus: g.pick(['nonexempt', 'nonexempt', 'exempt'] as const),
       w4: randomW4(g),
@@ -855,13 +885,18 @@ function randomUsInput(g: Gen): UsPayslipInput {
 
 // ── PDF (async: pdf-lib) ────────────────────────────────────────────────────
 
+function contentRefs(contents: PDFObject | undefined): PDFObject[] {
+  if (contents instanceof PDFArray) return contents.asArray();
+  return contents ? [contents] : [];
+}
+
 /** Each page's decoded content, without pdf-lib's random font-key suffixes. */
 async function pageContents(bytes: Uint8Array): Promise<string[]> {
   const pdf = await PDFDocument.load(bytes);
   const out: string[] = [];
   for (const page of pdf.getPages()) {
     const contents = page.node.Contents();
-    const refs = contents instanceof PDFArray ? contents.asArray() : contents ? [contents] : [];
+    const refs = contentRefs(contents);
     let text = '';
     for (const ref of refs) {
       const stream = pdf.context.lookup(ref);

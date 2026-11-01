@@ -49,7 +49,9 @@ export function pdfDrawing(bytes: Uint8Array): string {
   return parts.join('\n');
 }
 
-const ISO_TIMESTAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+/** An ISO date and time; the zone after it is masked apart (`ZONE_AFTER_MASK`). */
+const ISO_TIMESTAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?/g;
+const ZONE_AFTER_MASK = /<timestamp>(?:Z|[+-]\d{2}:?\d{2})/g;
 
 /** A NACHA file: 94-character records, the first a file header (`101`). */
 function maskNachaHeader(text: string): string {
@@ -71,7 +73,7 @@ export function canonicalBody(route: string | null, bytes: Uint8Array): string |
   if (Buffer.from(bytes.subarray(0, 5)).toString('latin1') === '%PDF-') return `pdf:${pdfDrawing(bytes)}`;
   if (!generatesFiles(route)) return bytes;
   const text = new TextDecoder().decode(bytes);
-  return maskNachaHeader(text).replace(ISO_TIMESTAMP, '<timestamp>');
+  return maskNachaHeader(text).replace(ISO_TIMESTAMP, '<timestamp>').replace(ZONE_AFTER_MASK, '<timestamp>');
 }
 
 /** Whether two non-JSON answers say the same thing. */

@@ -125,6 +125,13 @@ export function takeRustServiceCalls(): ServiceCall[] {
   return rustCalls.splice(0);
 }
 
+/** The URL a `fetch` was called with, whatever form it came in. */
+function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
 async function requestText(input: RequestInfo | URL, init?: RequestInit): Promise<string | null> {
   if (init?.body !== undefined && init.body !== null) {
     if (typeof init.body === 'string') return init.body;
@@ -147,7 +154,7 @@ export function recordTypeScriptServiceCalls(env: Record<string, unknown>): {
     if (!isFetcherLike(binding)) continue;
     wrapped[name] = {
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+        const url = new URL(requestUrl(input));
         const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
         const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
         calls.push({

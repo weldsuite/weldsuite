@@ -155,8 +155,8 @@ describe('pay schedules', () => {
     expect(created.status).toBe(201);
     const schedule = await data<{ id: string; nextPeriod: { start: string } }>(created);
     expect(schedule.nextPeriod.start).toBe('2026-01-01');
-    expect((await data<unknown[]>(await admin().get(`/payroll/schedules?employerId=${employer.id}`))).length).toBe(1);
-    expect((await data<unknown[]>(await admin().get('/payroll/schedules'))).length).toBe(1);
+    expect((await data<unknown[]>(await admin().get(`/payroll/schedules?employerId=${employer.id}`)))).toHaveLength(1);
+    expect((await data<unknown[]>(await admin().get('/payroll/schedules')))).toHaveLength(1);
     const renamed = await admin().send('PATCH', `/payroll/schedules/${schedule.id}`, { name: 'Maandelijks', payDateRule: { kind: 'last_business_day' } });
     expect(renamed.status).toBe(200);
     expect((await admin().send('DELETE', `/payroll/schedules/${schedule.id}`)).status).toBe(204);
@@ -263,14 +263,14 @@ describe('employees on payroll', () => {
       signatureName: 'Eva Alder',
     });
     expect(election.status).toBe(201);
-    expect((await data<unknown[]>(await admin().get('/payroll/employees/hremp_eva/tax-elections'))).length).toBe(1);
+    expect((await data<unknown[]>(await admin().get('/payroll/employees/hremp_eva/tax-elections')))).toHaveLength(1);
 
     const detail = await data<{ issues: unknown[]; compensations: unknown[] }>(await admin().get('/payroll/employees/hremp_eva'));
     expect(detail.compensations).toHaveLength(1);
     expect((await admin().get('/payroll/employees/hremp_missing')).status).toBe(404);
     const onPayroll = await data<Array<{ employeeId: string; issues: unknown[] }>>(await admin().get('/payroll/employees?onPayroll=true'));
     expect(onPayroll.map((e) => e.employeeId)).toEqual(['hremp_eva', 'hremp_hans']);
-    expect((await data<unknown[]>(await admin().get(`/payroll/employees?onPayroll=false&employerId=${employerId}`))).length).toBe(0);
+    expect((await data<unknown[]>(await admin().get(`/payroll/employees?onPayroll=false&employerId=${employerId}`)))).toHaveLength(0);
     expect((await admin().get('/payroll/employees?onPayroll=maybe')).status).toBe(400);
 
     // Nothing paid yet.
@@ -354,7 +354,7 @@ describe('employees on payroll', () => {
     expect((await admin().send('POST', '/payroll/employees/hremp_lee/components', { code: 'us.401k', params: { percent: 5 }, effectiveFrom: '2026-01-01' })).status).toBe(201);
     const detail = await data<{ issues: unknown[] }>(await admin().get('/payroll/employees/hremp_lee'));
     expect(detail.issues).toEqual([]);
-    expect((await data<unknown[]>(await admin().get(`/payroll/employees?employerId=${employer.id}`))).length).toBe(1);
+    expect((await data<unknown[]>(await admin().get(`/payroll/employees?employerId=${employer.id}`)))).toHaveLength(1);
   });
 });
 

@@ -211,9 +211,9 @@ describe('a Dutch pay run', () => {
     expect((await a.get('/payroll/runs/hrpr_missing')).status).toBe(404);
     expect((await a.send('PATCH', `/payroll/runs/${run.id}`, { payDate: '2027-01-05' })).status).toBe(400);
     await ok(a.send('PATCH', `/payroll/runs/${run.id}`, { payDate: '2026-07-24', notes: 'July salaries' }));
-    expect((await ok<unknown[]>(a.get('/payroll/runs?year=2026&status=draft,calculated'))).length).toBe(1);
+    expect((await ok<unknown[]>(a.get('/payroll/runs?year=2026&status=draft,calculated')))).toHaveLength(1);
     expect((await a.get('/payroll/runs?year=1999')).status).toBe(400);
-    expect((await ok<unknown[]>(a.get(`/payroll/runs?employerId=${employerId}`))).length).toBe(1);
+    expect((await ok<unknown[]>(a.get(`/payroll/runs?employerId=${employerId}`)))).toHaveLength(1);
 
     // Inputs: collected from time and expenses, and typed.
     await ok(a.send('POST', `/payroll/runs/${run.id}/collect`));
@@ -221,7 +221,7 @@ describe('a Dutch pay run', () => {
     expect(collected.map((i) => i.code).sort()).toEqual(
       ['hours.regular', 'hours.regular', 'hours.regular', 'hours.regular', 'hours.regular', 'hours.unpaid_leave', 'nl.sick_pay', 'reimbursement'].sort(),
     );
-    expect((await ok<unknown[]>(a.get(`/payroll/runs/${run.id}/inputs?employeeId=hremp_eva`))).length).toBe(2);
+    expect((await ok<unknown[]>(a.get(`/payroll/runs/${run.id}/inputs?employeeId=hremp_eva`)))).toHaveLength(2);
     expect((await a.send('POST', `/payroll/runs/${run.id}/inputs`, { employeeId: 'hremp_eva', code: 'us.tips_cash', amount: 5 })).status).toBe(400);
     expect((await a.send('POST', `/payroll/runs/${run.id}/inputs`, { employeeId: 'hremp_eva', code: 'bonus' })).status).toBe(400);
     expect((await a.send('POST', `/payroll/runs/${run.id}/inputs`, { employeeId: 'hremp_lee', code: 'bonus', amount: 1 })).status).toBe(400);
@@ -272,7 +272,7 @@ describe('a Dutch pay run', () => {
     expect((await ok<{ number: string }>(a.get(`/payroll/payslips/${evaSlip.id}`))).number).toMatch(/^2026-000[12]$/);
     expect((await a.get(`/payroll/payslips/${evaSlip.id}/pdf`)).status).toBe(200);
     expect((await a.get('/payroll/payslips/hrps_missing')).status).toBe(404);
-    expect((await ok<unknown[]>(a.get('/payroll/employees/hremp_eva/payslips'))).length).toBe(1);
+    expect((await ok<unknown[]>(a.get('/payroll/employees/hremp_eva/payslips')))).toHaveLength(1);
 
     // The journal again, and paying.
     expect((await ok<{ journalStatus: string }>(a.send('POST', `/payroll/runs/${run.id}/post-journal`))).journalStatus).toBe('posted');
@@ -284,7 +284,7 @@ describe('a Dutch pay run', () => {
     const filings = await ok<Array<{ id: string; kind: string; period: number; status: string }>>(a.get('/payroll/filings?year=2026'));
     const july = filings.find((f) => f.kind === 'nl_loonaangifte' && f.period === 7)!;
     expect(july.status).toBe('open');
-    expect((await ok<unknown[]>(a.get('/payroll/filings?status=open&kind=nl_loonaangifte'))).length).toBe(1);
+    expect((await ok<unknown[]>(a.get('/payroll/filings?status=open&kind=nl_loonaangifte')))).toHaveLength(1);
     expect((await a.get(`/payroll/filings/${july.id}/file`)).status).toBe(404);
     expect((await errorOf(await a.send('POST', `/payroll/filings/${july.id}/mark-filed`, {}))).code).toBe('CONFLICT');
     // A loonheffingennummer that fails the elfproef: the builder's issues are kept on the filing.
@@ -339,19 +339,19 @@ describe('a Dutch pay run', () => {
       'attachment; filename="jaaropgaaf-2026.pdf"',
     );
     const mine = await ok<Array<{ id: string; viewedAt: string | null }>>(eva().get('/me/payslips'));
-    expect(mine.length).toBe(3);
+    expect(mine).toHaveLength(3);
     expect((await eva().get(`/me/payslips/${mine[0]!.id}/pdf`)).status).toBe(200);
     expect((await ok<Array<{ viewedAt: string | null }>>(eva().get('/me/payslips')))[0]!.viewedAt).not.toBeNull();
     const hansSlip = approved.payslips.find((p) => p.employeeId === 'hremp_hans')!;
     expect((await eva().get(`/me/payslips/${hansSlip.id}/pdf`)).status).toBe(404);
-    expect((await ok<unknown[]>(eva().get('/me/annual-statements'))).length).toBe(1);
+    expect((await ok<unknown[]>(eva().get('/me/annual-statements')))).toHaveLength(1);
     expect((await eva().get('/me/annual-statements/2026')).status).toBe(200);
     expect((await eva().get('/me/annual-statements/2025')).status).toBe(404);
     expect((await eva().get(`/me/annual-statements/2026?employerId=${employerId}`)).status).toBe(200);
 
     // The overview after it all.
     const overview = await ok<{ recentRuns: unknown[]; upcoming: unknown[] }>(a.get('/payroll/overview'));
-    expect(overview.recentRuns.length).toBe(3);
+    expect(overview.recentRuns).toHaveLength(3);
   });
 
   it('cancels an off-cycle run and refuses a second approver only when four eyes is on', async () => {
