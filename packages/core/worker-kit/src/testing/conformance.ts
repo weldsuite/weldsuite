@@ -52,7 +52,7 @@ import { bucketUrls } from './bucket-bridge';
 import { kvUrls } from './kv-bridge';
 import { realtimeUrl } from './realtime-bridge';
 import { isolatedEnv } from './write-isolation';
-import { maskVolatile, maskVolatileEvents, maskVolatileOutbound } from './conformance-volatile';
+import { maskVolatile, maskVolatileEvents, maskVolatileOutbound, maskVolatileText } from './conformance-volatile';
 import { sameBody } from './conformance-binary';
 import { createMailCollector, mailRecord, type MailRecord, type RustMail, type SentByTypeScript } from './conformance-mail';
 import { recordTypeScriptSends, sendEmailUrl, sortSends, takeRustSends } from './send-email-bridge';
@@ -1153,16 +1153,27 @@ function compareRuns(
     );
     if (body) return body;
   } else if (!sameBody(route, ts.bytes, rust.bytes)) {
-    // PDFs by their drawing, generated files without the moment they were made (./conformance-binary.ts).
-    return 'response bodies differ';
+    // PDFs by their drawing, generated files without the moment they were made (./conformance-binary.ts);
+    // a body built with the current time (an XML message) is compared with that part masked.
+    const masked = maskVolatileText(method, route, ts.text);
+    if (masked === null || masked !== maskVolatileText(method, route, rust.text)) return 'response bodies differ';
   }
   // New event ids and timestamps differ by construction, even on a read, and
   // so does what a route draws per run where its events carry it.
   const own = options.normalizeEffects ?? ((effects: SideEffects) => effects);
   const prepare = (effects: SideEffects) => {
     const normalized = own(effects);
-    const outbound = normalized.outbound ? { outbound: maskVolatileOutbound(method, route, normalized.outbound) } : {};
-    return { ...normalized, events: maskVolatileEvents(method, route, normalized.events), ...outbound };
+    // Masked calls are sorted again: what was masked (a random secret) decided their order.
+    const outbound = normalized.outbound
+      ? [...maskVolatileOutbound(method, route, normalized.outbound)].sort((a, b) =>
+          JSON.stringify(normalizeForDiff(a, true)).localeCompare(JSON.stringify(normalizeForDiff(b, true))),
+        )
+      : undefined;
+    return {
+      ...normalized,
+      events: maskVolatileEvents(method, route, normalized.events),
+      ...(outbound ? { outbound } : {}),
+    };
   };
   const effects = firstDifference(normalizeForDiff(prepare(tsEffects), true), normalizeForDiff(prepare(rustEffects), true));
   return effects ? `side effects: ${effects}` : null;

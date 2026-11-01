@@ -2273,7 +2273,8 @@
       "tests": [
         "src/routes/telephony/integration.test.ts",
         "src/routes/porting/integration.test.ts",
-        "src/routes/internal-telephony/integration.test.ts"
+        "src/routes/internal-telephony/integration.test.ts",
+        "src/services/phone-number-sync.test.ts"
       ],
       "paths": [
         "apps/workers/call-api/src/routes/telephony/",
@@ -2313,6 +2314,35 @@
         "packages/clients/core-api-client/src/schemas/desk-phone.ts",
         "packages/core/worker-kit/src/testing/conformance-schemas-call.ts",
         "rust/modules/call/"
+      ]
+    },
+    {
+      "name": "books: tax",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/services/btw-return-lifecycle.integration.test.ts",
+        "src/services/btw-return-filing.integration.test.ts",
+        "src/services/gst-worksheet.integration.test.ts",
+        "src/routes/br-tax/br-tax.integration.test.ts",
+        "src/routes/fiscal-documents/fiscal-documents.integration.test.ts",
+        "src/routes/received-fiscal-documents/received-fiscal-documents.integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/vat-returns/",
+        "apps/workers/books-api/src/routes/icp-declarations/",
+        "apps/workers/books-api/src/routes/br-tax/",
+        "apps/workers/books-api/src/routes/fiscal-documents/",
+        "apps/workers/books-api/src/routes/received-fiscal-documents/",
+        "apps/workers/books-api/src/routes/public-fiscal-webhooks/",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "packages/clients/app-api-client/src/schemas/books-tax-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-books-tax.ts",
+        "packages/core/worker-kit/src/testing/conformance-volatile.ts",
+        "rust/modules/books-tax/",
+        "rust/crates/books-domain/"
       ]
     }
   ]

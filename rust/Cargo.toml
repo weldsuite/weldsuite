@@ -31,6 +31,7 @@ weldsuite-books-purchases = { path = "modules/books-purchases" }
 weldsuite-books-domain = { path = "crates/books-domain" }
 weldsuite-books-sales = { path = "modules/books-sales" }
 weldsuite-books-sales-tax = { path = "modules/books-sales-tax" }
+weldsuite-books-tax = { path = "modules/books-tax" }
 weldsuite-catalogs = { path = "crates/catalogs" }
 weldsuite-chat = { path = "modules/chat" }
 weldsuite-chat-domain = { path = "crates/chat-domain" }

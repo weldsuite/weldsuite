@@ -259,17 +259,35 @@ describe('POST /phone-numbers/sync', () => {
     expect(await (await send('POST', '/phone-numbers/sync')).json()).toEqual({ data: { count: 0 } });
   });
 
-  it('brings the account numbers in and registers them', async () => {
+  it('brings in the numbers this workspace owns, and registers them (TASK-1044)', async () => {
     await seedNumber('vpn_tel_sync_known', '+31201230300', { status: 'pending', providerPhoneNumberId: 'tx-known' });
+    await db.insert(schema.voipPortingOrders).values({
+      id: 'vpo_tel_sync',
+      createdByUserId: 'user_test_default',
+      phoneNumber: '+31201230398',
+      countryCode: 'NL',
+      status: 'completed',
+    });
+    await master.insert(masterSchema.phoneNumberRegistry).values([
+      { phoneNumber: '+31201230399', clerkOrgId: 'org_test_default', voipPhoneNumberId: 'vpn_tel_sync_known', isActive: false },
+      { phoneNumber: '+3225550111', clerkOrgId: 'org_other', voipPhoneNumberId: 'vpn_theirs' },
+    ]);
     telnyx.on('GET', '/phone_numbers', ({ url }) =>
       json({
         data:
           url.searchParams.get('filter[connection_id]') === 'conn-1'
             ? [
-                { id: 'tx-known', phone_number: '+31201230399', connection_id: 'conn-1' },
-                { id: 'tx-us', phone_number: '+12025550111', connection_id: 'conn-1' },
-                { id: 'tx-be', phone_number: '+3225550111' },
-                { id: 'tx-bad' },
+                // Registered to this workspace.
+                { id: 'tx-known', phone_number: '+31 20 123 0399', connection_id: 'conn-1' },
+                // Unregistered, ordered for one of this workspace's numbers.
+                { id: 'tx-us', phone_number: '+12025550111', connection_id: 'conn-1', customer_reference: 'vpn_tel_sync_known' },
+                // Unregistered, ported by this workspace (its registration failed).
+                { id: 'tx-port', phone_number: '+31201230398', customer_reference: 'vpo_tel_sync' },
+                // Another workspace's, by the registry.
+                { id: 'tx-be', phone_number: '+3225550111', customer_reference: 'vpn_tel_sync_known' },
+                // Nobody's: unregistered, and no order of this workspace.
+                { id: 'tx-stranger', phone_number: '+3225550112', customer_reference: 'vpn_elsewhere' },
+                { id: 'tx-blank', phone_number: '' },
               ]
             : [],
       }),
@@ -279,9 +297,19 @@ describe('POST /phone-numbers/sync', () => {
     const rows = await db.select().from(schema.voipPhoneNumbers);
     expect(rows.find((r) => r.id === 'vpn_tel_sync_known')).toMatchObject({ status: 'active', providerConnectionId: 'conn-1' });
     expect(rows.find((r) => r.phoneNumber === '+12025550111')).toMatchObject({ countryCode: 'US', providerPhoneNumberId: 'tx-us' });
-    expect(rows.find((r) => r.phoneNumber === '+3225550111')).toMatchObject({ countryCode: 'INTL', providerConnectionId: null });
+    expect(rows.find((r) => r.phoneNumber === '+31201230398')).toMatchObject({ countryCode: 'INTL', providerConnectionId: null });
+    expect(rows.find((r) => r.phoneNumber === '+3225550111')).toBeUndefined();
+    expect(rows.find((r) => r.phoneNumber === '+3225550112')).toBeUndefined();
     expect(await registry('+12025550111')).toMatchObject({ isActive: true, clerkOrgId: 'org_test_default' });
-    expect(await registry('+31201230399')).toMatchObject({ voipPhoneNumberId: 'vpn_tel_sync_known' });
+    expect(await registry('+31201230398')).toMatchObject({ isActive: true, clerkOrgId: 'org_test_default' });
+    expect(await registry('+3225550111')).toMatchObject({ clerkOrgId: 'org_other', voipPhoneNumberId: 'vpn_theirs' });
+  });
+
+  it('fails on a listed number without a phone number', async () => {
+    telnyx.on('GET', '/phone_numbers', { data: [{ id: 'tx-bad' }] });
+    const res = await send('POST', '/phone-numbers/sync');
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: { code: 'INTERNAL_ERROR', message: 'Failed to refresh phone numbers' } });
   });
 });
 

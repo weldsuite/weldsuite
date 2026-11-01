@@ -62,6 +62,8 @@ export const EDITION_FEATURES = [
   'books-ocr',
   /** WeldCall: buying a phone number and porting one in (Stripe checkouts through billing-worker). */
   'phone-number-purchase',
+  /** Filing the BTW-aangifte and the Opgaaf ICP through Digipoort (a PKIoverheid client certificate). */
+  'vat-digipoort',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

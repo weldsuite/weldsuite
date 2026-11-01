@@ -680,24 +680,14 @@ pub struct HookEntity {
 /// `adapter.computeDocumentTaxes`.
 pub type DocumentTaxHook = fn(&[HookLine], &HookContext) -> Result<HookResult, TaxError>;
 
-/// The document tax hook of a jurisdiction, if it has one (only Brazil).
-///
-/// Brazil's engine (`jurisdictions/br/tax-engine`, `computeDocumentTaxes`)
-/// is ported with the VAT/GST/Brazil area (`books-tax`): it replaces
-/// [`br_hook_not_ported`] here with the engine. Until then a Brazilian
-/// entity's document fails (the route's 500) rather than being taxed from
-/// the rate table, which TypeScript never does for it.
+/// The document tax hook of a jurisdiction, if it has one (only Brazil:
+/// `jurisdictions/br/tax-engine`'s `computeDocumentTaxes`,
+/// [`crate::jurisdictions::br_tax::compute_document_taxes`]).
 pub fn document_tax_hook(jurisdiction_code: &str) -> Option<DocumentTaxHook> {
     match jurisdiction_code.to_uppercase().as_str() {
-        "BR" => Some(br_hook_not_ported),
+        "BR" => Some(crate::jurisdictions::br_tax::compute_document_taxes),
         _ => None,
     }
-}
-
-fn br_hook_not_ported(_lines: &[HookLine], _ctx: &HookContext) -> Result<HookResult, TaxError> {
-    Err(TaxError::Internal(
-        "Brazil's document tax engine is not ported yet".into(),
-    ))
 }
 
 /// `loadDocumentTaxHook(db, entityId)`.

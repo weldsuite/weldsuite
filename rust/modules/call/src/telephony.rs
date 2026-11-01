@@ -411,8 +411,73 @@ struct AccountNumber {
     connection_id: Value,
 }
 
+/// `ownedProviderNumbers(env, listed, tenant, clerkOrgId)` with
+/// `selectOwnedProviderNumbers` (`services/phone-number-sync.ts`): the Telnyx
+/// account is shared by every workspace, so a sync keeps only the numbers
+/// this workspace owns (TASK-1044). A number is its own when the master
+/// registry assigns it to this workspace, or, with no registry row yet,
+/// when its Telnyx `customer_reference` is one of the workspace's own
+/// `voip_phone_numbers` ids (a number order) or `voip_porting_orders` ids
+/// (a port whose registration failed): both are generated server-side,
+/// unlike a row's `providerPhoneNumberId`. `Err` where the worker throws (a
+/// listed number without a phone number, which `normalizeE164` can't read).
+async fn owned_numbers(
+    caller: &Caller,
+    master: Option<&weldsuite_db::PgPool>,
+    listed: Vec<Value>,
+    mut references: Vec<String>,
+) -> Result<Vec<Value>, String> {
+    let ports: Vec<String> =
+        sqlx::query_scalar("select id from voip_porting_orders where deleted_at is null")
+            .fetch_all(&caller.db)
+            .await
+            .map_err(|e| e.to_string())?;
+    references.extend(ports);
+    let normalized: Vec<String> = listed
+        .iter()
+        .map(|n| n["phone_number"].as_str().map(registry::normalize_e164))
+        .collect::<Option<_>>()
+        .ok_or("Cannot read properties of undefined (reading 'trim')")?;
+    let master = master.ok_or("no master database")?;
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "select phone_number, clerk_org_id from phone_number_registry where phone_number = any($1)",
+    )
+    .bind(&normalized)
+    .fetch_all(master)
+    .await
+    .map_err(|e| e.to_string())?;
+    let org = caller.clerk_org_id.as_deref();
+    let owner_of = |phone: &str| {
+        let phone = registry::normalize_e164(phone);
+        rows.iter()
+            .rev()
+            .find(|(registered, _)| registry::normalize_e164(registered) == phone)
+            .map(|(_, owner)| owner.as_str())
+    };
+    let owned: Vec<Value> = listed
+        .into_iter()
+        .filter(|number| {
+            let Some(phone) = number["phone_number"].as_str().filter(|p| !p.is_empty()) else {
+                return false;
+            };
+            match owner_of(phone) {
+                Some(owner) => Some(owner) == org,
+                None => number["customer_reference"]
+                    .as_str()
+                    .filter(|r| !r.is_empty())
+                    .is_some_and(|r| references.iter().any(|known| known == r)),
+            }
+        })
+        .collect();
+    let skipped = normalized.len() - owned.len();
+    if skipped > 0 {
+        tracing::warn!(skipped, org = ?org, "[Telephony] Sync skipped numbers this workspace does not own");
+    }
+    Ok(owned)
+}
+
 /// `POST /api/telephony/phone-numbers/sync`: the account's active numbers
-/// into the workspace (and the inbound registry).
+/// this workspace owns into the workspace (and the inbound registry).
 #[allow(clippy::too_many_lines)] // the route, step by step
 pub(crate) async fn sync(State(state): State<CallState>, caller: Caller) -> Response {
     let telnyx = caller.telnyx(&state);
@@ -445,6 +510,8 @@ pub(crate) async fn sync(State(state): State<CallState>, caller: Caller) -> Resp
         .await
         .map_err(|e| e.to_string())?;
         let master = caller.master(&state);
+        let tenant_ids: Vec<String> = existing.iter().map(|(id, _, _)| id.clone()).collect();
+        let numbers = owned_numbers(&caller, master.as_ref(), numbers, tenant_ids).await?;
         let org = caller.clerk_org_id.clone().unwrap_or_default();
         let mut synced = 0;
         for raw in numbers {

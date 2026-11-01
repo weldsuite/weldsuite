@@ -18,7 +18,7 @@ tenant database → licence and read-only → feature flags → permission →
 envelope) with entity events, realtime and cache behind ports;
 `weldsuite consume` runs the event subscribers on NATS JetStream, and
 `weldsuite migrate` and `weldsuite cron <job>` the migrations and the
-scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has sixteen
+scheduled jobs. `RUST_PORTED_MODULES` (`@weldsuite/api-modules`) has seventeen
 modules, each with conformance suites that reach every route:
 
 - **core**: everything app-api serves except `/api/billing` (Stripe stays
@@ -97,8 +97,8 @@ Features this backend lacks inside the modules it serves are listed in
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
 `weldmail.com` addresses, mail AI, chat calls, help center custom domains,
-sending the loonaangifte over Digipoort, WeldBooks document OCR and buying
-or porting phone numbers.
+sending the loonaangifte over Digipoort, WeldBooks document OCR, filing VAT
+returns through Digipoort and buying or porting phone numbers.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
 host, meet, connect, agent, reach, sheets, docs and
@@ -161,9 +161,10 @@ rust/
                         modules/social (with crates/social-domain: PostPeer publishing, credits),
                         modules/data (WeldData, and the welddata-enrich job),
                         modules/commerce (with crates/commerce-domain: the order portal's tokens,
-                        slugs and rate limits), modules/call (WeldCall: Telnyx, the webhook),
+                        slugs and rate limits),
                         modules/hr (WeldHR and payroll, with crates/payroll-domain: the
-                        Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs);
+                        Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs),
+                        modules/call (WeldCall: Telnyx, the webhook);
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
