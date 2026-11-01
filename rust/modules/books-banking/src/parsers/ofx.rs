@@ -80,10 +80,8 @@ fn decode_entities(text: &str) -> Result<String, String> {
         let body = &caps[1];
         let code = if body.starts_with("#x") || body.starts_with("#X") {
             Some(parse_radix(&body[2..], 16))
-        } else if let Some(digits) = body.strip_prefix('#') {
-            Some(parse_radix(digits, 10))
         } else {
-            None
+            body.strip_prefix('#').map(|digits| parse_radix(digits, 10))
         };
         match code {
             Some(code) => {
@@ -275,36 +273,33 @@ fn parse_transaction(
 
     let fitid = tree.text(Some(txn), "FITID");
     let amount_text = fixed2(amount);
-    let external_id = match &fitid {
-        Some(fitid) => {
-            let occurrence = next(&format!("fitid|{fitid}"));
-            if occurrence > 1 {
-                format!("{fitid}#{occurrence}")
-            } else {
-                fitid.clone()
-            }
+    let external_id = if let Some(fitid) = &fitid {
+        let occurrence = next(&format!("fitid|{fitid}"));
+        if occurrence > 1 {
+            format!("{fitid}#{occurrence}")
+        } else {
+            fitid.clone()
         }
-        None => {
-            let key = [
-                date.as_str(),
-                amount_text.as_str(),
-                name.as_deref().unwrap_or_default(),
-                description.as_str(),
-            ]
-            .join("|");
-            let occurrence = next(&key);
-            synthetic_external_id(
-                "ofx",
-                &[
-                    Some(&date),
-                    Some(&amount_text),
-                    name.as_deref(),
-                    Some(&description),
-                    check_number.as_deref(),
-                ],
-                occurrence,
-            )
-        }
+    } else {
+        let key = [
+            date.as_str(),
+            amount_text.as_str(),
+            name.as_deref().unwrap_or_default(),
+            description.as_str(),
+        ]
+        .join("|");
+        let occurrence = next(&key);
+        synthetic_external_id(
+            "ofx",
+            &[
+                Some(&date),
+                Some(&amount_text),
+                name.as_deref(),
+                Some(&description),
+                check_number.as_deref(),
+            ],
+            occurrence,
+        )
     };
 
     let value_date = parse_ofx_date(

@@ -12,13 +12,22 @@ use weldsuite_kit::validation::{Field, Issues, Number, Presence, Text};
 #[derive(Debug, Default, PartialEq)]
 pub(crate) struct Deferred {
     unions: Vec<Value>,
+    /// Unions that failed every option (the others came back "dirty").
+    failed: usize,
     refinements: Vec<Value>,
 }
 
 impl Deferred {
     /// A union that failed every option.
     pub(crate) fn union(&mut self, issue: Value) {
+        self.failed += 1;
         self.unions.push(issue);
+    }
+
+    /// A union whose matching option failed a check (Zod's "dirty"
+    /// result): its issues, settled with the unions'.
+    fn dirty(&mut self, issues: impl IntoIterator<Item = Value>) {
+        self.unions.extend(issues);
     }
 
     /// A refinement that failed, at `path` (full).
@@ -32,7 +41,7 @@ impl Deferred {
     }
 
     fn unions(&self) -> usize {
-        self.unions.len()
+        self.failed
     }
 
     /// Report them: the unions first, then the refinements.
@@ -83,26 +92,44 @@ fn column_ref(
     key: &str,
     presence: Presence,
 ) -> Option<Value> {
-    match body.get(key) {
+    let value = body.get(key);
+    if matches!(value, Some(Value::String(_) | Value::Number(_))) {
+        // The matching option, read on its own; its issues settle later.
+        let mut scratch = Issues::default();
+        let read = match value {
+            Some(Value::String(_)) => scratch
+                .text_with(body, key, Presence::Required, Text::length(Some(1), Some(100)))
+                .into_option()
+                .map(Value::String),
+            _ => scratch
+                .number(
+                    body,
+                    key,
+                    Presence::Required,
+                    Number {
+                        coerce: false,
+                        int: true,
+                        min: Some(0.0),
+                        max: Some(200.0),
+                    },
+                )
+                .into_option()
+                .and(value.cloned()),
+        };
+        return match scratch.finish() {
+            Ok(()) => read,
+            Err(invalid) => {
+                let path = issues.path_of(key);
+                deferred.dirty(invalid.issues().iter().cloned().map(|mut issue| {
+                    issue["path"] = path.clone();
+                    issue
+                }));
+                None
+            }
+        };
+    }
+    match value {
         None if presence == Presence::Optional => None,
-        Some(Value::String(_)) => issues
-            .text_with(body, key, Presence::Required, Text::length(Some(1), Some(100)))
-            .into_option()
-            .map(Value::String),
-        Some(Value::Number(n)) => {
-            let number = issues.number(
-                body,
-                key,
-                Presence::Required,
-                Number {
-                    coerce: false,
-                    int: true,
-                    min: Some(0.0),
-                    max: Some(200.0),
-                },
-            );
-            number.into_option().map(|_| Value::Number(n.clone()))
-        }
         value => {
             let path = issues.path_of(key);
             deferred.union(json!({
