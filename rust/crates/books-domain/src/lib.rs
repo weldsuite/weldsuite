@@ -36,6 +36,7 @@ pub mod identifiers;
 pub mod invoice_html;
 pub mod js;
 pub mod jurisdictions;
+pub mod nexus;
 pub mod payments;
 pub mod payroll;
 pub mod posting;

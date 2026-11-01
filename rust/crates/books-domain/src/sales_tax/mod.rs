@@ -37,6 +37,7 @@ pub mod stripe;
 pub mod tax_codes;
 pub mod to_tax_lines;
 pub mod types;
+pub mod worksheet;
 pub mod zones;
 
 pub use engine::{Engine, EngineConfig, create_engine};
