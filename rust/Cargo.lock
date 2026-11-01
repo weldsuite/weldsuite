@@ -3999,6 +3999,7 @@ name = "weldsuite-books-domain"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "form_urlencoded",
  "getrandom 0.4.3",
  "hex",
