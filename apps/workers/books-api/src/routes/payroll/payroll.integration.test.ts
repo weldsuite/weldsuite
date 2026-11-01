@@ -203,6 +203,14 @@ describe('CSV import, summary shape', () => {
     expect((await payroll('/connections')).data).toEqual([]);
   });
 
+  it('lists the categories an account mapping can set', async () => {
+    const res = await payroll('/categories', { perms: ['journal:read'] });
+    expect(res.status).toBe(200);
+    expect(res.data).toContainEqual(expect.objectContaining({ key: 'net_pay', side: 'credit' }));
+    expect(res.data.every((c: { side: string }) => c.side === 'debit' || c.side === 'credit')).toBe(true);
+    expect((await payroll('/categories', { perms: [] })).status).toBe(403);
+  });
+
   it('is gated by the journal permissions', async () => {
     expect((await payroll('/imports', { perms: [] })).status).toBe(403);
     expect((await payroll('/imports/csv', { perms: ['journal:read'], method: 'POST', body: { csv: 'a' } })).status).toBe(403);
