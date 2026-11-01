@@ -16,8 +16,11 @@ import type { DriveItemSharing, ShareDriveItemInput } from '../schemas/drive-sha
 
 export function createFilesApi(api: ClientApi) {
   return {
+    /** `folderId: ''` lists only the files outside any folder (the top of My Drive). */
     list(params: ListFilesQuery = {}): Promise<FilesListResponse> {
-      const qs = buildQueryString(params as Record<string, unknown>);
+      let qs = buildQueryString(params as Record<string, unknown>);
+      // buildQueryString drops empty values; an empty folderId means "top level".
+      if (params.folderId === '') qs += qs ? '&folderId=' : '?folderId=';
       return api.get<FilesListResponse>(`/files${qs}`);
     },
     get(id: string): Promise<DataResponse<DriveFile>> {

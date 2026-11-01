@@ -234,8 +234,11 @@ interface ListingInput {
 function usePickerListing({ fileType, accept, tab, folderId, search }: Readonly<ListingInput>): Listing {
   const allParams = { type: fileType, search: search || undefined, pageSize: PAGE_SIZE };
   const all = useDriveFiles(allParams);
-  // Outside a folder this is the same query as `all`, so it is not asked for twice.
-  const inFolder = useDriveFiles(folderId ? { type: fileType, folderId, pageSize: PAGE_SIZE } : allParams);
+  // A folder, or the top of My Drive (`folderId: ''`): the files right there,
+  // not the newest across the drive. Elsewhere it is the same query as `all`,
+  // so it is not asked for twice.
+  const listsFolder = !search && (Boolean(folderId) || tab === 'myDrive');
+  const inFolder = useDriveFiles(listsFolder ? { type: fileType, folderId: folderId ?? '', pageSize: PAGE_SIZE } : allParams);
   const showsFolders = !search && (tab === 'myDrive' || (tab === 'shared' && !!folderId));
   const folders = useDriveFolders(folderId ?? null, showsFolders);
   const shared = useSharedWithMe(tab === 'shared' && !folderId);
@@ -247,7 +250,7 @@ function usePickerListing({ fileType, accept, tab, folderId, search }: Readonly<
   }
   if (folderId) return withFolders(listingOf(inFolder, fits), folders);
   if (tab === 'shared') return sharedListing(shared, (file) => file.fileType === fileType && fits(file));
-  return withFolders(listingOf(all, (file) => !file.folderId && fits(file)), folders);
+  return withFolders(listingOf(inFolder, fits), folders);
 }
 
 function listingOf(query: ReturnType<typeof useDriveFiles>, keep: (file: UnifiedFile) => boolean): Listing {

@@ -25,6 +25,7 @@ vi.mock('@weldsuite/notifications', () => ({
 
 const {
   addDeskConversationMessageFromApi,
+  autoAssignDeskConversationFromApi,
   openDeskApiConversation,
   shouldNotifyDeskTeam,
   updateDeskConversationFromApi,
@@ -193,6 +194,18 @@ describe('openDeskApiConversation', () => {
     expect(JSON.parse(String(router.mock.calls[0]![1]?.body))).toMatchObject({ workspaceId: 'org_test' });
   });
 
+  it('auto-assigns on request (a workflow) with the timeline event', async () => {
+    const { conversation } = await openDeskApiConversation(deps(), { via: 'workflow', body: 'Help' });
+    await saveDeskAssignmentSettings(db, generateId, { mode: 'round_robin', memberIds: ['user_ann'] });
+    events = [];
+
+    const assigned = await autoAssignDeskConversationFromApi(deps(), conversation.id);
+
+    expect(assigned?.assigneeId).toBe('user_ann');
+    expect(kinds()).toEqual(['desk_conversation.assigned', 'desk_message.created']);
+    expect(await autoAssignDeskConversationFromApi(deps(), conversation.id)).toBeNull();
+  });
+
   it('hands the conversation to the named teammate instead of auto-assignment, and tells them', async () => {
     await saveDeskAssignmentSettings(db, generateId, { mode: 'round_robin', memberIds: ['user_ann'] });
 
@@ -289,6 +302,37 @@ describe('addDeskConversationMessageFromApi', () => {
 
     expect(result.message).toMatchObject({ kind: 'message', authorType: 'bot', body: 'Looking into it' });
     expect(result.conversation.waitingSince).toBeNull();
+  });
+
+  it("pushes a reply and a close to the conversation's room, where the widget listens, but never a note", async () => {
+    const { conversation } = await openDeskApiConversation(deps(), { via: 'api', body: 'Help' });
+    const room = vi.fn(async (_conversationId: string, _payload: unknown) => {});
+    const withRoom = { ...deps(), publishRoom: room };
+
+    await addDeskConversationMessageFromApi(withRoom, {
+      conversationId: conversation.id,
+      kind: 'note',
+      body: 'Internal only',
+      actor: bot,
+    });
+    expect(room).not.toHaveBeenCalled();
+
+    await addDeskConversationMessageFromApi(withRoom, {
+      conversationId: conversation.id,
+      kind: 'message',
+      body: 'Looking into it',
+      actor: { authorType: 'agent', authorId: 'user_ann' },
+    });
+    expect(room).toHaveBeenLastCalledWith(
+      conversation.id,
+      expect.objectContaining({ type: 'message', content: 'Looking into it', senderName: 'Ann' }),
+    );
+
+    await updateDeskConversationFromApi(withRoom, { conversationId: conversation.id, state: 'closed', actor: bot });
+    expect(room).toHaveBeenLastCalledWith(
+      conversation.id,
+      expect.objectContaining({ type: 'system', event: 'closed', data: expect.objectContaining({ state: 'closed' }) }),
+    );
   });
 
   it('takes a note on an email conversation but refuses a reply that would never be emailed', async () => {

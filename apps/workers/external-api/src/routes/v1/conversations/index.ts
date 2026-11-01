@@ -31,6 +31,7 @@ import {
 import {
   addDeskConversationMessageSchema,
   getConversationQuerySchema,
+  listConversationMessagesQuerySchema,
   listConversationsQuerySchema,
   openDeskConversationSchema,
   updateDeskConversationSchema,
@@ -134,14 +135,19 @@ app.patch('/:id', requireScope('conversations:write'), zValidator('json', update
   }
 });
 
-app.get('/:id/messages', requireScope('conversations:read'), async (c) => {
-  const db = c.get('tenantDb');
-  const id = c.req.param('id');
-  const found = await getDeskConversation(db, id);
-  if (!found) return error.notFound(c, 'Conversation', id);
-  const messages = await listDeskMessages(db, id);
-  return list(c, messages, cursorPagination(messages.length, false, null));
-});
+app.get(
+  '/:id/messages',
+  requireScope('conversations:read'),
+  zValidator('query', listConversationMessagesQuerySchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const found = await getDeskConversation(db, id);
+    if (!found) return error.notFound(c, 'Conversation', id);
+    const page = await listDeskMessages(db, id, c.req.valid('query'));
+    return list(c, page.data, cursorPagination(page.data.length, page.hasMore, page.cursor));
+  },
+);
 
 app.post(
   '/:id/messages',

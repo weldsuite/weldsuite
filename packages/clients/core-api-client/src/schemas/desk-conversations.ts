@@ -9,10 +9,21 @@ export const DESK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const;
 export const DESK_MAX_TAGS = 20;
 export const DESK_MAX_TAG_LENGTH = 50;
 
+/**
+ * A boolean query flag. `z.coerce.boolean()` is `Boolean(value)`, so
+ * `?unassigned=false` would read as true; this takes `true` / `false`
+ * as strings, and real booleans from JSON callers.
+ */
+const queryBoolean = z.preprocess((value) => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return value;
+}, z.boolean());
+
 export const listConversationsQuerySchema = z.object({
   state: z.enum(DESK_CONVERSATION_STATES).optional(),
   assigneeId: z.string().max(255).optional(),
-  unassigned: z.coerce.boolean().optional(),
+  unassigned: queryBoolean.optional(),
   channel: z.enum(DESK_CHANNELS).optional(),
   /** One widget visitor's conversations (customer panel when there's no email). */
   visitorId: z.string().max(64).optional(),
@@ -35,6 +46,12 @@ export const listConversationsQuerySchema = z.object({
 
 export const getConversationQuerySchema = z.object({
   include: z.enum(['messages']).optional(),
+});
+
+/** `GET /v1/conversations/:id/messages`: the timeline, oldest first, a page at a time. */
+export const listConversationMessagesQuerySchema = z.object({
+  cursor: z.string().max(20).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 export const deskMessageAttachmentSchema = z.object({

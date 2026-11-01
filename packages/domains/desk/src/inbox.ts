@@ -13,7 +13,7 @@
  * Pure functions; each worker brings its db, bindings and event publisher.
  */
 
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   createAndDeliverNotification,
   helpdeskPreview,
@@ -22,10 +22,15 @@ import {
 } from '@weldsuite/notifications';
 import {
   appendDeskMessage,
+  deskAuthorFromMember,
   ingestDeskApi,
+  isPublicDeskMessage,
+  toPublicDeskConversation,
+  toPublicDeskMessage,
   updateDeskConversationAttributes,
   DeskAttributeRejectedError,
   DeskConversationNotFoundError,
+  type DeskAuthorInfo,
   type DeskConversation,
   type DeskMessage,
   type IngestDeskApiInput,
@@ -110,6 +115,12 @@ export interface DeskInboxDeps {
   generateId: (prefix: string) => string;
   /** Publish one entity event with the worker's own publisher. */
   emit: (event: DeskInboxEvent) => void | Promise<void>;
+  /**
+   * Publish to a conversation's room (`RealtimePublisher.conversationPublish`),
+   * the channel the widget listens on. Absent, a visitor sees replies and
+   * state changes only on their next fetch.
+   */
+  publishRoom?: (conversationId: string, payload: unknown) => Promise<void>;
   /** Run notifications in the background; they are awaited when absent. */
   waitUntil?: (promise: Promise<unknown>) => void;
 }
@@ -172,6 +183,79 @@ async function emitAll(deps: DeskInboxDeps, events: DeskInboxEvent[]): Promise<v
       await deps.emit(event);
     } catch (err) {
       console.error(`[desk-inbox] ${event.entityType}.${event.action} event failed:`, err);
+    }
+  }
+  try {
+    await publishToRooms(deps, events);
+  } catch (err) {
+    console.error('[desk-inbox] conversation room publish failed:', err);
+  }
+}
+
+/** Display names for teammates, by first name only (`deskAuthorFromMember`). */
+async function deskAuthors(db: Database, userIds: Array<string | null>): Promise<Map<string, DeskAuthorInfo>> {
+  const ids = Array.from(new Set(userIds.filter((id): id is string => Boolean(id))));
+  const out = new Map<string, DeskAuthorInfo>();
+  if (ids.length === 0) return out;
+  const m = schema.workspaceMembers;
+  const rows = await db
+    .select({ userId: m.userId, name: m.name, picture: m.picture })
+    .from(m)
+    .where(inArray(m.userId, ids));
+  for (const row of rows) out.set(row.userId, deskAuthorFromMember(row));
+  return out;
+}
+
+/**
+ * Push the public messages in `events` to their conversation's room, in the
+ * shape desk-api's `publishDeskChange` sends: a reply as `message`, a public
+ * timeline event (closed, assigned, …) as `system` with the conversation.
+ */
+async function publishToRooms(deps: DeskInboxDeps, events: DeskInboxEvent[]): Promise<void> {
+  const publishRoom = deps.publishRoom;
+  if (!publishRoom) return;
+  const messages = events
+    .flatMap((event) => (event.entityType === 'desk_message' ? [event.data as unknown as DeskMessage] : []))
+    .filter(isPublicDeskMessage);
+  if (messages.length === 0) return;
+  // The latest state of each conversation in this batch.
+  const conversations = new Map<string, DeskConversation>();
+  for (const event of events) {
+    if (event.entityType === 'desk_conversation') {
+      conversations.set(event.entityId, event.data as unknown as DeskConversation);
+    }
+  }
+  const authors = await deskAuthors(deps.db, [
+    ...messages.map((message) => (message.authorType === 'agent' ? message.authorId : null)),
+    ...Array.from(conversations.values(), (conversation) => conversation.assigneeId),
+  ]);
+
+  for (const message of messages) {
+    const record = toPublicDeskMessage(message, authors);
+    const conversation = conversations.get(message.conversationId);
+    if (message.kind === 'message') {
+      await publishRoom(message.conversationId, {
+        type: 'message',
+        id: message.id,
+        content: message.body ?? '',
+        senderId: message.authorId ?? '',
+        senderName: record.authorName ?? 'Support',
+        senderAvatar: record.authorAvatar ?? undefined,
+        senderType: message.authorType,
+        ts: Date.now(),
+        record,
+      });
+    } else if (conversation) {
+      await publishRoom(message.conversationId, {
+        type: 'system',
+        event: record.eventType ?? 'event',
+        data: {
+          state: conversation.state,
+          conversation: toPublicDeskConversation(conversation, authors),
+          record,
+        },
+        ts: Date.now(),
+      });
     }
   }
 }
@@ -288,6 +372,27 @@ async function autoAssignOpened(
     console.error(`[desk-inbox] auto-assignment failed for ${conversation.id}:`, err);
     return { conversation, events: [] };
   }
+}
+
+/**
+ * Hand a conversation out by the workspace's assignment rules (a workflow's
+ * "assign" without a named agent). Marks the SLA due time, since the owner's
+ * policy can move it, and emits the `assigned` timeline event. Null when no
+ * one was available or it is already assigned.
+ */
+export async function autoAssignDeskConversationFromApi(
+  deps: DeskInboxDeps,
+  conversationId: string,
+): Promise<DeskConversation | null> {
+  const assigned = await autoAssignDeskConversation(deps.db, {
+    generateId: deps.generateId,
+    conversationId,
+    pick: deskAssignmentRouterPicker(deps.env.HELPDESK_WORKFLOW, deps.clerkOrgId),
+  });
+  if (!assigned) return null;
+  await markDeskSlaDue(deps);
+  await emitAll(deps, [conversationEvent('assigned', assigned.conversation), messageEvent(assigned.message)]);
+  return assigned.conversation;
 }
 
 /** The member the caller named, or else the workspace's assignment rules. */
