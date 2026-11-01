@@ -58,6 +58,14 @@ import type { RecordingAiChoice } from './recording-ai-options';
 /** Wait this long after a participant joins before refreshing the session links. */
 const LATEST_SESSION_REFRESH_DEBOUNCE_MS = 750;
 
+/**
+ * The recording handlers for the meeting view, or none where this deployment
+ * has no recordings (`meet-recordings`), which leaves the Record tool out.
+ */
+function offeredRecordingControls<T extends object>(available: boolean, controls: T): Partial<T> {
+  return available ? controls : {};
+}
+
 /** Remember a dismissed auto-record prompt for this session only (per tab). */
 function promptDismissedKey(sessionId: string): string {
   return `weldmeet:recording-ai-prompt-dismissed:${sessionId}`;
@@ -761,10 +769,12 @@ function MeetingRoomAdapter() {
       isRecording={isRecording}
       recordingState={recordingState}
       // Without them the Record tool is left out.
-      startRecording={recordingsAvailable ? handleRecordRequest : undefined}
-      stopRecording={recordingsAvailable ? stopRecording : undefined}
-      pauseRecording={recordingsAvailable ? pauseRecording : undefined}
-      resumeRecording={recordingsAvailable ? resumeRecording : undefined}
+      {...offeredRecordingControls(recordingsAvailable, {
+        startRecording: handleRecordRequest,
+        stopRecording,
+        pauseRecording,
+        resumeRecording,
+      })}
       showControlBarRecording={false}
       recordingStartElapsedSeconds={recordingStartElapsedSeconds}
       recordingLabels={recordingLabels}

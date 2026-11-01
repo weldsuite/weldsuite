@@ -63,40 +63,66 @@ export interface RtkCall {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-function classify(method: string, path: string): { kind: RtkCallKind; room: string | null } | null {
-  const [pathname] = path.split('?');
+type Classified = { kind: RtkCallKind; room: string | null };
+
+/** `/meetings/...`: by the segments after `meetings`, and the method. */
+function classifyMeetingCall(method: string, parts: string[]): Classified | null {
+  const room = parts[1] ?? null;
+  // What follows the room: `participants[/<id>]`, `active-session[/kick|/kick-all]`.
+  const sub = parts[2] === 'active-session' ? parts.slice(2).join('/') : (parts[2] ?? '');
+  const kinds: Record<string, RtkCallKind> = {
+    'POST ': 'create',
+    'PATCH ': 'update',
+    'POST participants': 'add',
+    'DELETE participants': 'remove',
+    'GET active-session': 'live',
+    'POST active-session/kick': 'kick',
+    'POST active-session/kick-all': 'kick-all',
+  };
+  const kind = kinds[`${method} ${sub}`];
+  if (!kind) return null;
+  return { kind, room: kind === 'create' ? null : room };
+}
+
+const WEBHOOK_KINDS: Record<string, RtkCallKind> = {
+  GET: 'webhooks',
+  POST: 'create-webhook',
+  PUT: 'replace-webhook',
+  DELETE: 'delete-webhook',
+};
+
+function classify(method: string, path: string): Classified | null {
+  const [pathname, query] = path.split('?');
   const parts = pathname!.split('/').filter(Boolean).map(decodeURIComponent);
-  if (parts[0] === 'meetings') {
-    const room = parts[1] ?? null;
-    if (parts.length === 1 && method === 'POST') return { kind: 'create', room: null };
-    if (parts.length === 2 && method === 'PATCH') return { kind: 'update', room };
-    if (parts[2] === 'participants' && method === 'POST') return { kind: 'add', room };
-    if (parts[2] === 'participants' && method === 'DELETE') return { kind: 'remove', room };
-    if (parts[2] === 'active-session' && parts.length === 3 && method === 'GET') return { kind: 'live', room };
-    if (parts[3] === 'kick' && method === 'POST') return { kind: 'kick', room };
-    if (parts[3] === 'kick-all' && method === 'POST') return { kind: 'kick-all', room };
+  switch (parts[0]) {
+    case 'meetings':
+      return classifyMeetingCall(method, parts);
+    case 'recordings':
+      return method === 'GET' ? { kind: 'recordings', room: new URLSearchParams(query ?? '').get('meeting_id') } : null;
+    case 'presets':
+      return { kind: method === 'POST' ? 'create-preset' : 'presets', room: null };
+    case 'webhooks': {
+      const kind = WEBHOOK_KINDS[method];
+      return kind ? { kind, room: null } : null;
+    }
+    default:
+      return null;
   }
-  if (parts[0] === 'recordings' && method === 'GET') {
-    return { kind: 'recordings', room: new URLSearchParams(path.split('?')[1] ?? '').get('meeting_id') };
-  }
-  if (parts[0] === 'presets') return { kind: method === 'POST' ? 'create-preset' : 'presets', room: null };
-  if (parts[0] === 'webhooks') {
-    if (method === 'GET') return { kind: 'webhooks', room: null };
-    if (method === 'POST') return { kind: 'create-webhook', room: null };
-    if (method === 'PUT') return { kind: 'replace-webhook', room: null };
-    if (method === 'DELETE') return { kind: 'delete-webhook', room: null };
-  }
-  return null;
 }
 
 /** JSON with sorted keys: the two backends build the same body in a different key order. */
 function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
   if (value && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(',')}}`;
+    return '{' + entries.map(([k, v]) => JSON.stringify(k) + ':' + canonical(v)).join(',') + '}';
   }
   return JSON.stringify(value);
+}
+
+function urlOf(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  return input instanceof URL ? input.href : input.url;
 }
 
 /**
@@ -126,7 +152,7 @@ export function fakeRtkApi() {
   // them) goes to the real network stack.
   const realFetch = globalThis.fetch;
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const url = urlOf(input);
     if (!url.startsWith(RTK_BASE)) return realFetch(input, init);
     const method = (init?.method ?? 'GET').toUpperCase();
     const path = url.slice(RTK_BASE.length);
@@ -134,7 +160,8 @@ export function fakeRtkApi() {
     if (!found) return json(404, { success: false, errors: [{ code: 404, message: `no route ${method} ${path}` }] });
     const text = typeof init?.body === 'string' ? init.body : null;
     const body = text ? (JSON.parse(text) as Record<string, unknown>) : null;
-    const room = found.kind === 'update' && body?.status === 'INACTIVE' ? found.room : found.room;
+    const { room } = found;
+    // Ending a meeting is an update to INACTIVE.
     const kind: RtkCallKind = found.kind === 'update' && body?.status === 'INACTIVE' ? 'end' : found.kind;
     state.calls.push({ kind, method, room, path, body });
     const failure = state.failures.get(kind);

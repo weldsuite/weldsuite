@@ -42,8 +42,6 @@ beforeAll(async () => {
     userId: OTHER,
     meetingUrl: 'https://meet.example.com/x',
     platform: 'zoom',
-    name: 'Bot',
-    serviceUrl: 'https://bot.example.com',
   });
   await db.insert(schema.meetings).values({ id: 'mtg_trans', title: 'Meeting', organizerId: ME, status: 'completed' });
   await db.insert(schema.meetingSessions).values({ id: 'msess_trans', meetingId: 'mtg_trans', status: 'ended', startedBy: ME, startedByName: 'Me' });
