@@ -71,3 +71,8 @@ pub(crate) fn integration(id: &str) -> Option<&'static Value> {
 pub(crate) fn entity_events() -> &'static [Value] {
     list("entityEvents")
 }
+
+/// `listWebhookEvents()`: the outbound webhook event picker, in catalog order.
+pub(crate) fn webhook_events() -> &'static [Value] {
+    list("webhookEvents")
+}

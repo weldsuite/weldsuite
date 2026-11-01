@@ -38,7 +38,7 @@ use time::OffsetDateTime;
 use weldsuite_catalogs::entity_events;
 use weldsuite_db::PgPool;
 use weldsuite_db::due_index::{mark_due, run_sweep};
-use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition};
+use weldsuite_ports::{BatchHandler, BoxFuture, Delivery, Disposition, HttpRequest, OutboundHttp};
 
 use crate::event::HubEvent;
 use crate::js;
@@ -111,7 +111,8 @@ pub struct WebhookRow {
 }
 
 impl WebhookRow {
-    fn from_json(row: &Value) -> Self {
+    /// From a `to_jsonb(external_webhooks)` row (snake_case keys).
+    pub fn from_json(row: &Value) -> Self {
         let text = |key: &str| {
             row.get(key)
                 .and_then(Value::as_str)
@@ -340,6 +341,98 @@ impl WebhookHttp {
     }
 }
 
+/// What makes one delivery attempt (`attemptDelivery`): [`WebhookHttp`] on
+/// the Kubernetes editions, [`OutboundAttempts`] where a request's outbound
+/// HTTP port must carry the call (conformance builds compare it through the
+/// outbound bridge).
+pub trait DeliveryAttempts: Send + Sync {
+    /// Sign, POST, normalise. Never fails.
+    fn attempt<'a>(
+        &'a self,
+        webhook: &'a WebhookRow,
+        body: &'a str,
+        event_type: &'a str,
+    ) -> BoxFuture<'a, AttemptResult>;
+}
+
+impl DeliveryAttempts for WebhookHttp {
+    fn attempt<'a>(
+        &'a self,
+        webhook: &'a WebhookRow,
+        body: &'a str,
+        event_type: &'a str,
+    ) -> BoxFuture<'a, AttemptResult> {
+        Box::pin(WebhookHttp::attempt(self, webhook, body, event_type))
+    }
+}
+
+/// Delivery attempts through an [`OutboundHttp`] port: the request
+/// [`WebhookHttp`] sends (`Content-Type`, the signature, the event, then the
+/// webhook's own headers), answered by whatever the port reaches.
+#[derive(Clone)]
+pub struct OutboundAttempts(pub OutboundHttp);
+
+impl std::fmt::Debug for OutboundAttempts {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("OutboundAttempts")
+    }
+}
+
+impl DeliveryAttempts for OutboundAttempts {
+    fn attempt<'a>(
+        &'a self,
+        webhook: &'a WebhookRow,
+        body: &'a str,
+        event_type: &'a str,
+    ) -> BoxFuture<'a, AttemptResult> {
+        Box::pin(async move {
+            let started = Instant::now();
+            let elapsed = || i32::try_from(started.elapsed().as_millis()).unwrap_or(i32::MAX);
+            let mut request = HttpRequest {
+                method: "POST".to_owned(),
+                url: webhook.url.clone(),
+                headers: vec![
+                    ("Content-Type".to_owned(), "application/json".to_owned()),
+                    (
+                        "X-WeldSuite-Signature".to_owned(),
+                        sign_webhook_payload(&webhook.secret, body),
+                    ),
+                    ("X-WeldSuite-Event".to_owned(), event_type.to_owned()),
+                ],
+                body: Some(body.as_bytes().to_vec()),
+            };
+            if let Some(Value::Object(headers)) = &webhook.headers {
+                for (name, value) in headers {
+                    let value = match value {
+                        Value::String(text) => text.clone(),
+                        other => js::string_of(other),
+                    };
+                    request.headers.push((name.clone(), value));
+                }
+            }
+            match self.0.send(request).await {
+                Ok(response) => {
+                    let ok = response.ok();
+                    AttemptResult {
+                        ok,
+                        status: Some(response.status),
+                        body: Some(js::slice_to(&response.text(), RESPONSE_BODY_CAPTURE_LIMIT)),
+                        duration_ms: elapsed(),
+                        error: (!ok).then(|| format!("HTTP {}", response.status)),
+                    }
+                }
+                Err(error) => AttemptResult {
+                    ok: false,
+                    status: None,
+                    body: None,
+                    duration_ms: elapsed(),
+                    error: Some(error.to_string()),
+                },
+            }
+        })
+    }
+}
+
 /// A failed `fetch`'s message.
 fn describe(error: reqwest::Error) -> String {
     if error.is_timeout() {
@@ -482,6 +575,15 @@ pub struct DeliverInput<'a> {
     pub data_json: &'a str,
 }
 
+/// What `deliverWebhookEvent` answers (`DeliverWebhookEventResult`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryOutcome {
+    pub delivered: bool,
+    pub response_status: Option<u16>,
+    pub response_body: Option<String>,
+    pub error_message: Option<String>,
+}
+
 /// `deliverWebhookEvent`: whether it was delivered (a duplicate counts as
 /// delivered).
 pub async fn deliver_webhook_event(
@@ -489,13 +591,31 @@ pub async fn deliver_webhook_event(
     http: &WebhookHttp,
     input: DeliverInput<'_>,
 ) -> Result<bool, sqlx::Error> {
+    deliver_webhook_event_with(db, http, input)
+        .await
+        .map(|outcome| outcome.delivered)
+}
+
+/// `deliverWebhookEvent` through `attempts`, with the whole outcome (what
+/// `POST /api/external-webhooks/:id/test` answers). A duplicate counts as
+/// delivered, with nothing else.
+pub async fn deliver_webhook_event_with(
+    db: &PgPool,
+    attempts: &dyn DeliveryAttempts,
+    input: DeliverInput<'_>,
+) -> Result<DeliveryOutcome, sqlx::Error> {
     if has_existing_delivery(db, &input.webhook.id, input.event_id).await? {
         tracing::info!(
             event_id = input.event_id,
             webhook_id = input.webhook.id,
             "webhooks: skipping duplicate event"
         );
-        return Ok(true);
+        return Ok(DeliveryOutcome {
+            delivered: true,
+            response_status: None,
+            response_body: None,
+            error_message: None,
+        });
     }
     let timestamp = iso(OffsetDateTime::now_utc());
     // `JSON.stringify(payload)`, with `data` as published.
@@ -507,10 +627,14 @@ pub async fn deliver_webhook_event(
         quote(&timestamp),
         input.data_json,
     );
-    let mut attempt = http.attempt(input.webhook, &body, input.event_type).await;
+    let mut attempt = attempts
+        .attempt(input.webhook, &body, input.event_type)
+        .await;
     let mut attempt_number = 1;
     if !attempt.ok && attempt.status.is_none_or(|status| status >= 500) {
-        attempt = http.attempt(input.webhook, &body, input.event_type).await;
+        attempt = attempts
+            .attempt(input.webhook, &body, input.event_type)
+            .await;
         attempt_number = 2;
     }
     let now = OffsetDateTime::now_utc();
@@ -534,7 +658,12 @@ pub async fn deliver_webhook_event(
     )
     .await?;
     apply_delivery_outcome(db, input.webhook, attempt.ok, attempt.error.as_deref()).await?;
-    Ok(attempt.ok)
+    Ok(DeliveryOutcome {
+        delivered: attempt.ok,
+        response_status: attempt.status,
+        response_body: attempt.body,
+        error_message: attempt.error,
+    })
 }
 
 /// What `dispatchWebhookDeliveries` reports.

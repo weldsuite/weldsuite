@@ -26,6 +26,7 @@ mod dashboard;
 pub mod engine;
 mod entity_workflows;
 mod executions;
+mod external_webhooks;
 mod github;
 mod github_app;
 mod js;
@@ -117,6 +118,10 @@ pub struct ConnectState {
     /// The worker's env values this crate reads (`ENVIRONMENT`,
     /// `CONNECT_API_URL`, …). A request's `RequestEnv` (conformance) wins.
     pub env: Arc<HashMap<String, String>>,
+    /// Where the test delivery of an outbound webhook goes out
+    /// (`WebhookHttp`, which refuses private addresses unless allowed). A
+    /// request's `OutboundHttp` (conformance) wins.
+    pub webhooks: Option<Arc<dyn weldsuite_subscribers::DeliveryAttempts>>,
     /// `TRUSTED_PROXIES`: where the webhook caller's address sits in
     /// `X-Forwarded-For`, counted from the right.
     pub trusted_proxies: usize,
@@ -171,6 +176,7 @@ where
         .nest("/github-connections", github::connections_routes(gate))
         .nest("/github-repo-links", github::repo_links_routes(gate))
         .nest("/github-project-links", github::project_links_routes(gate))
+        .nest("/external-webhooks", external_webhooks::routes(gate))
         .nest("/workflow-builder", builder::routes(gate))
         .nest("/workflow-dashboard", dashboard::routes(gate))
         .nest("/workflow-executions", executions::routes(gate))
@@ -252,6 +258,24 @@ impl Overrides {
     #[allow(dead_code)] // the integration routes use it
     pub(crate) fn http(&self, state: &ConnectState) -> Option<OutboundHttp> {
         self.http.clone().or_else(|| state.http.clone())
+    }
+
+    /// Outbound webhook deliveries: through the request's outbound HTTP
+    /// (conformance), else the state's client; without either every attempt
+    /// fails as a `fetch` that cannot connect.
+    pub(crate) fn webhook_attempts(
+        &self,
+        state: &ConnectState,
+    ) -> Arc<dyn weldsuite_subscribers::DeliveryAttempts> {
+        if let Some(http) = &self.http {
+            return Arc::new(weldsuite_subscribers::OutboundAttempts(http.clone()));
+        }
+        match &state.webhooks {
+            Some(webhooks) if self.env.is_none() => Arc::clone(webhooks),
+            _ => Arc::new(weldsuite_subscribers::OutboundAttempts(OutboundHttp(
+                Arc::new(Unreachable),
+            ))),
+        }
     }
 
     /// The master database: the request's (conformance), else the state's.

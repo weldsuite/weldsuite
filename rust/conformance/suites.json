@@ -2155,6 +2155,25 @@
         "packages/core/db/src/lib/crypto.ts",
         "rust/modules/connect/"
       ]
+    },
+    {
+      "name": "connect: integrations",
+      "module": "connect",
+      "workspace": "apps/workers/connect-api",
+      "tests": [
+        "src/routes/external-webhooks/routes.test.ts"
+      ],
+      "paths": [
+        "apps/workers/connect-api/src/routes/external-webhooks/",
+        "apps/workers/connect-api/src/services/external-webhooks.ts",
+        "apps/workers/connect-api/src/lib/tenant-work-index.ts",
+        "packages/core/entity-events/src/webhook-delivery.ts",
+        "packages/core/entity-events/src/webhook-events.ts",
+        "packages/clients/app-api-client/src/schemas/connect-integrations-responses.ts",
+        "packages/core/worker-kit/src/testing/conformance-schemas-connect-integrations.ts",
+        "rust/crates/subscribers/src/webhooks.rs",
+        "rust/modules/connect/"
+      ]
     }
   ]
 }

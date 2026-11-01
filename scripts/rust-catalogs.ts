@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import { API_MODULES, RECORD_CHAT_OWNER, RECORD_CHAT_PREFIX } from '../packages/core/api-modules/src/index';
 import { ENTITY_EVENTS } from '../packages/core/entity-events/src/events/index';
+import { listWebhookEvents } from '../packages/core/entity-events/src/webhook-events';
 import { FLAGS } from '../packages/core/feature-flags/src/flags';
 import {
   EMPLOYEE_MEMBER_PERMISSIONS,
@@ -82,6 +83,8 @@ function weldconnectCatalog(): unknown {
     entityEvents: WELDCONNECT_ENTITY_EVENTS,
     // `@weldsuite/workflow-integrations`: the third-party providers WeldConnect connects to.
     integrations: listWorkflowIntegrations(),
+    // The outbound webhook event picker (`GET /api/external-webhooks/events`), in catalog order.
+    webhookEvents: listWebhookEvents(),
   };
 }
 
