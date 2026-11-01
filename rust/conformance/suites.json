@@ -2183,6 +2183,33 @@
         "rust/modules/books-reports/",
         "rust/crates/books-domain/"
       ]
+    },
+    {
+      "name": "books: sales-tax",
+      "module": "books",
+      "workspace": "apps/workers/books-api",
+      "tests": [
+        "src/routes/sales-tax-setup.integration.test.ts",
+        "src/routes/sales-tax-setup-crud.integration.test.ts",
+        "src/routes/tax-calendar/integration.test.ts"
+      ],
+      "paths": [
+        "apps/workers/books-api/src/routes/sales-tax/",
+        "apps/workers/books-api/src/routes/sales-tax-agencies/",
+        "apps/workers/books-api/src/routes/sales-tax-jurisdictions/",
+        "apps/workers/books-api/src/routes/sales-tax-rules/",
+        "apps/workers/books-api/src/routes/sales-tax-zones/",
+        "apps/workers/books-api/src/routes/exemption-certificates/",
+        "apps/workers/books-api/src/routes/tax-returns/",
+        "apps/workers/books-api/src/routes/tax-calendar/",
+        "apps/workers/books-api/src/routes/sales-tax-setup.integration.test.ts",
+        "apps/workers/books-api/src/routes/sales-tax-setup-crud.integration.test.ts",
+        "apps/workers/books-api/src/lib/",
+        "apps/workers/books-api/src/services/",
+        "packages/domains/books/src/",
+        "rust/modules/books-sales-tax/",
+        "rust/crates/books-domain/"
+      ]
     }
   ]
 }

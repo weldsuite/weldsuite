@@ -263,6 +263,12 @@ impl Issues {
         self.path(key)
     }
 
+    /// The current path itself (an array item's, inside [`Issues::list`]),
+    /// for an issue that nests others at it (a union's `unionErrors`).
+    pub fn path_here(&self) -> Value {
+        self.path_at(None)
+    }
+
     /// `Err` (a 400 response) when anything was wrong.
     pub fn finish(self) -> Result<(), Invalid> {
         if self.issues.is_empty() {

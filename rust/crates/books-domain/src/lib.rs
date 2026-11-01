@@ -65,3 +65,4 @@ pub mod tables;
 pub mod tax;
 pub mod vendor_tax;
 pub mod vies;
+pub mod tax_calendar;

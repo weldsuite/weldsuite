@@ -608,13 +608,16 @@ async fn update_invoice(
     });
     if !data.exchange_rate.is_absent() || currency_changed || issue_changed {
         let base = resolve_entity_base_currency(db, &entity_id).await?;
-        let currency = update["currency"]
-            .as_str()
+        // `Map[key]` panics on a missing key: `get` reads it as undefined.
+        let currency = update
+            .get("currency")
+            .and_then(Value::as_str)
             .or_else(|| text(&invoice, "currency"))
             .unwrap_or(&base)
             .to_owned();
-        let rate_date = update["issueDate"]
-            .as_str()
+        let rate_date = update
+            .get("issueDate")
+            .and_then(Value::as_str)
             .or_else(|| text(&invoice, "issueDate"))
             .unwrap_or_default()
             .to_owned();

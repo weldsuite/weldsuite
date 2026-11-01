@@ -42,6 +42,7 @@ weldsuite-books-purchases = { workspace = true }
 weldsuite-books-domain = { workspace = true }
 weldsuite-books-sales = { workspace = true }
 weldsuite-books-reports = { workspace = true }
+weldsuite-books-sales-tax = { workspace = true }
 weldsuite-flow = { workspace = true }
 weldsuite-kit = { workspace = true }
 weldsuite-know = { workspace = true }

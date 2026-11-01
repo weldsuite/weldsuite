@@ -207,11 +207,27 @@ export const FORWARDED_ENV = [
   'PROSPEO_API_KEY',
 ] as const;
 
+/**
+ * The test's own clock, when it fakes `Date` (`vi.useFakeTimers({ toFake:
+ * ['Date'] })` + `vi.setSystemTime(...)`): the route's "today" is the test's,
+ * so Rust gets it too (`CONFORMANCE_NOW`, read only by conformance builds of
+ * the routes that default a date to today). `performance` keeps the real
+ * clock, so a minute's difference means `Date` is faked.
+ */
+function fakedNow(): Record<string, string> {
+  const now = Date.now();
+  const real = performance.timeOrigin + performance.now();
+  return Math.abs(now - real) > 60_000 ? { CONFORMANCE_NOW: new Date(now).toISOString() } : {};
+}
+
 /** The test's env values the Rust server reads, as strings. */
 export function forwardedEnv(env: Record<string, unknown>): Record<string, string> {
-  return Object.fromEntries(
-    FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
-  );
+  return {
+    ...Object.fromEntries(
+      FORWARDED_ENV.filter((name) => typeof env[name] === 'string').map((name) => [name, env[name] as string]),
+    ),
+    ...fakedNow(),
+  };
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);

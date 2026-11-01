@@ -51,6 +51,7 @@ pub(crate) fn api(router: Router<AppState>, state: &AppState) -> Router<AppState
     routers.extend(weldsuite_books_banking::routers(&books, gate));
     routers.extend(weldsuite_books_purchases::routers(&books, gate));
     routers.extend(weldsuite_books_sales::routers(&books, gate));
+    routers.extend(weldsuite_books_sales_tax::routers(&books, gate));
     routers.extend(weldsuite_books_reports::routers(&books, gate));
     // Every books request marks its workspace for the daily sweep (books-api's
     // `registerBooksWorkspace` middleware). Conformance builds have no master.
