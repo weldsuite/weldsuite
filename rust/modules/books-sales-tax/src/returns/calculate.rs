@@ -471,7 +471,10 @@ mod tests {
             proposed[0]["note"],
             json!("Proposed vendor discount; only valid if filed and paid by 2026-10-20.")
         );
-        assert!(refresh_adjustments(&proposed, &summary, true).is_empty());
+        assert_eq!(
+            refresh_adjustments(&proposed, &summary, true),
+            Vec::<Value>::new()
+        );
         let manual = vec![json!({ "type": "vendor_discount", "amount": -1 })];
         assert_eq!(refresh_adjustments(&manual, &summary, false), manual);
         assert!(same_worksheet(
