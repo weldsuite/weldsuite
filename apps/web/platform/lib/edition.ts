@@ -58,6 +58,8 @@ export const EDITION_FEATURES = [
   'helpcenter-custom-domains',
   /** WeldBooks document OCR (`POST /api/accounting-documents/:id/process`, Workers AI). */
   'books-ocr',
+  /** Filing the BTW-aangifte and the Opgaaf ICP through Digipoort (a PKIoverheid client certificate). */
+  'vat-digipoort',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

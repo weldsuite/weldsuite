@@ -71,7 +71,8 @@ Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
-`weldmail.com` addresses, mail AI, chat calls, help center custom domains and WeldBooks document OCR.
+`weldmail.com` addresses, mail AI, chat calls, help center custom domains, WeldBooks document OCR and filing VAT
+returns through Digipoort.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books,
 host, meet, call, connect, agent, hr, reach, sheets, docs and

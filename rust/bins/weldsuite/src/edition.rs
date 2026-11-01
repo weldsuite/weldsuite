@@ -80,6 +80,13 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // reads the file with a model on Workers AI; the route keeps its refusals
     // and answers 503 where it would call the model.
     "books-ocr",
+    // WeldBooks VAT: sending the BTW-aangifte and the Opgaaf ICP to Digipoort
+    // needs the worker's PKIoverheid client certificate binding. Without it
+    // the worker builds the envelope and answers a simulated submission, as
+    // Rust always does (`POST /api/vat-returns/:id/file`,
+    // `/api/icp-declarations/:id/file`); the platform hides filing and the
+    // status check, and the XBRL download is filed by hand.
+    "vat-digipoort",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
