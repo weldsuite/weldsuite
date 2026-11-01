@@ -58,6 +58,8 @@ export const EDITION_FEATURES = [
   'helpcenter-custom-domains',
   /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */
   'payroll-digipoort',
+  /** WeldBooks document OCR (`POST /api/accounting-documents/:id/process`, Workers AI). */
+  'books-ocr',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];

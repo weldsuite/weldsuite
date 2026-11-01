@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import type { Hono } from 'hono';
 import { createTestApp, permissions } from '@weldsuite/worker-kit/testing';
+import { conformanceTarget } from '@weldsuite/worker-kit/testing/conformance';
 import { createPgliteDb } from '@weldsuite/worker-kit/testing/pglite';
 import { schema, type Database } from '@weldsuite/worker-kit/db';
 import { verifyNachaFile } from '@weldsuite/books-domain/us-compliance/nacha';
@@ -85,9 +86,11 @@ async function callRoutes(
   path: string,
   opts: { method?: string; body?: unknown; user?: string; perms?: string[] } = {},
 ): Promise<Reply> {
+  // Under conformance the Rust server can't see the vi.mock above: it gets the same failure point through its env.
+  const failing = failure.failAfter === null ? {} : { CONFORMANCE_FAIL_RECORD_PAYMENT_AFTER: String(failure.failAfter) };
   const { request } = createTestApp(mount, routes, {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    env: env as any,
+    env: { ...env, ...failing } as any,
     context: { userId: opts.user ?? 'user_admin', permissions: permissions(...(opts.perms ?? ['*'])), tenantDb: db },
   });
   const res = await request(path, {
@@ -355,7 +358,9 @@ describe('an ACH run', () => {
     const codes = Object.fromEntries((res.data.holds as Array<{ partyName: string; code: string }>).map((h) => [h.partyName, h.code]));
     expect(codes).toEqual({ 'Bravo Lumber Inc': 'bank_details_changed', 'Charlie Supply': 'no_bank_details' });
     expect(res.text).not.toContain('7770002222');
-    expect(events.some((e) => e.eventType === 'payment_run:created' && e.entityId === runId)).toBe(true);
+    expect(events.some((e) => e.eventType === 'payment_run:created')).toBe(true);
+    // Under conformance the queue sees TypeScript's event, for the run it made on its copy of the database (another id).
+    if (!conformanceTarget()) expect(events.some((e) => e.eventType === 'payment_run:created' && e.entityId === runId)).toBe(true);
   });
 
   it('refuses fewer than two approvals without banking:manage, and records it when a manager lowers them', async () => {

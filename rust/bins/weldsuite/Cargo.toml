@@ -38,6 +38,7 @@ weldsuite-emails = { workspace = true }
 weldsuite-events = { workspace = true }
 weldsuite-books = { workspace = true }
 weldsuite-books-banking = { workspace = true }
+weldsuite-books-purchases = { workspace = true }
 weldsuite-books-domain = { workspace = true }
 weldsuite-books-sales = { workspace = true }
 weldsuite-flow = { workspace = true }

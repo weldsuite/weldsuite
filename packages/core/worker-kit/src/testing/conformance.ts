@@ -162,6 +162,11 @@ export const FORWARDED_ENV = [
   // WeldBooks: the field encryption keys of sealed SSNs, TINs and bank numbers.
   'DATABASE_ENCRYPTION_KEY',
   'DATABASE_ENCRYPTION_KEY_V2',
+  // WeldBooks: the platform page a W-9 request link points at.
+  'PLATFORM_URL',
+  // WeldBooks payment runs: a test that makes the payments service fail after
+  // n payments (a vi.mock on the TypeScript side) hands Rust the same n.
+  'CONFORMANCE_FAIL_RECORD_PAYMENT_AFTER',
   // WeldMail: the outbound guard's staff API secret, and whether the worker
   // has a master database URL (the guard checks sender ownership only then).
   'OUTBOUND_ADMIN_SECRET',
@@ -247,6 +252,10 @@ const WRITING_READS: RegExp[] = [
   /^\/api\/welddata\/lists\/[^/?]+\/cells(\?|$)/,
   // WeldBooks: the workspace's accounting settings row, created on first read.
   /^\/api\/accounting-settings(\?|$)/,
+  // WeldBooks payment runs: the NACHA file marks its run exported, and it, the
+  // MICR print data and the Positive Pay file log the account numbers they reveal.
+  /^\/api\/payment-runs\/[^/?]+\/(nacha|checks)(\?|$)/,
+  /^\/api\/payment-runs\/positive-pay(\?|$)/,
 ];
 
 interface ConformanceContext {
@@ -596,6 +605,8 @@ export function conformanceTenantDb<T>(db: T): T {
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 /** A WeldSign signing link (`<portal>/r/<token>`): the token is 32 random bytes, new per run. */
 const SIGN_LINK = /\/r\/[A-Za-z0-9_-]{43}$/;
+/** A WeldBooks W-9 request link (`<platform>/w9/<token>`): the token is 32 random bytes, new per run. */
+const W9_LINK = /\/w9\/[A-Za-z0-9_-]{43}$/;
 /** The random segment of a chat attachment's object key. */
 const CHAT_FILE_SEGMENT = /\/files\/[0-9a-f]{32}\//g;
 /** A generated id in a link: a path segment or a parameter value. */
@@ -717,6 +728,7 @@ function normalizeSignedValue(value: string, key: string | undefined): string | 
   if (key === 'session' && SIGNER_SESSION.test(value)) return '<session>';
   // "Sign now" answers a fresh link, new per run by construction.
   if (key === 'url' && SIGN_LINK.test(value)) return value.replace(SIGN_LINK, '/r/<token>');
+  if (key === 'url' && W9_LINK.test(value)) return value.replace(W9_LINK, '/w9/<token>');
   if (key === 'keyPrefix' && API_KEY_PREFIX.test(value)) return '<key-prefix>';
   return undefined;
 }

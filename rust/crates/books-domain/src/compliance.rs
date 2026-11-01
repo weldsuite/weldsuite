@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use serde_json::Value;
 use weldsuite_db::PgPool;
+use weldsuite_ports::OutboundHttp;
 
 use crate::js::truthy;
 use crate::jurisdictions::js_trim;
@@ -143,20 +144,21 @@ pub struct ViesCheck {
     pub valid: bool,
 }
 
-/// `checkVatNumber(db, vatNumber)`. **Boundary with the purchases area**,
-/// which ports `@weldsuite/books-domain/vies` (the EU VIES service over
-/// outbound HTTP, cached in `vies_checks`) and replaces this body. Until then
-/// VIES reads as unavailable: a reverse-charge invoice is finalized with the
-/// "could not verify" warning, as on Global while VIES is down.
-#[allow(
-    clippy::unused_async,
-    reason = "the VIES port awaits; the signature is the boundary"
-)]
-pub async fn check_vat_number(_db: &PgPool, _vat_number: &str) -> ViesCheck {
-    ViesCheck {
-        available: false,
-        valid: false,
-    }
+/// `checkVatNumber(db, vatNumber)`: the buyer's VAT number against VIES
+/// ([`crate::vies`], through the outbound HTTP port, cached in
+/// `vies_checks`). Without the port VIES reads as unavailable: a
+/// reverse-charge invoice is finalized with the "could not verify" warning, as
+/// on Global while VIES is down.
+pub async fn check_vat_number(
+    db: &PgPool,
+    http: Option<&OutboundHttp>,
+    vat_number: &str,
+) -> Result<ViesCheck, sqlx::Error> {
+    let result = crate::vies::check_vat_number(db, http, vat_number).await?;
+    Ok(ViesCheck {
+        available: result.available,
+        valid: result.valid,
+    })
 }
 
 /// `ComplianceCheckResult`.
@@ -196,6 +198,7 @@ fn label(labels: &Value, field: &str) -> String {
 /// finalized. `entity` and `invoice` are rows as Drizzle returns them.
 pub async fn validate_invoice_for_finalize(
     db: &PgPool,
+    http: Option<&OutboundHttp>,
     entity: &Value,
     invoice: &Value,
     categories: &BTreeSet<String>,
@@ -246,7 +249,7 @@ pub async fn validate_invoice_for_finalize(
         match buyer.as_deref().filter(|v| !v.is_empty()) {
             None => check.errors.push("Reverse-charge / intracommunautaire invoices require the customer's VAT number on their company record.".to_owned()),
             Some(vat) => {
-                let vies = check_vat_number(db, vat).await;
+                let vies = check_vat_number(db, http, vat).await?;
                 if vies.available && !vies.valid {
                     check.errors.push(format!("Customer VAT number {vat} failed VIES validation — the 0% reverse-charge treatment is not allowed with an invalid number."));
                 } else if !vies.available {

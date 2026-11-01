@@ -81,6 +81,10 @@ pub(crate) const UNAVAILABLE_FEATURES: &[&str] = &[
     // by hand and marked as filed (`POST …/filings/:id/submit` answers
     // DIGIPOORT_NOT_CONFIGURED, as the worker without the binding does).
     "payroll-digipoort",
+    // WeldBooks document OCR (`POST /api/accounting-documents/:id/process`)
+    // reads the file with a model on Workers AI; the route keeps its refusals
+    // and answers 503 where it would call the model.
+    "books-ocr",
 ];
 
 /// The public settings `PUBLIC_ENV` may carry into `/config.json`'s `env`,
