@@ -309,9 +309,10 @@ fn connect(router: Router<AppState>, state: &AppState) -> Router<AppState> {
                 realtime: state.infra.realtime.clone(),
                 http: shared_outbound(),
                 runs: Some(Arc::new(weldsuite_connect::JobsWorkflowRuns { jobs })),
-                env: Arc::new(weldsuite_connect::env_from_process()),
+                env: Arc::new(weldsuite_connect::engine::env_from_process()),
                 events: state.infra.events.clone(),
                 master: Some(state.workspaces.master().clone()),
+                outbound: deployment_outbound(state),
             },
         });
     router.merge(weldsuite_connect::router(

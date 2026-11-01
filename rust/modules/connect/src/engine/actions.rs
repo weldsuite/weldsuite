@@ -14,6 +14,9 @@ use super::steps::RunInfo;
 use super::{EngineDeps, engine_id, now_ms, now_text};
 use crate::js::{as_text, js_number, js_string, truthy};
 
+mod comms;
+mod helpdesk;
+mod providers;
 mod records;
 
 /// A failed action: its message, its error class (`Error`,
@@ -89,35 +92,10 @@ type ActionResult = Result<Value, ActionError>;
 /// The step types the Kubernetes editions don't run yet. A run reaching
 /// one fails that step, without retries, with a message that says so.
 const NOT_YET: &[&str] = &[
-    "send_email",
-    "send_sms",
-    "slack_message",
     "create_record",
     "update_record",
     "delete_record",
     "query_data",
-    "slack.post_message",
-    "google_sheets.append_row",
-    "google_sheets.update_row",
-    "gmail.send_email",
-    "google_calendar.create_event",
-    "teams.post_message",
-    "twilio.send_sms",
-    "notion.create_page",
-    "notion.update_page",
-    "airtable.create_record",
-    "airtable.update_record",
-    "github.create_issue",
-    "github.create_comment",
-    "asana.create_task",
-    "asana.update_task",
-    "create_conversation",
-    "assign_conversation",
-    "tag_conversation",
-    "change_conversation_status",
-    "change_priority",
-    "send_reply",
-    "add_internal_note",
 ];
 
 /// The AI steps: Workers AI, which the Kubernetes editions lack
@@ -151,6 +129,31 @@ pub(crate) async fn execute_action(
         "log_activity" => records::log_activity(inputs, ctx).await,
         "post_chat_message" => records::post_chat_message(inputs, ctx).await,
         "create_task" => records::create_task(inputs, ctx).await,
+        "send_email" => comms::send_email(inputs, ctx).await,
+        "create_conversation" => helpdesk::create_conversation(inputs, ctx).await,
+        "assign_conversation" => helpdesk::assign_conversation(inputs, ctx).await,
+        "tag_conversation" => helpdesk::tag_conversation(inputs, ctx).await,
+        "change_conversation_status" => helpdesk::change_status(inputs, ctx).await,
+        "change_priority" => helpdesk::change_priority(inputs, ctx).await,
+        "send_reply" => helpdesk::send_reply(inputs, ctx).await,
+        "add_internal_note" => helpdesk::add_internal_note(inputs, ctx).await,
+        "send_sms" => comms::send_sms(inputs, ctx).await,
+        "slack_message" => providers::slack_message(inputs, ctx).await,
+        "slack.post_message" => providers::slack_post_message(inputs, ctx).await,
+        "google_sheets.append_row" => providers::sheets_append_row(inputs, ctx).await,
+        "google_sheets.update_row" => providers::sheets_update_row(inputs, ctx).await,
+        "gmail.send_email" => providers::gmail_send_email(inputs, ctx).await,
+        "google_calendar.create_event" => providers::calendar_create_event(inputs, ctx).await,
+        "teams.post_message" => providers::teams_post_message(inputs, ctx).await,
+        "twilio.send_sms" => providers::twilio_send_sms(inputs, ctx).await,
+        "notion.create_page" => providers::notion_create_page(inputs, ctx).await,
+        "notion.update_page" => providers::notion_update_page(inputs, ctx).await,
+        "airtable.create_record" => providers::airtable_record(inputs, ctx, false).await,
+        "airtable.update_record" => providers::airtable_record(inputs, ctx, true).await,
+        "github.create_issue" => providers::github_create_issue(inputs, ctx).await,
+        "github.create_comment" => providers::github_create_comment(inputs, ctx).await,
+        "asana.create_task" => providers::asana_create_task(inputs, ctx).await,
+        "asana.update_task" => providers::asana_update_task(inputs, ctx).await,
         _ if AI_STEPS.contains(&kind) => Err(ActionError::fatal(
             "AI steps are not available on this deployment",
         )),

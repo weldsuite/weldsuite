@@ -88,6 +88,10 @@ fn normalise(value: &Value, key: &str) -> Value {
             if is_iso(text) && !is_seeded(text) {
                 return json!("<ts>");
             }
+            // A Message-ID a send made: `<hex32@domain>`.
+            if regex_lite(r"^<[0-9a-f]{32}@[^>]+>$").is_match(text) {
+                return json!("<message-id>");
+            }
             let text = generated_ids(text);
             let completed = regex_lite(r"^Completed in [0-9]+ms");
             json!(completed.replace(&text, "Completed in <n>ms"))
@@ -141,11 +145,11 @@ struct StubHttp {
 
 impl DynOutboundHttp for StubHttp {
     fn send(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, PortError>> {
-        let body = request
-            .body
-            .as_deref()
-            .and_then(|b| serde_json::from_slice::<Value>(b).ok())
-            .unwrap_or(Value::Null);
+        // JSON bodies parsed; a form body (Twilio, a token refresh) as its text.
+        let body = request.body.as_deref().map_or(Value::Null, |b| {
+            serde_json::from_slice::<Value>(b)
+                .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(b).into_owned()))
+        });
         self.calls
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -282,6 +286,15 @@ impl JobContext for TestCtx {
 // The runs
 // ---------------------------------------------------------------------------
 
+fn bare(value: &str) -> String {
+    value
+        .split_once('<')
+        .and_then(|(_, rest)| rest.split_once('>'))
+        .map_or(value, |(inner, _)| inner)
+        .trim()
+        .to_lowercase()
+}
+
 async fn rows(db: &PgPool, query: &str) -> Value {
     sqlx::query_scalar::<_, Value>(sqlx::AssertSqlSafe(format!(
         "select coalesce(jsonb_agg(to_jsonb(q)), '[]'::jsonb) from ({query}) q"
@@ -309,6 +322,7 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
     });
     let runs = Arc::new(RecordingRuns::default());
     let bus = Arc::new(weldsuite_ports::RecordingEventBus::default());
+    let mail = Arc::new(weldsuite_ports::RecordingMailTransport::default());
     let pool = db.clone();
     let tenants: TenantDatabases = Arc::new(move |_| {
         let pool = pool.clone();
@@ -319,12 +333,19 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
         realtime: Some(Arc::clone(&realtime) as Arc<dyn DynRealtimePublisher>),
         http: Some(OutboundHttp(Arc::clone(&http) as Arc<dyn DynOutboundHttp>)),
         runs: Some(Arc::clone(&runs) as Arc<dyn WorkflowRuns>),
-        env: Arc::new(HashMap::new()),
+        env: Arc::new(HashMap::from([(
+            "TELNYX_API_KEY".to_owned(),
+            "telnyx-key".to_owned(),
+        )])),
         events: weldsuite_events::EntityEventPublisher::new(
             Some(Arc::clone(&bus) as Arc<dyn weldsuite_ports::DynEventBus>),
             weldsuite_events::TaskTracker::new(),
         ),
         master: None,
+        outbound: weldsuite_mail_domain::outbound::OutboundBindings {
+            transport: Some(Arc::clone(&mail) as Arc<dyn weldsuite_ports::MailTransport>),
+            ..weldsuite_mail_domain::outbound::OutboundBindings::default()
+        },
     };
     let ctx = TestCtx {
         key: input["instanceId"].as_str().unwrap().to_owned(),
@@ -388,6 +409,12 @@ async fn run_case(db: &PgPool, clear: &[Value], case: &Value) -> Value {
                 })
                 .collect::<Vec<_>>(),
             "inspected": inspected,
+            // Bare addresses, lowercased, as the generator records them.
+            "mail": mail
+                .sent()
+                .into_iter()
+                .map(|sent| json!({ "from": bare(&sent.envelope.from), "to": bare(&sent.envelope.to) }))
+                .collect::<Vec<_>>(),
         }),
         "",
     )

@@ -96,8 +96,11 @@ pub struct EngineDeps {
     /// The entity events the WeldSuite record actions publish (connect-api's
     /// `ENTITY_EVENTS`, which runs them on Global).
     pub events: EntityEventPublisher,
-    /// The master database: the calendar re-plan's due index (`create_task`).
+    /// The master database: the calendar re-plan's due index (`create_task`)
+    /// and `send_email`'s sender-ownership check.
     pub master: Option<PgPool>,
+    /// Customer mail and the outbound guard's ledgers (`send_email`).
+    pub outbound: weldsuite_mail_domain::outbound::OutboundBindings,
 }
 
 impl std::fmt::Debug for EngineDeps {
@@ -1091,4 +1094,21 @@ mod tests {
         assert_eq!(decision["comment"], json!("ok"));
         assert_eq!(decision["decidedByName"], Value::Null);
     }
+}
+
+/// The env values only the engine's steps read, beside the module's
+/// [`crate::ENV_NAMES`]: `TELNYX_API_KEY` (`send_sms`) and
+/// `PERMISSIONS_APP_ENFORCE` (the record steps' owner check).
+pub const ENGINE_ENV_NAMES: &[&str] = &["TELNYX_API_KEY", "PERMISSIONS_APP_ENFORCE"];
+
+/// [`crate::ENV_NAMES`] and [`ENGINE_ENV_NAMES`] from the process
+/// environment, for [`EngineDeps::env`].
+pub fn env_from_process() -> HashMap<String, String> {
+    let mut env = crate::env_from_process();
+    for name in ENGINE_ENV_NAMES {
+        if let Ok(value) = std::env::var(name) {
+            env.insert((*name).to_owned(), value);
+        }
+    }
+    env
 }

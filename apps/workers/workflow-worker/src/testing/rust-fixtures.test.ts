@@ -52,6 +52,8 @@ type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
 const ISO = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}/;
 const SEEDED = /^2026-10-0[1-3][T ]09:00:00/;
+/** A Message-ID a send made: `<hex32@domain>`. */
+const MESSAGE_ID = /^<[0-9a-f]{32}@[^>]+>$/;
 const GENERATED = /\b(wex|wes|wel|notif|msg)_[0-9A-Za-z]{24}\b/g;
 /** `generateId(prefix)`: the prefix, `_`, 16 base-36 characters. */
 const GENERATED_SHORT = /\b([a-z]+)_[0-9a-z]{16}\b/g;
@@ -73,6 +75,7 @@ export function normalise(value: unknown, key = ''): Json {
   if (typeof value === 'number' && VOLATILE_NUMBERS.has(key)) return '<n>';
   if (typeof value === 'string') {
     if (ISO.test(value) && !SEEDED.test(value)) return '<ts>';
+    if (MESSAGE_ID.test(value)) return '<message-id>';
     return value
       .replaceAll(GENERATED, '<id:$1>')
       .replaceAll(GENERATED_SHORT, '<id:$1>')
@@ -110,11 +113,29 @@ const CLEAR = [
   'delete from task_number_sequences',
   'delete from project_members',
   'delete from projects',
+  'delete from workflow_integrations',
+  'delete from helpdesk_conversation_messages',
+  'delete from helpdesk_conversations',
+  'delete from helpdesk_agents',
+  'delete from mail_correspondents',
+  'delete from mail_accounts',
 ];
 
 const MEMBERS = `insert into workspace_members (id, user_id, email, name, role)
   values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),
          ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')`;
+
+/** The connected integrations the provider steps use (plain tokens: no keyring in the fixtures). */
+const INTEGRATIONS = `insert into workflow_integrations (id, name, type, status, credentials, oauth_tokens)
+  values ('win_slack', 'Slack', 'slack', 'connected', null, '{"accessToken":"xoxb-1"}'::jsonb),
+         ('win_sheets', 'Sheets', 'google_sheets', 'connected', null, '{"accessToken":"ya29.s"}'::jsonb),
+         ('win_gmail', 'Gmail', 'gmail', 'connected', null, '{"accessToken":"ya29.g"}'::jsonb),
+         ('win_cal', 'Calendar', 'google_calendar', 'connected', null, '{"accessToken":"ya29.c"}'::jsonb),
+         ('win_teams', 'Teams', 'teams', 'connected', '{"webhookUrl":"https://teams.example.com/hook"}'::jsonb, null),
+         ('win_twilio', 'Twilio', 'twilio', 'connected', '{"accountSid":"AC1","authToken":"tok","fromNumber":"+15550001"}'::jsonb, null),
+         ('win_notion', 'Notion', 'notion', 'connected', '{"token":"secret_n"}'::jsonb, null),
+         ('win_airtable', 'Airtable', 'airtable', 'connected', '{"token":"pat_a"}'::jsonb, null),
+         ('win_asana', 'Asana', 'asana', 'connected', '{"token":"asana_t"}'::jsonb, null)`;
 
 const sqlText = (value: unknown) => `'${JSON.stringify(value).replaceAll("'", "''")}'::jsonb`;
 
@@ -475,7 +496,216 @@ const CASES: Case[] = [
     ],
     params: { workspaceId: 'org_test', userId: 'system', workflowId: 'wf_records_ownerless', triggerType: 'schedule' },
   },
+  {
+    name: 'third-party steps through the connected integrations, and Telnyx',
+    instanceId: 'inst_providers',
+    seed: [
+      MEMBERS,
+      INTEGRATIONS,
+      workflowRow('wf_providers', [
+        { id: 's1', type: 'slack.post_message', config: { channel: 'C1', text: 'Hi {{trigger.name}}' } },
+        { id: 's2', type: 'slack_message', config: { channel: '#general', text: 'Legacy' } },
+        {
+          id: 's3',
+          type: 'google_sheets.append_row',
+          config: { spreadsheetId: 'sheet 1', sheetName: 'Leads', columnMapping: { A: 'Ada', C: '{{trigger.name}}' } },
+        },
+        {
+          id: 's4',
+          type: 'google_sheets.update_row',
+          config: { spreadsheetId: 'sheet1', lookupColumn: 'B', lookupValue: 'x2', columnMapping: '{"C":"done"}' },
+        },
+        {
+          id: 's5',
+          type: 'gmail.send_email',
+          config: { to: 'a@example.com; Bo <b@example.com>', subject: 'Hello', body: 'Line 1\nLine <2>', isHtml: false },
+        },
+        {
+          id: 's6',
+          type: 'google_calendar.create_event',
+          config: {
+            summary: 'Kickoff',
+            startDateTime: '2026-12-01T10:00:00Z',
+            endDateTime: '2026-12-01T11:00:00Z',
+            attendees: 'x@example.com, y@example.com',
+            description: 'Agenda',
+          },
+        },
+        { id: 's7', type: 'teams.post_message', config: { text: 'Ping', title: 'Heads up' } },
+        { id: 's8', type: 'twilio.send_sms', config: { to: '+15550002', body: 'Yo' } },
+        {
+          id: 's9',
+          type: 'notion.create_page',
+          config: { databaseId: 'db1', title: 'Page', properties: '{"Status":{"select":{"name":"Open"}}}' },
+        },
+        { id: 's10', type: 'airtable.create_record', config: { baseId: 'app1', tableId: 'Leads Table', fields: { Name: 'Ada' } } },
+        { id: 's11', type: 'airtable.update_record', config: { baseId: 'app1', tableId: 'tbl1', recordId: 'rec1', fields: '{"Done":true}' } },
+        { id: 's12', type: 'asana.create_task', config: { name: 'Follow up', projectId: 'p1', dueOn: '2026-12-01' } },
+        { id: 's13', type: 'asana.update_task', config: { taskId: 'as1', completed: true, name: 'Done' } },
+        { id: 's14', type: 'notion.update_page', config: { pageId: 'pg1', properties: { Done: { checkbox: true } } } },
+        { id: 's15', type: 'send_sms', config: { to: '+15550003', message: 'SMS {{trigger.name}}', from: '+15550009' } },
+        { id: 's16', type: 'github.create_issue', continueOnError: true, config: { repo: 'not-a-repo', title: 'x' } },
+      ]),
+    ],
+    params: { ...RUN, workflowId: 'wf_providers', triggerType: 'manual', triggerData: { name: 'Ann' } },
+    http: {
+      'https://slack.com/api/chat.postMessage': { status: 200, body: { ok: true, channel: 'C1', ts: '1700.01' } },
+      'https://slack.com/api/chat.getPermalink?channel=C1&message_ts=1700.01': {
+        status: 200,
+        body: { ok: true, permalink: 'https://acme.slack.com/p1' },
+      },
+      'https://sheets.googleapis.com/v4/spreadsheets/sheet%201/values/Leads!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS':
+        { status: 200, body: { updates: { updatedRange: 'Leads!A2:C2', updatedRows: 1 } } },
+      'https://sheets.googleapis.com/v4/spreadsheets/sheet1/values/Sheet1!B%3AB': {
+        status: 200,
+        body: { values: [['x1'], ['x2']] },
+      },
+      'https://sheets.googleapis.com/v4/spreadsheets/sheet1/values:batchUpdate': { status: 200, body: { totalUpdatedCells: 1 } },
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/send': { status: 200, body: { id: 'g1', threadId: 't1' } },
+      'https://www.googleapis.com/calendar/v3/calendars/primary/events': {
+        status: 200,
+        body: { id: 'ev1', htmlLink: 'https://calendar.example.com/ev1' },
+      },
+      'https://teams.example.com/hook': { status: 200, body: {} },
+      'https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json': { status: 201, body: { sid: 'SM1' } },
+      'https://api.notion.com/v1/pages': { status: 200, body: { id: 'pg1', url: 'https://notion.so/pg1' } },
+      'https://api.notion.com/v1/pages/pg1': { status: 200, body: { id: 'pg1' } },
+      'https://api.airtable.com/v0/app1/Leads%20Table': { status: 200, body: { id: 'rec1' } },
+      'https://api.airtable.com/v0/app1/tbl1/rec1': { status: 200, body: { id: 'rec1' } },
+      'https://app.asana.com/api/1.0/tasks': { status: 201, body: { data: { gid: 'as1' } } },
+      'https://app.asana.com/api/1.0/tasks/as1': { status: 200, body: { data: { gid: 'as1' } } },
+      'https://api.telnyx.com/v2/messages': { status: 200, body: { data: { id: 'tx1' } } },
+    },
+  },
+  {
+    name: 'provider refusals: Slack, Google, Notion, Airtable, Twilio, a missing integration',
+    instanceId: 'inst_providers_refused',
+    seed: [
+      MEMBERS,
+      INTEGRATIONS,
+      workflowRow(
+        'wf_providers_refused',
+        [
+          { id: 's1', type: 'slack.post_message', continueOnError: true, config: { channel: 'C9', text: 'Hi' } },
+          {
+            id: 's2',
+            type: 'google_sheets.append_row',
+            continueOnError: true,
+            config: { spreadsheetId: 'locked', columnMapping: { A: 1 } },
+          },
+          {
+            id: 's3',
+            type: 'notion.update_page',
+            continueOnError: true,
+            retryPolicy: { maxAttempts: 1 },
+            config: { pageId: 'pg9', properties: {} },
+          },
+          {
+            id: 's4',
+            type: 'airtable.create_record',
+            continueOnError: true,
+            retryPolicy: { maxAttempts: 1 },
+            config: { baseId: 'app9', tableId: 't9', fields: {} },
+          },
+          {
+            id: 's5',
+            type: 'twilio.send_sms',
+            continueOnError: true,
+            retryPolicy: { maxAttempts: 1 },
+            config: { to: '+1', body: 'x' },
+          },
+          {
+            id: 's6',
+            type: 'google_calendar.create_event',
+            continueOnError: true,
+            config: { summary: 'S', startDateTime: '2026-12-01T10:00', endDateTime: '2026-12-01T11:00' },
+          },
+          { id: 's7', type: 'google_sheets.update_row', continueOnError: true, config: { spreadsheetId: 's', columnMapping: { '1': 'x' } } },
+          { id: 's8', type: 'gmail.send_email', continueOnError: true, config: { to: 'nope', subject: 's', body: 'b' } },
+          {
+            id: 's9',
+            type: 'asana.create_task',
+            retryPolicy: { maxAttempts: 1 },
+            config: { name: 'T', workspaceId: 'w1', integrationId: 'win_gone' },
+          },
+        ],
+        { settings: { notifyOnError: false } },
+      ),
+    ],
+    params: { ...RUN, workflowId: 'wf_providers_refused', triggerType: 'manual' },
+    http: {
+      'https://slack.com/api/chat.postMessage': { status: 200, body: { ok: false, error: 'not_in_channel' } },
+      'https://sheets.googleapis.com/v4/spreadsheets/locked/values/Sheet1!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS':
+        {
+          status: 403,
+          body: { error: { code: 403, message: 'The caller does not have permission', errors: [{ reason: 'forbidden' }] } },
+        },
+      'https://api.notion.com/v1/pages/pg9': { status: 400, body: { message: 'body failed validation' } },
+      'https://api.airtable.com/v0/app9/t9': { status: 422, body: { error: { type: 'INVALID_REQUEST' } } },
+      'https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json': {
+        status: 400,
+        body: { error_message: "The 'To' number +1 is not valid" },
+      },
+    },
+  },
+  {
+    name: 'send_email from the default mailbox through the outbound guard; a step with no mailbox',
+    instanceId: 'inst_email',
+    seed: [
+      MEMBERS,
+      `insert into mail_accounts (id, name, email, display_name, status, is_default)
+        values ('mac_1', 'Sales', 'sales@acme.test', 'Acme Sales', 'active', true),
+               ('mac_2', 'Support', 'support@acme.test', null, 'active', false)`,
+      workflowRow('wf_email', [
+        {
+          id: 's1',
+          type: 'send_email',
+          config: { to: ['ann@example.com', 'Bo <bo@example.com>'], cc: 'cc@example.com', subject: ' Welcome ', body: '<p>Hi <b>Ann</b></p>' },
+        },
+        { id: 's2', type: 'send_email', config: { to: 'cy@example.com', subject: 'Plain', body: 'a\nb', isHtml: false, from: 'support@acme.test' } },
+        { id: 's3', type: 'send_email', continueOnError: true, config: { to: 'bad address', subject: 'x' } },
+        { id: 's4', type: 'send_email', continueOnError: true, config: { to: 'd@example.com', subject: '  ' } },
+        { id: 's5', type: 'send_email', config: { to: 'e@example.com', subject: 'Who', from: 'nobody@acme.test' } },
+      ]),
+    ],
+    params: { ...RUN, workflowId: 'wf_email', triggerType: 'manual' },
+  },
+  {
+    name: 'legacy helpdesk conversation steps (assign, tags, status, priority, reply, note)',
+    instanceId: 'inst_helpdesk',
+    seed: [
+      MEMBERS,
+      `insert into helpdesk_conversations (id, conversation_number, customer_name, subject, tags)
+        values ('hcv_1', 'C-1', 'Cy', 'Help', '["old"]'::jsonb)`,
+      `insert into helpdesk_agents (id, user_id, name, email, status, tickets_assigned, current_active_tickets)
+        values ('hag_1', 'user_approver', 'Ann', 'ann@example.com', 'active', 3, 1),
+               ('hag_2', 'user_owner', 'Owner', 'owner@example.com', 'active', 1, 2)`,
+      workflowRow('wf_helpdesk', [
+        { id: 's1', type: 'assign_conversation', config: { strategy: 'round_robin' } },
+        { id: 's2', type: 'tag_conversation', config: { tags: ['vip', 'old', 'billing'] } },
+        { id: 's3', type: 'tag_conversation', config: { mode: 'remove', tags: ['vip'] } },
+        { id: 's4', type: 'change_conversation_status', config: { status: 'resolved' } },
+        { id: 's5', type: 'change_priority', config: { priority: 'high' } },
+        { id: 's6', type: 'send_reply', config: { message: 'Thanks', authorType: 'agent' } },
+        { id: 's7', type: 'add_internal_note', config: { content: 'Escalated' } },
+        { id: 's8', type: 'assign_conversation', config: { strategy: 'specific_agent', agentId: 'user_x', agentName: 'Xi' } },
+      ]),
+    ],
+    params: {
+      ...RUN,
+      workflowId: 'wf_helpdesk',
+      triggerType: 'entity_event',
+      triggerData: { entityType: 'helpdesk_conversation', entityId: 'hcv_1' },
+    },
+    inspect: [
+      'select status, priority, tags, assignee_id, assignee_name, (resolved_at is not null) as resolved from helpdesk_conversations',
+      `select content, author_type, author_id, author_name, type, is_public, is_internal, status
+         from helpdesk_conversation_messages order by type`,
+      'select id, tickets_assigned, current_active_tickets from helpdesk_agents order by id',
+    ],
+  },
 ];
+
 
 // ---------------------------------------------------------------------------
 // The run
@@ -504,7 +734,15 @@ async function runCase(db: Database, c: Case): Promise<Json> {
     'fetch',
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      // JSON bodies parsed; a form body (Twilio, a token refresh) as its text.
+      let body: unknown = null;
+      if (init?.body) {
+        try {
+          body = JSON.parse(String(init.body));
+        } catch {
+          body = String(init.body);
+        }
+      }
       calls.push({ method: (init?.method ?? 'GET').toUpperCase(), url, body });
       const stub = c.http?.[url];
       if (!stub) return new Response('not stubbed', { status: 599 });
@@ -535,7 +773,39 @@ async function runCase(db: Database, c: Case): Promise<Json> {
     request(path: string, init: RequestInit, env: unknown, ctx: unknown): Promise<Response>;
   };
 
+  // app-api's `/api/internal/send-email` (send_email), over `APP_API_INTERNAL`,
+  // with a `SEND_EMAIL` binding that keeps each envelope.
+  const mail: Array<{ from: string; to: string }> = [];
+  const appApp = (await appApiInternalRoutes()) as typeof connectApp;
+  const appEnv = {
+    INTERNAL_API_SECRET: 'fixture-secret',
+    SEND_EMAIL: {
+      send: async (message: { from: string; to: string }) => {
+        mail.push({ from: bareAddress(message.from), to: bareAddress(message.to) });
+      },
+    },
+  };
+
   const env = {
+    TELNYX_API_KEY: 'telnyx-key',
+    APP_API_INTERNAL: {
+      fetch: async (url: string, init: RequestInit) => {
+        const pending: Array<Promise<unknown>> = [];
+        const executionCtx = {
+          waitUntil: (promise: Promise<unknown>) => pending.push(promise),
+          passThroughOnException: () => {},
+          props: {},
+        };
+        const response = await appApp.request(
+          new URL(url).pathname.replace('/api/internal', ''),
+          { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: 'Bearer fixture-secret' } },
+          appEnv,
+          executionCtx,
+        );
+        await Promise.allSettled(pending);
+        return response;
+      },
+    },
     CONNECT_INTERNAL: {
       fetch: async (url: string, init: RequestInit) => {
         const pending: Array<Promise<unknown>> = [];
@@ -644,7 +914,21 @@ async function runCase(db: Database, c: Case): Promise<Json> {
       return rest;
     }),
     inspected: await Promise.all((c.inspect ?? []).map((query) => rows(query))),
+    // Customer mail sent (send_email): one envelope per recipient.
+    mail,
   });
+}
+
+/** `Name <a@b>` → `a@b`, lowercased. */
+function bareAddress(value: string): string {
+  return (/<([^>]+)>/.exec(value)?.[1] ?? value).trim().toLowerCase();
+}
+
+/** app-api's internal routes (another worker's code, loaded by path). */
+async function appApiInternalRoutes(): Promise<unknown> {
+  const modulePath = path.resolve(import.meta.dirname, '../../../app-api/src/routes/internal/index.ts');
+  const loaded = (await import(/* @vite-ignore */ modulePath)) as { internalRoutes: unknown };
+  return loaded.internalRoutes;
 }
 
 /** connect-api's internal action routes (another worker's code: loaded by path, outside this package's types). */

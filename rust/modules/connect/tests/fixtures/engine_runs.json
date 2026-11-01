@@ -23,7 +23,13 @@
     "delete from tasks",
     "delete from task_number_sequences",
     "delete from project_members",
-    "delete from projects"
+    "delete from projects",
+    "delete from workflow_integrations",
+    "delete from helpdesk_conversation_messages",
+    "delete from helpdesk_conversations",
+    "delete from helpdesk_agents",
+    "delete from mail_correspondents",
+    "delete from mail_accounts"
   ],
   "cases": [
     {
@@ -142,6 +148,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": true
@@ -574,6 +581,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": true
@@ -944,6 +952,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": true
@@ -1293,6 +1302,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [
           {
             "action_url": "/weldconnect/executions/<id:wex>",
@@ -1572,6 +1582,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": false
@@ -1846,6 +1857,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [
           {
             "action_url": "/weldconnect/executions/<id:wex>",
@@ -2165,6 +2177,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [
           {
             "action_url": "/weldconnect/executions/<id:wex>",
@@ -2496,6 +2509,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [
           {
             "action_url": "/weldconnect/executions/<id:wex>",
@@ -2772,6 +2786,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": true
@@ -2927,6 +2942,7 @@
             "name": "cancel-skipped-execution"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "skipped": "Workflow not active"
@@ -3023,6 +3039,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": true
@@ -3225,6 +3242,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": true
@@ -3448,6 +3466,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [
           {
             "action_url": "/weldconnect/executions/<id:wex>",
@@ -3696,6 +3715,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [
           {
             "action_url": null,
@@ -4559,6 +4579,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [
           {
             "action_url": "/weldchat/chan_general?messageId=<id:msg>",
@@ -5387,6 +5408,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": false
@@ -5718,6 +5740,7 @@
             "name": "finalize"
           }
         ],
+        "mail": [],
         "notifications": [],
         "outcome": {
           "succeeded": false
@@ -5810,6 +5833,3344 @@
             "id": "wf_records_ownerless",
             "ran": true,
             "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "third-party steps through the connected integrations, and Telnyx",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflow_integrations (id, name, type, status, credentials, oauth_tokens)\n  values ('win_slack', 'Slack', 'slack', 'connected', null, '{\"accessToken\":\"xoxb-1\"}'::jsonb),\n         ('win_sheets', 'Sheets', 'google_sheets', 'connected', null, '{\"accessToken\":\"ya29.s\"}'::jsonb),\n         ('win_gmail', 'Gmail', 'gmail', 'connected', null, '{\"accessToken\":\"ya29.g\"}'::jsonb),\n         ('win_cal', 'Calendar', 'google_calendar', 'connected', null, '{\"accessToken\":\"ya29.c\"}'::jsonb),\n         ('win_teams', 'Teams', 'teams', 'connected', '{\"webhookUrl\":\"https://teams.example.com/hook\"}'::jsonb, null),\n         ('win_twilio', 'Twilio', 'twilio', 'connected', '{\"accountSid\":\"AC1\",\"authToken\":\"tok\",\"fromNumber\":\"+15550001\"}'::jsonb, null),\n         ('win_notion', 'Notion', 'notion', 'connected', '{\"token\":\"secret_n\"}'::jsonb, null),\n         ('win_airtable', 'Airtable', 'airtable', 'connected', '{\"token\":\"pat_a\"}'::jsonb, null),\n         ('win_asana', 'Asana', 'asana', 'connected', '{\"token\":\"asana_t\"}'::jsonb, null)",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_providers', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_providers', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"slack.post_message\",\"config\":{\"channel\":\"C1\",\"text\":\"Hi {{trigger.name}}\"}},{\"id\":\"s2\",\"type\":\"slack_message\",\"config\":{\"channel\":\"#general\",\"text\":\"Legacy\"}},{\"id\":\"s3\",\"type\":\"google_sheets.append_row\",\"config\":{\"spreadsheetId\":\"sheet 1\",\"sheetName\":\"Leads\",\"columnMapping\":{\"A\":\"Ada\",\"C\":\"{{trigger.name}}\"}}},{\"id\":\"s4\",\"type\":\"google_sheets.update_row\",\"config\":{\"spreadsheetId\":\"sheet1\",\"lookupColumn\":\"B\",\"lookupValue\":\"x2\",\"columnMapping\":\"{\\\"C\\\":\\\"done\\\"}\"}},{\"id\":\"s5\",\"type\":\"gmail.send_email\",\"config\":{\"to\":\"a@example.com; Bo <b@example.com>\",\"subject\":\"Hello\",\"body\":\"Line 1\\nLine <2>\",\"isHtml\":false}},{\"id\":\"s6\",\"type\":\"google_calendar.create_event\",\"config\":{\"summary\":\"Kickoff\",\"startDateTime\":\"2026-12-01T10:00:00Z\",\"endDateTime\":\"2026-12-01T11:00:00Z\",\"attendees\":\"x@example.com, y@example.com\",\"description\":\"Agenda\"}},{\"id\":\"s7\",\"type\":\"teams.post_message\",\"config\":{\"text\":\"Ping\",\"title\":\"Heads up\"}},{\"id\":\"s8\",\"type\":\"twilio.send_sms\",\"config\":{\"to\":\"+15550002\",\"body\":\"Yo\"}},{\"id\":\"s9\",\"type\":\"notion.create_page\",\"config\":{\"databaseId\":\"db1\",\"title\":\"Page\",\"properties\":\"{\\\"Status\\\":{\\\"select\\\":{\\\"name\\\":\\\"Open\\\"}}}\"}},{\"id\":\"s10\",\"type\":\"airtable.create_record\",\"config\":{\"baseId\":\"app1\",\"tableId\":\"Leads Table\",\"fields\":{\"Name\":\"Ada\"}}},{\"id\":\"s11\",\"type\":\"airtable.update_record\",\"config\":{\"baseId\":\"app1\",\"tableId\":\"tbl1\",\"recordId\":\"rec1\",\"fields\":\"{\\\"Done\\\":true}\"}},{\"id\":\"s12\",\"type\":\"asana.create_task\",\"config\":{\"name\":\"Follow up\",\"projectId\":\"p1\",\"dueOn\":\"2026-12-01\"}},{\"id\":\"s13\",\"type\":\"asana.update_task\",\"config\":{\"taskId\":\"as1\",\"completed\":true,\"name\":\"Done\"}},{\"id\":\"s14\",\"type\":\"notion.update_page\",\"config\":{\"pageId\":\"pg1\",\"properties\":{\"Done\":{\"checkbox\":true}}}},{\"id\":\"s15\",\"type\":\"send_sms\",\"config\":{\"to\":\"+15550003\",\"message\":\"SMS {{trigger.name}}\",\"from\":\"+15550009\"}},{\"id\":\"s16\",\"type\":\"github.create_issue\",\"continueOnError\":true,\"config\":{\"repo\":\"not-a-repo\",\"title\":\"x\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_providers",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_providers",
+          "triggerType": "manual",
+          "triggerData": {
+            "name": "Ann"
+          }
+        },
+        "events": {},
+        "http": {
+          "https://slack.com/api/chat.postMessage": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "channel": "C1",
+              "ts": "1700.01"
+            }
+          },
+          "https://slack.com/api/chat.getPermalink?channel=C1&message_ts=1700.01": {
+            "status": 200,
+            "body": {
+              "ok": true,
+              "permalink": "https://acme.slack.com/p1"
+            }
+          },
+          "https://sheets.googleapis.com/v4/spreadsheets/sheet%201/values/Leads!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS": {
+            "status": 200,
+            "body": {
+              "updates": {
+                "updatedRange": "Leads!A2:C2",
+                "updatedRows": 1
+              }
+            }
+          },
+          "https://sheets.googleapis.com/v4/spreadsheets/sheet1/values/Sheet1!B%3AB": {
+            "status": 200,
+            "body": {
+              "values": [
+                [
+                  "x1"
+                ],
+                [
+                  "x2"
+                ]
+              ]
+            }
+          },
+          "https://sheets.googleapis.com/v4/spreadsheets/sheet1/values:batchUpdate": {
+            "status": 200,
+            "body": {
+              "totalUpdatedCells": 1
+            }
+          },
+          "https://gmail.googleapis.com/gmail/v1/users/me/messages/send": {
+            "status": 200,
+            "body": {
+              "id": "g1",
+              "threadId": "t1"
+            }
+          },
+          "https://www.googleapis.com/calendar/v3/calendars/primary/events": {
+            "status": 200,
+            "body": {
+              "id": "ev1",
+              "htmlLink": "https://calendar.example.com/ev1"
+            }
+          },
+          "https://teams.example.com/hook": {
+            "status": 200,
+            "body": {}
+          },
+          "https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json": {
+            "status": 201,
+            "body": {
+              "sid": "SM1"
+            }
+          },
+          "https://api.notion.com/v1/pages": {
+            "status": 200,
+            "body": {
+              "id": "pg1",
+              "url": "https://notion.so/pg1"
+            }
+          },
+          "https://api.notion.com/v1/pages/pg1": {
+            "status": 200,
+            "body": {
+              "id": "pg1"
+            }
+          },
+          "https://api.airtable.com/v0/app1/Leads%20Table": {
+            "status": 200,
+            "body": {
+              "id": "rec1"
+            }
+          },
+          "https://api.airtable.com/v0/app1/tbl1/rec1": {
+            "status": 200,
+            "body": {
+              "id": "rec1"
+            }
+          },
+          "https://app.asana.com/api/1.0/tasks": {
+            "status": 201,
+            "body": {
+              "data": {
+                "gid": "as1"
+              }
+            }
+          },
+          "https://app.asana.com/api/1.0/tasks/as1": {
+            "status": 200,
+            "body": {
+              "data": {
+                "gid": "as1"
+              }
+            }
+          },
+          "https://api.telnyx.com/v2/messages": {
+            "status": 200,
+            "body": {
+              "data": {
+                "id": "tx1"
+              }
+            }
+          }
+        },
+        "inspect": []
+      },
+      "output": {
+        "calls": [
+          {
+            "body": {
+              "channel": "C1",
+              "text": "Hi Ann"
+            },
+            "method": "POST",
+            "url": "https://slack.com/api/chat.postMessage"
+          },
+          {
+            "body": null,
+            "method": "GET",
+            "url": "https://slack.com/api/chat.getPermalink?channel=C1&message_ts=1700.01"
+          },
+          {
+            "body": {
+              "channel": "#general",
+              "text": "Legacy"
+            },
+            "method": "POST",
+            "url": "https://slack.com/api/chat.postMessage"
+          },
+          {
+            "body": {
+              "values": [
+                [
+                  "Ada",
+                  "",
+                  "Ann"
+                ]
+              ]
+            },
+            "method": "POST",
+            "url": "https://sheets.googleapis.com/v4/spreadsheets/sheet%201/values/Leads!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+          },
+          {
+            "body": null,
+            "method": "GET",
+            "url": "https://sheets.googleapis.com/v4/spreadsheets/sheet1/values/Sheet1!B%3AB"
+          },
+          {
+            "body": {
+              "data": [
+                {
+                  "range": "Sheet1!C2",
+                  "values": [
+                    [
+                      "done"
+                    ]
+                  ]
+                }
+              ],
+              "valueInputOption": "USER_ENTERED"
+            },
+            "method": "POST",
+            "url": "https://sheets.googleapis.com/v4/spreadsheets/sheet1/values:batchUpdate"
+          },
+          {
+            "body": {
+              "raw": "VG86IGFAZXhhbXBsZS5jb20sIEJvIDxiQGV4YW1wbGUuY29tPg0KU3ViamVjdDogSGVsbG8NCk1JTUUtVmVyc2lvbjogMS4wDQpDb250ZW50LVR5cGU6IHRleHQvaHRtbDsgY2hhcnNldD1VVEYtOA0KDQpMaW5lIDE8YnI-TGluZSAmbHQ7MiZndDs"
+            },
+            "method": "POST",
+            "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
+          },
+          {
+            "body": {
+              "attendees": [
+                {
+                  "email": "x@example.com"
+                },
+                {
+                  "email": "y@example.com"
+                }
+              ],
+              "description": "Agenda",
+              "end": {
+                "dateTime": "<ts>"
+              },
+              "start": {
+                "dateTime": "<ts>"
+              },
+              "summary": "Kickoff"
+            },
+            "method": "POST",
+            "url": "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+          },
+          {
+            "body": {
+              "@context": "https://schema.org/extensions",
+              "@type": "MessageCard",
+              "summary": "Heads up",
+              "text": "Ping",
+              "title": "Heads up"
+            },
+            "method": "POST",
+            "url": "https://teams.example.com/hook"
+          },
+          {
+            "body": "To=%2B15550002&From=%2B15550001&Body=Yo",
+            "method": "POST",
+            "url": "https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json"
+          },
+          {
+            "body": {
+              "parent": {
+                "database_id": "db1"
+              },
+              "properties": {
+                "Name": {
+                  "title": [
+                    {
+                      "text": {
+                        "content": "Page"
+                      }
+                    }
+                  ]
+                },
+                "Status": {
+                  "select": {
+                    "name": "Open"
+                  }
+                }
+              }
+            },
+            "method": "POST",
+            "url": "https://api.notion.com/v1/pages"
+          },
+          {
+            "body": {
+              "fields": {
+                "Name": "Ada"
+              }
+            },
+            "method": "POST",
+            "url": "https://api.airtable.com/v0/app1/Leads%20Table"
+          },
+          {
+            "body": {
+              "fields": {
+                "Done": true
+              }
+            },
+            "method": "PATCH",
+            "url": "https://api.airtable.com/v0/app1/tbl1/rec1"
+          },
+          {
+            "body": {
+              "data": {
+                "due_on": "2026-12-01",
+                "name": "Follow up",
+                "projects": [
+                  "p1"
+                ]
+              }
+            },
+            "method": "POST",
+            "url": "https://app.asana.com/api/1.0/tasks"
+          },
+          {
+            "body": {
+              "data": {
+                "completed": true,
+                "name": "Done"
+              }
+            },
+            "method": "PUT",
+            "url": "https://app.asana.com/api/1.0/tasks/as1"
+          },
+          {
+            "body": {
+              "properties": {
+                "Done": {
+                  "checkbox": true
+                }
+              }
+            },
+            "method": "PATCH",
+            "url": "https://api.notion.com/v1/pages/pg1"
+          },
+          {
+            "body": {
+              "from": "+15550009",
+              "text": "SMS Ann",
+              "to": "+15550003"
+            },
+            "method": "POST",
+            "url": "https://api.telnyx.com/v2/messages"
+          }
+        ],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "GitHub repository is required, as \"owner/repo\"",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s16",
+            "step_name": null,
+            "step_type": "github.create_issue",
+            "workflow_id": "wf_providers"
+          }
+        ],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_providers",
+            "completed": true,
+            "current_step_index": 16,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "channel": "C1",
+                "ok": true,
+                "permalink": "https://acme.slack.com/p1",
+                "ts": "1700.01"
+              },
+              "s10": {
+                "created": true,
+                "id": "rec1"
+              },
+              "s11": {
+                "id": "rec1",
+                "updated": true
+              },
+              "s12": {
+                "created": true,
+                "id": "as1"
+              },
+              "s13": {
+                "id": "as1",
+                "updated": true
+              },
+              "s14": {
+                "id": "pg1",
+                "updated": true
+              },
+              "s15": {
+                "id": "tx1",
+                "sent": true,
+                "status": "queued"
+              },
+              "s16": {
+                "error": "GitHub repository is required, as \"owner/repo\""
+              },
+              "s2": {
+                "channel": "#general",
+                "sent": true,
+                "ts": "1700.01"
+              },
+              "s3": {
+                "ok": true,
+                "updatedRange": "Leads!A2:C2",
+                "updatedRows": 1
+              },
+              "s4": {
+                "ok": true,
+                "row": 2,
+                "updatedCells": 1
+              },
+              "s5": {
+                "id": "g1",
+                "ok": true,
+                "threadId": "t1"
+              },
+              "s6": {
+                "htmlLink": "https://calendar.example.com/ev1",
+                "id": "ev1",
+                "ok": true
+              },
+              "s7": {
+                "sent": true
+              },
+              "s8": {
+                "messageSid": "SM1",
+                "sent": true
+              },
+              "s9": {
+                "created": true,
+                "id": "pg1",
+                "url": "https://notion.so/pg1"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 16,
+            "trigger_data": {
+              "name": "Ann"
+            },
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_providers",
+            "workflow_name": "Flow wf_providers",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-6-s7-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-7-s8-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-8-s9-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-9-s10-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-10-s11-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-11-s12-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-12-s13-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-13-s14-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-14-s15-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-15-s16-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "mail": [],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 16,
+                "workflowId": "wf_providers",
+                "workflowName": "Flow wf_providers"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "slack.post_message",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "slack_message",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "google_sheets.append_row",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "google_sheets.update_row",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "gmail.send_email",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 6,
+                "stepType": "google_calendar.create_event",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s6",
+                "stepIndex": 6,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7",
+                "stepIndex": 7,
+                "stepType": "teams.post_message",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s7",
+                "stepIndex": 7,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8",
+                "stepIndex": 8,
+                "stepType": "twilio.send_sms",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s8",
+                "stepIndex": 8,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s9",
+                "stepIndex": 9,
+                "stepType": "notion.create_page",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s9",
+                "stepIndex": 9,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s10",
+                "stepIndex": 10,
+                "stepType": "airtable.create_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s10",
+                "stepIndex": 10,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s11",
+                "stepIndex": 11,
+                "stepType": "airtable.update_record",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s11",
+                "stepIndex": 11,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s12",
+                "stepIndex": 12,
+                "stepType": "asana.create_task",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s12",
+                "stepIndex": 12,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s13",
+                "stepIndex": 13,
+                "stepType": "asana.update_task",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s13",
+                "stepIndex": 13,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s14",
+                "stepIndex": 14,
+                "stepType": "notion.update_page",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s14",
+                "stepIndex": 14,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s15",
+                "stepIndex": 15,
+                "stepType": "send_sms",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s15",
+                "stepIndex": 15,
+                "totalSteps": 16
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s16",
+                "stepIndex": 16,
+                "stepType": "github.create_issue",
+                "totalSteps": 16
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "GitHub repository is required, as \"owner/repo\"",
+                "stepId": "s16",
+                "stepIndex": 16,
+                "totalSteps": 16
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (slack.post_message)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "channel": "C1",
+              "ok": true,
+              "permalink": "https://acme.slack.com/p1",
+              "ts": "1700.01"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "slack.post_message"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (slack_message)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "channel": "#general",
+              "sent": true,
+              "ts": "1700.01"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "slack_message"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (google_sheets.append_row)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "ok": true,
+              "updatedRange": "Leads!A2:C2",
+              "updatedRows": 1
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "google_sheets.append_row"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (google_sheets.update_row)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "ok": true,
+              "row": 2,
+              "updatedCells": 1
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "google_sheets.update_row"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5 (gmail.send_email)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "id": "g1",
+              "ok": true,
+              "threadId": "t1"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "gmail.send_email"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s6 (google_calendar.create_event)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "htmlLink": "https://calendar.example.com/ev1",
+              "id": "ev1",
+              "ok": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s6",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "google_calendar.create_event"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s7 (teams.post_message)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "sent": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s7",
+            "step_index": 7,
+            "step_name": null,
+            "step_type": "teams.post_message"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s8 (twilio.send_sms)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "messageSid": "SM1",
+              "sent": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s8",
+            "step_index": 8,
+            "step_name": null,
+            "step_type": "twilio.send_sms"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s9 (notion.create_page)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "created": true,
+              "id": "pg1",
+              "url": "https://notion.so/pg1"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s9",
+            "step_index": 9,
+            "step_name": null,
+            "step_type": "notion.create_page"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s10 (airtable.create_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "created": true,
+              "id": "rec1"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s10",
+            "step_index": 10,
+            "step_name": null,
+            "step_type": "airtable.create_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s11 (airtable.update_record)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "id": "rec1",
+              "updated": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s11",
+            "step_index": 11,
+            "step_name": null,
+            "step_type": "airtable.update_record"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s12 (asana.create_task)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "created": true,
+              "id": "as1"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s12",
+            "step_index": 12,
+            "step_name": null,
+            "step_type": "asana.create_task"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s13 (asana.update_task)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "id": "as1",
+              "updated": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s13",
+            "step_index": 13,
+            "step_name": null,
+            "step_type": "asana.update_task"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s14 (notion.update_page)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "id": "pg1",
+              "updated": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s14",
+            "step_index": 14,
+            "step_name": null,
+            "step_type": "notion.update_page"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s15 (send_sms)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "id": "tx1",
+              "sent": true,
+              "status": "queued"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s15",
+            "step_index": 15,
+            "step_name": null,
+            "step_type": "send_sms"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "GitHub repository is required, as \"owner/repo\""
+            },
+            "logs": [
+              "Started s16 (github.create_issue)",
+              "Failed: GitHub repository is required, as \"owner/repo\" (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s16",
+            "step_index": 16,
+            "step_name": null,
+            "step_type": "github.create_issue"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_providers",
+            "ran": true,
+            "success_count": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "provider refusals: Slack, Google, Notion, Airtable, Twilio, a missing integration",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into workflow_integrations (id, name, type, status, credentials, oauth_tokens)\n  values ('win_slack', 'Slack', 'slack', 'connected', null, '{\"accessToken\":\"xoxb-1\"}'::jsonb),\n         ('win_sheets', 'Sheets', 'google_sheets', 'connected', null, '{\"accessToken\":\"ya29.s\"}'::jsonb),\n         ('win_gmail', 'Gmail', 'gmail', 'connected', null, '{\"accessToken\":\"ya29.g\"}'::jsonb),\n         ('win_cal', 'Calendar', 'google_calendar', 'connected', null, '{\"accessToken\":\"ya29.c\"}'::jsonb),\n         ('win_teams', 'Teams', 'teams', 'connected', '{\"webhookUrl\":\"https://teams.example.com/hook\"}'::jsonb, null),\n         ('win_twilio', 'Twilio', 'twilio', 'connected', '{\"accountSid\":\"AC1\",\"authToken\":\"tok\",\"fromNumber\":\"+15550001\"}'::jsonb, null),\n         ('win_notion', 'Notion', 'notion', 'connected', '{\"token\":\"secret_n\"}'::jsonb, null),\n         ('win_airtable', 'Airtable', 'airtable', 'connected', '{\"token\":\"pat_a\"}'::jsonb, null),\n         ('win_asana', 'Asana', 'asana', 'connected', '{\"token\":\"asana_t\"}'::jsonb, null)",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_providers_refused', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_providers_refused', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"slack.post_message\",\"continueOnError\":true,\"config\":{\"channel\":\"C9\",\"text\":\"Hi\"}},{\"id\":\"s2\",\"type\":\"google_sheets.append_row\",\"continueOnError\":true,\"config\":{\"spreadsheetId\":\"locked\",\"columnMapping\":{\"A\":1}}},{\"id\":\"s3\",\"type\":\"notion.update_page\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"pageId\":\"pg9\",\"properties\":{}}},{\"id\":\"s4\",\"type\":\"airtable.create_record\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"baseId\":\"app9\",\"tableId\":\"t9\",\"fields\":{}}},{\"id\":\"s5\",\"type\":\"twilio.send_sms\",\"continueOnError\":true,\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"to\":\"+1\",\"body\":\"x\"}},{\"id\":\"s6\",\"type\":\"google_calendar.create_event\",\"continueOnError\":true,\"config\":{\"summary\":\"S\",\"startDateTime\":\"2026-12-01T10:00\",\"endDateTime\":\"2026-12-01T11:00\"}},{\"id\":\"s7\",\"type\":\"google_sheets.update_row\",\"continueOnError\":true,\"config\":{\"spreadsheetId\":\"s\",\"columnMapping\":{\"1\":\"x\"}}},{\"id\":\"s8\",\"type\":\"gmail.send_email\",\"continueOnError\":true,\"config\":{\"to\":\"nope\",\"subject\":\"s\",\"body\":\"b\"}},{\"id\":\"s9\",\"type\":\"asana.create_task\",\"retryPolicy\":{\"maxAttempts\":1},\"config\":{\"name\":\"T\",\"workspaceId\":\"w1\",\"integrationId\":\"win_gone\"}}]'::jsonb, '[]'::jsonb, '{\"notifyOnError\":false}'::jsonb)"
+        ],
+        "instanceId": "inst_providers_refused",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_providers_refused",
+          "triggerType": "manual"
+        },
+        "events": {},
+        "http": {
+          "https://slack.com/api/chat.postMessage": {
+            "status": 200,
+            "body": {
+              "ok": false,
+              "error": "not_in_channel"
+            }
+          },
+          "https://sheets.googleapis.com/v4/spreadsheets/locked/values/Sheet1!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS": {
+            "status": 403,
+            "body": {
+              "error": {
+                "code": 403,
+                "message": "The caller does not have permission",
+                "errors": [
+                  {
+                    "reason": "forbidden"
+                  }
+                ]
+              }
+            }
+          },
+          "https://api.notion.com/v1/pages/pg9": {
+            "status": 400,
+            "body": {
+              "message": "body failed validation"
+            }
+          },
+          "https://api.airtable.com/v0/app9/t9": {
+            "status": 422,
+            "body": {
+              "error": {
+                "type": "INVALID_REQUEST"
+              }
+            }
+          },
+          "https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json": {
+            "status": 400,
+            "body": {
+              "error_message": "The 'To' number +1 is not valid"
+            }
+          }
+        },
+        "inspect": []
+      },
+      "output": {
+        "calls": [
+          {
+            "body": {
+              "channel": "C9",
+              "text": "Hi"
+            },
+            "method": "POST",
+            "url": "https://slack.com/api/chat.postMessage"
+          },
+          {
+            "body": {
+              "values": [
+                [
+                  1
+                ]
+              ]
+            },
+            "method": "POST",
+            "url": "https://sheets.googleapis.com/v4/spreadsheets/locked/values/Sheet1!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS"
+          },
+          {
+            "body": {
+              "properties": {}
+            },
+            "method": "PATCH",
+            "url": "https://api.notion.com/v1/pages/pg9"
+          },
+          {
+            "body": {
+              "fields": {}
+            },
+            "method": "POST",
+            "url": "https://api.airtable.com/v0/app9/t9"
+          },
+          {
+            "body": "To=%2B1&From=%2B15550001&Body=x",
+            "method": "POST",
+            "url": "https://api.twilio.com/2010-04-01/Accounts/AC1/Messages.json"
+          }
+        ],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "WeldSuite's Slack app hasn't been invited to this channel yet. Invite it from Slack (/invite @WeldSuite) and try again — private channels always need this.",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": {
+              "details": {
+                "slackError": "not_in_channel"
+              }
+            },
+            "severity": "warning",
+            "step_id": "s1",
+            "step_name": null,
+            "step_type": "slack.post_message",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "Sheets append row: the Google connection is missing a required permission, or can't access this resource. Reconnect it from WeldConnect → Integrations, or check sharing on the resource.",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": {
+              "details": {
+                "code": 403,
+                "errors": [
+                  {
+                    "reason": "forbidden"
+                  }
+                ],
+                "message": "The caller does not have permission"
+              }
+            },
+            "severity": "warning",
+            "step_id": "s2",
+            "step_name": null,
+            "step_type": "google_sheets.append_row",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "Notion update failed: body failed validation",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s3",
+            "step_name": null,
+            "step_type": "notion.update_page",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "Airtable create failed: {\"type\":\"INVALID_REQUEST\"}",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s4",
+            "step_name": null,
+            "step_type": "airtable.create_record",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "Twilio send failed: The 'To' number +1 is not valid",
+            "error_type": "Error",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s5",
+            "step_name": null,
+            "step_type": "twilio.send_sms",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "timeZone is required when startDateTime/endDateTime have no UTC offset (no trailing Z)",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s6",
+            "step_name": null,
+            "step_type": "google_calendar.create_event",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "Provide either rowNumber, or both lookupColumn and lookupValue",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s7",
+            "step_name": null,
+            "step_type": "google_sheets.update_row",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "Recipient address \"nope\" is not valid",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s8",
+            "step_name": null,
+            "step_type": "gmail.send_email",
+            "workflow_id": "wf_providers_refused"
+          },
+          {
+            "error_message": "Integration not found: id=win_gone",
+            "error_type": "IntegrationNotFoundError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "error",
+            "step_id": "s9",
+            "step_name": null,
+            "step_type": "asana.create_task",
+            "workflow_id": "wf_providers_refused"
+          }
+        ],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_providers_refused",
+            "completed": true,
+            "current_step_index": 8,
+            "error": {
+              "message": "Integration not found: id=win_gone",
+              "stepId": "s9"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "error": "WeldSuite's Slack app hasn't been invited to this channel yet. Invite it from Slack (/invite @WeldSuite) and try again — private channels always need this."
+              },
+              "s2": {
+                "error": "Sheets append row: the Google connection is missing a required permission, or can't access this resource. Reconnect it from WeldConnect → Integrations, or check sharing on the resource."
+              },
+              "s3": {
+                "error": "Notion update failed: body failed validation"
+              },
+              "s4": {
+                "error": "Airtable create failed: {\"type\":\"INVALID_REQUEST\"}"
+              },
+              "s5": {
+                "error": "Twilio send failed: The 'To' number +1 is not valid"
+              },
+              "s6": {
+                "error": "timeZone is required when startDateTime/endDateTime have no UTC offset (no trailing Z)"
+              },
+              "s7": {
+                "error": "Provide either rowNumber, or both lookupColumn and lookupValue"
+              },
+              "s8": {
+                "error": "Recipient address \"nope\" is not valid"
+              }
+            },
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 9,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_providers_refused",
+            "workflow_name": "Flow wf_providers_refused",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-6-s7-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-7-s8-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-8-s9-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "mail": [],
+        "notifications": [],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 9,
+                "workflowId": "wf_providers_refused",
+                "workflowName": "Flow wf_providers_refused"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "slack.post_message",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "WeldSuite's Slack app hasn't been invited to this channel yet. Invite it from Slack (/invite @WeldSuite) and try again — private channels always need this.",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "google_sheets.append_row",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Sheets append row: the Google connection is missing a required permission, or can't access this resource. Reconnect it from WeldConnect → Integrations, or check sharing on the resource.",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "notion.update_page",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Notion update failed: body failed validation",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "airtable.create_record",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Airtable create failed: {\"type\":\"INVALID_REQUEST\"}",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "twilio.send_sms",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Twilio send failed: The 'To' number +1 is not valid",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 6,
+                "stepType": "google_calendar.create_event",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "timeZone is required when startDateTime/endDateTime have no UTC offset (no trailing Z)",
+                "stepId": "s6",
+                "stepIndex": 6,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7",
+                "stepIndex": 7,
+                "stepType": "google_sheets.update_row",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Provide either rowNumber, or both lookupColumn and lookupValue",
+                "stepId": "s7",
+                "stepIndex": 7,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8",
+                "stepIndex": 8,
+                "stepType": "gmail.send_email",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Recipient address \"nope\" is not valid",
+                "stepId": "s8",
+                "stepIndex": 8,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s9",
+                "stepIndex": 9,
+                "stepType": "asana.create_task",
+                "totalSteps": 9
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Integration not found: id=win_gone",
+                "stepId": "s9",
+                "stepIndex": 9,
+                "totalSteps": 9
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "Integration not found: id=win_gone",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": {
+              "details": {
+                "slackError": "not_in_channel"
+              },
+              "message": "WeldSuite's Slack app hasn't been invited to this channel yet. Invite it from Slack (/invite @WeldSuite) and try again — private channels always need this."
+            },
+            "logs": [
+              "Started s1 (slack.post_message)",
+              "Failed: WeldSuite's Slack app hasn't been invited to this channel yet. Invite it from Slack (/invite @WeldSuite) and try again — private channels always need this. (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "slack.post_message"
+          },
+          {
+            "completed": true,
+            "error": {
+              "details": {
+                "code": 403,
+                "errors": [
+                  {
+                    "reason": "forbidden"
+                  }
+                ],
+                "message": "The caller does not have permission"
+              },
+              "message": "Sheets append row: the Google connection is missing a required permission, or can't access this resource. Reconnect it from WeldConnect → Integrations, or check sharing on the resource."
+            },
+            "logs": [
+              "Started s2 (google_sheets.append_row)",
+              "Failed: Sheets append row: the Google connection is missing a required permission, or can't access this resource. Reconnect it from WeldConnect → Integrations, or check sharing on the resource. (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "google_sheets.append_row"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Notion update failed: body failed validation"
+            },
+            "logs": [
+              "Started s3 (notion.update_page)",
+              "Failed: Notion update failed: body failed validation (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "notion.update_page"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Airtable create failed: {\"type\":\"INVALID_REQUEST\"}"
+            },
+            "logs": [
+              "Started s4 (airtable.create_record)",
+              "Failed: Airtable create failed: {\"type\":\"INVALID_REQUEST\"} (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "airtable.create_record"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Twilio send failed: The 'To' number +1 is not valid"
+            },
+            "logs": [
+              "Started s5 (twilio.send_sms)",
+              "Failed: Twilio send failed: The 'To' number +1 is not valid (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "twilio.send_sms"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "timeZone is required when startDateTime/endDateTime have no UTC offset (no trailing Z)"
+            },
+            "logs": [
+              "Started s6 (google_calendar.create_event)",
+              "Failed: timeZone is required when startDateTime/endDateTime have no UTC offset (no trailing Z) (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s6",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "google_calendar.create_event"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Provide either rowNumber, or both lookupColumn and lookupValue"
+            },
+            "logs": [
+              "Started s7 (google_sheets.update_row)",
+              "Failed: Provide either rowNumber, or both lookupColumn and lookupValue (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s7",
+            "step_index": 7,
+            "step_name": null,
+            "step_type": "google_sheets.update_row"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Recipient address \"nope\" is not valid"
+            },
+            "logs": [
+              "Started s8 (gmail.send_email)",
+              "Failed: Recipient address \"nope\" is not valid (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s8",
+            "step_index": 8,
+            "step_name": null,
+            "step_type": "gmail.send_email"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Integration not found: id=win_gone"
+            },
+            "logs": [
+              "Started s9 (asana.create_task)",
+              "Failed: Integration not found: id=win_gone"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s9",
+            "step_index": 9,
+            "step_name": null,
+            "step_type": "asana.create_task"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_providers_refused",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "send_email from the default mailbox through the outbound guard; a step with no mailbox",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into mail_accounts (id, name, email, display_name, status, is_default)\n        values ('mac_1', 'Sales', 'sales@acme.test', 'Acme Sales', 'active', true),\n               ('mac_2', 'Support', 'support@acme.test', null, 'active', false)",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_email', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_email', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"send_email\",\"config\":{\"to\":[\"ann@example.com\",\"Bo <bo@example.com>\"],\"cc\":\"cc@example.com\",\"subject\":\" Welcome \",\"body\":\"<p>Hi <b>Ann</b></p>\"}},{\"id\":\"s2\",\"type\":\"send_email\",\"config\":{\"to\":\"cy@example.com\",\"subject\":\"Plain\",\"body\":\"a\\nb\",\"isHtml\":false,\"from\":\"support@acme.test\"}},{\"id\":\"s3\",\"type\":\"send_email\",\"continueOnError\":true,\"config\":{\"to\":\"bad address\",\"subject\":\"x\"}},{\"id\":\"s4\",\"type\":\"send_email\",\"continueOnError\":true,\"config\":{\"to\":\"d@example.com\",\"subject\":\"  \"}},{\"id\":\"s5\",\"type\":\"send_email\",\"config\":{\"to\":\"e@example.com\",\"subject\":\"Who\",\"from\":\"nobody@acme.test\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_email",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_email",
+          "triggerType": "manual"
+        },
+        "events": {},
+        "http": {},
+        "inspect": []
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [
+          {
+            "error_message": "Recipient address \"bad address\" is not valid",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s3",
+            "step_name": null,
+            "step_type": "send_email",
+            "workflow_id": "wf_email"
+          },
+          {
+            "error_message": "Email subject is required",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "warning",
+            "step_id": "s4",
+            "step_name": null,
+            "step_type": "send_email",
+            "workflow_id": "wf_email"
+          },
+          {
+            "error_message": "No email account configured",
+            "error_type": "NonRetryableStepError",
+            "execution_id": "<id:wex>",
+            "input": null,
+            "severity": "error",
+            "step_id": "s5",
+            "step_name": null,
+            "step_type": "send_email",
+            "workflow_id": "wf_email"
+          }
+        ],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_email",
+            "completed": true,
+            "current_step_index": 4,
+            "error": {
+              "message": "No email account configured",
+              "stepId": "s5"
+            },
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "from": "sales@acme.test",
+                "messageId": "<message-id>",
+                "success": true
+              },
+              "s2": {
+                "from": "support@acme.test",
+                "messageId": "<message-id>",
+                "success": true
+              },
+              "s3": {
+                "error": "Recipient address \"bad address\" is not valid"
+              },
+              "s4": {
+                "error": "Email subject is required"
+              }
+            },
+            "started": true,
+            "status": "failed",
+            "timed": true,
+            "total_steps": 5,
+            "trigger_data": null,
+            "trigger_id": null,
+            "trigger_type": "manual",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_email",
+            "workflow_name": "Flow wf_email",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "mail": [
+          {
+            "from": "sales@acme.test",
+            "to": "ann@example.com"
+          },
+          {
+            "from": "sales@acme.test",
+            "to": "bo@example.com"
+          },
+          {
+            "from": "sales@acme.test",
+            "to": "cc@example.com"
+          },
+          {
+            "from": "support@acme.test",
+            "to": "cy@example.com"
+          }
+        ],
+        "notifications": [
+          {
+            "action_url": "/weldconnect/executions/<id:wex>",
+            "body": "No email account configured",
+            "category": "system",
+            "data": null,
+            "entity_id": "<id:wex>",
+            "entity_type": "workflow_execution",
+            "icon": "workflow",
+            "notification_type": "workflow_failed",
+            "severity": "error",
+            "title": "Workflow failed: Flow wf_email",
+            "user_id": "user_owner"
+          }
+        ],
+        "outcome": {
+          "succeeded": false
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 5,
+                "workflowId": "wf_email",
+                "workflowName": "Flow wf_email"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "send_email",
+                "totalSteps": 5
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 5
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "send_email",
+                "totalSteps": 5
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 5
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "send_email",
+                "totalSteps": 5
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Recipient address \"bad address\" is not valid",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 5
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "send_email",
+                "totalSteps": 5
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "Email subject is required",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 5
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "send_email",
+                "totalSteps": 5
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "error": "No email account configured",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 5
+              },
+              "event": "step_failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "_access": {
+                  "userIds": [
+                    "user_owner"
+                  ]
+                },
+                "actionUrl": "/weldconnect/executions/<id:wex>",
+                "actorId": null,
+                "actorType": "system",
+                "body": "No email account configured",
+                "category": "system",
+                "createdAt": "<ts>",
+                "entityId": "<id:wex>",
+                "entityType": "workflow_execution",
+                "id": "<id:notif>",
+                "isRead": false,
+                "notificationType": "workflow_failed",
+                "severity": "error",
+                "title": "Workflow failed: Flow wf_email"
+              },
+              "event": "created",
+              "topic": "notification.user_owner",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "error": "No email account configured",
+                "executionId": "<id:wex>"
+              },
+              "event": "failed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (send_email)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "from": "sales@acme.test",
+              "messageId": "<message-id>",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "send_email"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (send_email)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "from": "support@acme.test",
+              "messageId": "<message-id>",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "send_email"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Recipient address \"bad address\" is not valid"
+            },
+            "logs": [
+              "Started s3 (send_email)",
+              "Failed: Recipient address \"bad address\" is not valid (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "send_email"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "Email subject is required"
+            },
+            "logs": [
+              "Started s4 (send_email)",
+              "Failed: Email subject is required (workflow continued)"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "send_email"
+          },
+          {
+            "completed": true,
+            "error": {
+              "message": "No email account configured"
+            },
+            "logs": [
+              "Started s5 (send_email)",
+              "Failed: No email account configured"
+            ],
+            "output": null,
+            "retry_count": 0,
+            "status": "failed",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "send_email"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 1,
+            "id": "wf_email",
+            "ran": true,
+            "success_count": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy helpdesk conversation steps (assign, tags, status, priority, reply, note)",
+      "input": {
+        "seed": [
+          "insert into workspace_members (id, user_id, email, name, role)\n  values ('wm_1', 'user_owner', 'owner@example.com', 'Owner', 'OWNER'),\n         ('wm_2', 'user_approver', 'ann@example.com', 'Ann', 'MEMBER')",
+          "insert into helpdesk_conversations (id, conversation_number, customer_name, subject, tags)\n        values ('hcv_1', 'C-1', 'Cy', 'Help', '[\"old\"]'::jsonb)",
+          "insert into helpdesk_agents (id, user_id, name, email, status, tickets_assigned, current_active_tickets)\n        values ('hag_1', 'user_approver', 'Ann', 'ann@example.com', 'active', 3, 1),\n               ('hag_2', 'user_owner', 'Owner', 'owner@example.com', 'active', 1, 2)",
+          "insert into workflows (id, created_at, updated_at, name, status, version, created_by, steps, triggers, settings)\n    values ('wf_helpdesk', '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z', 'Flow wf_helpdesk', 'active', 3,\n    'user_owner', '[{\"id\":\"s1\",\"type\":\"assign_conversation\",\"config\":{\"strategy\":\"round_robin\"}},{\"id\":\"s2\",\"type\":\"tag_conversation\",\"config\":{\"tags\":[\"vip\",\"old\",\"billing\"]}},{\"id\":\"s3\",\"type\":\"tag_conversation\",\"config\":{\"mode\":\"remove\",\"tags\":[\"vip\"]}},{\"id\":\"s4\",\"type\":\"change_conversation_status\",\"config\":{\"status\":\"resolved\"}},{\"id\":\"s5\",\"type\":\"change_priority\",\"config\":{\"priority\":\"high\"}},{\"id\":\"s6\",\"type\":\"send_reply\",\"config\":{\"message\":\"Thanks\",\"authorType\":\"agent\"}},{\"id\":\"s7\",\"type\":\"add_internal_note\",\"config\":{\"content\":\"Escalated\"}},{\"id\":\"s8\",\"type\":\"assign_conversation\",\"config\":{\"strategy\":\"specific_agent\",\"agentId\":\"user_x\",\"agentName\":\"Xi\"}}]'::jsonb, '[]'::jsonb, '{}'::jsonb)"
+        ],
+        "instanceId": "inst_helpdesk",
+        "params": {
+          "workspaceId": "org_test",
+          "userId": "user_owner",
+          "workflowId": "wf_helpdesk",
+          "triggerType": "entity_event",
+          "triggerData": {
+            "entityType": "helpdesk_conversation",
+            "entityId": "hcv_1"
+          }
+        },
+        "events": {},
+        "http": {},
+        "inspect": [
+          "select status, priority, tags, assignee_id, assignee_name, (resolved_at is not null) as resolved from helpdesk_conversations",
+          "select content, author_type, author_id, author_name, type, is_public, is_internal, status\n         from helpdesk_conversation_messages order by type",
+          "select id, tickets_assigned, current_active_tickets from helpdesk_agents order by id"
+        ]
+      },
+      "output": {
+        "calls": [],
+        "chained": [],
+        "errorLogs": [],
+        "events": [],
+        "executions": [
+          {
+            "cf_workflow_instance_id": "inst_helpdesk",
+            "completed": true,
+            "current_step_index": 8,
+            "error": null,
+            "execution_context": null,
+            "id": "<id:wex>",
+            "output": {
+              "s1": {
+                "assigneeId": "user_owner",
+                "assigneeName": "Owner",
+                "conversationId": "hcv_1",
+                "strategy": "round_robin",
+                "success": true,
+                "updatedAt": "<ts>"
+              },
+              "s2": {
+                "conversationId": "hcv_1",
+                "mode": "add",
+                "success": true,
+                "tags": [
+                  "old",
+                  "vip",
+                  "billing"
+                ]
+              },
+              "s3": {
+                "conversationId": "hcv_1",
+                "mode": "remove",
+                "success": true,
+                "tags": [
+                  "old",
+                  "billing"
+                ]
+              },
+              "s4": {
+                "conversationId": "hcv_1",
+                "status": "resolved",
+                "success": true
+              },
+              "s5": {
+                "conversationId": "hcv_1",
+                "priority": "high",
+                "success": true
+              },
+              "s6": {
+                "conversationId": "hcv_1",
+                "messageId": "<id:msg>",
+                "success": true
+              },
+              "s7": {
+                "conversationId": "hcv_1",
+                "messageId": "<id:msg>",
+                "success": true
+              },
+              "s8": {
+                "assigneeId": "user_x",
+                "assigneeName": "Xi",
+                "conversationId": "hcv_1",
+                "strategy": "specific_agent",
+                "success": true,
+                "updatedAt": "<ts>"
+              }
+            },
+            "started": true,
+            "status": "completed",
+            "timed": true,
+            "total_steps": 8,
+            "trigger_data": {
+              "entityId": "hcv_1",
+              "entityType": "helpdesk_conversation"
+            },
+            "trigger_id": null,
+            "trigger_type": "entity_event",
+            "triggered_by": "user_owner",
+            "workflow_id": "wf_helpdesk",
+            "workflow_name": "Flow wf_helpdesk",
+            "workflow_version": 3
+          }
+        ],
+        "inspected": [
+          [
+            {
+              "assignee_id": "user_x",
+              "assignee_name": "Xi",
+              "priority": "high",
+              "resolved": true,
+              "status": "resolved",
+              "tags": [
+                "old",
+                "billing"
+              ]
+            }
+          ],
+          [
+            {
+              "author_id": "user_owner",
+              "author_name": "Agent",
+              "author_type": "agent",
+              "content": "Thanks",
+              "is_internal": false,
+              "is_public": true,
+              "status": "sent",
+              "type": "message"
+            },
+            {
+              "author_id": "user_owner",
+              "author_name": "System",
+              "author_type": "agent",
+              "content": "Escalated",
+              "is_internal": true,
+              "is_public": false,
+              "status": "sent",
+              "type": "note"
+            }
+          ],
+          [
+            {
+              "current_active_tickets": 1,
+              "id": "hag_1",
+              "tickets_assigned": 3
+            },
+            {
+              "current_active_tickets": 3,
+              "id": "hag_2",
+              "tickets_assigned": 2
+            }
+          ]
+        ],
+        "log": [
+          {
+            "kind": "do",
+            "name": "load-workflow"
+          },
+          {
+            "kind": "do",
+            "name": "create-execution"
+          },
+          {
+            "kind": "do",
+            "name": "step-0-s1-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-1-s2-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-2-s3-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-3-s4-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-4-s5-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-5-s6-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-6-s7-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "step-7-s8-attempt-1"
+          },
+          {
+            "kind": "do",
+            "name": "finalize"
+          }
+        ],
+        "mail": [],
+        "notifications": [],
+        "outcome": {
+          "succeeded": true
+        },
+        "publishes": [
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>",
+                "totalSteps": 8,
+                "workflowId": "wf_helpdesk",
+                "workflowName": "Flow wf_helpdesk"
+              },
+              "event": "started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s1",
+                "stepIndex": 1,
+                "stepType": "assign_conversation",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:hcv_1",
+            "payload": {
+              "agentId": "user_owner",
+              "agentName": "Owner",
+              "conversationId": "hcv_1",
+              "ts": "<n>",
+              "type": "agent:assigned"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s1",
+                "stepIndex": 1,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s2",
+                "stepIndex": 2,
+                "stepType": "tag_conversation",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s2",
+                "stepIndex": 2,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s3",
+                "stepIndex": 3,
+                "stepType": "tag_conversation",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s3",
+                "stepIndex": 3,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s4",
+                "stepIndex": 4,
+                "stepType": "change_conversation_status",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s4",
+                "stepIndex": 4,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s5",
+                "stepIndex": 5,
+                "stepType": "change_priority",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s5",
+                "stepIndex": 5,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s6",
+                "stepIndex": 6,
+                "stepType": "send_reply",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:hcv_1",
+            "payload": {
+              "content": "Thanks",
+              "conversationId": "hcv_1",
+              "id": "<id:msg>",
+              "sender": "agent",
+              "timestamp": "<ts>",
+              "ts": "<n>",
+              "type": "message:new"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s6",
+                "stepIndex": 6,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s7",
+                "stepIndex": 7,
+                "stepType": "add_internal_note",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s7",
+                "stepIndex": 7,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "stepId": "s8",
+                "stepIndex": 8,
+                "stepType": "assign_conversation",
+                "totalSteps": 8
+              },
+              "event": "step_started",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "conversation:hcv_1",
+            "payload": {
+              "agentId": "user_x",
+              "agentName": "Xi",
+              "conversationId": "hcv_1",
+              "ts": "<n>",
+              "type": "agent:assigned"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "duration": "<n>",
+                "stepId": "s8",
+                "stepIndex": 8,
+                "totalSteps": 8
+              },
+              "event": "step_completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          },
+          {
+            "channel": "workspace:org_test",
+            "payload": {
+              "data": {
+                "executionId": "<id:wex>"
+              },
+              "event": "completed",
+              "topic": "workflow_execution.<id:wex>",
+              "userId": "system",
+              "workspaceId": "org_test"
+            }
+          }
+        ],
+        "steps": [
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s1 (assign_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": "user_owner",
+              "assigneeName": "Owner",
+              "conversationId": "hcv_1",
+              "strategy": "round_robin",
+              "success": true,
+              "updatedAt": "<ts>"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s1",
+            "step_index": 1,
+            "step_name": null,
+            "step_type": "assign_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s2 (tag_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "conversationId": "hcv_1",
+              "mode": "add",
+              "success": true,
+              "tags": [
+                "old",
+                "vip",
+                "billing"
+              ]
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s2",
+            "step_index": 2,
+            "step_name": null,
+            "step_type": "tag_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s3 (tag_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "conversationId": "hcv_1",
+              "mode": "remove",
+              "success": true,
+              "tags": [
+                "old",
+                "billing"
+              ]
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s3",
+            "step_index": 3,
+            "step_name": null,
+            "step_type": "tag_conversation"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s4 (change_conversation_status)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "conversationId": "hcv_1",
+              "status": "resolved",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s4",
+            "step_index": 4,
+            "step_name": null,
+            "step_type": "change_conversation_status"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s5 (change_priority)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "conversationId": "hcv_1",
+              "priority": "high",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s5",
+            "step_index": 5,
+            "step_name": null,
+            "step_type": "change_priority"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s6 (send_reply)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "conversationId": "hcv_1",
+              "messageId": "<id:msg>",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s6",
+            "step_index": 6,
+            "step_name": null,
+            "step_type": "send_reply"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s7 (add_internal_note)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "conversationId": "hcv_1",
+              "messageId": "<id:msg>",
+              "success": true
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s7",
+            "step_index": 7,
+            "step_name": null,
+            "step_type": "add_internal_note"
+          },
+          {
+            "completed": true,
+            "error": null,
+            "logs": [
+              "Started s8 (assign_conversation)",
+              "Completed in <n>ms"
+            ],
+            "output": {
+              "assigneeId": "user_x",
+              "assigneeName": "Xi",
+              "conversationId": "hcv_1",
+              "strategy": "specific_agent",
+              "success": true,
+              "updatedAt": "<ts>"
+            },
+            "retry_count": 0,
+            "status": "completed",
+            "step_id": "s8",
+            "step_index": 8,
+            "step_name": null,
+            "step_type": "assign_conversation"
+          }
+        ],
+        "workflows": [
+          {
+            "averaged": true,
+            "execution_count": 1,
+            "failure_count": 0,
+            "id": "wf_helpdesk",
+            "ran": true,
+            "success_count": 1
           }
         ]
       }
