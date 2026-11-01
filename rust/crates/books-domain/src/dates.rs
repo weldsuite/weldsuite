@@ -117,6 +117,21 @@ pub fn start_of_month(value: &str) -> Option<String> {
     Some(format_iso(p.y, p.m, 1))
 }
 
+/// `nthWeekdayOfMonth(y, m, weekday, n)`: the `n`th given weekday (0 =
+/// Sunday) of a month.
+pub fn nth_weekday_of_month(y: i64, m: i64, weekday: i64, n: i64) -> String {
+    let first = (utc_days(y, m, 1) + 4).rem_euclid(7);
+    let day = 1 + (weekday - first + 7).rem_euclid(7) + (n - 1) * 7;
+    format_iso(y, m, day)
+}
+
+/// `lastWeekdayOfMonth(y, m, weekday)`: the last given weekday of a month.
+pub fn last_weekday_of_month(y: i64, m: i64, weekday: i64) -> String {
+    let last = days_in_month(y, m);
+    let back = ((utc_days(y, m, last) + 4).rem_euclid(7) - weekday + 7).rem_euclid(7);
+    format_iso(y, m, last - back)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +145,9 @@ mod tests {
         assert_eq!(weekday_of("2026-10-31"), Some(6));
         assert_eq!(days_in_month(2024, 2), 29);
         assert!(!is_iso_date("2026-02-30"));
+        // Labor Day 2026, Thanksgiving 2026, Memorial Day 2026.
+        assert_eq!(nth_weekday_of_month(2026, 9, 1, 1), "2026-09-07");
+        assert_eq!(nth_weekday_of_month(2026, 11, 4, 4), "2026-11-26");
+        assert_eq!(last_weekday_of_month(2026, 5, 1), "2026-05-25");
     }
 }
