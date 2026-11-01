@@ -2,7 +2,12 @@
 //! engine needs it: cent rounding, the ship-to of a document, a breakdown
 //! row's tax-ledger fields. The sales-tax area adds the engines, zones,
 //! exemptions and returns next to these.
+//!
+//! [`document_tax`] and [`errors`] are the boundary the document routes
+//! (sales, purchases) call: the sales-tax area fills in the engine there.
 
+pub mod document_tax;
+pub mod errors;
 mod rounding;
 mod sourcing;
 mod to_tax_lines;
