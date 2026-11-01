@@ -62,6 +62,11 @@ jobs:
       # do with the parity batches. Rerun `pnpm rust:subscriber-fixtures`.
       - name: Rust subscriber fixtures are current
         run: pnpm rust:subscriber-fixtures --check
+      # rust/crates/payroll-domain: the rule tables (data/) and the vectors
+      # (tests/fixtures/) the TypeScript payroll engines produce. Rerun
+      # `pnpm rust:payroll-fixtures`.
+      - name: Rust payroll fixtures are current
+        run: pnpm rust:payroll-fixtures --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.

@@ -48,15 +48,25 @@ modules, each with conformance suites that reach every route:
   the `WELDDATA_ENRICH` Workflow: Findymail or Prospeo for emails through
   the outbound HTTP port, the company's own website for phone numbers, read
   on public addresses only, and the AI action stubbed as on Global)
+- **hr** (WeldHR: the employee directory, departments, client assignments,
+  on- and offboarding, shifts, attendance, leave, open shifts and shift
+  requests, work locations, expense declarations, sick reports,
+  announcements, coaching, evaluations, KPIs and milestones, My HR, and
+  payroll behind the `weldhr-payroll` flag: employers, schedules, employee
+  pay, runs, payslip PDFs, SEPA and NACHA files, the loonaangifte, US forms,
+  corrections, annual statements and the WeldBooks journal; the Dutch and US
+  engines are `crates/payroll-domain`, checked against vectors the
+  TypeScript engines write, `pnpm rust:payroll-fixtures`)
 
 Features this backend lacks inside the modules it serves are listed in
 `/config.json` as `unavailableFeatures` (`bins/weldsuite/src/edition.rs`), so
 the platform hides them: SSO connections, billing, credit top-up, paid apps,
 desktop sign-in, analytics, search reindex, company logos, mail domains, free
-`weldmail.com` addresses, mail AI, chat calls and help center custom domains.
+`weldmail.com` addresses, mail AI, chat calls, help center custom domains and
+sending the loonaangifte over Digipoort.
 Routes left out on purpose are in their suite's `excludedRoutes`, with the
 reason. Not ported yet (P8): books, commerce,
-host, meet, call, connect, agent, hr, reach, sheets, docs and
+host, meet, call, connect, agent, reach, sheets, docs and
 panel, and the edge workers (`external-api`, `mcp-server`, the integration
 workers).
 
@@ -104,7 +114,9 @@ rust/
                         modules/ads (with
                         crates/ads-domain: Meta's API, the campaign sync, the ad sync index),
                         modules/social (with crates/social-domain: PostPeer publishing, credits),
-                        modules/data (WeldData, and the welddata-enrich job);
+                        modules/data (WeldData, and the welddata-enrich job),
+                        modules/hr (WeldHR and payroll, with crates/payroll-domain: the
+                        Dutch and US engines, SEPA, NACHA, the loonaangifte, US forms, PDFs);
                         core is split over
                         modules/core-files (app-api files, folders, drive, search, storage),
                         modules/core-objects (WeldObjects, custom fields, object templates, grid views),
@@ -133,6 +145,7 @@ pnpm rust:test         # tests
 pnpm rust:deny         # licences, advisories, duplicate crates, sources (needs cargo-deny)
 pnpm rust:conformance  # the worker tests of every ported route, against Rust (report in rust/target/conformance)
 pnpm rust:subscriber-fixtures   # re-export what the TypeScript hub consumers do, for crates/subscribers/tests/parity.rs
+pnpm rust:payroll-fixtures      # re-export the payroll rule tables and the engines' vectors, for crates/payroll-domain
 pnpm rust:conformance --coverage apps/workers/know-api   # which routes a worker's own tests reach
 pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
   --pg postgres://…/postgres --valkey redis://…   # the realtime gateway vs @weldsuite/realtime's clients, two pods

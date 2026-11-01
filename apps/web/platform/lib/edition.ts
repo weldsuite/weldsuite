@@ -56,6 +56,8 @@ export const EDITION_FEATURES = [
   'chat-calls',
   /** WeldDesk help center custom domains (a Cloudflare zone record and a Vercel-hosted help center). */
   'helpcenter-custom-domains',
+  /** WeldHR payroll: sending the loonaangifte over Digipoort (a PKIoverheid certificate binding on Cloudflare). */
+  'payroll-digipoort',
 ] as const;
 
 export type EditionFeature = (typeof EDITION_FEATURES)[number];
