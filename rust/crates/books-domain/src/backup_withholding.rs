@@ -107,8 +107,9 @@ pub fn backup_withholding_detail(
 pub fn box_threshold(code: &str, year: i64) -> Threshold {
     let general = if year >= 2026 { 2000.0 } else { 600.0 };
     match code {
-        "nec_1" | "misc_1" | "misc_3" | "misc_5" | "misc_6" | "misc_9" | "misc_12"
-        | "misc_14" => Some(Some(general)),
+        "nec_1" | "misc_1" | "misc_3" | "misc_5" | "misc_6" | "misc_9" | "misc_12" | "misc_14" => {
+            Some(Some(general))
+        }
         "misc_2" | "misc_8" => Some(Some(10.0)),
         "misc_10" | "misc_11" => Some(Some(600.0)),
         "nec_3" => Some(None),
@@ -182,8 +183,8 @@ pub async fn compute_backup_withholding(
     if gross <= 0.0 || gross.is_nan() {
         return Ok(none(gross));
     }
-    let method = weldsuite_kit::validation::js_trim(input.payment_method.unwrap_or_default())
-        .to_lowercase();
+    let method =
+        weldsuite_kit::validation::js_trim(input.payment_method.unwrap_or_default()).to_lowercase();
     if FORM_1099K_PAYMENT_METHODS.contains(&method.as_str())
         || input.paid_through_payroll
         || input.from_credit_card_account
@@ -215,7 +216,10 @@ pub async fn compute_backup_withholding(
         .is_some_and(|code| !weldsuite_kit::validation::js_trim(code).is_empty())
         || (corporation && !is_attorney);
 
-    let code = default_box(text(&party, "default1099Form"), text(&party, "default1099Box"));
+    let code = default_box(
+        text(&party, "default1099Form"),
+        text(&party, "default1099Box"),
+    );
     if code.as_deref() == Some(FORM_1099_OMIT) {
         return Ok(none(gross));
     }
@@ -302,7 +306,10 @@ mod tests {
     #[test]
     fn default_boxes() {
         assert_eq!(default_box(Some("nec"), None).as_deref(), Some("nec_1"));
-        assert_eq!(default_box(Some("misc"), Some(" 3 ")).as_deref(), Some("misc_3"));
+        assert_eq!(
+            default_box(Some("misc"), Some(" 3 ")).as_deref(),
+            Some("misc_3")
+        );
         assert_eq!(default_box(None, Some("OMIT")).as_deref(), Some("omit"));
         assert_eq!(default_box(Some("misc"), None), None);
         assert_eq!(box_threshold("nec_1", 2026), Some(Some(2000.0)));

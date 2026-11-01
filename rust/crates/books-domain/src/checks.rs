@@ -43,7 +43,10 @@ fn under_thousand(n: i64) -> String {
     let hundreds = n / 100;
     let rest = n % 100;
     if hundreds > 0 {
-        parts.push(format!("{} hundred", ONES[usize::try_from(hundreds).unwrap_or(0)]));
+        parts.push(format!(
+            "{} hundred",
+            ONES[usize::try_from(hundreds).unwrap_or(0)]
+        ));
     }
     if rest > 0 {
         if rest < 20 {
@@ -101,7 +104,10 @@ pub fn amount_in_words(amount: f64) -> Option<String> {
     let total_cents = math_round(amount * 100.0) as i64;
     let words = whole_number_in_words(total_cents / 100);
     let mut chars = words.chars();
-    let first = chars.next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
+    let first = chars
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_default();
     Some(format!(
         "{first}{} and {:02}/100",
         chars.as_str(),
@@ -163,6 +169,7 @@ impl MicrFields {
     }
 
     /// The fields with the symbols as MICR font letters.
+    #[must_use]
     pub fn as_font_letters(&self) -> Self {
         Self {
             aux_on_us: micr_to_font_letters(&self.aux_on_us),
@@ -260,15 +267,17 @@ pub fn is_fractional_numerator(value: &str) -> bool {
     let Some((left, right)) = value.split_once('-') else {
         return false;
     };
-    let digits = |s: &str, max: usize| {
-        (1..=max).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit())
-    };
+    let digits =
+        |s: &str, max: usize| (1..=max).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit());
     digits(left, 2) && digits(right, 4)
 }
 
 /// `fractionalRouting(routingNumber, numerator)`: "90-7162/0210"; `Ok(None)`
 /// without a numerator, `Err` where TypeScript throws.
-pub fn fractional_routing(routing_number: &str, numerator: Option<&str>) -> Result<Option<String>, String> {
+pub fn fractional_routing(
+    routing_number: &str,
+    numerator: Option<&str>,
+) -> Result<Option<String>, String> {
     let Some(numerator) = numerator.filter(|n| !n.is_empty()) else {
         return Ok(None);
     };
@@ -384,11 +393,11 @@ fn face_fields(top: f64, height: f64, a: CheckAlignment) -> Value {
         "payer": text_box(MARGIN + dx, dy + 34.0, 250.0, 10.0, &[bold.clone(), ("lineHeight", json!(12))]),
         "bank": text_box(300.0 + dx, dy + 34.0, 170.0, 9.0, &[("align", json!("center")), ("lineHeight", json!(11))]),
         "checkNumber": text_box(476.0 + dx, dy + 30.0, 100.0, 11.0, &[right.clone(), bold.clone()]),
-        "fractional": text_box(476.0 + dx, dy + 18.0, 100.0, 7.0, &[right.clone()]),
+        "fractional": text_box(476.0 + dx, dy + 18.0, 100.0, 7.0, std::slice::from_ref(&right)),
         "dateLabel": text_box(440.0 + dx, dy + 88.0, 34.0, 6.5, &[]),
-        "date": text_box(476.0 + dx, dy + 88.0, 100.0, 10.0, &[right.clone()]),
+        "date": text_box(476.0 + dx, dy + 88.0, 100.0, 10.0, std::slice::from_ref(&right)),
         "payeeLabel": text_box(MARGIN + dx, dy + 118.0, 60.0, 6.5, &[]),
-        "payee": text_box(96.0 + dx, dy + 118.0, 360.0, 10.0, &[bold.clone()]),
+        "payee": text_box(96.0 + dx, dy + 118.0, 360.0, 10.0, std::slice::from_ref(&bold)),
         "payeeAddress": text_box(96.0 + dx, dy + 130.0, 360.0, 8.0, &[("lineHeight", json!(9))]),
         "amountBox": { "x": number_value(470.0 + dx), "y": number_value(dy + 104.0), "width": 106, "height": 20 },
         "amount": text_box(474.0 + dx, dy + 118.0, 98.0, 11.0, &[right.clone(), bold]),
@@ -417,14 +426,12 @@ fn voucher_fields(top: f64, height: f64, a: CheckAlignment) -> Value {
     let table_height = height - 76.0 - 44.0;
     let bold = ("bold", json!(true));
     let right = ("align", json!("right"));
-    let column = |key: &str, x: f64, width: f64, align: &str| {
-        json!({ "key": key, "x": number_value(x), "width": number_value(width), "align": align })
-    };
+    let column = |key: &str, x: f64, width: f64, align: &str| json!({ "key": key, "x": number_value(x), "width": number_value(width), "align": align });
     json!({
-        "payer": text_box(MARGIN + dx, dy + 26.0, 300.0, 9.0, &[bold.clone()]),
+        "payer": text_box(MARGIN + dx, dy + 26.0, 300.0, 9.0, std::slice::from_ref(&bold)),
         "title": text_box(MARGIN + dx, dy + 40.0, 200.0, 7.0, &[]),
-        "payee": text_box(MARGIN + dx, dy + 58.0, 330.0, 10.0, &[bold.clone()]),
-        "date": text_box(380.0 + dx, dy + 58.0, 90.0, 9.0, &[right.clone()]),
+        "payee": text_box(MARGIN + dx, dy + 58.0, 330.0, 10.0, std::slice::from_ref(&bold)),
+        "date": text_box(380.0 + dx, dy + 58.0, 90.0, 9.0, std::slice::from_ref(&right)),
         "checkNumber": text_box(476.0 + dx, dy + 58.0, 100.0, 10.0, &[right.clone(), bold.clone()]),
         "table": {
             "x": number_value(MARGIN + dx),
@@ -451,9 +458,7 @@ fn voucher_fields(top: f64, height: f64, a: CheckAlignment) -> Value {
 /// layout (TypeScript throws).
 pub fn get_check_layout(id: &str, alignment: CheckAlignment) -> Option<Value> {
     let (_, label, _) = CHECK_LAYOUTS.iter().find(|(known, _, _)| *known == id)?;
-    let face = |top: f64, height: f64| {
-        json!({ "top": number_value(top), "height": number_value(height), "fields": face_fields(top, height, alignment) })
-    };
+    let face = |top: f64, height: f64| json!({ "top": number_value(top), "height": number_value(height), "fields": face_fields(top, height, alignment) });
     let voucher = |top: f64| {
         json!({
             "top": number_value(top),
@@ -532,7 +537,9 @@ mod tests {
         let fields = build_micr_fields(&input).expect("fields").as_font_letters();
         assert_eq!(fields.on_us, "00012345D6789C");
         assert_eq!(
-            fractional_routing("021000021", Some("90-7162")).expect("ok").as_deref(),
+            fractional_routing("021000021", Some("90-7162"))
+                .expect("ok")
+                .as_deref(),
             Some("90-7162/0210")
         );
     }
@@ -550,7 +557,10 @@ mod tests {
         )
         .expect("layout");
         assert_eq!(shifted["faces"][0]["fields"]["payer"]["y"], json!(38));
-        assert_eq!(shifted["faces"][0]["fields"]["micrTransit"]["x"], json!(202.5));
+        assert_eq!(
+            shifted["faces"][0]["fields"]["micrTransit"]["x"],
+            json!(202.5)
+        );
         assert!(get_check_layout("nope", CheckAlignment::default()).is_none());
     }
 }

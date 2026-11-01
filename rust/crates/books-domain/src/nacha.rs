@@ -144,7 +144,7 @@ pub fn aba_checksum_valid(routing_number: &str) -> bool {
         .zip(ABA_WEIGHTS)
         .map(|(digit, weight)| u32::from(digit - b'0') * weight)
         .sum();
-    sum % 10 == 0
+    sum.is_multiple_of(10)
 }
 
 /// `companyIdFromEin(ein)`: "1" plus the 9-digit EIN; `None` where
@@ -221,7 +221,11 @@ fn sanitize_addenda(text: &str) -> String {
 }
 
 fn yymmdd(date: &str) -> String {
-    let p = parse_iso(date).unwrap_or(crate::dates::DateParts { y: 2000, m: 1, d: 1 });
+    let p = parse_iso(date).unwrap_or(crate::dates::DateParts {
+        y: 2000,
+        m: 1,
+        d: 1,
+    });
     format!("{:02}{:02}{:02}", p.y.rem_euclid(100), p.m, p.d)
 }
 
@@ -300,20 +304,25 @@ pub fn suggest_effective_entry_date(requested: &str, file_date: &str, same_day: 
 /// `buildRmrSegments(items)`: one X12 RMR segment per invoice
 /// (`RMR*IV*INV-1042**1250.00\`).
 pub fn build_rmr_segments(items: &[(String, f64)]) -> String {
-    items
-        .iter()
-        .map(|(reference, amount)| {
-            let cleaned: String = reference
-                .chars()
-                .map(|c| if matches!(c, '*' | '\\' | '~') { ' ' } else { c })
-                .collect();
-            format!(
-                "RMR*IV*{}**{}\\",
-                weldsuite_kit::validation::js_trim(&cleaned),
-                to_fixed(*amount, 2)
-            )
-        })
-        .collect()
+    let mut out = String::new();
+    for (reference, amount) in items {
+        let cleaned: String = reference
+            .chars()
+            .map(|c| {
+                if matches!(c, '*' | '\\' | '~') {
+                    ' '
+                } else {
+                    c
+                }
+            })
+            .collect();
+        out.push_str("RMR*IV*");
+        out.push_str(weldsuite_kit::validation::js_trim(&cleaned));
+        out.push_str("**");
+        out.push_str(&to_fixed(*amount, 2));
+        out.push('\\');
+    }
+    out
 }
 
 // ── Field formatting ────────────────────────────────────────────────────────
@@ -1178,6 +1187,7 @@ struct Fields {
 }
 
 #[allow(clippy::too_many_lines)] // the records, in file order
+#[allow(clippy::needless_pass_by_value)] // the builder hands over what it settled
 fn write_file(
     input: &NachaFileInput,
     f: Fields,
@@ -1209,7 +1219,10 @@ fn write_file(
     ))?);
 
     for sec_code in BATCH_ORDER {
-        let group: Vec<&PreparedEntry> = entries.iter().filter(|e| e.sec_header == sec_code).collect();
+        let group: Vec<&PreparedEntry> = entries
+            .iter()
+            .filter(|e| e.sec_header == sec_code)
+            .collect();
         if group.is_empty() {
             continue;
         }
@@ -1400,6 +1413,7 @@ fn padded(n: f64, width: usize) -> String {
 /// `verifyNachaFile(content)`: record lengths and order, counts, entry
 /// hashes, totals, trace numbers, addenda numbering and the padding.
 #[allow(clippy::too_many_lines)] // the verifier, record type by record type
+#[allow(clippy::float_cmp)] // `Number(field) !== total`: JavaScript compares exactly
 pub fn verify_nacha_file(content: &str) -> NachaVerification {
     let mut issues: Vec<NachaIssue> = Vec::new();
     let mut err = |code: &'static str, message: String| {
@@ -1570,7 +1584,9 @@ pub fn verify_nacha_file(content: &str) -> NachaVerification {
                 if cut(&trace, 0, 8) != cut(&b.header, 79, 87) {
                     err(
                         "trace_number",
-                        format!("Line {n}: trace number does not start with the ODFI identification"),
+                        format!(
+                            "Line {n}: trace number does not start with the ODFI identification"
+                        ),
                     );
                 }
                 if let Some(last) = &b.last_entry_trace
@@ -1606,10 +1622,7 @@ pub fn verify_nacha_file(content: &str) -> NachaVerification {
                 if cut(line, 1, 3) != "05" {
                     err(
                         "addenda_sequence",
-                        format!(
-                            "Line {n}: addenda type code {} is not 05",
-                            cut(line, 1, 3)
-                        ),
+                        format!("Line {n}: addenda type code {} is not 05", cut(line, 1, 3)),
                     );
                 }
                 #[allow(clippy::cast_precision_loss)]
@@ -1916,11 +1929,17 @@ mod tests {
     fn helpers() {
         assert!(aba_checksum_valid("021000021"));
         assert!(!aba_checksum_valid("021000022"));
-        assert_eq!(company_id_from_ein("12-3456789").as_deref(), Some("1123456789"));
+        assert_eq!(
+            company_id_from_ein("12-3456789").as_deref(),
+            Some("1123456789")
+        );
         assert_eq!(sanitize_ach_text("  Café  & Co. <x>"), "CAFE & CO. X");
         assert!(!is_ach_banking_day("2026-11-26"));
         assert!(!is_ach_banking_day("2026-11-07"));
-        assert_eq!(suggest_effective_entry_date("2026-11-01", "2026-11-02", false), "2026-11-03");
+        assert_eq!(
+            suggest_effective_entry_date("2026-11-01", "2026-11-02", false),
+            "2026-11-03"
+        );
         assert_eq!(next_ach_banking_day("2026-12-25"), "2026-12-28");
         assert_eq!(grouped(1_000_000), "1,000,000");
     }

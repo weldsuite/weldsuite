@@ -31,9 +31,9 @@
 
 pub mod address;
 pub mod attachments;
+pub mod backup_withholding;
 pub mod bad_debt;
 pub mod bank_accounts;
-pub mod backup_withholding;
 pub mod bank_matching;
 pub mod catch_up;
 pub mod checks;

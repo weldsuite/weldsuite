@@ -128,6 +128,7 @@ impl PositivePayColumn {
 
 /// `PositivePayConfig`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)] // the layout options, as the bank sets them
 pub struct PositivePayConfig {
     /// `csv` or `fixed`.
     pub fixed: bool,
@@ -359,7 +360,11 @@ fn pad_to(value: &str, width: usize, pad: &str, right: bool) -> String {
     if length >= width || pad.is_empty() {
         return value.to_owned();
     }
-    let filler: String = pad.repeat(width - length).chars().take(width - length).collect();
+    let filler: String = pad
+        .repeat(width - length)
+        .chars()
+        .take(width - length)
+        .collect();
     if right {
         format!("{filler}{value}")
     } else {
@@ -464,8 +469,7 @@ pub fn build_positive_pay_file(
             }
         }
     }
-    let in_range =
-        |date: &str| from.is_none_or(|f| date >= f) && to.is_none_or(|t| date <= t);
+    let in_range = |date: &str| from.is_none_or(|f| date >= f) && to.is_none_or(|t| date <= t);
     let mut records: Vec<Entry<'_>> = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     for check in checks {
@@ -483,9 +487,12 @@ pub fn build_positive_pay_file(
             );
             continue;
         }
-        let void_date = check
-            .voided
-            .then(|| check.void_date.clone().unwrap_or_else(|| check.issue_date.clone()));
+        let void_date = check.voided.then(|| {
+            check
+                .void_date
+                .clone()
+                .unwrap_or_else(|| check.issue_date.clone())
+        });
         let issued_in_range = in_range(&check.issue_date);
         let voided_in_range = void_date.as_deref().is_some_and(in_range);
         if !issued_in_range && !voided_in_range {
@@ -635,9 +642,13 @@ pub fn build_positive_pay_file(
                 Some(check_number),
             );
         }
-        let limit = config
-            .payee_max_length
-            .or_else(|| if config.fixed { width_of("payee") } else { None });
+        let limit = config.payee_max_length.or_else(|| {
+            if config.fixed {
+                width_of("payee")
+            } else {
+                None
+            }
+        });
         if let Some(limit) = limit
             && utf16_len(&payee) > limit
         {
@@ -648,11 +659,14 @@ pub fn build_positive_pay_file(
                 format!("The payee is longer than {limit} characters and was cut"),
                 Some(check_number),
             );
-            payee = slice_utf16(&payee, limit).trim_end().to_owned();
+            slice_utf16(&payee, limit).trim_end().clone_into(&mut payee);
         }
-        let void_date = check
-            .voided
-            .then(|| check.void_date.clone().unwrap_or_else(|| check.issue_date.clone()));
+        let void_date = check.voided.then(|| {
+            check
+                .void_date
+                .clone()
+                .unwrap_or_else(|| check.issue_date.clone())
+        });
         let value = |column: &PositivePayColumn| -> String {
             match column.field.as_str() {
                 "account_number" => account.clone(),
@@ -660,20 +674,24 @@ pub fn build_positive_pay_file(
                 "issue_date" => format_positive_pay_date(&check.issue_date, &config.date_format),
                 "amount" => format_amount(record.cents, config.implied_decimal),
                 "payee" => payee.clone(),
-                "void_flag" => if record.voided {
-                    config.void_flag.clone()
-                } else {
-                    config.issue_flag.clone()
-                },
+                "void_flag" => {
+                    if record.voided {
+                        config.void_flag.clone()
+                    } else {
+                        config.issue_flag.clone()
+                    }
+                }
                 "void_date" => match (&void_date, record.voided) {
                     (Some(date), true) => format_positive_pay_date(date, &config.date_format),
                     _ => String::new(),
                 },
-                "action_code" => if record.voided {
-                    config.action_void.clone()
-                } else {
-                    config.action_issue.clone()
-                },
+                "action_code" => {
+                    if record.voided {
+                        config.action_void.clone()
+                    } else {
+                        config.action_issue.clone()
+                    }
+                }
                 _ => column.literal.clone().unwrap_or_default(),
             }
         };
@@ -701,15 +719,13 @@ pub fn build_positive_pay_file(
     }
     let last = to.map_or_else(
         || {
-            records
-                .iter()
-                .fold("0000-00-00".to_owned(), |latest, r| {
-                    if r.check.issue_date > latest {
-                        r.check.issue_date.clone()
-                    } else {
-                        latest
-                    }
-                })
+            records.iter().fold("0000-00-00".to_owned(), |latest, r| {
+                if r.check.issue_date > latest {
+                    r.check.issue_date.clone()
+                } else {
+                    latest
+                }
+            })
         },
         str::to_owned,
     );
@@ -721,15 +737,15 @@ pub fn build_positive_pay_file(
     let issued: Vec<&Entry<'_>> = records.iter().filter(|r| !r.voided).collect();
     let voids: Vec<&Entry<'_>> = records.iter().filter(|r| r.voided).collect();
     Ok(PositivePayFile {
-        content: format!(
-            "{}{}",
-            lines.join(&config.line_ending),
-            config.line_ending
-        ),
+        content: format!("{}{}", lines.join(&config.line_ending), config.line_ending),
         file_name: format!(
             "positive-pay-{}-{}.{}",
             if tail.is_empty() { "account" } else { tail },
-            if is_iso_date(&last) { last.as_str() } else { "file" },
+            if is_iso_date(&last) {
+                last.as_str()
+            } else {
+                "file"
+            },
             if config.fixed { "txt" } else { "csv" }
         ),
         format: format.to_owned(),
@@ -812,8 +828,8 @@ mod tests {
         assert_eq!(
             file.content,
             format!(
-                "000123456789000000100100000003000011022026IS{}{}\r\n",
-                format!("{:<40}", "Charlie Supply"),
+                "000123456789000000100100000003000011022026IS{:<40}{}\r\n",
+                "Charlie Supply",
                 " ".repeat(40)
             )
         );

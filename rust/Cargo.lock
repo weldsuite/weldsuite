@@ -4022,7 +4022,9 @@ name = "weldsuite-books-purchases"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "http",
+ "jiff",
  "serde_json",
  "sqlx",
  "tokio",
