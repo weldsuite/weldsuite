@@ -123,7 +123,11 @@ pub fn group_thousands(digits: &str, sep: char) -> String {
         let this_word = is_word(*c);
         // `\B`: between two word characters (or two non-word characters).
         let boundary = prev_word != this_word;
-        if i > 0 && !boundary && remaining.is_multiple_of(3) && chars[i..].iter().all(char::is_ascii_digit) {
+        if i > 0
+            && !boundary
+            && remaining.is_multiple_of(3)
+            && chars[i..].iter().all(char::is_ascii_digit)
+        {
             out.push(sep);
         }
         out.push(*c);

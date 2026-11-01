@@ -42,6 +42,7 @@ pub mod nl;
 pub mod ordered;
 pub mod periods;
 pub mod types;
+pub mod us;
 
 pub use types::*;
 
@@ -67,6 +68,6 @@ impl std::error::Error for PayrollError {}
 pub fn calculate_payslip(input: &PayslipInput) -> Result<PayslipResult, PayrollError> {
     match input {
         PayslipInput::Nl(nl) => nl::calculate_nl_payslip(nl),
-        PayslipInput::Us(_) => Err(PayrollError::new("US payroll is not ported yet")),
+        PayslipInput::Us(us) => us::calculate_us_payslip(us),
     }
 }

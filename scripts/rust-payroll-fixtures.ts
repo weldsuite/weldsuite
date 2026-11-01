@@ -54,7 +54,19 @@ import {
 } from '../packages/domains/payroll/src/nl/fixtures/employer-scenario';
 import { STATE_NAMES } from '../packages/domains/payroll/src/us/states/labels';
 import { STATE_CERTIFICATE_LABELS } from '../packages/domains/payroll/src/us/states/certificate-labels';
-import type { NlFilingData, NlPayslipInput, PayFrequency } from '../packages/domains/payroll/src/types';
+import type { NlFilingData, NlPayslipInput, PayFrequency, UsPayslipInput, UsW4Input } from '../packages/domains/payroll/src/types';
+import { FEDERAL_2026 } from '../packages/domains/payroll/src/us/federal-2026';
+import { FUTA_CREDIT_REDUCTION, federalRules } from '../packages/domains/payroll/src/us/federal-rules';
+import { SUPPORTED_STATES, stateModule } from '../packages/domains/payroll/src/us/states';
+import { certificate, stateInput } from '../packages/domains/payroll/src/us/states/test-input';
+import { computeOvertime } from '../packages/domains/payroll/src/us/overtime';
+import { nraAdditionCents, supplementalWithholding, worksheet1A } from '../packages/domains/payroll/src/us/withholding';
+import {
+  annualReturnDueDate,
+  businessDaysAfter,
+  legalHolidays,
+  quarterlyReturnDueDate,
+} from '../packages/domains/payroll/src/us/dates';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const crateDir = path.join(repo, 'rust', 'crates', 'payroll-domain');
@@ -63,7 +75,8 @@ const stale: string[] = [];
 
 function write(relative: string, value: unknown) {
   const file = path.join(crateDir, relative);
-  const text = `${JSON.stringify(value, null, 1)}\n`;
+  // Tables stay readable; vectors are compact.
+  const text = `${relative.startsWith('data/') ? JSON.stringify(value, null, 1) : JSON.stringify(value)}\n`;
   if (check) {
     if (!existsSync(file) || readFileSync(file, 'utf8') !== text) stale.push(relative);
     return;
@@ -465,6 +478,253 @@ function randomNlInput(g: Gen): NlPayslipInput {
     }),
   );
   write('tests/fixtures/nl-loonaangifte.json', { cases, kenmerken, bsns, sums, annual });
+}
+
+// ── US ──────────────────────────────────────────────────────────────────────
+
+write('data/us-federal.json', { rules: { 2026: FEDERAL_2026 }, futaCreditReduction: FUTA_CREDIT_REDUCTION });
+write('data/us-states.json', Object.fromEntries(SUPPORTED_STATES.map((code) => [code, stateModule(code)])));
+
+const US_CODES = [
+  'hours.regular', 'hours.regular', 'hours.regular', 'hours.overtime', 'hours.unpaid_leave', 'hours.paid_leave', 'bonus',
+  'commission', 'allowance.taxable', 'reimbursement', 'deduction.net', 'advance', 'us.tips_cash', 'us.401k', 'us.roth_401k',
+  'us.401k_employer_match', 'us.section125_health', 'us.employer_health', 'us.hsa', 'us.dependent_care', 'nl.company_car',
+];
+const US_STATES = [...SUPPORTED_STATES, 'ZZ'];
+const SINGLE_W4: UsW4Input = {
+  formYear: 2026, filingStatus: 'single', multipleJobs: false, dependentsAmount: 0, otherIncome: 0, deductions: 0,
+  extraWithholding: 0, exempt: false, allowances: null, nonresidentAlien: false,
+};
+
+function randomW4(g: Gen): UsW4Input | null {
+  if (g.bool(0.15)) return null;
+  return {
+    formYear: g.pick([2026, 2020, 2019]),
+    filingStatus: g.pick(['single', 'married_jointly', 'head_of_household'] as const),
+    multipleJobs: g.bool(0.2),
+    dependentsAmount: g.pick([0, 0, 2000, 4500]),
+    otherIncome: g.pick([0, 0, 5000]),
+    deductions: g.pick([0, 0, 12000]),
+    extraWithholding: g.pick([0, 0, 25, 50.5]),
+    exempt: g.bool(0.05),
+    allowances: g.maybe(g.int(0, 5), 0.3),
+    nonresidentAlien: g.bool(0.07),
+  };
+}
+
+function randomCertificate(g: Gen, state: string) {
+  const values: Record<string, number | string | boolean | null> = {};
+  for (const f of stateModule(state)?.certificate?.fields ?? []) {
+    if (!g.bool(0.6)) continue;
+    if (f.type === 'boolean') values[f.key] = g.pick([true, false, 'true', 1, 0]);
+    else if (f.type === 'select') values[f.key] = g.pick([...(f.options ?? []), 'bogus']);
+    else if (f.type === 'number') values[f.key] = g.pick([0, 1, 2, 3, '2', 12]);
+    else values[f.key] = g.pick([0, 25, '5000', 11000, '']);
+  }
+  return certificate({
+    filingStatus: g.maybe(g.pick([...(stateModule(state)?.certificate?.filingStatuses ?? ['single']), 'married']), 0.7),
+    allowances: g.maybe(g.pick([0, 1, 2, 3, 11, 2.7]), 0.6),
+    values,
+    extraWithholding: g.maybe(g.pick([0, 10, 33.33]), 0.3),
+    exempt: g.bool(0.07),
+  });
+}
+
+function shiftDate(iso: string, days: number): string {
+  return new Date(new Date(`${iso}T00:00:00Z`).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+function usPeriod(g: Gen, frequency: PayFrequency, start: string, index: number): UsPayslipInput['period'] {
+  if (frequency === 'weekly' || frequency === 'biweekly') {
+    const days = frequency === 'weekly' ? 7 : 14;
+    const pay = shiftDate(start, days + 4);
+    return { start, end: shiftDate(start, days - 1), payDate: pay, frequency, taxYear: Number(pay.slice(0, 4)), periodNumber: index, periodsPerYear: days === 7 ? 52 : 26 };
+  }
+  const y = Number(start.slice(0, 4));
+  const m = Number(start.slice(5, 7));
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const half = frequency === 'semimonthly';
+  const first = !half || g.bool(0.5);
+  const s = half && !first ? `${start.slice(0, 8)}16` : `${start.slice(0, 8)}01`;
+  const e = half && first ? `${start.slice(0, 8)}15` : `${start.slice(0, 8)}${last}`;
+  return { start: s, end: e, payDate: e, frequency, taxYear: y, periodNumber: index, periodsPerYear: half ? 24 : frequency === 'four_weekly' ? 13 : 12 };
+}
+
+function randomUsInput(g: Gen): UsPayslipInput {
+  const frequency = g.pick(['weekly', 'weekly', 'biweekly', 'semimonthly', 'monthly', 'four_weekly'] as const);
+  const start = g.date(2026, 2026);
+  const period = usPeriod(g, frequency, frequency === 'weekly' || frequency === 'biweekly' ? start : `${start.slice(0, 8)}01`, g.int(1, 26));
+  if (g.bool(0.03)) period.taxYear = 2025;
+  const state = g.bool(0.04) ? null : g.pick(US_STATES);
+  const compensation = g.bool(0.07)
+    ? null
+    : g.bool(0.5)
+      ? { payType: 'salary' as const, amount: g.pick([g.money(250000), g.money(9000), g.money(2000)]), period: g.pick(['year', 'month', 'week', 'hour'] as const), hoursPerWeek: g.pick([40, 37.5, 0, null]) }
+      : { payType: 'hourly' as const, amount: g.money(80), period: g.pick(['hour', 'hour', 'week', 'year'] as const), hoursPerWeek: g.pick([40, 20, null]) };
+  const components = Array.from({ length: g.int(0, 4) }, () => {
+    const code = g.pick(US_CODES);
+    const params: Record<string, number | string | boolean | null> = {};
+    if (code === 'us.401k' || code === 'us.roth_401k') params.percent = g.pick([0, 3, 6, '10', true]);
+    if (code === 'us.401k_employer_match') Object.assign(params, { match_percent: g.pick([50, 100, null]), match_limit_percent: g.pick([6, '4', null]) });
+    return { code, ...(g.bool(0.3) ? { label: g.pick(['Custom', null]) } : {}), amountCents: g.maybe(g.int(0, 80_000), 0.5), params };
+  });
+  const inputs = Array.from({ length: g.int(0, 6) }, () => ({
+    code: g.pick(US_CODES),
+    label: g.maybe('Line', 0.3),
+    quantity: g.maybe(g.pick([g.int(0, 60), g.money(12)]), 0.85),
+    rate: g.maybe(g.pick([g.money(60), 150, 200]), 0.3),
+    amountCents: g.maybe(g.int(-10_000, 400_000), 0.3),
+    workDate: g.pick([null, period.start, period.end, `${period.start.slice(0, 8)}${String(g.int(1, 28)).padStart(2, '0')}`]),
+  }));
+  const ytd: Record<string, number> = {};
+  if (g.bool(0.6)) {
+    for (const key of ['us.ss_wages', 'us.medicare_wages', 'us.futa_wages', 'us.401k', 'us.supplemental_wages', 'us.fit_regular', 'us.dependent_care', 'us.ss_employee', 'us.medicare_employee']) {
+      if (g.bool(0.5)) ytd[key] = g.int(0, 20_000_000);
+    }
+    if (state && g.bool(0.5)) ytd[`us.state.${state}.sui_wages`] = g.int(0, 5_000_000);
+    if (g.bool(0.2)) ytd[`us.ot_carry.${period.start}.d1`] = g.int(100, 1200);
+  }
+  const certificates: Record<string, ReturnType<typeof certificate>> = {};
+  if (state && g.bool(0.7)) certificates[state] = randomCertificate(g, state);
+  const sui: Record<string, number | null> = {};
+  if (state && g.bool(0.8)) sui[state] = g.pick([2, 3.4, 5.4, 2.42, 0.94, null, 6.1]);
+  const extra: Record<string, Record<string, number>> = {};
+  if (state && g.bool(0.4)) {
+    extra[state] = Object.fromEntries((stateModule(state)?.employerRateCodes ?? []).filter(() => g.bool(0.6)).map((c) => [c.code, g.pick([0, 0.1, 0.5, 1.2])]));
+  }
+  return {
+    country: 'US',
+    period,
+    employee: {
+      dateOfBirth: g.maybe(g.date(1950, 2006), 0.9),
+      startDate: g.pick([null, g.date(2020, 2025), period.start, `${period.start.slice(0, 8)}05`]),
+      endDate: g.pick([null, null, null, period.end, g.date(2026, 2027)]),
+    },
+    compensation,
+    components,
+    inputs,
+    ytd,
+    employer: { workweekStartDay: g.int(0, 6), suiRatePercent: sui, extraRates: extra, employeeCountEstimate: g.maybe(g.pick([3, 12, 30, 80]), 0.8) },
+    us: {
+      workState: state === null ? null : g.bool(0.1) ? state.toLowerCase() : state,
+      residenceState: g.maybe(g.pick([state ?? 'NY', 'NJ', 'pa']), 0.3),
+      flsaStatus: g.pick(['nonexempt', 'nonexempt', 'exempt'] as const),
+      w4: randomW4(g),
+      stateCertificates: certificates,
+      exemptFica: g.bool(0.05),
+      exemptFuta: g.bool(0.05),
+      ...(g.bool(0.2) ? { exemptSui: g.bool(0.5) } : {}),
+      statutoryEmployee: g.bool(0.04),
+      retirementPlan: g.bool(0.3),
+    },
+  };
+}
+
+{
+  const g = new Gen(6);
+  const cases: unknown[] = [];
+  for (let i = 0; i < 1500; i += 1) {
+    const input = randomUsInput(g);
+    cases.push({ input, output: attempt(() => calculatePayslip(input)) });
+  }
+  // A run of weekly or biweekly payslips, YTD carried (wage bases, overtime carry).
+  for (let e = 0; e < 12; e += 1) {
+    const base = randomUsInput(g);
+    const frequency = g.pick(['weekly', 'biweekly'] as const);
+    let ytd: Record<string, number> = {};
+    let start = '2026-01-04';
+    for (let r = 1; r <= (frequency === 'weekly' ? 20 : 12); r += 1) {
+      const period = usPeriod(g, frequency, start, r);
+      const input: UsPayslipInput = {
+        ...base,
+        period,
+        ytd,
+        inputs: base.inputs.map((i) => (i.code === 'hours.regular' || i.code === 'hours.overtime' ? { ...i, workDate: g.pick([period.start, period.end, null]) } : i)),
+      };
+      const output = attempt(() => calculatePayslip(input));
+      cases.push({ input, output });
+      if ('ytd' in output) ytd = output.ytd;
+      start = shiftDate(start, frequency === 'weekly' ? 7 : 14);
+    }
+  }
+  write('tests/fixtures/us-payslips.json', cases);
+
+  const states: unknown[] = [];
+  for (let i = 0; i < 1500; i += 1) {
+    const state = g.pick(SUPPORTED_STATES);
+    const input = stateInput(state, {
+      taxYear: g.bool(0.97) ? 2026 : 2027,
+      payDate: g.pick(['2026-03-13', '2026-05-15', '2026-07-03', '2026-12-31']),
+      periodsPerYear: g.pick([52, 26, 24, 12, 4, 2, 1, 53, 13]),
+      regularWagesCents: g.pick([0, g.int(0, 2_000_000), g.int(0, 30_000_000)]),
+      supplementalWagesCents: g.pick([0, 0, g.int(0, 5_000_000)]),
+      pretax: {
+        retirement401kCents: g.pick([0, g.int(0, 200_000)]),
+        section125Cents: g.pick([0, g.int(0, 50_000)]),
+        hsaCents: g.pick([0, g.int(0, 30_000)]),
+        dependentCareCents: g.pick([0, g.int(0, 50_000)]),
+      },
+      certificate: g.bool(0.7) ? randomCertificate(g, state) : null,
+      federalW4: randomW4(g),
+      suiRatePercent: g.pick([2, 3.4, 5.4, 2.42, 0.94, null, 4.3]),
+      extraRates: Object.fromEntries((stateModule(state)?.employerRateCodes ?? []).filter(() => g.bool(0.4)).map((c) => [c.code, g.pick([0, 0.1, 0.5, 1.2])])),
+      employeeCountEstimate: g.maybe(g.pick([3, 12, 30, 80]), 0.8),
+      ytd: g.bool(0.5)
+        ? { [`us.state.${state}.sui_wages`]: g.int(0, 5_000_000), [`us.state.${state}.fica_deduction`]: g.int(0, 200_000), [`us.state.${state}.ny_pfl_employee`]: g.int(0, 41_191) }
+        : {},
+      residenceState: g.maybe(g.pick([state, 'NJ', 'ca']), 0.3),
+      exemptFromSui: g.bool(0.08),
+      ...(g.bool(0.5) ? { ficaEmployeeCents: g.int(0, 100_000) } : {}),
+    });
+    states.push({ input, result: stateModule(state)!.calculate(input) });
+  }
+  write('tests/fixtures/us-states.json', states);
+
+  const rules = federalRules(2026)!;
+  const withholding: unknown[] = [];
+  for (let i = 0; i < 400; i += 1) {
+    const w4 = randomW4(g) ?? SINGLE_W4;
+    const periods = g.pick([52, 26, 24, 12, 53, 27, 4, 1, 365]);
+    const wages = g.int(-1000, 3_000_000);
+    const args = {
+      supplementalCents: g.int(0, 2_000_000),
+      ytdSupplementalCents: g.pick([0, g.int(0, 120_000_000)]),
+      regularWagesCents: wages,
+      nraAdditionCents: nraAdditionCents(rules, w4, periods),
+      periodsPerYear: periods,
+      regularWithheldThisYearCents: g.pick([0, 0, g.int(1, 100_000)]),
+    };
+    withholding.push({ w4, periods, wages, worksheet: worksheet1A(rules, w4, wages, periods), args, supplemental: supplementalWithholding({ rules, w4, ...args }) });
+  }
+  const overtime: unknown[] = [];
+  for (let i = 0; i < 300; i += 1) {
+    const periodStart = g.date(2026, 2026);
+    const input = {
+      entries: Array.from({ length: g.int(0, 14) }, () => ({
+        date: shiftDate(periodStart, g.int(-3, 17)),
+        hours: g.pick([g.int(0, 14), g.money(12), -2]),
+        rateCents: g.pick([1500, 2250.5, 4000]),
+        multiplier: g.pick([null, null, 1.5, 2]),
+      })),
+      periodStart,
+      periodEnd: shiftDate(periodStart, g.pick([6, 13, 15])),
+      workweekStartDay: g.int(0, 6),
+      california: g.bool(0.3),
+      salariedRegularRateCents: g.maybe(g.pick([2500, 3846.15]), 0.3),
+      ytd: g.bool(0.4)
+        ? { [`us.ot_carry.${periodStart}.d2`]: g.int(100, 1000), [`us.ot_carry.${periodStart}.pay`]: g.int(1000, 100_000), [`us.ot_carry.${periodStart}.premium`]: g.int(0, 5000), 'us.ot_carry.bad.d1': 5 }
+        : {},
+    };
+    overtime.push({ input, result: computeOvertime(input) });
+  }
+  const dates = [2025, 2026, 2027, 2028, 2029].map((year) => ({
+    year,
+    holidays: legalHolidays(year),
+    due: ([1, 2, 3, 4] as const).map((q) => quarterlyReturnDueDate(year, q)),
+    annual: annualReturnDueDate(year),
+    after: businessDaysAfter(`${year}-12-22`, 3),
+  }));
+  write('tests/fixtures/us-federal.json', { withholding, overtime, dates });
 }
 
 if (check) {

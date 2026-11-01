@@ -92,6 +92,11 @@ pub fn to_fixed(x: f64, digits: usize) -> String {
     text
 }
 
+/// `String.prototype.trim`: Unicode white space and the BOM.
+pub fn js_trim(text: &str) -> &str {
+    text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+}
+
 /// `Number.isInteger(x)`.
 pub fn is_integer(x: f64) -> bool {
     x.is_finite() && x.fract() == 0.0
