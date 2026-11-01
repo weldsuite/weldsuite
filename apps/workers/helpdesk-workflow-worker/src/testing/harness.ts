@@ -29,12 +29,19 @@ export interface RecordedPublish {
   payload: unknown;
 }
 
+/** The URL a `fetch` was called with. */
+export function requestUrl(input: RequestInfo | URL): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
+
 /** A `REALTIME` binding that records what the worker publishes. */
 export function fakeRealtime(): { binding: Fetcher; publishes: RecordedPublish[] } {
   const publishes: RecordedPublish[] = [];
   const binding = {
     async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+      const url = new URL(requestUrl(input));
       const body = JSON.parse(String(init?.body ?? 'null')) as Record<string, unknown>;
       const room = /^\/publish\/(conversation|support|chat)\/(.+)$/.exec(url.pathname);
       if (url.pathname === '/publish/workspace') {

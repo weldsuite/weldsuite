@@ -37,7 +37,7 @@ import {
   workflowRow,
   executionRow,
 } from './seed';
-import { fakeDurableNamespace, fakeRealtime, post, runInstance, testEnv } from './harness';
+import { fakeDurableNamespace, fakeRealtime, post, requestUrl, runInstance, testEnv } from './harness';
 import type { Env } from '../types';
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -150,7 +150,7 @@ let httpCalls: HttpCall[] = [];
 
 function stubFetch() {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const url = requestUrl(input);
     const headers = Object.entries((init?.headers ?? {}) as Record<string, string>);
     httpCalls.push({
       method: init?.method ?? 'GET',
@@ -415,6 +415,8 @@ const DEPARTMENT_OPS: Array<Record<string, unknown>> = [
   { op: 'assign', departmentId: 'dep_2', mode: 'least_busy' },
 ];
 
+const DEPARTMENT_PATHS: Record<string, string> = { assign: '/assign', release: '/release', sync: '/sync-agents' };
+
 describe('fixtures: AssignmentRouter', () => {
   it('desk picks and the department router', async () => {
     const desk = PICK_SEQUENCES.map(({ name, picks }) => {
@@ -431,7 +433,7 @@ describe('fixtures: AssignmentRouter', () => {
     const env = { ...testEnv().env, ASSIGNMENT_ROUTER: namespace } as Env;
     const department = [];
     for (const op of DEPARTMENT_OPS) {
-      const path = op.op === 'assign' ? '/assign' : op.op === 'release' ? '/release' : '/sync-agents';
+      const path = DEPARTMENT_PATHS[String(op.op)] ?? '/sync-agents';
       const { op: _op, ...body } = op;
       const res = await worker.fetch(post(path, body), env);
       const stored = objects.get(String(op.departmentId))?.storage.map.get('state') ?? null;
