@@ -1,6 +1,7 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { useSignIn, useAuth, useOrganizationList } from '@clerk/clerk-react';
+import { useAuth, useOrganizationList, ClerkOnly } from '@/lib/auth';
+import { useSignIn, isClerkAPIResponseError } from '@/lib/auth/clerk';
 import { useSearchParams, Link } from '@/lib/router';
 import { isDesktop, getDesktop } from '@/lib/desktop';
 import { Button } from '@weldsuite/ui/components/button';
@@ -13,10 +14,10 @@ import {
 } from '@weldsuite/ui/components/input-otp';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
 import { Loader2, Mail, Lock, KeyRound, ChevronLeft, Eye, EyeOff, Fingerprint, Building2 } from 'lucide-react';
-import { isClerkAPIResponseError } from '@clerk/clerk-react/errors';
 import { getSafeCallbackUrl, getClerkErrorMessage } from '../../utils';
 import { isPasskeySupported, isPasskeyAutofillSupported, isPasskeyDismissed } from '@/lib/passkeys';
 import { getTranslations } from '@/lib/i18n';
+import { HostedSignInRedirect } from '@/components/auth/identity-provider-screens';
 
 type LoginStep = 'credentials' | 'two-factor' | 'email-verify' | 'first-factor-verify' | 'sso';
 
@@ -295,7 +296,7 @@ function GoogleIcon({ className }: Readonly<{ className?: string }>) {
   );
 }
 
-export default function LoginPage() {
+function ClerkLoginPage() {
   const t = getTranslations('common');
   const searchParams = useSearchParams();
   // Use sanitized callback URL to prevent redirect loops to auth pages
@@ -1000,7 +1001,7 @@ export default function LoginPage() {
       <div className="flex-1 flex flex-col justify-center px-8 py-12 lg:px-16">
         <div className="w-full max-w-[448px] mx-auto">
           <div className="mb-[32px]">
-            <h1 className="text-[26px] font-semibold text-gray-900 mb-2">
+            <h1 className="text-[26px] leading-tight font-semibold text-gray-900 mb-0.5">
               {t.auth.login.title}
             </h1>
             <p className="text-gray-600">
@@ -1168,5 +1169,14 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+/** Clerk's own screen; providers that host sign-in themselves (OIDC) get hosted sign in redirect instead. */
+export default function LoginPage() {
+  return (
+    <ClerkOnly fallback={<HostedSignInRedirect />}>
+      <ClerkLoginPage />
+    </ClerkOnly>
   );
 }

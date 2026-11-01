@@ -1,8 +1,8 @@
 /**
  * Use a template: one block per role, in the order the roles are asked for,
  * with the role's usual person filled in. "Create draft" makes a new draft
- * request (documents, fields and settings copied) and opens it on its Review
- * step, so it can be sent right away.
+ * request (documents, fields and settings copied) and opens it, ready to be
+ * sent right away.
  *
  * The form is the contract's own `useTemplateSchema`; the server has the final
  * say, so what it refuses (a role left out, an address used twice, a missing
@@ -117,8 +117,7 @@ function UseTemplateForm({ template, onClose }: Readonly<{ template: SignEnvelop
     use.mutate(buildUseTemplateInput(values, template), {
       onSuccess: (envelope) => {
         onClose();
-        // The draft opens on Review: it is ready to send.
-        router.push(`/weldsign/${envelope.id}?step=review`);
+        router.push(`/weldsign/${envelope.id}`);
       },
       onError: (err) => toast.error(`${tu.failed}: ${apiErrorMessage(err)}`),
     }),

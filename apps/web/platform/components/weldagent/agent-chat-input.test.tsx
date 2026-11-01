@@ -36,9 +36,9 @@ vi.mock('@/lib/i18n', () => ({
   }),
 }));
 
-import { AgentChatInput } from './agent-chat-input';
+import { AgentChatInput, AgentComposer } from './agent-chat-input';
 
-function setup() {
+function setup(variant?: 'inline' | 'stacked') {
   const onSubmit = vi.fn();
   function Harness() {
     const [value, setValue] = useState('');
@@ -50,6 +50,7 @@ function setup() {
           onSubmit(text);
           setValue('');
         }}
+        variant={variant}
       />
     );
   }
@@ -98,5 +99,51 @@ describe('tagging a record in the WeldAgent composer', () => {
     const { type, queryByTestId } = setup();
     type('send it to ann@acme.com');
     expect(queryByTestId('record-tag-menu')).toBeNull();
+  });
+
+  it('opens from the + button of the stacked composer, after a space', async () => {
+    const { textarea, type, getByRole, findByTestId } = setup('stacked');
+    type('Fill');
+    fireEvent.click(getByRole('button', { name: 'Tag a record' }));
+    expect(textarea.value).toBe('Fill @');
+    expect(await findByTestId('record-tag-menu')).toBeTruthy();
+  });
+});
+
+describe('AgentComposer', () => {
+  function composer(props: { disabled?: boolean } = {}) {
+    const onSubmit = vi.fn();
+    function Harness() {
+      const [value, setValue] = useState('');
+      return (
+        <AgentComposer
+          value={value}
+          onChange={setValue}
+          onSubmit={onSubmit}
+          suggestions={['Show my open tasks', 'Find a contact']}
+          {...props}
+        />
+      );
+    }
+    const ui = render(<Harness />);
+    const textarea = ui.getByPlaceholderText('Ask WeldAgent anything…') as HTMLTextAreaElement;
+    return { ...ui, textarea, onSubmit };
+  }
+
+  it('sends a suggestion picked above the input', () => {
+    const { getByRole, onSubmit } = composer();
+    fireEvent.click(getByRole('button', { name: 'Find a contact' }));
+    expect(onSubmit).toHaveBeenCalledWith('Find a contact');
+  });
+
+  it('hides the suggestions once something is typed', () => {
+    const { textarea, queryByRole } = composer();
+    fireEvent.change(textarea, { target: { value: 'Hi' } });
+    expect(queryByRole('button', { name: 'Show my open tasks' })).toBeNull();
+  });
+
+  it('turns the suggestions off with the input', () => {
+    const { getByRole } = composer({ disabled: true });
+    expect((getByRole('button', { name: 'Show my open tasks' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -219,3 +219,72 @@ export interface FilesListResponse {
   data: UnifiedFile[];
   pagination: PaginationMeta;
 }
+
+// ============================================================================
+// Response schemas (Zod), matching the interfaces above
+// ============================================================================
+
+const driveAccessRoleSchema = z.enum(['owner', 'viewer', 'editor']);
+
+/** A `files` row as /api/files answers it (`DriveFile`). */
+export const driveFileSchema = z.object({
+  id: z.string(),
+  fileName: z.string(),
+  originalName: z.string().nullable(),
+  mimeType: z.string(),
+  fileSize: z.number(),
+  fileType: z.string(),
+  storagePath: z.string(),
+  fileKey: z.string().nullable(),
+  bucket: z.string().nullable(),
+  url: z.string().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  storageProvider: z.string(),
+  folderId: z.string().nullable(),
+  uploadedById: z.string().nullable(),
+  isPublic: z.boolean(),
+  isStarred: z.boolean(),
+  generalAccess: driveGeneralAccessSchema,
+  entityType: z.string().nullable(),
+  entityId: z.string().nullable(),
+  metadata: z.record(z.unknown()).nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullable(),
+  accessRole: driveAccessRoleSchema.optional(),
+  effectiveAccess: driveGeneralAccessSchema.optional(),
+});
+
+/** One row of the Drive feeds (`UnifiedFile`). */
+export const unifiedFileSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  fileType: z.string(),
+  mimeType: z.string().nullable(),
+  fileSize: z.number().nullable(),
+  url: z.string().nullable(),
+  thumbnailUrl: z.string().nullable(),
+  source: z.string(),
+  sourceLabel: z.string(),
+  navigateTo: z.string().nullable(),
+  folderId: z.string().nullable(),
+  isStarred: z.boolean(),
+  createdAt: z.string(),
+  updatedAt: z.string().nullable(),
+  uploadedById: z.string().nullable(),
+  deletedAt: z.string().nullable().optional(),
+  isWeldDoc: z.boolean().optional(),
+  entityType: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  accessRole: driveAccessRoleSchema.optional(),
+  effectiveAccess: driveGeneralAccessSchema.optional(),
+});
+
+/** POST /api/files/:id/move. */
+export const moveFileResultSchema = z.object({ moved: z.literal(true), folderId: z.string().nullable() });
+/** POST /api/files/:id/star. */
+export const starFileResultSchema = z.object({ isStarred: z.boolean() });
+/** POST /api/files/:id/pin. */
+export const pinFileResultSchema = z.object({ isPinned: z.boolean() });
+/** DELETE /api/files/:id, /api/folders/:id and the trash purges. */
+export const deletedResultSchema = z.object({ deleted: z.literal(true) });

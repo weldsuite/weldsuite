@@ -17,6 +17,7 @@ import { useResolveAccessRequest } from '@/hooks/queries/use-access-requests-que
 import { renderContentWithMentions } from '@/lib/render-mentions';
 import { activateOnKey } from '@/lib/activate-on-key';
 import { webHrefForAction } from '@/lib/weldagent/action-links';
+import { isHrefOffered } from '@/lib/edition-routes';
 import { useI18n } from '@/lib/i18n/provider';
 
 type NotificationType = 'message' | 'task' | 'mention' | 'system' | 'order' | 'invoice' | 'calendar' | 'mail' | 'helpdesk' | 'crm' | 'commerce' | 'parcel' | 'projects';
@@ -77,6 +78,7 @@ function transformNotification(notification: UnifiedNotification): DisplayNotifi
     rawResolved === 'approved' || rawResolved === 'denied'
       ? (rawResolved as 'approved' | 'denied')
       : undefined;
+  const href = notification.actionUrl ? webHrefForAction(notification.actionUrl) : undefined;
 
   return {
     id: notification.id,
@@ -87,7 +89,8 @@ function transformNotification(notification: UnifiedNotification): DisplayNotifi
     description: notification.body || undefined,
     timestamp: new Date(notification.createdAt),
     read: notification.isRead ?? false,
-    href: notification.actionUrl ? webHrefForAction(notification.actionUrl) : undefined,
+    // Edition flags (4.F3): no link into a module this deployment doesn't serve.
+    href: href && isHrefOffered(href) ? href : undefined,
     actorName: actor?.name,
     actorImageUrl: actor?.imageUrl ?? undefined,
     resolvedStatus,

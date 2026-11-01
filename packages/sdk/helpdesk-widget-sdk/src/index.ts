@@ -51,6 +51,7 @@ export type {
   ConfigUpdatePayload,
   ThemeUpdatePayload,
   AuthPayload,
+  InitPayload,
   ErrorPayload,
   EventPayload,
   WeldMessage,

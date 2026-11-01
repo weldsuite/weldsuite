@@ -1,7 +1,7 @@
 
 import { useCallback } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { useWorkspace } from '@/contexts/workspace-context';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { useIdleAwareRefetchInterval } from '@/hooks/use-user-idle';

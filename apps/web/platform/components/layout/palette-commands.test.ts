@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { en } from '@weldsuite/i18n/locales/en';
 import { Home } from 'lucide-react';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 import {
   actionCommands,
   navigationCommandsForApps,
@@ -74,6 +75,48 @@ describe('visibleCommands', () => {
     const commands = settingsCommands(en, new Set());
     expect(visibleCommands(commands, 'team members').some((command) => command.href === '/settings/team')).toBe(true);
     expect(visibleCommands(commands, 'team zebra')).toEqual([]);
+  });
+});
+
+describe('edition flags', () => {
+  afterEach(() => setRuntimeConfig(null));
+
+  it('lists only the settings pages the EU edition serves', () => {
+    setRuntimeConfig({
+      backend: 'rust',
+      modules: ['core', 'know', 'sign', 'pass', 'calendar'],
+      unavailableFeatures: ['sso-connections', 'billing'],
+    });
+    const hrefs = settingsCommands(en, new Set(['weldcrm'])).map((command) => command.href);
+    expect(hrefs).toContain('/settings/team');
+    expect(hrefs).toContain('/settings/api-keys');
+    for (const hidden of ['/settings/sso', '/settings/plans', '/settings/billing', '/settings/webhooks', '/settings/integrations', '/settings/apps/phone-numbers', '/settings/apps/weldcrm']) {
+      expect(hrefs, hidden).not.toContain(hidden);
+    }
+  });
+
+  it('keeps every settings page on Global', () => {
+    const hrefs = settingsCommands(en, new Set()).map((command) => command.href);
+    expect(hrefs).toEqual(expect.arrayContaining(['/settings/sso', '/settings/billing', '/settings/integrations']));
+  });
+
+  it('offers no company or person creation without the crm module', () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'commerce'] });
+    const access = { canSee: () => true, installedCodes: new Set(['weldcommerce']) };
+    const ids = actionCommands(en, 'light', access).map((command) => command.id);
+    expect(ids).not.toContain('action:create-company');
+    expect(ids).not.toContain('action:create-person');
+  });
+
+  it("drops a module's pages that link into one the deployment doesn't serve", () => {
+    setRuntimeConfig({ backend: 'rust', modules: ['core', 'calendar'] });
+    const commands = navigationCommandsForApps(
+      [{ appCode: 'weldcalendar', name: 'WeldCalendar', appType: 'system' }],
+      () => [page({ title: 'Week', href: '/weldcalendar/week' }), page({ title: 'Tasks', href: '/weldflow/my-tasks' })],
+      () => icon,
+      () => true,
+    );
+    expect(commands.map((command) => command.href)).toEqual(['/weldcalendar', '/weldcalendar/week']);
   });
 });
 

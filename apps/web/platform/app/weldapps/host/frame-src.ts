@@ -1,4 +1,5 @@
 import { getAppApiUrl } from '@/lib/api/public-env';
+import { publicEnv } from '@/lib/runtime-config';
 
 /**
  * Where a WeldApp iframe loads from: the API origin, or the dedicated bundle
@@ -63,7 +64,7 @@ export function resolveBundleOrigin(params: {
 /** The bundle origin of `code` for this build. */
 export function getBundleOrigin(code: string): BundleOrigin {
   return resolveBundleOrigin({
-    template: import.meta.env.VITE_USER_APP_BUNDLE_ORIGIN as string | undefined,
+    template: publicEnv('VITE_USER_APP_BUNDLE_ORIGIN'),
     code,
     apiBase: APP_API_BASE,
     spaHost: typeof window === 'undefined' ? undefined : window.location.hostname,
@@ -80,7 +81,7 @@ export function getBundleOrigin(code: string): BundleOrigin {
  * every app has its own origin (`{code}` in the bundle origin).
  */
 export function isolateCommunityApps(): boolean {
-  return import.meta.env.VITE_USER_APP_ISOLATE_COMMUNITY_APPS === 'true';
+  return publicEnv('VITE_USER_APP_ISOLATE_COMMUNITY_APPS') === 'true';
 }
 
 /**

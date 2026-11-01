@@ -3,11 +3,19 @@ import {
   varchar,
   timestamp,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 /**
- * Anonymous widget visitor. Widget auth is visitor-session (localStorage id),
- * not Clerk. Optional name/email collected once before/during the first message.
+ * A support customer: widget visitor, help-center reader, email sender or
+ * caller. Not Clerk. Widget visitors hold a server-signed visitor token that
+ * names this row; the browser no longer chooses the id.
+ *
+ * `verifiedEmail` is an address the person proved: by an email code on the
+ * help center, or through an identity token the customer's site signed with
+ * the widget's secret (`externalId` is the site's own user id from that
+ * token). `email` is only what they typed, and grants nothing.
  */
 
 export const deskVisitors = pgTable(
@@ -23,8 +31,14 @@ export const deskVisitors = pgTable(
     /** E.164 caller id for phone-channel visitors. */
     phone: varchar('phone', { length: 50 }),
     widgetId: varchar('widget_id', { length: 40 }),
+
+    externalId: varchar('external_id', { length: 255 }),
+    verifiedEmail: varchar('verified_email', { length: 255 }),
+    verifiedAt: timestamp('verified_at'),
   },
   (table) => [
+    uniqueIndex('desk_visitors_widget_external_id_uidx').on(table.widgetId, table.externalId).where(sql`${table.externalId} IS NOT NULL`),
+    index('desk_visitors_verified_email_idx').on(table.verifiedEmail),
     index('desk_visitors_email_idx').on(table.email),
     index('desk_visitors_phone_idx').on(table.phone),
     index('desk_visitors_widget_idx').on(table.widgetId),

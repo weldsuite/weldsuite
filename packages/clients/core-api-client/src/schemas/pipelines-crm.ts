@@ -47,3 +47,18 @@ export interface PipelineRow {
   createdAt: string;
   updatedAt: string;
 }
+
+/** A `crm_pipelines` row as the routes return it (the `PipelineRow` shape). */
+export const pipelineRowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  icon: z.string().nullish(),
+  color: z.string().nullish(),
+  template: z.string().nullish(),
+  settings: z.unknown(),
+  isDefault: z.boolean().nullish(),
+  isArchived: z.boolean().nullish(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});

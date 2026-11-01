@@ -2,7 +2,7 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { useI18n } from '@/lib/i18n/provider';
 import { useBreadcrumbs } from '@/contexts/breadcrumb-context';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { Avatar, AvatarFallback, AvatarImage } from '@weldsuite/ui/components/avatar';
 import { Button } from '@weldsuite/ui/components/button';
 import {

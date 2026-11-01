@@ -159,3 +159,68 @@ export const updateWorkspaceSettingsInput = z
   });
 
 export type UpdateWorkspaceSettingsInput = z.infer<typeof updateWorkspaceSettingsInput>;
+
+// ============================================================================
+// Response schemas: what the routes above answer, for clients and the
+// conformance suite (packages/core/worker-kit/src/testing/conformance-schemas.ts).
+// ============================================================================
+
+export const workspaceNameUpdatedSchema = z.object({ id: z.string(), name: z.string() });
+
+export const workspaceSlugUpdatedSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  previousSlug: z.string(),
+});
+
+export const workspaceDeletionStatusSchema = z.object({
+  workspaceId: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  memberCount: z.number().int(),
+  hasActiveSubscription: z.boolean(),
+});
+
+export const deleteWorkspaceResultSchema = z.object({ deleted: z.boolean() });
+
+const nullableText = z.string().nullable();
+
+/** A `workspace_settings` row (GET / and PUT /); GET answers null before the first save. */
+export const workspaceSettingsSchema = z.object({
+  id: z.string(),
+  theme: nullableText,
+  timezone: nullableText,
+  currency: nullableText,
+  language: nullableText,
+  dateFormat: nullableText,
+  timeFormat: nullableText,
+  legalName: nullableText,
+  tradingName: nullableText,
+  contactFirstName: nullableText,
+  contactLastName: nullableText,
+  email: nullableText,
+  phone: nullableText,
+  addressLine1: nullableText,
+  addressLine2: nullableText,
+  city: nullableText,
+  state: nullableText,
+  postalCode: nullableText,
+  country: nullableText,
+  vatNumber: nullableText,
+  registrationNumber: nullableText,
+  logoUrl: nullableText,
+  websiteUrl: nullableText,
+  primaryColor: nullableText,
+  accentColor: nullableText,
+  emailNotificationsEnabled: z.boolean(),
+  pushNotificationsEnabled: z.boolean(),
+  features: z.record(z.unknown()).nullable(),
+  stripeCustomerId: nullableText,
+  stripeSubscriptionId: nullableText,
+  customSettings: z.record(z.unknown()).nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: nullableText,
+});
+
+export type WorkspaceSettingsRow = z.infer<typeof workspaceSettingsSchema>;

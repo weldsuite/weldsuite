@@ -6,6 +6,7 @@ import { MobileSidebar } from './mobile-sidebar';
 import { TextSelectionTooltip } from '@/components/text-selection-tooltip';
 import { WeldAgentProvider } from '@/components/weldagent-wrapper';
 import type { InstalledApp } from '@/lib/api/apps';
+import { isModuleOffered } from '@/lib/edition';
 
 interface MobileNavWrapperProps {
   children: React.ReactNode;
@@ -18,7 +19,8 @@ export function MobileNavWrapper({ children, installedApps }: Readonly<MobileNav
       <WeldAgentProvider>
         <MobileHeader />
         <MobileSidebar installedApps={installedApps} />
-        <TextSelectionTooltip />
+        {/* "Ask WeldAgent" on selected text: edition flags (4.F3), needs the agent module. */}
+        {isModuleOffered('agent') && <TextSelectionTooltip />}
         {children}
       </WeldAgentProvider>
     </MobileNavProvider>

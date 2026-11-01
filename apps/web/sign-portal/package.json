@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite dev --port 3023",
     "build": "vite build",
+    "build:node": "vite build --mode node",
+    "start:node": "node node/server.mjs",
     "type-check": "tsc --noEmit",
     "preview": "vite preview",
     "lint": "eslint"

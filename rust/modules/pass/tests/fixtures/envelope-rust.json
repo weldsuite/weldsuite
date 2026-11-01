@@ -1,0 +1,112 @@
+{
+  "$comment": "Sealed by rust/modules/pass (envelope.rs, fixed randomness); opened by apps/workers/pass-api/src/services/weldpass/envelope.vectors.test.ts. Rewrite with WELDPASS_WRITE_FIXTURES=1 cargo test -p weldsuite-pass envelope.",
+  "items": [
+    {
+      "ciphertext": "v1:65666768696a6b6c6d6e6f70:5679ee8bd7ba9b9968f773d95a9e057ced32fe4b149949184b651180eb60f86ef14c7f66691a6a4f48f835e080061a5b1d45ab6c798e0d162ecaed01b0dedd5da95c619a960dbbb5fe85b5b5d257a6b59f3c48cc655b74360472fe29478b67fd4931ca93a9bf61f778ad63deac1eb19e908b2e6397aa544bb6d77d3ef04382967656275ae5c242d452c62c56c8b81e438de41745",
+      "dekWrapped": "v1:7172737475767778797a7b7c:5eb4486998df74e44e144e3a7c9e584ba7ebf56029a08fdcd49140002946d2aaf84d0077d4d03fcf2638536699197777",
+      "location": {
+        "itemId": "wpi_rust_1",
+        "vaultId": "wpk_rust_1"
+      },
+      "plaintext": "{\"type\":\"login\",\"title\":\"GitHub\",\"url\":\"https://github.com\",\"fields\":{\"username\":\"carol\",\"password\":\"hunter2\",\"totp\":\"\",\"notes\":\"\"}}"
+    },
+    {
+      "ciphertext": "v1:9d9e9fa0a1a2a3a4a5a6a7a8:f426b02a06b864ab4dffc15cabc2884dfc172078e9a8b5c0136dcc6cc773992f351ffacd9668c191eeb2c9dad1ed6fc493e4f2465b1efff192bf574597c66123033f24d9aa1420e1c4d21ad01d4824a32d0de6aa1cfda988e4e6f1e79da98ff44621",
+      "dekWrapped": "v1:a9aaabacadaeafb0b1b2b3b4:49a81e3e47ec37f8a9bccd76d8252a4f76c32c07a08e0f146eac142391a19be76afa13ea7fa6de136f15fbeb7106f3aa",
+      "location": {
+        "itemId": "wpi_rust_2",
+        "vaultId": "wpk_rust_1"
+      },
+      "plaintext": "{\"type\":\"note\",\"title\":\"Ünïcode 😀\",\"fields\":{\"content\":\"line one\\nline two\"}}"
+    }
+  ],
+  "projects": [
+    {
+      "kekHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "kekWrapped": "v1:2122232425262728292a2b2c:e61bb4db209a79dfe94566d1bd4070195bf804d4d76a90ba25dc86f02ea6dfb2af9c6dca7572ed19dccf8383d6e4c09d",
+      "keyring": {
+        "v1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "ownerId": "wpp_rust_1",
+      "rootKeyVersion": "v1"
+    },
+    {
+      "kekHex": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+      "kekWrapped": "v2:2d2e2f303132333435363738:c85f5a7f3d96641ef386f0dbee269a97a45b7dbdf95c7dbf6cbaa313d22d0fb1d621a0e277ff0ff006e664edf7fb8100",
+      "keyring": {
+        "v1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "v2": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "ownerId": "wpp_rust_1",
+      "rootKeyVersion": "v2"
+    },
+    {
+      "kekHex": "393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758",
+      "kekWrapped": "v2:595a5b5c5d5e5f6061626364:502857debfe70ccd091bab2a278fad7cabced90a1ce71ec574e297b681e04076d64bdf6fcd55a88b56deb33640eced82",
+      "keyring": {
+        "v1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "v2": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "ownerId": "wpk_rust_1",
+      "rootKeyVersion": "v2"
+    }
+  ],
+  "rootKeys": {
+    "v1": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "v2": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "secrets": [
+    {
+      "checksum": "h1:748662b5677efcbdfa53c244dd55e5ecf9a9e979064d1fb7fcbd48c63d3a6",
+      "ciphertext": "v1:85868788898a8b8c8d8e8f90:357a95caee0c4678eadfd94ccb9362e6419dcd0d1b6aac01e37e414ce04fed928f9c16",
+      "dekWrapped": "v1:9192939495969798999a9b9c:c485b5980f203477dba1b981a97a95a7e3addd11c96bfda4f47972ea4db52dce396710cd16b8ae2f32a40e2661cc7f35",
+      "location": {
+        "environmentId": "wpe_rust_1",
+        "key": "DATABASE_URL",
+        "projectId": "wpp_rust_1"
+      },
+      "plaintext": "postgres://u:p@h/db",
+      "valueHint": "h/db",
+      "valueLength": 19
+    },
+    {
+      "checksum": "h1:74eeee8fcd650a1efc6af78e549b0b54ba4691501ce6b4784c4dfe6739621",
+      "ciphertext": "v1:bdbebfc0c1c2c3c4c5c6c7c8:b71139c5142d43e3667c898fc547cfc2",
+      "dekWrapped": "v1:c9cacbcccdcecfd0d1d2d3d4:3ca6f39e061c1522b42bf47d733b2338496d9c48bfb821af67cdb29b7f5d79d7696e398a3954df407cb0d42c78ccea9b",
+      "location": {
+        "environmentId": "wpe_rust_1",
+        "key": "EMPTY",
+        "projectId": "wpp_rust_1"
+      },
+      "plaintext": "",
+      "valueHint": null,
+      "valueLength": 0
+    },
+    {
+      "checksum": "h1:6c05b0e32f2817740372a6998c7a0963be7958286b9d8d155e2f09305ecca",
+      "ciphertext": "v1:f5f6f7f8f9fafbfcfdfeff00:5c6af9e40c14d746efa3e23e3303646bc0ea438c2e49e244bd5a1b2c1b571f1decb790f356",
+      "dekWrapped": "v1:0102030405060708090a0b0c:7bf87b45e9b1f831b26327c50218dec1ecb815cfbf9f3adeb8f99abbe7528f488363227fd599073e0dd401902d192d3d",
+      "location": {
+        "environmentId": "wpe_rust_2",
+        "key": "UNICODE",
+        "projectId": "wpp_rust_1"
+      },
+      "plaintext": "pässwörd-😀-12345",
+      "valueHint": "2345",
+      "valueLength": 17
+    },
+    {
+      "checksum": "h1:b523729944cc41ac06de612b34a11b8be7dcf847f4263456552fd6b813f80",
+      "ciphertext": "v1:2d2e2f303132333435363738:f5524955d2f6f5bbf60d3dfa0ae227b3b168c567b4a8431817db885d",
+      "dekWrapped": "v1:393a3b3c3d3e3f4041424344:ff516cc707f08937c712a1f01e9effa3b7d07f673867cb03b3a98ecdb41c7897c1c2c93b2740ff0fb737f869c6a76d30",
+      "location": {
+        "environmentId": "wpc_rust_1",
+        "key": "__provider_token__",
+        "projectId": "wpp_rust_1"
+      },
+      "plaintext": "cf-api-token",
+      "valueHint": "oken",
+      "valueLength": 12
+    }
+  ]
+}

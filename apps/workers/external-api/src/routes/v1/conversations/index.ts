@@ -1,143 +1,173 @@
-import { Hono } from 'hono';
+/**
+ * /v1/conversations — the WeldDesk inbox (`desk_conversations`), the one
+ * agents work in. Integrations open conversations here: an alert, a form, a
+ * ticket from another system. `externalId` keeps repeats of the same alert on
+ * one conversation. Writes go through `@weldsuite/desk-domain/inbox`, which
+ * also auto-assigns, notifies the team and publishes the entity events.
+ *
+ * Before this the route served `helpdesk_conversations`, which no screen shows.
+ */
+
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import { zValidator } from '@hono/zod-validator';
-import { and, eq, isNull, like, or, type SQL } from 'drizzle-orm';
 import { publishEntityEvent } from '@weldsuite/entity-events';
-import { schema } from '../../../db';
+import {
+  getDeskConversation,
+  listDeskConversations,
+  listDeskMessages,
+  type DeskApiSource,
+} from '@weldsuite/db/lib/desk';
+import {
+  addDeskConversationMessageFromApi,
+  openDeskApiConversation,
+  updateDeskConversationFromApi,
+  DeskAttributeRejectedError,
+  DeskConversationNotFoundError,
+  DeskReplyChannelError,
+  type DeskInboxActor,
+  type DeskInboxDeps,
+} from '@weldsuite/desk-domain/inbox';
+import {
+  addDeskConversationMessageSchema,
+  getConversationQuerySchema,
+  listConversationMessagesQuerySchema,
+  listConversationsQuerySchema,
+  openDeskConversationSchema,
+  updateDeskConversationSchema,
+} from '@weldsuite/core-api-client/schemas/desk-conversations';
 import type { HonoEnv } from '../../../types';
 import { requireScope } from '../../../lib/scopes';
-import { generateId, randomSuffix } from '../../../lib/id';
-import { error, list, noContent, success, cursorPagination } from '../../../lib/response';
-import { listWithCursor } from '../../../lib/list-helpers';
-import {
-  createConversationSchema,
-  updateConversationSchema,
-} from '@weldsuite/core-api-client/schemas/conversations';
+import { generateId } from '../../../lib/id';
+import { error, list, success, cursorPagination } from '../../../lib/response';
 
-const listConversationsQuery = z.object({
-  cursor: z.string().optional(),
-  limit: z.coerce.number().min(1).max(200).optional(),
-  search: z.string().optional(),
-  status: z.string().optional(),
-  assigneeId: z.string().optional(),
-  departmentId: z.string().optional(),
-});
+/** What this worker's writes are recorded as on the timeline (`metadata.via`). */
+const VIA: DeskApiSource = 'api';
 
-const table = schema.helpdeskConversations;
+/** The request's `waitUntil`; undefined without an execution context (tests), so the work is awaited. */
+function backgroundRunner(c: Context<HonoEnv>): DeskInboxDeps['waitUntil'] {
+  try {
+    const ctx = c.executionCtx;
+    return (promise) => ctx.waitUntil(promise);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Inbox writes for this request: its db, bindings and entity-event publisher. */
+export function deskInboxDeps(c: Context<HonoEnv>): DeskInboxDeps {
+  return {
+    db: c.get('tenantDb'),
+    env: c.env,
+    clerkOrgId: c.get('clerkOrgId') ?? c.get('workspaceId'),
+    generateId,
+    emit: (event) => publishEntityEvent({ c, ...event }),
+    waitUntil: backgroundRunner(c),
+  };
+}
+
+/** A personal key acts as its member; a workspace or app key as a bot. */
+export function deskInboxActor(c: Context<HonoEnv>): DeskInboxActor {
+  const session = c.get('apiSession');
+  return session.userId
+    ? { authorType: 'agent', authorId: session.userId }
+    : { authorType: 'bot', authorId: session.keyId };
+}
+
+/**
+ * `search` is what the old /v1/conversations took and what the MCP name lookup
+ * sends; the inbox calls it `q`. Without it a lookup would list everything.
+ */
+const listQuerySchema = listConversationsQuerySchema.extend({ search: z.string().trim().max(200).optional() });
+
 const app = new Hono<HonoEnv>();
 
-app.get('/', requireScope('conversations:read'), zValidator('query', listConversationsQuery), async (c) => {
-  const db = c.get('tenantDb');
-  const q = c.req.valid('query');
-  const where: (SQL | undefined)[] = [];
-  if (q.search) {
-    const term = `%${q.search}%`;
-    where.push(or(like(table.subject, term), like(table.customerEmail, term), like(table.customerName, term)));
+app.get('/', requireScope('conversations:read'), zValidator('query', listQuerySchema), async (c) => {
+  const { search, ...query } = c.req.valid('query');
+  const result = await listDeskConversations(c.get('tenantDb'), { ...query, q: query.q ?? search });
+  return list(c, result.data, cursorPagination(result.totalCount, result.hasMore, result.cursor));
+});
+
+app.get('/:id', requireScope('conversations:read'), zValidator('query', getConversationQuerySchema), async (c) => {
+  const id = c.req.param('id');
+  const { include } = c.req.valid('query');
+  const result = await getDeskConversation(c.get('tenantDb'), id, { includeMessages: include === 'messages' });
+  if (!result) return error.notFound(c, 'Conversation', id);
+  return success(c, include === 'messages' ? { ...result.conversation, messages: result.messages } : result.conversation);
+});
+
+/**
+ * Open a conversation, or add the message to the one that already carries
+ * `externalId`: 201 when it is new, 200 when it landed on an existing one.
+ */
+app.post('/', requireScope('conversations:write'), zValidator('json', openDeskConversationSchema), async (c) => {
+  const { ticketTypeId, priority, tags, departmentId, ...message } = c.req.valid('json');
+  try {
+    const result = await openDeskApiConversation(deskInboxDeps(c), {
+      ...message,
+      via: VIA,
+      fields: { ticketTypeId, priority, tags, departmentId },
+      actor: deskInboxActor(c),
+    });
+    return success(c, result.conversation, result.created ? 201 : 200);
+  } catch (err) {
+    if (err instanceof DeskAttributeRejectedError) return error.badRequest(c, err.message, { field: err.field });
+    throw err;
   }
-  if (q.status) where.push(eq(table.status, q.status));
-  if (q.assigneeId) where.push(eq(table.assigneeId, q.assigneeId));
-  if (q.departmentId) where.push(eq(table.departmentId, q.departmentId));
-  const result = await listWithCursor({ db, table, where, cursor: q.cursor, limit: q.limit });
-  return list(c, result.data as Record<string, unknown>[], cursorPagination(result.totalCount, result.hasMore, result.cursor));
 });
 
-app.get('/:id', requireScope('conversations:read'), async (c) => {
-  const db = c.get('tenantDb');
+app.patch('/:id', requireScope('conversations:write'), zValidator('json', updateDeskConversationSchema), async (c) => {
   const id = c.req.param('id');
-  const [row] = await db
-    .select()
-    .from(table)
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .limit(1);
-  if (!row) return error.notFound(c, 'Conversation', id);
-  return success(c, row);
-});
-
-app.post('/', requireScope('conversations:write'), zValidator('json', createConversationSchema), async (c) => {
-  const db = c.get('tenantDb');
-  const body = c.req.valid('json');
-  // customerName is NOT NULL in the DB but optional in the shared schema —
-  // a conversation must identify a customer. Reject cleanly instead of 500ing.
-  if (!body.customerName) {
-    return error.badRequest(c, 'customerName is required to create a conversation');
+  const { state, assigneeId, ...fields } = c.req.valid('json');
+  try {
+    const { conversation, customFields } = await updateDeskConversationFromApi(deskInboxDeps(c), {
+      conversationId: id,
+      state,
+      assigneeId,
+      fields,
+      actor: deskInboxActor(c),
+    });
+    return success(c, customFields ? { ...conversation, customFields } : conversation);
+  } catch (err) {
+    if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
+    if (err instanceof DeskAttributeRejectedError) return error.badRequest(c, err.message, { field: err.field });
+    throw err;
   }
-  const now = new Date();
-  const id = generateId('conv');
-  // conversationNumber is NOT NULL with no DB default — generate when absent
-  // (mirrors the ticketNumber handling in the tickets route).
-  const conversationNumber =
-    ((body as Record<string, unknown>).conversationNumber as string | undefined) ??
-    `CONV-${Date.now().toString(36).toUpperCase()}-${randomSuffix(4).toUpperCase()}`;
-  const [row] = await db
-    .insert(table)
-    .values({ id, createdAt: now, updatedAt: now, ...(body as Record<string, unknown>), conversationNumber } as typeof table.$inferInsert)
-    .returning();
-  if (!row) return error.internal(c, 'Failed to create conversation');
-  publishEntityEvent({
-    c,
-    entityType: 'conversation',
-    entityId: id,
-    action: 'created',
-    data: {
-      id,
-      conversationNumber: row.conversationNumber,
-      subject: row.subject,
-      status: row.status,
-      priority: row.priority,
-      assigneeId: row.assigneeId,
-      contactId: row.contactId,
-      departmentId: row.departmentId,
-    },
-  });
-  return success(c, row, 201);
 });
 
-app.patch('/:id', requireScope('conversations:write'), zValidator('json', updateConversationSchema), async (c) => {
-  const db = c.get('tenantDb');
-  const id = c.req.param('id');
-  const body = c.req.valid('json');
-  const [row] = await db
-    .update(table)
-    .set({ ...(body as Record<string, unknown>), updatedAt: new Date() })
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
-  if (!row) return error.notFound(c, 'Conversation', id);
-  publishEntityEvent({
-    c,
-    entityType: 'conversation',
-    entityId: id,
-    action: 'updated',
-    data: {
-      id,
-      conversationNumber: row.conversationNumber,
-      subject: row.subject,
-      status: row.status,
-      priority: row.priority,
-      assigneeId: row.assigneeId,
-      contactId: row.contactId,
-      departmentId: row.departmentId,
-    },
-  });
-  return success(c, row);
-});
+app.get(
+  '/:id/messages',
+  requireScope('conversations:read'),
+  zValidator('query', listConversationMessagesQuerySchema),
+  async (c) => {
+    const db = c.get('tenantDb');
+    const id = c.req.param('id');
+    const found = await getDeskConversation(db, id);
+    if (!found) return error.notFound(c, 'Conversation', id);
+    const page = await listDeskMessages(db, id, c.req.valid('query'));
+    return list(c, page.data, cursorPagination(page.data.length, page.hasMore, page.cursor));
+  },
+);
 
-app.delete('/:id', requireScope('conversations:write'), async (c) => {
-  const db = c.get('tenantDb');
-  const id = c.req.param('id');
-  const [row] = await db
-    .update(table)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(table.id, id), isNull(table.deletedAt)))
-    .returning();
-  if (!row) return error.notFound(c, 'Conversation', id);
-  publishEntityEvent({
-    c,
-    entityType: 'conversation',
-    entityId: id,
-    action: 'deleted',
-    data: { id, conversationNumber: row.conversationNumber, subject: row.subject, status: row.status },
-  });
-  return noContent(c);
-});
+app.post(
+  '/:id/messages',
+  requireScope('conversations:write'),
+  zValidator('json', addDeskConversationMessageSchema),
+  async (c) => {
+    const id = c.req.param('id');
+    try {
+      const { message } = await addDeskConversationMessageFromApi(deskInboxDeps(c), {
+        conversationId: id,
+        ...c.req.valid('json'),
+        actor: deskInboxActor(c),
+      });
+      return success(c, message, 201);
+    } catch (err) {
+      if (err instanceof DeskConversationNotFoundError) return error.notFound(c, 'Conversation', id);
+      if (err instanceof DeskReplyChannelError) return error.conflict(c, err.message);
+      throw err;
+    }
+  },
+);
 
 export default app;

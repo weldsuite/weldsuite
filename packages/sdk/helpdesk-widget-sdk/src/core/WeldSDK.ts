@@ -6,7 +6,7 @@
 import type { WeldConfig, ResolvedConfig } from '../types/config';
 import { resolveConfig } from '../types/config';
 import type { WeldState } from '../types/state';
-import type { MessageType } from '../types/messages';
+import type { AuthPayload, MessageType } from '../types/messages';
 import { Logger } from '../utils/logger';
 import { IframeManager, IframeType } from './IframeManager';
 import { MessageBroker } from './MessageBroker';
@@ -45,6 +45,12 @@ export interface UserIdentity {
   name?: string;
   avatar?: string;
   metadata?: Record<string, any>;
+  /**
+   * Server-signed identity JWT (see `AuthConfig.identityToken`). With it the
+   * visitor is verified as this user; without it `email` / `name` are only
+   * a hint, stored like something the visitor typed.
+   */
+  identityToken?: string;
 }
 
 /**
@@ -708,11 +714,16 @@ export class WeldSDK {
   }
 
   /**
-   * Identify user
+   * Identify user. Pass `identityToken` (signed by your server) to sign the
+   * visitor in as this user; the widget then opens a verified session and
+   * shows that user's conversations.
    */
   public identify(identity: UserIdentity): void {
     this.ensureReady();
-    this.logger.debug('Identifying user', { userId: identity.userId });
+    this.logger.debug('Identifying user', {
+      userId: identity.userId,
+      verified: Boolean(identity.identityToken),
+    });
 
     this.stateCoordinator.setUserAuth(
       identity.userId,
@@ -720,11 +731,26 @@ export class WeldSDK {
       identity.name
     );
 
-    this.messageBroker.broadcast('weld:auth:login' as MessageType, identity);
+    this.sendLogin(identity);
   }
 
   /**
-   * Logout user
+   * weld:auth:login. The identity token is for the widget's session only:
+   * the launcher iframe gets the message without it.
+   */
+  private sendLogin(payload: AuthPayload): void {
+    const withoutToken: AuthPayload = { ...payload };
+    delete withoutToken.identityToken;
+    this.messageBroker.sendToIframe(IframeType.WIDGET, 'weld:auth:login' as MessageType, payload);
+    if (this.messageBroker.isIframeJsReady(IframeType.LAUNCHER)) {
+      this.messageBroker.sendToIframe(IframeType.LAUNCHER, 'weld:auth:login' as MessageType, withoutToken);
+    }
+  }
+
+  /**
+   * Logout user. The widget forgets the visitor's session, starts a fresh
+   * anonymous one and clears the conversations on screen. Call it when the
+   * user signs out of your site.
    */
   public logout(): void {
     this.ensureReady();
@@ -803,7 +829,8 @@ export class WeldSDK {
    *   email: 'user@example.com',
    *   name: 'John Doe',
    *   createdAt: new Date('2024-01-01'),
-   *   customAttributes: { plan: 'pro', company: 'Acme Inc' }
+   *   customAttributes: { plan: 'pro', company: 'Acme Inc' },
+   *   identityToken: tokenFromYourServer, // optional: signs the visitor in (verified)
    * });
    * ```
    */
@@ -814,6 +841,8 @@ export class WeldSDK {
     avatar?: string;
     createdAt?: Date;
     customAttributes?: Record<string, any>;
+    /** Server-signed identity JWT, see `AuthConfig.identityToken`. */
+    identityToken?: string;
   }): void {
     this.ensureReady();
     this.logger.info('Booting widget with user context', { userId: settings.userId });
@@ -827,8 +856,7 @@ export class WeldSDK {
       );
     }
 
-    // Broadcast to iframes
-    this.messageBroker.broadcast('weld:auth:login' as MessageType, {
+    this.sendLogin({
       userId: settings.userId,
       email: settings.email,
       name: settings.name,
@@ -837,6 +865,7 @@ export class WeldSDK {
         createdAt: settings.createdAt?.toISOString(),
         ...settings.customAttributes,
       },
+      identityToken: settings.identityToken,
     });
   }
 

@@ -67,6 +67,37 @@ export interface AppAccessView {
   reviewedAt: string | null;
 }
 
+/** {@link AppAccessView} as a Zod schema, for checking responses. */
+export const appAccessViewSchema = z.object({
+  appCode: z.string(),
+  status: appAccessStatusSchema,
+  request: z
+    .object({
+      companyName: z.string(),
+      website: z.string(),
+      contactName: z.string(),
+      contactEmail: z.string(),
+      useCase: z.string(),
+      expectedDailySends: z.number(),
+      targetCountries: z.array(z.string()),
+      listSource: listSourceSchema,
+      listSourceDetails: z.string().optional(),
+      termsVersion: z.string(),
+      termsAccepted: z.array(z.string()),
+      termsAcceptedAt: z.string(),
+      termsAcceptedBy: z.string(),
+    })
+    .nullable(),
+  limits: z.record(z.unknown()),
+  rejectionReason: z.string().nullable(),
+  suspendedReason: z.string().nullable(),
+  requestedAt: z.string().nullable(),
+  reviewedAt: z.string().nullable(),
+});
+
+/** GET /:code/access-request: `null` before the workspace asked. */
+export const appAccessViewOrNullSchema = appAccessViewSchema.nullable();
+
 // ---------------------------------------------------------------------------
 // Limits (set by staff per workspace in the admin console)
 // ---------------------------------------------------------------------------

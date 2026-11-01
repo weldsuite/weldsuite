@@ -1,7 +1,7 @@
 /** Desk conversation model — mirrors platform `use-desk-queries` / `/api/desk/*`. */
 
 export type DeskConversationState = 'open' | 'closed';
-export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api';
+export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api' | 'portal';
 export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';

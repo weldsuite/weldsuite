@@ -364,13 +364,16 @@ describe('POST /start-and-join · an abandoned call in the channel', () => {
   });
 
   it('still joins a live call that does not look abandoned without asking RealtimeKit', async () => {
-    const { channelId, callId } = await seed([participant(ALICE), participant(BOB)]);
+    const { channelId, callId, cfAppId } = await seed([participant(ALICE), participant(BOB)]);
 
     const res = await start(ALICE, channelId);
 
     expect(res.status).toBe(200);
     expect(((await res.json()) as { data: { callId: string } }).data.callId).toBe(callId);
-    expect(getLiveParticipantCount).not.toHaveBeenCalled();
+    // About this call. The join's background work (one live call at a time)
+    // may ask RealtimeKit about the caller's other calls; how far it gets
+    // before this line depends on timing.
+    expect(getLiveParticipantCount).not.toHaveBeenCalledWith(expect.anything(), cfAppId);
   });
 
   it('in a channel, joins the existing call when even one connection is left in it', async () => {

@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { useParams, useRouter } from '@/lib/router';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@/lib/auth';
 import ConversationDetailClient from './conversation-detail-client';
 import { useConversation, useConversationMessages, useConversationReview } from '@/hooks/queries/use-helpdesk-queries';
 import { PageLoader } from '@/components/page-loader';

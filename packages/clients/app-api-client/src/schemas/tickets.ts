@@ -83,3 +83,38 @@ export const listTicketsQuery = z.object({
 export type CreateTicketInput = z.infer<typeof createTicketSchema>;
 export type UpdateTicketInput = z.infer<typeof updateTicketSchema>;
 export type ListTicketsQuery = z.infer<typeof listTicketsQuery>;
+
+/** A `helpdesk_tickets` row, as `/api/tickets` returns it (custom fields hydrated). */
+export const ticketSchema = z
+  .object({
+    id: z.string(),
+    ticketNumber: z.string(),
+    customerName: z.string(),
+    customerEmail: z.string(),
+    subject: z.string(),
+    status: z.string(),
+    priority: z.string(),
+    contactId: z.string().nullable(),
+    assigneeId: z.string().nullable(),
+    departmentId: z.string().nullable(),
+    ticketTypeId: z.string().nullable(),
+    tags: z.unknown(),
+    customFields: z.unknown(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    deletedAt: z.string().nullable(),
+  })
+  .passthrough();
+
+/** What `POST /api/tickets` answers. */
+export const ticketCreatedSchema = z.object({
+  id: z.string(),
+  ticketNumber: z.string(),
+  subject: z.string(),
+  status: z.string(),
+  priority: z.string().optional(),
+  createdAt: z.string(),
+});
+
+/** What `PATCH /api/tickets/:id/tags` answers. */
+export const ticketTagsSchema = z.object({ id: z.string(), tags: z.array(z.string()) });

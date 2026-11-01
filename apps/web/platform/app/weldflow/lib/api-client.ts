@@ -15,6 +15,7 @@
 import type { Projects } from '@/lib/api/types/apps/projects.types';
 import type { ProjectGoals } from '@/lib/api/domains/weldflow';
 import { apiUrl } from '@/lib/api/public-env';
+import { getAuthToken as getSessionToken } from '@/lib/auth';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -386,14 +387,8 @@ async function getAuthToken(): Promise<string | null> {
   if (_getToken) {
     return _getToken();
   }
-  // Fallback: get token from Clerk's global client (available after Clerk loads)
-  if (typeof window !== 'undefined') {
-    const clerk = (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } }).Clerk;
-    if (clerk?.session) {
-      return clerk.session.getToken();
-    }
-  }
-  return null;
+  // Fallback: the auth facade's session (available once the provider has loaded)
+  return getSessionToken();
 }
 
 /**

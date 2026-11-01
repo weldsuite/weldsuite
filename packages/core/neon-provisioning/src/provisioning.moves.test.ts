@@ -1072,14 +1072,17 @@ describe('existing provisioning paths', () => {
 
     const result = await service.provisionSharedDatabase(db, 'ws_new', 'New workspace');
 
-    expect(result).toMatchObject({ success: true, isDedicated: false, neonProjectId: 'prj-nsp_a', neonDatabaseName: 'ws_ws_new' });
-    expect(fake.createRole).toHaveBeenCalledWith('prj-nsp_a', 'br-nsp_a', 'role_ws_new');
-    expect(fake.createDatabase).toHaveBeenCalledWith('prj-nsp_a', 'br-nsp_a', 'ws_ws_new', 'role_ws_new');
+    const roleName = fake.createRole.mock.calls[0]![2];
+    const databaseName = roleName.replace(/^role_/, 'ws_');
+    expect(roleName).toMatch(/^role_ws_new_[0-9a-f]{6}$/);
+    expect(result).toMatchObject({ success: true, isDedicated: false, neonProjectId: 'prj-nsp_a', neonDatabaseName: databaseName });
+    expect(fake.createRole).toHaveBeenCalledWith('prj-nsp_a', 'br-nsp_a', roleName);
+    expect(fake.createDatabase).toHaveBeenCalledWith('prj-nsp_a', 'br-nsp_a', databaseName, roleName);
     expect(await databaseCount('nsp_a')).toBe(1);
     expect(await workspaceRow('ws_new')).toMatchObject({
       neonProjectId: 'prj-nsp_a',
-      neonDatabaseName: 'ws_ws_new',
-      neonRoleName: 'role_ws_new',
+      neonDatabaseName: databaseName,
+      neonRoleName: roleName,
       sharedProjectId: 'nsp_a',
     });
   });

@@ -21,6 +21,7 @@ import {
   useCompanyLogos,
   useRowsWithCompanyLogos,
 } from './company-logo';
+import { setRuntimeConfig } from '@/lib/runtime-config';
 
 /** The API answers a URL for the domains in `known`, null for the rest. */
 function answerWith(known: Record<string, string>) {
@@ -101,6 +102,19 @@ describe('useCompanyLogos', () => {
     renderHook(() => useCompanyLogos(['gmail.com', 'localhost', '10.0.0.1', '', null, undefined, 'intranet']));
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(post).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing where the backend has no logo resolver', async () => {
+    setRuntimeConfig({ backend: 'rust', unavailableFeatures: ['company-logos'] });
+    try {
+      answerWith({ 'acme.com': 'https://storage/acme.com' });
+      const { result } = renderHook(() => useCompanyLogos(['acme.com']));
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(post).not.toHaveBeenCalled();
+      expect(result.current.size).toBe(0);
+    } finally {
+      setRuntimeConfig(null);
+    }
   });
 
   it('shows no logos, and does not throw, when the API fails', async () => {

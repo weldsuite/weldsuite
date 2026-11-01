@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useMemo } from 'react';
-import { useAuth } from '@clerk/clerk-react';
+import { useAuth } from '@/lib/auth';
 import { useWhiteboardRoom } from '@weldsuite/realtime/react';
 import type { WhiteboardPresence, BatchChange } from '@/lib/realtime/whiteboard/types';
 import { getRealtimeWsOrigin } from '@/lib/api/public-env';

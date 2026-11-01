@@ -391,3 +391,89 @@ export interface Person {
   partyCode?: string | null;
   visitorId?: string | null;
 }
+
+// ============================================================================
+// Response schemas (what the `/api/people` routes answer, as JSON)
+// ============================================================================
+
+/** A `people` row as the routes return it (the `Person` shape). */
+export const personRowSchema = z.object({
+  id: z.string(),
+  version: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullish(),
+  archivedAt: z.string().nullish(),
+  firstName: z.string().nullish(),
+  lastName: z.string().nullish(),
+  fullName: z.string().nullish(),
+  displayName: z.string(),
+  dateOfBirth: z.string().nullish(),
+  title: z.string().nullish(),
+  email: z.string().nullish(),
+  alternateEmails: z.array(z.string()).nullish(),
+  directPhone: z.string().nullish(),
+  mobilePhone: z.string().nullish(),
+  primaryAddress: z.record(z.unknown()).nullish(),
+  addresses: z.array(z.record(z.unknown())).nullish(),
+  avatarUrl: z.string().nullish(),
+  linkedinUrl: z.string().nullish(),
+  ownerId: z.string().nullish(),
+  accountManagerId: z.string().nullish(),
+  status: z.string(),
+  lifecycleStage: z.string().nullish(),
+  isSupplier: z.boolean(),
+  isLead: z.boolean(),
+  isFavorite: z.boolean(),
+  inCrm: z.boolean(),
+  leadScore: z.number().nullish(),
+  nextFollowUpDate: z.string().nullish(),
+  tags: z.array(z.string()).nullish(),
+  interests: z.array(z.string()).nullish(),
+  customFields: z.record(z.unknown()).nullish(),
+  partyCode: z.string().nullish(),
+});
+
+/** `PersonSummary`: `POST /resolve-by-emails`, `GET /recent-correspondents`. */
+export const personSummarySchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  firstName: z.string().nullable(),
+  lastName: z.string().nullable(),
+  email: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+});
+
+/** A person ↔ company link with the company's card (`GET /:id/companies`). */
+export const personCompanyLinkSchema = z.object({
+  id: z.string(),
+  personId: z.string(),
+  companyId: z.string(),
+  role: z.string().nullable(),
+  isPrimary: z.boolean(),
+  startedAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+  company: z.object({
+    id: z.string(),
+    displayName: z.string(),
+    name: z.string().nullable(),
+    industry: z.string().nullable(),
+    avatarUrl: z.string().nullable(),
+  }),
+});
+
+/** `GET /api/people/:id/detail`. */
+export const personDetailSchema = z.object({
+  person: personRowSchema,
+  companies: z.array(personCompanyLinkSchema),
+  activities: z.array(z.object({ id: z.string() })),
+  tickets: z.array(z.object({ id: z.string() })),
+  counts: z.object({
+    companies: z.number(),
+    activities: z.number(),
+    tickets: z.number(),
+    notes: z.number(),
+    tasks: z.number(),
+  }),
+  lastActivity: z.string().nullable(),
+});

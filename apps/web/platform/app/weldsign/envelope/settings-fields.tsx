@@ -1,5 +1,5 @@
 /**
- * The pieces the review step of a draft and the settings step of a template
+ * The pieces the settings of a draft and the settings step of a template
  * have in common: message, signing order, reminders, the summary and the list
  * of what is still missing. Each one saves through the callback it is given, so
  * they know nothing about whether they edit a request or a template.
@@ -13,6 +13,7 @@ import { Switch } from '@weldsuite/ui/components/switch';
 import { Textarea } from '@weldsuite/ui/components/textarea';
 import type { SignEnvelopeDetail } from '@weldsuite/app-api-client/schemas/weldsign';
 import { useI18n } from '@/lib/i18n/provider';
+import { cn } from '@/lib/utils';
 import type { SignSettingsInput } from '@/hooks/queries/use-weldsign-queries';
 import type { ReadinessProblem } from '../lib/readiness';
 
@@ -56,17 +57,19 @@ interface SigningOrderToggleProps {
   checked: boolean;
   disabled: boolean;
   onChange: (checked: boolean) => void;
+  /** Just the switch and its label: no box, and no line saying what the order does. */
+  plain?: boolean;
 }
 
-export function SigningOrderToggle({ checked, disabled, onChange }: Readonly<SigningOrderToggleProps>) {
+export function SigningOrderToggle({ checked, disabled, onChange, plain = false }: Readonly<SigningOrderToggleProps>) {
   const { t } = useI18n();
   const tr = t.weldsign.editor.recipients;
   return (
-    <label className="flex items-start gap-3 rounded-lg border p-3">
-      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} className="mt-0.5" />
+    <label className={cn('flex gap-3', plain ? 'items-center' : 'items-start rounded-lg border p-3')}>
+      <Switch checked={checked} disabled={disabled} onCheckedChange={onChange} className={cn(!plain && 'mt-0.5')} />
       <span>
         <span className="block text-sm font-medium">{tr.signingOrder}</span>
-        <span className="block text-xs text-muted-foreground">{tr.signingOrderHint}</span>
+        {!plain && <span className="block text-xs text-muted-foreground">{tr.signingOrderHint}</span>}
       </span>
     </label>
   );
@@ -98,7 +101,7 @@ export function ReminderSettings({ settings, editable, save }: Readonly<Reminder
         />
       </label>
       {remindersOn && (
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid items-end gap-3 sm:grid-cols-3">
           <NumberSetting
             id="sign-reminder-after"
             label={tr.reminderAfter}
@@ -149,27 +152,33 @@ export function SummaryStats({ title, stats }: Readonly<{ title: string; stats: 
   );
 }
 
+/** The words for what can still be missing. */
+export interface ProblemMessages {
+  noDocuments: string;
+  noSigners: string;
+  /** `{name}` is the signer's (or the role's) name. */
+  signerWithoutSignature: string;
+}
+
+/** One thing still missing, in words. */
+export function describeProblem(problem: ReadinessProblem, messages: ProblemMessages, format: ReturnType<typeof useI18n>['format']): string {
+  if (problem.kind === 'no_documents') return messages.noDocuments;
+  if (problem.kind === 'no_signers') return messages.noSigners;
+  return format(messages.signerWithoutSignature, { name: problem.name });
+}
+
+/** A problem's key in a list: one per kind, or per signer. */
+export const problemKey = (problem: ReadinessProblem): string => (problem.kind === 'signer_without_signature' ? problem.recipientId : problem.kind);
+
 interface ReadinessChecklistProps {
   problems: ReadinessProblem[];
   heading: string;
-  messages: {
-    ready: string;
-    noDocuments: string;
-    noSigners: string;
-    /** `{name}` is the signer's (or the role's) name. */
-    signerWithoutSignature: string;
-  };
+  messages: ProblemMessages & { ready: string };
 }
 
 /** What still stands between this draft (or template) and being sendable, or a tick when nothing does. */
 export function ReadinessChecklist({ problems, heading, messages }: Readonly<ReadinessChecklistProps>) {
   const { format } = useI18n();
-
-  const describe = (problem: ReadinessProblem): string => {
-    if (problem.kind === 'no_documents') return messages.noDocuments;
-    if (problem.kind === 'no_signers') return messages.noSigners;
-    return format(messages.signerWithoutSignature, { name: problem.name });
-  };
 
   return (
     <section className="flex flex-col gap-2 rounded-lg border p-4">
@@ -182,9 +191,9 @@ export function ReadinessChecklist({ problems, heading, messages }: Readonly<Rea
       ) : (
         <ul className="flex flex-col gap-1.5">
           {problems.map((problem) => (
-            <li key={problem.kind === 'signer_without_signature' ? problem.recipientId : problem.kind} className="flex items-center gap-2 text-sm">
+            <li key={problemKey(problem)} className="flex items-center gap-2 text-sm">
               <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-              {describe(problem)}
+              {describeProblem(problem, messages, format)}
             </li>
           ))}
         </ul>

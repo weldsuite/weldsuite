@@ -106,6 +106,7 @@ export const en = {
     whatsapp: 'WhatsApp',
     sms: 'SMS',
     api: 'API',
+    portal: 'Help center',
   },
 
   conversation: {

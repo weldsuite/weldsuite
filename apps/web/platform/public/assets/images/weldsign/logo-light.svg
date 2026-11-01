@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 480">
+<!-- A signature over a signing line. Cropped to the mark and padded to draw 23px wide in a 24px slot, same as WeldSheets. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="169 44.75 432 432">
   <path d="M200 290 C240 120 330 100 320 200 C310 300 250 320 290 250 C330 180 390 170 390 240 C390 290 430 290 460 230 C480 190 520 190 530 240 C540 280 560 270 570 250" fill="none" stroke="#4f46e5" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
   <rect x="180" y="360" width="400" height="44" rx="22" fill="#4f46e5"/>
 </svg>

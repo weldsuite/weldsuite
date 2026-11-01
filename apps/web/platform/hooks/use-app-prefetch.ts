@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/clerk-react';
+import { useUser } from '@/lib/auth';
 import { buildQueryString, type DataResponse, type ListResponse } from '@weldsuite/app-api-client';
 import type { MailAccountRow } from '@weldsuite/app-api-client/domains/mail-accounts';
 import type { MailLabelRow, MailThreadSummary } from '@weldsuite/app-api-client/domains/mail-labels';

@@ -15,7 +15,16 @@ import {
   type ConversationItem,
 } from '@/components/shared/conversation-list';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@weldsuite/ui/components/select';
+import {
+  DESK_PRIORITIES,
   useDeskAssignment,
+  useDeskAttributeOptions,
   useDeskConversations,
   useSetDeskAway,
   type DeskConversation,
@@ -23,8 +32,17 @@ import {
   type DeskConversationSort,
   type DeskConversationState,
 } from '@/hooks/queries/use-desk-queries';
+import { deskSlaDisplay, SLA_TONE_COLORS, useNow } from './sla-badge';
 
 export type InboxAssigneeFilter = 'all' | 'mine' | 'unassigned';
+
+/** The ticket-field filters: priority, type, team and tag. */
+export type InboxTicketFilters = Pick<DeskConversationFilters, 'priority' | 'ticketTypeId' | 'departmentId' | 'tag'>;
+
+/** Radix Select can't hold an empty value; this stands for "any". */
+const ANY = '__any__';
+
+const PRIORITY_COLORS = { urgent: '#dc2626', high: '#ea580c' } as const;
 
 interface ConversationListProps {
   filters: DeskConversationFilters;
@@ -34,13 +52,20 @@ interface ConversationListProps {
   onSortChange: (sort: DeskConversationSort) => void;
   assigneeFilter: InboxAssigneeFilter;
   onAssigneeFilterChange: (filter: InboxAssigneeFilter) => void;
+  ticketFilters: InboxTicketFilters;
+  onTicketFiltersChange: (filters: InboxTicketFilters) => void;
   /** Search runs server-side over every conversation, not just loaded pages. */
   onSearchChange: (query: string) => void;
   selectedId?: string;
   onSelect: (id: string) => void;
 }
 
-function conversationToItem(conversation: DeskConversation, t: ReturnType<typeof getTranslations<'deskInbox2'>>): ConversationItem {
+function conversationToItem(
+  conversation: DeskConversation,
+  t: ReturnType<typeof getTranslations<'deskInbox2'>>,
+  typeNames: Map<string, string>,
+  now: number,
+): ConversationItem {
   const waiting = Boolean(conversation.waitingSince);
   const name = conversation.name || conversation.email || t.list.noSubject;
   const subject = conversation.title || `#${conversation.conversationNumber}`;
@@ -48,6 +73,28 @@ function conversationToItem(conversation: DeskConversation, t: ReturnType<typeof
   const labels: string[] = [];
   const labelColors: Record<string, string> = {};
 
+  // The SLA comes first: it is the one label that tells an agent what to answer next.
+  const sla = deskSlaDisplay(conversation, now);
+  if (sla) {
+    labels.push(sla.label);
+    labelColors[sla.label] = SLA_TONE_COLORS[sla.tone];
+  }
+
+  // Only the priorities that should catch the eye get a badge.
+  if (conversation.priority === 'urgent' || conversation.priority === 'high') {
+    const label = t.ticket.priorities[conversation.priority];
+    labels.push(label);
+    labelColors[label] = PRIORITY_COLORS[conversation.priority];
+  }
+  const typeName = conversation.ticketTypeId ? typeNames.get(conversation.ticketTypeId) : undefined;
+  if (typeName) {
+    labels.push(typeName);
+    labelColors[typeName] = '#7c3aed';
+  }
+  for (const tag of (conversation.tags ?? []).slice(0, 2)) {
+    labels.push(tag);
+    labelColors[tag] = '#475569';
+  }
   if (conversation.channel === 'email') {
     labels.push(t.channel.email);
     labelColors[t.channel.email] = '#0f766e';
@@ -55,6 +102,15 @@ function conversationToItem(conversation: DeskConversation, t: ReturnType<typeof
   if (conversation.channel === 'phone') {
     labels.push(t.channel.phone);
     labelColors[t.channel.phone] = '#1d4ed8';
+  }
+  if (conversation.channel === 'portal') {
+    labels.push(t.channel.portal);
+    labelColors[t.channel.portal] = '#b45309';
+  }
+  // Opened by an integration, the AI or a workflow (public API, MCP, WeldConnect).
+  if (conversation.channel === 'api') {
+    labels.push('API');
+    labelColors.API = '#7c3aed';
   }
   if (!conversation.assigneeId) {
     labels.push(t.list.unassignedBadge);
@@ -126,17 +182,21 @@ export function ConversationList({
   onSortChange,
   assigneeFilter,
   onAssigneeFilterChange,
+  ticketFilters,
+  onTicketFiltersChange,
   onSearchChange,
   selectedId,
   onSelect,
 }: Readonly<ConversationListProps>) {
   const t = getTranslations('deskInbox2');
-  const combinedFilters: DeskConversationFilters = { ...filters, state };
+  const { data: options } = useDeskAttributeOptions();
+  const combinedFilters: DeskConversationFilters = { ...filters, ...ticketFilters, state };
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useDeskConversations(
     combinedFilters,
     sort,
   );
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const now = useNow();
 
   useEffect(() => {
     const node = sentinelRef.current;
@@ -154,13 +214,29 @@ export function ConversationList({
   }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const conversations = data?.pages.flatMap((page) => page.data) ?? [];
+  const typeNames = useMemo(
+    () => new Map((options?.ticketTypes ?? []).map((type) => [type.id, type.name])),
+    [options?.ticketTypes],
+  );
   const items = useMemo(
-    () => conversations.map((conversation) => conversationToItem(conversation, t)),
-    [conversations, t],
+    () => conversations.map((conversation) => conversationToItem(conversation, t, typeNames, now)),
+    [conversations, t, typeNames, now],
   );
 
   const activeFilterCount =
-    (state !== 'open' ? 1 : 0) + (assigneeFilter !== 'all' ? 1 : 0) + (sort !== 'newest' ? 1 : 0);
+    (state !== 'open' ? 1 : 0) +
+    (assigneeFilter !== 'all' ? 1 : 0) +
+    (sort !== 'newest' ? 1 : 0) +
+    Object.values(ticketFilters).filter(Boolean).length;
+
+  const setTicketFilter = (key: keyof InboxTicketFilters, value: string) =>
+    onTicketFiltersChange({ ...ticketFilters, [key]: value === ANY ? undefined : value });
+
+  const ticketSelects: Array<{ key: 'ticketTypeId' | 'departmentId' | 'tag'; label: string; items: Array<{ value: string; label: string }> }> = [
+    { key: 'ticketTypeId', label: t.ticket.type, items: (options?.ticketTypes ?? []).map((type) => ({ value: type.id, label: type.name })) },
+    { key: 'departmentId', label: t.ticket.team, items: (options?.teams ?? []).map((team) => ({ value: team.id, label: team.name })) },
+    { key: 'tag', label: t.ticket.tags, items: (options?.tags ?? []).map(({ tag }) => ({ value: tag, label: tag })) },
+  ];
 
   const filterContent = (
     <Popover>
@@ -229,6 +305,7 @@ export function ConversationList({
               { value: 'newest' as const, label: t.sort.newest },
               { value: 'oldest' as const, label: t.sort.oldest },
               { value: 'waiting_longest' as const, label: t.sort.waitingLongest },
+              { value: 'sla_due' as const, label: t.sort.nextSlaTarget },
             ]).map(({ value, label }) => (
               <Toggle
                 key={value}
@@ -243,6 +320,46 @@ export function ConversationList({
             ))}
           </div>
         </div>
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-2">{t.ticket.priority}</p>
+          <div className="flex flex-wrap gap-1.5" data-testid="desk-inbox-priority-filter">
+            {([
+              ...DESK_PRIORITIES.map((value) => ({ value, label: t.ticket.priorities[value] })),
+              { value: 'none' as const, label: t.ticket.noPriority },
+            ]).map(({ value, label }) => (
+              <Toggle
+                key={value}
+                size="sm"
+                variant="outline"
+                pressed={ticketFilters.priority === value}
+                onPressedChange={(pressed) => onTicketFiltersChange({ ...ticketFilters, priority: pressed ? value : undefined })}
+                className="h-7 px-2.5 text-xs shadow-none data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:border-primary"
+              >
+                {label}
+              </Toggle>
+            ))}
+          </div>
+        </div>
+        {ticketSelects
+          .filter(({ key, items: choices }) => choices.length > 0 || ticketFilters[key])
+          .map(({ key, label, items: choices }) => (
+            <div key={key}>
+              <p className="text-xs font-medium text-muted-foreground mb-2">{label}</p>
+              <Select value={ticketFilters[key] ?? ANY} onValueChange={(value) => setTicketFilter(key, value)}>
+                <SelectTrigger className="h-7 text-xs shadow-none" data-testid={`desk-inbox-filter-${key}`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>{t.ticket.any}</SelectItem>
+                  {choices.map((choice) => (
+                    <SelectItem key={choice.value} value={choice.value}>
+                      {choice.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ))}
       </PopoverContent>
     </Popover>
   );

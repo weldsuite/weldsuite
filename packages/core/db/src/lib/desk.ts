@@ -2,20 +2,39 @@
  * WeldDesk conversation + message helpers.
  *
  * appendDeskMessage is the only writer for desk_messages and for
- * desk_conversations.state / waitingSince / lastMessage*. Callers inject
- * generateId so workers keep their own id format.
+ * desk_conversations.state / waitingSince / lastMessage*.
+ * updateDeskConversationAttributes is the only writer of the ticket fields
+ * (type, priority, tags, team, custom fields). The SLA clocks and the sla*
+ * summary columns are written by refreshDeskSla (./desk-sla), which
+ * appendDeskMessage calls. Callers inject generateId so workers keep their
+ * own id format.
  */
 
-import { and, desc, eq, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import {
+  validateCustomFieldValue,
+  type CustomFieldDefinitionLike,
+  type CustomFieldValidationResult,
+} from '@weldsuite/app-api-client/schemas/custom-fields';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
+import {
+  getDefinitionsForTicket,
+  getValuesForEntity,
+  setValues,
+  CustomFieldValidationError,
+  type CustomFieldDefinitionRow,
+  type CustomFieldMap,
+} from './custom-field-values';
 import type {
   DeskChannel,
   DeskConversation,
   DeskConversationState,
+  DeskPriority,
 } from '../schema/desk-conversations';
 import type {
+  DeskAttributeChange,
   DeskAuthorType,
   DeskMessage,
   DeskMessageAttachment,
@@ -24,6 +43,7 @@ import type {
 } from '../schema/desk-messages';
 import type { DeskVisitor } from '../schema/desk-visitors';
 import { asText } from '@weldsuite/text';
+import { refreshDeskSla, type DeskSlaRefreshResult } from './desk-sla';
 
 export type { DeskConversation, DeskMessage, DeskVisitor };
 
@@ -51,14 +71,42 @@ export function isDeskSchemaMissing(err: unknown): boolean {
   return /column .+ does not exist/i.test(msg) || /relation .+ does not exist/i.test(msg);
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const code =
-    typeof err === 'object' && err !== null && 'code' in err
-      ? asText((err as { code: unknown }).code)
-      : '';
-  if (code === '23505') return true;
-  const msg = err instanceof Error ? err.message : asText(err);
-  return /duplicate key value/i.test(msg);
+/**
+ * The driver errors in `err`'s cause chain. Drizzle wraps them in a
+ * `DrizzleQueryError` whose message is the SQL and its params, so the wrapper
+ * itself is skipped: request text must not read as a Postgres error.
+ */
+function driverErrors(err: unknown): Array<Record<string, unknown>> {
+  const found: Array<Record<string, unknown>> = [];
+  let current: unknown = err;
+  for (let depth = 0; current && typeof current === 'object' && depth < 5; depth++) {
+    const e = current as Record<string, unknown>;
+    const isWrapper =
+      e.name === 'DrizzleQueryError' || (typeof e.message === 'string' && e.message.startsWith('Failed query:'));
+    if (!isWrapper) found.push(e);
+    current = e.cause;
+  }
+  return found;
+}
+
+/** A unique index rejected the write; with `constraint`, that index in particular. */
+function isUniqueViolation(err: unknown, constraint?: string): boolean {
+  return driverErrors(err).some((e) => {
+    const message = asText(e.message);
+    if (asText(e.code) !== '23505' && !/duplicate key value/i.test(message)) return false;
+    if (!constraint) return true;
+    return e.constraint === constraint || e.constraint_name === constraint || message.includes(constraint);
+  });
+}
+
+const EXTERNAL_ID_INDEX = 'desk_conversations_external_id_uidx';
+
+/** Another conversation already carries this external id (two deliveries raced). */
+export class DeskExternalIdTakenError extends Error {
+  constructor(readonly externalId: string) {
+    super(`A conversation with external id '${externalId}' already exists`);
+    this.name = 'DeskExternalIdTakenError';
+  }
 }
 
 function previewOf(body: string | null | undefined): string | null {
@@ -131,13 +179,15 @@ export async function upsertDeskVisitor(
       widgetId: input.widgetId ?? null,
     })
     .returning();
+  if (!created) throw new Error(`Desk visitor '${input.id}' was not created`);
   return created;
 }
 
 export interface CreateDeskConversationInput {
   generateId: IdGenerator;
   channel?: DeskChannel;
-  visitorId: string;
+  /** Null for a conversation nobody can answer in the widget (API, workflow, agent). */
+  visitorId: string | null;
   name?: string | null;
   email?: string | null;
   contactId?: string | null;
@@ -147,12 +197,22 @@ export interface CreateDeskConversationInput {
   authorType?: DeskAuthorType;
   authorId?: string | null;
   metadata?: DeskMessageMetadata;
+  /**
+   * Ticket fields a request starts with (the help-center request form). The
+   * caller checks they exist and are active; later changes go through
+   * updateDeskConversationAttributes.
+   */
+  ticketTypeId?: string | null;
+  priority?: DeskPriority | null;
+  departmentId?: string | null;
+  /** Throws DeskExternalIdTakenError when another conversation has it. */
+  externalId?: string | null;
 }
 
 export async function createDeskConversation(
   db: AnyDb,
   input: CreateDeskConversationInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+): Promise<AppendDeskMessageResult> {
   const id = input.generateId('dconv');
   const now = new Date();
   const authorType: DeskAuthorType = input.authorType ?? 'visitor';
@@ -177,12 +237,19 @@ export async function createDeskConversation(
         email: input.email ?? null,
         contactId: input.contactId ?? null,
         assigneeId: null,
+        ticketTypeId: input.ticketTypeId ?? null,
+        priority: input.priority ?? null,
+        departmentId: input.departmentId ?? null,
         waitingSince: authorType === 'visitor' ? now : null,
         lastMessageAt: now,
         lastMessagePreview: previewOf(input.body),
+        externalId: input.externalId ?? null,
       });
       break;
     } catch (err) {
+      if (input.externalId && isUniqueViolation(err, EXTERNAL_ID_INDEX)) {
+        throw new DeskExternalIdTakenError(input.externalId);
+      }
       if (attempt >= 4 || !isUniqueViolation(err)) throw err;
     }
   }
@@ -286,10 +353,25 @@ function nextConversationProgress(
   return progressOf(current);
 }
 
+export interface AppendDeskMessageResult {
+  conversation: DeskConversation;
+  message: DeskMessage;
+  /**
+   * When an SLA clock of this conversation next needs the sweep (a warning or
+   * breach coming due), or null. Callers copy it into the D1 due index
+   * (`markWorkspaceDue(…, 'desk_sla', …)`).
+   */
+  slaCheckAt: Date | null;
+}
+
+/**
+ * Append to the timeline and move the conversation's state with it. Also
+ * re-derives the SLA clocks (refreshDeskSla) when the append can move one.
+ */
 export async function appendDeskMessage(
   db: AnyDb,
   input: AppendDeskMessageInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+): Promise<AppendDeskMessageResult> {
   const [current] = await db
     .select()
     .from(conversations)
@@ -330,7 +412,7 @@ export async function appendDeskMessage(
     })
     .returning();
 
-  const [conversation] = await db
+  const [updated] = await db
     .update(conversations)
     .set({
       updatedAt: now,
@@ -343,7 +425,34 @@ export async function appendDeskMessage(
     .where(eq(conversations.id, input.conversationId))
     .returning();
 
-  return { conversation, message };
+  if (!message || !updated) throw new DeskConversationNotFoundError(input.conversationId);
+  const sla = movesDeskSla(input) ? await refreshDeskSlaQuietly(db, updated, input.generateId) : null;
+  return { conversation: sla?.conversation ?? updated, message, slaCheckAt: sla?.nextCheckAt ?? null };
+}
+
+/**
+ * Appends that can start, stop, pause or retarget an SLA clock. Assignment
+ * counts: a policy can have a condition on the assignee.
+ */
+const SLA_EVENTS = new Set<string>(['closed', 'reopened', 'attributes_changed', 'assigned', 'unassigned']);
+
+function movesDeskSla(input: AppendDeskMessageInput): boolean {
+  if (input.kind === 'message') return input.authorType === 'visitor' || input.authorType === 'agent';
+  return input.kind === 'event' && SLA_EVENTS.has(input.metadata?.eventType ?? '');
+}
+
+/** SLA bookkeeping never fails the message it follows (e.g. migration not applied yet). */
+async function refreshDeskSlaQuietly(
+  db: AnyDb,
+  conversation: DeskConversation,
+  generateId: IdGenerator,
+): Promise<DeskSlaRefreshResult | null> {
+  try {
+    return await refreshDeskSla(db, conversation, { generateId });
+  } catch (err) {
+    console.warn(`[desk-sla] refresh of ${conversation.id} failed:`, err);
+    return null;
+  }
 }
 
 export const DESK_RATING_MIN = 1;
@@ -374,7 +483,7 @@ export interface RateDeskConversationInput {
 export async function rateDeskConversation(
   db: AnyDb,
   input: RateDeskConversationInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage }> {
+): Promise<AppendDeskMessageResult> {
   if (!Number.isInteger(input.rating) || input.rating < DESK_RATING_MIN || input.rating > DESK_RATING_MAX) {
     throw new RangeError(`Rating must be a whole number from ${DESK_RATING_MIN} to ${DESK_RATING_MAX}`);
   }
@@ -404,6 +513,295 @@ export async function rateDeskConversation(
     authorId: input.authorId,
     metadata: { eventType: 'rated', rating: input.rating, ratingComment: comment },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Ticket fields
+//
+// The conversation is the ticket. Its type (helpdesk_ticket_types), priority,
+// tags, team (helpdesk_departments) and the type's custom fields are set here
+// and nowhere else, and every change lands on the timeline as an internal
+// `attributes_changed` event.
+// ---------------------------------------------------------------------------
+
+/** custom_field_values.entity_type for a conversation's ticket fields. */
+export const DESK_CONVERSATION_FIELD_ENTITY = 'desk_conversation';
+
+export const DESK_PRIORITIES = ['low', 'medium', 'high', 'urgent'] as const satisfies readonly DeskPriority[];
+export const DESK_MAX_TAGS = 20;
+export const DESK_MAX_TAG_LENGTH = 50;
+
+/** Why an attribute change was refused; routes answer 400 with `message`. */
+export class DeskAttributeRejectedError extends Error {
+  constructor(
+    readonly field: 'ticketTypeId' | 'departmentId' | 'customFields',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'DeskAttributeRejectedError';
+  }
+}
+
+export interface UpdateDeskConversationAttributesInput {
+  generateId: IdGenerator;
+  conversationId: string;
+  authorType: DeskAuthorType;
+  authorId?: string | null;
+  /** undefined leaves a field alone; null clears it. */
+  ticketTypeId?: string | null;
+  priority?: DeskPriority | null;
+  /** The full tag list (replaces the current one). */
+  tags?: string[];
+  departmentId?: string | null;
+  /** Slug → value for the type's fields; null or '' clears one. */
+  customFields?: CustomFieldMap;
+}
+
+export interface DeskConversationAttributesResult {
+  conversation: DeskConversation;
+  /** The `attributes_changed` event, or null when nothing changed. */
+  message: DeskMessage | null;
+  customFields: CustomFieldMap;
+  /** See AppendDeskMessageResult.slaCheckAt; null when nothing changed. */
+  slaCheckAt: Date | null;
+}
+
+/** Trim, collapse spaces, drop empties and case-insensitive duplicates. */
+export function normalizeDeskTags(tags: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of tags) {
+    const tag = raw.replaceAll(/\s+/g, ' ').trim().slice(0, DESK_MAX_TAG_LENGTH);
+    const key = tag.toLowerCase();
+    if (!tag || seen.has(key)) continue;
+    seen.add(key);
+    out.push(tag);
+  }
+  return out.slice(0, DESK_MAX_TAGS);
+}
+
+function sameTags(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((tag, i) => tag === b[i]);
+}
+
+function isEmptyValue(value: unknown): boolean {
+  return value === null || value === undefined || value === '' || (Array.isArray(value) && value.length === 0);
+}
+
+function sameFieldValue(def: CustomFieldDefinitionRow, a: unknown, b: unknown): boolean {
+  if (isEmptyValue(a) || isEmptyValue(b)) return isEmptyValue(a) && isEmptyValue(b);
+  if (def.fieldType === 'date') return new Date(a as string).getTime() === new Date(b as string).getTime();
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** The custom field definitions that apply to a conversation of this type. */
+export function getDeskConversationFieldDefinitions(
+  db: AnyDb,
+  ticketTypeId: string | null | undefined,
+): Promise<CustomFieldDefinitionRow[]> {
+  return getDefinitionsForTicket(db, ticketTypeId);
+}
+
+/** The conversation's custom field values (slug → value) for its current type. */
+export async function getDeskConversationCustomFields(
+  db: AnyDb,
+  conversation: Pick<DeskConversation, 'id' | 'ticketTypeId'>,
+): Promise<CustomFieldMap> {
+  const definitions = await getDeskConversationFieldDefinitions(db, conversation.ticketTypeId);
+  if (definitions.length === 0) return {};
+  return getValuesForEntity(db, DESK_CONVERSATION_FIELD_ENTITY, conversation.id, definitions);
+}
+
+async function namesById(
+  db: AnyDb,
+  table: typeof schema.helpdeskTicketTypes | typeof schema.helpdeskDepartments,
+  ids: Array<string | null>,
+): Promise<Map<string, { name: string; usable: boolean }>> {
+  const wanted = ids.filter((id): id is string => Boolean(id));
+  if (wanted.length === 0) return new Map();
+  const rows = await db
+    .select({ id: table.id, name: table.name, isActive: table.isActive, deletedAt: table.deletedAt })
+    .from(table)
+    .where(inArray(table.id, wanted));
+  return new Map(rows.map((r) => [r.id, { name: r.name, usable: r.isActive !== false && !r.deletedAt }]));
+}
+
+/**
+ * A type or team change: the new id must name a usable row; the change is
+ * recorded with both names. Null when the id doesn't change.
+ */
+async function referenceChange(
+  db: AnyDb,
+  ref: {
+    table: typeof schema.helpdeskTicketTypes | typeof schema.helpdeskDepartments;
+    input: 'ticketTypeId' | 'departmentId';
+    field: 'ticketType' | 'team';
+    noun: string;
+  },
+  from: string | null,
+  to: string | null | undefined,
+): Promise<DeskAttributeChange | null> {
+  if (to === undefined || to === from) return null;
+  const names = await namesById(db, ref.table, [from, to]);
+  if (to && !names.get(to)?.usable) {
+    throw new DeskAttributeRejectedError(ref.input, `${ref.noun} '${to}' does not exist or is inactive`);
+  }
+  const nameOf = (id: string | null) => (id ? names.get(id)?.name ?? null : null);
+  return { field: ref.field, from: nameOf(from), to: nameOf(to) };
+}
+
+const TICKET_TYPE_REF = { table: schema.helpdeskTicketTypes, input: 'ticketTypeId', field: 'ticketType', noun: 'Ticket type' } as const;
+const TEAM_REF = { table: schema.helpdeskDepartments, input: 'departmentId', field: 'team', noun: 'Team' } as const;
+
+/** Type, team, priority and tag changes: the column patch and the timeline entries. */
+async function columnChanges(
+  db: AnyDb,
+  current: DeskConversation,
+  input: UpdateDeskConversationAttributesInput,
+): Promise<{ patch: Partial<DeskConversation>; changes: DeskAttributeChange[] }> {
+  const patch: Partial<DeskConversation> = {};
+  const changes: DeskAttributeChange[] = [];
+
+  const type = await referenceChange(db, TICKET_TYPE_REF, current.ticketTypeId, input.ticketTypeId);
+  if (type) {
+    patch.ticketTypeId = input.ticketTypeId;
+    changes.push(type);
+  }
+  const team = await referenceChange(db, TEAM_REF, current.departmentId, input.departmentId);
+  if (team) {
+    patch.departmentId = input.departmentId;
+    changes.push(team);
+  }
+  if (input.priority !== undefined && input.priority !== current.priority) {
+    patch.priority = input.priority;
+    changes.push({ field: 'priority', from: current.priority, to: input.priority });
+  }
+  const tags = input.tags === undefined ? null : normalizeDeskTags(input.tags);
+  if (tags && !sameTags(current.tags ?? [], tags)) {
+    patch.tags = tags;
+    changes.push({ field: 'tags', from: current.tags ?? [], to: tags });
+  }
+  return { patch, changes };
+}
+
+function readDeskCustomFields(
+  db: AnyDb,
+  conversationId: string,
+  definitions: CustomFieldDefinitionRow[],
+): Promise<CustomFieldMap> {
+  if (definitions.length === 0) return Promise.resolve({});
+  return getValuesForEntity(db, DESK_CONVERSATION_FIELD_ENTITY, conversationId, definitions);
+}
+
+/** Write the custom field values; a value the store refuses is a 400, like the checks before it. */
+async function writeDeskCustomFields(
+  db: AnyDb,
+  generateId: IdGenerator,
+  conversationId: string,
+  definitions: CustomFieldDefinitionRow[],
+  writes: CustomFieldMap,
+): Promise<void> {
+  if (Object.keys(writes).length === 0) return;
+  try {
+    await setValues(db, DESK_CONVERSATION_FIELD_ENTITY, conversationId, writes, {
+      generateId,
+      definitions,
+      enforceRequired: false,
+    });
+  } catch (err) {
+    if (err instanceof CustomFieldValidationError) throw new DeskAttributeRejectedError('customFields', err.message);
+    throw err;
+  }
+}
+
+/**
+ * Validate the custom field values against the type's definitions and work
+ * out which ones change. Nothing is written yet.
+ */
+async function customFieldChanges(
+  db: AnyDb,
+  conversationId: string,
+  definitions: CustomFieldDefinitionRow[],
+  values: CustomFieldMap | undefined,
+): Promise<{ changes: DeskAttributeChange[]; writes: CustomFieldMap }> {
+  const changes: DeskAttributeChange[] = [];
+  const writes: CustomFieldMap = {};
+  if (!values || Object.keys(values).length === 0) return { changes, writes };
+
+  const bySlug = new Map(definitions.map((d) => [d.slug, d]));
+  const unknown = Object.keys(values).filter((slug) => !bySlug.has(slug));
+  if (unknown.length > 0) {
+    throw new DeskAttributeRejectedError('customFields', `Unknown field for this ticket type: ${unknown.join(', ')}`);
+  }
+
+  const stored = await getValuesForEntity(db, DESK_CONVERSATION_FIELD_ENTITY, conversationId, definitions);
+  for (const [slug, raw] of Object.entries(values)) {
+    const def = bySlug.get(slug);
+    if (!def) continue;
+    // Required is enforced by whoever closes or submits, not on every edit:
+    // an agent may clear a field on the way to the right value.
+    const result: CustomFieldValidationResult = isEmptyValue(raw)
+      ? { ok: true, value: null }
+      : validateCustomFieldValue(def as CustomFieldDefinitionLike, raw);
+    if (!result.ok) {
+      throw new DeskAttributeRejectedError('customFields', result.error ?? `Invalid value for '${slug}'`);
+    }
+    const next = result.value ?? null;
+    const prev = stored[slug] ?? null;
+    if (sameFieldValue(def, prev, next)) continue;
+    writes[slug] = next;
+    changes.push({ field: 'customField', key: slug, label: def.name, from: prev, to: next });
+  }
+  return { changes, writes };
+}
+
+/**
+ * Set a conversation's ticket fields. Checks the type and team exist and are
+ * active, validates custom field values against the (new) type, writes only
+ * what changed, and appends one internal `attributes_changed` event listing
+ * the changes. A call that changes nothing writes nothing.
+ */
+export async function updateDeskConversationAttributes(
+  db: AnyDb,
+  input: UpdateDeskConversationAttributesInput,
+): Promise<DeskConversationAttributesResult> {
+  const [current] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.id, input.conversationId))
+    .limit(1);
+  if (!current) throw new DeskConversationNotFoundError(input.conversationId);
+
+  const { patch, changes } = await columnChanges(db, current, input);
+
+  const ticketTypeId = patch.ticketTypeId === undefined ? current.ticketTypeId : patch.ticketTypeId;
+  const definitions = await getDeskConversationFieldDefinitions(db, ticketTypeId);
+  const fields = await customFieldChanges(db, current.id, definitions, input.customFields);
+  changes.push(...fields.changes);
+
+  if (changes.length === 0) {
+    const customFields = await readDeskCustomFields(db, current.id, definitions);
+    return { conversation: current, message: null, customFields, slaCheckAt: null };
+  }
+
+  await writeDeskCustomFields(db, input.generateId, current.id, definitions, fields.writes);
+  if (Object.keys(patch).length > 0) {
+    await db
+      .update(conversations)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(conversations.id, current.id));
+  }
+
+  const { conversation, message, slaCheckAt } = await appendDeskMessage(db, {
+    generateId: input.generateId,
+    conversationId: current.id,
+    kind: 'event',
+    authorType: input.authorType,
+    authorId: input.authorId ?? null,
+    metadata: { eventType: 'attributes_changed', changes },
+  });
+  const customFields = await readDeskCustomFields(db, current.id, definitions);
+  return { conversation, message, customFields, slaCheckAt };
 }
 
 export async function findOpenConversationForVisitor(
@@ -484,9 +882,17 @@ export interface ListDeskConversationsQuery {
   visitorId?: string;
   /** Exact (case-insensitive) customer email, for "other conversations". */
   email?: string;
+  /** The caller's own key (`ingestDeskApi`): at most one conversation. */
+  externalId?: string;
   /** Free text over customer, subject, number and message text. */
   q?: string;
-  sort?: 'newest' | 'oldest' | 'waiting_longest';
+  /** A priority, or `none` for conversations without one. */
+  priority?: DeskPriority | 'none';
+  ticketTypeId?: string;
+  departmentId?: string;
+  /** Conversations carrying this tag (exact match). */
+  tag?: string;
+  sort?: 'newest' | 'oldest' | 'waiting_longest' | 'sla_due';
   cursor?: string;
   limit?: number;
 }
@@ -520,10 +926,35 @@ function searchCondition(q: string | undefined): SQL | undefined {
 function conversationOrderBy(sort: ListDeskConversationsQuery['sort']) {
   if (sort === 'oldest') return [conversations.createdAt, conversations.id];
   if (sort === 'waiting_longest') return [sql`${conversations.waitingSince} ASC NULLS LAST`, conversations.id];
+  if (sort === 'sla_due') return [sql`${conversations.slaDueAt} ASC NULLS LAST`, conversations.id];
   return [
     sql`COALESCE(${conversations.lastMessageAt}, ${conversations.createdAt}) DESC`,
     desc(conversations.id),
   ];
+}
+
+/** State, owner, channel and customer filters. */
+function stateFilters(query: ListDeskConversationsQuery): SQL[] {
+  const filters: SQL[] = [];
+  if (query.state) filters.push(eq(conversations.state, query.state));
+  if (query.assigneeId) filters.push(eq(conversations.assigneeId, query.assigneeId));
+  if (query.unassigned) filters.push(isNull(conversations.assigneeId));
+  if (query.channel) filters.push(eq(conversations.channel, query.channel));
+  if (query.visitorId) filters.push(eq(conversations.visitorId, query.visitorId));
+  if (query.email) filters.push(sql`lower(${conversations.email}) = ${query.email.trim().toLowerCase()}`);
+  if (query.externalId) filters.push(eq(conversations.externalId, query.externalId.trim()));
+  return filters;
+}
+
+/** Priority, type, team and tag filters. */
+function ticketFieldFilters(query: ListDeskConversationsQuery): SQL[] {
+  const filters: SQL[] = [];
+  if (query.priority === 'none') filters.push(isNull(conversations.priority));
+  else if (query.priority) filters.push(eq(conversations.priority, query.priority));
+  if (query.ticketTypeId) filters.push(eq(conversations.ticketTypeId, query.ticketTypeId));
+  if (query.departmentId) filters.push(eq(conversations.departmentId, query.departmentId));
+  if (query.tag) filters.push(sql`${conversations.tags} @> ${JSON.stringify([query.tag])}::jsonb`);
+  return filters;
 }
 
 export async function listDeskConversations(
@@ -531,14 +962,7 @@ export async function listDeskConversations(
   query: ListDeskConversationsQuery,
 ): Promise<{ data: DeskConversation[]; totalCount: number; hasMore: boolean; cursor: string | null }> {
   const limit = Math.min(query.limit ?? 30, 100);
-  const filters: SQL[] = [];
-
-  if (query.state) filters.push(eq(conversations.state, query.state));
-  if (query.assigneeId) filters.push(eq(conversations.assigneeId, query.assigneeId));
-  if (query.unassigned) filters.push(isNull(conversations.assigneeId));
-  if (query.channel) filters.push(eq(conversations.channel, query.channel));
-  if (query.visitorId) filters.push(eq(conversations.visitorId, query.visitorId));
-  if (query.email) filters.push(sql`lower(${conversations.email}) = ${query.email.trim().toLowerCase()}`);
+  const filters = [...stateFilters(query), ...ticketFieldFilters(query)];
   const search = searchCondition(query.q);
   if (search) filters.push(search);
 
@@ -548,12 +972,12 @@ export async function listDeskConversations(
 
   const offset = query.cursor ? Number.parseInt(query.cursor, 10) || 0 : 0;
 
-  const [{ count }] = await db
+  const [counted] = await db
     .select({ count: sql<number>`count(*)` })
     .from(conversations)
     .where(where);
 
-  const totalCount = Number(count ?? 0);
+  const totalCount = Number(counted?.count ?? 0);
 
   const data = await db
     .select()
@@ -600,17 +1024,32 @@ export async function getDeskConversation(
   return { conversation, messages: rows };
 }
 
-export function listDeskMessages(
+/**
+ * One page of a conversation's timeline, oldest first. The cursor is an
+ * offset, as for conversations: messages are only ever appended, so a page
+ * already read never shifts. An `externalId` alert stacks every repeat on one
+ * conversation, so the timeline can be long.
+ */
+export async function listDeskMessages(
   db: AnyDb,
   conversationId: string,
-): Promise<DeskMessage[]> {
-  return Promise.resolve(
-    db
-      .select()
-      .from(messages)
-      .where(eq(messages.conversationId, conversationId))
-      .orderBy(messages.createdAt)
-  );
+  query: { cursor?: string; limit?: number } = {},
+): Promise<{ data: DeskMessage[]; hasMore: boolean; cursor: string | null }> {
+  const limit = Math.min(Math.max(query.limit ?? 100, 1), 200);
+  const offset = query.cursor ? Math.max(Number.parseInt(query.cursor, 10) || 0, 0) : 0;
+  const rows = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(messages.createdAt, messages.id)
+    .limit(limit + 1)
+    .offset(offset);
+  const hasMore = rows.length > limit;
+  return {
+    data: hasMore ? rows.slice(0, limit) : rows,
+    hasMore,
+    cursor: hasMore ? String(offset + limit) : null,
+  };
 }
 
 /** Strip RFC 5322 angle brackets so In-Reply-To / References match stored ids. */
@@ -686,7 +1125,7 @@ export interface IngestDeskPhoneInput {
 export async function ingestDeskPhone(
   db: AnyDb,
   input: IngestDeskPhoneInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage; created: boolean }> {
+): Promise<AppendDeskMessageResult & { created: boolean }> {
   const fromNumber = input.fromNumber.trim();
   const displayName = input.name?.trim() || fromNumber;
   const title = input.title?.trim() || `Call from ${displayName}`;
@@ -881,7 +1320,7 @@ export interface IngestDeskEmailInput {
 export async function ingestDeskEmail(
   db: AnyDb,
   input: IngestDeskEmailInput,
-): Promise<{ conversation: DeskConversation; message: DeskMessage; created: boolean }> {
+): Promise<AppendDeskMessageResult & { created: boolean }> {
   const fromEmail = input.fromEmail.toLowerCase();
   const rfcMessageId = normalizeRfcMessageId(input.rfcMessageId) ?? input.rfcMessageId;
   const title = normalizeEmailSubject(input.subject) || input.subject || previewOf(input.body) || fromEmail;
@@ -942,6 +1381,119 @@ export async function ingestDeskEmail(
 }
 
 // ---------------------------------------------------------------------------
+// API channel: the public API, MCP, WeldAgent tools and workflows
+// ---------------------------------------------------------------------------
+
+/** What opened or added to an API conversation; kept on each message as `metadata.via`. */
+export type DeskApiSource = 'api' | 'mcp' | 'agent' | 'workflow';
+
+export async function findDeskConversationByExternalId(
+  db: AnyDb,
+  externalId: string,
+): Promise<DeskConversation | null> {
+  const [row] = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.externalId, externalId))
+    .limit(1);
+  return row ?? null;
+}
+
+export interface IngestDeskApiInput {
+  generateId: IdGenerator;
+  via: DeskApiSource;
+  /**
+   * The caller's own key for what this is about (an alert id, an order
+   * number). A second delivery with the same key lands on the same
+   * conversation, reopening it if the team had closed it.
+   */
+  externalId?: string | null;
+  title?: string | null;
+  body: string;
+  /** The customer, or the system the message comes from ("Datadog"). */
+  name?: string | null;
+  email?: string | null;
+  contactId?: string | null;
+  metadata?: DeskMessageMetadata;
+}
+
+export interface IngestDeskApiResult {
+  conversation: DeskConversation;
+  message: DeskMessage;
+  created: boolean;
+  /** The conversation before this message landed; null when it is new. */
+  prior: Pick<DeskConversation, 'state' | 'waitingSince' | 'assigneeId'> | null;
+}
+
+/**
+ * Put a message from outside the inbox (an integration, an alert, the AI) in
+ * front of the team as a customer message on an `api` conversation: a new one,
+ * or the one that already carries `externalId`. With an email the sender is
+ * the same desk visitor their emails come from, so the inbox shows their other
+ * conversations.
+ */
+export async function ingestDeskApi(db: AnyDb, input: IngestDeskApiInput): Promise<IngestDeskApiResult> {
+  const externalId = input.externalId?.trim() || null;
+  const email = input.email?.trim().toLowerCase() || null;
+  const name = input.name?.trim() || null;
+  const metadata: DeskMessageMetadata = { ...input.metadata, via: input.via };
+
+  let visitorId: string | null = null;
+  if (email) {
+    const known = await findDeskVisitorByEmail(db, email);
+    const visitor = await upsertDeskVisitor(db, {
+      id: known?.id ?? input.generateId('dvis'),
+      name: name ?? known?.name ?? email,
+      email,
+    });
+    visitorId = visitor.id;
+  }
+
+  const addTo = async (conversation: DeskConversation): Promise<IngestDeskApiResult> => {
+    const result = await appendDeskMessage(db, {
+      generateId: input.generateId,
+      conversationId: conversation.id,
+      kind: 'message',
+      authorType: 'visitor',
+      authorId: visitorId,
+      body: input.body,
+      metadata,
+    });
+    const { state, waitingSince, assigneeId } = conversation;
+    return { ...result, created: false, prior: { state, waitingSince, assigneeId } };
+  };
+
+  if (externalId) {
+    const existing = await findDeskConversationByExternalId(db, externalId);
+    if (existing) return addTo(existing);
+  }
+
+  try {
+    const result = await createDeskConversation(db, {
+      generateId: input.generateId,
+      channel: 'api',
+      visitorId,
+      name,
+      email,
+      contactId: input.contactId ?? null,
+      title: input.title?.trim() || null,
+      body: input.body,
+      authorType: 'visitor',
+      authorId: visitorId,
+      metadata,
+      externalId,
+    });
+    return { ...result, created: true, prior: null };
+  } catch (err) {
+    // The same alert delivered twice at once: the other delivery created it.
+    if (!(err instanceof DeskExternalIdTakenError)) throw err;
+    const existing = await findDeskConversationByExternalId(db, err.externalId);
+    if (!existing) throw err;
+    return addTo(existing);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Visitor-facing wire format
 //
 // The messenger widget and the realtime ConversationRoom (which visitors are
@@ -998,8 +1550,13 @@ export function deskAuthorFromMember(member: {
   return { name: firstName || 'Support', avatar: member.picture ?? null };
 }
 
+/** Events only the team sees: ticket-field changes and SLA warnings / breaches. */
+const INTERNAL_DESK_EVENTS = new Set<string>(['attributes_changed', 'sla_warning', 'sla_breached']);
+
+/** Notes, ticket-field changes and SLA events stay with the team. */
 export function isPublicDeskMessage(message: DeskMessage): boolean {
-  return message.kind !== 'note';
+  if (message.kind === 'note') return false;
+  return !(message.kind === 'event' && INTERNAL_DESK_EVENTS.has(message.metadata?.eventType ?? ''));
 }
 
 export function toPublicDeskMessage(

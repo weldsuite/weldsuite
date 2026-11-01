@@ -1,0 +1,182 @@
+image:
+  repository: ghcr.io/weldsuite/weldsuite
+  tag: ${WELDSUITE_IMAGE_TAG}
+imagePullSecrets:
+  - name: registry
+
+replicaCount: 2
+
+config:
+  environment: production
+  logFormat: json
+  # The EU edition, told to the platform by /config.json, which also offers
+  # only the modules this release ports to Rust and hides what it lacks.
+  edition: eu
+  # Public settings for the platform (/config.json `env`); empty ones are
+  # left out. The chart lists the names the server accepts.
+  publicEnv:
+    VITE_MAPBOX_ACCESS_TOKEN: "${MAPBOX_PUBLIC_TOKEN}"
+  # Sign-in through the in-cluster Zitadel (ADR SEC-012). The project and the
+  # platform's application are made once in Zitadel's console (Hetzner
+  # runbook, step 7); their ids go in the cluster settings.
+  auth:
+    provider: oidc
+    oidc:
+      issuer: https://auth.${DOMAIN}
+      audience: "${ZITADEL_PROJECT_ID}"
+      # The project's roles claim names every workspace organisation the
+      # person has a role in; the platform narrows it to the active one with
+      # the urn:zitadel:iam:org:roles:id:<org id> scope. (The default,
+      # urn:zitadel:iam:org:id, only works for people whose own organisation
+      # is the workspace, not for someone in several.)
+      orgClaim: urn:zitadel:iam:org:project:${ZITADEL_PROJECT_ID}:roles
+      webClientId: "${ZITADEL_WEB_CLIENT_ID}"
+  # Flag values from the master database (feature_flag_overrides).
+  featureFlags: master-db
+  nats:
+    # Creates the entity-event stream on start (three replicas on the
+    # three-node JetStream cluster).
+    ensureStreams: true
+  files:
+    endpoint: ${FILES_S3_ENDPOINT}
+    region: ${FILES_S3_REGION}
+    privateBucket: ${FILES_BUCKET_PRIVATE}
+    forcePathStyle: false
+  # Durable jobs (sign's finalize, …) on the in-cluster Restate; each pod
+  # registers its jobs endpoint with the admin API at start.
+  jobs:
+    restate:
+      ingressUrl: http://restate:8080
+      adminUrl: http://restate:9070
+  # Signing links point at the portal below.
+  sign:
+    portalUrl: https://sign.${DOMAIN}
+  # Signup and team changes go to the in-cluster Zitadel's management API
+  # as the weldsuite service user (ZITADEL_SERVICE_TOKEN in the Secret);
+  # Zitadel picks its instance by the external domain.
+  identity:
+    zitadel:
+      apiUrl: http://zitadel.zitadel.svc:8080
+      host: auth.${DOMAIN}
+      projectId: "${ZITADEL_PROJECT_ID}"
+  # New workspace databases on the tenant shards (TENANT_SHARDS in the
+  # Secret), their URLs sealed bound to the workspace.
+  tenants:
+    region: eu
+  aadWrites: true
+
+# DATABASE_URL_MASTER (through the master-pooler Pooler), DATABASE_ENCRYPTION_KEY,
+# VALKEY_URL, NATS_URL + NATS_TOKEN, S3 keys, SIGN_SESSION_SECRET,
+# SIGN_PORTAL_SECRET, WIDGET_TOKEN_SECRET, ZITADEL_SERVICE_TOKEN, TENANT_SHARDS:
+# secrets/examples/secrets.example.yaml.
+secret:
+  existingSecret: weldsuite-env
+
+# The platform (the SPA in the image) and its API on one origin, app.${DOMAIN};
+# api.${DOMAIN} for clients that call the API by that name.
+spa:
+  enabled: true
+
+# `weldsuite migrate --master --tenants` as a hook Job before every install
+# and upgrade Flux makes: the master database, then every workspace database
+# on the tenant shards, to the migrations built into the release's image. The
+# new pods roll out only once it succeeded. A failure fails the upgrade and
+# Flux rolls the release back; databases the Job already migrated stay
+# migrated (migrations are forward-only, so a release must keep working on
+# the schema its successor migrates to). Its deadline stays under the
+# HelmRelease's spec.timeout (../weldsuite.yaml).
+migrations:
+  enabled: true
+  args: ["--master", "--tenants"]
+  # Workspace databases migrated at once, across the shards' poolers.
+  concurrency: 4
+  activeDeadlineSeconds: 1500
+
+# The identity sync every minute (what Clerk's webhooks do on Global), the
+# scheduled workspace deletions daily, unfinished teardowns hourly.
+cron:
+  jobs:
+    identity-sync:
+      enabled: true
+    workspace-deletion:
+      enabled: true
+    workspace-teardown:
+      enabled: true
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: app.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: api.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: weldsuite-api-tls
+      hosts:
+        - app.${DOMAIN}
+        - api.${DOMAIN}
+
+# The WeldSign signer portal at sign.${DOMAIN} (ADR FE-017). Its image is the
+# `sign-portal` target of rust/Dockerfile, released with the server's.
+signPortal:
+  enabled: true
+  image:
+    repository: ghcr.io/weldsuite/weldsuite-sign-portal
+    tag: ${WELDSUITE_IMAGE_TAG}
+  # Traefik is the only proxy that appends to X-Forwarded-For: the Hetzner
+  # load balancer passes the client's address with the PROXY protocol.
+  trustedProxies: 1
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+    hosts:
+      - host: sign.${DOMAIN}
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: weldsuite-sign-tls
+        hosts:
+          - sign.${DOMAIN}
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+# The entity-event subscribers on the in-cluster JetStream: audit log,
+# outgoing webhooks and realtime fan-out (VALKEY_URL is in the Secret). The
+# search-index subscriber stays off until an embeddings endpoint (EU model
+# provider, or bge-m3 in the cluster) is chosen: set consume.embeddings then.
+consume:
+  enabled: true
+  replicaCount: 2
+  # The hub and dead-letter streams on all three JetStream nodes, capped
+  # under the 20Gi JetStream volume (infrastructure/services/values/nats.yaml):
+  # 12 GiB of events, 2 GiB of dead letters.
+  streamReplicas: 3
+  streamMaxBytes: 12884901888
+  deadLetterMaxBytes: 2147483648
+  resources:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      memory: 512Mi

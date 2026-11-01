@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { useAuth, useOrganizationList } from '@clerk/clerk-react';
+import { useAuth, useOrganizationList } from '@/lib/auth';
 import { useAppApiClient } from '@/lib/api/use-app-api';
 import { workspacePath } from '@/lib/workspace-url';
 

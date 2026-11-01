@@ -15,7 +15,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import * as schema from '../schema';
 import type { IdGenerator } from './mail-contacts';
 import type { DeskAssignmentMode, DeskAssignmentSettings } from '../schema/helpdesk-settings';
-import { appendDeskMessage, type DeskConversation, type DeskMessage } from './desk';
+import { appendDeskMessage, type AppendDeskMessageResult } from './desk';
 
 export type { DeskAssignmentMode, DeskAssignmentSettings };
 
@@ -273,7 +273,7 @@ export async function deskAssignmentCandidates(
 export async function autoAssignDeskConversation(
   db: AnyDb,
   input: { generateId: IdGenerator; conversationId: string; pick: DeskAssigneePicker },
-): Promise<{ conversation: DeskConversation; message: DeskMessage } | null> {
+): Promise<AppendDeskMessageResult | null> {
   const c = schema.deskConversations;
   const [conversation] = await db
     .select({ id: c.id, state: c.state, assigneeId: c.assigneeId })

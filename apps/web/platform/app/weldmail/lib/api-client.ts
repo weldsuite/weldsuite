@@ -21,6 +21,8 @@
 import type { Mail } from '@/lib/api/types/apps/mail.types';
 import { apiUrl } from '@/lib/api/public-env';
 import { asText } from '@weldsuite/text';
+import { getAuthToken } from '@/lib/auth';
+import { isFeatureAvailable } from '@/lib/edition';
 
 const APP_BASE = '/api';
 
@@ -40,11 +42,6 @@ export interface ApiResponse<T> {
   errorDetails?: unknown;
 }
 
-async function getAuthToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return null;
-  const clerk = (window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } }).Clerk;
-  return clerk?.session ? clerk.session.getToken() : null;
-}
 
 interface AppApiSuccess<T> {
   /** Single-item envelope shape. */
@@ -540,17 +537,24 @@ export const mailApi = {
     // legacy `{ success, data }` envelope, so the request helper
     // unwraps `.data` and the call sites see `result.data.labels`
     // exactly as before.
+    //
+    // The Kubernetes editions have no `/mail-ai` (`mail-ai` edition feature):
+    // nothing is sent there and no message is labelled.
     assignLabels: (_accountId: string, messageId: string) =>
-      appApi<{ labels: string[]; skippedAI?: boolean }>('/mail-ai/label', {
-        method: 'POST',
-        body: JSON.stringify({ messageId }),
-      }),
+      isFeatureAvailable('mail-ai')
+        ? appApi<{ labels: string[]; skippedAI?: boolean }>('/mail-ai/label', {
+            method: 'POST',
+            body: JSON.stringify({ messageId }),
+          })
+        : Promise.resolve({ labels: [] as string[], skippedAI: true }),
 
     assignLabelsToMultiple: (_accountId: string, messageIds: string[]) =>
-      appApi<{ processed: number; labeled: number }>('/mail-ai/label/batch', {
-        method: 'POST',
-        body: JSON.stringify({ messageIds }),
-      }),
+      isFeatureAvailable('mail-ai')
+        ? appApi<{ processed: number; labeled: number }>('/mail-ai/label/batch', {
+            method: 'POST',
+            body: JSON.stringify({ messageIds }),
+          })
+        : Promise.resolve({ processed: 0, labeled: 0 }),
   },
 
   drafts: {

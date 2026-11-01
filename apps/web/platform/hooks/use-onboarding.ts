@@ -1,6 +1,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppApiClient } from '@/lib/api/use-app-api';
+import { isAppOffered, offeredModules } from '@/lib/edition';
 
 const onboardingKeys = {
   all: ['onboarding'] as const,
@@ -90,6 +91,9 @@ export function useUserAndOrgInfo(enabled = true) {
   });
 }
 
+/** Edition flags (4.F3): a new workspace can only pick apps whose module this deployment serves. */
+const selectOfferedApps = (apps: AppDefinition[]) => apps.filter((app) => isAppOffered(app.code));
+
 export function useAvailableApps() {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -99,6 +103,8 @@ export function useAvailableApps() {
       const result = await client.get<{ data: AppDefinition[] }>('/onboarding/available-apps');
       return result.data || [];
     },
+    // Global offers every module: no filtering, the cached array as-is.
+    select: offeredModules() ? selectOfferedApps : undefined,
   });
 }
 

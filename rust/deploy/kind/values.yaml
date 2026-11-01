@@ -11,11 +11,34 @@ config:
   shutdownDelaySeconds: 1
   nats:
     ensureStreams: true
+  jobs:
+    restate:
+      ingressUrl: http://restate:8080
+      adminUrl: http://restate:9070
+  files:
+    endpoint: http://s3:9000
+    privateBucket: weldsuite-private
+    forcePathStyle: true
 secret:
   values:
     DATABASE_URL_MASTER: postgres://weldsuite:weldsuite@postgres:5432/master
     VALKEY_URL: redis://valkey:6379
     NATS_URL: nats://nats:4222
+    S3_ACCESS_KEY_ID: weldsuite
+    S3_SECRET_ACCESS_KEY: weldsuite-kind
+    SMTP_URL: smtp://mailpit:1025
     CLERK_JWT_KEY: set by smoke-test.sh
+    SIGN_PORTAL_SECRET: kind-portal-secret
+    # Keys signer sessions: without it the portal endpoints answer 503.
+    SIGN_SESSION_SECRET: kind-session-secret
 podDisruptionBudget:
   enabled: false
+# The SPA is on by default (the image's /srv/spa); the sign portal is the
+# image's `sign-portal` target.
+signPortal:
+  enabled: true
+  image:
+    repository: weldsuite-sign-portal
+    tag: dev
+    pullPolicy: Never
+  replicaCount: 1

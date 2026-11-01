@@ -17,7 +17,7 @@
 import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
-import { eq, and, isNull, asc } from 'drizzle-orm';
+import { eq, and, isNull, asc, inArray } from 'drizzle-orm';
 import { requirePermission } from '@weldsuite/permissions/server';
 import { publishEntityEvent } from '@weldsuite/entity-events';
 import type { Variables } from '../../types';
@@ -35,7 +35,12 @@ import {
 import {
   upsertPhoneNumberRegistry,
   deactivatePhoneNumberRegistry,
+  normalizeE164,
 } from '../../lib/phone-registry';
+import {
+  selectOwnedProviderNumbers,
+  type ProviderPhoneNumber,
+} from '../../services/phone-number-sync';
 import {
   applyTelephonyMarkupMajor,
   applyTelephonyMarkupToCost,
@@ -441,6 +446,40 @@ app.post('/phone-numbers/provision', requirePermission(MANAGE_TELEPHONY), zValid
 // ---------- Sync ----------
 
 /**
+ * The Telnyx account is shared by every workspace: keep only the numbers this
+ * workspace owns, so a sync can't claim another tenant's number or re-point
+ * its inbound routing (TASK-1044).
+ */
+async function ownedProviderNumbers(
+  env: TelnyxEnv,
+  listed: ProviderPhoneNumber[],
+  tenant: { numberIds: string[]; portingOrderIds: string[] },
+  clerkOrgId: string,
+): Promise<ProviderPhoneNumber[]> {
+  const registry = await getMasterDb(env)
+    .select({
+      phoneNumber: masterSchema.phoneNumberRegistry.phoneNumber,
+      clerkOrgId: masterSchema.phoneNumberRegistry.clerkOrgId,
+    })
+    .from(masterSchema.phoneNumberRegistry)
+    .where(inArray(
+      masterSchema.phoneNumberRegistry.phoneNumber,
+      listed.map((n) => normalizeE164(n.phone_number)),
+    ));
+  const { owned, skipped } = selectOwnedProviderNumbers({
+    providerNumbers: listed,
+    registry,
+    tenantNumberIds: tenant.numberIds,
+    portingOrderIds: tenant.portingOrderIds,
+    clerkOrgId,
+  });
+  if (skipped > 0) {
+    console.warn(`[Telephony] Sync skipped ${skipped} number(s) not owned by ${clerkOrgId}`);
+  }
+  return owned;
+}
+
+/**
  * POST /telephony/phone-numbers/sync — Sync phone numbers from Telnyx
  */
 app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) => {
@@ -461,13 +500,13 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
       params.set('filter[connection_id]', connectionId);
     }
 
-    const providerNumbers = await telnyxRequest<{ data: any[] }>(
+    const providerNumbers = await telnyxRequest<{ data?: ProviderPhoneNumber[] }>(
       c.env,
       `/phone_numbers?${params.toString()}`,
     );
-    const telnyxNumbers = providerNumbers.data || [];
+    const listed: ProviderPhoneNumber[] = providerNumbers.data || [];
 
-    if (telnyxNumbers.length === 0) {
+    if (listed.length === 0) {
       return success(c, { count: 0 });
     }
 
@@ -475,6 +514,21 @@ app.post('/phone-numbers/sync', requirePermission(MANAGE_TELEPHONY), async (c) =
       .select()
       .from(voipPhoneNumbers)
       .where(isNull(voipPhoneNumbers.deletedAt));
+
+    const telnyxNumbers = await ownedProviderNumbers(
+      c.env,
+      listed,
+      {
+        numberIds: existing.map((p: { id: string }) => p.id),
+        portingOrderIds: (
+          await db
+            .select({ id: schema.voipPortingOrders.id })
+            .from(schema.voipPortingOrders)
+            .where(isNull(schema.voipPortingOrders.deletedAt))
+        ).map((order: { id: string }) => order.id),
+      },
+      clerkOrgId,
+    );
 
     let synced = 0;
     for (const number of telnyxNumbers) {

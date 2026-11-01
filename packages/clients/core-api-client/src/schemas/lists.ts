@@ -117,3 +117,31 @@ export interface ListRow {
   createdAt: string;
   updatedAt: string;
 }
+
+/** A `lists` row as the routes return it (the `ListEntity` shape). */
+export const listEntitySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullish(),
+  color: z.string(),
+  icon: z.string(),
+  kind: listKind,
+  type: listType,
+  filterRules: z.record(z.unknown()).nullish(),
+  linkedListId: z.string().nullish(),
+  memberCount: z.number().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  deletedAt: z.string().nullish(),
+});
+
+/** `GET /api/lists/:id/members`: a membership with its company or person row. */
+export const listMemberSchema = z.object({
+  memberId: z.string(),
+  entityId: z.string(),
+  addedAt: z.string(),
+  entity: z.object({ id: z.string(), displayName: z.string() }),
+});
+
+/** `POST /api/lists/:id/members`. */
+export const listMembersAddedSchema = z.object({ id: z.string(), added: z.number() });

@@ -12,7 +12,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
-import { useOrganization, useOrganizationList } from '@clerk/clerk-react';
+import { useOrganization, useOrganizationList } from '@/lib/auth';
 import { Loader2, TriangleAlert } from 'lucide-react';
 import { Button } from '@weldsuite/ui/components/button';
 import { Input } from '@weldsuite/ui/components/input';

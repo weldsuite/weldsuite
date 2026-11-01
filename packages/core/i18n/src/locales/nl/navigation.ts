@@ -224,6 +224,7 @@ export const navigation = {
         phoneSettings: 'Telefooninstellingen',
         helpCenter: 'Helpcentrum',
         articles: 'Artikelen',
+        ticketTypes: 'Tickettypes',
         savedReplies: 'Opgeslagen antwoorden',
         assignment: 'Toewijzing',
       },

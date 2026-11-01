@@ -1,0 +1,38 @@
+{
+  "fields": [
+    "title",
+    "code",
+    "minutes"
+  ],
+  "flags": [],
+  "id": "sign.code",
+  "multiline": [],
+  "variants": {
+    "en": {
+      "": {
+        "footer": "If you didn't open a signing link just now, you can ignore this email.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Your code to open the document</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Enter this code on the signing page:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">The code expires in {{ minutes }} minutes.</p>",
+        "preview": "Your code is {{ code }}.",
+        "subject": "Your code to open \"{{ title }}\": {{ code }}",
+        "text": {
+          "weldsuite": "Your code to open the document\n\n{{ title|collapse }}\n\nEnter this code on the signing page:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't open a signing link just now, you can ignore this email.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nYour code to open the document\n\n{{ title|collapse }}\n\nEnter this code on the signing page:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't open a signing link just now, you can ignore this email.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Your code to open the document\n\n{{ title|collapse }}\n\nEnter this code on the signing page:\n\n{{ code|collapse }}\n\nThe code expires in {{ minutes|collapse }} minutes.\n\nIf you didn't open a signing link just now, you can ignore this email.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      }
+    },
+    "nl": {
+      "": {
+        "footer": "Heb je net geen ondertekenlink geopend, dan kun je deze e-mail negeren.",
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Je code om het document te openen</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">{{ title }}</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Vul deze code in op de ondertekenpagina:</p><p style=\"font-size:30px;line-height:24px;margin:0 0 24px;padding:18px 0;background-color:#f4f4f5;border-radius:8px;text-align:center;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, &#x27;Liberation Mono&#x27;, monospace;font-weight:600;letter-spacing:0.25em;color:#09090b;margin-top:0;margin-right:0;margin-bottom:24px;margin-left:0\">{{ code }}</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">De code verloopt over {{ minutes }} minuten.</p>",
+        "preview": "Je code is {{ code }}.",
+        "subject": "Je code om \"{{ title }}\" te openen: {{ code }}",
+        "text": {
+          "weldsuite": "Je code om het document te openen\n\n{{ title|collapse }}\n\nVul deze code in op de ondertekenpagina:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nHeb je net geen ondertekenlink geopend, dan kun je deze e-mail negeren.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nJe code om het document te openen\n\n{{ title|collapse }}\n\nVul deze code in op de ondertekenpagina:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nHeb je net geen ondertekenlink geopend, dan kun je deze e-mail negeren.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Je code om het document te openen\n\n{{ title|collapse }}\n\nVul deze code in op de ondertekenpagina:\n\n{{ code|collapse }}\n\nDe code verloopt over {{ minutes|collapse }} minuten.\n\nHeb je net geen ondertekenlink geopend, dan kun je deze e-mail negeren.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      }
+    }
+  }
+}

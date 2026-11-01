@@ -22,8 +22,6 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /** Per-segment create-body overrides (merged over the generated body). */
 const OVERRIDES: Record<string, Record<string, unknown>> = {
-  // A conversation must identify a customer (route requires customerName).
-  conversations: { customerName: 'Test Customer' },
   // A file's key must be under the workspace's own prefix.
   files: { storagePath: 'workspaces/ws_test/drive/general/test.txt' },
 };
@@ -50,6 +48,10 @@ const CONTRACT_ONLY: Record<string, string> = {
   // DELETE cancels the PostPeer delivery first, which looks the workspace's Clerk org up in the
   // master DB. social-publish.test.ts covers the route with that seam mocked.
   'social-posts': 'delete resolves the Clerk org from the master DB, which this suite does not have',
+  // The live inbox is append-only (no DELETE), and a new ticket opens an inbox
+  // conversation rather than a row GET /v1/tickets/:id reads back.
+  conversations: 'append-only inbox with no delete: conversations.test.ts',
+  tickets: 'POST opens an inbox conversation: conversations.test.ts',
 };
 
 let db: Database;

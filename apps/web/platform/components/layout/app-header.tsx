@@ -21,6 +21,7 @@ import { useWeldAgentDrawerOpen } from '@/hooks/use-weldagent-drawer-open';
 import { useUnifiedNotifications } from '@/contexts/unified-notification-context';
 import { useUpcomingCalendarEvents } from '@/hooks/queries/use-calendar-queries';
 import { cn } from '@/lib/utils';
+import { isModuleOffered } from '@/lib/edition';
 import { AppHeaderTrail } from './app-header-trail';
 import { CommandPaletteTrigger } from './command-palette';
 
@@ -41,6 +42,10 @@ export function AppHeader({
   const [showCalendar, setShowCalendar] = useCalendarDrawerOpen();
   const [showNotifications, setShowNotifications] = useNotificationsPanelOpen();
   const [showWeldAgent, setShowWeldAgent] = useWeldAgentDrawerOpen();
+
+  // Edition flags (4.F3): the calendar and agent buttons need their modules.
+  const calendarOffered = isModuleOffered('calendar');
+  const agentOffered = isModuleOffered('agent');
 
   const { unreadCount } = useUnifiedNotifications();
   const { data: todayEventsData } = useUpcomingCalendarEvents({ days: 1 });
@@ -125,23 +130,25 @@ export function AppHeader({
 
           {/* Right Actions */}
           <div className="ml-auto hidden md:flex shrink-0 items-center gap-2">
-            <Button
-              onClick={toggleCalendar}
-              variant="outline"
-              size="sm"
-              className={cn(
-                'shadow-none relative',
-                showCalendar &&
-                  'bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground',
-              )}
-              aria-label={t('sweep.shared.calendar')}
-              aria-pressed={showCalendar}
-            >
-              <Calendar className="h-4 w-4" />
-              {todayEventCount > 0 && !showCalendar && (
-                <span className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none" />
-              )}
-            </Button>
+            {calendarOffered && (
+              <Button
+                onClick={toggleCalendar}
+                variant="outline"
+                size="sm"
+                className={cn(
+                  'shadow-none relative',
+                  showCalendar &&
+                    'bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground',
+                )}
+                aria-label={t('sweep.shared.calendar')}
+                aria-pressed={showCalendar}
+              >
+                <Calendar className="h-4 w-4" />
+                {todayEventCount > 0 && !showCalendar && (
+                  <span className="absolute -top-[3px] -right-[3px] z-10 h-[9px] w-[9px] rounded-full bg-red-500 border border-red-600 ring-2 ring-background pointer-events-none" />
+                )}
+              </Button>
+            )}
 
             <Button
               onClick={toggleNotifications}
@@ -161,27 +168,29 @@ export function AppHeader({
               )}
             </Button>
 
-            <Button
-              onClick={toggleWeldAgent}
-              variant="outline"
-              size="sm"
-              className={cn(
-                'gap-1.5 shadow-none',
-                showWeldAgent &&
-                  'bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground',
-              )}
-              aria-label="WeldAgent"
-              aria-pressed={showWeldAgent}
-            >
-              <img
-                src="/assets/images/weldagent/logo-light.png"
-                alt="WeldAgent"
-                width={32}
-                height={32}
-                className="h-4 w-4"
-              />
-              <span className="hidden md:inline">Agent</span>
-            </Button>
+            {agentOffered && (
+              <Button
+                onClick={toggleWeldAgent}
+                variant="outline"
+                size="sm"
+                className={cn(
+                  'gap-1.5 shadow-none',
+                  showWeldAgent &&
+                    'bg-primary text-primary-foreground border-primary hover:bg-primary/90 hover:text-primary-foreground',
+                )}
+                aria-label="WeldAgent"
+                aria-pressed={showWeldAgent}
+              >
+                <img
+                  src="/assets/images/weldagent/logo-light.png"
+                  alt="WeldAgent"
+                  width={32}
+                  height={32}
+                  className="h-4 w-4"
+                />
+                <span className="hidden md:inline">Agent</span>
+              </Button>
+            )}
           </div>
         </div>
       </header>

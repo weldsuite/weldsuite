@@ -1,8 +1,8 @@
 /**
  * Widget strings in the visitor's language (browser setting), en or nl.
  *
- * Only the rating and away-hours copy goes through here so far; the rest of
- * the messenger is still English-only.
+ * Only the rating, away-hours and sign-in copy goes through here so far; the
+ * rest of the messenger is still English-only.
  */
 
 import type { ExpectedReplyTime } from './api/types';
@@ -33,6 +33,12 @@ const en = {
     few_hours: 'Usually replies in a few hours',
     day: 'Usually replies within a day',
   } satisfies Record<ExpectedReplyTime, string>,
+  signIn: {
+    title: 'Sign in to chat with us',
+    message: 'Sign in on {site} to chat with us.',
+    messageNoSite: 'Sign in on this website to chat with us.',
+    hint: 'Once you are signed in, your conversations show up here.',
+  },
 };
 
 type WidgetStrings = typeof en;
@@ -62,6 +68,12 @@ const nl: WidgetStrings = {
     hour: 'Reageert meestal binnen een uur',
     few_hours: 'Reageert meestal binnen een paar uur',
     day: 'Reageert meestal binnen een dag',
+  },
+  signIn: {
+    title: 'Log in om met ons te chatten',
+    message: 'Log in op {site} om met ons te chatten.',
+    messageNoSite: 'Log in op deze website om met ons te chatten.',
+    hint: 'Zodra je bent ingelogd, zie je hier je gesprekken.',
   },
 };
 

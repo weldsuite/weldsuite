@@ -211,12 +211,17 @@ function dedicatedProjectName(workspaceId: string): string {
 }
 
 /**
- * Postgres role/database name for a database created inside a shard for a move.
- * Lowercase alnum + underscore, at most 63 characters, and unique per attempt:
- * the old database stays in its shard until the retention sweep drops it, so a
- * workspace moving back to a shard must not collide with its own leftover.
+ * Postgres role/database name for a database created inside a shard, for a new
+ * workspace or for a move. Lowercase alnum + underscore, at most 63 characters,
+ * and unique per attempt:
+ *  - two provisioning calls for one workspace (the Clerk webhook and the
+ *    onboard endpoint) can both create one before either claims the workspace;
+ *    the drop that cleans up after the loser goes by name, so with a shared
+ *    name it would drop the winner's database;
+ *  - the old database stays in its shard until the retention sweep drops it,
+ *    so a workspace moving back to a shard must not collide with its own leftover.
  */
-function moveIdentifier(prefix: 'ws' | 'role', workspaceId: string, suffix: string): string {
+function shardDatabaseIdentifier(prefix: 'ws' | 'role', workspaceId: string, suffix: string): string {
   const base = workspaceId.toLowerCase().replaceAll(/[^a-z0-9_]/g, '_').slice(0, 40);
   return `${prefix}_${base}_${suffix}`;
 }
@@ -839,10 +844,12 @@ export class DatabaseProvisioningService {
       return emptyResult('No shared-project capacity available');
     }
 
-    // Postgres identifiers: lowercase, alnum + underscore only.
-    const sanitize = (v: string) => v.toLowerCase().replaceAll(/[^a-z0-9_]/g, '_');
-    const dbName = sanitize(`ws_${workspaceId}`);
-    const roleName = sanitize(`role_${workspaceId}`);
+    // Unique per attempt, never `ws_<workspaceId>`: a concurrent call for the
+    // same workspace creates its own pair, so the release below (on failure or
+    // on losing the claim) can only ever drop this call's.
+    const suffix = randomSuffix();
+    const dbName = shardDatabaseIdentifier('ws', workspaceId, suffix);
+    const roleName = shardDatabaseIdentifier('role', workspaceId, suffix);
 
     try {
       // 2. Create the role first (it must exist to own the database), then the DB,
@@ -959,6 +966,9 @@ export class DatabaseProvisioningService {
    * database + role. Used on provisioning failure and on losing the claim race.
    * Every step is best-effort — a leftover orphan is acceptable and self-heals
    * on the next successful claim/decrement.
+   *
+   * The drop goes by name, so `dbName` / `roleName` must be names only this
+   * caller uses (generated per attempt), never one another call can also hold.
    */
   private async releaseSharedSlot(
     masterDb: any,
@@ -1827,8 +1837,8 @@ export class DatabaseProvisioningService {
     }
 
     const suffix = randomSuffix();
-    const databaseName = moveIdentifier('ws', workspaceId, suffix);
-    const roleName = moveIdentifier('role', workspaceId, suffix);
+    const databaseName = shardDatabaseIdentifier('ws', workspaceId, suffix);
+    const roleName = shardDatabaseIdentifier('role', workspaceId, suffix);
 
     try {
       const { rolePassword } = await this.createRoleAndDatabase(shard.neonProjectId, branchId, databaseName, roleName);

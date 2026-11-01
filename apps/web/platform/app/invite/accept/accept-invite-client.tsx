@@ -1,7 +1,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from '@/lib/router';
-import { useClerk, useOrganizationList } from '@clerk/clerk-react';
+import { useOrganizationList, useAuth } from '@/lib/auth';
 import { Button } from '@weldsuite/ui/components/button';
 import { Loader2, CheckCircle, XCircle, Clock, UserCheck } from 'lucide-react';
 import { useInvitationDetails, useAcceptInvitation } from '@/hooks/queries/use-settings-queries';
@@ -19,7 +19,7 @@ interface AcceptInviteClientProps {
 export function AcceptInviteClient({ token, initialInvitation, initialError }: Readonly<AcceptInviteClientProps>) {
   const t = getTranslations('common');
   const router = useRouter();
-  const { signOut } = useClerk();
+  const { signOut } = useAuth();
   const { setActive } = useOrganizationList();
 
   // Fetch invitation details via hook (skipped when initialInvitation is provided)

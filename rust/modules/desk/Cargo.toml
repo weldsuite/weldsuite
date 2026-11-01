@@ -1,0 +1,36 @@
+[package]
+name = "weldsuite-desk"
+description = "WeldDesk (helpdesk): desk-api's tickets, conversations, the webchat inbox, agents, departments, SLAs, knowledge base and help center settings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+weldsuite-auth = { workspace = true }
+weldsuite-catalogs = { workspace = true }
+weldsuite-core-domain = { workspace = true }
+weldsuite-db = { workspace = true }
+weldsuite-desk-domain = { workspace = true }
+weldsuite-events = { workspace = true }
+weldsuite-kit = { workspace = true }
+weldsuite-mail-domain = { workspace = true }
+weldsuite-notifications = { workspace = true }
+weldsuite-permissions = { workspace = true }
+weldsuite-ports = { workspace = true }
+axum = { workspace = true, features = ["json", "multipart", "query"] }
+base64 = { workspace = true }
+getrandom = { workspace = true }
+http = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true, features = ["parsing", "macros"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+
+[lints]
+workspace = true

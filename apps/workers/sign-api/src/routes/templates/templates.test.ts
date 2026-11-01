@@ -49,6 +49,9 @@ function memoryBucket() {
       const bytes = objects.get(key);
       return bytes ? { body: new Blob([bytes]).stream(), arrayBuffer: async () => bytes.slice().buffer } : null;
     },
+    async head(key: string) {
+      return objects.has(key) ? {} : null;
+    },
     async delete(keys: string | string[]) {
       for (const key of Array.isArray(keys) ? keys : [keys]) objects.delete(key);
     },
@@ -137,6 +140,43 @@ describe('templates', () => {
     // Templates are not requests.
     const requests = await data<{ id: string }[]>(await app(EDITOR, '/api/sign/envelopes', envelopesRoutes).request('/api/sign/envelopes'));
     expect(requests.some((r) => r.id === template.id)).toBe(false);
+  });
+
+  it('keeps its documents like a draft: from Drive, in order, readable, removable', async () => {
+    const { template, pdf } = await contractTemplate();
+    const blank = await PDFDocument.create();
+    blank.addPage([595, 842]);
+    const driveKey = `workspaces/${WORKSPACE}/drive/terms.pdf`;
+    await storage.bucket.put(driveKey, await blank.save());
+    await db.insert(schema.files).values({
+      id: 'fil_terms',
+      fileName: 'Terms.pdf',
+      mimeType: 'application/pdf',
+      fileSize: storage.objects.get(driveKey)!.byteLength,
+      storagePath: driveKey,
+      fileKey: driveKey,
+      uploadedById: 'user_alice',
+    });
+    const editor = app([...EDITOR, 'files:read']);
+
+    const added = await editor.request(`${BASE}/${template.id}/documents/from-drive`, json({ fileId: 'fil_terms' }));
+    expect(added.status).toBe(201);
+    const terms = await data<SignDocumentDto>(added);
+    expect(terms).toMatchObject({ name: 'Terms.pdf', pageCount: 1 });
+    expect((await app().request(`${BASE}/${template.id}/documents/from-drive`, json({ fileId: 'fil_terms' }))).status).toBe(403);
+
+    const order = (documentIds: string[]) => editor.request(`${BASE}/${template.id}/documents/order`, json({ documentIds }, 'PUT'));
+    expect((await order([terms.id, pdf.id])).status).toBe(200);
+    expect((await order([terms.id])).status).toBe(400);
+    const detail = await data<SignEnvelopeDetail>(await editor.request(`${BASE}/${template.id}`));
+    expect(detail.documents.map((d) => d.id)).toEqual([terms.id, pdf.id]);
+
+    const content = await app(MEMBER).request(`${BASE}/${template.id}/documents/${terms.id}/content`);
+    expect(content.status).toBe(200);
+    expect(content.headers.get('content-type')).toContain('application/pdf');
+    expect((await app(MEMBER).request(`${BASE}/${template.id}/documents/${terms.id}`, { method: 'DELETE' })).status).toBe(403);
+    expect((await editor.request(`${BASE}/${template.id}/documents/${terms.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await app(MEMBER).request(`${BASE}/${template.id}/documents/${terms.id}/content`)).status).toBe(404);
   });
 
   it('lets a member with read access open and use a template, not change it', async () => {

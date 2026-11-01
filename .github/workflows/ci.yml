@@ -54,6 +54,14 @@ jobs:
       # permissions, flags, API modules, origins). Rerun `pnpm rust:catalogs`.
       - name: Rust catalogs are current
         run: pnpm rust:catalogs --check
+      # rust/catalogs/emails is generated from the system email templates
+      # (@weldsuite/emails) and the email strings. Rerun `pnpm rust:emails`.
+      - name: Rust email templates are current
+        run: pnpm rust:emails --check
+      # rust/crates/subscribers/tests/fixtures: what the TypeScript hub consumers
+      # do with the parity batches. Rerun `pnpm rust:subscriber-fixtures`.
+      - name: Rust subscriber fixtures are current
+        run: pnpm rust:subscriber-fixtures --check
 
   # The Rust backend (rust/, ADR API-014). The toolchain comes from
   # rust/rust-toolchain.toml, so CI and local builds use the same compiler.
@@ -69,21 +77,34 @@ jobs:
     env:
       # The integration tests run against these (started below): a scratch
       # database, the master + tenant schema built from the journaled
-      # migrations, Valkey and NATS JetStream.
+      # migrations, Valkey, NATS JetStream and an S3 store (RustFS).
       WELDSUITE_TEST_DATABASE_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/scratch
       WELDSUITE_TEST_MASTER_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/master
       WELDSUITE_TEST_TENANT_URL: postgres://weldsuite:weldsuite@127.0.0.1:5432/tenant
       WELDSUITE_TEST_VALKEY_URL: redis://127.0.0.1:6379
       WELDSUITE_TEST_NATS_URL: nats://127.0.0.1:4222
+      WELDSUITE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+      WELDSUITE_TEST_S3_ACCESS_KEY_ID: weldsuite
+      WELDSUITE_TEST_S3_SECRET_ACCESS_KEY: weldsuite-ci
+      WELDSUITE_TEST_RESTATE_INGRESS: http://127.0.0.1:8080
+      WELDSUITE_TEST_RESTATE_ADMIN: http://127.0.0.1:9070
+      # How the Restate container reaches the test process on the runner.
+      WELDSUITE_TEST_RESTATE_ENDPOINT_HOST: host.docker.internal
+      WELDSUITE_TEST_SMTP_URL: smtp://127.0.0.1:1025
     steps:
       - uses: actions/checkout@v4
-      - name: Start Postgres (pgvector), Valkey and NATS
+      - name: Start Postgres (pgvector), Valkey, NATS, RustFS (S3), Restate and Mailpit (SMTP)
         run: |
           set -euo pipefail
           docker run -d --name pg -p 5432:5432 -e POSTGRES_USER=weldsuite -e POSTGRES_PASSWORD=weldsuite -e POSTGRES_DB=scratch pgvector/pgvector:pg17
           docker run -d --name valkey -p 6379:6379 valkey/valkey:8-alpine
           docker run -d --name nats -p 4222:4222 nats:2-alpine -js
+          docker run -d --name s3 -p 9000:9000 -e RUSTFS_ACCESS_KEY=weldsuite -e RUSTFS_SECRET_KEY=weldsuite-ci rustfs/rustfs:1.0.1
+          docker run -d --name restate -p 8080:8080 -p 9070:9070 --add-host=host.docker.internal:host-gateway docker.io/restatedev/restate:1.7.14
+          docker run -d --name mail -p 1025:1025 axllent/mailpit:v1.31.6
           for _ in $(seq 1 60); do docker exec pg pg_isready -U weldsuite >/dev/null 2>&1 && break; sleep 1; done
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9000/health >/dev/null 2>&1 && break; sleep 1; done
+          for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9070/health >/dev/null 2>&1 && break; sleep 1; done
           sleep 2
           docker exec pg psql -U weldsuite -d scratch -c "create database master" -c "create database tenant"
       - uses: ./.github/actions/setup-monorepo
@@ -109,13 +130,22 @@ jobs:
       - name: Test
         working-directory: rust
         run: cargo test --workspace --locked
+      # The realtime gateway against the platform's own WebSocket clients
+      # (@weldsuite/realtime), two pods on one Valkey.
+      - name: Realtime protocol parity
+        run: |
+          cargo build -p weldsuite --locked --manifest-path rust/Cargo.toml
+          pnpm exec tsx scripts/rust-realtime-parity.ts --bin rust/target/debug/weldsuite \
+            --pg postgres://weldsuite:weldsuite@127.0.0.1:5432/scratch --valkey "$WELDSUITE_TEST_VALKEY_URL"
       - name: Licences, advisories and sources
         working-directory: rust
         run: cargo deny check
 
-  # The image (amd64, and the arm64 cross-build) and the Helm chart, deployed
-  # into kind with Postgres, Valkey and NATS: the full authenticated pipeline
-  # (rust/deploy/kind/smoke-test.sh).
+  # The image (amd64, and the arm64 cross-build) with the platform SPA, the
+  # sign portal's image, and the Helm chart, deployed into kind with Postgres,
+  # Valkey and NATS: the full authenticated pipeline, the SPA and the portal
+  # (rust/deploy/kind/smoke-test.sh). The build context is the repo root
+  # (rust/Dockerfile.dockerignore keeps it small).
   rust-image:
     name: Rust · image and chart
     runs-on: ubuntu-latest
@@ -126,11 +156,21 @@ jobs:
       - name: Build the image
         uses: docker/build-push-action@v6
         with:
-          context: rust
+          context: .
+          file: rust/Dockerfile
           load: true
           tags: weldsuite:dev
           cache-from: type=gha,scope=rust-image
           cache-to: type=gha,mode=max,scope=rust-image
+      - name: Build the sign portal's image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: rust/Dockerfile
+          target: sign-portal
+          load: true
+          tags: weldsuite-sign-portal:dev
+          cache-from: type=gha,scope=rust-image
       - name: The image runs, without the conformance feature
         run: |
           set -euo pipefail
@@ -139,13 +179,18 @@ jobs:
           case "$version" in
             *conformance*) echo "the release image was built with the test-only conformance feature" >&2; exit 1 ;;
           esac
+      # The SPA stages run on the build machine's platform: their layers come
+      # from the amd64 build's cache.
       - name: Cross-build the arm64 image
         uses: docker/build-push-action@v6
         with:
-          context: rust
+          context: .
+          file: rust/Dockerfile
           platforms: linux/arm64
           outputs: type=cacheonly
-          cache-from: type=gha,scope=rust-image-arm64
+          cache-from: |
+            type=gha,scope=rust-image-arm64
+            type=gha,scope=rust-image
           cache-to: type=gha,mode=max,scope=rust-image-arm64
       - uses: azure/setup-helm@v4
       - name: Lint the chart
@@ -162,15 +207,47 @@ jobs:
           KEEP_CLUSTER: "1"
         run: rust/deploy/kind/smoke-test.sh
 
+  # The EU deploy configuration (rust/deploy): OpenTofu for Hetzner validated,
+  # every Flux layer built and schema-checked, every pinned chart rendered with
+  # its values. No cloud account involved.
+  rust-deploy:
+    name: Rust · deploy config
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.13.1
+          tofu_wrapper: false
+      - uses: azure/setup-helm@v4
+      - name: Install kubeconform
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
+          sudo tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform
+      - name: Validate
+        run: rust/deploy/validate.sh
+
   # Phase P2: the worker tests of every ported route run against a conformance
   # build of the Rust server and are compared with the Hono app (bodies,
   # schemas, side effects). On a PR only the suites its changes touch; on
-  # develop and main all of them. Also the route coverage of every worker the
-  # change touches, as a report.
-  rust-conformance:
-    name: Rust · conformance
+  # develop and main all of them. The route coverage of the changed workers
+  # runs on its own runner (rust-conformance-coverage).
+  # Every suite in one job outgrew 45 minutes once wave 3 added its modules;
+  # the suites are dealt over eight runners (four took up to 36 minutes at 62
+  # suites; the ported wave 3 modules made it 76, and six still came within
+  # five minutes of the limit). "Rust · conformance" stays
+  # the check that fails unless every shard succeeded. Keep --shard's n equal
+  # to the matrix length.
+  rust-conformance-shards:
+    name: Rust · conformance (${{ matrix.shard }}/8)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -186,25 +263,62 @@ jobs:
       - name: Conformance suites
         run: |
           set -euo pipefail
+          shard="${{ matrix.shard }}/8"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            pnpm rust:conformance --changed "origin/${{ github.base_ref }}"
+            pnpm rust:conformance --changed "origin/${{ github.base_ref }}" --shard "$shard"
           else
-            pnpm rust:conformance
+            pnpm rust:conformance --shard "$shard"
           fi
-      - name: Route coverage of the changed workers
-        if: github.event_name == 'pull_request'
-        run: pnpm rust:conformance --coverage-changed "origin/${{ github.base_ref }}"
       - name: Upload the reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: conformance-report
+          name: conformance-report-${{ matrix.shard }}
           path: rust/target/conformance/**/*.md
           if-no-files-found: ignore
 
+  # Which routes the changed workers' own tests reach (record-only, no Rust):
+  # a ported module fails when a route goes unreached. It ran after the first
+  # shard's suites until wave 3's five workers took it past 45 minutes.
+  rust-conformance-coverage:
+    name: Rust · conformance coverage
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-monorepo
+      - name: Route coverage of the changed workers
+        run: pnpm rust:conformance --coverage-changed "origin/${{ github.base_ref }}"
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-coverage-report
+          path: rust/target/conformance/**/*.md
+          if-no-files-found: ignore
+
+  rust-conformance:
+    name: Rust · conformance
+    needs: [rust-conformance-shards, rust-conformance-coverage]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every conformance shard, and coverage on a PR
+        run: |
+          set -euo pipefail
+          shards="${{ needs.rust-conformance-shards.result }}"
+          coverage="${{ needs.rust-conformance-coverage.result }}"
+          echo "shards: $shards, coverage: $coverage"
+          test "$shards" = "success"
+          test "$coverage" = "success" || test "$coverage" = "skipped"
+
   rust-all:
     name: Rust
-    needs: [rust-checks, rust-image, rust-conformance]
+    needs: [rust-checks, rust-image, rust-deploy, rust-conformance]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -214,9 +328,11 @@ jobs:
           set -euo pipefail
           echo "checks: ${{ needs.rust-checks.result }}"
           echo "image and chart: ${{ needs.rust-image.result }}"
+          echo "deploy config: ${{ needs.rust-deploy.result }}"
           echo "conformance: ${{ needs.rust-conformance.result }}"
           test "${{ needs.rust-checks.result }}" = "success"
           test "${{ needs.rust-image.result }}" = "success"
+          test "${{ needs.rust-deploy.result }}" = "success"
           test "${{ needs.rust-conformance.result }}" = "success"
 
   # app-api plus every module worker and domain is ~17 minutes of tsc.

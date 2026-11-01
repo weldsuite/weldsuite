@@ -1,0 +1,59 @@
+# Zitadel: sign-in for the Kubernetes editions (ADR SEC-012), on its own
+# CloudNativePG cluster (zitadel/zitadel-db). TLS ends at Traefik.
+replicaCount: 2
+zitadel:
+  masterkeySecretName: zitadel-masterkey
+  configmapConfig:
+    ExternalDomain: auth.${DOMAIN}
+    ExternalSecure: true
+    ExternalPort: 443
+    TLS:
+      Enabled: false
+    Database:
+      Postgres:
+        Host: zitadel-db-rw.zitadel.svc
+        Port: 5432
+        Database: zitadel
+        MaxOpenConns: 20
+        User:
+          Username: zitadel
+          SSL:
+            Mode: require
+        Admin:
+          Username: postgres
+          SSL:
+            Mode: require
+env:
+  - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: zitadel-db-user
+        key: password
+  - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: zitadel-db-superuser
+        key: password
+  # The first instance's admin; its password comes from the secret and must
+  # be changed at first login (README.md, step 7).
+  - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME
+    value: admin
+  - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: zitadel-first-admin
+        key: password
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: auth.${DOMAIN}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: zitadel-tls
+      hosts:
+        - auth.${DOMAIN}

@@ -6,11 +6,33 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useAppApiClient } from '@/lib/api/use-app-api';
 
 export type DeskConversationState = 'open' | 'closed';
-export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api';
-export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest';
+export type DeskChannel = 'messenger' | 'email' | 'phone' | 'whatsapp' | 'sms' | 'api' | 'portal';
+export type DeskConversationSort = 'newest' | 'oldest' | 'waiting_longest' | 'sla_due';
 export type DeskMessageKind = 'message' | 'note' | 'event';
 export type DeskAuthorType = 'visitor' | 'agent' | 'bot' | 'system';
-export type DeskEventType = 'closed' | 'reopened' | 'assigned' | 'unassigned' | 'rated';
+export type DeskEventType =
+  | 'closed'
+  | 'reopened'
+  | 'assigned'
+  | 'unassigned'
+  | 'rated'
+  | 'attributes_changed'
+  | 'sla_warning'
+  | 'sla_breached';
+export type DeskSlaMetric = 'first_response' | 'next_response' | 'resolution';
+/** What the inbox shows for a conversation's SLA clocks; null when no policy applies. */
+export type DeskSlaStatus = 'active' | 'warning' | 'breached' | 'paused' | 'achieved';
+export type DeskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export const DESK_PRIORITIES: DeskPriority[] = ['urgent', 'high', 'medium', 'low'];
+
+/** One ticket field an `attributes_changed` event changed (display values). */
+export interface DeskAttributeChange {
+  field: 'ticketType' | 'priority' | 'tags' | 'team' | 'customField';
+  key?: string;
+  label?: string;
+  from: unknown;
+  to: unknown;
+}
 
 export interface DeskConversation {
   id: string;
@@ -32,6 +54,21 @@ export interface DeskConversation {
   rating?: number | null;
   ratingComment?: string | null;
   ratedAt?: string | null;
+  /** Ticket fields: the conversation is the ticket. */
+  ticketTypeId?: string | null;
+  priority?: DeskPriority | null;
+  tags?: string[];
+  /** The team (helpdesk department). */
+  departmentId?: string | null;
+  /** The type's custom field values by slug; only on the detail read. */
+  customFields?: Record<string, unknown>;
+  /** The key an integration, the AI or a workflow opened it with; repeats land here. */
+  externalId?: string | null;
+  /** SLA summary: the running clock that comes due first (desk_sla_clocks). */
+  slaPolicyId?: string | null;
+  slaStatus?: DeskSlaStatus | null;
+  slaDueAt?: string | null;
+  slaMetric?: DeskSlaMetric | null;
 }
 
 export interface DeskMessageAttachment {
@@ -57,6 +94,7 @@ export interface DeskMessage {
     assigneeId?: string | null;
     rating?: number;
     ratingComment?: string | null;
+    changes?: DeskAttributeChange[];
     event?: string;
     callId?: string;
     turnIndex?: number;
@@ -98,6 +136,14 @@ export interface DeskWidgetSettings {
   timezone: string | null;
   awayMessage: string | null;
   expectedReplyTime: DeskExpectedReplyTime | null;
+  /** Refuse visitors without a valid identity token (needs an identity secret). */
+  identityRequired: boolean;
+}
+
+/** GET / POST / DELETE /api/desk/widget/:widgetId/identity. A null secret = identity verification is off. */
+export interface DeskWidgetIdentity {
+  secret: string | null;
+  required: boolean;
 }
 
 export interface DeskListPagination {
@@ -112,8 +158,11 @@ export const deskKeys = {
   conversationList: (filters: DeskConversationFilters, sort?: DeskConversationSort) =>
     [...deskKeys.conversations(), 'list', filters, sort ?? 'newest'] as const,
   conversationDetail: (id: string) => [...deskKeys.conversations(), 'detail', id] as const,
+  attributeOptions: () => [...deskKeys.all, 'attribute-options'] as const,
   widget: () => [...deskKeys.all, 'widget'] as const,
   widgetDetail: (widgetId: string) => [...deskKeys.widget(), widgetId] as const,
+  /** Outside `widget()` on purpose: invalidating the widget rows must not refetch the secret. */
+  widgetIdentity: (widgetId: string) => [...deskKeys.all, 'widget-identity', widgetId] as const,
   assignment: () => [...deskKeys.all, 'assignment'] as const,
 };
 
@@ -181,6 +230,11 @@ export interface DeskConversationFilters {
   /** A customer's conversations: by email, else by widget visitor. */
   email?: string;
   visitorId?: string;
+  /** A priority, or `none` for conversations without one. */
+  priority?: DeskPriority | 'none';
+  ticketTypeId?: string;
+  departmentId?: string;
+  tag?: string;
 }
 
 function buildConversationQuery(
@@ -196,6 +250,10 @@ function buildConversationQuery(
   if (filters.q?.trim()) params.set('q', filters.q.trim());
   if (filters.email) params.set('email', filters.email);
   if (filters.visitorId) params.set('visitorId', filters.visitorId);
+  if (filters.priority) params.set('priority', filters.priority);
+  if (filters.ticketTypeId) params.set('ticketTypeId', filters.ticketTypeId);
+  if (filters.departmentId) params.set('departmentId', filters.departmentId);
+  if (filters.tag) params.set('tag', filters.tag);
   if (sort) params.set('sort', sort);
   if (cursor) params.set('cursor', cursor);
   const qs = params.toString();
@@ -416,6 +474,126 @@ export function useManageDeskConversation() {
   });
 }
 
+export interface DeskTicketTypeOption {
+  id: string;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  color: string | null;
+}
+
+/** A ticket custom field; `ticketTypeId` null applies to every type. */
+export interface DeskTicketField {
+  id: string;
+  ticketTypeId: string | null;
+  slug: string;
+  name: string;
+  description: string | null;
+  fieldType: string;
+  options: { label: string; value: string; color?: string }[] | null;
+  required: boolean;
+  sortOrder: number;
+}
+
+export interface DeskAttributeOptions {
+  ticketTypes: DeskTicketTypeOption[];
+  teams: Array<{ id: string; name: string }>;
+  fields: DeskTicketField[];
+  tags: Array<{ tag: string; count: number }>;
+}
+
+/** What the details panel can pick: types, their fields, teams, tags in use. */
+export function useDeskAttributeOptions() {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: deskKeys.attributeOptions(),
+    queryFn: async () => {
+      const client = await getClient();
+      const res = await client.get<{ data: DeskAttributeOptions }>('/desk/conversations/attributes');
+      return res.data;
+    },
+    staleTime: 60_000,
+  });
+}
+
+export interface DeskAttributesUpdate {
+  ticketTypeId?: string | null;
+  priority?: DeskPriority | null;
+  tags?: string[];
+  departmentId?: string | null;
+  customFields?: Record<string, unknown>;
+}
+
+const ATTRIBUTES_MUTATION = [...deskKeys.all, 'update-attributes'] as const;
+
+function withAttributes<T extends DeskConversation>(conversation: T, data: DeskAttributesUpdate): T {
+  const { customFields, ...columns } = data;
+  return {
+    ...conversation,
+    ...columns,
+    customFields: customFields ? { ...conversation.customFields, ...customFields } : conversation.customFields,
+  };
+}
+
+/** Tags the agent just used go to the top of the suggestions without re-reading them. */
+function rememberTags(qc: ReturnType<typeof useQueryClient>, tags: string[]) {
+  qc.setQueryData<DeskAttributeOptions>(deskKeys.attributeOptions(), (old) => {
+    if (!old) return old;
+    const known = new Set(old.tags.map((entry) => entry.tag));
+    const added = tags.filter((tag) => !known.has(tag)).map((tag) => ({ tag, count: 1 }));
+    return added.length ? { ...old, tags: [...added, ...old.tags] } : old;
+  });
+}
+
+/**
+ * Set a conversation's type, priority, tags, team or custom fields. The
+ * change shows at once, so the next edit (another option, another tag)
+ * builds on it rather than on the value from before this request.
+ */
+export function useUpdateDeskConversationAttributes() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  const pendingFor = (id: string) =>
+    qc.isMutating({
+      mutationKey: ATTRIBUTES_MUTATION,
+      predicate: (mutation) => (mutation.state.variables as { id?: string } | undefined)?.id === id,
+    });
+  return useMutation({
+    mutationKey: ATTRIBUTES_MUTATION,
+    mutationFn: async ({ id, data }: { id: string; data: DeskAttributesUpdate }) => {
+      const client = await getClient();
+      return client.patch<{ data: { conversation: DeskConversation; message: DeskMessage | null } }>(
+        `/desk/conversations/${id}`,
+        data,
+      );
+    },
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: deskKeys.conversationDetail(id) });
+      qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(id), (old) =>
+        old?.data ? { ...old, data: withAttributes(old.data, data) } : old,
+      );
+    },
+    onSuccess: (result, variables) => {
+      const { conversation, message } = result.data;
+      // A later edit to this conversation is still on its way: keep its
+      // values on screen and take only this request's timeline event.
+      const newerPending = pendingFor(variables.id) > 1;
+      qc.setQueryData<DeskDetailData>(deskKeys.conversationDetail(variables.id), (old) => {
+        if (!old?.data) return old;
+        const messages = (old.data.messages ?? []).filter((m) => m.id !== message?.id);
+        const fields = newerPending ? {} : conversation;
+        return { ...old, data: { ...old.data, ...fields, messages: message ? [...messages, message] : messages } };
+      });
+      qc.invalidateQueries({ queryKey: [...deskKeys.conversations(), 'list'] });
+      if (conversation.tags) rememberTags(qc, conversation.tags);
+    },
+    // The optimistic value is wrong: read the conversation back.
+    onError: (_err, variables) => {
+      qc.invalidateQueries({ queryKey: deskKeys.conversationDetail(variables.id) });
+    },
+  });
+}
+
 export function useDeskWidgets() {
   const { getClient } = useAppApiClient();
   return useQuery({
@@ -472,14 +650,21 @@ export function useUpdateDeskWidget() {
         timezone?: string | null;
         awayMessage?: string | null;
         expectedReplyTime?: DeskExpectedReplyTime | null;
+        /** 400 when the widget has no identity secret yet. */
+        identityRequired?: boolean;
       };
     }) => {
       const client = await getClient();
       return client.patch<{ data: DeskWidgetSettings }>(`/desk/widget/${widgetId}`, data);
     },
-    onSuccess: (_result, variables) => {
+    onSuccess: (result, variables) => {
       qc.invalidateQueries({ queryKey: deskKeys.widget() });
       qc.invalidateQueries({ queryKey: deskKeys.widgetDetail(variables.widgetId) });
+      if (variables.data.identityRequired !== undefined) {
+        qc.setQueryData<DeskWidgetIdentity>(deskKeys.widgetIdentity(variables.widgetId), (prev) =>
+          prev ? { ...prev, required: result.data.identityRequired } : prev,
+        );
+      }
     },
   });
 }
@@ -494,6 +679,66 @@ export function useDeleteDeskWidget() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: deskKeys.widget() });
+    },
+  });
+}
+
+/**
+ * The widget's identity secret (settings:manage; 403 otherwise). It is a
+ * credential: fetched only while the identity section is open, never
+ * persisted to the offline cache, and dropped as soon as nothing shows it.
+ */
+export function useDeskWidgetIdentity(widgetId: string, enabled: boolean) {
+  const { getClient } = useAppApiClient();
+  return useQuery({
+    queryKey: deskKeys.widgetIdentity(widgetId),
+    queryFn: async () => {
+      const client = await getClient();
+      const result = await client.get<{ data: DeskWidgetIdentity }>(`/desk/widget/${widgetId}/identity`);
+      return result.data;
+    },
+    enabled: !!widgetId && enabled,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+    refetchOnWindowFocus: false,
+    meta: { persist: false },
+  });
+}
+
+/** Set up or rotate the identity secret. Tokens signed with the old one stop working at once. */
+export function useRotateDeskWidgetIdentity() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    // Keep the new secret out of the mutation cache once the call settles.
+    gcTime: 0,
+    mutationFn: async (widgetId: string) => {
+      const client = await getClient();
+      const result = await client.post<{ data: DeskWidgetIdentity }>(`/desk/widget/${widgetId}/identity`, {});
+      return result.data;
+    },
+    onSuccess: (identity, widgetId) => {
+      qc.setQueryData(deskKeys.widgetIdentity(widgetId), identity);
+    },
+  });
+}
+
+/** Turn identity verification off: the secret is deleted and nobody is required to sign in. */
+export function useDisableDeskWidgetIdentity() {
+  const { getClient } = useAppApiClient();
+  const qc = useQueryClient();
+  return useMutation({
+    gcTime: 0,
+    mutationFn: async (widgetId: string) => {
+      const client = await getClient();
+      const result = await client.delete<{ data: DeskWidgetIdentity }>(`/desk/widget/${widgetId}/identity`);
+      return result.data;
+    },
+    onSuccess: (identity, widgetId) => {
+      qc.setQueryData(deskKeys.widgetIdentity(widgetId), identity);
+      qc.invalidateQueries({ queryKey: deskKeys.widget() });
+      qc.invalidateQueries({ queryKey: deskKeys.widgetDetail(widgetId) });
     },
   });
 }

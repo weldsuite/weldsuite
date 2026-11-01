@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - releases.yaml
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+  - name: nats-values
+    namespace: weldsuite
+    files: [values.yaml=values/nats.yaml]
+  - name: valkey-values
+    namespace: weldsuite
+    files: [values.yaml=values/valkey.yaml]
+  - name: restate-values
+    namespace: weldsuite
+    files: [values.yaml=values/restate.yaml]
+  - name: zitadel-values
+    namespace: zitadel
+    files: [values.yaml=values/zitadel.yaml]

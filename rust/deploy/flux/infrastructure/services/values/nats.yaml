@@ -1,0 +1,28 @@
+# NATS JetStream, three nodes spread over the locations: the entity-event hub
+# (weldsuite's NATS_URL). Clients authenticate with the token in nats-auth.
+config:
+  cluster:
+    enabled: true
+    replicas: 3
+  jetstream:
+    enabled: true
+    fileStore:
+      pvc:
+        size: 20Gi
+        storageClassName: openebs-hostpath
+  merge:
+    authorization:
+      token: << $NATS_TOKEN >>
+container:
+  env:
+    NATS_TOKEN:
+      valueFrom:
+        secretKeyRef:
+          name: nats-auth
+          key: token
+podTemplate:
+  topologySpreadConstraints:
+    zone:
+      maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule

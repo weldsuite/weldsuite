@@ -9,6 +9,7 @@ import {
   type DeskConversation,
 } from '@/hooks/queries/use-desk-queries';
 import type { DeskWorkspaceMember } from '@/hooks/queries/use-desk-workspace-members';
+import { TicketFields } from './ticket-fields';
 
 interface CustomerPanelProps {
   conversation: DeskConversation;
@@ -57,6 +58,7 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
     whatsapp: 'WhatsApp',
     sms: 'SMS',
     api: 'API',
+    portal: t.channel.portal,
   };
   const displayName = conversation.name || conversation.email || t.pane.visitor;
 
@@ -81,6 +83,11 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">{t.customer.details}</p>
         <Row label={t.customer.conversation}>#{conversation.conversationNumber}</Row>
         <Row label={t.customer.channel}>{channelLabel[conversation.channel]}</Row>
+        {conversation.externalId && (
+          <Row label={t.customer.externalId}>
+            <span className="font-mono text-xs break-all">{conversation.externalId}</span>
+          </Row>
+        )}
         <Row label={t.details.state}>
           {conversation.state === 'open' ? t.tabs.open : t.tabs.closed}
         </Row>
@@ -107,6 +114,8 @@ export function CustomerPanel({ conversation, members }: Readonly<CustomerPanelP
           </div>
         )}
       </div>
+
+      <TicketFields conversation={conversation} />
 
       <div className="px-4 py-3">
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">

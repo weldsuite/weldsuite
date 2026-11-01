@@ -14,5 +14,14 @@ export const setDeskAwaySchema = z.object({
   away: z.boolean(),
 });
 
+/** /api/desk/assignment answers: the rules, who is away, and where the caller stands. */
+export const deskAssignmentStateSchema = z.object({
+  mode: z.enum(DESK_ASSIGNMENT_MODES),
+  memberIds: z.array(z.string()),
+  awayMemberIds: z.array(z.string()),
+  maxOpenPerMember: z.number().nullable(),
+  me: z.object({ inRotation: z.boolean(), away: z.boolean() }),
+});
+
 export type UpdateDeskAssignmentInput = z.infer<typeof updateDeskAssignmentSchema>;
 export type SetDeskAwayInput = z.infer<typeof setDeskAwaySchema>;

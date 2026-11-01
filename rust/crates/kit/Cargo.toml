@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+form_urlencoded = { workspace = true }
+regex = { workspace = true }
 weldsuite-catalogs = { workspace = true }
 axum = { workspace = true, features = ["json"] }
 getrandom = { workspace = true }
