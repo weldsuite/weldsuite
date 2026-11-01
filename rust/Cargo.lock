@@ -3845,6 +3845,7 @@ dependencies = [
  "weldsuite-emails",
  "weldsuite-events",
  "weldsuite-flow",
+ "weldsuite-hr",
  "weldsuite-kit",
  "weldsuite-know",
  "weldsuite-mail",
@@ -4550,6 +4551,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "weldsuite-hr"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "http",
+ "icu_collator",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "time",
+ "tokio",
+ "tracing",
+ "weldsuite-auth",
+ "weldsuite-books-domain",
+ "weldsuite-catalogs",
+ "weldsuite-core-domain",
+ "weldsuite-db",
+ "weldsuite-emails",
+ "weldsuite-events",
+ "weldsuite-kit",
+ "weldsuite-notifications",
+ "weldsuite-payroll-domain",
+ "weldsuite-permissions",
+ "weldsuite-pipeline",
+ "weldsuite-ports",
+]
+
+[[package]]
 name = "weldsuite-kit"
 version = "0.0.0"
 dependencies = [
@@ -4724,6 +4754,15 @@ dependencies = [
  "weldsuite-kit",
  "weldsuite-permissions",
  "weldsuite-ports",
+]
+
+[[package]]
+name = "weldsuite-payroll-domain"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]

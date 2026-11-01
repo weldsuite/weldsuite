@@ -8,7 +8,7 @@ use serde_json::Value;
 use weldsuite_emails::calendar::{CalendarEventEmail, CalendarEventKind};
 use weldsuite_emails::portal::PortalSignIn;
 use weldsuite_emails::sign::{SignCompleted, SignRequest};
-use weldsuite_emails::{EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, portal, sign};
+use weldsuite_emails::{EmailBrand, EmailLocale, EndTime, RenderedEmail, calendar, hr, portal, sign};
 
 #[derive(Deserialize)]
 struct Case {
@@ -134,6 +134,27 @@ fn render(case: &Case) -> RenderedEmail {
                 expires_in_minutes: p["expiresInMinutes"]
                     .as_u64()
                     .and_then(|m| u32::try_from(m).ok()),
+            },
+        ),
+        "hr.payslip-ready" => hr::payslip_ready(
+            locale,
+            &brand,
+            &hr::PayslipReady {
+                recipient_name: opt("recipientName"),
+                employer_name: s(p, "employerName"),
+                pay_date: s(p, "payDate"),
+                url: opt("url"),
+            },
+        ),
+        "hr.bank-changed" => hr::bank_changed(
+            locale,
+            &brand,
+            &hr::BankChanged {
+                recipient_name: opt("recipientName"),
+                employer_name: s(p, "employerName"),
+                by_employee: p["byEmployee"].as_bool().unwrap_or(false),
+                changed_at: s(p, "changedAt"),
+                time_zone: opt("timeZone"),
             },
         ),
         other => panic!("no Rust renderer for {other}"),

@@ -1,0 +1,107 @@
+{
+  "fields": [
+    "recipient_name",
+    "employer_name",
+    "when"
+  ],
+  "flags": [
+    "name",
+    "by_employee"
+  ],
+  "id": "hr.bank-changed",
+  "multiline": [],
+  "variants": {
+    "en": {
+      "": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Payroll</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Your bank details were changed</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hi,</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">The bank details {{ employer_name }} pays your salary to were changed by HR, on {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">If you didn&#x27;t expect this, tell HR right away, before the next pay run.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">For your privacy, the account number is never sent by email.</p>",
+        "preview": "The account your salary is paid to was changed.",
+        "subject": "Your bank details for payroll were changed",
+        "text": {
+          "weldsuite": "Payroll\n\nYour bank details were changed\n\nHi,\n\nThe bank details {{ employer_name|collapse }} pays your salary to were changed by HR, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nPayroll\n\nYour bank details were changed\n\nHi,\n\nThe bank details {{ employer_name|collapse }} pays your salary to were changed by HR, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Payroll\n\nYour bank details were changed\n\nHi,\n\nThe bank details {{ employer_name|collapse }} pays your salary to were changed by HR, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      },
+      "by_employee": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Payroll</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Your bank details were changed</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hi,</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">You changed the bank details {{ employer_name }} pays your salary to, on {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">If you didn&#x27;t expect this, tell HR right away, before the next pay run.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">For your privacy, the account number is never sent by email.</p>",
+        "preview": "The account your salary is paid to was changed.",
+        "subject": "Your bank details for payroll were changed",
+        "text": {
+          "weldsuite": "Payroll\n\nYour bank details were changed\n\nHi,\n\nYou changed the bank details {{ employer_name|collapse }} pays your salary to, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nPayroll\n\nYour bank details were changed\n\nHi,\n\nYou changed the bank details {{ employer_name|collapse }} pays your salary to, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Payroll\n\nYour bank details were changed\n\nHi,\n\nYou changed the bank details {{ employer_name|collapse }} pays your salary to, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      },
+      "name": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Payroll</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Your bank details were changed</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hi {{ recipient_name }},</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">The bank details {{ employer_name }} pays your salary to were changed by HR, on {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">If you didn&#x27;t expect this, tell HR right away, before the next pay run.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">For your privacy, the account number is never sent by email.</p>",
+        "preview": "The account your salary is paid to was changed.",
+        "subject": "Your bank details for payroll were changed",
+        "text": {
+          "weldsuite": "Payroll\n\nYour bank details were changed\n\nHi {{ recipient_name|collapse }},\n\nThe bank details {{ employer_name|collapse }} pays your salary to were changed by HR, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nPayroll\n\nYour bank details were changed\n\nHi {{ recipient_name|collapse }},\n\nThe bank details {{ employer_name|collapse }} pays your salary to were changed by HR, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Payroll\n\nYour bank details were changed\n\nHi {{ recipient_name|collapse }},\n\nThe bank details {{ employer_name|collapse }} pays your salary to were changed by HR, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      },
+      "name+by_employee": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Payroll</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Your bank details were changed</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hi {{ recipient_name }},</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">You changed the bank details {{ employer_name }} pays your salary to, on {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">If you didn&#x27;t expect this, tell HR right away, before the next pay run.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">For your privacy, the account number is never sent by email.</p>",
+        "preview": "The account your salary is paid to was changed.",
+        "subject": "Your bank details for payroll were changed",
+        "text": {
+          "weldsuite": "Payroll\n\nYour bank details were changed\n\nHi {{ recipient_name|collapse }},\n\nYou changed the bank details {{ employer_name|collapse }} pays your salary to, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nPayroll\n\nYour bank details were changed\n\nHi {{ recipient_name|collapse }},\n\nYou changed the bank details {{ employer_name|collapse }} pays your salary to, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Payroll\n\nYour bank details were changed\n\nHi {{ recipient_name|collapse }},\n\nYou changed the bank details {{ employer_name|collapse }} pays your salary to, on {{ when|collapse }}.\n\nIf you didn't expect this, tell HR right away, before the next pay run.\n\nFor your privacy, the account number is never sent by email.\n\nSent via WeldSuite https://weldsuite.org"
+        }
+      }
+    },
+    "nl": {
+      "": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Salaris</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Je bankgegevens zijn gewijzigd</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hoi,</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">De bankgegevens waarop {{ employer_name }} je salaris betaalt zijn door HR gewijzigd, op {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Verwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Uit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.</p>",
+        "preview": "De rekening waarop je salaris wordt betaald is gewijzigd.",
+        "subject": "Je bankgegevens voor de salarisbetaling zijn gewijzigd",
+        "text": {
+          "weldsuite": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi,\n\nDe bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt zijn door HR gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nSalaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi,\n\nDe bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt zijn door HR gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi,\n\nDe bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt zijn door HR gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      },
+      "by_employee": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Salaris</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Je bankgegevens zijn gewijzigd</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hoi,</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Je hebt de bankgegevens waarop {{ employer_name }} je salaris betaalt gewijzigd, op {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Verwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Uit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.</p>",
+        "preview": "De rekening waarop je salaris wordt betaald is gewijzigd.",
+        "subject": "Je bankgegevens voor de salarisbetaling zijn gewijzigd",
+        "text": {
+          "weldsuite": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi,\n\nJe hebt de bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nSalaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi,\n\nJe hebt de bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi,\n\nJe hebt de bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      },
+      "name": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Salaris</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Je bankgegevens zijn gewijzigd</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hoi {{ recipient_name }},</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">De bankgegevens waarop {{ employer_name }} je salaris betaalt zijn door HR gewijzigd, op {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Verwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Uit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.</p>",
+        "preview": "De rekening waarop je salaris wordt betaald is gewijzigd.",
+        "subject": "Je bankgegevens voor de salarisbetaling zijn gewijzigd",
+        "text": {
+          "weldsuite": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi {{ recipient_name|collapse }},\n\nDe bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt zijn door HR gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nSalaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi {{ recipient_name|collapse }},\n\nDe bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt zijn door HR gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi {{ recipient_name|collapse }},\n\nDe bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt zijn door HR gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      },
+      "name+by_employee": {
+        "footer": null,
+        "html": "<p style=\"font-size:14px;line-height:1.6;margin:0 0 8px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:8px;margin-left:0\">Salaris</p><h1 style=\"margin:0 0 24px;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-0.02em;color:#09090b;text-decoration:none\">Je bankgegevens zijn gewijzigd</h1><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Hoi {{ recipient_name }},</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Je hebt de bankgegevens waarop {{ employer_name }} je salaris betaalt gewijzigd, op {{ when }}.</p><p style=\"font-size:15px;line-height:1.6;margin:0 0 16px;color:#3f3f46;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Verwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.</p><p style=\"font-size:14px;line-height:1.6;margin:0 0 16px;color:#71717a;margin-top:0;margin-right:0;margin-bottom:16px;margin-left:0\">Uit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.</p>",
+        "preview": "De rekening waarop je salaris wordt betaald is gewijzigd.",
+        "subject": "Je bankgegevens voor de salarisbetaling zijn gewijzigd",
+        "text": {
+          "weldsuite": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi {{ recipient_name|collapse }},\n\nJe hebt de bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nWeldSuite https://weldsuite.org",
+          "workspace": "{{ __brand_name|collapse }}\n\nSalaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi {{ recipient_name|collapse }},\n\nJe hebt de bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org",
+          "workspace_logo": "Salaris\n\nJe bankgegevens zijn gewijzigd\n\nHoi {{ recipient_name|collapse }},\n\nJe hebt de bankgegevens waarop {{ employer_name|collapse }} je salaris betaalt gewijzigd, op {{ when|collapse }}.\n\nVerwachtte je dit niet? Meld het dan direct bij HR, voordat de volgende salarisrun wordt betaald.\n\nUit privacyoverwegingen sturen we het rekeningnummer nooit per e-mail.\n\nVerzonden via WeldSuite https://weldsuite.org"
+        }
+      }
+    }
+  }
+}

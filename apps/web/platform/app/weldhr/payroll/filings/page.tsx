@@ -14,6 +14,7 @@ import { useTranslations } from '@weldsuite/i18n/client';
 import { usePermissions } from '@weldsuite/permissions/react';
 import type { HrPayrollFiling } from '@weldsuite/app-api-client/domains/weldhr-payroll';
 import { PanelEntityList, type ColumnDef, type GroupConfig } from '@/components/panel-entity-list';
+import { isFeatureAvailable } from '@/lib/edition';
 import {
   useDownloadHrPayrollFilingFile,
   useGenerateHrPayrollFiling,
@@ -174,7 +175,7 @@ function FilingsList() {
                     {t('weldhr.payroll.filings.actions.download')}
                   </DropdownMenuItem>
                 )}
-                {canManage && filing.canSubmit && !closed && (
+                {canManage && filing.canSubmit && isFeatureAvailable('payroll-digipoort') && !closed && (
                   <DropdownMenuItem onSelect={() => void act(() => submit.mutateAsync(filing.id), t('weldhr.payroll.filings.submitted'), t('weldhr.payroll.filings.submitFailed'))}>
                     <Send className="mr-2 h-4 w-4" />
                     {t('weldhr.payroll.filings.actions.submit')}

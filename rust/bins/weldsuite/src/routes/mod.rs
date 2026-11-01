@@ -108,6 +108,7 @@ pub(crate) fn api(state: &AppState) -> Router<AppState> {
     let router = chat(router, state);
     let router = desk(router, state);
     let router = flow(router, state);
+    let router = hr(router, state);
     let router = stash(router, state);
     let router = books::api(router, state);
     let router = if mounts("pass") {
@@ -770,6 +771,55 @@ pub(crate) fn flow_state(state: &AppState) -> weldsuite_flow::FlowState {
             })
             .flatten()
             .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
+    }
+}
+
+/// WeldHR (`weldsuite-hr`): hr-api's `/api/weldhr`, payroll included,
+/// once the module is marked ported (always in conformance builds).
+fn hr(router: Router<AppState>, state: &AppState) -> Router<AppState> {
+    if !mounts("hr") {
+        return router;
+    }
+    router.nest(
+        "/weldhr",
+        weldsuite_hr::router(hr_state(state), &state.permissions),
+    )
+}
+
+/// WeldHR's handle on the app: events, realtime, files, system mail, push,
+/// the master database, and WeldBooks for an approved pay run's journal
+/// (books-api's `BOOKS_INTERNAL`): in process, on the workspace's own
+/// database. Conformance builds take the test's stub per request, and none
+/// when the test binds none (the journal is skipped, as the worker does
+/// without the binding).
+fn hr_state(state: &AppState) -> weldsuite_hr::HrState {
+    weldsuite_hr::HrState {
+        events: state.infra.events.clone(),
+        realtime: state.infra.realtime.clone(),
+        // Conformance builds use only the bucket a test shares (`STORAGE`).
+        files: file_stores(state).filter(|_| !cfg!(feature = "conformance")),
+        // Payroll mail (payslip ready, bank details changed). Conformance builds
+        // send none: the worker sends it as raw MIME over the test's `SEND_EMAIL`,
+        // which the payroll suites leave unbound (weldsuite-emails' render cases
+        // check the templates).
+        mail: state
+            .infra
+            .mail
+            .clone()
+            .filter(|_| !cfg!(feature = "conformance")),
+        // Expo push. Conformance builds take the test's bridge per request.
+        http: (!cfg!(feature = "conformance"))
+            .then(|| {
+                weldsuite_adapters_oss::ReqwestOutbound::new(std::time::Duration::from_secs(15))
+                    .ok()
+            })
+            .flatten()
+            .map(|client| weldsuite_ports::OutboundHttp(Arc::new(client))),
+        // Conformance builds: the test's master database per request.
+        master: (!cfg!(feature = "conformance")).then(|| state.workspaces.master().clone()),
+        books: (!cfg!(feature = "conformance")).then(|| {
+            Arc::new(weldsuite_hr::InProcessBooks) as Arc<dyn weldsuite_hr::BooksInternal>
+        }),
     }
 }
 
