@@ -29,11 +29,7 @@ pub(crate) fn short_hash(input: &str) -> String {
 
 /// `syntheticExternalId(prefix, parts, occurrence)`: `prefix:<hash of the
 /// parts>`, plus `#n` from the second identical line on.
-pub(crate) fn synthetic_external_id(
-    prefix: &str,
-    parts: &[Option<&str>],
-    occurrence: usize,
-) -> String {
+pub(crate) fn synthetic_external_id(prefix: &str, parts: &[Option<&str>], occurrence: usize) -> String {
     let joined = parts
         .iter()
         .map(|part| js_trim(part.unwrap_or_default()).to_lowercase())

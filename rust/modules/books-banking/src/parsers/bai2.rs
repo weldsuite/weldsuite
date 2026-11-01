@@ -49,12 +49,7 @@ pub(crate) fn parse_bai2_date(value: Option<&str>) -> Option<String> {
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
-    Some(format!(
-        "20{}-{}-{}",
-        &value[..2],
-        &value[2..4],
-        &value[4..6]
-    ))
+    Some(format!("20{}-{}-{}", &value[..2], &value[2..4], &value[4..6]))
 }
 
 /// `parseBai2Amount`: cents, or a decimal when the bank sends one.
@@ -158,10 +153,7 @@ fn read_status_items(fields: &[String]) -> Vec<(String, Option<f64>)> {
             continue;
         }
         let funds_type = field(fields, i + 3).to_owned();
-        items.push((
-            type_code,
-            parse_bai2_amount(fields.get(i + 1).map(String::as_str)),
-        ));
+        items.push((type_code, parse_bai2_amount(fields.get(i + 1).map(String::as_str))));
         i += 4 + funds_extra(fields, i + 4, &funds_type);
     }
     items
@@ -223,11 +215,7 @@ fn read_detail(
     }
     let bank_reference = clean_text(f.get(at).map(String::as_str));
     let customer_reference = clean_text(f.get(at + 1).map(String::as_str));
-    let detail = clean_text(Some(
-        &f.get(at + 2..)
-            .map(|rest| rest.join(" "))
-            .unwrap_or_default(),
-    ));
+    let detail = clean_text(Some(&f.get(at + 2..).map(|rest| rest.join(" ")).unwrap_or_default()));
 
     let Some(date) = as_of.map(str::to_owned) else {
         errors.push(ParseIssue::at(
@@ -311,8 +299,7 @@ pub(crate) fn parse(content: &str, account_last4: Option<&str>) -> ParseResult {
         match record.code.as_str() {
             "02" => {
                 as_of = parse_bai2_date(f.get(4).map(String::as_str));
-                group_currency =
-                    Some(js_trim(field(f, 6)).to_uppercase()).filter(|c| !c.is_empty());
+                group_currency = Some(js_trim(field(f, 6)).to_uppercase()).filter(|c| !c.is_empty());
             }
             "03" => {
                 let number = js_trim(field(f, 1)).to_owned();
@@ -342,17 +329,12 @@ pub(crate) fn parse(content: &str, account_last4: Option<&str>) -> ParseResult {
             }
             "16" => {
                 if !open {
-                    errors.push(ParseIssue::at(
-                        record.line,
-                        "Transaction record outside an account",
-                    ));
+                    errors.push(ParseIssue::at(record.line, "Transaction record outside an account"));
                     continue;
                 }
                 if let Some(section) = sections.last_mut() {
                     let number = section.account.account_number.clone().unwrap_or_default();
-                    if let Some(txn) =
-                        read_detail(record, as_of.as_deref(), &mut next, &number, &mut errors)
-                    {
+                    if let Some(txn) = read_detail(record, as_of.as_deref(), &mut next, &number, &mut errors) {
                         section.transactions.push(txn);
                     }
                 }
@@ -362,9 +344,9 @@ pub(crate) fn parse(content: &str, account_last4: Option<&str>) -> ParseResult {
         }
     }
     if sections.is_empty() {
-        result.errors.push(ParseIssue::new(
-            "No account records (03) found in this BAI2 file",
-        ));
+        result
+            .errors
+            .push(ParseIssue::new("No account records (03) found in this BAI2 file"));
         return result;
     }
     result.accounts = Some(sections.iter().map(|s| s.account.clone()).collect());
