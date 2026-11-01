@@ -73,6 +73,8 @@ weldsuite-pipeline = { path = "crates/pipeline" }
 weldsuite-ports = { path = "crates/ports" }
 weldsuite-video-rooms = { path = "crates/video-rooms" }
 weldsuite-realtime = { path = "crates/realtime" }
+weldsuite-reach = { path = "modules/reach" }
+weldsuite-reach-domain = { path = "crates/reach-domain" }
 
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc"] }
 async-nats = { version = "0.51.0", default-features = false }
