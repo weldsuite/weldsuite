@@ -12,6 +12,7 @@ mod apuracao;
 mod brazil;
 mod ecd;
 mod filing;
+mod fiscal;
 mod gst;
 mod icp_declarations;
 mod nl;
@@ -22,6 +23,10 @@ use std::sync::Arc;
 use axum::Router;
 pub use weldsuite_books_domain::http::BooksState;
 use weldsuite_permissions::{PermissionGate, PermissionQueries};
+
+/// Focus NFe's webhook (`/public/fiscal-webhooks/:token`), outside the
+/// session: `workspaces` opens the tenant a token leads to.
+pub use fiscal::webhooks::public_router;
 
 /// The routers, by `/api` prefix (`app.route(prefix, routes)` in
 /// books-api's `src/index.ts`).
@@ -40,5 +45,13 @@ where
             icp_declarations::router(state.clone(), gate),
         ),
         ("/br-tax", brazil::router(state.clone(), gate)),
+        (
+            "/fiscal-documents",
+            fiscal::documents::router(state.clone(), gate),
+        ),
+        (
+            "/received-fiscal-documents",
+            fiscal::received::router(state.clone(), gate),
+        ),
     ]
 }
