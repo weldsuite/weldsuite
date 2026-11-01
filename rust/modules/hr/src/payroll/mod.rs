@@ -9,13 +9,17 @@
 //! `hr_pay_run`, `hr_payslip` and `hr_payroll_filing` events with ids and
 //! status only; sensitive changes go to `hr_audit_events`.
 
+mod calculate;
 mod common;
+mod corrections;
 mod employees;
 mod employers;
 mod notifier;
+mod runs;
 mod schema;
 mod schemas;
 mod setup;
+mod ytd;
 
 use std::sync::Arc;
 

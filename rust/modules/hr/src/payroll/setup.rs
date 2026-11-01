@@ -109,7 +109,7 @@ async fn delete_schedule(caller: Caller, Path(id): Path<String>) -> HrResult {
 }
 
 async fn list_employees(caller: Caller, RawQuery(raw): RawQuery) -> HrResult {
-    let q = query(raw.as_deref(), &schemas::employee_query())?;
+    let q = query(raw.as_deref(), &schemas::payroll_employees_query())?;
     let on_payroll = str_of(&q, "onPayroll").map(|v| v == "true");
     let list =
         svc::list_payroll_employees(&caller.db, str_of(&q, "employerId"), on_payroll, &caller.keyring(), &today_iso())

@@ -44,6 +44,8 @@ pub(crate) enum S {
     Default(Box<S>, Value),
     /// `z.array(item)` with an optional `.max(n)`.
     Array(Box<S>, Option<usize>),
+    /// `z.coerce.number()` (`.int()`, bounds): `Number(input)` first.
+    CoerceNum { int: bool, min: Option<f64>, max: Option<f64> },
 }
 
 impl S {
@@ -319,6 +321,24 @@ fn parse(ctx: &mut Ctx, schema: &S, value: Option<&Value>, path: &[Value]) -> Ou
                 Out::Aborted
             }
         },
+        S::CoerceNum { int, min, max } => {
+            let n = match value {
+                None => f64::NAN,
+                Some(Value::String(text)) => weldsuite_kit::validation::js_number(text),
+                Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
+                Some(Value::Bool(b)) => f64::from(u8::from(*b)),
+                Some(Value::Null) => 0.0,
+                Some(_) => f64::NAN,
+            };
+            if n.is_nan() {
+                ctx.issues.push(json!({
+                    "code": "invalid_type", "expected": "number", "received": "nan", "path": path,
+                    "message": "Expected number, received nan",
+                }));
+                return Out::Aborted;
+            }
+            number_out(ctx, *int, *min, *max, &js_number(n), path)
+        }
         S::Num { int, min, max } => match value {
             Some(v @ Value::Number(_)) => number_out(ctx, *int, *min, *max, v, path),
             _ => {

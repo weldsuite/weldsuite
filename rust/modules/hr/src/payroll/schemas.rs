@@ -418,9 +418,7 @@ pub(crate) fn set_run_employee() -> S {
     obj(vec![("employeeId", id()), ("excluded", S::Bool)])
 }
 
-fn run_input_fields(partial: bool) -> Vec<(&'static str, S)> {
-    let wrap = |s: S| if partial { s.optional() } else { s };
-    let _ = wrap;
+fn run_input_fields() -> Vec<(&'static str, S)> {
     vec![
         ("label", short_text(160).nullish()),
         ("quantity", number(Some(-10_000.0), Some(10_000.0)).nullish()),
@@ -434,13 +432,13 @@ fn run_input_fields(partial: bool) -> Vec<(&'static str, S)> {
 /// `createHrPayRunInputSchema`.
 pub(crate) fn create_run_input() -> S {
     let mut fields = vec![("employeeId", id()), ("code", string(&[Check::Min(1), Check::Max(60)]))];
-    fields.extend(run_input_fields(false));
+    fields.extend(run_input_fields());
     obj(fields)
 }
 
 /// `updateHrPayRunInputSchema`.
 pub(crate) fn update_run_input() -> S {
-    obj(run_input_fields(true))
+    obj(run_input_fields())
 }
 
 /// `markHrPayRunPaidSchema`.
@@ -456,4 +454,29 @@ pub(crate) fn mark_filed() -> S {
 /// `{ employeeId?: string }` as a query.
 pub(crate) fn employee_query() -> S {
     obj(vec![("employeeId", string(&[]).optional())])
+}
+
+/// `{ employerId?, onPayroll?: 'true' | 'false' }` (the payroll employees list).
+pub(crate) fn payroll_employees_query() -> S {
+    obj(vec![("employerId", string(&[]).optional()), ("onPayroll", S::Enum(&["true", "false"]).optional())])
+}
+
+/// `z.coerce.number().int().min(2000).max(2100).optional()`.
+fn year_query() -> S {
+    S::CoerceNum { int: true, min: Some(2000.0), max: Some(2100.0) }.optional()
+}
+
+/// The runs list query.
+pub(crate) fn runs_query() -> S {
+    obj(vec![("employerId", string(&[]).optional()), ("status", string(&[]).optional()), ("year", year_query())])
+}
+
+/// The filings list query.
+pub(crate) fn filings_query() -> S {
+    obj(vec![
+        ("employerId", string(&[]).optional()),
+        ("year", year_query()),
+        ("status", string(&[]).optional()),
+        ("kind", string(&[]).optional()),
+    ])
 }

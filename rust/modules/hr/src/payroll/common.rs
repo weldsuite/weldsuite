@@ -448,3 +448,8 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
         Some(_) => true,
     }
 }
+
+/// The strings of a JSON array (`string[]`), others left out.
+pub(crate) fn string_array(value: &Value) -> Vec<String> {
+    value.as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+}
