@@ -539,6 +539,17 @@ impl Issues {
         field
     }
 
+    /// An issue at the current path itself (an object's own
+    /// `unrecognized_keys`, a union an array item failed); `issue` is the
+    /// rest of Zod's object.
+    pub fn issue_here(&mut self, issue: Value) {
+        let mut issue = issue;
+        if let Value::Object(fields) = &mut issue {
+            fields.insert("path".to_owned(), self.path_at(None));
+        }
+        self.issues.push(issue);
+    }
+
     /// An issue a schema reports that the helpers here don't build (a
     /// union of a string and a literal, `.positive()`, `.length(n)`), at
     /// `key` under the current path. `issue` is the rest of Zod's object.
