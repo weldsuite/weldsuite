@@ -1919,7 +1919,8 @@
       "workspace": "apps/workers/books-api",
       "tests": [
         "src/routes/sales-tax-setup.integration.test.ts",
-        "src/routes/sales-tax-setup-crud.integration.test.ts"
+        "src/routes/sales-tax-setup-crud.integration.test.ts",
+        "src/routes/tax-calendar/integration.test.ts"
       ],
       "paths": [
         "apps/workers/books-api/src/routes/sales-tax/",

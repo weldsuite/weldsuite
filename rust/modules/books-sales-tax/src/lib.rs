@@ -10,9 +10,11 @@
 
 mod agencies;
 mod br_fiscal;
+mod calendar;
 mod certificates;
 mod common;
 mod jurisdictions;
+mod returns_common;
 mod rules;
 mod settings;
 mod zones;
@@ -42,6 +44,7 @@ where
         ),
         ("/sales-tax-rules", rules::router(state.clone(), gate)),
         ("/sales-tax-zones", zones::router(state.clone(), gate)),
+        ("/tax-calendar", calendar::router(state.clone(), gate)),
         (
             "/exemption-certificates",
             certificates::router(state.clone(), gate),

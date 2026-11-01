@@ -24,7 +24,6 @@ pub(crate) fn today(caller: &Caller, state: &BooksState) -> String {
 
 /// `todayIn(timeZone)`: the request's day in a time zone (UTC when unset or
 /// unknown).
-#[allow(dead_code, reason = "the reports and returns read it")]
 pub(crate) fn today_in(caller: &Caller, state: &BooksState, zone: Option<&str>) -> String {
     let tz = zone
         .filter(|z| !z.is_empty())
