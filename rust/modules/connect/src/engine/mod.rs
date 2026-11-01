@@ -1046,6 +1046,23 @@ async fn finalize(
     Ok(false)
 }
 
+/// The env values only the engine's steps read, beside the module's
+/// [`crate::ENV_NAMES`]: `TELNYX_API_KEY` (`send_sms`) and
+/// `PERMISSIONS_APP_ENFORCE` (the record steps' owner check).
+pub const ENGINE_ENV_NAMES: &[&str] = &["TELNYX_API_KEY", "PERMISSIONS_APP_ENFORCE"];
+
+/// [`crate::ENV_NAMES`] and [`ENGINE_ENV_NAMES`] from the process
+/// environment, for [`EngineDeps::env`].
+pub fn env_from_process() -> HashMap<String, String> {
+    let mut env = crate::env_from_process();
+    for name in ENGINE_ENV_NAMES {
+        if let Ok(value) = std::env::var(name) {
+            env.insert((*name).to_owned(), value);
+        }
+    }
+    env
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
@@ -1094,21 +1111,4 @@ mod tests {
         assert_eq!(decision["comment"], json!("ok"));
         assert_eq!(decision["decidedByName"], Value::Null);
     }
-}
-
-/// The env values only the engine's steps read, beside the module's
-/// [`crate::ENV_NAMES`]: `TELNYX_API_KEY` (`send_sms`) and
-/// `PERMISSIONS_APP_ENFORCE` (the record steps' owner check).
-pub const ENGINE_ENV_NAMES: &[&str] = &["TELNYX_API_KEY", "PERMISSIONS_APP_ENFORCE"];
-
-/// [`crate::ENV_NAMES`] and [`ENGINE_ENV_NAMES`] from the process
-/// environment, for [`EngineDeps::env`].
-pub fn env_from_process() -> HashMap<String, String> {
-    let mut env = crate::env_from_process();
-    for name in ENGINE_ENV_NAMES {
-        if let Ok(value) = std::env::var(name) {
-            env.insert((*name).to_owned(), value);
-        }
-    }
-    env
 }

@@ -130,7 +130,7 @@ pub(crate) async fn execute_action(
         "post_chat_message" => records::post_chat_message(inputs, ctx).await,
         "create_task" => records::create_task(inputs, ctx).await,
         "send_email" => comms::send_email(inputs, ctx).await,
-        "create_conversation" => helpdesk::create_conversation(inputs, ctx).await,
+        "create_conversation" => helpdesk::create_conversation(inputs, ctx),
         "assign_conversation" => helpdesk::assign_conversation(inputs, ctx).await,
         "tag_conversation" => helpdesk::tag_conversation(inputs, ctx).await,
         "change_conversation_status" => helpdesk::change_status(inputs, ctx).await,

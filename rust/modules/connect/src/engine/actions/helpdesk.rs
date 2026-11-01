@@ -95,7 +95,7 @@ fn text_or(value: Option<&Value>, fallback: &str) -> String {
     }
 }
 
-pub(super) async fn create_conversation(
+pub(super) fn create_conversation(
     _inputs: &Map<String, Value>,
     _ctx: &ActionCtx<'_>,
 ) -> ActionResult {
@@ -193,7 +193,7 @@ pub(super) async fn assign_conversation(
     if let Some(agent) = assignee.as_ref().filter(|a| truthy(a)) {
         let name = assignee_name
             .clone()
-            .filter(|n| truthy(n))
+            .filter(truthy)
             .unwrap_or_else(|| json!("Agent"));
         publish_conversation(
             ctx,

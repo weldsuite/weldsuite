@@ -743,6 +743,7 @@ fn parse(action: Action, body: &Value) -> Result<Parsed, Answer> {
 
 /// `publishEntityEventRaw({ env, workspaceId, userId, entityType, action,
 /// entityId, data, changes, workflowDepth })`, awaited.
+#[allow(clippy::too_many_arguments)]
 async fn publish(
     performer: &Performer<'_>,
     workspace_id: &str,
@@ -1324,7 +1325,7 @@ fn extract_chat_mentions(content: &str, extra: &[String]) -> Vec<String> {
         if !id.is_empty()
             && id != "everyone"
             && !id.starts_with("entity:")
-            && !(had_colon && SEARCH_ENTITY_TYPES.contains(&id))
+            && (!had_colon || !SEARCH_ENTITY_TYPES.contains(&id))
             && !found.iter().any(|f| f == id)
         {
             found.push(id.to_owned());

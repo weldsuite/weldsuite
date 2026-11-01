@@ -4,6 +4,7 @@
 //! workspace's connected integration (`workflow_integrations`), and the
 //! legacy `slack_message` step.
 
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -98,7 +99,7 @@ fn encode_component(value: &str) -> String {
         if byte.is_ascii_alphanumeric() || KEEP.contains(byte) {
             out.push(char::from(*byte));
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            let _ = write!(out, "%{byte:02X}");
         }
     }
     out
@@ -584,18 +585,20 @@ fn google_error(response: &HttpResponse, action: &str) -> ActionError {
         .as_ref()
         .and_then(|e| e.get("message"))
         .filter(|m| truthy(m))
-        .map(|m| as_text(Some(m)))
-        .unwrap_or_else(|| {
-            let reason = http::StatusCode::from_u16(status)
-                .ok()
-                .and_then(|s| s.canonical_reason())
-                .unwrap_or_default();
-            if reason.is_empty() {
-                format!("HTTP {status}")
-            } else {
-                reason.to_owned()
-            }
-        });
+        .map_or_else(
+            || {
+                let reason = http::StatusCode::from_u16(status)
+                    .ok()
+                    .and_then(|s| s.canonical_reason())
+                    .unwrap_or_default();
+                if reason.is_empty() {
+                    format!("HTTP {status}")
+                } else {
+                    reason.to_owned()
+                }
+            },
+            |m| as_text(Some(m)),
+        );
     let reason = error
         .as_ref()
         .and_then(|e| e.get("errors"))
