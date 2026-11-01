@@ -45,7 +45,8 @@ let master: any;
 const telnyx = stubTelnyx();
 
 function app(env: Record<string, unknown> = {}) {
-  return createTestApp(BASE, telnyxWebhookRoutes, {
+  // The receiver runs without the session's variables.
+  return createTestApp(BASE, telnyxWebhookRoutes as never, {
     context: { tenantDb: db, masterDb: master, orgId: null, clerkOrgId: null },
     env: { TELNYX_PUBLIC_KEY: PUBLIC_KEY, TELNYX_API_KEY: API_KEY, TELNYX_CONNECTION_ID: 'conn-1', ...env } as never,
   });

@@ -70,11 +70,9 @@ export function stubTelnyx() {
   );
   return {
     calls,
-    on(method: string, path: string, handler: Handler | unknown) {
-      routes.set(
-        `${method} ${path}`,
-        typeof handler === 'function' ? (handler as Handler) : () => json(handler),
-      );
+    /** Answer with `handler`, or with `body` as JSON. */
+    on(method: string, path: string, handler: Handler | Record<string, unknown>) {
+      routes.set(`${method} ${path}`, typeof handler === 'function' ? handler : () => json(handler));
     },
     off(method: string, path: string) {
       routes.delete(`${method} ${path}`);

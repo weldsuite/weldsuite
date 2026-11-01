@@ -423,7 +423,8 @@ describe('ordering requirements', () => {
 describe('POST /documents', () => {
   const upload = (file: File | string | null, options: Options = {}) => {
     const form = new FormData();
-    if (file !== null) form.append('file', file);
+    if (typeof file === 'string') form.append('file', file);
+    else if (file !== null) form.append('file', file);
     const env = { ENVIRONMENT: 'development', ...(options.configured === false ? {} : TELNYX_ENV) };
     const { request } = createTestApp(BASE, telephonyRoutes, {
       context: { tenantDb: db, masterDb: master, permissions: permissions('telephony:manage') },

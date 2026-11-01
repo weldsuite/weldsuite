@@ -138,7 +138,7 @@ describe('POST /preflight', () => {
     });
     const check = async (phoneNumber: string) => {
       const res = await send('POST', '/preflight', { phoneNumber, countryCode: 'NL' });
-      return { status: res.status, body: await res.json() };
+      return { status: res.status, body: (await res.json()) as { data: Record<string, unknown> } };
     };
     expect(await check('+31201110000')).toEqual({
       status: 200,
